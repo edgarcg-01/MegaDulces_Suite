@@ -223,20 +223,37 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
                 <div class="cb-alert-note bad"><i class="pi pi-exclamation-triangle"></i> La cuenta destino de la ficha no coincide con ninguna cuenta de banco de la empresa.</div>
               }
               @if (d.banco; as bk) {
-                <div class="cb-bank" [class.ok]="bk.estado === 'confirmado'" [class.warn]="bk.estado === 'multiple'" [class.bad]="bk.estado === 'sin_match'">
-                  <div class="cb-bank-head">
-                    <i class="pi" [ngClass]="bankIcon(bk.estado)"></i>
-                    <strong>{{ bankLabel(bk.estado) }}</strong>
+                @if (bk.conciliado) {
+                  <div class="cb-bank ok">
+                    <div class="cb-bank-head"><i class="pi pi-verified"></i> <strong>Conciliado con el banco</strong></div>
+                    @for (m of bk.matched; track m.id) {
+                      <div class="cb-bank-mov">
+                        <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
+                        <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
+                        <span class="strong">{{ money(m.amount_in) }}</span>
+                        <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                        @if (canManage()) { <button pButton type="button" size="small" text severity="secondary" [loading]="actingId() === d.id + m.id" (click)="doUnlinkBank(d.id, m.id)" title="Deshacer conciliación"><span class="p-button-icon pi pi-link" aria-hidden="true"></span></button> }
+                      </div>
+                      @if (m.matched_by) { <span class="cb-bank-by">por {{ m.matched_by }} · {{ m.matched_at | date:'dd/MM/yy HH:mm' }}</span> }
+                    }
                   </div>
-                  @for (m of bk.movimientos; track m.id) {
-                    <div class="cb-bank-mov">
-                      <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
-                      <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
-                      <span class="strong">{{ money(m.amount_in) }}</span>
-                      <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                } @else {
+                  <div class="cb-bank" [class.warn]="bk.estado === 'multiple'" [class.bad]="bk.estado === 'sin_match'">
+                    <div class="cb-bank-head">
+                      <i class="pi" [ngClass]="bankIcon(bk.estado)"></i>
+                      <strong>{{ bankLabel(bk.estado) }}</strong>
                     </div>
-                  }
-                </div>
+                    @for (m of bk.candidatos; track m.id) {
+                      <div class="cb-bank-mov">
+                        <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
+                        <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
+                        <span class="strong">{{ money(m.amount_in) }}</span>
+                        <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                        @if (canManage()) { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === d.id + m.id" (click)="doConfirmBank(d.id, m.id)" title="Confirmar que este abono es el del cobro"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
+                      </div>
+                    }
+                  </div>
+                }
               }
               <div class="cb-view-files">
                 @for (f of d.files; track f.url) {
@@ -301,8 +318,9 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
     .cb-bank.ok .cb-bank-head { color: var(--ok-fg); }
     .cb-bank.warn .cb-bank-head { color: var(--warn-fg); }
     .cb-bank.bad .cb-bank-head { color: var(--bad-fg); }
-    .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr; gap: .5rem; align-items: baseline; color: var(--text-main); }
+    .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr auto; gap: .5rem; align-items: center; color: var(--text-main); }
     .cb-bank-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-bank-by { font-size: .7rem; color: var(--text-muted); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -552,6 +570,34 @@ export class FinanzasCobranzaComponent {
     this.saving.set(true);
     this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Cobro ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+  }
+
+  /** Confirma que un abono del banco corresponde al cobro y recarga el detalle. */
+  doConfirmBank(depositId: string, movId: string) {
+    if (this.actingId()) return;
+    this.actingId.set(depositId + movId);
+    this.svc.confirmBank(depositId, movId).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Conciliado', detail: 'El abono quedó ligado al cobro.' }); this.reloadView(); this.load(); },
+        error: (e) => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar', detail: e?.error?.message }); },
+      });
+  }
+  /** Deshace la conciliación cobro↔abono y recarga el detalle. */
+  doUnlinkBank(depositId: string, movId: string) {
+    if (this.actingId()) return;
+    this.actingId.set(depositId + movId);
+    this.svc.unlinkBank(depositId, movId).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.actingId.set(null); this.toast.add({ severity: 'info', summary: 'Conciliación deshecha' }); this.reloadView(); },
+        error: () => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo deshacer' }); },
+      });
+  }
+  /** Recarga el diálogo de ver comprobante (tras conciliar/deshacer). */
+  private reloadView() {
+    const c = this.viewTarget();
+    if (!c) return;
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (d) => this.viewData.set(d), error: () => {} });
   }
 
   openView(c: CobroRow) {

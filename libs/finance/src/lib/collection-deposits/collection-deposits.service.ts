@@ -278,16 +278,24 @@ export class CollectionDepositsService {
           .select('ref_norm', 'sucursal', 'folio');
         for (const r of otros) (otrosPorRef[r.ref_norm] ||= []).push(`${r.sucursal}/${r.folio}`);
       }
+      // Conciliación YA persistida de este cobro (nivel cobro, no depósito): links en
+      // finance.bank_recon_matches (tabla de CB) con kepler_doc_tipo='UA0501'.
+      const matched = await this.linkedBankMovements(trx, sucursal, folio);
+      const conciliado = matched.length > 0;
+
       const enriched = [] as any[];
       for (const d of deposits) {
         const otros = d.ref_norm ? otrosPorRef[d.ref_norm] || [] : [];
-        // Three-way match: ¿existe el abono real en el banco por este depósito?
-        const banco = await this.bankMatch(trx, {
+        // Three-way match: candidatos de abono (solo si aún no está conciliado).
+        const cand = conciliado ? { estado: 'confirmado' as const, movimientos: [] } : await this.bankMatch(trx, {
           cuenta_dest: d.ocr_cuenta_dest,
           monto: d.ocr_monto != null ? Number(d.ocr_monto) : Number(cobro.monto),
           fecha: d.ocr_fecha || cobro.cobro_date,
         });
-        enriched.push({ ...d, ref_duplicada: otros.length > 0, ref_otros: otros, banco });
+        enriched.push({
+          ...d, ref_duplicada: otros.length > 0, ref_otros: otros,
+          banco: { conciliado, estado: cand.estado, matched, candidatos: cand.movimientos },
+        });
       }
       return { cobro: { ...cobro, monto: Number(cobro.monto) }, deposits: enriched };
     });
@@ -383,6 +391,77 @@ export class CollectionDepositsService {
     const digits = String(cuentaDest ?? '').replace(/\D/g, '');
     if (!digits || !tails.length) return null;
     return tails.some((t) => t.length >= 3 && digits.endsWith(t));
+  }
+
+  /** Movimientos de banco ya ligados a este cobro (bank_recon_matches, UA0501). */
+  private async linkedBankMovements(trx: any, sucursal: string, folio: string): Promise<any[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const recon = await trx('finance.bank_recon_matches')
+      .where({ tenant_id: tenantId, kepler_doc_tipo: 'UA0501', kepler_doc_folio: folio, kepler_sucursal: sucursal })
+      .select('bank_movement_id', 'match_type', 'match_confidence', 'matched_by', 'created_at', trx.raw('kepler_amount::numeric AS kepler_amount'));
+    if (!recon.length) return [];
+    const byId = new Map(recon.map((r: any) => [r.bank_movement_id, r]));
+    const movs = await trx('finance.bank_movements as m')
+      .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
+      .leftJoin('finance.movement_categories as cat', 'cat.id', 'm.category_id')
+      .where('m.tenant_id', tenantId)
+      .whereIn('m.id', recon.map((r: any) => r.bank_movement_id))
+      .select('m.id', 'm.movement_date', trx.raw('m.amount_in::numeric AS amount_in'),
+        'm.concept', 'a.bank', 'a.account_label', trx.raw('cat.code AS categoria'));
+    return movs.map((m: any) => {
+      const r: any = byId.get(m.id) || {};
+      return { ...m, amount_in: Number(m.amount_in), match_type: r.match_type, matched_by: r.matched_by, matched_at: r.created_at, kepler_amount: r.kepler_amount != null ? Number(r.kepler_amount) : null };
+    });
+  }
+
+  /**
+   * El revisor CONFIRMA que el abono `bank_movement_id` corresponde a este cobro.
+   * Persiste el cruce en finance.bank_recon_matches (tabla de CB) y marca el
+   * movimiento como conciliado. Idempotente. Es el cierre del three-way match.
+   */
+  async confirmBank(depositId: string, bankMovementId: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    if (!bankMovementId) throw new BadRequestException('bank_movement_id requerido');
+    return this.tk.run(async (trx) => {
+      const dep = await trx('finance.collection_deposits').where({ id: depositId })
+        .first('sucursal', 'folio', trx.raw('cobro_monto::numeric AS cobro_monto'));
+      if (!dep) throw new BadRequestException('comprobante no encontrado');
+      const mov = await trx('finance.bank_movements').where({ id: bankMovementId })
+        .first('id', trx.raw('amount_in::numeric AS amount_in'));
+      if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+
+      const cobroMonto = Number(dep.cobro_monto) || 0;
+      const matchType = Math.abs(Number(mov.amount_in) - cobroMonto) <= BANK_TOL ? 'exact' : 'manual';
+      await trx('finance.bank_recon_matches')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          bank_movement_id: bankMovementId,
+          kepler_sucursal: dep.sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: dep.folio,
+          kepler_cuenta: '102', kepler_amount: cobroMonto,
+          match_type: matchType, match_confidence: matchType === 'exact' ? 1 : 0.5,
+          matched_by: actor || null,
+        })
+        .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
+        .merge({ kepler_amount: cobroMonto, match_type: matchType, matched_by: actor || null });
+      await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+      this.logger.log(`cobro ${dep.sucursal}/${dep.folio} conciliado con abono ${bankMovementId} (${matchType}) por ${actor || '?'}`);
+      return { ok: true, cobro: `${dep.sucursal}/${dep.folio}`, bank_movement_id: bankMovementId, match_type: matchType };
+    });
+  }
+
+  /** Deshace la conciliación cobro↔abono. Revierte recon_status si el abono queda libre. */
+  async unlinkBank(depositId: string, bankMovementId: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const dep = await trx('finance.collection_deposits').where({ id: depositId }).first('sucursal', 'folio');
+      if (!dep) throw new BadRequestException('comprobante no encontrado');
+      await trx('finance.bank_recon_matches')
+        .where({ kepler_doc_tipo: 'UA0501', kepler_doc_folio: dep.folio, kepler_sucursal: dep.sucursal, bank_movement_id: bankMovementId })
+        .del();
+      const [rest] = await trx('finance.bank_recon_matches').where({ bank_movement_id: bankMovementId }).count('* as n');
+      if (Number(rest.n) === 0) await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'pending', updated_at: trx.fn.now() });
+      return { ok: true };
+    });
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {

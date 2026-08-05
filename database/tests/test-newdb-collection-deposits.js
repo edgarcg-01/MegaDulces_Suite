@@ -116,11 +116,11 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
       const [st] = await trx('finance.bank_statements').insert({
         tenant_id: T, bank_account_id: ba.id, period: '2026-07', source_file: 'smoke',
       }).returning(['id']);
-      await trx('finance.bank_movements').insert({
+      const [mov] = await trx('finance.bank_movements').insert({
         tenant_id: T, statement_id: st.id, bank_account_id: ba.id,
         movement_date: '2026-07-28', amount_in: 8874, amount_out: 0,
         concept: 'DEPOSITO EFECTIVO RUTA', client_uuid: 'smoke-abono-1',
-      });
+      }).returning(['id']);
       // depósito sintético: cuenta 1326933041 (→3041), $8,874, 28-jul.
       const bankHit = await trx('finance.bank_movements as m')
         .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
@@ -135,6 +135,27 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
         .whereRaw('m.amount_in BETWEEN ? AND ?', [9999, 10001])
         .whereBetween('m.movement_date', ['2026-07-27', '2026-08-03']).select('m.id');
       ok(noHit.length === 0, 'bankMatch: monto sin abono correspondiente → sin_match');
+
+      // ── 4c. Persistir conciliación (confirmBank) + leerla + deshacer (unlinkBank) ──
+      await trx('finance.bank_recon_matches').insert({
+        tenant_id: T, bank_movement_id: mov.id, kepler_sucursal: '00', kepler_doc_tipo: 'UA0501',
+        kepler_doc_folio: '0016926', kepler_cuenta: '102', kepler_amount: cobroMonto,
+        match_type: 'exact', match_confidence: 1, matched_by: 'smoke',
+      }).onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio']).merge();
+      await trx('finance.bank_movements').where({ id: mov.id }).update({ recon_status: 'matched' });
+      // Réplica de linkedBankMovements.
+      const linked = await trx('finance.bank_recon_matches')
+        .where({ tenant_id: T, kepler_doc_tipo: 'UA0501', kepler_doc_folio: '0016926', kepler_sucursal: '00' })
+        .select('bank_movement_id', 'match_type');
+      ok(linked.length === 1 && linked[0].bank_movement_id === mov.id, 'confirmBank: cobro ligado al abono en bank_recon_matches');
+      const [ms] = await trx('finance.bank_movements').where({ id: mov.id }).select('recon_status');
+      ok(ms.recon_status === 'matched', 'confirmBank: el movimiento queda recon_status=matched');
+      // unlink
+      await trx('finance.bank_recon_matches').where({ kepler_doc_tipo: 'UA0501', kepler_doc_folio: '0016926', kepler_sucursal: '00', bank_movement_id: mov.id }).del();
+      const [rest] = await trx('finance.bank_recon_matches').where({ bank_movement_id: mov.id }).count('* as n');
+      if (Number(rest.n) === 0) await trx('finance.bank_movements').where({ id: mov.id }).update({ recon_status: 'pending' });
+      const [ms2] = await trx('finance.bank_movements').where({ id: mov.id }).select('recon_status');
+      ok(ms2.recon_status === 'pending', 'unlinkBank: al liberar el abono, recon_status vuelve a pending');
 
       let checkBad = false;
       try {
