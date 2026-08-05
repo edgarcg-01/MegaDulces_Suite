@@ -444,6 +444,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Red de abasto',      icon: 'pi pi-sitemap',              route: '/compras/red',                permission: Permission.COMPRAS_VER },
     { label: 'Órdenes de entrada', icon: 'pi pi-inbox',                route: '/compras/entradas',           permission: Permission.COMPRAS_VER },
     { label: 'Compras 360',        icon: 'pi pi-table',                route: '/compras/compras-360',        permission: Permission.COMPRAS_VER },
+    { label: 'Costo neto',         icon: 'pi pi-dollar',               route: '/compras/costo-neto',         permission: Permission.COMPRAS_VER },
     { label: 'Descuentos y apoyos', icon: 'pi pi-percentage',          route: '/compras/descuentos',         permission: Permission.COMPRAS_VER },
   ];
 

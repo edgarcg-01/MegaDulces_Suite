@@ -995,6 +995,15 @@ export class ComprasService {
     return this.http.get<DiscountLeakageResponse>(`${this.adjBase}/discount-leakage${qs}`);
   }
 
+  /** CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo. */
+  landedCost(q: { min_compras?: number; search?: string } = {}): Observable<LandedCostResponse> {
+    const p = new URLSearchParams();
+    if (q.min_compras) p.set('min_compras', String(q.min_compras));
+    if (q.search) p.set('search', q.search);
+    const qs = p.toString();
+    return this.http.get<LandedCostResponse>(`${this.adjBase}/landed-cost${qs ? '?' + qs : ''}`);
+  }
+
   /** CXP.3 — "Compras 360" (el Excel): recepciones/facturas + OC + ajuste ligado exacto + neto. */
   compras360(q: Compras360Query = {}): Observable<Compras360Response> {
     const p = new URLSearchParams();
@@ -1010,6 +1019,9 @@ export class ComprasService {
     return this.http.get<Compras360Response>(`${this.adjBase}/compras-360${qs ? '?' + qs : ''}`);
   }
 }
+
+export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean }
+export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number }; rows: LandedCostRow[] }
 
 export interface Compras360Query { search?: string; sucursal?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; page?: number; pageSize?: number; all?: boolean }
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number }

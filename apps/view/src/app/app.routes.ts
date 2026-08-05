@@ -450,6 +450,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
+        // CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo.
+        path: 'costo-neto',
+        loadComponent: () => import('./modules/compras/pages/compras-costo-neto.component').then(m => m.ComprasCostoNetoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
