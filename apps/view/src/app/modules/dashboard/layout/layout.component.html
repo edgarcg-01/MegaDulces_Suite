@@ -293,6 +293,11 @@
           }
         </button>
 
+        <!-- Centro de Notificaciones (CxP): hallazgos críticos + acciones HITL + feed WS -->
+        @if (!isRestricted()) {
+          <app-notifications-bell />
+        }
+
         <!-- Logout Button (Solo para usuarios restringidos) -->
         @if (isRestricted()) {
           <button
