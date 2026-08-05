@@ -194,4 +194,81 @@ export class PurchaseAdjustmentsService {
       return rows.map((r) => ({ proveedor_code: r.proveedor_code, proveedor_nombre: r.proveedor_nombre, n: Number(r.n) || 0, monto: Number(r.monto) || 0 }));
     });
   }
+
+  /**
+   * RE.10 — Reconciliación de los DOS canales de descuento de proveedor:
+   *   (a) capturado AL PAGAR   → `erp_supplier_payments.descuento` (kdm1.c84, pronto pago)
+   *   (b) vía NOTA DE CRÉDITO  → `erp_purchase_adjustments` X-D-55 comercial (c24)
+   * Por proveedor: cuánto por canal, total, % vs compras (`erp_goods_receipts`) y el
+   * CANAL (pago / nota / ambos). "ambos" = el proveedor usa las dos vías → posible
+   * solapamiento del mismo descuento en el análisis (HITL: el humano revisa). Todo
+   * `analytics.*` (sin RLS) → filtro `tenant_id` explícito. Aggregados por proveedor
+   * (≤~739 filas) → se cruzan en JS, sin raw-binding.
+   */
+  async discountReconciliation(q: { date_from?: string; date_to?: string; search?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const df = q.date_from || null, dt = q.date_to || null;
+    return this.tk.run(async (trx) => {
+      const dateMod = (col: string) => (qb: any) => { if (df) qb.where(col, '>=', df); if (dt) qb.where(col, '<=', dt); };
+
+      const pay: any[] = await trx('analytics.erp_supplier_payments')
+        .where('tenant_id', tenantId).modify(dateMod('pago_date'))
+        .groupBy('proveedor_code')
+        .select('proveedor_code',
+          trx.raw('max(proveedor_nombre) AS nombre'),
+          trx.raw('COALESCE(sum(descuento),0)::numeric AS desc_pago'),
+          trx.raw('count(*) FILTER (WHERE descuento > 0)::int AS n_desc'));
+
+      const nota: any[] = await trx('analytics.erp_purchase_adjustments')
+        .where('tenant_id', tenantId)
+        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca'])
+        .modify(dateMod('adjustment_date'))
+        .groupBy('proveedor_code')
+        .select('proveedor_code',
+          trx.raw('max(proveedor_nombre) AS nombre'),
+          trx.raw('COALESCE(sum(monto),0)::numeric AS desc_nota'),
+          trx.raw('count(*)::int AS n_nota'));
+
+      const comp: any[] = await trx('analytics.erp_goods_receipts')
+        .where('tenant_id', tenantId).modify(dateMod('receipt_date'))
+        .groupBy('proveedor_code')
+        .select('proveedor_code', trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
+
+      const map = new Map<string, any>();
+      const get = (code: string | null, nombre?: string) => {
+        const k = code || '(sin código)';
+        let e = map.get(k);
+        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, desc_pago: 0, desc_nota: 0, compras: 0, n_pagos_desc: 0, n_notas: 0 }; map.set(k, e); }
+        if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre;
+        return e;
+      };
+      for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; e.n_pagos_desc = Number(r.n_desc) || 0; }
+      for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; e.n_notas = Number(r.n_nota) || 0; }
+      for (const r of comp) { const e = get(r.proveedor_code); e.compras = Number(r.compras) || 0; }
+
+      let rows = [...map.values()].filter((e) => e.desc_pago > 0 || e.desc_nota > 0);
+      if (q.search && q.search.trim()) {
+        const s = q.search.trim().toLowerCase();
+        rows = rows.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));
+      }
+      for (const e of rows) {
+        e.total_desc = e.desc_pago + e.desc_nota;
+        e.pct_vs_compras = e.compras > 0 ? e.total_desc / e.compras : null;
+        e.canal = e.desc_pago > 0 && e.desc_nota > 0 ? 'ambos' : e.desc_pago > 0 ? 'pago' : 'nota';
+      }
+      rows.sort((a, b) => b.total_desc - a.total_desc);
+
+      const sum = (k: string) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+      return {
+        summary: {
+          total_desc_pago: sum('desc_pago'),
+          total_desc_nota: sum('desc_nota'),
+          total_desc: sum('total_desc'),
+          suppliers: rows.length,
+          suppliers_ambos: rows.filter((r) => r.canal === 'ambos').length,
+        },
+        rows,
+      };
+    });
+  }
 }

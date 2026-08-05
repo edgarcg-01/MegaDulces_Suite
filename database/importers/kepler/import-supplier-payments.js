@@ -65,7 +65,7 @@ const docPrefix = (grupo) => { const g = String(grupo).trim(); return g === '26'
     const q = await src.query(
       `SELECT c1 AS suc, c6 AS folio, trim(c4::text) AS grupo, c31 AS metodo_raw,
               c9::date AS fecha, c10 AS prov_code, c32 AS prov_nombre, c22 AS rfc,
-              c24 AS concepto, c16 AS monto
+              c24 AS concepto, c16 AS monto, c84 AS descuento
          FROM md.kdm1 WHERE ${where}`, params);
     rows = q.rows;
   } finally { await src.end().catch(() => {}); }
@@ -89,16 +89,20 @@ const docPrefix = (grupo) => { const g = String(grupo).trim(); return g === '26'
       (r.rfc || '').trim() || null,
       (r.concepto || '').trim() || null,
       money(r.monto),
+      money(r.descuento),
       SOURCE_BRANCH,
     ]);
   }
 
   const tot = staged.reduce((s, r) => s + r[9], 0);
+  const totDesc = staged.reduce((s, r) => s + r[10], 0);
+  const conDesc = staged.filter((r) => r[10] > 0).length;
   const nTra = staged.filter((r) => r[3] === 'transferencia').length;
   const nChe = staged.filter((r) => r[3] === 'cheque').length;
   const nAnt = staged.filter((r) => r[3] === 'anticipo').length;
   const conRfc = staged.filter((r) => r[7]).length;
   console.log(`  ${staged.length} pagos ${FROM ? `(desde ${FROM}) ` : ''}· $${tot.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · transferencia: ${nTra} · cheque: ${nChe} · anticipo: ${nAnt} · con RFC: ${conRfc}`);
+  console.log(`  descuento capturado (c84): ${conDesc} pagos (${(100 * conDesc / (staged.length || 1)).toFixed(1)}%) · $${totDesc.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); return; }
   if (!staged.length) { console.log('\n[APPLY] 0 pagos leídos (¿fuente caída?) — tabla intacta.'); return; }
@@ -114,29 +118,29 @@ const docPrefix = (grupo) => { const g = String(grupo).trim(); return g === '26'
     }
     await db.query(`CREATE TEMP TABLE stg_pay (
       sucursal text, folio text, doc_prefix text, metodo_pago text, pago_date date, proveedor_code text,
-      proveedor_nombre text, proveedor_rfc text, concepto text, monto numeric, source_branch text
+      proveedor_nombre text, proveedor_rfc text, concepto text, monto numeric, descuento numeric, source_branch text
     ) ON COMMIT DROP`);
-    const NC = 11;
+    const NC = 12;
     for (let i = 0; i < staged.length; i += 1000) {
       const chunk = staged.slice(i, i + 1000);
       const vals = chunk.map((_, ri) => `(${Array.from({ length: NC }, (_, k) => `$${ri * NC + k + 1}`).join(',')})`);
       const params = [];
       chunk.forEach((row) => params.push(...row));
-      await db.query(`INSERT INTO stg_pay (sucursal,folio,doc_prefix,metodo_pago,pago_date,proveedor_code,proveedor_nombre,proveedor_rfc,concepto,monto,source_branch) VALUES ${vals.join(',')}`, params);
+      await db.query(`INSERT INTO stg_pay (sucursal,folio,doc_prefix,metodo_pago,pago_date,proveedor_code,proveedor_nombre,proveedor_rfc,concepto,monto,descuento,source_branch) VALUES ${vals.join(',')}`, params);
     }
     const up = await db.query(
       `INSERT INTO analytics.erp_supplier_payments AS t
-         (tenant_id, sucursal, folio, doc_prefix, metodo_pago, pago_date, proveedor_code, proveedor_nombre, proveedor_rfc, concepto, monto, source_branch, computed_at)
-       SELECT $1, sucursal, folio, doc_prefix, metodo_pago, pago_date, proveedor_code, proveedor_nombre, proveedor_rfc, concepto, monto, source_branch, now()
+         (tenant_id, sucursal, folio, doc_prefix, metodo_pago, pago_date, proveedor_code, proveedor_nombre, proveedor_rfc, concepto, monto, descuento, source_branch, computed_at)
+       SELECT $1, sucursal, folio, doc_prefix, metodo_pago, pago_date, proveedor_code, proveedor_nombre, proveedor_rfc, concepto, monto, descuento, source_branch, now()
          FROM stg_pay
        ON CONFLICT (tenant_id, sucursal, doc_prefix, folio) DO UPDATE SET
          metodo_pago=EXCLUDED.metodo_pago, pago_date=EXCLUDED.pago_date,
          proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
          proveedor_rfc=EXCLUDED.proveedor_rfc, concepto=EXCLUDED.concepto, monto=EXCLUDED.monto,
-         source_branch=EXCLUDED.source_branch, computed_at=now()
-       WHERE (t.metodo_pago, t.pago_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.concepto, t.monto)
+         descuento=EXCLUDED.descuento, source_branch=EXCLUDED.source_branch, computed_at=now()
+       WHERE (t.metodo_pago, t.pago_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.concepto, t.monto, t.descuento)
              IS DISTINCT FROM
-             (EXCLUDED.metodo_pago, EXCLUDED.pago_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.concepto, EXCLUDED.monto)`,
+             (EXCLUDED.metodo_pago, EXCLUDED.pago_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.concepto, EXCLUDED.monto, EXCLUDED.descuento)`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) de ${staged.length} en origen.${RESET ? '' : ' Sin DELETE (ledger append-only).'}`);
