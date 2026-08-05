@@ -125,6 +125,19 @@ export interface TransfersLedgerResponse {
   by_sucursal: TransfersLedgerSucursal[];
 }
 
+/** DM.12 — matriz FÍSICA origen→destino de traspasos (desde stock_movements). */
+export interface TransfersMatrixRow {
+  origin_wh_id: string | null; origin_wh: string | null;
+  dest_wh_id: string | null; dest_wh: string | null;
+  qty_sent: number; qty_received: number; amount: number; delta_qty: number;
+  n_ok: number; n_diferencia: number; n_sin_recepcion: number;
+}
+export interface TransfersMatrixResponse {
+  range: { from: string; to: string };
+  totals: { qty_sent: number; qty_received: number; amount: number; n_ok: number; n_diferencia: number; n_sin_recepcion: number };
+  rows: TransfersMatrixRow[];
+}
+
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
   doc_types: { doc_code: string; movement_label: string; movement_kind: MovementKind }[];
@@ -172,6 +185,10 @@ export class AlmacenMovimientosService {
   /** DM.12 — conciliación contable (mayor 515): entrada vs salida por mes/sucursal. */
   transfersLedger(f: MovementsFilters): Observable<TransfersLedgerResponse> {
     return this.http.get<TransfersLedgerResponse>(`${this.base}/transfers-ledger`, { params: this.params(f) });
+  }
+  /** DM.12 — matriz física origen→destino de traspasos. */
+  transfersMatrix(f: MovementsFilters): Observable<TransfersMatrixResponse> {
+    return this.http.get<TransfersMatrixResponse>(`${this.base}/transfers-matrix`, { params: this.params(f) });
   }
   setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
     return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);

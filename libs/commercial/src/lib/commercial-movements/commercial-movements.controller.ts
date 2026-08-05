@@ -69,6 +69,11 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'DM.12 — Conciliación CONTABLE de traspasos (mayor 515): entrada (515-001) vs salida (515-002) por mes y sucursal. La cuenta puente debe netear ≈ $0; Δ ≠ 0 = traspasos sin cuadrar. Honra el rango de fechas; ignora el filtro de almacén.' })
   transfersLedger(@Query() raw: Record<string, string>) { return this.svc.transfersLedger(this.q(raw)); }
 
+  @Get('transfers-matrix')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.12 — Matriz FÍSICA origen→destino de traspasos: enviado vs recibido + Δ + conteo por estado, agregado por par de sucursales. Honra rango de fechas; ignora filtro de almacén.' })
+  transfersMatrix(@Query() raw: Record<string, string>) { return this.svc.transfersMatrix(this.q(raw)); }
+
   @Get('export.xlsx')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.6 — Excel del Diario (hoja Documentos + hoja Validación de traspasos). Mismos filtros que /lines.' })
