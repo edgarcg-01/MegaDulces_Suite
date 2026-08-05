@@ -360,9 +360,20 @@ export class SellOutExportService {
     wb.creator = 'Mega Dulces';
     const ws = wb.addWorksheet('Traspasos', { views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }] });
     const months = report.months;
-    const PRE = 3; // columnas antes de los meses: Sucursal, Tipo, Destino
+    const PRE = 3; // columnas antes de los meses: Origen, Destino, Tipo
 
-    const head: string[] = ['Sucursal', 'Tipo', 'Destino'];
+    // Origen → Destino explícito por tipo (mismo criterio que la pantalla): salida CEDIS/
+    // traspaso_salida = warehouse → dest_label; recepción = CEDIS → warehouse (dest_label null);
+    // consolidación = interna (mismo almacén).
+    const origin = (r: TransfersReport['rows'][number]) =>
+      (r.kind === 'recepcion' || r.kind === 'traspaso_entrada') ? (r.dest_label || 'CEDIS') : r.warehouse_name;
+    const destination = (r: TransfersReport['rows'][number]) => {
+      if (r.kind === 'salida_cedis' || r.kind === 'traspaso_salida') return r.dest_label || '—';
+      if (r.kind === 'consolidacion') return `${r.warehouse_name} (interna)`;
+      return r.warehouse_name;
+    };
+
+    const head: string[] = ['Origen', 'Destino', 'Tipo'];
     for (const m of months) head.push(MONTH_LABEL[m] ?? m);
     head.push('Valor TOTAL', 'Unidades', 'Docs', 'Share %');
     ws.addRow(head);
@@ -377,7 +388,7 @@ export class SellOutExportService {
 
     const MONEY = '$#,##0.00';
     for (const r of report.rows) {
-      const row: (string | number)[] = [r.warehouse_name, r.kind_label, r.dest_label || '—'];
+      const row: (string | number)[] = [origin(r), destination(r), r.kind_label];
       for (const m of months) row.push(r.monthly[m] ? r.monthly[m].value : 0);
       row.push(r.value_total, r.units_total, r.docs_total, r.share_pct / 100);
       const added = ws.addRow(row);
@@ -390,9 +401,9 @@ export class SellOutExportService {
     // Sin fila de TOTAL: los tipos (salida CEDIS / consolidación / recepción) NO son
     // sumables (misma mercancía en etapas distintas). El share ya es dentro de cada tipo.
 
-    ws.getColumn(1).width = 18;
-    ws.getColumn(2).width = 20;
-    ws.getColumn(3).width = 26;
+    ws.getColumn(1).width = 24; // Origen
+    ws.getColumn(2).width = 28; // Destino
+    ws.getColumn(3).width = 20; // Tipo
     for (let c = PRE + 1; c <= PRE + months.length + 4; c++) ws.getColumn(c).width = 13;
 
     const buf = await wb.xlsx.writeBuffer();
