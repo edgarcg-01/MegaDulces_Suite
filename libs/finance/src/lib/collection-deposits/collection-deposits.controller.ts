@@ -82,6 +82,13 @@ export class CollectionDepositsController {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'deposito');
   }
 
+  @Post('match-cobro')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Ficha-first: busca el cobro que corresponde al OCR de la ficha (monto + fecha).' })
+  matchCobro(@Body() body: { monto?: number; fecha?: string; limit?: number }) {
+    return this.svc.matchCobrosByOcr({ monto: body?.monto, fecha: body?.fecha, limit: body?.limit });
+  }
+
   @Post('attach')
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   @ApiOperation({ summary: 'Adjunta la evidencia al cobro (con archivos ya subidos + OCR). Calcula el cuadre de monto.' })

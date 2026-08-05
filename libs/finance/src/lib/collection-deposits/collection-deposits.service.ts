@@ -158,6 +158,44 @@ export class CollectionDepositsService {
     });
   }
 
+  /**
+   * FICHA-FIRST — dado el OCR de una ficha (monto + fecha), busca el/los cobros de
+   * Kepler que le corresponden (mismo monto ±$1, fecha cercana), para adjuntar sin
+   * tener que elegir el cobro a mano. Prioriza los que aún NO tienen comprobante.
+   */
+  async matchCobrosByOcr(q: { monto?: number; fecha?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const target = q.monto != null ? Number(q.monto) : NaN;
+    if (!isFinite(target) || target <= 0) return { cobros: [] };
+    const limit = Math.min(20, Math.max(1, Number(q.limit) || 12));
+    return this.tk.run(async (trx) => {
+      const dep = trx('finance.collection_deposits')
+        .select('sucursal', 'folio').count('* as n')
+        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .groupBy('sucursal', 'folio').as('d');
+      const b = trx('analytics.erp_collections as c')
+        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+        .where('c.tenant_id', tenantId)
+        .whereIn('c.forma_pago', CON_FICHA)
+        .whereRaw('c.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
+        .select('c.sucursal', 'c.folio', 'c.cobro_date', 'c.cliente_code', 'c.cliente_nombre',
+          'c.forma_pago', trx.raw('c.monto::numeric AS monto'), 'c.tipo_cuenta',
+          trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_status AS deposit_status'))
+        .orderByRaw('COALESCE(d.n,0) ASC') // sin comprobante primero
+        .orderBy('c.cobro_date', 'desc')
+        .limit(limit);
+      // Ventana de fechas alrededor de la fecha de la ficha (si el OCR la trajo).
+      const base = q.fecha ? new Date(q.fecha) : null;
+      if (base && !isNaN(base.getTime())) {
+        const from = new Date(base); from.setDate(from.getDate() - 7);
+        const to = new Date(base); to.setDate(to.getDate() + 7);
+        b.whereBetween('c.cobro_date', [from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)]);
+      }
+      const cobros = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
+      return { cobros };
+    });
+  }
+
   /** Sube UN archivo (ficha/evidencia) a Cloudinary y devuelve su referencia. Imagen o PDF. */
   async uploadFile(dataUri: string, role = 'deposito'): Promise<DepositFile> {
     const tenantId = this.tenantCtx.requireTenantId();

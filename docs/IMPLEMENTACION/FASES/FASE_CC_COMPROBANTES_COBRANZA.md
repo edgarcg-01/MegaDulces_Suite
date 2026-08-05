@@ -37,7 +37,12 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 | CC.4 Three-way match (abono real en banco, CB) | ✅ 2026-08-04 | smoke 28/28; builds api+view OK; sin migración (read-only) |
 | CC.5 Persistir conciliación (bank_recon_matches) | ✅ 2026-08-04 | smoke 31/31; builds api+view OK; sin migración |
 | CC.6 Caso B — abonos en banco sin cobro (bank-first) | ✅ 2026-08-04 | smoke 34/34; builds api+view OK; sin migración |
+| CC.7 Ficha-first (foto → OCR → busca el cobro solo) | ✅ 2026-08-04 | smoke 35/35; builds api+view OK; sin migración |
 | PROD migraciones | ✅ 2026-08-04 | Railway **batch 158** (CC.3 `20260804190000` + 4 aditivas RA/smart-search) |
+
+### CC.7 — Ficha-first (optimización de tiempos de captura)
+
+Invierte el flujo para el caso común. Antes: elegir cobro → subir ficha. Ahora: **botón "Capturar ficha"** → tomar foto/archivo → OCR lee monto+fecha → `matchCobrosByOcr()` **busca el cobro solo** (mismo monto ±$1, fecha ±7d, prioriza los sin comprobante) → el capturista da un tap en el cobro sugerido → revisa campos → guarda. Solo si el OCR no encuentra match (o leyó mal el monto — editable + "Buscar cobro"), cae a **búsqueda manual** por folio/cliente/monto. Endpoint `POST /match-cobro` (VER). El diálogo de adjuntar se reusó: soporta `attachTarget=null + captureMode`, muestra el matcher y al elegir cobro aparecen los campos + Guardar. Elimina el paso de buscar el cobro a mano en el flujo feliz. **Pendiente prod CC.7:** redeploy api+view.
 
 ### CC.6 — Caso B: el dinero entró pero NO hay cobro (bank-first)
 
