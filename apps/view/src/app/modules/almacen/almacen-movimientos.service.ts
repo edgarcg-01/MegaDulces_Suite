@@ -112,6 +112,19 @@ export interface DocumentResponse {
   counterpart: DocumentCounterpart | null;
 }
 
+/** DM.12 — conciliación contable de traspasos (mayor 515). entrada+salida (netos) ⇒ delta debe ser ≈0. */
+export interface TransfersLedgerMonth {
+  anio_mes: string; entrada: number; salida: number; delta: number;
+  movs_entrada: number; movs_salida: number;
+}
+export interface TransfersLedgerSucursal { sucursal: string; entrada: number; salida: number; delta: number; }
+export interface TransfersLedgerResponse {
+  range: { from: string; to: string };
+  totals: { entrada: number; salida: number; delta: number };
+  rows: TransfersLedgerMonth[];
+  by_sucursal: TransfersLedgerSucursal[];
+}
+
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
   doc_types: { doc_code: string; movement_label: string; movement_kind: MovementKind }[];
@@ -155,6 +168,10 @@ export class AlmacenMovimientosService {
   }
   transfersCheck(f: MovementsFilters): Observable<TransfersCheckResponse> {
     return this.http.get<TransfersCheckResponse>(`${this.base}/transfers-check`, { params: this.params(f) });
+  }
+  /** DM.12 — conciliación contable (mayor 515): entrada vs salida por mes/sucursal. */
+  transfersLedger(f: MovementsFilters): Observable<TransfersLedgerResponse> {
+    return this.http.get<TransfersLedgerResponse>(`${this.base}/transfers-ledger`, { params: this.params(f) });
   }
   setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
     return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);

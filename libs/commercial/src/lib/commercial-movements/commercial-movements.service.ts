@@ -601,6 +601,73 @@ export class CommercialMovementsService {
     });
   }
 
+  /**
+   * DM.12 — Conciliación CONTABLE de traspasos (mayor 515 "AJUSTE TRASPASO INTERNOS").
+   *
+   * Contracara monetaria del transfersCheck físico: lee la balanza analytics.ledger_monthly.
+   *   515-001 = TRASPASO ENTRADA (una sucursal recibe → neto +)
+   *   515-002 = TRASPASO SALIDA  (una sucursal envía  → neto −)
+   * Es cuenta PUENTE: cada salida debe tener su entrada ⇒ el mayor debe netear ≈ $0 por mes.
+   * Δ = entrada_neto + salida_neto (≠0 ⇒ traspasos sin cuadrar / en tránsito al corte).
+   *
+   * Vista de RED (por mes y por sucursal): ledger_monthly se llavea por `sucursal`+`anio_mes`,
+   * no por warehouse_id → honra el rango de fechas pero ignora el filtro de almacén (UUID).
+   */
+  async transfersLedger(q: MovementsQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const fromYm = from.slice(0, 7);
+    const toYm = to.slice(0, 7);
+    // FILTER por prefijo de subcuenta; excluye la fila del mayor exacto ('515') → sin doble conteo.
+    const ent = `SUM(neto) FILTER (WHERE cuenta LIKE '515-001%')`;
+    const sal = `SUM(neto) FILTER (WHERE cuenta LIKE '515-002%')`;
+    const entM = `SUM(movs) FILTER (WHERE cuenta LIKE '515-001%')`;
+    const salM = `SUM(movs) FILTER (WHERE cuenta LIKE '515-002%')`;
+    return this.tk.run(async (trx) => {
+      const baseWhere = (b: any) => b
+        .where('tenant_id', tenantId)
+        .whereRaw(`cuenta LIKE '515-%'`)
+        .andWhere('anio_mes', '>=', fromYm)
+        .andWhere('anio_mes', '<=', toYm);
+
+      const months = await baseWhere(trx('analytics.ledger_monthly'))
+        .groupBy('anio_mes')
+        .orderBy('anio_mes')
+        .select('anio_mes')
+        .select(
+          trx.raw(`${ent} AS entrada`), trx.raw(`${sal} AS salida`),
+          trx.raw(`${entM} AS movs_entrada`), trx.raw(`${salM} AS movs_salida`),
+        );
+
+      const bySucursal = await baseWhere(trx('analytics.ledger_monthly'))
+        .groupBy('sucursal')
+        .orderByRaw(`abs(coalesce(${ent},0) + coalesce(${sal},0)) DESC`)
+        .select('sucursal')
+        .select(trx.raw(`${ent} AS entrada`), trx.raw(`${sal} AS salida`));
+
+      const rows = months.map((m: any) => ({
+        anio_mes: m.anio_mes,
+        entrada: Number(m.entrada) || 0,
+        salida: Number(m.salida) || 0,
+        delta: (Number(m.entrada) || 0) + (Number(m.salida) || 0),
+        movs_entrada: Number(m.movs_entrada) || 0,
+        movs_salida: Number(m.movs_salida) || 0,
+      }));
+      const sucursales = bySucursal.map((s: any) => ({
+        sucursal: s.sucursal,
+        entrada: Number(s.entrada) || 0,
+        salida: Number(s.salida) || 0,
+        delta: (Number(s.entrada) || 0) + (Number(s.salida) || 0),
+      }));
+      const totals = {
+        entrada: rows.reduce((a: number, r: any) => a + r.entrada, 0),
+        salida: rows.reduce((a: number, r: any) => a + r.salida, 0),
+        delta: rows.reduce((a: number, r: any) => a + r.delta, 0),
+      };
+      return { range: { from: fromYm, to: toYm }, totals, rows, by_sucursal: sucursales };
+    });
+  }
+
   /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */
   async exportData(q: MovementsQuery) {
     const PAGE = 500, MAX_PAGES = 10; // cap 5,000 docs por export
