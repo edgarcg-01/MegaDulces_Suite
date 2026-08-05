@@ -80,6 +80,10 @@ function categorize(m) {
   }
   const staged = [...byKey.values()].map((r) => {
     const motivo = (r.motivo || '').toString().replace(/\s+/g, ' ').trim() || null;
+    const cat = categorize(motivo);
+    // source='keyword' solo cuando la regla dio una categoría específica; 'otro'/blank
+    // quedan sin source para que el enriquecimiento (llm/doctype_default) los tome.
+    const catSource = cat && cat !== 'otro' ? 'keyword' : null;
     return [
       DOCTYPE[r.dt], String(r.suc).trim(), String(r.folio).trim(),
       r.fecha || null,
@@ -89,7 +93,7 @@ function categorize(m) {
       (r.factura_ref || '').trim() || null,
       (r.entrada_folio || '').trim() || null,
       money(r.monto), money(r.iva),
-      motivo, categorize(motivo), SOURCE_BRANCH,
+      motivo, cat, catSource, SOURCE_BRANCH,
     ];
   });
 
@@ -118,30 +122,33 @@ function categorize(m) {
     await db.query(`CREATE TEMP TABLE stg_pa (
       doctype text, sucursal text, folio text, adjustment_date date, proveedor_code text,
       proveedor_nombre text, proveedor_rfc text, factura_ref text, entrada_folio text,
-      monto numeric, iva numeric, motivo text, categoria text, source_branch text
+      monto numeric, iva numeric, motivo text, categoria text, categoria_source text, source_branch text
     ) ON COMMIT DROP`);
-    const NC = 14;
+    const NC = 15;
     for (let i = 0; i < staged.length; i += 1000) {
       const chunk = staged.slice(i, i + 1000);
       const vals = chunk.map((_, ri) => `(${Array.from({ length: NC }, (_, k) => `$${ri * NC + k + 1}`).join(',')})`);
       const params = [];
       chunk.forEach((row) => params.push(...row));
-      await db.query(`INSERT INTO stg_pa (doctype,sucursal,folio,adjustment_date,proveedor_code,proveedor_nombre,proveedor_rfc,factura_ref,entrada_folio,monto,iva,motivo,categoria,source_branch) VALUES ${vals.join(',')}`, params);
+      await db.query(`INSERT INTO stg_pa (doctype,sucursal,folio,adjustment_date,proveedor_code,proveedor_nombre,proveedor_rfc,factura_ref,entrada_folio,monto,iva,motivo,categoria,categoria_source,source_branch) VALUES ${vals.join(',')}`, params);
     }
     const up = await db.query(
       `INSERT INTO analytics.erp_purchase_adjustments AS t
-         (tenant_id, doctype, sucursal, folio, adjustment_date, proveedor_code, proveedor_nombre, proveedor_rfc, factura_ref, entrada_folio, monto, iva, motivo, categoria, source_branch, computed_at)
-       SELECT $1, doctype, sucursal, folio, adjustment_date, proveedor_code, proveedor_nombre, proveedor_rfc, factura_ref, entrada_folio, monto, iva, motivo, categoria, source_branch, now()
+         (tenant_id, doctype, sucursal, folio, adjustment_date, proveedor_code, proveedor_nombre, proveedor_rfc, factura_ref, entrada_folio, monto, iva, motivo, categoria, categoria_source, source_branch, computed_at)
+       SELECT $1, doctype, sucursal, folio, adjustment_date, proveedor_code, proveedor_nombre, proveedor_rfc, factura_ref, entrada_folio, monto, iva, motivo, categoria, categoria_source, source_branch, now()
          FROM stg_pa
        ON CONFLICT (tenant_id, doctype, sucursal, folio) DO UPDATE SET
          adjustment_date=EXCLUDED.adjustment_date, proveedor_code=EXCLUDED.proveedor_code,
          proveedor_nombre=EXCLUDED.proveedor_nombre, proveedor_rfc=EXCLUDED.proveedor_rfc,
          factura_ref=EXCLUDED.factura_ref, entrada_folio=EXCLUDED.entrada_folio,
          monto=EXCLUDED.monto, iva=EXCLUDED.iva, motivo=EXCLUDED.motivo,
-         categoria=EXCLUDED.categoria, source_branch=EXCLUDED.source_branch, computed_at=now()
-       WHERE (t.adjustment_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.factura_ref, t.entrada_folio, t.monto, t.iva, t.motivo, t.categoria)
+         -- preserva el enriquecimiento (llm/doctype_default); el keyword sí se refresca.
+         categoria = CASE WHEN t.categoria_source IN ('llm','doctype_default') THEN t.categoria ELSE EXCLUDED.categoria END,
+         categoria_source = CASE WHEN t.categoria_source IN ('llm','doctype_default') THEN t.categoria_source ELSE EXCLUDED.categoria_source END,
+         source_branch=EXCLUDED.source_branch, computed_at=now()
+       WHERE (t.adjustment_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.factura_ref, t.entrada_folio, t.monto, t.iva, t.motivo)
              IS DISTINCT FROM
-             (EXCLUDED.adjustment_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.factura_ref, EXCLUDED.entrada_folio, EXCLUDED.monto, EXCLUDED.iva, EXCLUDED.motivo, EXCLUDED.categoria)`,
+             (EXCLUDED.adjustment_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.factura_ref, EXCLUDED.entrada_folio, EXCLUDED.monto, EXCLUDED.iva, EXCLUDED.motivo)`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} ajustes (nuevos/cambiados) de ${staged.length} en origen. Sin DELETE (ledger append-only).`);
