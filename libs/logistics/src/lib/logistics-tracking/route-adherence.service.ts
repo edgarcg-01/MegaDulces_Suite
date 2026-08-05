@@ -62,6 +62,12 @@ export interface FleetAuditUnitBundle {
   path: VehicleAuditDetail['path'];
   stops: VehicleAuditDetail['stops'];
   tickets: VehicleAuditDetail['tickets'];
+  // Venta REAL de la ruta ese día (misma fuente que /comercial/ventas-por-ruta:
+  // analytics.v_route_sales_lines, canal ruta_venta). Reemplaza el conteo de
+  // route_tickets (cierre manual, casi vacío). Sin geo/hora → solo agregado.
+  sales_docs: number; // # de documentos de venta (distinct consecutivo)
+  sales_total: number; // $ vendido
+  sales_units: number; // piezas
 }
 
 /** Número de ruta a partir de un código libre ("R-12", "RUTA 12", "12") → 12. */
@@ -301,12 +307,30 @@ export class RouteAdherenceService {
       const routeByVehicle = new Map<string, number>();
       for (const r of trkRows as any[]) if (!routeByVehicle.has(r.vehicle_id)) routeByVehicle.set(r.vehicle_id, Number(r.route_number));
 
+      // Venta REAL por ruta del día (misma fuente que /comercial/ventas-por-ruta:
+      // v_route_sales_lines, canal ruta_venta, source_branch numérico = # de ruta).
+      const salesRows = await trx('analytics.v_route_sales_lines')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .where('sale_channel', 'ruta_venta')
+        .where('business_date', day)
+        .whereRaw(`source_branch ~ '^[0-9]+$'`)
+        .groupBy('source_branch')
+        .select('source_branch')
+        .countDistinct({ docs: 'consecutivo' })
+        .sum({ total: 'importe' })
+        .sum({ units: 'qty' });
+      const salesByRoute = new Map<number, { docs: number; total: number; units: number }>();
+      for (const r of salesRows as any[]) {
+        salesByRoute.set(Number(r.source_branch), { docs: Number(r.docs) || 0, total: Number(r.total) || 0, units: Number(r.units) || 0 });
+      }
+
       const out: FleetAuditUnitBundle[] = [];
       for (const id of ids) {
         const routeNum = routeByVehicle.get(id) ?? null;
         if (filter && !(routeNum != null && filter.has(routeNum))) continue;
         const adh = await this.computeForVehicle(trx, id, day, start, end);
         const geo = await this.buildGeoBundle(trx, id, day, start, end);
+        const sales = (routeNum != null ? salesByRoute.get(routeNum) : null) || { docs: 0, total: 0, units: 0 };
         out.push({
           vehicle_id: id,
           vehicle_plate: plateById.get(id) ?? null,
@@ -318,6 +342,9 @@ export class RouteAdherenceService {
           path: downsamplePath(geo.path, maxPathPts),
           stops: geo.stops,
           tickets: geo.tickets,
+          sales_docs: sales.docs,
+          sales_total: sales.total,
+          sales_units: sales.units,
         });
       }
       return out.sort((a, b) => (a.route_number ?? 999) - (b.route_number ?? 999));

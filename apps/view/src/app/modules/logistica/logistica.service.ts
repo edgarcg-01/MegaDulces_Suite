@@ -734,6 +734,10 @@ export interface FleetAuditUnit {
   path: AuditPathPoint[];
   stops: AuditStop[];
   tickets: AuditTicket[];
+  // Venta real de la ruta ese día (fuente = ventas-por-ruta: v_route_sales_lines).
+  sales_docs: number;
+  sales_total: number;
+  sales_units: number;
 }
 
 export interface AdherenceDiagnostic {

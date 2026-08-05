@@ -39,7 +39,8 @@ interface RouteEntry {
   visited_count: number;
   planned_with_coords: number;
   skipped_count: number;
-  tickets: number;
+  sales_docs: number; // venta real (documentos) — fuente ventas-por-ruta
+  sales_total: number;
   color: string;
 }
 
@@ -89,7 +90,7 @@ interface RouteEntry {
         <button type="button" class="rk-chip" [class.on]="showRecorrido()" [attr.aria-pressed]="showRecorrido()" (click)="showRecorrido.set(!showRecorrido())" pTooltip="Puede ser pesado con muchas rutas"><i class="rk-dash" aria-hidden="true"></i> Recorrido</button>
         <button type="button" class="rk-chip" [class.on]="showParadas()" [attr.aria-pressed]="showParadas()" (click)="showParadas.set(!showParadas())"><i class="rk-num" aria-hidden="true">③</i> Paradas</button>
         <button type="button" class="rk-chip" [class.on]="showTiendas()" [attr.aria-pressed]="showTiendas()" (click)="showTiendas.set(!showTiendas())"><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tiendas</button>
-        <button type="button" class="rk-chip" [class.on]="showTickets()" [attr.aria-pressed]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Tickets</button>
+        <button type="button" class="rk-chip" [class.on]="showTickets()" [attr.aria-pressed]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Cierres</button>
         @if (focusedRoute() != null) {
           <button type="button" class="rk-chip rk-chip-calles" [class.on]="porCalles()" [attr.aria-pressed]="porCalles()" [disabled]="snapLoading()" (click)="togglePorCalles()" pTooltip="Pega el recorrido de la ruta enfocada a las calles"><i class="pi" [class.pi-directions]="!snapLoading()" [class.pi-spinner]="snapLoading()" [class.pi-spin]="snapLoading()" aria-hidden="true"></i> Por calles</button>
         }
@@ -119,7 +120,7 @@ interface RouteEntry {
                       <span class="rk-route-name">{{ r.route_number != null ? 'R-' + r.route_number : (r.vehicle_plate || 'Unidad') }}</span>
                       <span class="rk-route-cov" [style.color]="coverageColor(r.coverage_pct)">{{ r.coverage_pct != null ? r.coverage_pct + '%' : '—' }}</span>
                     </div>
-                    <div class="rk-route-sub">{{ r.visited_count }}/{{ r.planned_with_coords }} tiendas · {{ r.tickets }} ticket{{ r.tickets === 1 ? '' : 's' }}</div>
+                    <div class="rk-route-sub">{{ r.visited_count }}/{{ r.planned_with_coords }} tiendas · {{ r.sales_docs }} venta{{ r.sales_docs === 1 ? '' : 's' }}@if (r.sales_total > 0) { · {{ money(r.sales_total) }} }</div>
                   </div>
                 </li>
               }
@@ -128,7 +129,7 @@ interface RouteEntry {
             @if (focusedUnit(); as u) {
               <div class="rk-focus">
                 <h4>{{ focusedRoute() != null ? 'R-' + focusedRoute() : (u.vehicle_plate || 'Unidad') }}</h4>
-                <p class="rk-muted">{{ u.vehicle_plate || shortId(u.vehicle_id) }} · {{ u.stops.length }} parada{{ u.stops.length === 1 ? '' : 's' }}</p>
+                <p class="rk-muted">{{ u.vehicle_plate || shortId(u.vehicle_id) }} · {{ u.stops.length }} parada{{ u.stops.length === 1 ? '' : 's' }} · {{ u.sales_docs }} venta{{ u.sales_docs === 1 ? '' : 's' }}@if (u.sales_total > 0) { · {{ money(u.sales_total) }} }</p>
                 <button pButton size="small" (click)="verHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></button>
               </div>
             }
@@ -325,7 +326,8 @@ export class LogisticaAuditoriaRutaComponent {
         visited_count: u.visited_count,
         planned_with_coords: u.planned_with_coords,
         skipped_count: skipped,
-        tickets: u.tickets.length,
+        sales_docs: u.sales_docs ?? 0,
+        sales_total: u.sales_total ?? 0,
         color: this.routeColor(u.route_number),
       };
     }),
