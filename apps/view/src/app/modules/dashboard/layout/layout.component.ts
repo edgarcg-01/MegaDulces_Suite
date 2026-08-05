@@ -441,6 +441,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Categorías',         icon: 'pi pi-tags',                 route: '/compras/categorias',         permission: Permission.COMPRAS_VER },
     { label: 'Red de abasto',      icon: 'pi pi-sitemap',              route: '/compras/red',                permission: Permission.COMPRAS_VER },
     { label: 'Órdenes de entrada', icon: 'pi pi-inbox',                route: '/compras/entradas',           permission: Permission.COMPRAS_VER },
+    { label: 'Descuentos y apoyos', icon: 'pi pi-percentage',          route: '/compras/descuentos',         permission: Permission.COMPRAS_VER },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación

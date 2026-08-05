@@ -549,6 +549,29 @@ export function saveXlsxResponse(resp: HttpResponse<Blob>, fallback = 'reporte.x
   URL.revokeObjectURL(url);
 }
 
+// ── Fase RE.10 — Ajustes de compra (X-D-40 "Devolución" / X-D-55 "Nota crédito") ──
+export type AdjustmentDoctype = 'XD40' | 'XD55';
+export type AdjustmentGrupo = 'comercial' | 'operacional' | 'error' | 'sin_clasificar';
+export interface AdjustmentsBucket { key: string; n: number; monto: number; }
+export interface AdjustmentsSummary {
+  total: { n: number; monto: number };
+  by_grupo: AdjustmentsBucket[];
+  by_doctype: AdjustmentsBucket[];
+  by_categoria: AdjustmentsBucket[];
+}
+export interface AdjustmentRow {
+  doctype: AdjustmentDoctype; folio: string; adjustment_date: string | null;
+  proveedor_code: string | null; proveedor_nombre: string | null; proveedor_rfc: string | null;
+  factura_ref: string | null; entrada_folio: string | null;
+  monto: number; iva: number; motivo: string | null; categoria: string | null; grupo: AdjustmentGrupo;
+}
+export interface AdjustmentsListResponse { total: number; page: number; pageSize: number; rows: AdjustmentRow[]; }
+export interface AdjustmentsSupplierRow { proveedor_code: string | null; proveedor_nombre: string | null; n: number; monto: number; }
+export interface AdjustmentsQuery {
+  doctype?: string; categoria?: string; grupo?: string; search?: string;
+  date_from?: string; date_to?: string; page?: number; pageSize?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -884,5 +907,30 @@ export class ComprasService {
   /** OE — registra una recepción (parcial permitido); mueve stock. */
   createReceipt(poId: string, dto: { lines: CreateReceiptLine[]; notes?: string; received_at?: string | null }): Observable<{ id: string; folio: string; po_estado: PurchaseOrderEstado; total_units: number; total_cost: number; stock_applied: boolean }> {
     return this.http.post<{ id: string; folio: string; po_estado: PurchaseOrderEstado; total_units: number; total_cost: number; stock_applied: boolean }>(`${this.poBase}/${poId}/receipts`, dto);
+  }
+
+  // ── Fase RE.10 — ajustes de compra (descuentos/apoyos + facturas duplicadas) ──
+  private readonly adjBase = `${environment.apiUrl}/commercial/purchase-adjustments`;
+  private adjParams(q: AdjustmentsQuery): string {
+    const p = new URLSearchParams();
+    if (q.doctype) p.set('doctype', q.doctype);
+    if (q.categoria) p.set('categoria', q.categoria);
+    if (q.grupo) p.set('grupo', q.grupo);
+    if (q.search) p.set('search', q.search);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return qs ? '?' + qs : '';
+  }
+  adjustmentsSummary(q: AdjustmentsQuery = {}): Observable<AdjustmentsSummary> {
+    return this.http.get<AdjustmentsSummary>(`${this.adjBase}/summary${this.adjParams(q)}`);
+  }
+  adjustments(q: AdjustmentsQuery = {}): Observable<AdjustmentsListResponse> {
+    return this.http.get<AdjustmentsListResponse>(`${this.adjBase}${this.adjParams(q)}`);
+  }
+  adjustmentsBySupplier(q: AdjustmentsQuery = {}): Observable<AdjustmentsSupplierRow[]> {
+    return this.http.get<AdjustmentsSupplierRow[]>(`${this.adjBase}/by-supplier${this.adjParams(q)}`);
   }
 }
