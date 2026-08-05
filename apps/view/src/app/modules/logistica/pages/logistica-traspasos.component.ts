@@ -85,7 +85,7 @@ const MES: Record<string, string> = {
                   <table class="tr-table">
                     <thead>
                       <tr>
-                        <th class="frz c0 wide">Destino (P.V. / TLMKT / Ruta)</th>
+                        <th class="frz c0 wide">Origen &rarr; Destino</th>
                         @for (m of r.months; track m) { <th class="n">{{ mes(m) }}</th> }
                         <th class="n b">Total</th>
                         <th class="n">Share</th>
@@ -95,7 +95,7 @@ const MES: Record<string, string> = {
                     <tbody>
                       @for (row of salidaRows(); track row.dest_label) {
                         <tr>
-                          <td class="frz c0 wide">{{ row.dest_label }}</td>
+                          <td class="frz c0 wide"><span class="tr-flow"><span class="tr-orig">{{ origin(row) }}</span><i class="pi pi-arrow-right tr-arrow" aria-hidden="true"></i><span class="tr-dst">{{ destination(row) }}</span></span></td>
                           @for (m of r.months; track m) {
                             <td class="n">{{ cell(row, m)?.value ? (cell(row, m)!.value | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                           }
@@ -137,8 +137,8 @@ const MES: Record<string, string> = {
                   <table class="tr-table">
                     <thead>
                       <tr>
-                        <th class="frz c0">Sucursal</th>
-                        <th class="frz c1">Tipo</th>
+                        <th class="frz c0 wide">Origen &rarr; Destino</th>
+                        <th class="frz c1b">Tipo</th>
                         @for (m of r.months; track m) { <th class="n">{{ mes(m) }}</th> }
                         <th class="n b">Total</th>
                         <th class="n">Share tipo</th>
@@ -148,8 +148,14 @@ const MES: Record<string, string> = {
                     <tbody>
                       @for (row of branchRows(); track row.warehouse_code + row.kind) {
                         <tr>
-                          <td class="frz c0">{{ row.warehouse_name }}</td>
-                          <td class="frz c1">{{ row.kind_label }}</td>
+                          <td class="frz c0 wide">
+                            @if (isInternal(row)) {
+                              <span class="tr-flow"><span class="tr-dst">{{ row.warehouse_name }}</span><span class="tr-intern">interna</span></span>
+                            } @else {
+                              <span class="tr-flow"><span class="tr-orig">{{ origin(row) }}</span><i class="pi pi-arrow-right tr-arrow" aria-hidden="true"></i><span class="tr-dst">{{ destination(row) }}</span></span>
+                            }
+                          </td>
+                          <td class="frz c1b">{{ row.kind_label }}</td>
                           @for (m of r.months; track m) {
                             <td class="n">{{ cell(row, m)?.value ? (cell(row, m)!.value | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                           }
@@ -207,7 +213,14 @@ const MES: Record<string, string> = {
     .tr-table .tr-dest { color:var(--text-muted); font-weight:400; margin-left:.35rem; }
     .tr-table .frz { position:sticky; background:var(--card-bg); z-index:1; }
     .tr-table thead .frz { z-index:3; }
-    .tr-table .c0 { left:0; } .tr-table .c1 { left:130px; }
+    .tr-table .c0 { left:0; } .tr-table .c1 { left:130px; } .tr-table .c1b { left:230px; }
+    /* Flujo origen → destino: origen tenue, destino con peso, flecha discreta */
+    .tr-flow { display:inline-flex; align-items:center; gap:.4rem; white-space:nowrap; }
+    .tr-flow .tr-orig { color:var(--text-muted); }
+    .tr-flow .tr-arrow { font-size:.7rem; color:var(--action, #b45309); }
+    .tr-flow .tr-dst { font-weight:600; }
+    .tr-flow .tr-intern { font-size:.68rem; color:var(--text-muted); border:1px solid var(--border-color);
+      border-radius:var(--r-sm, 4px); padding:.05rem .3rem; text-transform:uppercase; letter-spacing:.03em; }
     .tr-table tbody tr:hover td:not(.frz) { background:var(--table-hover,var(--layout-bg)); }
     .tr-table tfoot .tot td { font-weight:700; background:var(--layout-bg); position:sticky; bottom:0; }
     .tr-table tfoot .tot .frz { z-index:1; }
@@ -283,4 +296,21 @@ export class LogisticaTraspasosComponent {
 
   mes(m: string): string { return MES[m] ?? m; }
   cell(row: TransfersRow, m: string) { return row.monthly[m]; }
+
+  // Fase T — "de dónde → a dónde" explícito por tipo de movimiento. El dato trae warehouse
+  // (donde se registra) + dest_label; el origen/destino se resuelve por kind:
+  //   salida_cedis / traspaso_salida → warehouse ES el origen, dest_label el destino
+  //   recepcion / traspaso_entrada   → warehouse ES el destino; el origen es CEDIS (dest_label
+  //                                     viene null en la recepción — la contraparte es la salida CEDIS)
+  //   consolidacion                  → interna (mismo almacén origen y destino)
+  origin(row: TransfersRow): string {
+    if (row.kind === 'recepcion' || row.kind === 'traspaso_entrada') return row.dest_label || 'CEDIS';
+    return row.warehouse_name;
+  }
+  destination(row: TransfersRow): string {
+    if (row.kind === 'salida_cedis' || row.kind === 'traspaso_salida') return row.dest_label || '—';
+    if (row.kind === 'consolidacion') return row.warehouse_name;
+    return row.warehouse_name;
+  }
+  isInternal(row: TransfersRow): boolean { return row.kind === 'consolidacion'; }
 }
