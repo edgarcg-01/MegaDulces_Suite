@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-08-05 — DM.12: Cuadre de traspasos en /almacen/movimientos (pestaña + reporte PDF)
+
+**Qué:** el usuario preguntó por las cuentas contables **515-002 y 515-001** (mayor 515 «Ajuste traspasos internos» de la balanza Kepler) y pidió visualizarlas desde `/almacen/movimientos`. Se construyó una **pestaña dedicada "Cuadre de traspasos"** (`p-tabs`: Diario | Cuadre) con rango propio (vista de red), como contracara **contable** del `transfersCheck` **físico** que ya vivía en el módulo. Informe con 4 desgloses: por subcuenta (515-001 entrada / 515-002 salida / Δ neto) · serie mensual + tendencia (Δ, % descuadre, acumulado corriente) · por sucursal · **matriz física origen→destino** · **drill de folios sin cuadrar** (clic abre el documento). Más un **reporte mensual en PDF** (puppeteer + estilo DESIGN.md, mismo motor que el export del Diario).
+
+Backend `commercial-movements` (sin migración): `GET transfers-ledger` (contable, `analytics.ledger_monthly` mayor 515), `GET transfers-matrix` (físico, mismo pareo LATERAL que `transfers-check` agregado por par de sucursales, `stock_movements`), `GET transfers-cuadre.pdf`. Todos `@RequireAnyPermission(COMMERCIAL_MOVEMENTS_VER, RECONCILIATION_VER)`.
+
+**Bonus (fix previo, commit `d729d22d`):** auditoría del módulo → los endpoints exigían solo `COMMERCIAL_MOVEMENTS_VER` mientras la ruta permitía también `RECONCILIATION_VER` (403 en pantalla para usuarios de conciliación); alineados. Borrado endpoint debug `_debug-dest`; `aggregate()` cuenta por subquery (no materializa 2×); vista "día" ordena cronológico.
+
+**Verificación:** builds api+view verdes. **Contable validado vs DB** (Docker .245:5433): Δ acumulado ene–jul 2026 = **+$11.63M**, cuadre perfecto ene–feb, divergencia creciente jun–jul (entradas registradas sin su salida posteada al corte). SQL de la matriz corre limpio. **Hallazgo de datos:** el `stock_movements` local NO trae traspasos físicos (`TrsfShip`/`TrsfRcv`; feed acotado, 7.8k filas mar–jun) → matriz/folios con empty-state honesto local; se llenan en prod. Commits `a86d3519` → `0a5aa518` → `2e99d80f`.
+
+**Lesson learned:** `analytics.ledger_monthly` (contable, feed `import-ledger-chain` desde DBs de sucursal) y `analytics.stock_movements` (físico) tienen **coberturas distintas** en cada entorno — el contable está poblado local, el físico no. Un informe que cruza ambas fuentes debe degradar por-sección, no fallar entero. Decode del mayor 515 guardado en memoria (`reference_kepler_account_515_transfers`).
+
+**Pendiente:** deploy api+view + re-login (permisos ya existen; el guard lee el JWT) + verificación visual (pestaña + PDF renderizado con datos físicos de prod).
+
 ## 2026-07-31 — Thot: memoria persistente (thot_remember / thot_forget + recall)
 
 **Qué:** 2ª mejora de la tanda "mejoremos los modelos/conocimiento". Thot ahora RECUERDA hechos entre sesiones (antes olvidaba todo — un usuario le enseñó "Candelares = vendedora vecinal" y se perdía). Migración `commercial.thot_notes` (RLS forzado + tenant_id + `UNIQUE(tenant_id, title)` upsert idempotente, patrón `thot_chat_log`). Tools admin `thot_remember`/`thot_forget`. `recallNotes()` inyecta las notas al system prompt (solo admin scope, tope 4000 chars) + rule 10. Espejo del knowledge/tomar_nota de Maat, acotado a `commercial`.
