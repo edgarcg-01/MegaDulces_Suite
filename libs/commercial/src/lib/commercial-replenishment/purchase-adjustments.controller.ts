@@ -76,6 +76,17 @@ export class PurchaseAdjustmentsController {
     return this.findingsBridge.syncCurrent();
   }
 
+  @Get('discount-reconciliation')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RE.10 — reconciliación de descuento por proveedor: canal PAGO (c84 pronto pago) vs NOTA (X-D-55 comercial) + total + % vs compras + canal (pago/nota/ambos). "ambos" = posible solapamiento del mismo descuento. Filtros: date_from, date_to, search.' })
+  discountReconciliation(
+    @Query('date_from') date_from?: string,
+    @Query('date_to') date_to?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.svc.discountReconciliation({ date_from, date_to, search });
+  }
+
   @Get('by-supplier')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — top proveedores por $ de ajustes (apoyos/descuentos/duplicadas). Mismos filtros que summary.' })
