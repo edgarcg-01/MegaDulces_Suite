@@ -19,12 +19,13 @@ export interface MovementsExportData {
   truncated: boolean;
 }
 
-/** DM.12 — datos del reporte de cuadre de traspasos (contable + matriz física + folios). */
+/** DM.12 — datos del reporte de cuadre de traspasos (contable + matriz física + folios + detalle). */
 export interface CuadreExportData {
   range: { from: string; to: string };
   ledger: { totals: { entrada: number; salida: number; delta: number }; rows: any[]; by_sucursal: any[] };
   matrix: { totals: any; rows: any[] };
   check: { totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number }; rows: any[] };
+  detail?: { totals: any; rows: any[]; total: number; truncated: boolean };
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -425,6 +426,12 @@ export class MovementsExportService {
       <td>${esc(r.dest_wh || '—')}</td><td class="num">${num(r.qty_sent)}</td><td class="num">${num(r.qty_received)}</td>
       <td class="num ${Number(r.delta) ? 'delta' : ''}">${Number(r.delta) ? (Number(r.delta) > 0 ? '+' : '') + num(r.delta) : '—'}</td>
       <td>${dmy(r.ship_date || r.rcv_date)}</td></tr>`).join('');
+    const dt = data.detail;
+    const detailRows = (dt?.rows || []).map((r: any) => `<tr>
+      <td class="mono">${esc(r.anio_mes)}</td>
+      <td class="${r.kind === 'entrada' ? 'up' : 'dn'}">${r.kind === 'entrada' ? 'Entrada 515-001' : 'Salida 515-002'}</td>
+      <td>${esc(r.sucursal || '—')}</td><td class="num">${money(r.importe, 2)}</td>
+      <td>${esc(r.referencia || '—')}</td></tr>`).join('');
 
     const totOk = ok(lg.totals?.delta, lg.totals?.entrada);
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>
@@ -493,6 +500,11 @@ export class MovementsExportService {
       <div class="sec"><h2>3 · Traspasos sin cuadrar</h2><span class="cnt">${num(unmatched.length)} a revisar</span></div>
       <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th>Fecha</th></tr></thead>
       <tbody>${ckRows || '<tr><td colspan="8" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
+
+      <div class="sec brk"><h2>4 · Pólizas contables sin contraparte</h2><span class="cnt">${num(dt?.total || 0)} pólizas${dt?.truncated ? ` · primeras ${num((dt?.rows || []).length)}` : ''}</span></div>
+      <p class="lead">Pólizas de la cuenta 515 cuyo importe NO tiene contraparte del lado opuesto (entrada ↔ salida). Estas explican el descuadre — la referencia trae el folio del traspaso para ubicarlo en Kepler.</p>
+      <table><thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="num">Importe</th><th>Referencia (localizador)</th></tr></thead>
+      <tbody>${detailRows || '<tr><td colspan="5" class="empty">No hay pólizas sin contraparte en el rango.</td></tr>'}</tbody></table>
     </body></html>`;
   }
 

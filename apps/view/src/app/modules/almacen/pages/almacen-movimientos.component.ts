@@ -15,7 +15,7 @@ import { TabsModule } from 'primeng/tabs';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
-  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow,
+  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -249,6 +249,41 @@ import { Permission } from '../../../core/constants/permissions';
               </section>
             } @else { <div class="dm-empty">Sin datos contables de traspasos en el rango.</div> }
 
+            <!-- ── Detalle: pólizas 515 SIN contraparte (el descuadre, folio a folio) ── -->
+            @if (detail(); as dt) {
+              <section class="dm-block">
+                <header class="dm-block-head">
+                  <div>
+                    <h2 class="dm-block-title"><i class="pi pi-search" aria-hidden="true"></i> Pólizas sin contraparte <span class="dm-muted">· el detalle del descuadre</span></h2>
+                    <p class="dm-block-sub">Cada póliza de la cuenta 515 cuyo importe NO tiene contraparte del lado opuesto (entrada 515-001 ↔ salida 515-002, pareo por importe exacto). <strong>Estas son las que hay que encontrar en Kepler</strong> — la referencia trae el folio del traspaso. Fuente: pólizas Kepler (may–jul).</p>
+                  </div>
+                  <div class="dm-total bad">
+                    <span class="dm-total-lbl">Sin contraparte (Δ)</span>
+                    <span class="dm-total-val">{{ signed(dt.totals.unpaired_entrada - dt.totals.unpaired_salida) }}</span>
+                  </div>
+                </header>
+                <div class="dm-subacc">
+                  <div class="dm-subacc-card"><span class="dm-subacc-code up">Entradas sin salida</span><span class="dm-subacc-val up">{{ money(dt.totals.unpaired_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.n_entrada }} pólizas</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code down">Salidas sin entrada</span><span class="dm-subacc-val down">{{ money(dt.totals.unpaired_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.n_salida }} pólizas</span></span></div>
+                </div>
+                <table class="dm-docs dm-tbl">
+                  <thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador en Kepler)</th></tr></thead>
+                  <tbody>
+                    @for (r of dt.rows; track $index) {
+                      <tr>
+                        <td class="dm-mono">{{ r.anio_mes }}</td>
+                        <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Entrada 515-001' : 'Salida 515-002' }}</td>
+                        <td class="dm-muted">{{ r.sucursal }}</td>
+                        <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
+                        <td class="dm-ref">{{ r.referencia || '—' }}</td>
+                      </tr>
+                    } @empty { <tr><td colspan="5" class="dm-empty">No hay pólizas sin contraparte en el rango. 🎉</td></tr> }
+                  </tbody>
+                </table>
+                @if (dt.truncated) { <div class="dm-check-foot dm-muted">Mostrando las {{ dt.rows.length }} de mayor importe de {{ dt.total }} — acotá el rango para ver todas.</div> }
+              </section>
+            }
+
             <!-- ── Bloque FÍSICO (feed de movimientos, TrsfShip ⇄ TrsfRcv) ── -->
             <section class="dm-block">
               <h2 class="dm-block-title"><i class="pi pi-sitemap" aria-hidden="true"></i> Flujo físico origen → destino <span class="dm-muted">· feed de movimientos</span></h2>
@@ -443,6 +478,8 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-subacc-card { display: flex; flex-direction: column; gap: .1rem; padding: .4rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); min-width: 11rem; }
     .dm-subacc-code { font-size: .72rem; font-weight: 600; }
     .dm-subacc-val { font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .dm-subacc-n { font-size: .72rem; font-weight: 400; }
+    .dm-ref { font-size: .78rem; max-width: 30rem; }
     .dm-block-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.2rem; }
     @media (max-width: 60rem) { .dm-block-grid { grid-template-columns: 1fr; } }
     .dm-h3 { margin: .6rem 0 .3rem; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
@@ -562,6 +599,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
+  detail = signal<TransfersLedgerDetailResponse | null>(null); // pólizas 515 sin contraparte
 
   /** Cambio de pestaña; carga el informe la 1ª vez que se entra a "cuadre". */
   onTab(v: string | number): void {
@@ -578,9 +616,10 @@ export class AlmacenMovimientosComponent implements OnInit {
       ledger: this.api.transfersLedger(f),
       matrix: this.api.transfersMatrix(f),
       check: this.api.transfersCheck(f),
+      detail: this.api.transfersLedgerDetail(f),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
-        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check);
+        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check); this.detail.set(r.detail);
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
