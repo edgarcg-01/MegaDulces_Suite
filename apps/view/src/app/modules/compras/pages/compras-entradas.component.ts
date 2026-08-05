@@ -269,6 +269,9 @@ import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../com
                 <p-tag [value]="depLabel(dep.status)" [severity]="depSev(dep.status)" />
                 @if (dep.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
                 @else if (dep.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                @if (dep.discrepancy_kind && dep.discrepancy_kind !== 'cuadra') {
+                  <p-tag [value]="discLabel(dep.discrepancy_kind) + (dep.discrepancy_amount ? ' · ' + money(dep.discrepancy_amount) : '')" [severity]="discSev(dep.discrepancy_kind)" />
+                }
                 <span class="cb-view-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
               <div class="cb-view-files">
@@ -631,6 +634,8 @@ export class ComprasEntradasComponent {
     return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
 
+  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra' } as Record<string, string>)[k] || k; }
+  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

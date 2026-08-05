@@ -9,10 +9,10 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { Subject, debounceTime } from 'rxjs';
-import { ComprasService, AdjustmentsSummary, AdjustmentRow, AdjustmentsSupplierRow, DuplicateGroup } from '../compras.service';
+import { ComprasService, AdjustmentsSummary, AdjustmentRow, AdjustmentsSupplierRow, DuplicateGroup, DiscountReconRow, DiscountReconResponse, DiscountLeakageRow, DiscountLeakageResponse } from '../compras.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type ViewMode = 'ajustes' | 'duplicados';
+type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
 
 /**
  * RE.10 — Descuentos y apoyos de compra + posibles facturas duplicadas. Hace VISIBLE
@@ -38,6 +38,8 @@ type ViewMode = 'ajustes' | 'duplicados';
         <div class="dx-toggle" role="tablist">
           <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'ajustes'" (click)="setView('ajustes')">Ajustes</button>
           <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'duplicados'" (click)="setView('duplicados')">Posibles duplicados</button>
+          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'reconciliacion'" (click)="setView('reconciliacion')">Reconciliación</button>
+          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'fuga'" (click)="setView('fuga')">Descuento no capturado</button>
         </div>
       </header>
 
@@ -98,7 +100,7 @@ type ViewMode = 'ajustes' | 'duplicados';
             @if (!suppliers().length) { <p class="dx-empty">—</p> }
           </aside>
         </div>
-      } @else {
+      } @else if (view() === 'duplicados') {
         <div class="dx-dup-banner">
           <span class="dx-dup-risk">{{ money(dupRisk()) }}</span>
           <span class="dx-dup-txt">en riesgo · <strong>{{ dupGroups() | number }}</strong> proveedores facturaron el <strong>mismo monto exacto ≥2 veces</strong> dentro de {{ dupWindow() }} días. Revisar: posible captura doble del comprobante.</span>
@@ -123,6 +125,63 @@ type ViewMode = 'ajustes' | 'duplicados';
           <ng-template #emptymessage>
             <tr><td colspan="6" class="dx-empty">Sin duplicados potenciales en la ventana.</td></tr>
           </ng-template>
+        </p-table>
+      } @else if (view() === 'reconciliacion') {
+        <div class="dx-recon-kpis">
+          <div class="dx-kpi" data-grupo="comercial"><span class="dx-kpi-label">Canal pago (c84)</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc_pago || 0) }}</span><span class="dx-kpi-sub">pronto pago al pagar</span></div>
+          <div class="dx-kpi" data-grupo="operacional"><span class="dx-kpi-label">Canal nota (X-D-55)</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc_nota || 0) }}</span><span class="dx-kpi-sub">nota de crédito comercial</span></div>
+          <div class="dx-kpi dx-kpi-total"><span class="dx-kpi-label">Descuento total</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc || 0) }}</span><span class="dx-kpi-sub">{{ recon()?.summary?.suppliers || 0 }} proveedores</span></div>
+          <div class="dx-kpi" data-grupo="error"><span class="dx-kpi-label">Usan ambos canales</span><span class="dx-kpi-val">{{ recon()?.summary?.suppliers_ambos || 0 }}</span><span class="dx-kpi-sub">posible solapamiento — revisar</span></div>
+        </div>
+        <div class="dx-filters">
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" />
+          <span class="dx-count">{{ (recon()?.rows?.length || 0) | number }} proveedor(es)</span>
+        </div>
+        <p-table [value]="recon()?.rows || []" [loading]="reconLoading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+          <ng-template #header>
+            <tr>
+              <th>Proveedor</th><th class="dx-w-canal">Canal</th><th class="dx-r dx-w-amt">Pago (c84)</th>
+              <th class="dx-r dx-w-amt">Nota</th><th class="dx-r dx-w-amt">Total</th><th class="dx-r dx-w-pct">% compras</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-r>
+            <tr>
+              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+              <td><p-tag [value]="canalLabel(r.canal)" [severity]="canalTag(r.canal)"></p-tag></td>
+              <td class="dx-r">{{ r.desc_pago ? money(r.desc_pago) : '—' }}</td>
+              <td class="dx-r">{{ r.desc_nota ? money(r.desc_nota) : '—' }}</td>
+              <td class="dx-r dx-strong">{{ money(r.total_desc) }}</td>
+              <td class="dx-r dx-muted">{{ r.pct_vs_compras != null ? (r.pct_vs_compras * 100 | number:'1.1-1') + '%' : '—' }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage><tr><td colspan="6" class="dx-empty">Sin descuento de proveedor con estos filtros.</td></tr></ng-template>
+        </p-table>
+      } @else {
+        <div class="dx-dup-banner">
+          <span class="dx-dup-risk">{{ money(leak()?.summary?.total_lost || 0) }}</span>
+          <span class="dx-dup-txt">de <strong>pronto pago dejado en la mesa</strong> · <strong>{{ leak()?.summary?.suppliers || 0 }}</strong> proveedores que dan descuento tienen pagos liquidados <strong>sin descuento</strong> (c84=0). Oportunidad = tasa habitual × monto pagado completo.</span>
+        </div>
+        <div class="dx-filters">
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" />
+          <span class="dx-count">{{ (leak()?.rows?.length || 0) | number }} proveedor(es)</span>
+        </div>
+        <p-table [value]="leak()?.rows || []" [loading]="leakLoading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+          <ng-template #header>
+            <tr>
+              <th>Proveedor</th><th class="dx-r dx-w-pct">Tasa</th><th class="dx-r dx-w-x">Sin desc.</th>
+              <th class="dx-r dx-w-amt">Monto sin desc.</th><th class="dx-r dx-w-amt">$ perdido</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-r>
+            <tr>
+              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+              <td class="dx-r dx-muted">{{ r.rate * 100 | number:'1.2-2' }}%</td>
+              <td class="dx-r"><span class="dx-strong">{{ r.n_uncaptured }}</span><span class="dx-muted">/{{ r.n_total }}</span></td>
+              <td class="dx-r">{{ money(r.monto_uncaptured) }}</td>
+              <td class="dx-r dx-strong dx-bad">{{ money(r.lost) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage><tr><td colspan="5" class="dx-empty">Sin fuga de descuento (o sin política de proveedor cargada).</td></tr></ng-template>
         </p-table>
       }
     </div>
@@ -150,7 +209,8 @@ type ViewMode = 'ajustes' | 'duplicados';
     @media (max-width: 900px) { .dx-grid { grid-template-columns: 1fr; } }
     .dx-table { font-size: .82rem; }
     .dx-r { text-align: right; font-variant-numeric: tabular-nums; }
-    .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; }
+    .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; } .dx-w-canal { width: 6rem; } .dx-w-pct { width: 6rem; }
+    .dx-recon-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .6rem; margin-bottom: .9rem; }
     .dx-muted { color: var(--text-muted); }
     .dx-strong { font-weight: 700; }
     .dx-bad { color: var(--bad-fg, #b91c1c); }
@@ -190,6 +250,14 @@ export class ComprasDescuentosComponent implements OnInit {
   dupWindow = signal(30);
   private dupsLoaded = false;
 
+  recon = signal<DiscountReconResponse | null>(null);
+  reconLoading = signal(false);
+  private reconLoaded = false;
+
+  leak = signal<DiscountLeakageResponse | null>(null);
+  leakLoading = signal(false);
+  private leakLoaded = false;
+
   fGrupo = '';
   fDoctype = '';
   fSearch = '';
@@ -217,7 +285,7 @@ export class ComprasDescuentosComponent implements OnInit {
   };
 
   ngOnInit(): void {
-    this.search$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.reload());
+    this.search$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.onSearch());
     this.loadSummary();
     this.reload();
   }
@@ -225,6 +293,32 @@ export class ComprasDescuentosComponent implements OnInit {
   setView(v: ViewMode): void {
     this.view.set(v);
     if (v === 'duplicados' && !this.dupsLoaded) this.loadDuplicates();
+    if (v === 'reconciliacion' && !this.reconLoaded) this.loadRecon();
+    if (v === 'fuga' && !this.leakLoaded) this.loadLeakage();
+  }
+
+  /** El buscador recarga la vista activa (ajustes / reconciliación / fuga). */
+  private onSearch(): void {
+    const v = this.view();
+    if (v === 'reconciliacion') this.loadRecon();
+    else if (v === 'fuga') this.loadLeakage();
+    else this.reload();
+  }
+
+  loadRecon(): void {
+    this.reconLoading.set(true);
+    this.api.adjustmentsDiscountReconciliation({ search: this.fSearch.trim() || undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.recon.set(r); this.reconLoading.set(false); this.reconLoaded = true; },
+      error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la reconciliación.' }); },
+    });
+  }
+
+  loadLeakage(): void {
+    this.leakLoading.set(true);
+    this.api.adjustmentsDiscountLeakage(this.fSearch.trim() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.leak.set(r); this.leakLoading.set(false); this.leakLoaded = true; },
+      error: () => { this.leakLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el descuento no capturado.' }); },
+    });
   }
 
   private query() {
@@ -262,4 +356,6 @@ export class ComprasDescuentosComponent implements OnInit {
   grupoLabel(k: string) { return this.GRUPO_LABEL[k] || k; }
   catLabel(c: string | null) { return c ? (this.CAT_LABEL[c] || c) : 'Sin motivo'; }
   grupoTag(g: string): Sev { return ({ comercial: 'success', error: 'danger', operacional: 'warn', sin_clasificar: 'secondary' } as Record<string, Sev>)[g] || 'secondary'; }
+  canalLabel(c: string) { return ({ pago: 'Pago', nota: 'Nota', ambos: 'Ambos' } as Record<string, string>)[c] || c; }
+  canalTag(c: string): Sev { return ({ pago: 'info', nota: 'warn', ambos: 'danger' } as Record<string, Sev>)[c] || 'secondary'; }
 }
