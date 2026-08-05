@@ -47,6 +47,7 @@ interface RawFinding {
 const RULES: RuleMeta[] = [
   { rule_key: 'cadena_incompleta', clase: 'riesgo', nombre: 'Factura sin recepción', descripcion: 'Facturas de compra (XA2001) pagadas/registradas sin recepción (XA3701) correlacionada — pagar sin comprobante de recibido.', params: { min_monto: 5000, critico_monto: 100000 } },
   { rule_key: 'posible_duplicado', clase: 'riesgo', nombre: 'Posible factura duplicada', descripcion: 'Dos facturas del mismo proveedor con importe casi idéntico en una ventana corta.', params: { tolerancia_pct: 0.5, ventana_dias: 7, min_monto: 500 } },
+  { rule_key: 'pago_duplicado', clase: 'riesgo', nombre: 'Posible pago duplicado', descripcion: 'Dos o más pagos al MISMO proveedor por el MISMO monto exacto y método en una ventana corta — posible doble pago (dinero que YA salió, no solo una factura repetida). HITL: un pago recurrente idéntico puede ser legítimo.', params: { ventana_dias: 30, min_monto: 10000, critico_monto: 100000 } },
   { rule_key: 'gasto_atipico', clase: 'riesgo', nombre: 'Gasto mensual atípico', descripcion: 'Gasto de una cuenta mayor en un mes se desvía ≥3σ de su historia (cuenta×sucursal).', params: { z: 3, min_meses: 6, min_monto: 20000 } },
   // MIQ.1 — detección estadística (delegan en MaatAnomalyService): encuentran lo que ninguna regla escribió.
   { rule_key: 'benford_importes', clase: 'riesgo', nombre: 'Distribución de montos anómala (Benford)', descripcion: 'Los importes de una sucursal se desvían de la Ley de Benford (MAD de Nigrini) — señal forense de montos fabricados o redondeados.', params: { min_docs: 300, mad_warn: 0.012, mad_crit: 0.015 } },
@@ -160,6 +161,7 @@ export class MaatDetectorService {
     switch (key) {
       case 'cadena_incompleta': return this.detCadenaIncompleta(trx, tenantId, params);
       case 'posible_duplicado': return this.detDuplicado(trx, tenantId, params);
+      case 'pago_duplicado': return this.detPagoDuplicado(trx, tenantId, params);
       case 'gasto_atipico': return this.detGastoAtipico(trx, tenantId, params);
       case 'salto_precio_sku': return this.detSaltoPrecio(trx, tenantId, params);
       case 'dpo_largo': return this.detDpoLargo(trx, tenantId, params);
@@ -208,6 +210,43 @@ export class MaatDetectorService {
       evidencia: { folios: r.folios, num_facturas: r.n },
       dedup_key: `cadena_incompleta|${r.sucursal}|${norm(r.beneficiario)}`,
     }));
+  }
+
+  // ── riesgo: DOBLE PAGO (mismo proveedor + monto exacto + método en ventana corta) sobre los pagos REALES ──
+  // Análogo de posible_duplicado pero sobre `erp_supplier_payments`: el dinero YA salió. Aplica a
+  // pagos el mismo control que a compras. HITL: un pago recurrente idéntico (renta, anticipo) puede ser legítimo.
+  private async detPagoDuplicado(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
+    const win = Number(p.ventana_dias) || 30;
+    const min = Number(p.min_monto) || 10000;
+    const crit = Number(p.critico_monto) || 100000;
+    const rows = await trx('analytics.erp_supplier_payments')
+      .where('tenant_id', tenantId).where('monto', '>=', min)
+      .groupBy('proveedor_code', 'monto', 'metodo_pago')
+      .havingRaw('count(*) > 1 AND (max(pago_date) - min(pago_date)) <= ?', [win])
+      .select('proveedor_code', 'monto', 'metodo_pago',
+        trx.raw('max(proveedor_nombre) AS proveedor_nombre'),
+        trx.raw('count(*)::int AS veces'),
+        trx.raw('round((count(*)-1)*monto, 2) AS extra'),
+        trx.raw('(max(pago_date)-min(pago_date))::int AS span'),
+        trx.raw('array_agg(folio ORDER BY pago_date) AS folios'))
+      .orderByRaw('(count(*)-1)*monto DESC')
+      .limit(200);
+    return rows.map((r: any) => {
+      const extra = Number(r.extra) || 0;
+      const nombre = r.proveedor_nombre || r.proveedor_code || '(sin proveedor)';
+      return {
+        rule_key: 'pago_duplicado',
+        severity: (extra >= crit ? 'critical' : 'warn') as 'critical' | 'warn',
+        score: Math.min(0.9, 0.5 + 0.1 * (Number(r.veces) - 1)),
+        titulo: `Posible pago duplicado — ${nombre}`,
+        resumen: `${nombre}: ${r.veces} pagos por el MISMO monto ${money(Number(r.monto))} (${r.metodo_pago || 's/método'}) en ${r.span} día(s) — posible doble pago, ${money(extra)} de riesgo.`,
+        entity: { proveedor_code: r.proveedor_code, proveedor_nombre: r.proveedor_nombre, monto: Number(r.monto), metodo_pago: r.metodo_pago },
+        periodo: null,
+        importe: extra,
+        evidencia: { veces: Number(r.veces), folios: r.folios, span_dias: Number(r.span), metodo_pago: r.metodo_pago, ventana_dias: win, fuente: 'analytics.erp_supplier_payments' },
+        dedup_key: `pago_duplicado|${r.proveedor_code}|${r.monto}|${r.metodo_pago}`,
+      };
+    });
   }
 
   // ── error_captura: compras/gastos sin RFC del proveedor (rompe deducibilidad, DIOT y materialidad) ──
