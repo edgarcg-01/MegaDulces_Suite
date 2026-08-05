@@ -49,6 +49,10 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
       </div>
 
       @if (mode() === 'cobros') {
+      <div class="cb-cap-bar">
+        <button pButton type="button" (click)="openCapture()" title="Toma la foto y buscamos el cobro solo"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Capturar ficha</span></button>
+        <span class="cb-cap-hint">Toma la foto primero — el sistema busca el cobro por ti.</span>
+      </div>
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
@@ -191,15 +195,19 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
       }
     </p-dialog>
 
-    <!-- Diálogo: adjuntar ficha + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de depósito">
-      @if (attachTarget(); as t) {
+    <!-- Diálogo: adjuntar ficha + OCR (soporta ficha-first sin cobro preseleccionado) -->
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" [header]="attachTarget() ? 'Adjuntar comprobante de depósito' : 'Capturar ficha de depósito'">
+      @if (attachTarget() || captureMode()) {
         <div class="cb-form">
+          @if (attachTarget(); as t) {
           <div class="cb-cobro">
             <div><span class="cb-lbl">Cobro</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
             <div><span class="cb-lbl">Cliente</span><strong>{{ t.cliente_nombre || t.cliente_code }}</strong></div>
             <div class="ta-r"><span class="cb-lbl">Monto del cobro</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
           </div>
+          } @else {
+          <div class="cb-cap-banner"><i class="pi pi-bolt"></i> Toma la foto o elige el archivo — buscamos el cobro por ti.</div>
+          }
 
           <div class="cb-f cb-file">
             <span>Ficha de depósito (imagen o PDF) * <em class="cb-auto">se almacena y se lee sola al elegirla</em></span>
@@ -241,7 +249,50 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
             </div>
           }
 
-          @if (fileName()) {
+          <!-- ficha-first: buscar el cobro por el OCR -->
+          @if (captureMode() && !attachTarget() && ocrRun()) {
+            <div class="cb-match">
+              <label class="cb-f"><span>Monto de la ficha <em class="cb-auto">corrígelo si el OCR falló</em></span>
+                <div class="cb-match-row">
+                  <p-inputnumber [(ngModel)]="ocrForm.monto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" />
+                  <button pButton type="button" size="small" (click)="runCapMatch()" [loading]="capMatching()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar cobro</span></button>
+                </div>
+              </label>
+              @if (capMatching()) {
+                <div class="cb-view-loading"><i class="pi pi-spin pi-spinner"></i> Buscando el cobro…</div>
+              } @else if (capMatches().length) {
+                <div class="cb-fields-head">Cobros con ese monto <em class="cb-auto">elige el que corresponde</em></div>
+                @for (c of capMatches(); track c.folio) {
+                  <div class="cb-cand" (click)="pickCobro(c)">
+                    <div class="cb-cand-info">
+                      <strong class="mono">{{ c.sucursal }}/{{ c.folio }}</strong>
+                      <span>{{ c.cliente_nombre || c.cliente_code || '—' }}</span>
+                      <span class="cb-sub">{{ c.cobro_date | date:'dd/MM/yy' }} · {{ money(c.monto) }}@if (c.deposits > 0) { · <em class="cb-has">ya tiene ficha</em> }</span>
+                    </div>
+                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
+                  </div>
+                }
+              } @else {
+                <p class="muted">No encontramos un cobro con ese monto. Búscalo a mano:</p>
+                <div class="cb-match-row">
+                  <input pInputText [(ngModel)]="capManualSearch" placeholder="Folio, cliente, monto…" (keyup.enter)="capManualSearchRun()" />
+                  <button pButton type="button" size="small" text (click)="capManualSearchRun()"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
+                </div>
+                @for (c of capManualResults(); track c.folio) {
+                  <div class="cb-cand" (click)="pickCobro(c)">
+                    <div class="cb-cand-info">
+                      <strong class="mono">{{ c.sucursal }}/{{ c.folio }}</strong>
+                      <span>{{ c.cliente_nombre || c.cliente_code || '—' }}</span>
+                      <span class="cb-sub">{{ c.cobro_date | date:'dd/MM/yy' }} · {{ formaLabel(c.forma_pago) }} · {{ money(c.monto) }}</span>
+                    </div>
+                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
+                  </div>
+                }
+              }
+            </div>
+          }
+
+          @if (attachTarget() && fileName()) {
             <div class="cb-fields-head">Datos de la ficha <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
             <div class="cb-grid">
               <label class="cb-f"><span>Monto de la ficha</span><p-inputnumber [(ngModel)]="ocrForm.monto" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
@@ -256,7 +307,9 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          @if (attachTarget()) {
+            <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          }
         </ng-template>
       }
     </p-dialog>
@@ -408,9 +461,17 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
     .cb-orig.ok { color: var(--ok-fg); }
     .cb-orig.bad { color: var(--bad-fg); }
     .cb-orig i { font-size: .8rem; }
-    .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
+    .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; cursor: pointer; transition: border-color .12s; }
+    .cb-cand:hover { border-color: var(--action); }
     .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
     .cb-cand-info > span { font-size: .82rem; color: var(--text-main); }
+    .cb-cap-bar { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .cb-cap-hint { font-size: .8rem; color: var(--text-muted); }
+    .cb-cap-banner { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); border: 1px solid color-mix(in srgb, var(--action) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
+    .cb-match { display: flex; flex-direction: column; gap: .6rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
+    .cb-match-row { display: flex; gap: .5rem; align-items: center; }
+    .cb-match-row > *:first-child { flex: 1; }
+    .cb-has { font-style: normal; color: var(--warn-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -498,6 +559,12 @@ export class FinanzasCobranzaComponent {
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
+  // ficha-first (captura sin elegir cobro): foto → OCR → busca el cobro solo
+  readonly captureMode = signal(false);
+  readonly capMatching = signal(false);
+  readonly capMatches = signal<CobroRow[]>([]);
+  capManualSearch = '';
+  readonly capManualResults = signal<CobroRow[]>([]);
 
   // reject dialog
   readonly showReject = signal(false);
@@ -609,7 +676,21 @@ export class FinanzasCobranzaComponent {
   }
 
   openAttach(c: CobroRow) {
+    this.resetAttach();
     this.attachTarget.set(c);
+    this.captureMode.set(false);
+    this.showAttach.set(true);
+  }
+
+  /** Ficha-first: abre la captura SIN cobro preseleccionado (lo busca el OCR). */
+  openCapture() {
+    this.resetAttach();
+    this.attachTarget.set(null);
+    this.captureMode.set(true);
+    this.showAttach.set(true);
+  }
+
+  private resetAttach() {
     this.fileData = null;
     this.fileName.set('');
     this.ocrForm = {};
@@ -617,8 +698,33 @@ export class FinanzasCobranzaComponent {
     this.uploadedFile.set(null);
     this.uploading.set(false);
     this.attachError.set('');
-    this.showAttach.set(true);
+    this.capMatches.set([]);
+    this.capManualResults.set([]);
+    this.capManualSearch = '';
+    this.capMatching.set(false);
   }
+
+  /** Con la ficha ya leída, busca el cobro por monto+fecha (ficha-first). */
+  runCapMatch() {
+    if (this.ocrForm.monto == null) { this.capMatches.set([]); return; }
+    this.capMatching.set(true);
+    this.svc.matchCobro(this.ocrForm.monto, this.ocrForm.fecha).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.capMatches.set(r.cobros); this.capMatching.set(false); },
+        error: () => { this.capMatching.set(false); this.capMatches.set([]); },
+      });
+  }
+
+  /** Búsqueda manual del cobro cuando el OCR no encontró match. */
+  capManualSearchRun() {
+    const s = this.capManualSearch.trim();
+    if (!s) { this.capManualResults.set([]); return; }
+    this.svc.list({ incluir_todas: '1', search: s }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.capManualResults.set(r.rows.slice(0, 15)), error: () => this.capManualResults.set([]) });
+  }
+
+  /** Elige el cobro (de los sugeridos o del manual) → aparecen los campos + Guardar. */
+  pickCobro(c: CobroRow) { this.attachTarget.set(c); }
 
   onFile(ev: Event) {
     const file = (ev.target as HTMLInputElement).files?.[0];
@@ -659,7 +765,10 @@ export class FinanzasCobranzaComponent {
     this.ocrLoading.set(true);
     this.svc.ocr(this.fileData).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); },
+        next: (f) => {
+          this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false);
+          if (this.captureMode() && !this.attachTarget()) this.runCapMatch(); // ficha-first: busca el cobro solo
+        },
         error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
       });
   }

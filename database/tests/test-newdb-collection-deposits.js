@@ -57,6 +57,15 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
     ok(isOwn('1326933041') === true, 'cuenta 1326933041 (ticket real) → cuenta propia (termina en 3041)');
     ok(isOwn('0009999999') === false, 'cuenta ajena → NO propia');
 
+    // ── 3c. Ficha-first: buscar el cobro por monto+fecha del OCR ──────────────
+    const mMonto = Number(cobro.monto), mFecha = cobro.cobro_date;
+    const found = await knex('analytics.erp_collections as c')
+      .where('c.tenant_id', T).whereIn('c.forma_pago', ['deposito', 'transferencia', 'tarjeta'])
+      .whereRaw('c.monto BETWEEN ? AND ?', [mMonto - 1, mMonto + 1])
+      .whereRaw(`c.cobro_date BETWEEN ?::date - INTERVAL '7 days' AND ?::date + INTERVAL '7 days'`, [mFecha, mFecha])
+      .select('c.folio').limit(20);
+    ok(found.some((r) => r.folio === '0016926'), 'matchCobrosByOcr: ficha $51,049.27 encuentra el cobro 0016926 (sin elegirlo a mano)');
+
     // ── 4. Flujo attach → join → validar → rechazar → CHECK (rollback) ───────
     await knex.transaction(async (trx) => {
       const cobroMonto = Number(cobro.monto);

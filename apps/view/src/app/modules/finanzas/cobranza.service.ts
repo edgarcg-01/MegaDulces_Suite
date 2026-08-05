@@ -143,6 +143,10 @@ export class CobranzaService {
   ocr(file_base64: string): Observable<DepositOcr> {
     return this.http.post<DepositOcr>(`${this.base}/ocr`, { file_base64 });
   }
+  /** Ficha-first: busca el cobro que corresponde al OCR (monto + fecha). */
+  matchCobro(monto: number | null | undefined, fecha: string | null | undefined): Observable<{ cobros: CobroRow[] }> {
+    return this.http.post<{ cobros: CobroRow[] }>(`${this.base}/match-cobro`, { monto, fecha });
+  }
   /** Sube la ficha a Cloudinary y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'deposito'): Observable<DepositFile> {
     return this.http.post<DepositFile>(`${this.base}/upload`, { file_base64, role });
