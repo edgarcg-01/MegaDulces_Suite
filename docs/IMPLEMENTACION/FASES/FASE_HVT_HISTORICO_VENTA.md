@@ -37,13 +37,21 @@ del plan v1). Menos riesgo, menos datos, menos UI. La historia pre-sistema queda
 | **HVT.4** | `<sales-history-peek>` en el drill-down existente | mínima | ⬜ |
 | HVT.5 | (difer.) eje cliente + peek inline en pedido | mínima | ⬜ |
 
-### Hallazgo temprano (HVT.1, ya visible en el rollup)
+### Hallazgo HVT.1 + cuantificación HVT.3 (2026-08-05)
 **Las `units` de `sales_daily` NO son consistentes en el tiempo.** 70056 (MAZAPAN GIGANTE):
 ene-2025 = 4,884 u / $416K ($85/u) → jul-2026 = 25,125 u / $314K ($12.5/u). El precio implícito
-por unidad se desploma ~7× con quiebre ~oct-2025 (onboarding Wincaja): las units se inflan 2-7×
-mientras el **revenue se mantiene/baja**. → La demanda por units (y el `reorder_policy` que se
-computa de ella) está **inflada**; el revenue es el único estable (money-anchored). Esta es la
-causa candidata del sobre-pedido 20-50×. Confirmar/cuantificar en HVT.3.
+por unidad se desploma ~7× con quiebre ~oct-2025 (onboarding Wincaja): las units se inflan
+mientras el **revenue se mantiene/baja**.
+
+**Cuantificado (HVT.3, La Rosa 2026-Q2, 215 SKUs con ref estable 2025-Q1):**
+units reportadas **1,466,367** vs implícitas-por-revenue **375,516** → **inflación 3.90×**
+(por SKU 2.0–5.7×). Como `reorder_policy`/`eff_daily`/IAD se computan de units, quedaron
+inflados ~4×. Descomposición del sobre-pedido 20-50×: ~4× units + ~2-3× metodología
+(workbook=1 ciclo JIT vs nuestro=déficit-a-máx) + hub double-count + stock actual.
+
+**System-wide:** el quiebre afecta a TODA métrica por units (no solo La Rosa); el revenue
+quedó intacto. Corrección de fondo (HVT.2): demanda anclada a **revenue** (`v_sales_demand_truth`),
+no a units. Verificar el alcance del quiebre en otras marcas antes de recalibrar reorder_policy.
 
 ---
 
