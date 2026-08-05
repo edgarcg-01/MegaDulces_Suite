@@ -126,3 +126,19 @@ El mismo patrón (adjunto + OCR + HITL, evidencia read-only sobre Kepler) para d
 1. Aplicar migs `20260803130000` + `20260803130100` a Railway.
 2. Correr `import-supplier-payments.js` + `import-goods-receipts.js` desde LAN con `DATABASE_URL_NEW=<prod>` (Railway no alcanza CEDIS).
 3. Redeploy api+view + re-login.
+
+---
+
+## SP.1–SP.5 — Pago a proveedor al nivel de Cobranza (✅ local + PROD mig batch 161, 2026-08-05)
+
+Grounded en comprobantes BBVA reales (`Z:\Datos Usuarios\0Finanzas\Pagos\2026\<mes>\...`, organizados por banco/cuenta y por proveedor; nombre = factura "F 451", "F 906-907-908"). El comprobante trae mejor llave que la ficha de cobranza: **Concepto de pago = folio(s) de factura**, y el pago Kepler **ya trae ese mismo concepto** (`erp_supplier_payments.concepto` = kdm1.c24).
+
+- **SP.1 OCR dedicado** `extractSupplierPayment` (`SupplierPaymentFields`): lee `concepto` (factura), `cuenta_origen` (retiro propia), `cuenta_destino` (prov.), `beneficiario`, `clave_rastreo`, `banco_destino`, `metodo`. Semántica INVERSA a `extractDepositSlip` (pago saliente; la empresa ordena). Mig `20260805210000`: columnas `ocr_concepto`, `ocr_cuenta_origen`, `cuenta_propia` + `ref_norm` GENERATED (clave normalizada) + índice parcial.
+- **SP.2 Controles**: `cuenta_propia` = la cuenta de ORIGEN ∈ `finance.bank_accounts` (el pago debe salir de cuenta de la empresa; ej. retiro 5712) + dedup de `ref_norm` (transferencia repetida). Badges en tabla, tags en el diálogo ver, KPI "Alertas de control".
+- **SP.3 Ficha-first**: botón "Capturar comprobante" → OCR → `matchPaymentsByOcr` (monto ±$1 + fecha ±7d + boost por token de factura en el concepto) → tap → guarda. Fallback a búsqueda manual. Endpoint `POST /match-pago`.
+- **SP.4 Three-way**: `bankMatch` contra el **CARGO** (`amount_out`) de la cuenta de origen; `confirmBank`/`unlinkBank` persisten en `finance.bank_recon_matches` con `kepler_doc_tipo = doc_prefix` (XD2601/2501/6001). Endpoints `/:id/bank-match` + `/bank-unmatch` (GESTIONAR).
+- **SP.5 Carga masiva** `database/importers/finance/bulk-ingest-supplier-payments.js` (HTTP, reusa OCR→match→upload→attach; **dry-run** por default; `--month`, `--limit`, `--apply`). El nombre del archivo = hint de concepto. Corre desde LAN contra el API.
+
+Smoke `test-newdb-supplier-payment-controls` **13/13** (en regression). Builds api+view OK. Mig `20260805210000` en Railway (batch 161).
+
+**Pendiente prod (SP):** redeploy api+view (código pusheado) + re-login + correr el bulk ingest desde LAN con dry-run → revisar match → `--apply`. Requiere `ANTHROPIC_API_KEY` en el API para el OCR. Diferido: matching por CFDI (`serie F`/`folio 451` vs `fiscal.cfdis`) y liga a la orden de entrada/factura vía `erp_purchase_adjustments.factura_ref` (c11).
