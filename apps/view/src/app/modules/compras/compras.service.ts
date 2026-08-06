@@ -1010,6 +1010,7 @@ export class ComprasService {
     const p = new URLSearchParams();
     if (q.search) p.set('search', q.search);
     if (q.sucursal) p.set('sucursal', q.sucursal);
+    if (q.proveedor_code) p.set('proveedor_code', q.proveedor_code);
     if (q.date_from) p.set('date_from', q.date_from);
     if (q.date_to) p.set('date_to', q.date_to);
     if (q.ajuste) p.set('ajuste', q.ajuste);
@@ -1034,7 +1035,7 @@ export interface LandedCostResponse { summary: { compras: number; descuento: num
 
 export type Compras360AjusteMode = 'con' | 'sin';
 export type Compras360OcMode = 'con' | 'sin';
-export interface Compras360Query { search?: string; sucursal?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
+export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number }
 export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number }; rows: Compras360Row[] }
-export interface Compras360Filters { sucursales: { code: string; n: number }[]; monto_max: number }
+export interface Compras360Filters { sucursales: { code: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }

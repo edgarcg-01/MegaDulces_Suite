@@ -103,10 +103,11 @@ export class PurchaseAdjustmentsController {
 
   @Get('compras-360')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto + neto. Filtros: search, sucursal, date_from, date_to, ajuste (con|sin), con_oc (con|sin), monto_min, monto_max, page, pageSize, all (export ≤5000). con_ajuste sigue por back-compat.' })
+  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto + neto. Filtros: search (prov/OC/folio/vale/concepto), sucursal, proveedor_code, date_from, date_to, ajuste (con|sin), con_oc (con|sin), monto_min, monto_max, page, pageSize, all (export ≤5000). con_ajuste sigue por back-compat.' })
   compras360(
     @Query('search') search?: string,
     @Query('sucursal') sucursal?: string,
+    @Query('proveedor_code') proveedor_code?: string,
     @Query('date_from') date_from?: string,
     @Query('date_to') date_to?: string,
     @Query('con_ajuste') con_ajuste?: string,
@@ -119,7 +120,7 @@ export class PurchaseAdjustmentsController {
     @Query('all') all?: string,
   ) {
     return this.svc.compras360({
-      search, sucursal, date_from, date_to,
+      search, sucursal, proveedor_code, date_from, date_to,
       con_ajuste: con_ajuste === 'true' || con_ajuste === '1',
       ajuste, con_oc,
       monto_min: monto_min != null && monto_min !== '' ? Number(monto_min) : undefined,

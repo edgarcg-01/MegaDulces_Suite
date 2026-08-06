@@ -329,7 +329,7 @@ export class PurchaseAdjustmentsService {
    * en el detalle (`forEntrada`). El join a.entrada_folio=c.folio es 1:0..1 (no infla).
    * analytics.* sin RLS → filtro `tenant_id` explícito.
    */
-  async compras360(q: { search?: string; sucursal?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean } = {}) {
+  async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, q.page || 1);
     const pageSize = q.all ? 5000 : Math.min(200, Math.max(1, q.pageSize || 50));
@@ -344,6 +344,7 @@ export class PurchaseAdjustmentsService {
       const base = () => {
         const b = trx('analytics.erp_goods_receipts as c').leftJoin(adj, 'a.entrada_folio', 'c.folio').where('c.tenant_id', tenantId);
         if (q.sucursal) b.where('c.sucursal', q.sucursal);
+        if (q.proveedor_code) b.where('c.proveedor_code', q.proveedor_code);
         if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
         if (q.date_to) b.where('c.receipt_date', '<=', q.date_to);
         if (q.monto_min != null && !Number.isNaN(q.monto_min)) b.where('c.monto', '>=', q.monto_min);
@@ -352,7 +353,7 @@ export class PurchaseAdjustmentsService {
         else if (q.con_oc === 'sin') b.whereRaw("COALESCE(c.oc_folio,'') = ''");
         if (q.search && q.search.trim()) {
           const s = `%${q.search.trim()}%`;
-          b.where((w: any) => w.where('c.proveedor_nombre', 'ilike', s).orWhere('c.proveedor_code', 'ilike', s).orWhere('c.oc_folio', 'ilike', s).orWhere('c.folio', 'ilike', s));
+          b.where((w: any) => w.where('c.proveedor_nombre', 'ilike', s).orWhere('c.proveedor_code', 'ilike', s).orWhere('c.oc_folio', 'ilike', s).orWhere('c.folio', 'ilike', s).orWhere('c.vale_folio', 'ilike', s).orWhere('c.concepto', 'ilike', s));
         }
         if (ajusteMode === 'con') b.whereRaw('COALESCE(a.ajuste,0) <> 0');
         else if (ajusteMode === 'sin') b.whereRaw('COALESCE(a.ajuste,0) = 0');
@@ -376,16 +377,23 @@ export class PurchaseAdjustmentsService {
     });
   }
 
-  /** CXP.3 — catálogo para los filtros de Compras 360: sucursales presentes (con conteo) + monto máximo. */
+  /** CXP.3 — catálogo para los filtros de Compras 360: sucursales + proveedores (con conteo) + monto máximo. */
   async compras360Filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const sucs: any[] = await trx('analytics.erp_goods_receipts')
         .where('tenant_id', tenantId).whereNotNull('sucursal')
         .groupBy('sucursal').select('sucursal').count({ n: '*' }).orderBy('sucursal', 'asc');
+      const provs: any[] = await trx('analytics.erp_goods_receipts')
+        .where('tenant_id', tenantId).whereNotNull('proveedor_code')
+        .groupBy('proveedor_code')
+        .select('proveedor_code', trx.raw('max(proveedor_nombre) AS proveedor_nombre'))
+        .count({ n: '*' })
+        .orderByRaw('max(proveedor_nombre) asc nulls last');
       const [mx]: any = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).max({ m: 'monto' });
       return {
         sucursales: sucs.map((r) => ({ code: r.sucursal as string, n: Number(r.n) || 0 })),
+        proveedores: provs.map((r) => ({ code: r.proveedor_code as string, nombre: (r.proveedor_nombre as string) || null, n: Number(r.n) || 0 })),
         monto_max: Number(mx?.m) || 0,
       };
     });
