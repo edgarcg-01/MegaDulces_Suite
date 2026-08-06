@@ -59,7 +59,46 @@ function buildModel(row) {
   const kind = productKind(row.unit_sale, row.unit_base);
   const packF = Number(row.pack_size) > 1 ? Number(row.pack_size) : (Number(row.factor_sale) > 1 ? Number(row.factor_sale) : 1);
   const boxF = Number(row.box_size) > 1 ? Number(row.box_size) : (Number(row.factor_sale) > 1 ? Number(row.factor_sale) : 1);
-  return { kind, packF, boxF, gk: gramajeKg(row.content, row.unit_base) };
+  // Escala de precios PROPIA de Kepler (kdii): c90 pieza, c91 paquete, c92 caja + factores c81/c84.
+  // Cuando está presente, toCanonicalPriced identifica el nivel de cada línea por su precio real
+  // (sin depender del label `unidad`, que Kepler escribe de forma inconsistente).
+  return {
+    kind, packF, boxF, gk: gramajeKg(row.content, row.unit_base),
+    pPza: Number(row.p_pza) || 0, pPaq: Number(row.p_paq) || 0, pCaja: Number(row.p_caja) || 0,
+    c81: Number(row.c81) > 1 ? Number(row.c81) : 0, c84: Number(row.c84) > 1 ? Number(row.c84) : 0,
+  };
+}
+
+/**
+ * Identifica el NIVEL de venta de una línea por su precio unitario real contra la escala de
+ * Kepler (c90/c91/c92) y devuelve el factor a PIEZAS: pieza=1, paquete=c81, caja=c84.
+ * Copia la aritmética del ERP; los niveles distan ≥ el factor, así que un descuento no salta nivel.
+ * null si no hay escala de precio válida.
+ */
+function pickPriceTier(model, unitPrice) {
+  if (!(unitPrice > 0)) return null;
+  const opts = [
+    [1, model.pPza],
+    [model.c81 || model.packF || 1, model.pPaq],
+    [model.c84 || model.boxF || 1, model.pCaja],
+  ].filter(([f, pr]) => f >= 1 && pr > 0);
+  if (!opts.length) return null;
+  let bestF = null, bd = Infinity;
+  for (const [f, pr] of opts) { const d = Math.abs(Math.log(unitPrice / pr)); if (d < bd) { bd = d; bestF = f; } }
+  return bestF;
+}
+
+/**
+ * Canónico ANCLADO A PRECIO (fiel al ERP). Producto de PIEZA: pieza = cant × factor_del_nivel,
+ * donde el nivel sale del precio unitario vs la escala de Kepler. Sin escala → NO infla (la
+ * cantidad de Kepler ya suele ser atómica; multiplicar por factor_sale era el bug del 12×).
+ * Producto de PESO: cae al canónico por unidad+gramaje (ahí el label sí es fiable).
+ */
+function toCanonicalPriced(model, u, cant, unitPrice) {
+  if (model.kind === 'weight') return toCanonical(model, u, cant);
+  const f = pickPriceTier(model, unitPrice);
+  if (f != null) return { qty: cant * f, ok: true };
+  return { qty: cant, ok: false }; // fallback atómico (no inflar)
 }
 
 /**
@@ -80,4 +119,4 @@ function toCanonical(model, u, cant) {
   return { qty: cant, ok: false }; // unidad de peso en producto de pieza (raro)
 }
 
-module.exports = { WEIGHT_U, kgFromUnit, gramajeKg, productKind, buildModel, toCanonical };
+module.exports = { WEIGHT_U, kgFromUnit, gramajeKg, productKind, buildModel, toCanonical, pickPriceTier, toCanonicalPriced };

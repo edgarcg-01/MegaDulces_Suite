@@ -23,7 +23,7 @@
 
 const { Client } = require('pg');
 const hb = require('../lib/cron-heartbeat');
-const { productKind, buildModel, toCanonical } = require('./unit-normalization');
+const { productKind, buildModel, toCanonicalPriced } = require('./unit-normalization');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@localhost:5433/kepler_consolidado';
@@ -67,6 +67,27 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
     for (const p of prods) {
       skuTo.set(p.sku, { id: p.id, markup_pct: p.markup_pct, ...buildModel(p) });
     }
+    // Escala de precios PROPIA de Kepler (kdii) por sku: c90 pieza / c91 paquete / c92 caja +
+    // factores c81/c84. Se fusiona en el modelo para que toCanonicalPriced identifique el nivel de
+    // cada línea por su PRECIO real (el label `unidad` de Kepler es inconsistente: escribe 'PAQ'
+    // tanto para la pieza base como para un pack). Union de las sucursales de kepler_consolidado.
+    const kschemas = (await src.query(
+      `SELECT table_schema FROM information_schema.tables WHERE table_name='kdii' AND table_schema LIKE 'md\\_%'`)).rows.map((r) => r.table_schema);
+    if (kschemas.length) {
+      const union = kschemas.map((s) => `SELECT c1,c81,c84,c90,c91,c92 FROM ${s}.kdii`).join(' UNION ALL ');
+      const ladder = (await src.query(
+        `SELECT c1 AS sku, max(c90::numeric) p_pza, max(c91::numeric) p_paq, max(c92::numeric) p_caja,
+                max(c81::numeric) c81, max(c84::numeric) c84 FROM (${union}) t GROUP BY c1`)).rows;
+      let merged = 0;
+      for (const k of ladder) {
+        const m = skuTo.get(String(k.sku));
+        if (!m) continue;
+        m.pPza = Number(k.p_pza) || 0; m.pPaq = Number(k.p_paq) || 0; m.pCaja = Number(k.p_caja) || 0;
+        m.c81 = Number(k.c81) > 1 ? Number(k.c81) : 0; m.c84 = Number(k.c84) > 1 ? Number(k.c84) : 0;
+        merged++;
+      }
+      console.log(`  escala kdii: ${ladder.length} skus en kepler (${kschemas.length} sucursales) · ${merged} match con catálogo`);
+    }
     const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
     const whTo = new Map(whs.map((w) => [w.code, w.id]));
     const nWeight = prods.filter((p) => productKind(p.unit_sale, p.unit_base) === 'weight').length;
@@ -106,7 +127,9 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
       const alm = mapAlmacen(r.almacen);
       const wid = whTo.get(alm);
       if (!wid) { noWh++; continue; }
-      const conv = toCanonical(p, r.unidad, Number(r.cant));
+      const cant = Number(r.cant);
+      const unitPrice = cant !== 0 ? Number(r.revenue) / cant : 0; // precio real de la línea (revela el nivel)
+      const conv = toCanonicalPriced(p, r.unidad, cant, unitPrice);
       if (!conv.ok) unconv++;
       const fecha = r.fecha.toISOString().slice(0, 10);
       const key = `${p.id}|${wid}|${r.channel}|${fecha}`;
