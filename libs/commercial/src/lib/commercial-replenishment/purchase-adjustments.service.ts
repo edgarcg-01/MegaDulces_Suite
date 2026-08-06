@@ -246,7 +246,8 @@ export class PurchaseAdjustmentsService {
       for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; e.n_notas = Number(r.n_nota) || 0; }
       for (const r of comp) { const e = get(r.proveedor_code); e.compras = Number(r.compras) || 0; }
 
-      let rows = [...map.values()].filter((e) => e.desc_pago > 0 || e.desc_nota > 0);
+      // Array.from (NO spread [...]): webpack downlevela [...map.values()] → [iterator] en el bundle del API. Ver feedback_webpack_set_spread_downlevel.
+      let rows = Array.from(map.values()).filter((e) => e.desc_pago > 0 || e.desc_nota > 0);
       if (q.search && q.search.trim()) {
         const s = q.search.trim().toLowerCase();
         rows = rows.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));
@@ -399,7 +400,8 @@ export class PurchaseAdjustmentsService {
       for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; }
       for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; }
 
-      let rows = [...map.values()].filter((e) => e.compras > 0 && e.compras >= minCompras);
+      // Array.from (NO spread): webpack rompe [...map.values()] en el bundle del API → suppliers:0. Ver feedback_webpack_set_spread_downlevel.
+      let rows = Array.from(map.values()).filter((e) => e.compras > 0 && e.compras >= minCompras);
       if (q.search && q.search.trim()) {
         const s = q.search.trim().toLowerCase();
         rows = rows.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));

@@ -112,7 +112,8 @@ export class PagosControlService {
       const get = (mes: string) => { let e = map.get(mes); if (!e) { e = { mes, kepler: 0, banco: 0, n_kepler: 0, n_banco: 0 }; map.set(mes, e); } return e; };
       for (const r of kep) { const e = get(r.mes); e.kepler = Number(r.kepler) || 0; e.n_kepler = Number(r.n_kepler) || 0; }
       for (const r of ban) { const e = get(r.mes); e.banco = Number(r.banco) || 0; e.n_banco = Number(r.n_banco) || 0; }
-      const rows = [...map.values()].sort((a, b) => b.mes.localeCompare(a.mes));
+      // Array.from (NO spread): webpack rompe [...map.values()] en el bundle del API → 1 fila basura. Ver feedback_webpack_set_spread_downlevel.
+      const rows = Array.from(map.values()).sort((a, b) => b.mes.localeCompare(a.mes));
       for (const e of rows) {
         e.delta = e.kepler - e.banco;
         const base = Math.max(e.kepler, e.banco);
