@@ -1,14 +1,19 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
+import { SkeletonModule } from 'primeng/skeleton';
+import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { Subject, debounceTime } from 'rxjs';
+import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentsSummary, AdjustmentRow, AdjustmentsSupplierRow, DuplicateGroup, DiscountReconRow, DiscountReconResponse, DiscountLeakageRow, DiscountLeakageResponse } from '../compras.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -24,7 +29,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
 @Component({
   selector: 'app-compras-descuentos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule],
+  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule, SkeletonModule, ButtonModule, MetricStripComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -32,42 +37,44 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Descuentos y apoyos</h1>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Descuentos y apoyos <app-context-help topic="compras-descuentos" /></h1>
           <p class="surf-page-sub">Notas de crédito y devoluciones de compra de Kepler (X-D-40 / X-D-55) clasificadas por su motivo: descuentos, apoyos de marca y pronto pago — más un detector de facturas duplicadas.</p>
         </div>
-        <div class="dx-toggle" role="tablist">
-          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'ajustes'" (click)="setView('ajustes')">Ajustes</button>
-          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'duplicados'" (click)="setView('duplicados')">Posibles duplicados</button>
-          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'reconciliacion'" (click)="setView('reconciliacion')">Reconciliación</button>
-          <button type="button" class="dx-tog" [class.dx-tog-on]="view() === 'fuga'" (click)="setView('fuga')">Descuento no capturado</button>
+        <div class="dx-toggle" role="tablist" aria-label="Vistas de descuentos y apoyos">
+          <button type="button" role="tab" id="dx-tab-ajustes" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'ajustes'" [attr.aria-selected]="view() === 'ajustes'" (click)="setView('ajustes')">Ajustes</button>
+          <button type="button" role="tab" id="dx-tab-duplicados" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'duplicados'" [attr.aria-selected]="view() === 'duplicados'" (click)="setView('duplicados')">Posibles duplicados</button>
+          <button type="button" role="tab" id="dx-tab-reconciliacion" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'reconciliacion'" [attr.aria-selected]="view() === 'reconciliacion'" (click)="setView('reconciliacion')">Reconciliación</button>
+          <button type="button" role="tab" id="dx-tab-fuga" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'fuga'" [attr.aria-selected]="view() === 'fuga'" (click)="setView('fuga')">Descuento no capturado</button>
         </div>
       </header>
 
-      @if (view() === 'ajustes') {
-        <div class="dx-kpis">
-          @for (g of summary()?.by_grupo || []; track g.key) {
-            <div class="dx-kpi" [attr.data-grupo]="g.key">
-              <span class="dx-kpi-label">{{ grupoLabel(g.key) }}</span>
-              <span class="dx-kpi-val">{{ money(g.monto) }}</span>
-              <span class="dx-kpi-sub">{{ g.n | number }} nota(s)</span>
-            </div>
-          }
-          <div class="dx-kpi dx-kpi-total">
-            <span class="dx-kpi-label">Total</span>
-            <span class="dx-kpi-val">{{ money(summary()?.total?.monto || 0) }}</span>
-            <span class="dx-kpi-sub">{{ (summary()?.total?.n || 0) | number }} nota(s)</span>
-          </div>
+      @if (err(); as e) {
+        <div class="dx-errbox" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span class="dx-errbox-txt">{{ e }}</span>
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="retry()" label="Reintentar"></button>
         </div>
+      }
+
+      <div id="dx-panel" role="tabpanel">
+
+      @if (view() === 'ajustes') {
+        <app-metric-strip [items]="ajustesMetrics()" ariaLabel="Resumen de ajustes por grupo" />
 
         <div class="dx-filters">
-          <p-select [options]="grupoOpts" [(ngModel)]="fGrupo" (onChange)="reload()" optionLabel="label" optionValue="value" placeholder="Todos los grupos" [showClear]="true" styleClass="dx-sel"></p-select>
-          <p-select [options]="doctypeOpts" [(ngModel)]="fDoctype" (onChange)="reload()" optionLabel="label" optionValue="value" placeholder="Ambos documentos" [showClear]="true" styleClass="dx-sel"></p-select>
-          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor o motivo…" class="dx-search" />
+          <p-select [options]="grupoOpts" [(ngModel)]="fGrupo" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Todos los grupos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por grupo"></p-select>
+          <p-select [options]="doctypeOpts" [(ngModel)]="fDoctype" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Ambos documentos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por tipo de documento"></p-select>
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor o motivo…" class="dx-search" aria-label="Buscar por proveedor o motivo" />
           <span class="dx-count">{{ total() | number }} ajuste(s)</span>
         </div>
 
+        @if (loading()) {
+          <div class="dx-skel">
+            @for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }
+          </div>
+        } @else {
         <div class="dx-grid">
-          <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+          <p-table [value]="rows()" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
             <ng-template #header>
               <tr>
                 <th class="dx-w-date">Fecha</th><th class="dx-w-doc">Doc</th><th>Proveedor</th>
@@ -85,7 +92,20 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="dx-empty">Sin ajustes con estos filtros.</td></tr>
+              <tr>
+                <td colspan="6">
+                  <div class="dx-empty-op">
+                    <i class="pi pi-inbox" aria-hidden="true"></i>
+                    <span class="dx-empty-op-title">Sin ajustes de compra</span>
+                    @if (hasFilters()) {
+                      <span class="dx-empty-op-sub">Ningún descuento, apoyo o devolución coincide con los filtros actuales.</span>
+                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="clearFilters()" label="Quitar filtros"></button>
+                    } @else {
+                      <span class="dx-empty-op-sub">No hay notas de crédito ni devoluciones de compra (X-D-40 / X-D-55) cargadas en el periodo.</span>
+                    }
+                  </div>
+                </td>
+              </tr>
             </ng-template>
           </p-table>
 
@@ -100,12 +120,16 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
             @if (!suppliers().length) { <p class="dx-empty">—</p> }
           </aside>
         </div>
+        }
       } @else if (view() === 'duplicados') {
         <div class="dx-dup-banner">
           <span class="dx-dup-risk">{{ money(dupRisk()) }}</span>
           <span class="dx-dup-txt">en riesgo · <strong>{{ dupGroups() | number }}</strong> proveedores facturaron el <strong>mismo monto exacto ≥2 veces</strong> dentro de {{ dupWindow() }} días. Revisar: posible captura doble del comprobante.</span>
         </div>
-        <p-table [value]="dups()" [loading]="dupsLoading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+        @if (dupsLoading()) {
+          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+        } @else {
+        <p-table [value]="dups()" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>
             <tr>
               <th>Proveedor</th><th class="dx-r dx-w-amt">Monto</th><th class="dx-r dx-w-x">Veces</th>
@@ -113,11 +137,15 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
             </tr>
           </ng-template>
           <ng-template #body let-d>
-            <tr>
-              <td class="dx-prov">{{ d.proveedor_nombre || d.proveedor_code || '—' }}</td>
+            <tr class="dx-clickable" role="button" tabindex="0"
+                [attr.aria-label]="'Ver ajustes de ' + (d.proveedor_nombre || d.proveedor_code || '')"
+                (click)="drillTo('ajustes', d.proveedor_nombre || d.proveedor_code)"
+                (keydown.enter)="drillTo('ajustes', d.proveedor_nombre || d.proveedor_code)"
+                (keydown.space)="$event.preventDefault(); drillTo('ajustes', d.proveedor_nombre || d.proveedor_code)">
+              <td class="dx-prov">{{ d.proveedor_nombre || d.proveedor_code || '—' }} <span class="dx-drillhint" aria-hidden="true">→ ajustes</span></td>
               <td class="dx-r">{{ money(d.monto) }}</td>
               <td class="dx-r dx-strong">×{{ d.veces }}</td>
-              <td class="dx-muted">{{ d.desde | date:'dd/MM/yy' }}<span *ngIf="d.span_dias > 0"> – {{ d.hasta | date:'dd/MM/yy' }} ({{ d.span_dias }}d)</span></td>
+              <td class="dx-muted">{{ d.desde | date:'dd/MM/yy' }}@if (d.span_dias > 0) {<span> – {{ d.hasta | date:'dd/MM/yy' }} ({{ d.span_dias }}d)</span>}</td>
               <td class="dx-mono">{{ (d.folios || []).join(', ') }}</td>
               <td class="dx-r dx-strong dx-bad">{{ money(d.monto_riesgo) }}</td>
             </tr>
@@ -126,18 +154,17 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
             <tr><td colspan="6" class="dx-empty">Sin duplicados potenciales en la ventana.</td></tr>
           </ng-template>
         </p-table>
+        }
       } @else if (view() === 'reconciliacion') {
-        <div class="dx-recon-kpis">
-          <div class="dx-kpi" data-grupo="comercial"><span class="dx-kpi-label">Canal pago (c84)</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc_pago || 0) }}</span><span class="dx-kpi-sub">pronto pago al pagar</span></div>
-          <div class="dx-kpi" data-grupo="operacional"><span class="dx-kpi-label">Canal nota (X-D-55)</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc_nota || 0) }}</span><span class="dx-kpi-sub">nota de crédito comercial</span></div>
-          <div class="dx-kpi dx-kpi-total"><span class="dx-kpi-label">Descuento total</span><span class="dx-kpi-val">{{ money(recon()?.summary?.total_desc || 0) }}</span><span class="dx-kpi-sub">{{ recon()?.summary?.suppliers || 0 }} proveedores</span></div>
-          <div class="dx-kpi" data-grupo="error"><span class="dx-kpi-label">Usan ambos canales</span><span class="dx-kpi-val">{{ recon()?.summary?.suppliers_ambos || 0 }}</span><span class="dx-kpi-sub">posible solapamiento — revisar</span></div>
-        </div>
+        <app-metric-strip [items]="reconMetrics()" ariaLabel="Resumen de reconciliación de descuentos" />
         <div class="dx-filters">
-          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" />
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" aria-label="Buscar por proveedor" />
           <span class="dx-count">{{ (recon()?.rows?.length || 0) | number }} proveedor(es)</span>
         </div>
-        <p-table [value]="recon()?.rows || []" [loading]="reconLoading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+        @if (reconLoading()) {
+          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+        } @else {
+        <p-table [value]="recon()?.rows || []" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>
             <tr>
               <th>Proveedor</th><th class="dx-w-canal">Canal</th><th class="dx-r dx-w-amt">Pago (c84)</th>
@@ -145,8 +172,12 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
             </tr>
           </ng-template>
           <ng-template #body let-r>
-            <tr>
-              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+            <tr class="dx-clickable" role="button" tabindex="0"
+                [attr.aria-label]="'Ver ajustes de ' + (r.proveedor_nombre || r.proveedor_code || '')"
+                (click)="drillTo('ajustes', r.proveedor_nombre || r.proveedor_code)"
+                (keydown.enter)="drillTo('ajustes', r.proveedor_nombre || r.proveedor_code)"
+                (keydown.space)="$event.preventDefault(); drillTo('ajustes', r.proveedor_nombre || r.proveedor_code)">
+              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }} <span class="dx-drillhint" aria-hidden="true">→ ajustes</span></td>
               <td><p-tag [value]="canalLabel(r.canal)" [severity]="canalTag(r.canal)"></p-tag></td>
               <td class="dx-r">{{ r.desc_pago ? money(r.desc_pago) : '—' }}</td>
               <td class="dx-r">{{ r.desc_nota ? money(r.desc_nota) : '—' }}</td>
@@ -156,16 +187,20 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="6" class="dx-empty">Sin descuento de proveedor con estos filtros.</td></tr></ng-template>
         </p-table>
+        }
       } @else {
         <div class="dx-dup-banner">
           <span class="dx-dup-risk">{{ money(leak()?.summary?.total_lost || 0) }}</span>
           <span class="dx-dup-txt">de <strong>pronto pago dejado en la mesa</strong> · <strong>{{ leak()?.summary?.suppliers || 0 }}</strong> proveedores que dan descuento tienen pagos liquidados <strong>sin descuento</strong> (c84=0). Oportunidad = tasa habitual × monto pagado completo.</span>
         </div>
         <div class="dx-filters">
-          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" />
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor…" class="dx-search" aria-label="Buscar por proveedor" />
           <span class="dx-count">{{ (leak()?.rows?.length || 0) | number }} proveedor(es)</span>
         </div>
-        <p-table [value]="leak()?.rows || []" [loading]="leakLoading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
+        @if (leakLoading()) {
+          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+        } @else {
+        <p-table [value]="leak()?.rows || []" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>
             <tr>
               <th>Proveedor</th><th class="dx-r dx-w-pct">Tasa</th><th class="dx-r dx-w-x">Sin desc.</th>
@@ -173,8 +208,12 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
             </tr>
           </ng-template>
           <ng-template #body let-r>
-            <tr>
-              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+            <tr class="dx-clickable" role="button" tabindex="0"
+                [attr.aria-label]="'Ver reconciliación de ' + (r.proveedor_nombre || r.proveedor_code || '')"
+                (click)="drillTo('reconciliacion', r.proveedor_nombre || r.proveedor_code)"
+                (keydown.enter)="drillTo('reconciliacion', r.proveedor_nombre || r.proveedor_code)"
+                (keydown.space)="$event.preventDefault(); drillTo('reconciliacion', r.proveedor_nombre || r.proveedor_code)">
+              <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }} <span class="dx-drillhint" aria-hidden="true">→ reconciliación</span></td>
               <td class="dx-r dx-muted">{{ r.rate * 100 | number:'1.2-2' }}%</td>
               <td class="dx-r"><span class="dx-strong">{{ r.n_uncaptured }}</span><span class="dx-muted">/{{ r.n_total }}</span></td>
               <td class="dx-r">{{ money(r.monto_uncaptured) }}</td>
@@ -183,24 +222,19 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="5" class="dx-empty">Sin fuga de descuento (o sin política de proveedor cargada).</td></tr></ng-template>
         </p-table>
+        }
       }
+      </div>
     </div>
   `,
   styles: [`
     :host { display: block; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
-    .dx-toggle { display: inline-flex; border: 1px solid var(--surf-border, var(--border, #e5e1dc)); border-radius: var(--radius-md, 8px); overflow: hidden; flex: 0 0 auto; }
+    .dx-toggle { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; flex: 0 0 auto; }
     .dx-tog { border: 0; background: transparent; padding: .4rem .8rem; font-size: .82rem; cursor: pointer; color: var(--text-muted); }
-    .dx-tog-on { background: var(--surf-2, var(--surface-hover, #f2efeb)); color: var(--text, inherit); font-weight: 600; }
-    .dx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .6rem; margin-bottom: .9rem; }
-    .dx-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .85rem; border: 1px solid var(--surf-border, var(--border, #e5e1dc)); border-left: 3px solid var(--surf-border, var(--border, #e5e1dc)); border-radius: var(--radius-md, 8px); background: var(--surf-card, var(--surface-card, #fff)); }
-    .dx-kpi[data-grupo="comercial"] { border-left-color: var(--action, #c2410c); }
-    .dx-kpi[data-grupo="error"] { border-left-color: var(--bad-fg, #b91c1c); }
-    .dx-kpi[data-grupo="operacional"] { border-left-color: var(--warn-fg, #b45309); }
-    .dx-kpi-total { border-left-color: var(--text, #1c1917); }
-    .dx-kpi-label { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .02em; }
-    .dx-kpi-val { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text, inherit); }
-    .dx-kpi-sub { font-size: .74rem; color: var(--text-muted); }
+    .dx-tog:hover { background: var(--hover-bg); }
+    .dx-tog-on, .dx-tog-on:hover { background: var(--hover-bg); color: var(--text-main); font-weight: 600; }
+    .dx-tog:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .dx-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .dx-sel { min-width: 12rem; }
     .dx-search { min-width: 14rem; }
@@ -208,34 +242,53 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     .dx-grid { display: grid; grid-template-columns: 1fr 15rem; gap: .9rem; align-items: start; }
     @media (max-width: 900px) { .dx-grid { grid-template-columns: 1fr; } }
     .dx-table { font-size: .82rem; }
-    .dx-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .dx-r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; } .dx-w-canal { width: 6rem; } .dx-w-pct { width: 6rem; }
-    .dx-recon-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .6rem; margin-bottom: .9rem; }
     .dx-muted { color: var(--text-muted); }
     .dx-strong { font-weight: 700; }
-    .dx-bad { color: var(--bad-fg, #b91c1c); }
+    .dx-bad { color: var(--bad-fg); }
     .dx-doc { font-size: .74rem; color: var(--text-muted); }
     .dx-prov { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dx-motivo { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-    .dx-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .76rem; color: var(--text-muted); }
+    .dx-mono { font-family: var(--font-mono); font-size: .76rem; color: var(--text-muted); }
     .dx-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
-    .dx-side { border: 1px solid var(--surf-border, var(--border, #e5e1dc)); border-radius: var(--radius-md, 8px); padding: .7rem .85rem; background: var(--surf-card, var(--surface-card, #fff)); }
+    .dx-side { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .7rem .85rem; background: var(--card-bg); }
     .dx-side-title { font-size: .82rem; font-weight: 700; margin: 0 0 .5rem; }
-    .dx-supplier { display: flex; justify-content: space-between; gap: .5rem; padding: .28rem 0; border-bottom: 1px solid var(--surf-border, var(--border, #f0ece7)); font-size: .8rem; }
+    .dx-supplier { display: flex; justify-content: space-between; gap: .5rem; padding: .28rem 0; border-bottom: 1px solid var(--border-color); font-size: .8rem; }
     .dx-supplier:last-child { border-bottom: 0; }
     .dx-supplier-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dx-supplier-val { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-    .dx-dup-banner { display: flex; align-items: baseline; gap: .5rem; padding: .6rem .85rem; margin-bottom: .75rem; border: 1px solid var(--surf-border, var(--border, #e5e1dc)); border-left: 3px solid var(--bad-fg, #b91c1c); border-radius: var(--radius-md, 8px); background: var(--surf-card, var(--surface-card, #fff)); }
-    .dx-dup-risk { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--bad-fg, #b91c1c); }
+    .dx-supplier-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+    .dx-dup-banner { display: flex; align-items: baseline; gap: .5rem; padding: .6rem .85rem; margin-bottom: .75rem; border: 1px solid var(--border-color); border-left: 3px solid var(--bad-fg); border-radius: var(--r-md); background: var(--card-bg); }
+    .dx-dup-risk { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--bad-fg); }
     .dx-dup-txt { font-size: .84rem; color: var(--text-muted); }
+    /* estado de error por vista (banner + reintento) — Empty ≠ error de red */
+    .dx-errbox { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; margin-bottom: .75rem; border: 1px solid var(--bad-border, var(--border-color)); border-left: 3px solid var(--bad-fg); border-radius: var(--r-md); background: var(--card-bg); }
+    .dx-errbox .pi { color: var(--bad-fg); }
+    .dx-errbox-txt { flex: 1; font-size: .84rem; color: var(--text-main); }
+    /* empty state operacional: icono + título + descripción + CTA */
+    .dx-empty-op { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: 2.2rem 1rem; text-align: center; }
+    .dx-empty-op .pi { font-size: 1.6rem; color: var(--text-faint); }
+    .dx-empty-op-title { font-weight: 600; color: var(--text-main); }
+    .dx-empty-op-sub { font-size: .84rem; color: var(--text-muted); max-width: 32rem; }
+    app-metric-strip { display: block; margin-bottom: .9rem; }
+    .dx-skel { display: flex; flex-direction: column; gap: .45rem; padding: .3rem 0; }
+    /* filas navegables a su arreglo (Q.4): clic → tab + filtro por proveedor */
+    tr.dx-clickable { cursor: pointer; }
+    tr.dx-clickable:hover td { background: var(--hover-bg); }
+    tr.dx-clickable:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .dx-drillhint { font-size: .72rem; color: var(--text-faint); margin-left: .35rem; }
   `],
 })
 export class ComprasDescuentosComponent implements OnInit {
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   view = signal<ViewMode>('ajustes');
+  /** Error de red de la vista activa (banner + reintento). Empty ≠ error. */
+  err = signal<string | null>(null);
 
   summary = signal<AdjustmentsSummary | null>(null);
   rows = signal<AdjustmentRow[]>([]);
@@ -283,18 +336,88 @@ export class ComprasDescuentosComponent implements OnInit {
   private readonly GRUPO_LABEL: Record<string, string> = {
     comercial: 'Descuentos y apoyos', operacional: 'Faltantes / devoluciones', error: 'Errores de captura', sin_clasificar: 'Sin clasificar',
   };
+  private readonly GRUPO_TONE: Record<string, MetricTone> = {
+    comercial: 'brand', error: 'bad', operacional: 'warn', sin_clasificar: 'default',
+  };
+
+  /** Filas skeleton mientras carga el grid de ajustes. */
+  readonly skelRows = Array.from({ length: 8 });
+
+  /** KPIs de Ajustes → MetricStrip (sin cajas, Geist mono, count-up). ADR-033. */
+  readonly ajustesMetrics = computed<MetricStripItem[]>(() => {
+    const s = this.summary();
+    const items: MetricStripItem[] = (s?.by_grupo || []).map((g) => ({
+      label: this.grupoLabel(g.key), value: g.monto, format: 'currency-short',
+      tone: this.GRUPO_TONE[g.key] || 'default', sub: `${(g.n || 0).toLocaleString('es-MX')} nota(s)`,
+    }));
+    items.push({
+      label: 'Total', value: s?.total?.monto || 0, format: 'currency-short',
+      tone: 'default', sub: `${(s?.total?.n || 0).toLocaleString('es-MX')} nota(s)`,
+    });
+    return items;
+  });
+
+  /** KPIs de Reconciliación → MetricStrip. Variedad por tono (total=marca, ambos=alerta). */
+  readonly reconMetrics = computed<MetricStripItem[]>(() => {
+    const r = this.recon()?.summary;
+    return [
+      { label: 'Canal pago (c84)', value: r?.total_desc_pago || 0, format: 'currency-short', sub: 'pronto pago al pagar' },
+      { label: 'Canal nota (X-D-55)', value: r?.total_desc_nota || 0, format: 'currency-short', sub: 'nota de crédito' },
+      { label: 'Descuento total', value: r?.total_desc || 0, format: 'currency-short', tone: 'brand', sub: `${r?.suppliers || 0} proveedores` },
+      { label: 'Usan ambos canales', value: r?.suppliers_ambos || 0, format: 'number', tone: 'warn', sub: 'posible solapamiento' },
+    ];
+  });
+
+  private readonly VIEWS: ViewMode[] = ['ajustes', 'duplicados', 'reconciliacion', 'fuga'];
 
   ngOnInit(): void {
-    this.search$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.onSearch());
+    // Estado en URL: rehidratar vista + filtros de los query params (F5 y deep-link).
+    const q = this.route.snapshot.queryParamMap;
+    const v = q.get('view') as ViewMode | null;
+    if (v && this.VIEWS.includes(v)) this.view.set(v);
+    this.fGrupo = q.get('grupo') || '';
+    this.fDoctype = q.get('doctype') || '';
+    this.fSearch = q.get('q') || '';
+
+    this.search$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe(() => { this.syncUrl(); this.onSearch(); });
     this.loadSummary();
-    this.reload();
+    this.loadView(this.view());
   }
 
   setView(v: ViewMode): void {
     this.view.set(v);
-    if (v === 'duplicados' && !this.dupsLoaded) this.loadDuplicates();
-    if (v === 'reconciliacion' && !this.reconLoaded) this.loadRecon();
-    if (v === 'fuga' && !this.leakLoaded) this.loadLeakage();
+    this.err.set(null);
+    this.syncUrl();
+    this.loadView(v);
+  }
+
+  /** Carga (o recarga) la vista activa. Lazy: solo la primera vez, salvo reintento. */
+  private loadView(v: ViewMode, force = false): void {
+    if (v === 'ajustes') this.reload();
+    else if (v === 'duplicados' && (force || !this.dupsLoaded)) this.loadDuplicates();
+    else if (v === 'reconciliacion' && (force || !this.reconLoaded)) this.loadRecon();
+    else if (v === 'fuga' && (force || !this.leakLoaded)) this.loadLeakage();
+  }
+
+  /** Reintento del banner de error: recarga la vista activa. */
+  retry(): void {
+    this.err.set(null);
+    this.loadView(this.view(), true);
+  }
+
+  /** Refleja vista + filtros en la URL (replaceUrl → no ensucia el historial). */
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        view: this.view() === 'ajustes' ? null : this.view(),
+        grupo: this.fGrupo || null,
+        doctype: this.fDoctype || null,
+        q: this.fSearch.trim() || null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   /** El buscador recarga la vista activa (ajustes / reconciliación / fuga). */
@@ -306,18 +429,18 @@ export class ComprasDescuentosComponent implements OnInit {
   }
 
   loadRecon(): void {
-    this.reconLoading.set(true);
+    this.reconLoading.set(true); this.err.set(null);
     this.api.adjustmentsDiscountReconciliation({ search: this.fSearch.trim() || undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.recon.set(r); this.reconLoading.set(false); this.reconLoaded = true; },
-      error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la reconciliación.' }); },
+      error: () => { this.reconLoading.set(false); this.err.set('No se pudo cargar la reconciliación.'); },
     });
   }
 
   loadLeakage(): void {
-    this.leakLoading.set(true);
+    this.leakLoading.set(true); this.err.set(null);
     this.api.adjustmentsDiscountLeakage(this.fSearch.trim() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.leak.set(r); this.leakLoading.set(false); this.leakLoaded = true; },
-      error: () => { this.leakLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el descuento no capturado.' }); },
+      error: () => { this.leakLoading.set(false); this.err.set('No se pudo cargar el descuento no capturado.'); },
     });
   }
 
@@ -336,20 +459,41 @@ export class ComprasDescuentosComponent implements OnInit {
     });
   }
 
+  /** Cambio de filtro (grupo/doctype): refleja en URL y recarga la vista de ajustes. */
+  onFilter(): void { this.syncUrl(); this.reload(); }
+
   reload(): void {
-    this.loading.set(true);
+    this.loading.set(true); this.err.set(null);
     this.api.adjustments({ ...this.query(), pageSize: 200 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.loadSummary(); },
-      error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los ajustes.' }); },
+      error: () => { this.loading.set(false); this.err.set('No se pudieron cargar los ajustes.'); },
     });
   }
 
   loadDuplicates(): void {
-    this.dupsLoading.set(true);
+    this.dupsLoading.set(true); this.err.set(null);
     this.api.adjustmentsDuplicates(30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.dups.set(r.rows); this.dupRisk.set(r.total_riesgo); this.dupGroups.set(r.groups); this.dupWindow.set(r.window_days); this.dupsLoading.set(false); this.dupsLoaded = true; },
-      error: () => { this.dupsLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los duplicados.' }); },
+      error: () => { this.dupsLoading.set(false); this.err.set('No se pudieron cargar los duplicados.'); },
     });
+  }
+
+  hasFilters(): boolean { return !!(this.fGrupo || this.fDoctype || this.fSearch.trim()); }
+
+  /** Q.4 — navega a la vista destino filtrando por el proveedor (su lugar de arreglo). */
+  drillTo(v: ViewMode, proveedor: string | null | undefined): void {
+    this.fSearch = proveedor || '';
+    this.fGrupo = ''; this.fDoctype = '';
+    this.view.set(v);
+    this.err.set(null);
+    this.syncUrl();
+    this.loadView(v, true);
+  }
+
+  /** Limpia filtros (CTA del empty state) y recarga. */
+  clearFilters(): void {
+    this.fGrupo = ''; this.fDoctype = ''; this.fSearch = '';
+    this.syncUrl(); this.reload();
   }
 
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
