@@ -179,9 +179,11 @@ import { Permission } from '../../../core/constants/permissions';
         <!-- ═══ CUADRE DE TRASPASOS (informe desglosado) ═══ -->
         <p-tabpanel value="cuadre">
           <div class="dm-cuadre-bar">
-            <span class="dm-muted">Rango:</span>
-            <p-datepicker [(ngModel)]="cFrom" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
-            <p-datepicker [(ngModel)]="cTo" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
+            <span class="dm-muted">Mes:</span>
+            <p-select [options]="monthOpts" [(ngModel)]="cMonth" (onChange)="onMonthChange()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
+            <span class="dm-muted">o rango:</span>
+            <p-datepicker [(ngModel)]="cFrom" (onSelect)="cMonth=''" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
+            <p-datepicker [(ngModel)]="cTo" (onSelect)="cMonth=''" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
             <button pButton type="button" class="p-button-sm" (click)="loadCuadre()" [loading]="cuadreLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
             <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCuadre()" (click)="downloadCuadre()" title="Reporte mensual del cuadre (contable + físico) en PDF"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Reporte PDF</span></button>
             <span class="dm-muted dm-cuadre-note">Vista de red — ignora el filtro de almacén del Diario.</span>
@@ -593,6 +595,30 @@ export class AlmacenMovimientosComponent implements OnInit {
   activeTab = signal<string>('diario');
   cFrom: Date = new Date(new Date().getFullYear(), 0, 1); // 1-ene del año en curso
   cTo: Date = new Date();
+  cMonth = ''; // '' = rango personalizado (usa cFrom/cTo); 'YYYY-MM' = mes puntual
+  monthOpts = this.buildMonthOpts();
+
+  /** Últimos 18 meses como opciones YYYY-MM + "Rango personalizado". */
+  private buildMonthOpts(): { label: string; value: string }[] {
+    const opts = [{ label: 'Rango personalizado', value: '' }];
+    const now = new Date();
+    let y = now.getFullYear(), m = now.getMonth();
+    for (let i = 0; i < 18; i++) {
+      const label = new Date(y, m, 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+      opts.push({ label: label.charAt(0).toUpperCase() + label.slice(1), value: `${y}-${String(m + 1).padStart(2, '0')}` });
+      m--; if (m < 0) { m = 11; y--; }
+    }
+    return opts;
+  }
+
+  /** Al elegir un mes, fija el rango a ese mes completo y recarga. */
+  onMonthChange(): void {
+    if (!this.cMonth) return; // "Rango personalizado" → usa los datepickers
+    const [y, m] = this.cMonth.split('-').map(Number);
+    this.cFrom = new Date(y, m - 1, 1);
+    this.cTo = new Date(y, m, 0); // día 0 del mes siguiente = último día del mes
+    this.loadCuadre();
+  }
   cuadreLoaded = signal(false);
   cuadreLoading = signal(false);
   dlCuadre = signal(false);                                    // descarga del reporte PDF
