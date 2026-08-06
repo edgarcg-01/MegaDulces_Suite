@@ -259,7 +259,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <header class="dm-block-head">
                   <div>
                     <h2 class="dm-block-title"><i class="pi pi-search" aria-hidden="true"></i> Detalle de pólizas <span class="dm-muted">· dónde está la contraparte</span></h2>
-                    <p class="dm-block-sub">Pareo por importe con tolerancia <strong>±{{ dt.tolerance_pct }}%</strong> + ventana ±{{ dt.window_months }} mes (origen y destino registran el traspaso con costo ligeramente distinto). Lo <strong>sin rastro</strong> es lo que hay que encontrar en Kepler; la referencia trae el folio. Fuente: pólizas Kepler.</p>
+                    <p class="dm-block-sub">Solo traspasos <strong>de sucursal</strong> (se ignoran ajustes de inventario, errores y promos sin destino). Pareo por importe con tolerancia <strong>±{{ dt.tolerance_pct }}%</strong> + ventana ±{{ dt.window_months }} mes. Lo <strong>sin rastro</strong> es lo que hay que encontrar en Kepler. <strong>Clic en una fila</strong> para ver la comparación con su contraparte.</p>
                   </div>
                   <div class="dm-total" [class.ok]="!dt.totals.sin_rastro.n_entrada && !dt.totals.sin_rastro.n_salida" [class.bad]="dt.totals.sin_rastro.n_entrada || dt.totals.sin_rastro.n_salida">
                     <span class="dm-total-lbl">Sin rastro</span>
@@ -285,24 +285,22 @@ import { Permission } from '../../../core/constants/permissions';
                 </div>
 
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Estado</th><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th><th>Contraparte</th></tr></thead>
+                  <thead><tr><th>Estado</th><th>Mes</th><th>Tipo</th><th>Destino</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th><th></th></tr></thead>
                   <tbody>
-                    @if (detailLoading()) { <tr><td colspan="7" class="dm-empty">Cargando…</td></tr> }
+                    @if (detailLoading()) { <tr><td colspan="8" class="dm-empty">Cargando…</td></tr> }
                     @else {
                       @for (r of pagedEntries(dt.entries); track $index) {
-                        <tr [class.dm-hl]="r.bucket !== 'exacto'" [class.dm-hl-strong]="r.bucket === 'sin_rastro'">
+                        <tr class="dm-row" [class.dm-hl]="r.bucket !== 'exacto'" [class.dm-hl-strong]="r.bucket === 'sin_rastro'" (click)="openCmp(r)">
                           <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)" styleClass="dm-tag"></p-tag></td>
                           <td class="dm-mono">{{ r.anio_mes }}</td>
                           <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Ent 515-001' : 'Sal 515-002' }}</td>
+                          <td>{{ r.destino || '—' }}</td>
                           <td class="dm-muted">{{ r.sucursal }}</td>
                           <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
-                          <td class="dm-ref"><span [class.dm-mark]="r.bucket !== 'exacto'">{{ r.referencia || '—' }}</span>@if (r.folio) { <span class="dm-muted"> · {{ r.tipo_pol }}{{ r.folio }}</span> }</td>
-                          <td class="dm-ref">
-                            @if (r.bucket === 'sin_rastro') { <span class="down dm-strong">⚠ sin contraparte en Kepler</span> }
-                            @else { {{ r.cp_ref || '(contraparte)' }} <span class="dm-muted">· suc {{ r.cp_sucursal }} · {{ money(r.cp_importe || 0) }}</span>@if (r.bucket === 'costo') { <span class="dm-delta bad"> · Δ {{ signed(r.delta || 0) }}</span> } }
-                          </td>
+                          <td class="dm-ref"><span [class.dm-mark]="r.bucket !== 'exacto'">{{ r.referencia || '—' }}</span></td>
+                          <td class="dm-r"><span class="dm-link">comparar ›</span></td>
                         </tr>
-                      } @empty { <tr><td colspan="7" class="dm-empty">Sin pólizas con estos filtros.</td></tr> }
+                      } @empty { <tr><td colspan="8" class="dm-empty">Sin pólizas de sucursal con estos filtros.</td></tr> }
                     }
                   </tbody>
                 </table>
@@ -499,6 +497,54 @@ import { Permission } from '../../../core/constants/permissions';
       }
     </p-dialog>
 
+    <!-- Comparación de póliza 515 con su contraparte (desglose del cuadre) -->
+    <p-dialog [(visible)]="cmpOpen" [modal]="true" [style]="{ width: '44rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template #header><span class="dm-dlg-title">Comparación de traspaso</span></ng-template>
+      @if (cmp(); as r) {
+        <div class="dm-cmp-state">
+          <p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)" styleClass="dm-tag"></p-tag>
+          <span class="dm-muted">{{ r.destino }} · {{ r.anio_mes }}</span>
+        </div>
+        <div class="dm-cmp">
+          <!-- Lado póliza -->
+          <div class="dm-cmp-side" [class.rel-out]="r.kind==='salida'" [class.rel-in]="r.kind==='entrada'">
+            <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Entrada · 515-001' : 'Salida · 515-002' }}</h4>
+            <dl class="dm-cmp-dl">
+              <dt>Destino</dt><dd>{{ r.destino || '—' }}</dd>
+              <dt>Sucursal (libro)</dt><dd>{{ r.sucursal }}</dd>
+              <dt>Importe</dt><dd class="dm-strong">{{ money(r.importe) }}</dd>
+              <dt>Referencia</dt><dd class="dm-ref">{{ r.referencia || '—' }}</dd>
+              <dt>Folio</dt><dd class="dm-mono">{{ r.folio ? (r.tipo_pol + r.folio) : '—' }}</dd>
+            </dl>
+          </div>
+          <i class="pi pi-arrows-h dm-cmp-arrow" aria-hidden="true"></i>
+          <!-- Lado contraparte -->
+          @if (r.bucket === 'sin_rastro') {
+            <div class="dm-cmp-side dm-cmp-none">
+              <h4 class="dm-col-h">Contraparte</h4>
+              <p class="down dm-strong">⚠ Sin contraparte en Kepler</p>
+              <p class="dm-muted">No hay una póliza {{ r.kind === 'entrada' ? '515-002 (salida)' : '515-001 (entrada)' }} que cuadre con este importe (±{{ detail()?.tolerance_pct }}%) ni en la ventana de ±1 mes. Esto es lo que hay que localizar en Kepler.</p>
+            </div>
+          } @else {
+            <div class="dm-cmp-side" [class.rel-in]="r.kind==='salida'" [class.rel-out]="r.kind==='entrada'">
+              <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Salida · 515-002' : 'Entrada · 515-001' }}</h4>
+              <dl class="dm-cmp-dl">
+                <dt>Destino</dt><dd>{{ r.cp_destino || '—' }}</dd>
+                <dt>Sucursal (libro)</dt><dd>{{ r.cp_sucursal }}</dd>
+                <dt>Importe</dt><dd class="dm-strong">{{ money(r.cp_importe || 0) }}</dd>
+                <dt>Referencia</dt><dd class="dm-ref">{{ r.cp_ref || '—' }}</dd>
+              </dl>
+            </div>
+          }
+        </div>
+        @if (r.bucket === 'costo') {
+          <div class="dm-cp cp-warn"><i class="pi pi-exclamation-triangle"></i><strong>Diferencia de valuación</strong><span>Δ {{ signed(r.delta || 0) }} — misma transferencia, costo distinto entre origen y destino.</span></div>
+        } @else if (r.bucket === 'exacto') {
+          <div class="dm-cp cp-ok"><i class="pi pi-check-circle"></i><strong>Cuadra exacto</strong><span>Entrada y salida con el mismo importe.</span></div>
+        }
+      }
+    </p-dialog>
+
     <!-- Tabla de líneas reutilizable -->
     <ng-template #linesTpl let-lines="lines" let-totals="totals">
       <p-table [value]="lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="20rem">
@@ -575,6 +621,19 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-pager { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .5rem; font-size: .78rem; }
     .dm-pager-ctrls { display: inline-flex; align-items: center; gap: .5rem; }
     .dm-sub { font-size: .72rem; }
+    .dm-link { color: var(--action, var(--primary-color)); font-size: .76rem; }
+    /* Ventana de comparación */
+    .dm-cmp-state { display: flex; align-items: center; gap: .6rem; margin-bottom: .7rem; }
+    .dm-cmp { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .8rem; }
+    .dm-cmp-side { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .6rem .8rem; }
+    .dm-cmp-side.rel-out { border-left: 3px solid var(--warn-soft-fg, #b4781e); }
+    .dm-cmp-side.rel-in { border-left: 3px solid var(--ok-soft-fg, #2e7d32); }
+    .dm-cmp-side.dm-cmp-none { border-left: 3px solid var(--bad-fg); }
+    .dm-cmp-arrow { color: var(--text-muted); }
+    .dm-cmp-dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; margin: 0; font-size: .8rem; }
+    .dm-cmp-dl dt { color: var(--text-muted); }
+    .dm-cmp-dl dd { margin: 0; text-align: right; }
+    @media (max-width: 640px) { .dm-cmp { grid-template-columns: 1fr; } .dm-cmp-arrow { transform: rotate(90deg); justify-self: center; } }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -768,6 +827,10 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
   onPageSize(): void { this.dPage.set(0); }
   min(a: number, b: number): number { return Math.min(a, b); }
+  // Ventana de comparación de una póliza 515 con su contraparte (desglose del cuadre).
+  cmp = signal<any | null>(null);
+  cmpOpen = false;
+  openCmp(r: any): void { this.cmp.set(r); this.cmpOpen = true; }
 
   /** Cambio de pestaña; carga el informe la 1ª vez que se entra a "cuadre". */
   onTab(v: string | number): void {

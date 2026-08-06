@@ -792,13 +792,33 @@ export class CommercialMovementsService {
     const fSearch = (f.search || '').trim().toLowerCase() || null;
     const fMin = Number(f.min_amount) > 0 ? Number(f.min_amount) : 0;
 
+    // Destino (sucursal) desde la referencia. Solo traspasos ENTRE sucursales interesan;
+    // devuelve null para ajustes/errores/promos ("AJUST.INV", "ERROR INV", "SALIDA MERCANCIA
+    // MUNDIAL", numéricos, fechas) → esos se DESCARTAN (no son de sucursal). Orden importa:
+    // Canindo/Madero antes que genéricos; Piedad antes que ABASTOS pelón; 8/ZAM antes que Zamora.
+    const destino = (ref: string | null): string | null => {
+      const s = (ref || '').toUpperCase();
+      if (/CANINDO|\bCAN\b/.test(s)) return 'Canindo (50)';
+      if (/M\.?M\b|MORELIA MADERO|\bMADERO\b/.test(s)) return 'Morelia Madero (32)';
+      if (/ABASTOS L\.?P|LA PIEDAD|\bPIEDAD\b|\bL\.?P\b|\bA?LP\b/.test(s)) return 'Piedad (02)';
+      if (/M\.?A\b|MORELIA ABAST|\bABASTOS\b/.test(s)) return 'Morelia Abastos (30)';
+      if (/P\.?H\b|PADRE HIDALGO|HIALGO/.test(s)) return 'Padre Hidalgo (01)';
+      if (/8\s*ESQ|8 ZAM|8 ESQUINAS/.test(s)) return '8 Esquinas (03)';
+      if (/YUREC/.test(s)) return 'Yurécuaro (04)';
+      if (/ZAMORA|\bZAM\b/.test(s)) return 'Zamora (05)';
+      if (/CEDIS/.test(s)) return 'CEDIS (00)';
+      return null;
+    };
+
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.gl_poliza_lines')
+      const rowsRaw: any[] = await trx('analytics.gl_poliza_lines')
         .where('tenant_id', tenantId).andWhere('source', 'kepler')
         .andWhereRaw(`cuenta LIKE '515-%'`)
         .andWhere('anio_mes', '>=', padFrom).andWhere('anio_mes', '<=', padTo)
         .andWhereRaw('COALESCE(importe,0) <> 0')
         .select('anio_mes', 'sucursal', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio');
+      // IGNORAR todo lo que no sea traspaso de sucursal (ajustes/errores/promos sin destino).
+      const rows = rowsRaw.map((r) => ({ ...r, destino: destino(r.referencia) })).filter((r) => r.destino);
 
       const entradas: any[] = [], salidas: any[] = [];
       for (const r of rows) {
@@ -846,10 +866,11 @@ export class CommercialMovementsService {
       // Lista CLASIFICADA unificada (para la tabla filtrable de la vista).
       const entries = [...inEnt, ...inSal].map((r) => ({
         anio_mes: r.anio_mes, kind: String(r.cuenta).startsWith('515-001') ? 'entrada' : 'salida',
-        cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe,
+        cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe, destino: r.destino || null,
         referencia: r.referencia || null, tipo_pol: r.tipo_pol || null, folio: r.folio || null,
         bucket: bucketOf(r), delta: r.paired ? r.delta : null,
-        cp_ref: r.cp?.referencia || null, cp_importe: r.cp ? r.cp.importe : null, cp_sucursal: r.cp?.sucursal || null,
+        cp_ref: r.cp?.referencia || null, cp_importe: r.cp ? r.cp.importe : null,
+        cp_sucursal: r.cp?.sucursal || null, cp_destino: r.cp?.destino || null,
       }));
 
       // Totales por balde (SIN filtrar → alimentan las tarjetas de resumen).
