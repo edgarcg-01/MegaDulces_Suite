@@ -200,6 +200,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     let type: InboundMessage['type'] = 'unsupported';
     let text: string | null = null;
     let location: InboundMessage['location'] = null;
+    let media: InboundMessage['media'] = null;
     switch (m?.type) {
       case 'text':
         type = 'text';
@@ -212,6 +213,19 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       case 'image':
         type = 'image';
         text = m?.image?.caption ?? null;
+        // CBW.0: media_id para bajar el binario (ficha de depósito / captura).
+        if (m?.image?.id) media = { id: String(m.image.id), mime_type: m?.image?.mime_type || 'image/jpeg' };
+        break;
+      case 'document':
+        // CBW.0: PDF/documento (ficha en PDF). extractDepositSlip acepta application/pdf.
+        type = 'document';
+        text = m?.document?.caption ?? null;
+        if (m?.document?.id)
+          media = {
+            id: String(m.document.id),
+            mime_type: m?.document?.mime_type || 'application/pdf',
+            filename: m?.document?.filename ?? null,
+          };
         break;
       case 'audio':
         type = 'audio';
@@ -239,8 +253,43 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       type,
       text,
       location,
+      media,
       raw: m,
       timestamp: m?.timestamp ? Number(m.timestamp) : null,
     };
+  }
+
+  /**
+   * CBW.0 — descarga de media de Meta (2 pasos). Paso 1: `GET /{media_id}` →
+   * `{ url, mime_type }` (url temporal, requiere Bearer). Paso 2: GET de esa url
+   * (también con Bearer) → binario. Devuelve buffer + mime, o `null` si faltan
+   * credenciales o Meta responde error (no re-lanza: el flujo degrada a "ilegible").
+   */
+  async downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null> {
+    if (!this.accessToken || !mediaId) {
+      this.logger.warn('downloadMedia: sin WHATSAPP_ACCESS_TOKEN o media_id — no-op.');
+      return null;
+    }
+    try {
+      const meta = await axios.get(`https://graph.facebook.com/${this.graphVersion}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        timeout: this.timeoutMs,
+      });
+      const url = meta.data?.url as string | undefined;
+      const mime = (meta.data?.mime_type as string | undefined) || 'application/octet-stream';
+      if (!url) {
+        this.logger.error(`downloadMedia: Meta no devolvió url para ${mediaId}.`);
+        return null;
+      }
+      const bin = await axios.get(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        responseType: 'arraybuffer',
+        timeout: this.timeoutMs,
+      });
+      return { buffer: Buffer.from(bin.data), mime };
+    } catch (e: any) {
+      this.logger.error(`downloadMedia falló (${mediaId}): ${e?.response?.status} ${e?.message}`);
+      return null;
+    }
   }
 }

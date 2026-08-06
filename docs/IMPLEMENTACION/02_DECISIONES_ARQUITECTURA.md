@@ -1094,6 +1094,20 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-042 — **Captura bancaria por WhatsApp** (Fase CBW): la foto es comprobante en staging, nunca asiento directo
+
+**Fecha:** 2026-08-06 · **Estado:** Aceptado · CBW.0–CBW.4 en diseño · Hereda ADR-016/033/034.
+
+**Contexto:** los encargados de plaza depositan las ventas diarias y hoy mandan la ficha/captura de transferencia por WhatsApp a un número existente, donde se teclea a mano al libro de bancos (Excel/`finance.bank_*`). Se quiere que esa foto entre "sola" al libro, con OCR, atribuida a quién la envió + cuenta + importe. Verificado sobre `01 ENERO 2026.xlsx`: los depósitos son 2,906/mes, 99.8% código `102`, conceptos `VENTAS <plaza>`/tarjeta/efectivo, organizados por sucursal.
+
+**Decisión:** la foto de WhatsApp es un **comprobante en una bandeja de captura (staging)**, **nunca** un asiento directo en `finance.bank_movements`. El movimiento autoritativo lo sigue produciendo el estado de cuenta (importer CB); la captura **se cuadra contra** ese movimiento (patrón `bank_recon_matches`/CC). Tres controles: (1) **allowlist de remitentes** (`finance.bank_capture_senders`) da identidad al teléfono (persona + sucursal + cuenta por defecto) y filtra quién puede postear; un mensaje con imagen de un remitente NO autorizado sigue el camino del bot comercial, no el bancario; (2) **confirmación en el chat** (`SÍ/NO`) antes de persistir como `confirmado`; (3) **validación humana en la UI** (`/finanzas/bancos › Capturas WhatsApp`) antes de cuadrar. El motor pone los números (OCR + resolución de cuenta), el LLM/bot solo comunica.
+
+**Alternativas:** (a) alta directa de un `bank_movement` "capturado por WhatsApp" → rechazada (rompe el modelo statement-based: sin saldo corrido ni cuenta resuelta, contamina el cuadre de CB, viola ADR-016); (b) número dedicado nuevo → innecesario (el ruteo por allowlist separa el flujo bancario del comercial en el mismo número); (c) auto-registrar sin confirmar → rechazada (canal de dinero exige doble control humano).
+
+**Consecuencias:** ✅ reúsa ~85% (canal Meta+webhook de Fase F, OCR `extractDepositSlip` de CC, libro `finance.bank_*` de CB, Cloudinary, identidad E.164); lo nuevo es solo cableado + 2 tablas. ✅ el comprobante queda ligado a persona/sucursal/cuenta sin teclear. ⚠️ requiere el media-download de Meta (FIQ.9, único pendiente del bot) = CBW.0; ⚠️ arranca vacío hasta sembrar el registro de remitentes (teléfono→nombre→sucursal→cuenta). Diferido: cuadre automático captura↔estado de cuenta (CBW.5), notas de voz (STT). Plan en [`FASES/FASE_CBW_BANCOS_WHATSAPP.md`](FASES/FASE_CBW_BANCOS_WHATSAPP.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

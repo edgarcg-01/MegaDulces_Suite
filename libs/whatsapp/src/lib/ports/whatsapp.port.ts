@@ -27,11 +27,17 @@ export interface InboundMessage {
   /** nombre de perfil del contacto, si el proveedor lo manda. */
   profile_name?: string | null;
   /** tipo del mensaje entrante. */
-  type: 'text' | 'interactive' | 'image' | 'audio' | 'location' | 'unsupported';
-  /** cuerpo de texto (o el título del botón/lista elegido en interactive). */
+  type: 'text' | 'interactive' | 'image' | 'document' | 'audio' | 'location' | 'unsupported';
+  /** cuerpo de texto (o el título del botón/lista elegido en interactive; o el caption de la imagen/documento). */
   text?: string | null;
   /** FIQ.5 — ubicación compartida (pin). lat/lng para entrega + geofence. */
   location?: { lat: number; lng: number; name?: string | null; address?: string | null } | null;
+  /**
+   * CBW.0 — adjunto multimedia (image/document). `id` es el media_id de Meta:
+   * hay que llamar `downloadMedia(id)` para bajar el binario. `mime_type` orienta
+   * el OCR (image/* o application/pdf). `filename` solo en documentos.
+   */
+  media?: { id: string; mime_type: string; filename?: string | null } | null;
   /** payload crudo del proveedor por si el orquestador necesita más. */
   raw?: unknown;
   /** epoch segundos del mensaje (del proveedor). */
@@ -108,4 +114,12 @@ export interface WhatsAppPort {
    * status callbacks).
    */
   parseInbound(body: unknown, signature?: string, rawBody?: Buffer | string): InboundMessage[];
+
+  /**
+   * CBW.0 — descarga el binario de un adjunto por su `media_id` (Meta: 2 pasos,
+   * `GET /{media_id}` → url temporal → GET del binario con el token). Devuelve el
+   * buffer + su mime; `null` si no hay credenciales o el media no existe/expiró.
+   * En el simulador, resuelve el media inyectado en el mensaje de prueba.
+   */
+  downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null>;
 }
