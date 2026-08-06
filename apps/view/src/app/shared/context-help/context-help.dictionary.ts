@@ -15,6 +15,71 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  'compras-descuentos': {
+    title: 'Descuentos y apoyos — guía',
+    intro: 'Hace visible lo que la recepción no mostraba: los ajustes de compra de Kepler (notas de crédito y devoluciones) clasificados por su motivo, más detectores de facturas duplicadas y de descuento no capturado. Es lectura (evidencia), no edita el ERP.',
+    groups: [
+      {
+        heading: 'Qué es cada documento',
+        entries: [
+          { term: 'Nota de crédito (X-D-55)', def: 'Ajuste a favor sobre una compra: descuento comercial, apoyo de marca o pronto pago que el proveedor reconoce después de facturar.' },
+          { term: 'Devolución de compra (X-D-40)', def: 'Mercancía que se regresa al proveedor (faltante, mal estado, no solicitada); baja el costo de la compra.' },
+          { term: 'Motivo', def: 'Texto capturado en el documento (campo c24 de Kepler) del que se deduce la categoría y el grupo.' },
+        ],
+      },
+      {
+        heading: 'Grupos (clasificación del motivo)',
+        entries: [
+          { term: 'Descuentos y apoyos', def: 'Comercial: pronto pago, apoyo de marca, descuento comercial. Es dinero a favor, el foco de esta pantalla.' },
+          { term: 'Faltantes / devoluciones', def: 'Operacional: faltante, mal estado, no solicitado, cambios. Corrige la compra, no es un beneficio.' },
+          { term: 'Errores de captura', def: 'Factura duplicada o diferencia de monto: sospecha de captura equivocada; revisar.' },
+          { term: 'Sin clasificar', def: 'El motivo no permitió deducir la categoría. Requiere revisión manual.' },
+        ],
+      },
+      {
+        heading: 'Las 4 vistas',
+        entries: [
+          { term: 'Ajustes', def: 'El listado de todas las notas/devoluciones con su grupo, categoría, proveedor y monto, más el resumen por grupo arriba.' },
+          { term: 'Posibles duplicados', def: 'Detector: un mismo proveedor facturó el MISMO monto exacto ≥2 veces dentro de la ventana (30 días). Señal de captura doble del comprobante. "$ en riesgo" = lo que se pagaría de más si son duplicados reales.' },
+          { term: 'Reconciliación', def: 'De dónde viene el descuento de cada proveedor: por canal de pago (al liquidar) vs por nota de crédito. "Usan ambos canales" marca posible doble conteo.' },
+          { term: 'Descuento no capturado', def: 'Fuga: proveedores que SÍ dan descuento pero tienen pagos liquidados sin él. Oportunidad = tasa habitual × monto pagado completo.' },
+        ],
+      },
+      {
+        heading: 'Términos de reconciliación',
+        entries: [
+          { term: 'Canal pago (c84)', def: 'Descuento aplicado al momento de pagar (pronto pago), registrado en el documento de pago de Kepler (campo c84).' },
+          { term: 'Canal nota (X-D-55)', def: 'Descuento que llegó como nota de crédito separada, después de la factura.' },
+          { term: '% compras', def: 'El descuento total del proveedor como porcentaje de lo que le compraste en el periodo.' },
+        ],
+      },
+    ],
+  },
+  'compras-360': {
+    title: 'Compras 360 — guía',
+    intro: 'El "Excel" de recepción, vivo: una fila por orden de entrada / factura de compra de Kepler con su OC, la factura, el ajuste ligado y el neto. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre.',
+    groups: [
+      {
+        heading: 'Qué es cada columna',
+        entries: [
+          { term: 'Orden de entrada (XA2001)', def: 'El documento de Kepler "Aplica Orden Entrada": la recepción de mercancía que se firma y se factura. Cada fila es una de estas.' },
+          { term: 'OC', def: 'Folio de la Orden de Compra que originó la entrada. Puede venir vacío si la entrada no se ligó a una OC en Kepler.' },
+          { term: 'Vale', def: 'Vale de entrada (X-A-37) intermedio de la cadena de recepción. Referencia de trazabilidad.' },
+          { term: 'Factura', def: 'Monto facturado por el proveedor para esa entrada (con IVA), tal como quedó en Kepler.' },
+          { term: 'Ajuste', def: 'Suma de devoluciones (X-D-40) y notas de crédito (X-D-55) ligadas a la entrada. Se muestra en negativo porque baja el costo.' },
+          { term: 'Neto', def: 'Lo que realmente costó la entrada = Factura − Ajuste. Es el número a usar para el costo real de compra.' },
+        ],
+      },
+      {
+        heading: 'Cómo se liga el ajuste',
+        entries: [
+          { term: 'Match exacto', def: 'La devolución/nota apunta al mismo folio de entrada en Kepler. Es una liga confiable.' },
+          { term: 'Match proveedor+fecha (heurístico)', def: 'Kepler no ligó la nota a la entrada; se asocia por mismo proveedor dentro de una ventana de fechas (±15 días). Es una estimación — revisar antes de darla por cierta.' },
+          { term: 'Solo con ajuste', def: 'Filtro que deja solo las recepciones que tienen alguna devolución o nota ligada (las filas marcadas con la línea ámbar).' },
+        ],
+      },
+    ],
+  },
   'pedido-compras': {
     title: 'Pedido / Reabastecimiento — guía',
     intro: 'Una fila por producto con lo que conviene pedir. El pedido sugerido = venta × cobertura − existencia − tránsito (en cajas). Clic en una fila abre el desglose por sucursal: qué comprar, qué traspasar desde su CEDIS y su sobrestock, con cantidad editable.',

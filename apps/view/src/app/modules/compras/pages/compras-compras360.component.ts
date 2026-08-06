@@ -1,28 +1,42 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { DatePickerModule } from 'primeng/datepicker';
+import { CheckboxModule } from 'primeng/checkbox';
 import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { makeLazyLoad } from '../../../shared/util';
 import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntradaRow } from '../compras.service';
 
 /**
  * CXP.3 — "Compras 360": el Excel de recepciones en una interfaz. Una fila por orden
- * de entrada / factura de Kepler con su OC, la factura, el ajuste ligado exacto
- * (devoluciones/notas confirmadas) y el neto. El detalle abre los ajustes que explican
- * el descuadre (exacto o proveedor+fecha). Read-only sobre analytics.*. Operations mode.
+ * de entrada / factura de Kepler (XA2001) con su OC, la factura, el ajuste ligado exacto
+ * (devoluciones X-D-40 / notas X-D-55 confirmadas) y el neto. El detalle abre los ajustes
+ * que explican el descuadre (exacto o proveedor+fecha heurístico) y navega a Descuentos.
+ * Read-only sobre analytics.*. Operations mode, PrimeNG-first (p-table lazy server-paginado).
  */
 @Component({
   selector: 'app-compras-compras360',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, DialogModule, MetricStripComponent],
+  imports: [
+    CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
+    TableModule, TagModule, DatePickerModule, CheckboxModule, DialogModule, MetricStripComponent, ContextHelpComponent,
+  ],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Compras 360</h1>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Compras 360 <app-context-help topic="compras-360" /></h1>
           <p class="surf-page-sub">Todas las órdenes de entrada y facturas de compra en una vista, con su OC, ajustes (devoluciones/notas ligadas) y neto. El "Excel" de recepción, vivo y filtrable.</p>
         </div>
         <div class="c3-head-actions">
@@ -31,55 +45,80 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
       </header>
 
       <div class="c3-filters">
-        <span class="p-input-icon-left c3-search">
-          <i class="pi pi-search" aria-hidden="true"></i>
-          <input pInputText type="text" placeholder="Proveedor, OC o folio…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" />
-        </span>
-        <input pInputText type="date" [ngModel]="dateFrom()" (ngModelChange)="dateFrom.set($event); reload()" class="p-inputtext-sm" aria-label="Desde" />
-        <input pInputText type="date" [ngModel]="dateTo()" (ngModelChange)="dateTo.set($event); reload()" class="p-inputtext-sm" aria-label="Hasta" />
-        <label class="c3-chk"><input type="checkbox" [ngModel]="conAjuste()" (ngModelChange)="conAjuste.set($event); reload()" /> Solo con ajuste</label>
+        <p-iconfield styleClass="c3-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input pInputText type="text" placeholder="Proveedor, OC o folio…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar por proveedor, OC o folio" />
+        </p-iconfield>
+        <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="c3-dp" ariaLabel="Desde" />
+        <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="c3-dp" ariaLabel="Hasta" />
+        <label class="c3-chk"><p-checkbox [ngModel]="conAjuste()" (ngModelChange)="onToggleAdj($event)" [binary]="true" inputId="c3-adj" /> <span>Solo con ajuste</span></label>
       </div>
+
+      @if (err(); as e) {
+        <div class="c3-errbox" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span class="c3-errbox-txt">{{ e }}</span>
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="retry()" label="Reintentar"></button>
+        </div>
+      }
 
       @if (data(); as d) {
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales de compras" />
-
-        <div class="c3-tablewrap">
-          <table class="c3-table">
-            <thead>
-              <tr>
-                <th>Fecha</th><th>Suc.</th><th>Proveedor</th><th>OC</th><th>Folio</th>
-                <th class="ta-r">Factura</th><th class="ta-r">Ajuste</th><th class="ta-r">Neto</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (r of d.rows; track r.sucursal + r.folio) {
-                <tr (click)="openDetail(r)" class="c3-row" [class.has-adj]="r.ajuste !== 0">
-                  <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
-                  <td class="c3-mono">{{ r.sucursal }}</td>
-                  <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
-                  <td class="c3-mono muted">{{ r.oc_folio || '—' }}</td>
-                  <td class="c3-mono muted">{{ r.folio }}</td>
-                  <td class="ta-r c3-num">{{ money(r.factura) }}</td>
-                  <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</td>
-                  <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
-                </tr>
-              } @empty {
-                <tr><td colspan="8" class="c3-empty">Sin recepciones con esos filtros.</td></tr>
-              }
-            </tbody>
-          </table>
-        </div>
-
-        <div class="c3-pager">
-          <span class="muted">{{ d.total | number }} recepción(es) · página {{ d.page }}</span>
-          <span class="c3-pager-btns">
-            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="d.page <= 1" (click)="goPage(d.page - 1)"><span class="pi pi-chevron-left"></span></button>
-            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="d.page * d.pageSize >= d.total" (click)="goPage(d.page + 1)"><span class="pi pi-chevron-right"></span></button>
-          </span>
-        </div>
-      } @else if (loading()) {
-        <p class="c3-empty" style="margin-top:1.2rem">Cargando…</p>
       }
+
+      <p-table
+        [value]="data()?.rows || []"
+        [loading]="loading()"
+        [lazy]="true"
+        [paginator]="true"
+        [rows]="pageSize()"
+        [totalRecords]="total()"
+        [first]="(page() - 1) * pageSize()"
+        [rowsPerPageOptions]="[25, 50, 100, 200]"
+        (onLazyLoad)="onLazyLoad($event)"
+        styleClass="p-datatable-sm surf-table surf-table--sticky c3-table"
+        [rowHover]="true"
+        [scrollable]="true"
+        scrollHeight="flex"
+        currentPageReportTemplate="{first}–{last} de {totalRecords}"
+        [showCurrentPageReport]="true">
+        <ng-template #header>
+          <tr>
+            <th class="c3-w-date">Fecha</th><th class="c3-w-suc">Suc.</th><th>Proveedor</th><th class="c3-w-oc">OC</th><th class="c3-w-oc">Folio</th>
+            <th class="ta-r c3-w-amt">Factura</th><th class="ta-r c3-w-amt">Ajuste</th><th class="ta-r c3-w-amt">Neto</th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-r>
+          <tr class="c3-row" [class.has-adj]="r.ajuste !== 0" role="button" tabindex="0"
+              [attr.aria-label]="'Ver ajustes de la entrada ' + r.folio + ' de ' + (r.proveedor_nombre || r.proveedor_code || '')"
+              (click)="openDetail(r)"
+              (keydown.enter)="openDetail(r)"
+              (keydown.space)="$event.preventDefault(); openDetail(r)">
+            <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
+            <td class="c3-mono">{{ r.sucursal }}</td>
+            <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+            <td class="c3-mono muted">{{ r.oc_folio || '—' }}</td>
+            <td class="c3-mono muted">{{ r.folio }}</td>
+            <td class="ta-r c3-num">{{ money(r.factura) }}</td>
+            <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</td>
+            <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="8">
+            <div class="c3-empty-op">
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <span class="c3-empty-op-title">Sin recepciones</span>
+              @if (hasFilters()) {
+                <span class="c3-empty-op-sub">Ninguna orden de entrada coincide con los filtros actuales.</span>
+                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="clearFilters()" label="Quitar filtros"></button>
+              } @else {
+                <span class="c3-empty-op-sub">No hay órdenes de entrada ni facturas de compra cargadas en el periodo.</span>
+              }
+            </div>
+          </td></tr>
+        </ng-template>
+      </p-table>
     </div>
 
     <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [style]="{ width: '640px', maxWidth: '95vw' }" [header]="detailHeader()">
@@ -97,42 +136,49 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
           <h4 class="c3-dt-h">Ajustes que explican el descuadre</h4>
           @if (explainsLoading()) {
             <p class="c3-empty">Cargando ajustes…</p>
+          } @else if (explainsErr()) {
+            <p class="c3-empty c3-dt-err">No se pudieron cargar los ajustes de esta recepción. <button type="button" class="c3-linkbtn" (click)="openDetail(detail()!)">Reintentar</button></p>
           } @else if (explains().length === 0) {
             <p class="c3-empty">Sin ajustes ligados a esta recepción.</p>
           } @else {
-            <table class="c3-table c3-dt-table">
-              <thead><tr><th>Fecha</th><th>Tipo</th><th>Motivo</th><th class="ta-r">Monto</th><th>Match</th></tr></thead>
-              <tbody>
-                @for (a of explains(); track a.folio) {
-                  <tr>
-                    <td class="c3-mono">{{ a.adjustment_date ? a.adjustment_date.slice(0,10) : '—' }}</td>
-                    <td class="c3-mono">{{ a.doctype }}</td>
-                    <td [title]="a.motivo">{{ a.categoria || a.motivo || '—' }}</td>
-                    <td class="ta-r c3-num">{{ money(a.monto) }}</td>
-                    <td><span class="c3-match" [class.exact]="a.match === 'exacto'">{{ a.match }}</span></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+            <p-table [value]="explains()" styleClass="p-datatable-sm surf-table c3-dt-table" [scrollable]="true" scrollHeight="40vh">
+              <ng-template #header>
+                <tr><th class="c3-w-date">Fecha</th><th class="c3-w-doc">Tipo</th><th>Motivo</th><th class="ta-r c3-w-amt">Monto</th><th class="c3-w-match">Match</th></tr>
+              </ng-template>
+              <ng-template #body let-a>
+                <tr>
+                  <td class="c3-mono">{{ a.adjustment_date ? a.adjustment_date.slice(0,10) : '—' }}</td>
+                  <td class="c3-mono">{{ a.doctype }}</td>
+                  <td [title]="a.motivo">{{ a.categoria || a.motivo || '—' }}</td>
+                  <td class="ta-r c3-num">{{ money(a.monto) }}</td>
+                  <td><p-tag [value]="a.match" [severity]="a.match === 'exacto' ? 'success' : 'warn'" /></td>
+                </tr>
+              </ng-template>
+            </p-table>
             <p class="c3-dt-note">Total ajustes ligados: <b>{{ money(explainsTotal()) }}</b>. Los match "proveedor+fecha" son heurísticos (Kepler no liga la nota a la entrada) — revisar.</p>
           }
+
+          <div class="c3-dt-actions">
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="drillToDescuentos(r)">
+              <span class="pi pi-arrow-up-right" aria-hidden="true"></span>&nbsp;Ver ajustes de este proveedor en Descuentos
+            </button>
+          </div>
         </div>
       }
     </p-dialog>
   `,
   styles: [`
     :host { display:block; }
+    .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .c3-head-actions { display:flex; gap:.5rem; }
-    .c3-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .4rem; }
+    .c3-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
     .c3-search input { min-width:230px; }
-    .c3-chk { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text-muted); cursor:pointer; }
-    .c3-tablewrap { overflow-x:auto; margin-top:1.2rem; border:1px solid var(--border-color); border-radius:var(--radius-md,8px); }
-    .c3-table { width:100%; border-collapse:collapse; font-size:.82rem; }
-    .c3-table thead th { text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); padding:.55rem .7rem; border-bottom:1px solid var(--border-color); background:var(--surface-hover-bg,transparent); white-space:nowrap; }
-    .c3-table tbody td { padding:.5rem .7rem; border-bottom:1px solid var(--border-color); color:var(--text-main); }
-    .c3-table tbody tr:last-child td { border-bottom:none; }
+    .c3-chk { display:inline-flex; align-items:center; gap:.45rem; font-size:.8rem; color:var(--text-muted); cursor:pointer; }
+    .c3-table { margin-top:.6rem; }
     .c3-row { cursor:pointer; }
-    .c3-row:hover td { background:var(--overlay-hover,color-mix(in srgb,var(--border-color) 25%,transparent)); }
+    .c3-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    /* fila con ajuste = señalar la fila exacta (punto 15) */
+    .c3-row.has-adj > td:first-child { box-shadow:inset 3px 0 0 var(--warn-fg); }
     .ta-r { text-align:right; }
     .c3-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .c3-num { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -140,9 +186,18 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
     .c3-neg { color:var(--bad-fg); }
     .c3-prov { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .muted { color:var(--text-faint); }
+    .c3-w-date { width:6rem; } .c3-w-suc { width:4rem; } .c3-w-oc { width:7rem; } .c3-w-amt { width:8rem; } .c3-w-doc { width:5rem; } .c3-w-match { width:6rem; }
     .c3-empty { padding:1.4rem; text-align:center; color:var(--text-faint); font-size:.85rem; }
-    .c3-pager { display:flex; align-items:center; justify-content:space-between; margin-top:.7rem; font-size:.78rem; }
-    .c3-pager-btns { display:flex; gap:.2rem; }
+    /* error de red (banner + reintento) — Empty ≠ error */
+    .c3-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--bad-border, var(--border-color)); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
+    .c3-errbox .pi { color:var(--bad-fg); }
+    .c3-errbox-txt { flex:1; font-size:.84rem; color:var(--text-main); }
+    /* empty operacional: icono + título + microcopy + CTA */
+    .c3-empty-op { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2.4rem 1rem; text-align:center; }
+    .c3-empty-op .pi { font-size:1.6rem; color:var(--text-faint); }
+    .c3-empty-op-title { font-weight:600; color:var(--text-main); }
+    .c3-empty-op-sub { font-size:.84rem; color:var(--text-muted); max-width:32rem; }
+    app-metric-strip { display:block; margin:.9rem 0; }
     /* detalle */
     .c3-dt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem 1rem; margin-bottom:1rem; }
     .c3-dt-grid > div { display:flex; flex-direction:column; gap:.15rem; }
@@ -151,64 +206,141 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
     .c3-dt-h { font-size:.82rem; font-weight:700; margin:.4rem 0 .5rem; color:var(--text-main); }
     .c3-dt-table { font-size:.78rem; }
     .c3-dt-note { font-size:.72rem; color:var(--text-faint); margin-top:.6rem; line-height:1.5; }
-    .c3-match { font-size:.66rem; padding:.05rem .35rem; border-radius:4px; background:var(--warn-soft-bg); color:var(--warn-fg); }
-    .c3-match.exact { background:var(--ok-soft-bg,var(--bad-soft-bg)); color:var(--ok-fg); }
+    .c3-dt-err { color:var(--bad-fg); }
+    .c3-linkbtn { background:none; border:0; color:var(--action); cursor:pointer; font:inherit; text-decoration:underline; padding:0; }
+    .c3-dt-actions { margin-top:1rem; padding-top:.7rem; border-top:1px solid var(--border-color); display:flex; justify-content:flex-end; }
     @media (max-width:560px) { .c3-dt-grid { grid-template-columns:repeat(2,1fr); } }
   `],
 })
 export class ComprasCompras360Component implements OnInit {
   private readonly svc = inject(ComprasService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
   readonly data = signal<Compras360Response | null>(null);
   readonly loading = signal(false);
   readonly exporting = signal(false);
+  /** Error de red de la lista (banner + reintento). Empty ≠ error. */
+  readonly err = signal<string | null>(null);
   readonly search = signal('');
-  readonly dateFrom = signal('');
-  readonly dateTo = signal('');
+  readonly dateFrom = signal<Date | null>(null);
+  readonly dateTo = signal<Date | null>(null);
   readonly conAjuste = signal(false);
-  private page = 1;
+  readonly page = signal(1);
+  readonly pageSize = signal(50);
+  readonly total = signal(0);
   private searchTimer: any;
 
   readonly detail = signal<Compras360Row | null>(null);
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
   readonly explainsLoading = signal(false);
+  readonly explainsErr = signal(false);
   readonly explainsTotal = signal(0);
   readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio}` : ''; });
 
-  ngOnInit(): void { this.reload(); }
+  /** onLazyLoad de p-table → page/pageSize + recarga (helper compartido). */
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.reload());
+
+  ngOnInit(): void {
+    // Estado en URL: rehidratar filtros + página (F5 y deep-link).
+    const q = this.route.snapshot.queryParamMap;
+    this.search.set(q.get('q') || '');
+    this.dateFrom.set(this.fromIso(q.get('from')));
+    this.dateTo.set(this.fromIso(q.get('to')));
+    this.conAjuste.set(q.get('adj') === '1');
+    const p = parseInt(q.get('page') || '1', 10);
+    this.page.set(!Number.isFinite(p) || p < 1 ? 1 : p);
+    // La carga inicial la dispara el onLazyLoad de la p-table.
+  }
+
+  /** Date → 'YYYY-MM-DD' (local, sin correr por TZ). */
+  private toIso(d: Date | null): string | undefined {
+    if (!d) return undefined;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  /** 'YYYY-MM-DD' → Date (local). */
+  private fromIso(s: string | null): Date | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }
 
   private query(all = false) {
-    return { search: this.search() || undefined, date_from: this.dateFrom() || undefined, date_to: this.dateTo() || undefined, con_ajuste: this.conAjuste(), page: this.page, all };
+    return { search: this.search().trim() || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()), con_ajuste: this.conAjuste(), page: this.page(), pageSize: this.pageSize(), all };
+  }
+
+  /** Refleja filtros + página en la URL (replaceUrl → no ensucia el historial). */
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        q: this.search().trim() || null,
+        from: this.toIso(this.dateFrom()) || null,
+        to: this.toIso(this.dateTo()) || null,
+        adj: this.conAjuste() ? '1' : null,
+        page: this.page() > 1 ? this.page() : null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   reload(): void {
-    this.loading.set(true);
-    this.svc.compras360(this.query()).subscribe({
-      next: (d) => { this.data.set(d); this.loading.set(false); },
-      error: () => { this.loading.set(false); },
+    this.loading.set(true); this.err.set(null);
+    this.svc.compras360(this.query()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.data.set(d); this.total.set(d.total); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.err.set('No se pudieron cargar las recepciones.'); },
     });
   }
+
+  /** Reintento del banner de error. */
+  retry(): void { this.err.set(null); this.reload(); }
 
   onSearch(v: string): void {
     this.search.set(v);
     if (this.searchTimer) clearTimeout(this.searchTimer);
-    this.searchTimer = setTimeout(() => { this.page = 1; this.reload(); }, 320);
+    this.searchTimer = setTimeout(() => { this.page.set(1); this.syncUrl(); this.reload(); }, 320);
   }
 
-  goPage(p: number): void { this.page = Math.max(1, p); this.reload(); }
+  onDate(which: 'from' | 'to', v: Date | null): void {
+    (which === 'from' ? this.dateFrom : this.dateTo).set(v);
+    this.page.set(1); this.syncUrl(); this.reload();
+  }
+
+  onToggleAdj(v: boolean): void {
+    this.conAjuste.set(v); this.page.set(1); this.syncUrl(); this.reload();
+  }
+
+  hasFilters(): boolean { return !!(this.search().trim() || this.dateFrom() || this.dateTo() || this.conAjuste()); }
+
+  clearFilters(): void {
+    this.search.set(''); this.dateFrom.set(null); this.dateTo.set(null); this.conAjuste.set(false);
+    this.page.set(1); this.syncUrl(); this.reload();
+  }
 
   openDetail(r: Compras360Row): void {
     this.detail.set(r);
-    this.explains.set([]); this.explainsTotal.set(0); this.explainsLoading.set(true);
-    this.svc.adjustmentsForEntrada({ proveedor_code: r.proveedor_code, entrada_folio: r.folio, date: r.receipt_date?.slice(0, 10), window_days: 15 }).subscribe({
+    this.explains.set([]); this.explainsTotal.set(0); this.explainsErr.set(false); this.explainsLoading.set(true);
+    this.svc.adjustmentsForEntrada({ proveedor_code: r.proveedor_code, entrada_folio: r.folio, date: r.receipt_date?.slice(0, 10), window_days: 15 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => { this.explains.set(res.rows || []); this.explainsTotal.set(res.total_monto || 0); this.explainsLoading.set(false); },
-      error: () => { this.explainsLoading.set(false); },
+      error: () => { this.explainsLoading.set(false); this.explainsErr.set(true); },
     });
   }
   closeDetail(): void { this.detail.set(null); }
 
+  /** Q.4 — navega a Descuentos filtrando por el proveedor (su lugar de arreglo). */
+  drillToDescuentos(r: Compras360Row): void {
+    const prov = r.proveedor_nombre || r.proveedor_code || '';
+    this.closeDetail();
+    this.router.navigate(['/compras/descuentos'], { queryParams: { q: prov } });
+  }
+
   exportCsv(): void {
     this.exporting.set(true);
-    this.svc.compras360(this.query(true)).subscribe({
+    this.svc.compras360(this.query(true)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         const head = ['Fecha', 'Sucursal', 'Proveedor', 'Codigo', 'OC', 'Folio', 'Factura', 'Ajuste', 'Neto'];
         const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -225,8 +357,8 @@ export class ComprasCompras360Component implements OnInit {
     return [
       { label: 'Recepciones', value: d.total, format: 'number', tone: 'default' },
       { label: 'Factura total', value: d.totals.factura, format: 'currency-short', tone: 'default' },
-      { label: 'Ajustes ligados', value: d.totals.ajuste, format: 'currency-short', tone: 'warn' },
-      { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand' },
+      { label: 'Ajustes ligados', value: d.totals.ajuste, format: 'currency-short', tone: 'warn', sub: 'devoluciones + notas' },
+      { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand', sub: 'factura − ajuste' },
     ];
   }
 
