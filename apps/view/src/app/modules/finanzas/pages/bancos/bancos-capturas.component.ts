@@ -33,7 +33,7 @@ import { money0, dmy } from './bancos-shared';
         <span class="bc-kpi-n mono">{{ money(kpis().total_monto) }}</span><span class="bc-kpi-l">Monto (conf.+valid.)</span></div>
     </div>
 
-    <p class="bc-note">Depósitos recibidos por WhatsApp de los encargados de plaza. Valida para aplicarlos; luego cuadran contra el estado de cuenta.</p>
+    <p class="bc-note">Depósitos recibidos por WhatsApp de los encargados de plaza. Al validar, el depósito se agrega al libro (Movimientos) automáticamente.</p>
 
     @if (loading()) {
       <div class="bc-skel" aria-busy="true">@for (i of [1,2,3,4,5]; track i) { <div class="bc-skel-row"></div> }</div>
@@ -66,10 +66,10 @@ import { money0, dmy } from './bancos-shared';
               </td>
               <td class="ta-r">
                 @if (r.status !== 'validado' && r.status !== 'rechazado' && r.status !== 'descartado') {
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="validate(r)" title="Validar"><i class="pi pi-check"></i></button>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="validate(r)" title="Validar y agregar al libro"><i class="pi pi-check"></i></button>
                   <button pButton type="button" class="p-button-sm p-button-text btn-ghost-danger" (click)="reject(r)" title="Rechazar"><i class="pi pi-times"></i></button>
                 } @else if (r.status === 'validado') {
-                  <i class="pi pi-check-circle ok" title="Validada"></i>
+                  <i class="pi pi-check-circle ok" title="En el libro"></i>
                 }
               </td>
             </tr>
@@ -154,8 +154,8 @@ export class BancosCapturasComponent implements OnInit {
 
   validate(r: BankCapture): void {
     this.api.validate(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.toast.add({ severity: 'success', summary: 'Validada', life: 1500 }); this.load(); },
-      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo validar.', life: 3000 }),
+      next: () => { this.toast.add({ severity: 'success', summary: 'Agregado al libro', detail: 'El depósito se registró en Movimientos.', life: 2500 }); this.load(); },
+      error: (e) => this.toast.add({ severity: 'error', summary: 'No se pudo validar', detail: e?.error?.message || 'Revisa que tenga cuenta asignada.', life: 4000 }),
     });
   }
 
