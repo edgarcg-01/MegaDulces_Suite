@@ -15,7 +15,7 @@ import { TabsModule } from 'primeng/tabs';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
-  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse,
+  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse, LedgerDetailFilters,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -272,42 +272,40 @@ import { Permission } from '../../../core/constants/permissions';
                   <div class="dm-subacc-card"><span class="dm-subacc-code down">Sin rastro · salidas</span><span class="dm-subacc-val down">{{ money(dt.totals.sin_rastro.amt_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_salida }}</span></span></div>
                 </div>
 
-                <h3 class="dm-h3">Sin rastro — a revisar en Kepler</h3>
+                <!-- Filtros de la vista -->
+                <div class="dm-filters dm-detail-filters">
+                  <p-select [options]="bucketOpts" [(ngModel)]="dBucket" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
+                  <p-select [options]="dKindOpts" [(ngModel)]="dKind" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
+                  <p-select [options]="sucOpts()" [(ngModel)]="dSuc" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
+                  <p-select [options]="dMinOpts" [(ngModel)]="dMin" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
+                  <span class="dm-search"><input pInputText type="text" [(ngModel)]="dSearch" (keyup.enter)="loadDetail()" placeholder="Buscar folio o referencia…" aria-label="Buscar folio o referencia" /></span>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="loadDetail()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
+                </div>
+
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th></tr></thead>
+                  <thead><tr><th>Estado</th><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th><th>Contraparte</th></tr></thead>
                   <tbody>
-                    @for (r of dt.rows; track $index) {
-                      <tr>
-                        <td class="dm-mono">{{ r.anio_mes }}</td>
-                        <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Entrada 515-001' : 'Salida 515-002' }}</td>
-                        <td class="dm-muted">{{ r.sucursal }}</td>
-                        <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
-                        <td class="dm-ref">{{ r.referencia || '—' }}</td>
-                      </tr>
-                    } @empty { <tr><td colspan="5" class="dm-empty">Todo pareó (exacto o con diferencia de costo). 🎉</td></tr> }
+                    @if (detailLoading()) { <tr><td colspan="7" class="dm-empty">Cargando…</td></tr> }
+                    @else {
+                      @for (r of dt.entries; track $index) {
+                        <tr>
+                          <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)" styleClass="dm-tag"></p-tag></td>
+                          <td class="dm-mono">{{ r.anio_mes }}</td>
+                          <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Ent 515-001' : 'Sal 515-002' }}</td>
+                          <td class="dm-muted">{{ r.sucursal }}</td>
+                          <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
+                          <td class="dm-ref">{{ r.referencia || '—' }}</td>
+                          <td class="dm-ref">
+                            @if (r.bucket === 'sin_rastro') { <span class="dm-muted">— sin contraparte —</span> }
+                            @else { {{ r.cp_ref || '(contraparte)' }} <span class="dm-muted">· suc {{ r.cp_sucursal }}</span>@if (r.bucket === 'costo') { <span class="dm-delta bad"> · Δ {{ signed(r.delta || 0) }}</span> } }
+                          </td>
+                        </tr>
+                      } @empty { <tr><td colspan="7" class="dm-empty">Sin pólizas con estos filtros.</td></tr> }
+                    }
                   </tbody>
                 </table>
-                @if (dt.truncated) { <div class="dm-check-foot dm-muted">Mostrando las {{ dt.rows.length }} de mayor importe de {{ dt.total }} — acotá el rango para ver todas.</div> }
-
-                @if (dt.cost_pairs.length) {
-                  <h3 class="dm-h3">Pareadas con diferencia de costo <span class="dm-muted">(la contraparte SÍ existe — Δ = valuación)</span></h3>
-                  <table class="dm-docs dm-tbl">
-                    <thead><tr><th>Mes</th><th>Entrada (515-001)</th><th class="dm-r">Importe ent.</th><th>Salida (515-002)</th><th class="dm-r">Importe sal.</th><th class="dm-r">Δ costo</th></tr></thead>
-                    <tbody>
-                      @for (p of dt.cost_pairs; track $index) {
-                        <tr>
-                          <td class="dm-mono">{{ p.anio_mes }}</td>
-                          <td class="dm-ref up">{{ p.entrada_ref || '—' }} <span class="dm-muted">· suc {{ p.sucursal_entrada }}</span></td>
-                          <td class="dm-r">{{ money(p.entrada_importe) }}</td>
-                          <td class="dm-ref down">{{ p.salida_ref || '—' }} <span class="dm-muted">· suc {{ p.sucursal_salida }}</span></td>
-                          <td class="dm-r">{{ money(p.salida_importe) }}</td>
-                          <td class="dm-r dm-delta bad">{{ signed(p.delta) }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                  @if (dt.cost_truncated) { <div class="dm-check-foot dm-muted">Mostrando los {{ dt.cost_pairs.length }} de mayor Δ de {{ dt.cost_total }}.</div> }
-                }
+                @if (dt.entries_truncated) { <div class="dm-check-foot dm-muted">Mostrando las {{ dt.entries.length }} de mayor importe de {{ dt.entries_total }} — acotá con los filtros.</div> }
+                @else if (!detailLoading()) { <div class="dm-check-foot dm-muted">{{ dt.entries_total | number }} pólizas con los filtros actuales.</div> }
               </section>
             }
 
@@ -507,6 +505,7 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-subacc-code { font-size: .72rem; font-weight: 600; }
     .dm-subacc-val { font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .dm-subacc-n { font-size: .72rem; font-weight: 400; }
+    .dm-detail-filters { margin: .6rem 0 .4rem; }
     .dm-ref { font-size: .78rem; max-width: 30rem; }
     .dm-block-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.2rem; }
     @media (max-width: 60rem) { .dm-block-grid { grid-template-columns: 1fr; } }
@@ -662,7 +661,31 @@ export class AlmacenMovimientosComponent implements OnInit {
   ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
-  detail = signal<TransfersLedgerDetailResponse | null>(null); // pólizas 515 sin contraparte
+  detail = signal<TransfersLedgerDetailResponse | null>(null); // pólizas 515 clasificadas
+  detailLoading = signal(false);
+  // Filtros de la vista del detalle (server-side)
+  dBucket: '' | 'exacto' | 'costo' | 'sin_rastro' = '';
+  dKind: '' | 'entrada' | 'salida' = '';
+  dSuc = '';
+  dSearch = '';
+  dMin: number | null = null;
+  bucketOpts = [
+    { label: 'Todos los estados', value: '' },
+    { label: 'Sin rastro', value: 'sin_rastro' },
+    { label: 'Con diferencia de costo', value: 'costo' },
+    { label: 'Exactas', value: 'exacto' },
+  ];
+  dKindOpts = [
+    { label: 'Entradas y salidas', value: '' },
+    { label: 'Entrada 515-001', value: 'entrada' },
+    { label: 'Salida 515-002', value: 'salida' },
+  ];
+  dMinOpts = [
+    { label: 'Cualquier monto', value: null },
+    { label: '≥ $10,000', value: 10000 },
+    { label: '≥ $50,000', value: 50000 },
+    { label: '≥ $100,000', value: 100000 },
+  ];
 
   /** Cambio de pestaña; carga el informe la 1ª vez que se entra a "cuadre". */
   onTab(v: string | number): void {
@@ -679,14 +702,37 @@ export class AlmacenMovimientosComponent implements OnInit {
       ledger: this.api.transfersLedger(f),
       matrix: this.api.transfersMatrix(f),
       check: this.api.transfersCheck(f),
-      detail: this.api.transfersLedgerDetail(f),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
-        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check); this.detail.set(r.detail);
+        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check);
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
     });
+    this.loadDetail();
+  }
+
+  private detailFilters(): LedgerDetailFilters {
+    return { bucket: this.dBucket, kind: this.dKind, sucursal: this.dSuc || undefined, search: this.dSearch || undefined, min_amount: this.dMin };
+  }
+
+  /** Carga (o recarga con filtros) el detalle clasificado de pólizas 515. */
+  loadDetail(): void {
+    const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
+    this.detailLoading.set(true);
+    this.api.transfersLedgerDetail(f, this.detailFilters())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.detail.set(r); this.detailLoading.set(false); },
+        error: () => { this.detailLoading.set(false); },
+      });
+  }
+
+  /** Opciones de sucursal para el filtro (desde la balanza por sucursal). */
+  sucOpts(): { label: string; value: string }[] {
+    const base = [{ label: 'Todas las sucursales', value: '' }];
+    const s = (this.ledger()?.by_sucursal || []).map((x) => ({ label: `Sucursal ${x.sucursal}`, value: String(x.sucursal) }));
+    return base.concat(s);
   }
 
   /** DM.12 — descarga el reporte mensual del cuadre en PDF (rango de la pestaña). */
@@ -724,6 +770,12 @@ export class AlmacenMovimientosComponent implements OnInit {
     return (this.check()?.rows ?? []).filter((r) => r.status !== 'ok');
   }
   matrixQtyOk(delta: number): boolean { return Math.abs(Number(delta) || 0) < 0.01; }
+  bucketLabel(b: string): string {
+    return b === 'exacto' ? 'Exacta' : b === 'costo' ? 'Dif. costo' : 'Sin rastro';
+  }
+  bucketSev(b: string): 'success' | 'warn' | 'danger' {
+    return b === 'exacto' ? 'success' : b === 'costo' ? 'warn' : 'danger';
+  }
   checkLabel(s: string): string {
     return s === 'diferencia' ? 'Diferencia' : s === 'sin_recepcion' ? 'Sin recepción' : s === 'sin_origen' ? 'Sin origen' : 'OK';
   }

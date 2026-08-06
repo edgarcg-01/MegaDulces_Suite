@@ -149,6 +149,21 @@ export interface LedgerCostPair {
   entrada_importe: number; salida_importe: number; delta: number;
   entrada_ref: string | null; salida_ref: string | null;
 }
+/** Póliza 515 clasificada (tabla filtrable): bucket + contraparte (dónde está). */
+export interface LedgerEntry {
+  anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string;
+  importe: number; referencia: string | null; tipo_pol: string | null; folio: string | null;
+  bucket: 'exacto' | 'costo' | 'sin_rastro'; delta: number | null;
+  cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null;
+}
+/** Filtros de la vista del detalle. */
+export interface LedgerDetailFilters {
+  bucket?: '' | 'exacto' | 'costo' | 'sin_rastro';
+  kind?: '' | 'entrada' | 'salida';
+  sucursal?: string;
+  search?: string;
+  min_amount?: number | null;
+}
 export interface TransfersLedgerDetailResponse {
   range: { from: string; to: string };
   tolerance_pct: number; window_months: number;
@@ -158,6 +173,7 @@ export interface TransfersLedgerDetailResponse {
     cost: { n: number; diff_total: number };
     sin_rastro: { n_entrada: number; amt_entrada: number; n_salida: number; amt_salida: number };
   };
+  entries: LedgerEntry[]; entries_total: number; entries_truncated: boolean;
   rows: LedgerDetailRow[]; total: number; truncated: boolean;
   cost_pairs: LedgerCostPair[]; cost_total: number; cost_truncated: boolean;
 }
@@ -214,9 +230,13 @@ export class AlmacenMovimientosService {
   transfersMatrix(f: MovementsFilters): Observable<TransfersMatrixResponse> {
     return this.http.get<TransfersMatrixResponse>(`${this.base}/transfers-matrix`, { params: this.params(f) });
   }
-  /** DM.12 — pólizas 515 sin contraparte (el detalle del descuadre). */
-  transfersLedgerDetail(f: MovementsFilters): Observable<TransfersLedgerDetailResponse> {
-    return this.http.get<TransfersLedgerDetailResponse>(`${this.base}/transfers-ledger-detail`, { params: this.params(f) });
+  /** DM.12 — pólizas 515 clasificadas (exacto/costo/sin_rastro) + contraparte, con filtros de vista. */
+  transfersLedgerDetail(f: MovementsFilters, d: LedgerDetailFilters = {}): Observable<TransfersLedgerDetailResponse> {
+    const extra: Record<string, string | number | undefined> = {
+      bucket: d.bucket || undefined, detail_kind: d.kind || undefined, sucursal: d.sucursal || undefined,
+      q: d.search || undefined, min_amount: d.min_amount || undefined,
+    };
+    return this.http.get<TransfersLedgerDetailResponse>(`${this.base}/transfers-ledger-detail`, { params: this.params(f, extra) });
   }
   setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
     return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);
