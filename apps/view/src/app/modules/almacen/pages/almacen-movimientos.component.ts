@@ -598,12 +598,17 @@ export class AlmacenMovimientosComponent implements OnInit {
   cMonth = ''; // '' = rango personalizado (usa cFrom/cTo); 'YYYY-MM' = mes puntual
   monthOpts = this.buildMonthOpts();
 
-  /** Últimos 18 meses como opciones YYYY-MM + "Rango personalizado". */
+  // Los datos del cuadre arrancan en ene-2026 (balanza mayor 515). No ofrecer meses
+  // anteriores → saldrían vacíos. Ver cobertura por fuente en la nota de DM.12.
+  private static readonly DATA_START = { y: 2026, m: 0 }; // enero 2026 (m 0-based)
+
+  /** Meses desde ene-2026 hasta el mes actual (desc) + "Rango personalizado". */
   private buildMonthOpts(): { label: string; value: string }[] {
     const opts = [{ label: 'Rango personalizado', value: '' }];
     const now = new Date();
     let y = now.getFullYear(), m = now.getMonth();
-    for (let i = 0; i < 18; i++) {
+    const start = AlmacenMovimientosComponent.DATA_START;
+    while (y > start.y || (y === start.y && m >= start.m)) {
       const label = new Date(y, m, 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
       opts.push({ label: label.charAt(0).toUpperCase() + label.slice(1), value: `${y}-${String(m + 1).padStart(2, '0')}` });
       m--; if (m < 0) { m = 11; y--; }
