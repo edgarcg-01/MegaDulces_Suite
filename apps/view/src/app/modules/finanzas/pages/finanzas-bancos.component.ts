@@ -31,6 +31,7 @@ import { BancosMovimientosComponent } from './bancos/bancos-movimientos.componen
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
 import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.component';
 import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
+import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -40,7 +41,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent],
+  imports: [FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent, BancosCapturasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -160,6 +161,11 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
         } @else {
           <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
         }
+      }
+
+      <!-- ── CAPTURAS WHATSAPP: bandeja de depósitos recibidos por WhatsApp (CBW.4) ── -->
+      @if (view() === 'capturas') {
+        <bancos-capturas />
       }
 
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-core';
 import { BankCaptureService } from './bank-capture.service';
+import { BankCaptureController } from './bank-capture.controller';
 
 /**
  * Fase CBW (ADR-042) — Captura bancaria por WhatsApp. Reusa `CloudinaryModule`
@@ -10,6 +11,7 @@ import { BankCaptureService } from './bank-capture.service';
  */
 @Module({
   imports: [CloudinaryModule, AiProductMatcherModule],
+  controllers: [BankCaptureController],
   providers: [BankCaptureService],
   exports: [BankCaptureService],
 })

@@ -148,6 +148,168 @@ export class BankCaptureService {
     return { reply: 'Ok, lo descarté. Si te equivocaste, vuelve a enviar la foto. 🙌', capture_id: row.id };
   }
 
+  // ── Bandeja / backend (CBW.4) ──────────────────────────────────────────────
+
+  /** Lista las capturas con filtros + KPIs por estado (para /finanzas/bancos › Capturas WhatsApp). */
+  async list(q: { status?: string; from?: string; to?: string; search?: string; limit?: number }): Promise<{ rows: any[]; kpis: any }> {
+    return this.tk.run(async (trx) => {
+      const base = trx('finance.bank_capture_inbox as i')
+        .leftJoin('finance.bank_capture_senders as s', 's.id', 'i.sender_id')
+        .leftJoin('finance.bank_accounts as a', 'a.id', 'i.bank_account_id');
+      if (q.status) base.where('i.status', q.status);
+      if (q.from) base.where('i.created_at', '>=', `${q.from} 00:00:00`);
+      if (q.to) base.where('i.created_at', '<=', `${q.to} 23:59:59`);
+      if (q.search) {
+        const s = `%${q.search}%`;
+        base.where((b: any) =>
+          b.whereILike('s.full_name', s).orWhereILike('i.ocr_banco', s).orWhereILike('i.concept', s).orWhereILike('i.from_phone', s),
+        );
+      }
+      const rows = await base
+        .clone()
+        .orderBy('i.created_at', 'desc')
+        .limit(Math.min(500, q.limit || 200))
+        .select(
+          'i.id', 'i.status', 'i.from_phone', 'i.sucursal', 'i.concept',
+          'i.amount_in', 'i.amount_out', 'i.movement_date', 'i.ocr_banco', 'i.ocr_cuenta_dest',
+          'i.ocr_referencia', 'i.ocr_status', 'i.files', 'i.bank_movement_id', 'i.notified_at', 'i.created_at',
+          's.full_name as sender_name',
+          trx.raw(`COALESCE(a.bank || ' ' || a.account_label, NULL) as cuenta`),
+        );
+      const kpiRows = await trx('finance.bank_capture_inbox')
+        .groupBy('status')
+        .select('status')
+        .count('* as n')
+        .sum('amount_in as monto');
+      const kpis: any = { pendiente_confirmacion: 0, confirmado: 0, validado: 0, rechazado: 0, descartado: 0, total_monto: 0 };
+      for (const r of kpiRows) {
+        kpis[r.status] = Number(r.n);
+        if (r.status === 'confirmado' || r.status === 'validado') kpis.total_monto += Number(r.monto) || 0;
+      }
+      return { rows, kpis };
+    });
+  }
+
+  /** Detalle de una captura. */
+  async get(id: string): Promise<any> {
+    return this.tk.run((trx) =>
+      trx('finance.bank_capture_inbox as i')
+        .leftJoin('finance.bank_capture_senders as s', 's.id', 'i.sender_id')
+        .leftJoin('finance.bank_accounts as a', 'a.id', 'i.bank_account_id')
+        .where('i.id', id)
+        .first('i.*', 's.full_name as sender_name', trx.raw(`COALESCE(a.bank || ' ' || a.account_label, NULL) as cuenta`)),
+    );
+  }
+
+  /** Corrige la atribución (humano) antes de validar: cuenta/sucursal/concepto/monto/fecha. */
+  async updateAttribution(id: string, patch: Record<string, any>): Promise<any> {
+    const allowed = ['bank_account_id', 'sucursal', 'concept', 'amount_in', 'amount_out', 'movement_date', 'comentarios'];
+    return this.tk.run(async (trx) => {
+      const upd: Record<string, any> = { updated_at: trx.fn.now() };
+      for (const k of allowed) if (k in patch) upd[k] = patch[k];
+      const [row] = await trx('finance.bank_capture_inbox').where({ id }).update(upd).returning('*');
+      return row;
+    });
+  }
+
+  /** Valida la captura (revisor). `confirmado`/`pendiente` → `validado`. */
+  async validate(id: string, actor: string): Promise<any> {
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_capture_inbox')
+        .where({ id })
+        .whereIn('status', ['pendiente_confirmacion', 'confirmado'])
+        .update({ status: 'validado', validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
+        .returning(['id', 'status']);
+      return row;
+    });
+  }
+
+  /** Rechaza la captura (revisor) con motivo. */
+  async reject(id: string, actor: string, motivo?: string): Promise<any> {
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_capture_inbox')
+        .where({ id })
+        .whereNotIn('status', ['rechazado'])
+        .update({ status: 'rechazado', motivo_rechazo: motivo ?? null, validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
+        .returning(['id', 'status']);
+      return row;
+    });
+  }
+
+  /**
+   * Candidatos de movimiento del estado de cuenta para cuadrar una captura
+   * (mismo monto ±$1, fecha ±7d). Reusa el criterio del matcher de CB.
+   */
+  async matchCandidates(id: string): Promise<any[]> {
+    return this.tk.run(async (trx) => {
+      const cap = await trx('finance.bank_capture_inbox').where({ id }).first('amount_in', 'movement_date', 'bank_account_id');
+      if (!cap) return [];
+      const amt = Number(cap.amount_in) || 0;
+      const q = trx('finance.bank_movements as m')
+        .leftJoin('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
+        .whereRaw('m.amount_in BETWEEN ? AND ?', [amt - 1, amt + 1])
+        .andWhere('m.recon_status', '!=', 'ignored');
+      if (cap.movement_date) {
+        q.whereRaw(`m.movement_date BETWEEN ?::date - INTERVAL '7 days' AND ?::date + INTERVAL '7 days'`, [cap.movement_date, cap.movement_date]);
+      }
+      if (cap.bank_account_id) q.andWhere('m.bank_account_id', cap.bank_account_id);
+      return q.orderBy('m.movement_date', 'desc').limit(20)
+        .select('m.id', 'm.movement_date', 'm.amount_in', 'm.concept', trx.raw(`a.bank || ' ' || a.account_label as cuenta`));
+    });
+  }
+
+  /** Cuadra la captura contra un movimiento real del estado de cuenta + la valida. */
+  async matchMovement(id: string, bankMovementId: string, actor: string): Promise<any> {
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_capture_inbox')
+        .where({ id })
+        .update({ bank_movement_id: bankMovementId, status: 'validado', validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
+        .returning(['id', 'status', 'bank_movement_id']);
+      return row;
+    });
+  }
+
+  // ── Admin de remitentes (allowlist) ────────────────────────────────────────
+
+  async listSenders(): Promise<any[]> {
+    return this.tk.run((trx) =>
+      trx('finance.bank_capture_senders as s')
+        .leftJoin('finance.bank_accounts as a', 'a.id', 's.default_bank_account_id')
+        .orderBy('s.full_name', 'asc')
+        .select('s.id', 's.phone', 's.full_name', 's.sucursal', 's.default_bank_account_id', 's.active', trx.raw(`a.bank || ' ' || a.account_label as cuenta`)),
+    );
+  }
+
+  async createSender(dto: { phone: string; full_name: string; sucursal?: string; default_bank_account_id?: string; created_by?: string }): Promise<any> {
+    const phone = normalizeMxPhone(dto.phone) || dto.phone;
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_capture_senders')
+        .insert({
+          tenant_id: this.tenantId(),
+          phone,
+          full_name: dto.full_name,
+          sucursal: dto.sucursal ?? null,
+          default_bank_account_id: dto.default_bank_account_id ?? null,
+          created_by: dto.created_by ?? null,
+        })
+        .onConflict(['tenant_id', 'phone'])
+        .merge({ full_name: dto.full_name, sucursal: dto.sucursal ?? null, default_bank_account_id: dto.default_bank_account_id ?? null, active: true, updated_at: trx.fn.now() })
+        .returning('*');
+      return row;
+    });
+  }
+
+  async updateSender(id: string, patch: Record<string, any>): Promise<any> {
+    const allowed = ['full_name', 'sucursal', 'default_bank_account_id', 'active'];
+    return this.tk.run(async (trx) => {
+      const upd: Record<string, any> = { updated_at: trx.fn.now() };
+      for (const k of allowed) if (k in patch) upd[k] = patch[k];
+      if ('phone' in patch) upd.phone = normalizeMxPhone(patch.phone) || patch.phone;
+      const [row] = await trx('finance.bank_capture_senders').where({ id }).update(upd).returning('*');
+      return row;
+    });
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   private tenantId(): string {
