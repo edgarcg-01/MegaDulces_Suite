@@ -400,6 +400,37 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
+   * CXP.6 — Póliza contable (Kepler) de una recepción/factura. Confirma que el documento
+   * se ASENTÓ en libros: header (¿cuadra? Σcargos−Σabonos≈0) + las patas (102 Bancos /
+   * 201 Proveedores / gasto). Join a `analytics.gl_polizas`/`gl_poliza_lines` por
+   * `(source='kepler', sucursal, tipo_pol, folio)` — el folio de la póliza = folio del doc
+   * (verificado 96.7% de cobertura para XA2001). analytics.* sin RLS → tenant explícito.
+   */
+  async polizaForReceipt(q: { sucursal: string; folio: string; tipo_pol?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const tipo = q.tipo_pol || 'XA2001';
+    if (!q.sucursal || !q.folio) return { found: false, cuadra: false, polizas: [], lines: [] };
+    return this.tk.run(async (trx) => {
+      const key = { tenant_id: tenantId, source: 'kepler', sucursal: q.sucursal, tipo_pol: tipo, folio: q.folio };
+      const polizas: any[] = await trx('analytics.gl_polizas').where(key)
+        .select('ejercicio', 'periodo', 'anio_mes', 'fecha', 'concepto',
+          trx.raw('cargos::numeric AS cargos'), trx.raw('abonos::numeric AS abonos'), trx.raw('neto::numeric AS neto'), 'num_lines')
+        .orderBy('anio_mes', 'asc');
+      const lines: any[] = await trx('analytics.gl_poliza_lines').where(key)
+        .select('ejercicio', 'periodo', 'num_movto', 'cuenta', 'cuenta_nombre', 'cuenta_afectable', 'cargo_abono',
+          trx.raw('importe::numeric AS importe'))
+        .orderBy([{ column: 'ejercicio' }, { column: 'periodo' }, { column: 'num_movto' }]);
+      const cuadra = polizas.length > 0 && polizas.every((p) => Math.abs(Number(p.neto) || 0) < 0.01);
+      return {
+        found: polizas.length > 0,
+        cuadra,
+        polizas: polizas.map((p) => ({ ...p, cargos: Number(p.cargos) || 0, abonos: Number(p.abonos) || 0, neto: Number(p.neto) || 0 })),
+        lines: lines.map((l) => ({ ...l, importe: Number(l.importe) || 0 })),
+      };
+    });
+  }
+
+  /**
    * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
    * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
    * `rate` = desc/compras; `costo_neto` = compras − desc. Le dice al comprador que su

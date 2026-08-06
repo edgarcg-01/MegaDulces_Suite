@@ -130,6 +130,13 @@ export class PurchaseAdjustmentsController {
     });
   }
 
+  @Get('poliza-for-receipt')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.6 — póliza contable (Kepler) de una recepción/factura: header (¿cuadra?) + patas (cuenta/cargo-abono/importe). Confirma el asiento en libros (102/201/gasto). Params: sucursal, folio, tipo_pol (default XA2001).' })
+  polizaForReceipt(@Query('sucursal') sucursal?: string, @Query('folio') folio?: string, @Query('tipo_pol') tipo_pol?: string) {
+    return this.svc.polizaForReceipt({ sucursal: sucursal || '', folio: folio || '', tipo_pol });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })

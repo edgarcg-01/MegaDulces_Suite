@@ -1031,7 +1031,19 @@ export class ComprasService {
   compras360Filters(): Observable<Compras360Filters> {
     return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters`);
   }
+
+  /** CXP.6 — póliza contable (Kepler) de una recepción/factura: ¿cuadra? + patas. */
+  polizaForReceipt(q: { sucursal: string; folio: string; tipo_pol?: string }): Observable<PolizaForReceipt> {
+    const p = new URLSearchParams();
+    p.set('sucursal', q.sucursal); p.set('folio', q.folio);
+    if (q.tipo_pol) p.set('tipo_pol', q.tipo_pol);
+    return this.http.get<PolizaForReceipt>(`${this.adjBase}/poliza-for-receipt?${p.toString()}`);
+  }
 }
+
+export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
+export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }
+export interface PolizaForReceipt { found: boolean; cuadra: boolean; polizas: PolizaHeader[]; lines: PolizaLine[] }
 
 export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean }
 export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number }; rows: LandedCostRow[] }
