@@ -997,10 +997,13 @@ export class ComprasService {
   }
 
   /** CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo. */
-  landedCost(q: { min_compras?: number; search?: string } = {}): Observable<LandedCostResponse> {
+  landedCost(q: { min_compras?: number; search?: string; date_from?: string; date_to?: string; only_anomalo?: boolean } = {}): Observable<LandedCostResponse> {
     const p = new URLSearchParams();
     if (q.min_compras) p.set('min_compras', String(q.min_compras));
     if (q.search) p.set('search', q.search);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.only_anomalo) p.set('only_anomalo', '1');
     const qs = p.toString();
     return this.http.get<LandedCostResponse>(`${this.adjBase}/landed-cost${qs ? '?' + qs : ''}`);
   }

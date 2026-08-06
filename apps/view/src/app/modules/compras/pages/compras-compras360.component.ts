@@ -15,7 +15,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { makeLazyLoad } from '../../../shared/util';
+import { makeLazyLoad, DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
 import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, AdjustmentForEntradaRow } from '../compras.service';
 
 /**
@@ -253,14 +253,7 @@ export class ComprasCompras360Component implements OnInit {
   readonly proveedorOpts = computed(() => (this.filters()?.proveedores || []).map((p) => ({ label: `${p.nombre || p.code} · ${p.n}`, value: p.code })));
   readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
   readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];
-  readonly presetOpts = [
-    { label: 'Hoy', value: 'hoy' },
-    { label: 'Últimos 7 días', value: 'd7' },
-    { label: 'Últimos 30 días', value: 'd30' },
-    { label: 'Este mes', value: 'mes' },
-    { label: 'Mes pasado', value: 'mes_prev' },
-    { label: 'Este año', value: 'anio' },
-  ];
+  readonly presetOpts = DATE_PRESET_OPTIONS;
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly total = signal(0);
@@ -386,20 +379,9 @@ export class ComprasCompras360Component implements OnInit {
   /** Rango rápido: fija Desde/Hasta según el preset (mes en curso, mes pasado, etc.). */
   onPreset(key: string | null): void {
     this.preset.set(key || '');
-    if (!key) return; // limpiar el chip no borra las fechas ya elegidas
-    const now = new Date();
-    const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
-    let from: Date; let to: Date = new Date(y, m, d);
-    switch (key) {
-      case 'hoy': from = new Date(y, m, d); break;
-      case 'd7': from = new Date(y, m, d - 6); break;
-      case 'd30': from = new Date(y, m, d - 29); break;
-      case 'mes': from = new Date(y, m, 1); break;
-      case 'mes_prev': from = new Date(y, m - 1, 1); to = new Date(y, m, 0); break;
-      case 'anio': from = new Date(y, 0, 1); break;
-      default: return;
-    }
-    this.dateFrom.set(from); this.dateTo.set(to);
+    const r = key ? datePresetRange(key) : null;
+    if (!r) return; // limpiar el chip no borra las fechas ya elegidas
+    this.dateFrom.set(r.from); this.dateTo.set(r.to);
     this.page.set(1); this.syncUrl(); this.reload();
   }
 

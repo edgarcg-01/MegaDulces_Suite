@@ -132,9 +132,18 @@ export class PurchaseAdjustmentsController {
 
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search.' })
-  landedCost(@Query('min_compras') min_compras?: string, @Query('search') search?: string) {
-    return this.svc.landedCost({ min_compras: min_compras ? Number(min_compras) : undefined, search });
+  @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })
+  landedCost(
+    @Query('min_compras') min_compras?: string,
+    @Query('search') search?: string,
+    @Query('date_from') date_from?: string,
+    @Query('date_to') date_to?: string,
+    @Query('only_anomalo') only_anomalo?: string,
+  ) {
+    return this.svc.landedCost({
+      min_compras: min_compras ? Number(min_compras) : undefined, search, date_from, date_to,
+      only_anomalo: only_anomalo === 'true' || only_anomalo === '1',
+    });
   }
 
   @Get('by-supplier')

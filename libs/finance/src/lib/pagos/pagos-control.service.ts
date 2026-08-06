@@ -26,7 +26,7 @@ export class PagosControlService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  async overview() {
+  async overview(q: { date_from?: string; date_to?: string } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       // 1) Hallazgos abiertos de las reglas CxP (pocos cientos) → agregación en JS.
@@ -52,9 +52,14 @@ export class PagosControlService {
         .select('titulo', trx.raw('importe::numeric AS importe'), 'finding_id', 'created_at')
         .orderBy('importe', 'desc').limit(100);
 
-      // 3) Reconciliación de descuentos (resumen), desde los espejos Kepler.
-      const [pago] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).sum({ s: 'descuento' });
-      const [nota] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId).whereIn('categoria', COMERCIAL_CATS).sum({ s: 'monto' });
+      // 3) Reconciliación de descuentos (resumen), desde los espejos Kepler. Acotada al
+      //    periodo cuando se pide (los KPIs de arriba son estado ACTUAL, no dependen del rango).
+      const [pago] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId)
+        .modify((b: any) => { if (q.date_from) b.where('pago_date', '>=', q.date_from); if (q.date_to) b.where('pago_date', '<=', q.date_to); })
+        .sum({ s: 'descuento' });
+      const [nota] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId).whereIn('categoria', COMERCIAL_CATS)
+        .modify((b: any) => { if (q.date_from) b.where('adjustment_date', '>=', q.date_from); if (q.date_to) b.where('adjustment_date', '<=', q.date_to); })
+        .sum({ s: 'monto' });
       const descPago = Number(pago?.s) || 0;
       const descNota = Number(nota?.s) || 0;
 
@@ -92,19 +97,19 @@ export class PagosControlService {
    * (ContPAQi) a nivel cuenta ya vive en Fase CB. `estado`: cuadra (|Δ|≤10%), revisar,
    * sin_banco/sin_kepler (falta el feed de ese mes). finance.* con RLS; analytics sin RLS.
    */
-  async conciliacion(q: { from_mes?: string; to_mes?: string } = {}) {
+  async conciliacion(q: { date_from?: string; date_to?: string } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const kep: any[] = await trx('analytics.erp_supplier_payments')
         .where('tenant_id', tenantId)
-        .modify((b: any) => { if (q.from_mes) b.whereRaw(`to_char(pago_date,'YYYY-MM') >= ?`, [q.from_mes]); if (q.to_mes) b.whereRaw(`to_char(pago_date,'YYYY-MM') <= ?`, [q.to_mes]); })
+        .modify((b: any) => { if (q.date_from) b.where('pago_date', '>=', q.date_from); if (q.date_to) b.where('pago_date', '<=', q.date_to); })
         .groupByRaw(`to_char(pago_date,'YYYY-MM')`)
         .select(trx.raw(`to_char(pago_date,'YYYY-MM') AS mes`), trx.raw('sum(monto)::numeric AS kepler'), trx.raw('count(*)::int AS n_kepler'));
 
       const ban: any[] = await trx('finance.bank_movements as bm')
         .join('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('bm.tenant_id', tenantId).whereIn('mc.group_key', ['compra', 'factoraje']).where('bm.amount_out', '>', 0)
-        .modify((b: any) => { if (q.from_mes) b.whereRaw(`to_char(bm.movement_date,'YYYY-MM') >= ?`, [q.from_mes]); if (q.to_mes) b.whereRaw(`to_char(bm.movement_date,'YYYY-MM') <= ?`, [q.to_mes]); })
+        .modify((b: any) => { if (q.date_from) b.where('bm.movement_date', '>=', q.date_from); if (q.date_to) b.where('bm.movement_date', '<=', q.date_to); })
         .groupByRaw(`to_char(bm.movement_date,'YYYY-MM')`)
         .select(trx.raw(`to_char(bm.movement_date,'YYYY-MM') AS mes`), trx.raw('sum(bm.amount_out)::numeric AS banco'), trx.raw('count(*)::int AS n_banco'));
 
