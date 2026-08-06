@@ -425,6 +425,7 @@ export class MovementsExportService {
       <td>${pill(r.status)}</td><td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || r.rcv_folio || '—')}</td>
       <td>${esc(r.dest_wh || '—')}</td><td class="num">${num(r.qty_sent)}</td><td class="num">${num(r.qty_received)}</td>
       <td class="num ${Number(r.delta) ? 'delta' : ''}">${Number(r.delta) ? (Number(r.delta) > 0 ? '+' : '') + num(r.delta) : '—'}</td>
+      <td class="num">${r.amount != null ? money(r.amount, 2) : '—'}</td>
       <td>${dmy(r.ship_date || r.rcv_date)}</td></tr>`).join('');
     const dt = data.detail;
     const detailRows = (dt?.rows || []).map((r: any) => `<tr>
@@ -498,8 +499,8 @@ export class MovementsExportService {
       <tbody>${mxRows || '<tr><td colspan="7" class="empty">Sin traspasos físicos en el rango.</td></tr>'}</tbody></table>
 
       <div class="sec"><h2>3 · Traspasos sin cuadrar</h2><span class="cnt">${num(unmatched.length)} a revisar</span></div>
-      <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th>Fecha</th></tr></thead>
-      <tbody>${ckRows || '<tr><td colspan="8" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th class="num">Valor</th><th>Fecha</th></tr></thead>
+      <tbody>${ckRows || '<tr><td colspan="9" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
 
       <div class="sec brk"><h2>4 · Pólizas contables sin rastro</h2><span class="cnt">${num(dt?.total || 0)} pólizas${dt?.truncated ? ` · primeras ${num((dt?.rows || []).length)}` : ''}</span></div>
       <p class="lead">Pareo con tolerancia ±${dt?.totals?.cost != null ? '2' : '2'}% + ventana ±1 mes. Balance: ${num(dt?.totals?.n_exact || 0)} pareadas exactas · ${num(dt?.totals?.cost?.n || 0)} con diferencia de costo (Δ ${money(dt?.totals?.cost?.diff_total || 0)}). Lo de abajo es lo SIN RASTRO — la referencia trae el folio para ubicarlo en Kepler.</p>

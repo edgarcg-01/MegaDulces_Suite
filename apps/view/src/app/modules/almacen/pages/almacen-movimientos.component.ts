@@ -340,7 +340,7 @@ import { Permission } from '../../../core/constants/permissions';
               <h3 class="dm-h3">Traspasos sin cuadrar <span class="dm-muted">(clic para abrir el documento)</span></h3>
               @if (check(); as ck) {
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th>Fecha</th></tr></thead>
+                  <thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th>Fecha</th></tr></thead>
                   <tbody>
                     @for (r of unmatched(); track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id) {
                       <tr class="dm-row" (click)="openTransfer(r)">
@@ -351,9 +351,10 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
                         <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
                         <td class="dm-r down">{{ r.delta > 0 ? '+' : '' }}{{ r.delta | number:'1.0-0' }}</td>
+                        <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
                         <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
                       </tr>
-                    } @empty { <tr><td colspan="8" class="dm-empty">No hay traspasos sin cuadrar en el rango. 🎉</td></tr> }
+                    } @empty { <tr><td colspan="9" class="dm-empty">No hay traspasos sin cuadrar en el rango. 🎉</td></tr> }
                   </tbody>
                 </table>
                 @if (ck.rows.length) {
