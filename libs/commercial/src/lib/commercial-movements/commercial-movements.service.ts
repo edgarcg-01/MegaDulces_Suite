@@ -45,6 +45,15 @@ export interface MovementsQuery {
 
 type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
 
+/** DM.12 — filtros de la vista del detalle 515 (no afectan el pareo, solo qué se devuelve). */
+export interface LedgerDetailFilters {
+  bucket?: string;      // exacto | costo | sin_rastro
+  kind?: string;        // entrada | salida
+  sucursal?: string;    // 00..05
+  search?: string;      // folio / referencia (ILIKE contains)
+  min_amount?: string | number;
+}
+
 @Injectable()
 export class CommercialMovementsService {
   private readonly logger = new Logger(CommercialMovementsService.name);
@@ -763,12 +772,12 @@ export class CommercialMovementsService {
    *   - sin_rastro → sin contraparte ni con tolerancia ni en la ventana ⇒ LO ACCIONABLE.
    * Solo reporta pólizas DENTRO del rango; los meses de padding solo son candidatos.
    */
-  async transfersLedgerDetail(q: MovementsQuery) {
+  async transfersLedgerDetail(q: MovementsQuery, f: LedgerDetailFilters = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     const fromYm = from.slice(0, 7), toYm = to.slice(0, 7);
     const TOL = 0.02; // ±2% (diferencia de costo origen↔destino)
-    const CAP = 500;
+    const CAP = 1000;
     const addMonth = (ym: string, d: number) => {
       const [y, m] = ym.split('-').map(Number);
       const dt = new Date(y, m - 1 + d, 1);
@@ -776,6 +785,12 @@ export class CommercialMovementsService {
     };
     const padFrom = addMonth(fromYm, -1), padTo = addMonth(toYm, 1);
     const inRange = (ym: string) => ym >= fromYm && ym <= toYm;
+    // filtros de la vista (no afectan el pareo; solo qué se DEVUELVE)
+    const fBucket = ['exacto', 'costo', 'sin_rastro'].includes(f.bucket || '') ? f.bucket : null;
+    const fKind = f.kind === 'entrada' || f.kind === 'salida' ? f.kind : null;
+    const fSuc = (f.sucursal || '').trim() || null;
+    const fSearch = (f.search || '').trim().toLowerCase() || null;
+    const fMin = Number(f.min_amount) > 0 ? Number(f.min_amount) : 0;
 
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.gl_poliza_lines')
@@ -787,7 +802,7 @@ export class CommercialMovementsService {
 
       const entradas: any[] = [], salidas: any[] = [];
       for (const r of rows) {
-        const o = { ...r, importe: Number(r.importe) || 0, paired: false, delta: null as number | null };
+        const o = { ...r, importe: Number(r.importe) || 0, paired: false, delta: null as number | null, cp: null as any };
         (String(r.cuenta).startsWith('515-001') ? entradas : salidas).push(o);
       }
       salidas.sort((a, b) => a.importe - b.importe);
@@ -810,6 +825,7 @@ export class CommercialMovementsService {
         if (best < 0) continue;
         const s = salidas[best]; s.paired = true; e.paired = true;
         const delta = e.importe - s.importe; e.delta = delta; s.delta = delta;
+        e.cp = s; s.cp = e; // contraparte cruzada (dónde está)
         if (Math.abs(delta) >= 0.01 && (inRange(e.anio_mes) || inRange(s.anio_mes))) {
           costPairs.push({
             anio_mes: inRange(e.anio_mes) ? e.anio_mes : s.anio_mes,
@@ -825,19 +841,34 @@ export class CommercialMovementsService {
       const inSal = salidas.filter((s) => inRange(s.anio_mes));
       const entTot = inEnt.reduce((a, e) => a + e.importe, 0);
       const salTot = inSal.reduce((a, s) => a + s.importe, 0);
+      const bucketOf = (x: any) => !x.paired ? 'sin_rastro' : (Math.abs(x.delta || 0) < 0.01 ? 'exacto' : 'costo');
+
+      // Lista CLASIFICADA unificada (para la tabla filtrable de la vista).
+      const entries = [...inEnt, ...inSal].map((r) => ({
+        anio_mes: r.anio_mes, kind: String(r.cuenta).startsWith('515-001') ? 'entrada' : 'salida',
+        cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe,
+        referencia: r.referencia || null, tipo_pol: r.tipo_pol || null, folio: r.folio || null,
+        bucket: bucketOf(r), delta: r.paired ? r.delta : null,
+        cp_ref: r.cp?.referencia || null, cp_importe: r.cp ? r.cp.importe : null, cp_sucursal: r.cp?.sucursal || null,
+      }));
+
+      // Totales por balde (SIN filtrar → alimentan las tarjetas de resumen).
       let nExact = 0;
       for (const x of [...inEnt, ...inSal]) if (x.paired && Math.abs(x.delta || 0) < 0.01) nExact++;
-      const sinRastro = [...inEnt, ...inSal].filter((x) => !x.paired)
-        .map((r) => ({
-          anio_mes: r.anio_mes, kind: String(r.cuenta).startsWith('515-001') ? 'entrada' : 'salida',
-          cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe,
-          referencia: r.referencia || null, tipo_pol: r.tipo_pol || null, folio: r.folio || null,
-        }))
-        .sort((a, b) => b.importe - a.importe);
-      const srEnt = sinRastro.filter((r) => r.kind === 'entrada');
-      const srSal = sinRastro.filter((r) => r.kind === 'salida');
+      const srAll = entries.filter((e) => e.bucket === 'sin_rastro');
+      const srEnt = srAll.filter((r) => r.kind === 'entrada');
+      const srSal = srAll.filter((r) => r.kind === 'salida');
       const costDiffTotal = costPairs.reduce((a, p) => a + Math.abs(p.delta), 0);
       costPairs.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+      // Aplica los filtros de la vista a la lista clasificada.
+      const filtered = entries.filter((e) =>
+        (!fBucket || e.bucket === fBucket) &&
+        (!fKind || e.kind === fKind) &&
+        (!fSuc || String(e.sucursal) === fSuc) &&
+        (fMin <= 0 || e.importe >= fMin) &&
+        (!fSearch || `${e.referencia || ''} ${e.tipo_pol || ''} ${e.folio || ''} ${e.cp_ref || ''}`.toLowerCase().includes(fSearch)),
+      ).sort((a, b) => b.importe - a.importe);
 
       return {
         range: { from: fromYm, to: toYm }, tolerance_pct: TOL * 100, window_months: 1,
@@ -850,7 +881,9 @@ export class CommercialMovementsService {
             n_salida: srSal.length, amt_salida: srSal.reduce((a, r) => a + r.importe, 0),
           },
         },
-        rows: sinRastro.slice(0, CAP), total: sinRastro.length, truncated: sinRastro.length > CAP,
+        // vista filtrable (una tabla clasificada) + compat PDF (rows=sin_rastro, cost_pairs)
+        entries: filtered.slice(0, CAP), entries_total: filtered.length, entries_truncated: filtered.length > CAP,
+        rows: srAll.slice(0, CAP), total: srAll.length, truncated: srAll.length > CAP,
         cost_pairs: costPairs.slice(0, CAP), cost_total: costPairs.length, cost_truncated: costPairs.length > CAP,
       };
     });

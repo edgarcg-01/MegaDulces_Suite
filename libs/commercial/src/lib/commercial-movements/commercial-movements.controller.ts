@@ -76,8 +76,12 @@ export class CommercialMovementsController {
 
   @Get('transfers-ledger-detail')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
-  @ApiOperation({ summary: 'DM.12 — DETALLE del descuadre: pólizas de la cuenta 515 SIN contraparte (parea entrada 515-001 ↔ salida 515-002 por importe sobre analytics.gl_poliza_lines). Devuelve cada póliza con su referencia/localizador para encontrarla en Kepler. Honra rango; ignora filtro de almacén.' })
-  transfersLedgerDetail(@Query() raw: Record<string, string>) { return this.svc.transfersLedgerDetail(this.q(raw)); }
+  @ApiOperation({ summary: 'DM.12 — DETALLE del descuadre: pólizas de la cuenta 515 clasificadas (exacto/costo/sin_rastro) con su contraparte, sobre analytics.gl_poliza_lines. Filtros: bucket, kind (entrada|salida), sucursal, search (folio/referencia), min_amount. Honra rango; ignora filtro de almacén.' })
+  transfersLedgerDetail(@Query() raw: Record<string, string>) {
+    return this.svc.transfersLedgerDetail(this.q(raw), {
+      bucket: raw.bucket, kind: raw.detail_kind, sucursal: raw.sucursal, search: raw.q, min_amount: raw.min_amount,
+    });
+  }
 
   @Get('transfers-cuadre.pdf')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
