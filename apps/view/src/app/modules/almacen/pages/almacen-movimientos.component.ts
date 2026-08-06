@@ -388,7 +388,7 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-strong">{{ r.code }} · {{ r.name }}</td>
                         <td class="dm-mono">{{ r.anio_mes }}</td>
                         <td class="dm-r up">{{ money(r.kepler_envio) }}</td>
-                        <td class="dm-r">{{ money(r.wincaja_recibido) }}</td>
+                        <td class="dm-r">{{ money(r.wincaja_recibido) }}@if (r.wincaja_inter) { <span class="dm-muted dm-sub"> (CEDIS {{ money(r.wincaja_cedis || 0) }} + hermana {{ money(r.wincaja_inter) }})</span> }</td>
                         <td class="dm-r dm-muted">{{ r.kepler_compra_zona ? money(r.kepler_compra_zona) : '—' }}</td>
                         <td class="dm-r dm-muted">{{ r.docs || '—' }}</td>
                         <td class="dm-r dm-delta" [class.ok]="wincajaOk(r.delta, r.kepler_envio)" [class.bad]="!wincajaOk(r.delta, r.kepler_envio)">{{ wincajaOk(r.delta, r.kepler_envio) ? 'cuadra' : signed(r.delta) }}</td>
@@ -401,7 +401,7 @@ import { Permission } from '../../../core/constants/permissions';
                   @for (s of wc.stores; track s.code) { {{ s.code }}·{{ s.name }}: {{ s.last_date ? (s.last_date | date:'yyyy-MM-dd') : 's/d' }}@if (!$last) { · } }
                   @if (wc.kepler_unmapped) { <span class="down"> · Kepler sin mapear a tienda: {{ money(wc.kepler_unmapped) }}</span> }
                 </div>
-                <p class="dm-block-sub">⚠️ El Δ no es solo error: <strong>Canindo (50)</strong> se surte por <em>compra de zona</em> (columna «+ Compra zona», 515-001), casi nada por CEDIS → su Δ negativo es esperado. <strong>Madero (32)</strong> se resurte vía Morelia Abastos, no directo del CEDIS → Wincaja recibió subcuenta. Un mes con Wincaja incompleto (corte antes de fin de mes) también infla el Δ — compará meses cerrados.</p>
+                <p class="dm-block-sub">La recepción Wincaja cuenta el traspaso directo del CEDIS <strong>+ el inter-tienda</strong> (ej. <strong>Madero (32)</strong> se resurte vía Morelia Abastos; ver desglose «CEDIS + hermana»). <strong>Canindo (50)</strong> se surte por <em>compra de zona</em> (columna «+ Compra zona», 515-001), casi nada por CEDIS → su Δ negativo es esperado. Un mes con Wincaja incompleto (corte antes de fin de mes) infla el Δ — compará meses cerrados. El total de red es indicativo (el inter-tienda puede doble-contarse), el cuadre fiable es por tienda.</p>
               </section>
             }
           }
