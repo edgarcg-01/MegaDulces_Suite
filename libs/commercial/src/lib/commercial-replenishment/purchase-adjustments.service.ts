@@ -407,16 +407,18 @@ export class PurchaseAdjustmentsService {
    * no el bruto. `anomalo` = rate>20%: probablemente incluye devoluciones/errores, no solo
    * descuento (HITL: no confiar ciego). analytics.* sin RLS → tenant_id explícito.
    */
-  async landedCost(q: { min_compras?: number; search?: string } = {}) {
+  async landedCost(q: { min_compras?: number; search?: string; date_from?: string; date_to?: string; only_anomalo?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const minCompras = Number(q.min_compras) || 0;
+    // Cada tabla filtra por SU propia columna de fecha (pago/ajuste/recepción).
+    const byDate = (col: string) => (b: any) => { if (q.date_from) b.where(col, '>=', q.date_from); if (q.date_to) b.where(col, '<=', q.date_to); };
     return this.tk.run(async (trx) => {
-      const pay: any[] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId)
+      const pay: any[] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).modify(byDate('pago_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(descuento),0)::numeric AS desc_pago'));
       const nota: any[] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId)
-        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca'])
+        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca']).modify(byDate('adjustment_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS desc_nota'));
-      const comp: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId)
+      const comp: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).modify(byDate('receipt_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
 
       const map = new Map<string, any>();
@@ -443,6 +445,7 @@ export class PurchaseAdjustmentsService {
         e.costo_neto = e.compras - e.descuento;
         e.anomalo = e.rate > 0.2; // >20% probablemente incluye devoluciones/errores, no solo descuento
       }
+      if (q.only_anomalo) rows = rows.filter((e) => e.anomalo); // filtro "solo anómalos" tras calcular rate
       rows.sort((a, b) => b.compras - a.compras);
       const compras = rows.reduce((s, r) => s + r.compras, 0), descuento = rows.reduce((s, r) => s + r.descuento, 0);
       return {

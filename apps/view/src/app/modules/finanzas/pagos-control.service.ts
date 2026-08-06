@@ -22,11 +22,17 @@ export interface Conciliacion { rows: ConciliacionRow[]; totals: { kepler: numbe
 export class PagosControlService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/pagos`;
-  overview(): Observable<PagosControl> { return this.http.get<PagosControl>(`${this.base}/control`); }
-  conciliacion(q: { from_mes?: string; to_mes?: string } = {}): Observable<Conciliacion> {
+  overview(q: { date_from?: string; date_to?: string } = {}): Observable<PagosControl> {
     const p = new URLSearchParams();
-    if (q.from_mes) p.set('from_mes', q.from_mes);
-    if (q.to_mes) p.set('to_mes', q.to_mes);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    const qs = p.toString();
+    return this.http.get<PagosControl>(`${this.base}/control${qs ? '?' + qs : ''}`);
+  }
+  conciliacion(q: { date_from?: string; date_to?: string } = {}): Observable<Conciliacion> {
+    const p = new URLSearchParams();
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
     const qs = p.toString();
     return this.http.get<Conciliacion>(`${this.base}/conciliacion${qs ? '?' + qs : ''}`);
   }

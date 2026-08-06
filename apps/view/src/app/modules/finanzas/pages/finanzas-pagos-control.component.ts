@@ -1,8 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import { SelectModule } from 'primeng/select';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
 import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from '../pagos-control.service';
 
 /**
@@ -15,7 +19,7 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
   selector: 'app-finanzas-pagos-control',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterModule, ButtonModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, DatePickerModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -27,6 +31,15 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <div class="pc-filters">
+        <span class="pc-filters-label">Periodo del flujo de dinero</span>
+        <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="pc-sel" ariaLabel="Rango de fecha rápido" />
+        <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="pc-dp" ariaLabel="Desde" />
+        <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="pc-dp" ariaLabel="Hasta" />
+        @if (dateFrom() || dateTo()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearPeriod()" label="Todo el histórico"></button> }
+        <span class="pc-filters-hint">acota el descuento obtenido y la conciliación; los KPIs de arriba son estado actual</span>
+      </div>
 
       @if (error()) {
         <div class="pc-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo cargar el tablero. {{ error() }}</div>
@@ -127,6 +140,10 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
   styles: [`
     :host { display:block; }
     .pc-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .pc-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1.1rem 0 .2rem; }
+    .pc-filters-label { font-size:.78rem; font-weight:600; color:var(--text-muted); }
+    .pc-filters-hint { font-size:.72rem; color:var(--text-faint); }
+    :host ::ng-deep .pc-sel { min-width:11rem; }
     .pc-error { margin:1rem 0; padding:.7rem 1rem; border:1px solid var(--bad-border,var(--border-color)); background:var(--bad-soft-bg); color:var(--bad-fg); border-radius:var(--radius-md,8px); font-size:.85rem; }
     .pc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; margin-top:1.4rem; }
     .pc-card { padding:1rem 1.15rem; }
@@ -161,20 +178,74 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
 })
 export class FinanzasPagosControlComponent implements OnInit {
   private readonly svc = inject(PagosControlService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   readonly data = signal<PagosControl | null>(null);
   readonly recon = signal<Conciliacion | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly dateFrom = signal<Date | null>(null);
+  readonly dateTo = signal<Date | null>(null);
+  readonly preset = signal<string>('');
+  readonly presetOpts = DATE_PRESET_OPTIONS;
 
-  ngOnInit(): void { this.load(); }
+  ngOnInit(): void {
+    const q = this.route.snapshot.queryParamMap;
+    this.dateFrom.set(this.fromIso(q.get('from')));
+    this.dateTo.set(this.fromIso(q.get('to')));
+    this.load();
+  }
 
   load(): void {
     this.loading.set(true); this.error.set(null);
-    this.svc.overview().subscribe({
+    const range = { date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) };
+    this.svc.overview(range).subscribe({
       next: (d) => { this.data.set(d); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
     });
-    this.svc.conciliacion().subscribe({ next: (r) => this.recon.set(r), error: () => this.recon.set(null) });
+    this.svc.conciliacion(range).subscribe({ next: (r) => this.recon.set(r), error: () => this.recon.set(null) });
+  }
+
+  /** Date → 'YYYY-MM-DD' (local, sin correr por TZ). */
+  private toIso(d: Date | null): string | undefined {
+    if (!d) return undefined;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  /** 'YYYY-MM-DD' → Date (local). */
+  private fromIso(s: string | null): Date | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }
+
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { from: this.toIso(this.dateFrom()) || null, to: this.toIso(this.dateTo()) || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  onDate(which: 'from' | 'to', v: Date | null): void {
+    (which === 'from' ? this.dateFrom : this.dateTo).set(v);
+    this.preset.set(''); this.syncUrl(); this.load();
+  }
+
+  /** Rango rápido: fija Desde/Hasta según el preset. */
+  onPreset(key: string | null): void {
+    this.preset.set(key || '');
+    const r = key ? datePresetRange(key) : null;
+    if (!r) return;
+    this.dateFrom.set(r.from); this.dateTo.set(r.to);
+    this.syncUrl(); this.load();
+  }
+
+  clearPeriod(): void {
+    this.dateFrom.set(null); this.dateTo.set(null); this.preset.set('');
+    this.syncUrl(); this.load();
   }
 
   estadoLabel(e: string): string {
