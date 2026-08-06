@@ -185,7 +185,8 @@ import { Permission } from '../../../core/constants/permissions';
             <p-datepicker [(ngModel)]="cFrom" (onSelect)="cMonth=''" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
             <p-datepicker [(ngModel)]="cTo" (onSelect)="cMonth=''" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
             <button pButton type="button" class="p-button-sm" (click)="loadCuadre()" [loading]="cuadreLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
-            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCuadre()" (click)="downloadCuadre()" title="Reporte mensual del cuadre (contable + físico) en PDF"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Reporte PDF</span></button>
+            <p-select [options]="pdfModeOpts" [(ngModel)]="cPdfMode" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body" title="Alcance del reporte PDF"></p-select>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCuadre()" (click)="downloadCuadre()" title="Reporte del cuadre en PDF (global / concentrado / desglosado por sucursal)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Reporte PDF</span></button>
             <span class="dm-muted dm-cuadre-note">Vista de red — ignora el filtro de almacén del Diario.</span>
           </div>
 
@@ -652,6 +653,12 @@ export class AlmacenMovimientosComponent implements OnInit {
   cuadreLoaded = signal(false);
   cuadreLoading = signal(false);
   dlCuadre = signal(false);                                    // descarga del reporte PDF
+  cPdfMode: 'global' | 'resumen' | 'detalle' = 'global';       // alcance del reporte PDF
+  pdfModeOpts = [
+    { label: 'PDF: Global', value: 'global' },
+    { label: 'PDF: Concentrado por sucursal', value: 'resumen' },
+    { label: 'PDF: Desglosado por sucursal', value: 'detalle' },
+  ];
   ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
@@ -686,7 +693,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   downloadCuadre(): void {
     const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
     this.dlCuadre.set(true);
-    this.api.downloadCuadrePdf(f).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.downloadCuadrePdf(f, this.cPdfMode).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (resp) => {
         this.dlCuadre.set(false);
         const cd = resp.headers.get('content-disposition') || '';

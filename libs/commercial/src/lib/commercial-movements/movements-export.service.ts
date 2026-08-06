@@ -383,10 +383,141 @@ export class MovementsExportService {
     return `Cuadre de traspasos ${range.from}_${range.to}.${ext}`;
   }
 
-  /** Reporte mensual del cuadre de traspasos (contable mayor 515 + matriz física + folios). */
-  async buildCuadrePdf(data: CuadreExportData): Promise<Buffer> {
-    return this.renderPdf(this.buildCuadreHtml(data),
+  /**
+   * Reporte del cuadre de traspasos. `mode`:
+   *   global  → consolidado de red (4 secciones).
+   *   resumen → concentrado POR SUCURSAL (KPIs + tabla resumen por sucursal contable).
+   *   detalle → desglosado POR SUCURSAL (una sección por sucursal con sus pólizas sin rastro).
+   */
+  async buildCuadrePdf(data: CuadreExportData, mode: 'global' | 'resumen' | 'detalle' = 'global'): Promise<Buffer> {
+    const html = mode === 'resumen' ? this.buildCuadreResumenHtml(data)
+      : mode === 'detalle' ? this.buildCuadreDetalleHtml(data)
+      : this.buildCuadreHtml(data);
+    return this.renderPdf(html,
       `Mega Dulces · Cuadre de traspasos · ${data.range.from} — ${data.range.to} · Uso interno`);
+  }
+
+  // Formato compartido de los reportes de cuadre.
+  private cEsc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
+  private cMoney = (n: any, dec = 0) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: dec, minimumFractionDigits: dec });
+  private cSigned = (n: any) => (Number(n) > 0 ? '+' : '') + this.cMoney(n);
+  private cNum = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 }));
+  private cOk = (delta: any, base: any) => { const d = Math.abs(Number(delta) || 0); return d < 1 || d < Math.abs(Number(base) || 0) * 0.001; };
+
+  /** CSS compartido por los 3 modos del reporte de cuadre. */
+  private cuadreStyles(): string {
+    return `
+      * { box-sizing: border-box; }
+      html, body { background: #FFFFFF; }
+      body { font-family: Helvetica, 'Segoe UI', Arial, sans-serif; font-size: 9.5px; color: #241E18; margin: 0; }
+      .num { text-align: right; font-variant-numeric: tabular-nums; } td.num { font-size: 10.5px; }
+      .mono { font-family: Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 9.5px; }
+      .mut { color: #837A6C; } .up { color: #166534; } .dn { color: #991B1B; } .delta { color: #991B1B; font-weight: 700; }
+      .mast { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 9px; border-bottom: 2px solid #1A1611; position: relative; }
+      .mast:after { content: ''; position: absolute; left: 0; bottom: -2px; width: 92px; height: 2px; background: #F05A28; }
+      .brand { font-size: 9px; font-weight: 700; letter-spacing: .18em; color: #837A6C; }
+      h1 { font-size: 19px; margin: 3px 0 0; letter-spacing: -.01em; color: #1A1611; }
+      .meta { text-align: right; color: #5E564B; font-size: 9px; line-height: 1.55; } .meta b { color: #1A1611; font-size: 11.5px; }
+      .kpis { display: flex; gap: 8px; margin: 11px 0 6px; }
+      .kpi { flex: 1; border: 1px solid #E8E2D7; border-radius: 5px; padding: 7px 11px; background: #FFFFFF; }
+      .kpi.big { border-width: 2px; } .kpi.ok { border-color: #BBF7D0; background: #F0FDF4; } .kpi.bad { border-color: #FECACA; background: #FEF2F2; }
+      .kpi-l { display: block; color: #837A6C; font-size: 7.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
+      .kpi-v { display: block; font-weight: 700; font-size: 17px; margin-top: 3px; font-variant-numeric: tabular-nums; color: #1A1611; }
+      .kpi.ok .kpi-v { color: #166534; } .kpi.bad .kpi-v { color: #991B1B; }
+      .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; font-weight: 700; border: 1px solid transparent; }
+      .p-ok { background: #DCFCE7; color: #166534; border-color: #BBF7D0; } .p-warn { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
+      .p-bad { background: #FEE2E2; color: #991B1B; border-color: #FECACA; } .p-mut { background: #F5F1EA; color: #463F36; border-color: #E8E2D7; }
+      .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 5px; padding-left: 9px; border-left: 3px solid #F05A28; }
+      .sec h2 { font-size: 12.5px; margin: 0; color: #1A1611; } .sec .cnt { font-size: 9px; color: #837A6C; }
+      .lead { color: #5E564B; font-size: 9px; margin: 2px 0 0; }
+      .brk { page-break-before: always; }
+      table { border-collapse: collapse; width: 100%; } thead { display: table-header-group; }
+      th { background: #F5F1EA; color: #5E564B; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1.5px solid #1A1611; border-top: 1px solid #E8E2D7; }
+      th.num { text-align: right; }
+      td { border-bottom: 1px solid #EFEAE0; padding: 4px 6px; vertical-align: top; line-height: 1.3; } tr { page-break-inside: avoid; }
+      .cols { display: flex; gap: 14px; } .cols > div { flex: 1; }
+      .empty { color: #837A6C; font-style: italic; padding: 10px 6px; }
+      .sucband { margin: 16px 0 4px; padding: 6px 9px; background: #1A1611; color: #FFF; border-radius: 4px; display: flex; justify-content: space-between; align-items: baseline; }
+      .sucband h2 { font-size: 12px; margin: 0; color: #FFF; } .sucband .n { font-size: 9px; color: #D8CFC0; }`;
+  }
+
+  /** Masthead + KPIs globales (compartido). */
+  private cuadreHead(data: CuadreExportData, title: string, subtitle?: string): string {
+    const lg = data.ledger, ck = data.check;
+    const totOk = this.cOk(lg.totals?.delta, lg.totals?.entrada);
+    return `
+      <div class="mast">
+        <div><div class="brand">MEGA DULCES</div><h1>${this.cEsc(title)}</h1></div>
+        <div class="meta"><b>${this.cEsc(this.periodLabel(data.range.from, data.range.to))}</b><br>
+          Generado el ${this.cEsc(this.generatedAt())}<br>${this.cEsc(subtitle || 'Mayor 515 · Ajuste traspasos internos')}</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi big ${totOk ? 'ok' : 'bad'}"><span class="kpi-l">Descuadre acumulado</span><span class="kpi-v">${this.cSigned(lg.totals?.delta)}</span></div>
+        <div class="kpi"><span class="kpi-l">515-001 · Entrada</span><span class="kpi-v" style="color:#166534">${this.cMoney(lg.totals?.entrada)}</span></div>
+        <div class="kpi"><span class="kpi-l">515-002 · Salida</span><span class="kpi-v" style="color:#991B1B">${this.cMoney(lg.totals?.salida)}</span></div>
+        <div class="kpi"><span class="kpi-l">Traspasos sin cuadrar</span><span class="kpi-v">${this.cNum(ck.totals.diferencia + ck.totals.sin_recepcion + ck.totals.sin_origen)}</span></div>
+      </div>`;
+  }
+
+  /**
+   * Agrega por SUCURSAL CONTABLE (eje A, columna sucursal 00–05): la balanza `by_sucursal`
+   * + las pólizas sin-rastro agrupadas por su sucursal. Ordenado por monto sin-rastro desc.
+   */
+  private cuadreBySucursal(data: CuadreExportData) {
+    const map = new Map<string, any>();
+    const get = (s: string) => {
+      if (!map.has(s)) map.set(s, { sucursal: s, entrada: 0, salida: 0, delta: 0, sr_ent_n: 0, sr_ent_amt: 0, sr_sal_n: 0, sr_sal_amt: 0, rows: [] });
+      return map.get(s);
+    };
+    for (const s of (data.ledger?.by_sucursal || [])) {
+      const g = get(String(s.sucursal)); g.entrada = Number(s.entrada) || 0; g.salida = Number(s.salida) || 0; g.delta = Number(s.delta) || 0;
+    }
+    for (const r of (data.detail?.rows || [])) {
+      const g = get(String(r.sucursal)); g.rows.push(r);
+      if (r.kind === 'entrada') { g.sr_ent_n++; g.sr_ent_amt += Number(r.importe) || 0; }
+      else { g.sr_sal_n++; g.sr_sal_amt += Number(r.importe) || 0; }
+    }
+    return [...map.values()].sort((a, b) =>
+      (b.sr_ent_amt + b.sr_sal_amt) - (a.sr_ent_amt + a.sr_sal_amt) || Math.abs(b.delta) - Math.abs(a.delta));
+  }
+
+  /** Modo CONCENTRADO por sucursal: KPIs globales + tabla resumen por sucursal. */
+  private buildCuadreResumenHtml(data: CuadreExportData): string {
+    const sucs = this.cuadreBySucursal(data);
+    const rows = sucs.map((g) => `<tr>
+      <td class="mono">${this.cEsc(g.sucursal)}</td>
+      <td class="num up">${this.cMoney(g.entrada)}</td><td class="num dn">${this.cMoney(g.salida)}</td>
+      <td class="num ${this.cOk(g.delta, g.entrada) ? 'mut' : 'delta'}">${this.cOk(g.delta, g.entrada) ? 'cuadra' : this.cSigned(g.delta)}</td>
+      <td class="num">${this.cNum(g.sr_ent_n)}</td><td class="num up">${this.cMoney(g.sr_ent_amt)}</td>
+      <td class="num">${this.cNum(g.sr_sal_n)}</td><td class="num dn">${this.cMoney(g.sr_sal_amt)}</td></tr>`).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
+      ${this.cuadreHead(data, 'Cuadre de traspasos', 'Concentrado por sucursal · Mayor 515')}
+      <div class="sec"><h2>Resumen por sucursal (contable)</h2><span class="cnt">${sucs.length} sucursales</span></div>
+      <p class="lead">Entrada/salida/Δ de la balanza (mayor 515) y pólizas SIN RASTRO por sucursal donde se contabiliza. El CEDIS concentra las salidas (es el hub de despacho).</p>
+      <table><thead><tr><th>Suc.</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Δ descuadre</th><th class="num">S/rastro ent (n)</th><th class="num">S/rastro ent ($)</th><th class="num">S/rastro sal (n)</th><th class="num">S/rastro sal ($)</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="empty">Sin datos.</td></tr>'}</tbody></table>` +
+      `</body></html>`;
+  }
+
+  /** Modo DESGLOSADO por sucursal: una sección por sucursal con sus pólizas sin rastro. */
+  private buildCuadreDetalleHtml(data: CuadreExportData): string {
+    const sucs = this.cuadreBySucursal(data);
+    const blocks = sucs.map((g, idx) => {
+      const rows = [...g.rows].sort((a: any, b: any) => (Number(b.importe) || 0) - (Number(a.importe) || 0)).map((r: any) => `<tr>
+        <td class="mono">${this.cEsc(r.anio_mes)}</td>
+        <td class="${r.kind === 'entrada' ? 'up' : 'dn'}">${r.kind === 'entrada' ? 'Entrada 515-001' : 'Salida 515-002'}</td>
+        <td class="num">${this.cMoney(r.importe, 2)}</td><td>${this.cEsc(r.referencia || '—')}</td></tr>`).join('');
+      return `
+      <div class="sucband${idx > 0 ? ' brk' : ''}"><h2>Sucursal ${this.cEsc(g.sucursal)}</h2>
+        <span class="n">Entrada ${this.cMoney(g.entrada)} · Salida ${this.cMoney(g.salida)} · Δ ${this.cSigned(g.delta)} · sin rastro ${this.cNum(g.sr_ent_n + g.sr_sal_n)} pólizas (${this.cMoney(g.sr_ent_amt + g.sr_sal_amt)})</span></div>
+      <table><thead><tr><th>Mes</th><th>Tipo</th><th class="num">Importe</th><th>Referencia (localizador en Kepler)</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4" class="empty">Sin pólizas sin rastro en esta sucursal.</td></tr>'}</tbody></table>`;
+    }).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
+      ${this.cuadreHead(data, 'Cuadre de traspasos', 'Desglosado por sucursal · Mayor 515')}
+      <p class="lead">Pólizas de la cuenta 515 SIN RASTRO (sin contraparte con tolerancia ±2% ni en la ventana ±1 mes), agrupadas por la sucursal donde se contabilizan. La referencia trae el folio del traspaso para ubicarlo en Kepler.</p>
+      ${blocks || '<div class="empty">Sin pólizas sin rastro en el rango.</div>'}
+      </body></html>`;
   }
 
   private buildCuadreHtml(data: CuadreExportData): string {
@@ -435,50 +566,8 @@ export class MovementsExportService {
       <td>${esc(r.referencia || '—')}</td></tr>`).join('');
 
     const totOk = ok(lg.totals?.delta, lg.totals?.entrada);
-    return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>
-      * { box-sizing: border-box; }
-      html, body { background: #FFFFFF; }
-      body { font-family: Helvetica, 'Segoe UI', Arial, sans-serif; font-size: 9.5px; color: #241E18; margin: 0; }
-      .num { text-align: right; font-variant-numeric: tabular-nums; } td.num { font-size: 10.5px; }
-      .mono { font-family: Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 9.5px; }
-      .mut { color: #837A6C; } .up { color: #166534; } .dn { color: #991B1B; } .delta { color: #991B1B; font-weight: 700; }
-      .mast { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 9px; border-bottom: 2px solid #1A1611; position: relative; }
-      .mast:after { content: ''; position: absolute; left: 0; bottom: -2px; width: 92px; height: 2px; background: #F05A28; }
-      .brand { font-size: 9px; font-weight: 700; letter-spacing: .18em; color: #837A6C; }
-      h1 { font-size: 19px; margin: 3px 0 0; letter-spacing: -.01em; color: #1A1611; }
-      .meta { text-align: right; color: #5E564B; font-size: 9px; line-height: 1.55; } .meta b { color: #1A1611; font-size: 11.5px; }
-      .kpis { display: flex; gap: 8px; margin: 11px 0 6px; }
-      .kpi { flex: 1; border: 1px solid #E8E2D7; border-radius: 5px; padding: 7px 11px; background: #FFFFFF; }
-      .kpi.big { border-width: 2px; } .kpi.ok { border-color: #BBF7D0; background: #F0FDF4; } .kpi.bad { border-color: #FECACA; background: #FEF2F2; }
-      .kpi-l { display: block; color: #837A6C; font-size: 7.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
-      .kpi-v { display: block; font-weight: 700; font-size: 17px; margin-top: 3px; font-variant-numeric: tabular-nums; color: #1A1611; }
-      .kpi.ok .kpi-v { color: #166534; } .kpi.bad .kpi-v { color: #991B1B; }
-      .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; font-weight: 700; border: 1px solid transparent; }
-      .p-ok { background: #DCFCE7; color: #166534; border-color: #BBF7D0; } .p-warn { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
-      .p-bad { background: #FEE2E2; color: #991B1B; border-color: #FECACA; } .p-mut { background: #F5F1EA; color: #463F36; border-color: #E8E2D7; }
-      .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 5px; padding-left: 9px; border-left: 3px solid #F05A28; }
-      .sec h2 { font-size: 12.5px; margin: 0; color: #1A1611; } .sec .cnt { font-size: 9px; color: #837A6C; }
-      .lead { color: #5E564B; font-size: 9px; margin: 2px 0 0; }
-      .brk { page-break-before: always; }
-      table { border-collapse: collapse; width: 100%; } thead { display: table-header-group; }
-      th { background: #F5F1EA; color: #5E564B; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1.5px solid #1A1611; border-top: 1px solid #E8E2D7; }
-      th.num { text-align: right; }
-      td { border-bottom: 1px solid #EFEAE0; padding: 4px 6px; vertical-align: top; line-height: 1.3; } tr { page-break-inside: avoid; }
-      .cols { display: flex; gap: 14px; } .cols > div { flex: 1; }
-      .empty { color: #837A6C; font-style: italic; padding: 10px 6px; }
-    </style></head><body>
-      <div class="mast">
-        <div><div class="brand">MEGA DULCES</div><h1>Cuadre de traspasos</h1></div>
-        <div class="meta"><b>${esc(this.periodLabel(data.range.from, data.range.to))}</b><br>
-          Generado el ${esc(this.generatedAt())}<br>Mayor 515 · Ajuste traspasos internos</div>
-      </div>
-
-      <div class="kpis">
-        <div class="kpi big ${totOk ? 'ok' : 'bad'}"><span class="kpi-l">Descuadre acumulado</span><span class="kpi-v">${signed(lg.totals?.delta)}</span></div>
-        <div class="kpi"><span class="kpi-l">515-001 · Entrada</span><span class="kpi-v" style="color:#166534">${money(lg.totals?.entrada)}</span></div>
-        <div class="kpi"><span class="kpi-l">515-002 · Salida</span><span class="kpi-v" style="color:#991B1B">${money(lg.totals?.salida)}</span></div>
-        <div class="kpi"><span class="kpi-l">Traspasos sin cuadrar</span><span class="kpi-v">${num(ck.totals.diferencia + ck.totals.sin_recepcion + ck.totals.sin_origen)}</span></div>
-      </div>
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
+      ${this.cuadreHead(data, 'Cuadre de traspasos')}
 
       <div class="sec"><h2>1 · Cuadre contable por mes</h2><span class="cnt">balanza Kepler, mayor 515</span></div>
       <p class="lead">Cuenta puente: cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear $0. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.</p>
