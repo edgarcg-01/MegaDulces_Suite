@@ -1,6 +1,6 @@
 # Fase CBW — Captura bancaria por WhatsApp (ficha/captura → libro de bancos)
 
-> **Estado:** 🔨 DISEÑADO (planeación) 2026-08-06 · **ADR:** ADR-042 (propuesto)
+> **Estado:** 🟢 CONSTRUIDA (beta, local) 2026-08-06 — CBW.0–CBW.4 ✅ · **ADR:** ADR-042 (aceptado)
 > **Tesis:** un número de WhatsApp **ya existente** recibe la foto de una ficha de depósito / captura de transferencia de un remitente autorizado (encargado de plaza); el bot corre **OCR**, la atribuye (persona + sucursal + cuenta + importe), pide **confirmación en el chat**, y la deja en una **bandeja de captura** dentro de `/finanzas/bancos` para que un humano la valide y la cuadre contra el estado de cuenta. Read-first sobre el libro autoritativo: la foto es un **comprobante**, no un asiento — nunca toca `bank_movements` de forma directa. Hereda ADR-016 (motor decide el dinero / humano confirma / LLM fuera del cuadre), ADR-033 (libro de bancos `finance.bank_*`) y ADR-034 (el bot no cierra el dinero).
 
 ---
@@ -136,12 +136,12 @@ Migración nueva `20260806xxxxxx_finance_bank_capture.js` — schema `finance`, 
 
 | Sprint | Tema | Entregable | Estado |
 |---|---|---|---|
-| **CBW.0** | Media download (FIQ.9) | `MetaCloudAdapter.downloadMedia(media_id)`: `GET /{media_id}` (Graph) → URL temporal → descarga binario con token → `{buffer, mime}`. Habilita `type=image` y `type=document` en `whatsapp-ingest`. Simulador: inyecta un data-URI directo. Smoke del contrato media_id→bytes. | ⬜ |
-| **CBW.1** | Schema + remitentes | Migración `bank_capture_senders` + `bank_capture_inbox` (RLS forzado, grants, audit). Seed de remitentes de Edgar (teléfono→nombre→sucursal→cuenta). Permisos (§7). | ⬜ |
-| **CBW.2** | Ruteo + captura + OCR | En `whatsapp-ingest`: si `from_phone ∈ senders(active)` **y** trae imagen/documento → `BankCaptureService.capture()` (download → Cloudinary → `extractDepositSlip` → resolver cuenta → INSERT `pendiente_confirmacion`), **NO** al orquestador comercial. `BankCaptureService` calca `collection-deposits.service`. | ⬜ |
-| **CBW.3** | Confirmación en chat | Máquina de estado mínima por teléfono: tras capturar, el bot responde con lo leído y pide `SÍ/NO`. `SÍ`→`confirmado`, `NO`→`descartado`, timeout/ambiguo→se queda pendiente y avisa. Idempotente ante reenvíos. | ⬜ |
-| **CBW.4** | Bandeja UI + cuadre | Pestaña **"Capturas WhatsApp"** en `/finanzas/bancos`: tabla densa (remitente, sucursal, cuenta, monto, estado) + preview de la imagen + editar atribución + validar/rechazar + botón **cuadrar** contra `bank_movements` (reusa el matcher por monto+fecha de CB). Backend `/finance/bank-captures`. Smoke suite en `run-all-tests.js`. | ⬜ |
-| **CBW.4.1** | Notificación a Crédito y Cobranza | Al registrar/confirmar un nuevo depósito, **avisar a Crédito y Cobranza** (Perla) reusando el sistema de notificaciones existente (bell header + toast WS, patrón CXP/`db_health_alerts`). La notificación lleva remitente + sucursal + monto + link a la captura, para que Cobranza aplique el depósito al cliente. Dirigido por permiso/rol de crédito y cobranza (no hardcodear a una persona). | ⬜ |
+| **CBW.0** | Media download (FIQ.9) | `MetaCloudAdapter.downloadMedia(media_id)`: `GET /{media_id}` (Graph) → URL temporal → descarga binario con token → `{buffer, mime}`. Habilita `type=image` y `type=document` en `whatsapp-ingest`. Simulador: inyecta un data-URI directo. Smoke del contrato media_id→bytes. | ✅ 2026-08-06 (local) |
+| **CBW.1** | Schema + remitentes | Migración `bank_capture_senders` + `bank_capture_inbox` (RLS forzado, grants, audit). Seed de remitentes de Edgar (teléfono→nombre→sucursal→cuenta). Permisos (§7). | ✅ 2026-08-06 (local) |
+| **CBW.2** | Ruteo + captura + OCR | En `whatsapp-ingest`: si `from_phone ∈ senders(active)` **y** trae imagen/documento → `BankCaptureService.capture()` (download → Cloudinary → `extractDepositSlip` → resolver cuenta → INSERT `pendiente_confirmacion`), **NO** al orquestador comercial. `BankCaptureService` calca `collection-deposits.service`. | ✅ 2026-08-06 (local) |
+| **CBW.3** | Confirmación en chat | Máquina de estado mínima por teléfono: tras capturar, el bot responde con lo leído y pide `SÍ/NO`. `SÍ`→`confirmado`, `NO`→`descartado`, timeout/ambiguo→se queda pendiente y avisa. Idempotente ante reenvíos. | ✅ 2026-08-06 (local) |
+| **CBW.4** | Bandeja UI + cuadre | Pestaña **"Capturas WhatsApp"** en `/finanzas/bancos`: tabla densa (remitente, sucursal, cuenta, monto, estado) + preview de la imagen + editar atribución + validar/rechazar + botón **cuadrar** contra `bank_movements` (reusa el matcher por monto+fecha de CB). Backend `/finance/bank-captures`. Smoke suite en `run-all-tests.js`. | ✅ 2026-08-06 (local) |
+| **CBW.4.1** | Notificación a Crédito y Cobranza | Al registrar/confirmar un nuevo depósito, **avisar a Crédito y Cobranza** (Perla) reusando el sistema de notificaciones existente (bell header + toast WS, patrón CXP/`db_health_alerts`). La notificación lleva remitente + sucursal + monto + link a la captura, para que Cobranza aplique el depósito al cliente. Dirigido por permiso/rol de crédito y cobranza (no hardcodear a una persona). | ✅ 2026-08-06 (local) |
 
 **Ruta crítica:** CBW.0 → CBW.1 → CBW.2 → CBW.3 → CBW.4 (secuencial; CBW.0 y CBW.1 son independientes entre sí y adelantables en paralelo).
 
