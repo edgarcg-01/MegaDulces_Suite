@@ -1049,7 +1049,20 @@ export class ComprasService {
     const qs = p.toString();
     return this.http.get<SupplierLedgerResponse>(`${this.adjBase}/supplier-ledger${qs ? '?' + qs : ''}`);
   }
+
+  /** CXP.7 — desglose (auxiliar 201) de un proveedor: movimientos con folio/fecha/importe/saldo. */
+  supplierLedgerDetail(q: { proveedor?: string; date_from?: string; date_to?: string }): Observable<SupplierLedgerDetailResponse> {
+    const p = new URLSearchParams();
+    if (q.proveedor) p.set('proveedor', q.proveedor);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    const qs = p.toString();
+    return this.http.get<SupplierLedgerDetailResponse>(`${this.adjBase}/supplier-ledger/detail${qs ? '?' + qs : ''}`);
+  }
 }
+
+export interface SupplierLedgerMove { fecha: string | null; anio_mes: string; tipo_pol: string; tipo_label: string; folio: string; sucursal: string; cargo_abono: 'C' | 'A'; importe: number; signed: number; saldo: number; categoria: string; concepto: string | null }
+export interface SupplierLedgerDetailResponse { proveedor: string | null; total: number; saldo_final: number; rows: SupplierLedgerMove[] }
 
 export interface SupplierLedgerRow { proveedor: string | null; facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number; n: number }
 export interface SupplierLedgerResponse { source: string; total: number; totals: { facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number }; rows: SupplierLedgerRow[] }

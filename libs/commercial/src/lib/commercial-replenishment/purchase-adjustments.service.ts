@@ -479,6 +479,57 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
+   * CXP.7 — DESGLOSE (auxiliar de la 201) de UN proveedor: los movimientos individuales que
+   * forman el agregado — factura / pago / nota / devolución — con folio, fecha, importe (con
+   * signo: abono sube deuda, cargo la baja) y SALDO CORRIDO. Une la pata 201 a su cabecera
+   * (gl_polizas) para fecha + concepto. Kepler-only; respeta el mismo rango de fecha que el cuadre.
+   */
+  async supplierLedgerDetail(q: { proveedor?: string; date_from?: string; date_to?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fromM = q.date_from ? q.date_from.slice(0, 7) : undefined;
+    const toM = q.date_to ? q.date_to.slice(0, 7) : undefined;
+    const TIPO_LABEL: Record<string, string> = {
+      XA2001: 'Factura', XA1001: 'Comprobación', XD2601: 'Pago (transferencia)',
+      XD2501: 'Pago (cheque)', XD5501: 'Nota de crédito', XD4001: 'Devolución',
+    };
+    const catOf = (tipo: string, ca: string): string =>
+      ca === 'A' ? 'facturado'
+      : tipo === 'XD2601' || tipo === 'XD2501' ? 'pagado'
+      : tipo === 'XD5501' ? 'nota'
+      : tipo === 'XD4001' ? 'devolucion' : 'otro';
+    return this.tk.run(async (trx) => {
+      let b = trx('analytics.gl_poliza_lines as l')
+        .leftJoin('analytics.gl_polizas as h', function (this: any) {
+          this.on('h.tenant_id', 'l.tenant_id').andOn('h.source', 'l.source')
+            .andOn('h.ejercicio', 'l.ejercicio').andOn('h.periodo', 'l.periodo')
+            .andOn('h.tipo_pol', 'l.tipo_pol').andOn('h.folio', 'l.folio').andOn('h.sucursal', 'l.sucursal');
+        })
+        .where('l.tenant_id', tenantId).where('l.source', 'kepler').where('l.cuenta_mayor', '201');
+      if (q.proveedor) b = b.where('l.referencia', q.proveedor);
+      else b = b.whereNull('l.referencia');
+      if (fromM) b = b.where('l.anio_mes', '>=', fromM);
+      if (toM) b = b.where('l.anio_mes', '<=', toM);
+      const rows: any[] = await b
+        .select('l.anio_mes', 'l.tipo_pol', 'l.folio', 'l.sucursal', 'l.cargo_abono',
+          trx.raw('l.importe::numeric AS importe'), trx.raw('h.fecha AS fecha'), trx.raw('h.concepto AS concepto'))
+        .orderByRaw('h.fecha asc nulls last, l.folio asc')
+        .limit(1000);
+      let saldo = 0;
+      const out = rows.map((r) => {
+        const imp = Number(r.importe) || 0;
+        const signed = r.cargo_abono === 'A' ? imp : -imp; // abono sube deuda, cargo la baja
+        saldo += signed;
+        return {
+          fecha: r.fecha, anio_mes: r.anio_mes, tipo_pol: r.tipo_pol, tipo_label: TIPO_LABEL[r.tipo_pol] || r.tipo_pol,
+          folio: r.folio, sucursal: r.sucursal, cargo_abono: r.cargo_abono,
+          importe: imp, signed, saldo, categoria: catOf(r.tipo_pol, r.cargo_abono), concepto: r.concepto || null,
+        };
+      });
+      return { proveedor: q.proveedor || null, total: out.length, saldo_final: saldo, rows: out };
+    });
+  }
+
+  /**
    * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
    * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
    * `rate` = desc/compras; `costo_neto` = compras − desc. Le dice al comprador que su
