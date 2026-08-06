@@ -48,11 +48,13 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
       <div class="c3-filters">
         <p-iconfield styleClass="c3-search">
           <p-inputicon styleClass="pi pi-search" />
-          <input pInputText type="text" placeholder="Proveedor, OC o folio…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar por proveedor, OC o folio" />
+          <input pInputText type="text" placeholder="Proveedor, OC, folio, vale o concepto…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar por proveedor, OC, folio, vale o concepto" />
         </p-iconfield>
-        <p-select [options]="sucursalOpts()" [ngModel]="sucursal()" (onChange)="onSucursal($event.value)" optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true" [filter]="true" styleClass="c3-sel" ariaLabel="Filtrar por sucursal" />
+        <p-select [options]="sucursalOpts()" [ngModel]="sucursal()" (onChange)="onSucursal($event.value)" optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true" [filter]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por sucursal" />
+        <p-select [options]="proveedorOpts()" [ngModel]="proveedorCode()" (onChange)="onProveedor($event.value)" optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true" [filter]="true" [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="c3-sel c3-sel-wide" ariaLabel="Filtrar por proveedor" />
         <p-select [options]="ocOpts" [ngModel]="conOc()" (onChange)="onOc($event.value)" optionLabel="label" optionValue="value" placeholder="OC: todas" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por orden de compra" />
         <p-select [options]="ajusteOpts" [ngModel]="ajusteMode()" (onChange)="onAjuste($event.value)" optionLabel="label" optionValue="value" placeholder="Ajuste: todos" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por ajuste" />
+        <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Rango de fecha rápido" />
         <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="c3-dp" ariaLabel="Desde" />
         <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="c3-dp" ariaLabel="Hasta" />
         <p-inputnumber [ngModel]="montoMin()" (ngModelChange)="onMonto('min', $event)" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="0" [min]="0" placeholder="Monto mín" styleClass="c3-num-in" inputStyleClass="p-inputtext-sm" ariaLabel="Monto mínimo de factura" />
@@ -183,6 +185,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-search input { min-width:230px; }
     :host ::ng-deep .c3-sel { min-width:12rem; }
     :host ::ng-deep .c3-sel-sm { min-width:9rem; }
+    :host ::ng-deep .c3-sel-wide { min-width:16rem; max-width:22rem; }
     :host ::ng-deep .c3-num-in { width:9.5rem; }
     :host ::ng-deep .c3-num-in input { width:100%; text-align:right; font-variant-numeric:tabular-nums; }
     .c3-clear { color:var(--text-muted); }
@@ -237,16 +240,27 @@ export class ComprasCompras360Component implements OnInit {
   readonly err = signal<string | null>(null);
   readonly search = signal('');
   readonly sucursal = signal<string>('');
+  readonly proveedorCode = signal<string>('');
   readonly conOc = signal<Compras360OcMode | ''>('');
   readonly ajusteMode = signal<Compras360AjusteMode | ''>('');
   readonly montoMin = signal<number | null>(null);
   readonly montoMax = signal<number | null>(null);
   readonly dateFrom = signal<Date | null>(null);
   readonly dateTo = signal<Date | null>(null);
+  readonly preset = signal<string>('');
   readonly filters = signal<Compras360Filters | null>(null);
   readonly sucursalOpts = computed(() => (this.filters()?.sucursales || []).map((s) => ({ label: `${s.code} · ${s.n}`, value: s.code })));
+  readonly proveedorOpts = computed(() => (this.filters()?.proveedores || []).map((p) => ({ label: `${p.nombre || p.code} · ${p.n}`, value: p.code })));
   readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
   readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];
+  readonly presetOpts = [
+    { label: 'Hoy', value: 'hoy' },
+    { label: 'Últimos 7 días', value: 'd7' },
+    { label: 'Últimos 30 días', value: 'd30' },
+    { label: 'Este mes', value: 'mes' },
+    { label: 'Mes pasado', value: 'mes_prev' },
+    { label: 'Este año', value: 'anio' },
+  ];
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly total = signal(0);
@@ -268,6 +282,7 @@ export class ComprasCompras360Component implements OnInit {
     const q = this.route.snapshot.queryParamMap;
     this.search.set(q.get('q') || '');
     this.sucursal.set(q.get('suc') || '');
+    this.proveedorCode.set(q.get('prov') || '');
     this.dateFrom.set(this.fromIso(q.get('from')));
     this.dateTo.set(this.fromIso(q.get('to')));
     const oc = q.get('oc'); this.conOc.set(oc === 'con' || oc === 'sin' ? oc : '');
@@ -313,6 +328,7 @@ export class ComprasCompras360Component implements OnInit {
     return {
       search: this.search().trim() || undefined,
       sucursal: this.sucursal() || undefined,
+      proveedor_code: this.proveedorCode() || undefined,
       date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()),
       ajuste: this.ajusteMode() || undefined,
       con_oc: this.conOc() || undefined,
@@ -329,6 +345,7 @@ export class ComprasCompras360Component implements OnInit {
       queryParams: {
         q: this.search().trim() || null,
         suc: this.sucursal() || null,
+        prov: this.proveedorCode() || null,
         from: this.toIso(this.dateFrom()) || null,
         to: this.toIso(this.dateTo()) || null,
         oc: this.conOc() || null,
@@ -362,10 +379,32 @@ export class ComprasCompras360Component implements OnInit {
 
   onDate(which: 'from' | 'to', v: Date | null): void {
     (which === 'from' ? this.dateFrom : this.dateTo).set(v);
+    this.preset.set(''); // cambio manual de fecha → deja de ser un preset
+    this.page.set(1); this.syncUrl(); this.reload();
+  }
+
+  /** Rango rápido: fija Desde/Hasta según el preset (mes en curso, mes pasado, etc.). */
+  onPreset(key: string | null): void {
+    this.preset.set(key || '');
+    if (!key) return; // limpiar el chip no borra las fechas ya elegidas
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+    let from: Date; let to: Date = new Date(y, m, d);
+    switch (key) {
+      case 'hoy': from = new Date(y, m, d); break;
+      case 'd7': from = new Date(y, m, d - 6); break;
+      case 'd30': from = new Date(y, m, d - 29); break;
+      case 'mes': from = new Date(y, m, 1); break;
+      case 'mes_prev': from = new Date(y, m - 1, 1); to = new Date(y, m, 0); break;
+      case 'anio': from = new Date(y, 0, 1); break;
+      default: return;
+    }
+    this.dateFrom.set(from); this.dateTo.set(to);
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
   onSucursal(v: string | null): void { this.sucursal.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+  onProveedor(v: string | null): void { this.proveedorCode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onOc(v: Compras360OcMode | null): void { this.conOc.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onAjuste(v: Compras360AjusteMode | null): void { this.ajusteMode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
 
@@ -377,12 +416,12 @@ export class ComprasCompras360Component implements OnInit {
   }
 
   hasFilters(): boolean {
-    return !!(this.search().trim() || this.sucursal() || this.dateFrom() || this.dateTo() || this.conOc() || this.ajusteMode() || this.montoMin() != null || this.montoMax() != null);
+    return !!(this.search().trim() || this.sucursal() || this.proveedorCode() || this.dateFrom() || this.dateTo() || this.conOc() || this.ajusteMode() || this.montoMin() != null || this.montoMax() != null);
   }
 
   clearFilters(): void {
-    this.search.set(''); this.sucursal.set(''); this.dateFrom.set(null); this.dateTo.set(null);
-    this.conOc.set(''); this.ajusteMode.set(''); this.montoMin.set(null); this.montoMax.set(null);
+    this.search.set(''); this.sucursal.set(''); this.proveedorCode.set(''); this.dateFrom.set(null); this.dateTo.set(null);
+    this.conOc.set(''); this.ajusteMode.set(''); this.montoMin.set(null); this.montoMax.set(null); this.preset.set('');
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
