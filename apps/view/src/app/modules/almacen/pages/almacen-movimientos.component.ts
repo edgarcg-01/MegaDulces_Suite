@@ -251,25 +251,29 @@ import { Permission } from '../../../core/constants/permissions';
               </section>
             } @else { <div class="dm-empty">Sin datos contables de traspasos en el rango.</div> }
 
-            <!-- ── Detalle: pólizas 515 SIN contraparte (el descuadre, folio a folio) ── -->
+            <!-- ── Detalle: pólizas 515 — pareo tolerante (exacto/costo/sin rastro) ── -->
             @if (detail(); as dt) {
               <section class="dm-block">
                 <header class="dm-block-head">
                   <div>
-                    <h2 class="dm-block-title"><i class="pi pi-search" aria-hidden="true"></i> Pólizas sin contraparte <span class="dm-muted">· el detalle del descuadre</span></h2>
-                    <p class="dm-block-sub">Cada póliza de la cuenta 515 cuyo importe NO tiene contraparte del lado opuesto (entrada 515-001 ↔ salida 515-002, pareo por importe exacto). <strong>Estas son las que hay que encontrar en Kepler</strong> — la referencia trae el folio del traspaso. Fuente: pólizas Kepler (may–jul).</p>
+                    <h2 class="dm-block-title"><i class="pi pi-search" aria-hidden="true"></i> Detalle de pólizas <span class="dm-muted">· dónde está la contraparte</span></h2>
+                    <p class="dm-block-sub">Pareo por importe con tolerancia <strong>±{{ dt.tolerance_pct }}%</strong> + ventana ±{{ dt.window_months }} mes (origen y destino registran el traspaso con costo ligeramente distinto). Lo <strong>sin rastro</strong> es lo que hay que encontrar en Kepler; la referencia trae el folio. Fuente: pólizas Kepler.</p>
                   </div>
-                  <div class="dm-total bad">
-                    <span class="dm-total-lbl">Sin contraparte (Δ)</span>
-                    <span class="dm-total-val">{{ signed(dt.totals.unpaired_entrada - dt.totals.unpaired_salida) }}</span>
+                  <div class="dm-total" [class.ok]="!dt.totals.sin_rastro.n_entrada && !dt.totals.sin_rastro.n_salida" [class.bad]="dt.totals.sin_rastro.n_entrada || dt.totals.sin_rastro.n_salida">
+                    <span class="dm-total-lbl">Sin rastro</span>
+                    <span class="dm-total-val">{{ dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida }} pólizas</span>
                   </div>
                 </header>
                 <div class="dm-subacc">
-                  <div class="dm-subacc-card"><span class="dm-subacc-code up">Entradas sin salida</span><span class="dm-subacc-val up">{{ money(dt.totals.unpaired_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.n_entrada }} pólizas</span></span></div>
-                  <div class="dm-subacc-card"><span class="dm-subacc-code down">Salidas sin entrada</span><span class="dm-subacc-val down">{{ money(dt.totals.unpaired_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.n_salida }} pólizas</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code">✔ Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code">≈ Con dif. de costo</span><span class="dm-subacc-val">{{ dt.totals.cost.n | number }} <span class="dm-muted dm-subacc-n">pares · Δ {{ money(dt.totals.cost.diff_total) }}</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code up">Sin rastro · entradas</span><span class="dm-subacc-val up">{{ money(dt.totals.sin_rastro.amt_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_entrada }}</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code down">Sin rastro · salidas</span><span class="dm-subacc-val down">{{ money(dt.totals.sin_rastro.amt_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_salida }}</span></span></div>
                 </div>
+
+                <h3 class="dm-h3">Sin rastro — a revisar en Kepler</h3>
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador en Kepler)</th></tr></thead>
+                  <thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th></tr></thead>
                   <tbody>
                     @for (r of dt.rows; track $index) {
                       <tr>
@@ -279,10 +283,30 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
                         <td class="dm-ref">{{ r.referencia || '—' }}</td>
                       </tr>
-                    } @empty { <tr><td colspan="5" class="dm-empty">No hay pólizas sin contraparte en el rango. 🎉</td></tr> }
+                    } @empty { <tr><td colspan="5" class="dm-empty">Todo pareó (exacto o con diferencia de costo). 🎉</td></tr> }
                   </tbody>
                 </table>
                 @if (dt.truncated) { <div class="dm-check-foot dm-muted">Mostrando las {{ dt.rows.length }} de mayor importe de {{ dt.total }} — acotá el rango para ver todas.</div> }
+
+                @if (dt.cost_pairs.length) {
+                  <h3 class="dm-h3">Pareadas con diferencia de costo <span class="dm-muted">(la contraparte SÍ existe — Δ = valuación)</span></h3>
+                  <table class="dm-docs dm-tbl">
+                    <thead><tr><th>Mes</th><th>Entrada (515-001)</th><th class="dm-r">Importe ent.</th><th>Salida (515-002)</th><th class="dm-r">Importe sal.</th><th class="dm-r">Δ costo</th></tr></thead>
+                    <tbody>
+                      @for (p of dt.cost_pairs; track $index) {
+                        <tr>
+                          <td class="dm-mono">{{ p.anio_mes }}</td>
+                          <td class="dm-ref up">{{ p.entrada_ref || '—' }} <span class="dm-muted">· suc {{ p.sucursal_entrada }}</span></td>
+                          <td class="dm-r">{{ money(p.entrada_importe) }}</td>
+                          <td class="dm-ref down">{{ p.salida_ref || '—' }} <span class="dm-muted">· suc {{ p.sucursal_salida }}</span></td>
+                          <td class="dm-r">{{ money(p.salida_importe) }}</td>
+                          <td class="dm-r dm-delta bad">{{ signed(p.delta) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                  @if (dt.cost_truncated) { <div class="dm-check-foot dm-muted">Mostrando los {{ dt.cost_pairs.length }} de mayor Δ de {{ dt.cost_total }}.</div> }
+                }
               </section>
             }
 

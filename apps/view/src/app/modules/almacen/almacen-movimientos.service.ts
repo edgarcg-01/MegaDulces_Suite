@@ -138,18 +138,28 @@ export interface TransfersMatrixResponse {
   rows: TransfersMatrixRow[];
 }
 
-/** DM.12 — detalle por póliza del descuadre (cuenta 515 sin contraparte, gl_poliza_lines). */
+/** DM.12 — detalle por póliza del descuadre (cuenta 515, gl_poliza_lines, pareo tolerante). */
 export interface LedgerDetailRow {
   anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string;
   importe: number; referencia: string | null; tipo_pol: string | null; folio: string | null;
 }
+/** Par pareado con diferencia de costo (misma transferencia, distinta valuación). */
+export interface LedgerCostPair {
+  anio_mes: string; sucursal_entrada: string; sucursal_salida: string;
+  entrada_importe: number; salida_importe: number; delta: number;
+  entrada_ref: string | null; salida_ref: string | null;
+}
 export interface TransfersLedgerDetailResponse {
   range: { from: string; to: string };
+  tolerance_pct: number; window_months: number;
   totals: {
     entrada: number; salida: number; delta: number;
-    unpaired_entrada: number; unpaired_salida: number; n_entrada: number; n_salida: number;
+    n_exact: number;
+    cost: { n: number; diff_total: number };
+    sin_rastro: { n_entrada: number; amt_entrada: number; n_salida: number; amt_salida: number };
   };
   rows: LedgerDetailRow[]; total: number; truncated: boolean;
+  cost_pairs: LedgerCostPair[]; cost_total: number; cost_truncated: boolean;
 }
 
 export interface MovementsFilterOpts {
