@@ -281,6 +281,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <p-select [options]="dMinOpts" [(ngModel)]="dMin" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                   <span class="dm-search"><input pInputText type="text" [(ngModel)]="dSearch" (keyup.enter)="loadDetail()" placeholder="Buscar folio o referencia…" aria-label="Buscar folio o referencia" /></span>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="loadDetail()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
+                  <p-select [options]="dPageSizeOpts" [(ngModel)]="dPageSize" (onChange)="onPageSize()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                 </div>
 
                 <table class="dm-docs dm-tbl">
@@ -288,25 +289,36 @@ import { Permission } from '../../../core/constants/permissions';
                   <tbody>
                     @if (detailLoading()) { <tr><td colspan="7" class="dm-empty">Cargando…</td></tr> }
                     @else {
-                      @for (r of dt.entries; track $index) {
-                        <tr>
+                      @for (r of pagedEntries(dt.entries); track $index) {
+                        <tr [class.dm-hl]="r.bucket !== 'exacto'" [class.dm-hl-strong]="r.bucket === 'sin_rastro'">
                           <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)" styleClass="dm-tag"></p-tag></td>
                           <td class="dm-mono">{{ r.anio_mes }}</td>
                           <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Ent 515-001' : 'Sal 515-002' }}</td>
                           <td class="dm-muted">{{ r.sucursal }}</td>
                           <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
-                          <td class="dm-ref">{{ r.referencia || '—' }}</td>
+                          <td class="dm-ref"><span [class.dm-mark]="r.bucket !== 'exacto'">{{ r.referencia || '—' }}</span>@if (r.folio) { <span class="dm-muted"> · {{ r.tipo_pol }}{{ r.folio }}</span> }</td>
                           <td class="dm-ref">
-                            @if (r.bucket === 'sin_rastro') { <span class="dm-muted">— sin contraparte —</span> }
-                            @else { {{ r.cp_ref || '(contraparte)' }} <span class="dm-muted">· suc {{ r.cp_sucursal }}</span>@if (r.bucket === 'costo') { <span class="dm-delta bad"> · Δ {{ signed(r.delta || 0) }}</span> } }
+                            @if (r.bucket === 'sin_rastro') { <span class="down dm-strong">⚠ sin contraparte en Kepler</span> }
+                            @else { {{ r.cp_ref || '(contraparte)' }} <span class="dm-muted">· suc {{ r.cp_sucursal }} · {{ money(r.cp_importe || 0) }}</span>@if (r.bucket === 'costo') { <span class="dm-delta bad"> · Δ {{ signed(r.delta || 0) }}</span> } }
                           </td>
                         </tr>
                       } @empty { <tr><td colspan="7" class="dm-empty">Sin pólizas con estos filtros.</td></tr> }
                     }
                   </tbody>
                 </table>
-                @if (dt.entries_truncated) { <div class="dm-check-foot dm-muted">Mostrando las {{ dt.entries.length }} de mayor importe de {{ dt.entries_total }} — acotá con los filtros.</div> }
-                @else if (!detailLoading()) { <div class="dm-check-foot dm-muted">{{ dt.entries_total | number }} pólizas con los filtros actuales.</div> }
+                @if (!detailLoading()) {
+                  <div class="dm-pager">
+                    <span class="dm-muted">
+                      {{ dt.entries.length ? (dPage() * dPageSize + 1) : 0 }}–{{ min(dPage() * dPageSize + dPageSize, dt.entries.length) }}
+                      de {{ dt.entries.length | number }}@if (dt.entries_truncated) { <span class="dm-muted"> (top por importe de {{ dt.entries_total | number }} — acotá con filtros)</span> }
+                    </span>
+                    <span class="dm-pager-ctrls">
+                      <button pButton type="button" class="p-button-sm p-button-text" [disabled]="dPage() === 0" (click)="goPage(-1, dt.entries.length)" ariaLabel="Anterior"><span class="p-button-icon pi pi-chevron-left" aria-hidden="true"></span></button>
+                      <span class="dm-mono">pág. {{ dPage() + 1 }} / {{ pageCount(dt.entries.length) }}</span>
+                      <button pButton type="button" class="p-button-sm p-button-text" [disabled]="dPage() + 1 >= pageCount(dt.entries.length)" (click)="goPage(1, dt.entries.length)" ariaLabel="Siguiente"><span class="p-button-icon pi pi-chevron-right" aria-hidden="true"></span></button>
+                    </span>
+                  </div>
+                }
               </section>
             }
 
@@ -322,7 +334,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <thead><tr><th>Origen</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th class="dm-r">OK / dif / s.rec.</th></tr></thead>
                   <tbody>
                     @for (r of mx.rows; track r.origin_wh_id + '>' + r.dest_wh_id) {
-                      <tr>
+                      <tr [class.dm-hl]="!matrixQtyOk(r.delta_qty) || r.n_diferencia > 0 || r.n_sin_recepcion > 0">
                         <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
                         <td>{{ r.dest_wh || '(sin destino)' }}</td>
                         <td class="dm-r">{{ r.qty_sent | number:'1.0-0' }}</td>
@@ -343,7 +355,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th>Fecha</th></tr></thead>
                   <tbody>
                     @for (r of unmatched(); track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id) {
-                      <tr class="dm-row" (click)="openTransfer(r)">
+                      <tr class="dm-row" [class.dm-hl]="r.status !== 'ok'" [class.dm-hl-strong]="r.status === 'sin_recepcion' || r.status === 'sin_origen'" (click)="openTransfer(r)">
                         <td><p-tag [value]="checkLabel(r.status)" [severity]="checkSev(r.status)" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
                         <td class="dm-mono dm-link">{{ r.origin_folio || r.rcv_folio || '—' }}</td>
@@ -384,7 +396,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <thead><tr><th>Tienda</th><th>Mes</th><th class="dm-r">CEDIS despachó (Kepler)</th><th class="dm-r">Tienda recibió (Wincaja)</th><th class="dm-r">+ Compra zona</th><th class="dm-r">Docs</th><th class="dm-r">Δ</th></tr></thead>
                   <tbody>
                     @for (r of wc.rows; track r.code + r.anio_mes) {
-                      <tr>
+                      <tr [class.dm-hl]="!wincajaOk(r.delta, r.kepler_envio)">
                         <td class="dm-strong">{{ r.code }} · {{ r.name }}</td>
                         <td class="dm-mono">{{ r.anio_mes }}</td>
                         <td class="dm-r up">{{ money(r.kepler_envio) }}</td>
@@ -554,6 +566,15 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-delta { font-variant-numeric: tabular-nums; font-weight: 600; }
     .dm-delta.ok { color: var(--text-muted); font-weight: 400; }
     .dm-delta.bad { color: var(--bad-fg); }
+    /* Resaltado de filas con diferencia (dónde está el descuadre) */
+    .dm-hl > td { background: var(--warn-soft-bg, rgba(180,120,20,.08)); }
+    .dm-hl-strong > td { background: var(--bad-soft-bg, rgba(190,60,60,.10)); box-shadow: inset 3px 0 0 var(--bad-fg); }
+    .dm-hl:hover > td, .dm-hl-strong:hover > td { filter: brightness(.98); }
+    .dm-mark { text-decoration: underline; text-decoration-color: var(--bad-fg); text-decoration-thickness: 2px; text-underline-offset: 2px; font-weight: 600; }
+    /* Paginador del detalle */
+    .dm-pager { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .5rem; font-size: .78rem; }
+    .dm-pager-ctrls { display: inline-flex; align-items: center; gap: .5rem; }
+    .dm-sub { font-size: .72rem; }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -726,6 +747,27 @@ export class AlmacenMovimientosComponent implements OnInit {
     { label: '≥ $50,000', value: 50000 },
     { label: '≥ $100,000', value: 100000 },
   ];
+  // Paginación de la tabla de detalle (no desplegar todas las filas).
+  dPage = signal(0);            // página actual (0-indexed)
+  dPageSize = 20;               // filas por página, default 20 (ngModel → campo plano, no signal)
+  dPageSizeOpts = [
+    { label: '20 por página', value: 20 },
+    { label: '50 por página', value: 50 },
+    { label: '100 por página', value: 100 },
+  ];
+  /** Filas de la página actual (slice cliente sobre las entries devueltas). */
+  pagedEntries(entries: any[]): any[] {
+    const size = this.dPageSize;
+    const start = this.dPage() * size;
+    return entries.slice(start, start + size);
+  }
+  pageCount(total: number): number { return Math.max(1, Math.ceil(total / this.dPageSize)); }
+  goPage(delta: number, total: number): void {
+    const last = this.pageCount(total) - 1;
+    this.dPage.set(Math.min(last, Math.max(0, this.dPage() + delta)));
+  }
+  onPageSize(): void { this.dPage.set(0); }
+  min(a: number, b: number): number { return Math.min(a, b); }
 
   /** Cambio de pestaña; carga el informe la 1ª vez que se entra a "cuadre". */
   onTab(v: string | number): void {
@@ -761,6 +803,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   loadDetail(): void {
     const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
     this.detailLoading.set(true);
+    this.dPage.set(0); // resetear a la 1ª página al recargar/filtrar
     this.api.transfersLedgerDetail(f, this.detailFilters())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
