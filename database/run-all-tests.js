@@ -80,6 +80,7 @@ const TESTS = [
   { file: 'http-home-delivery-test.js', label: 'LM-K entrega domicilio (folio Kepler → dispatch → outcome COD → arqueo)', needsApi: true },
   // Fase F — comercio conversacional WhatsApp (webhook simulador end-to-end)
   { file: 'http-whatsapp-webhook-test.js', label: 'F.0/F.1 WhatsApp webhook (verify + /sim inbound → cola → placeholder out + dedup + DB hilo/mensajes)', needsApi: true },
+  { file: 'http-cbw-bank-capture-test.js', label: 'CBW Captura bancaria WhatsApp E2E (sim imagen → bandeja → PATCH → confirmar sí → validar → renglón M=I/102 en el libro + ruteo no-autorizado + limpieza)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
   // LTV Auditoría en Ruta — detalle geográfico (traza GPS + tickets ubicados por hora)
