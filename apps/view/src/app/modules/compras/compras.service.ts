@@ -1039,7 +1039,20 @@ export class ComprasService {
     if (q.tipo_pol) p.set('tipo_pol', q.tipo_pol);
     return this.http.get<PolizaForReceipt>(`${this.adjBase}/poliza-for-receipt?${p.toString()}`);
   }
+
+  /** CXP.7 — cuadre contable por proveedor (estado de cuenta 201 de Kepler). */
+  supplierLedger(q: { date_from?: string; date_to?: string; search?: string } = {}): Observable<SupplierLedgerResponse> {
+    const p = new URLSearchParams();
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.search) p.set('search', q.search);
+    const qs = p.toString();
+    return this.http.get<SupplierLedgerResponse>(`${this.adjBase}/supplier-ledger${qs ? '?' + qs : ''}`);
+  }
 }
+
+export interface SupplierLedgerRow { proveedor: string | null; facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number; n: number }
+export interface SupplierLedgerResponse { source: string; total: number; totals: { facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number }; rows: SupplierLedgerRow[] }
 
 export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
 export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }

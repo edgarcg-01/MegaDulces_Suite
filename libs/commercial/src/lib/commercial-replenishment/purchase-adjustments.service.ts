@@ -431,6 +431,54 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
+   * CXP.7 — "Cuadre contable por proveedor": estado de cuenta de la 201 (Proveedores)
+   * a partir de las pólizas de Kepler. Por proveedor (referencia = beneficiario en la pata
+   * 201): facturado (abono XA2001/XA1001) vs pagado (cargo XD2601/XD2501) vs notas (XD5501)
+   * vs devoluciones (XD4001) → Δ del periodo (movimiento neto de la deuda; NO saldo absoluto,
+   * no hay apertura). Kepler-only: es el detalle por-sucursal con semántica por tipo de doc
+   * (ContPAQi consolida con tipo_pol genérico). Filtra por anio_mes derivado del rango de fecha.
+   * analytics.* sin RLS → tenant explícito.
+   */
+  async supplierLedger(q: { date_from?: string; date_to?: string; search?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fromM = q.date_from ? q.date_from.slice(0, 7) : undefined; // 'YYYY-MM'
+    const toM = q.date_to ? q.date_to.slice(0, 7) : undefined;
+    return this.tk.run(async (trx) => {
+      let b = trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).where('source', 'kepler').where('cuenta_mayor', '201');
+      if (fromM) b = b.where('anio_mes', '>=', fromM);
+      if (toM) b = b.where('anio_mes', '<=', toM);
+      if (q.search && q.search.trim()) b = b.where('referencia', 'ilike', `%${q.search.trim()}%`);
+      const rows: any[] = await b
+        .select('referencia', 'tipo_pol', 'cargo_abono')
+        .sum({ monto: 'importe' }).count({ n: '*' })
+        .groupBy('referencia', 'tipo_pol', 'cargo_abono');
+
+      const map = new Map<string, any>();
+      for (const r of rows) {
+        const key = (r.referencia as string) || '(sin referencia)';
+        let e = map.get(key);
+        if (!e) { e = { proveedor: (r.referencia as string) || null, facturado: 0, pagado: 0, notas: 0, devoluciones: 0, otros: 0, n: 0 }; map.set(key, e); }
+        const monto = Number(r.monto) || 0; e.n += Number(r.n) || 0;
+        if (r.cargo_abono === 'A') { e.facturado += monto; }         // abono → sube la deuda (factura/comprobación)
+        else if (r.tipo_pol === 'XD2601' || r.tipo_pol === 'XD2501') e.pagado += monto;   // cargo → pago
+        else if (r.tipo_pol === 'XD5501') e.notas += monto;          // cargo → nota de crédito
+        else if (r.tipo_pol === 'XD4001') e.devoluciones += monto;   // cargo → devolución
+        else e.otros += monto;                                       // otros cargos a 201
+      }
+      const out = Array.from(map.values());
+      for (const e of out) e.delta = e.facturado - e.pagado - e.notas - e.devoluciones - e.otros;
+      out.sort((a, b2) => b2.facturado - a.facturado);
+      const totals = out.reduce((a, e) => ({
+        facturado: a.facturado + e.facturado, pagado: a.pagado + e.pagado,
+        notas: a.notas + e.notas, devoluciones: a.devoluciones + e.devoluciones, otros: a.otros + e.otros,
+      }), { facturado: 0, pagado: 0, notas: 0, devoluciones: 0, otros: 0 });
+      const delta = totals.facturado - totals.pagado - totals.notas - totals.devoluciones - totals.otros;
+      return { source: 'kepler', total: out.length, totals: { ...totals, delta }, rows: out.slice(0, 500) };
+    });
+  }
+
+  /**
    * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
    * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
    * `rate` = desc/compras; `costo_neto` = compras − desc. Le dice al comprador que su

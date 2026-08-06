@@ -456,6 +456,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
+        // CXP.7 — Cuadre contable por proveedor: estado de cuenta 201 (Kepler).
+        path: 'cuadre-proveedor',
+        loadComponent: () => import('./modules/compras/pages/compras-cuadre-proveedor.component').then(m => m.ComprasCuadreProveedorComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
