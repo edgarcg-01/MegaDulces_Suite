@@ -16,7 +16,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeLazyLoad, DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
-import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, AdjustmentForEntradaRow } from '../compras.service';
+import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, AdjustmentForEntradaRow, PolizaForReceipt } from '../compras.service';
 
 /**
  * CXP.3 — "Compras 360": el Excel de recepciones en una interfaz. Una fila por orden
@@ -143,6 +143,37 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             <div><span class="c3-dt-l">Neto</span><span class="c3-dt-v c3-num c3-strong">{{ money(r.neto) }}</span></div>
           </div>
 
+          <h4 class="c3-dt-h">Póliza contable (Kepler)</h4>
+          @if (polizaLoading()) {
+            <p class="c3-empty">Cargando póliza…</p>
+          } @else if (poliza(); as pz) {
+            @if (!pz.found) {
+              <p class="c3-empty">Sin póliza contable localizada (XA2001) para esta recepción.</p>
+            } @else {
+              <div class="c3-pz-head">
+                <span class="c3-pz-badge" [class.ok]="pz.cuadra" [class.bad]="!pz.cuadra">
+                  <i class="pi" [class.pi-check-circle]="pz.cuadra" [class.pi-exclamation-triangle]="!pz.cuadra" aria-hidden="true"></i>
+                  {{ pz.cuadra ? 'Cuadra' : 'No cuadra' }}
+                </span>
+                <span class="c3-pz-meta">{{ pz.polizas[0].anio_mes }} · cargos {{ money(pzCargos(pz)) }} · abonos {{ money(pzAbonos(pz)) }}</span>
+              </div>
+              <p-table [value]="pz.lines" styleClass="p-datatable-sm surf-table c3-dt-table" [scrollable]="true" scrollHeight="30vh">
+                <ng-template #header>
+                  <tr><th class="c3-w-cuenta">Cuenta</th><th>Nombre</th><th class="c3-w-ca">C/A</th><th class="ta-r c3-w-amt">Importe</th></tr>
+                </ng-template>
+                <ng-template #body let-l>
+                  <tr>
+                    <td class="c3-mono">{{ l.cuenta }} @if (l.cuenta_afectable === false) { <i class="pi pi-exclamation-triangle c3-pz-warn" title="Cuenta no afectable (no debería postear)"></i> }</td>
+                    <td class="c3-prov" [title]="l.cuenta_nombre">{{ l.cuenta_nombre || '—' }}</td>
+                    <td class="c3-mono">{{ l.cargo_abono }}</td>
+                    <td class="ta-r c3-num">{{ money(l.importe) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+              <p class="c3-dt-note">Confirma que la recepción se asentó en libros (102 Bancos / 201 Proveedores / gasto). <b>Cuadra</b> = Σcargos − Σabonos ≈ 0.</p>
+            }
+          }
+
           <h4 class="c3-dt-h">Ajustes que explican el descuadre</h4>
           @if (explainsLoading()) {
             <p class="c3-empty">Cargando ajustes…</p>
@@ -223,6 +254,14 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-dt-note { font-size:.72rem; color:var(--text-faint); margin-top:.6rem; line-height:1.5; }
     .c3-dt-err { color:var(--bad-fg); }
     .c3-linkbtn { background:none; border:0; color:var(--action); cursor:pointer; font:inherit; text-decoration:underline; padding:0; }
+    /* póliza contable */
+    .c3-pz-head { display:flex; align-items:center; gap:.6rem; margin:.2rem 0 .6rem; flex-wrap:wrap; }
+    .c3-pz-badge { display:inline-flex; align-items:center; gap:.35rem; font-size:.72rem; font-weight:700; padding:.12rem .5rem; border-radius:var(--r-sm,4px); }
+    .c3-pz-badge.ok { color:var(--ok-fg); background:var(--ok-soft-bg,transparent); }
+    .c3-pz-badge.bad { color:var(--bad-fg); background:var(--bad-soft-bg,transparent); }
+    .c3-pz-meta { font-size:.74rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+    .c3-pz-warn { color:var(--warn-fg); margin-left:.3rem; font-size:.72rem; }
+    .c3-w-cuenta { width:8rem; } .c3-w-ca { width:3rem; }
     .c3-dt-actions { margin-top:1rem; padding-top:.7rem; border-top:1px solid var(--border-color); display:flex; justify-content:flex-end; }
     @media (max-width:560px) { .c3-dt-grid { grid-template-columns:repeat(2,1fr); } }
   `],
@@ -265,6 +304,8 @@ export class ComprasCompras360Component implements OnInit {
   readonly explainsLoading = signal(false);
   readonly explainsErr = signal(false);
   readonly explainsTotal = signal(0);
+  readonly poliza = signal<PolizaForReceipt | null>(null);
+  readonly polizaLoading = signal(false);
   readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio}` : ''; });
 
   /** onLazyLoad de p-table → page/pageSize + recarga (helper compartido). */
@@ -414,8 +455,14 @@ export class ComprasCompras360Component implements OnInit {
       next: (res) => { this.explains.set(res.rows || []); this.explainsTotal.set(res.total_monto || 0); this.explainsLoading.set(false); },
       error: () => { this.explainsLoading.set(false); this.explainsErr.set(true); },
     });
+    // CXP.6 — póliza contable (Kepler) de la recepción (XA2001).
+    this.poliza.set(null); this.polizaLoading.set(true);
+    this.svc.polizaForReceipt({ sucursal: r.sucursal, folio: r.folio }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (pz) => { this.poliza.set(pz); this.polizaLoading.set(false); },
+      error: () => { this.polizaLoading.set(false); this.poliza.set(null); },
+    });
   }
-  closeDetail(): void { this.detail.set(null); }
+  closeDetail(): void { this.detail.set(null); this.poliza.set(null); }
 
   /** Q.4 — navega a Descuentos filtrando por el proveedor (su lugar de arreglo). */
   drillToDescuentos(r: Compras360Row): void {
@@ -447,6 +494,9 @@ export class ComprasCompras360Component implements OnInit {
       { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand', sub: 'factura − ajuste' },
     ];
   }
+
+  pzCargos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.cargos) || 0), 0); }
+  pzAbonos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.abonos) || 0), 0); }
 
   money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }
