@@ -889,6 +889,95 @@ export class CommercialMovementsService {
     });
   }
 
+  /**
+   * DM.13 — Cuadre traspasos KEPLER → WINCAJA (tiendas solo-Wincaja 30/32/50, que NO están
+   * en Kepler → sus recepciones no aparecen en el 515). Cuadre por TOTALES de control por
+   * tienda×mes: Σ salida CEDIS (Kepler 515-002, mapeada por nombre de destino) vs Σ recepción
+   * CEDIS (Wincaja tipo C / tercero 0 / obs 'A0 …', costo). NO folio-a-folio (no hay llave).
+   *
+   * Mapa nombre Kepler → tienda (catálogo wincaja.branches + confirmación negocio 2026-08):
+   *   50 CANINDO ← 'CANINDO' · 32 Morelia Madero ← 'MM'/'MADERO' · 30 Morelia Abastos ← 'M.A'/'MORELIA ABASTOS'.
+   * Ojo: 'ABASTOS LA PIEDAD'/'ABASTOS L.P' es La Piedad (suc 42 migrada), NO 30.
+   * Caveat: cobertura Wincaja por tienda varía (datasets) → `wincaja_last_date` para avisar
+   * meses parciales. Unidad Wincaja ≠ piezas Kepler → comparar $ (costo), no piezas.
+   */
+  async transfersWincajaCheck(q: MovementsQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const fromYm = from.slice(0, 7), toYm = to.slice(0, 7);
+    const STORES = [
+      { code: '30', name: 'Morelia Abastos' },
+      { code: '32', name: 'Morelia Madero' },
+      { code: '50', name: 'Canindo' },
+    ];
+    const classify = (ref: string | null): string | null => {
+      const s = (ref || '').toUpperCase();
+      if (/CANINDO/.test(s)) return '50';
+      if (/MORELIA MADERO|\bMADERO\b|\bMM\b/.test(s)) return '32';
+      if (/MORELIA ABASTOS|\bM\.?A\b/.test(s)) return '30';
+      return null;
+    };
+    const months: string[] = [];
+    for (let [y, m] = fromYm.split('-').map(Number); `${y}-${String(m).padStart(2, '0')}` <= toYm;) {
+      months.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; }
+    }
+    return this.tk.run(async (trx) => {
+      const sal: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).andWhere('source', 'kepler')
+        .andWhereRaw(`cuenta LIKE '515-002%'`)
+        .andWhere('anio_mes', '>=', fromYm).andWhere('anio_mes', '<=', toYm)
+        .andWhereRaw('COALESCE(importe,0)<>0')
+        .select('anio_mes', 'importe', 'referencia');
+      const rec: any[] = await trx('wincaja.maestro_mov_almacen as m')
+        .join('wincaja.detalles_mov_almacen as d', function (this: any) {
+          this.on('d.tenant_id', 'm.tenant_id').andOn('d.source_branch', 'm.source_branch')
+            .andOn('d.source_dataset', 'm.source_dataset').andOn('d.consecutivo', 'm.consecutivo');
+        })
+        // recepción del CEDIS = tipo C + tercero '0' (almacén origen 00). El obs 'A0 T99…' solo
+        // existe en el dataset 'actual'; en 'concentrada' viene vacío → NO filtrar por obs.
+        .where('m.tenant_id', tenantId).whereIn('m.source_branch', STORES.map((s) => s.code))
+        .andWhere('m.tipo', 'C').andWhere('m.tercero', '0')
+        .andWhereRaw(`to_char(m.fecha,'YYYY-MM') >= ?`, [fromYm]).andWhereRaw(`to_char(m.fecha,'YYYY-MM') <= ?`, [toYm])
+        .groupByRaw(`m.source_branch, to_char(m.fecha,'YYYY-MM')`)
+        .select(trx.raw(`m.source_branch AS code`), trx.raw(`to_char(m.fecha,'YYYY-MM') AS ym`),
+          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) AS costo`), trx.raw(`COUNT(DISTINCT m.consecutivo) AS docs`));
+      const cov: any[] = await trx('wincaja.maestro_mov_almacen')
+        .where('tenant_id', tenantId).whereIn('source_branch', STORES.map((s) => s.code))
+        .groupBy('source_branch').select('source_branch').max('fecha as last_date');
+
+      // Kepler mapeado por (store, mes)
+      const kMap = new Map<string, number>();
+      let keplerUnmapped = 0;
+      for (const r of sal) {
+        const code = classify(r.referencia);
+        if (!code) { keplerUnmapped += Number(r.importe) || 0; continue; }
+        const k = `${code}|${r.anio_mes}`;
+        kMap.set(k, (kMap.get(k) || 0) + (Number(r.importe) || 0));
+      }
+      const wMap = new Map<string, { costo: number; docs: number }>();
+      for (const r of rec) wMap.set(`${r.code}|${r.ym}`, { costo: Number(r.costo) || 0, docs: Number(r.docs) || 0 });
+      const lastByCode = new Map(cov.map((c) => [c.source_branch, c.last_date]));
+
+      const rows: any[] = [];
+      const totals = { kepler: 0, wincaja: 0, delta: 0 };
+      for (const st of STORES) {
+        for (const ym of months) {
+          const kepler = kMap.get(`${st.code}|${ym}`) || 0;
+          const w = wMap.get(`${st.code}|${ym}`) || { costo: 0, docs: 0 };
+          if (kepler === 0 && w.costo === 0) continue;
+          const delta = kepler - w.costo;
+          rows.push({
+            code: st.code, name: st.name, anio_mes: ym,
+            kepler_envio: kepler, wincaja_recibido: w.costo, docs: w.docs, delta,
+          });
+          totals.kepler += kepler; totals.wincaja += w.costo; totals.delta += delta;
+        }
+      }
+      const stores = STORES.map((st) => ({ ...st, last_date: lastByCode.get(st.code) || null }));
+      return { range: { from: fromYm, to: toYm }, stores, rows, totals, kepler_unmapped: keplerUnmapped };
+    });
+  }
+
   /** DM.12 — junta los lentes del cuadre (contable + matriz física + folios + detalle) para el PDF. */
   async exportCuadreData(q: MovementsQuery) {
     const [ledger, matrix, check, detail] = await Promise.all([
