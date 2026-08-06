@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -117,7 +117,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
       }
     </div>
 
-    <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [style]="{ width: '780px', maxWidth: '96vw' }" [header]="detail()?.proveedor || 'Desglose'">
+    <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [style]="{ width: '1040px', maxWidth: '96vw' }" [header]="detail()?.proveedor || 'Desglose'">
       @if (detail(); as d) {
         <div class="cq-dt-kpis">
           <span>Facturado <b>{{ money(d.facturado) }}</b></span>
@@ -131,22 +131,62 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
         } @else if (moves().length === 0) {
           <p class="cq-empty">Sin movimientos en la 201 para este proveedor en el periodo.</p>
         } @else {
-          <p-table [value]="moves()" styleClass="p-datatable-sm surf-table cq-dt-table" [scrollable]="true" scrollHeight="52vh" [rowHover]="true">
-            <ng-template #header>
-              <tr><th class="cq-w-date">Fecha</th><th class="cq-w-tipo">Tipo</th><th class="cq-w-folio">Folio</th><th class="cq-w-suc">Suc</th><th class="ta-r cq-w-amt">Importe</th><th class="ta-r cq-w-amt">Saldo</th></tr>
-            </ng-template>
-            <ng-template #body let-m>
-              <tr>
-                <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
-                <td><p-tag [value]="m.tipo_label" [severity]="tagSev(m.categoria)" styleClass="cq-tag" /></td>
-                <td class="cq-mono muted">{{ m.folio }}</td>
-                <td class="cq-mono muted">{{ m.sucursal }}</td>
-                <td class="ta-r cq-num" [class.cq-up]="m.signed > 0" [class.cq-down]="m.signed < 0">{{ money(m.signed) }}</td>
-                <td class="ta-r cq-num cq-strong">{{ money(m.saldo) }}</td>
-              </tr>
-            </ng-template>
-          </p-table>
-          <p class="cq-dt-note">Auxiliar de la cuenta 201 (Kepler). <b>Importe</b>: factura/comprobación = + (sube deuda), pago/nota/devolución = − (baja deuda). <b>Saldo</b> = corrido del periodo (sin apertura). Saldo final <b>{{ money(saldoFinal()) }}</b> en {{ moves().length }} movimiento(s).</p>
+          <div class="cq-tacct">
+            <!-- IZQUIERDA: COMPRAS (lo que le facturaste / le debes) -->
+            <section class="cq-side">
+              <header class="cq-side-head cq-side-head--debe">
+                <span class="cq-side-title"><i class="pi pi-arrow-up-right" aria-hidden="true"></i> Compras (facturado)</span>
+                <span class="cq-side-total">{{ money(totalCompras()) }} <small>· {{ comprasMoves().length }}</small></span>
+              </header>
+              <p-table [value]="comprasMoves()" styleClass="p-datatable-sm surf-table cq-dt-table" [scrollable]="true" scrollHeight="46vh" [rowHover]="true">
+                <ng-template #header>
+                  <tr><th class="cq-w-date">Fecha</th><th class="cq-w-folio">Folio</th><th class="cq-w-suc">Suc</th><th class="ta-r cq-w-amt">Importe</th></tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
+                    <td class="cq-mono muted">{{ m.folio }}</td>
+                    <td class="cq-mono muted">{{ m.sucursal }}</td>
+                    <td class="ta-r cq-num cq-debe">{{ money(m.importe) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage><tr><td colspan="4" class="cq-empty">Sin compras en el periodo.</td></tr></ng-template>
+              </p-table>
+            </section>
+            <!-- DERECHA: PAGOS Y CRÉDITOS (lo que ya cubriste) -->
+            <section class="cq-side">
+              <header class="cq-side-head cq-side-head--haber">
+                <span class="cq-side-title"><i class="pi pi-arrow-down-left" aria-hidden="true"></i> Pagos y créditos</span>
+                <span class="cq-side-total">{{ money(totalPagos()) }} <small>· {{ pagosMoves().length }}</small></span>
+              </header>
+              <p-table [value]="pagosMoves()" styleClass="p-datatable-sm surf-table cq-dt-table" [scrollable]="true" scrollHeight="46vh" [rowHover]="true">
+                <ng-template #header>
+                  <tr><th class="cq-w-date">Fecha</th><th class="cq-w-tipo">Tipo</th><th class="cq-w-folio">Folio</th><th class="ta-r cq-w-amt">Importe</th></tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
+                    <td><p-tag [value]="m.tipo_label" [severity]="tagSev(m.categoria)" styleClass="cq-tag" /></td>
+                    <td class="cq-mono muted">{{ m.folio }}</td>
+                    <td class="ta-r cq-num cq-haber">{{ money(m.importe) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage><tr><td colspan="4" class="cq-empty">Sin pagos ni créditos en el periodo.</td></tr></ng-template>
+              </p-table>
+            </section>
+          </div>
+          <!-- BALANCE: Compras − Pagos = lo que falta pagar -->
+          <div class="cq-balance" [class.cq-balance--pend]="pendiente() > 0" [class.cq-balance--over]="pendiente() < 0">
+            <div class="cq-bal-cell"><span class="cq-bal-lbl">Compras</span><span class="cq-bal-val">{{ money(totalCompras()) }}</span></div>
+            <span class="cq-bal-op">−</span>
+            <div class="cq-bal-cell"><span class="cq-bal-lbl">Pagos y créditos</span><span class="cq-bal-val">{{ money(totalPagos()) }}</span></div>
+            <span class="cq-bal-op">=</span>
+            <div class="cq-bal-cell cq-bal-res">
+              <span class="cq-bal-lbl">{{ pendiente() > 0.5 ? 'Sin pagar (falta)' : pendiente() < -0.5 ? 'Pagado de más' : 'Cuadrado' }}</span>
+              <span class="cq-bal-val">{{ money(absVal(pendiente())) }}</span>
+            </div>
+          </div>
+          <p class="cq-dt-note">Cuenta-T de la <b>201 Proveedores</b> (Kepler). <b>Compras</b> = facturado (sube deuda) · <b>Pagos y créditos</b> = pagos, notas y devoluciones (bajan deuda). <b>Pendiente</b> = Compras − Pagos: lo no cubierto en el periodo (movimiento neto, sin saldo de apertura). Kepler <b>no liga factura↔pago 1:1</b>, así que el cuadre es por totales del periodo, no línea a línea.</p>
         }
       }
     </p-dialog>
@@ -180,6 +220,26 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-dt-note { font-size:.72rem; color:var(--text-faint); margin-top:.6rem; line-height:1.5; }
     .cq-empty { padding:1.4rem; text-align:center; color:var(--text-faint); font-size:.85rem; }
     :host ::ng-deep .cq-tag { font-size:.64rem; }
+    /* Cuenta-T: Compras (izquierda) | Pagos y créditos (derecha), alineados */
+    .cq-tacct { display:grid; grid-template-columns:1fr 1fr; gap:1rem; align-items:start; }
+    .cq-side { display:flex; flex-direction:column; min-width:0; border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; }
+    .cq-side-head { display:flex; justify-content:space-between; align-items:center; gap:.5rem; padding:.5rem .7rem; font-size:.78rem; font-weight:600; border-bottom:2px solid var(--border-color); }
+    .cq-side-head--debe { color:var(--warn-fg); border-bottom-color:var(--warn-fg); }
+    .cq-side-head--haber { color:var(--ok-fg); border-bottom-color:var(--ok-fg); }
+    .cq-side-title { display:inline-flex; align-items:center; gap:.35rem; }
+    .cq-side-total { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+    .cq-side-total small { color:var(--text-faint); font-weight:400; }
+    .cq-debe { color:var(--warn-fg); }
+    .cq-haber { color:var(--ok-fg); }
+    .cq-balance { display:flex; align-items:stretch; gap:.6rem; margin-top:.9rem; padding:.7rem .9rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+    .cq-bal-cell { display:flex; flex-direction:column; gap:.15rem; flex:1; min-width:0; }
+    .cq-bal-lbl { font-size:.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
+    .cq-bal-val { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:700; }
+    .cq-bal-op { align-self:center; color:var(--text-faint); font-family:var(--font-mono); font-size:1.1rem; }
+    .cq-bal-res { border-left:1px solid var(--border-color); padding-left:.8rem; }
+    .cq-balance--pend .cq-bal-res, .cq-balance--pend .cq-bal-res .cq-bal-lbl { color:var(--bad-fg); }
+    .cq-balance--over .cq-bal-res, .cq-balance--over .cq-bal-res .cq-bal-lbl { color:var(--ok-fg); }
+    @media (max-width:720px) { .cq-tacct { grid-template-columns:1fr; } }
     .cq-foot { margin-top:1.2rem; font-size:.74rem; color:var(--text-faint); line-height:1.55; }
     .cq-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--bad-border, var(--border-color)); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .cq-errbox .pi { color:var(--bad-fg); }
@@ -213,6 +273,13 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly moves = signal<SupplierLedgerMove[]>([]);
   readonly movesLoading = signal(false);
   readonly saldoFinal = signal(0);
+  // Cuenta-T: compras (facturado, sube deuda) a la izquierda; pagos/notas/devoluciones (bajan) a la
+  // derecha. `signed` > 0 = compra · < 0 = pago/crédito (lo escribe el backend por categoría).
+  readonly comprasMoves = computed(() => this.moves().filter((m) => m.signed > 0));
+  readonly pagosMoves = computed(() => this.moves().filter((m) => m.signed < 0));
+  readonly totalCompras = computed(() => this.comprasMoves().reduce((s, m) => s + Math.abs(m.importe || 0), 0));
+  readonly totalPagos = computed(() => this.pagosMoves().reduce((s, m) => s + Math.abs(m.importe || 0), 0));
+  readonly pendiente = computed(() => this.totalCompras() - this.totalPagos());
 
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap;
@@ -309,4 +376,5 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   }
 
   money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  absVal(n: number): number { return Math.abs(n || 0); }
 }
