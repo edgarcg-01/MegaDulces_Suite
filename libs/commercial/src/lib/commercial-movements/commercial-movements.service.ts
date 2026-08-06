@@ -749,66 +749,109 @@ export class CommercialMovementsService {
   }
 
   /**
-   * DM.12 — DETALLE por póliza del descuadre contable (mayor 515) sobre
-   * `analytics.gl_poliza_lines` (partida doble por póliza, source='kepler', ADR-041).
+   * DM.12 — DETALLE por póliza del descuadre (mayor 515) sobre `analytics.gl_poliza_lines`
+   * (partida doble por póliza, source='kepler', ADR-041).
    *
-   * Parea cada ENTRADA (515-001) con una SALIDA (515-002) por IMPORTE exacto (greedy,
-   * en toda la ventana). Lo que queda sin contraparte ES el descuadre → devuelve la lista
-   * de pólizas con su `referencia` (localizador: "TRAS DE CEDIS A ZAMORA T-7904"), sucursal
-   * e importe, para que el contador la encuentre en Kepler. `unpaired_entrada − unpaired_salida`
-   * = Δ de la ventana. Vista de red; honra rango. Cobertura = lo que traiga gl_poliza_lines.
+   * Pareo TOLERANTE (no exacto): origen y destino registran el traspaso con importes CASI
+   * iguales (diferencia de costo/valuación) → el match exacto pierde la contraparte. Verificado
+   * en mayo-2026: exacto marcaba $15.9M "sin contraparte" con Δ real de solo $358k; con ±2% el
+   * 85% parea. Estrategia: greedy por importe más cercano dentro de ±TOL, con ventana ±1 mes
+   * (captura traspasos en tránsito al corte). 3 baldes:
+   *   - exacto     → |Δ| < $0.01 (misma valuación).
+   *   - costo      → 0 < |Δ| ≤ TOL·importe: MISMA transferencia, distinta valuación (informativo;
+   *                  el par revela DÓNDE está la contraparte).
+   *   - sin_rastro → sin contraparte ni con tolerancia ni en la ventana ⇒ LO ACCIONABLE.
+   * Solo reporta pólizas DENTRO del rango; los meses de padding solo son candidatos.
    */
   async transfersLedgerDetail(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     const fromYm = from.slice(0, 7), toYm = to.slice(0, 7);
-    const CAP = 500; // el detalle es para lectura/acción; se lista lo más grande primero
+    const TOL = 0.02; // ±2% (diferencia de costo origen↔destino)
+    const CAP = 500;
+    const addMonth = (ym: string, d: number) => {
+      const [y, m] = ym.split('-').map(Number);
+      const dt = new Date(y, m - 1 + d, 1);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    };
+    const padFrom = addMonth(fromYm, -1), padTo = addMonth(toYm, 1);
+    const inRange = (ym: string) => ym >= fromYm && ym <= toYm;
+
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.gl_poliza_lines')
         .where('tenant_id', tenantId).andWhere('source', 'kepler')
         .andWhereRaw(`cuenta LIKE '515-%'`)
-        .andWhere('anio_mes', '>=', fromYm).andWhere('anio_mes', '<=', toYm)
+        .andWhere('anio_mes', '>=', padFrom).andWhere('anio_mes', '<=', padTo)
         .andWhereRaw('COALESCE(importe,0) <> 0')
-        .select('anio_mes', 'sucursal', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio', 'cargo_abono');
+        .select('anio_mes', 'sucursal', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio');
 
-      // Multiset por importe (a centavo) del lado SALIDA; cada entrada consume una salida igual.
-      const salByAmt = new Map<string, any[]>();
       const entradas: any[] = [], salidas: any[] = [];
       for (const r of rows) {
-        (String(r.cuenta).startsWith('515-001') ? entradas : salidas).push(r);
+        const o = { ...r, importe: Number(r.importe) || 0, paired: false, delta: null as number | null };
+        (String(r.cuenta).startsWith('515-001') ? entradas : salidas).push(o);
       }
-      for (const s of salidas) {
-        const k = (Number(s.importe) || 0).toFixed(2);
-        (salByAmt.get(k) || salByAmt.set(k, []).get(k)!).push(s);
+      salidas.sort((a, b) => a.importe - b.importe);
+      const amts = salidas.map((s) => s.importe);
+      const lowerBound = (target: number) => {
+        let lo = 0, hi = amts.length;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (amts[mid] < target) lo = mid + 1; else hi = mid; }
+        return lo;
+      };
+      // Greedy: entradas de mayor a menor; la salida NO usada de importe más cercano en ±TOL.
+      const costPairs: any[] = [];
+      for (const e of [...entradas].sort((a, b) => b.importe - a.importe)) {
+        const lo = e.importe * (1 - TOL), hi = e.importe * (1 + TOL);
+        let i = lowerBound(lo), best = -1, bd = Infinity;
+        for (; i < salidas.length && amts[i] <= hi; i++) {
+          if (salidas[i].paired) continue;
+          const d = Math.abs(amts[i] - e.importe);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best < 0) continue;
+        const s = salidas[best]; s.paired = true; e.paired = true;
+        const delta = e.importe - s.importe; e.delta = delta; s.delta = delta;
+        if (Math.abs(delta) >= 0.01 && (inRange(e.anio_mes) || inRange(s.anio_mes))) {
+          costPairs.push({
+            anio_mes: inRange(e.anio_mes) ? e.anio_mes : s.anio_mes,
+            sucursal_entrada: e.sucursal, sucursal_salida: s.sucursal,
+            entrada_importe: e.importe, salida_importe: s.importe, delta,
+            entrada_ref: e.referencia || null, salida_ref: s.referencia || null,
+          });
+        }
       }
-      const unpaired: any[] = [];
-      let entTot = 0, salTot = 0, unpEntAmt = 0, unpSalAmt = 0;
-      for (const e of entradas) {
-        entTot += Number(e.importe) || 0;
-        const k = (Number(e.importe) || 0).toFixed(2);
-        const arr = salByAmt.get(k);
-        if (arr && arr.length) { arr.pop(); } // pareada → no es descuadre
-        else { unpaired.push({ ...e, kind: 'entrada' }); unpEntAmt += Number(e.importe) || 0; }
-      }
-      for (const s of salidas) salTot += Number(s.importe) || 0;
-      for (const arr of salByAmt.values()) for (const s of arr) { unpaired.push({ ...s, kind: 'salida' }); unpSalAmt += Number(s.importe) || 0; }
 
-      unpaired.sort((a, b) => (Number(b.importe) || 0) - (Number(a.importe) || 0));
-      const total = unpaired.length;
-      const rowsOut = unpaired.slice(0, CAP).map((r) => ({
-        anio_mes: r.anio_mes, kind: r.kind, cuenta: r.cuenta, sucursal: r.sucursal,
-        importe: Number(r.importe) || 0, referencia: r.referencia || null,
-        tipo_pol: r.tipo_pol || null, folio: r.folio || null,
-      }));
+      // Baldes: SOLO pólizas dentro del rango (el padding solo aportó candidatos).
+      const inEnt = entradas.filter((e) => inRange(e.anio_mes));
+      const inSal = salidas.filter((s) => inRange(s.anio_mes));
+      const entTot = inEnt.reduce((a, e) => a + e.importe, 0);
+      const salTot = inSal.reduce((a, s) => a + s.importe, 0);
+      let nExact = 0;
+      for (const x of [...inEnt, ...inSal]) if (x.paired && Math.abs(x.delta || 0) < 0.01) nExact++;
+      const sinRastro = [...inEnt, ...inSal].filter((x) => !x.paired)
+        .map((r) => ({
+          anio_mes: r.anio_mes, kind: String(r.cuenta).startsWith('515-001') ? 'entrada' : 'salida',
+          cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe,
+          referencia: r.referencia || null, tipo_pol: r.tipo_pol || null, folio: r.folio || null,
+        }))
+        .sort((a, b) => b.importe - a.importe);
+      const srEnt = sinRastro.filter((r) => r.kind === 'entrada');
+      const srSal = sinRastro.filter((r) => r.kind === 'salida');
+      const costDiffTotal = costPairs.reduce((a, p) => a + Math.abs(p.delta), 0);
+      costPairs.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
       return {
-        range: { from: fromYm, to: toYm },
+        range: { from: fromYm, to: toYm }, tolerance_pct: TOL * 100, window_months: 1,
         totals: {
           entrada: entTot, salida: salTot, delta: entTot - salTot,
-          unpaired_entrada: unpEntAmt, unpaired_salida: unpSalAmt,
-          n_entrada: unpaired.filter((u) => u.kind === 'entrada').length,
-          n_salida: unpaired.filter((u) => u.kind === 'salida').length,
+          n_exact: nExact,
+          cost: { n: costPairs.length, diff_total: costDiffTotal },
+          sin_rastro: {
+            n_entrada: srEnt.length, amt_entrada: srEnt.reduce((a, r) => a + r.importe, 0),
+            n_salida: srSal.length, amt_salida: srSal.reduce((a, r) => a + r.importe, 0),
+          },
         },
-        rows: rowsOut, total, truncated: total > CAP,
+        rows: sinRastro.slice(0, CAP), total: sinRastro.length, truncated: sinRastro.length > CAP,
+        cost_pairs: costPairs.slice(0, CAP), cost_total: costPairs.length, cost_truncated: costPairs.length > CAP,
       };
     });
   }

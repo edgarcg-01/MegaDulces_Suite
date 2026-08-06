@@ -501,8 +501,8 @@ export class MovementsExportService {
       <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th>Fecha</th></tr></thead>
       <tbody>${ckRows || '<tr><td colspan="8" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
 
-      <div class="sec brk"><h2>4 · Pólizas contables sin contraparte</h2><span class="cnt">${num(dt?.total || 0)} pólizas${dt?.truncated ? ` · primeras ${num((dt?.rows || []).length)}` : ''}</span></div>
-      <p class="lead">Pólizas de la cuenta 515 cuyo importe NO tiene contraparte del lado opuesto (entrada ↔ salida). Estas explican el descuadre — la referencia trae el folio del traspaso para ubicarlo en Kepler.</p>
+      <div class="sec brk"><h2>4 · Pólizas contables sin rastro</h2><span class="cnt">${num(dt?.total || 0)} pólizas${dt?.truncated ? ` · primeras ${num((dt?.rows || []).length)}` : ''}</span></div>
+      <p class="lead">Pareo con tolerancia ±${dt?.totals?.cost != null ? '2' : '2'}% + ventana ±1 mes. Balance: ${num(dt?.totals?.n_exact || 0)} pareadas exactas · ${num(dt?.totals?.cost?.n || 0)} con diferencia de costo (Δ ${money(dt?.totals?.cost?.diff_total || 0)}). Lo de abajo es lo SIN RASTRO — la referencia trae el folio para ubicarlo en Kepler.</p>
       <table><thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="num">Importe</th><th>Referencia (localizador)</th></tr></thead>
       <tbody>${detailRows || '<tr><td colspan="5" class="empty">No hay pólizas sin contraparte en el rango.</td></tr>'}</tbody></table>
     </body></html>`;
