@@ -60,22 +60,23 @@ const anioMes = (y, p) => `${y}-${Number(p) <= 12 ? String(Number(p)).padStart(2
   const lines = (await mss.request().query(`
     SELECT m.Ejercicio, m.Periodo, m.TipoPol, m.Folio, m.NumMovto,
            c.Codigo AS Cuenta, c.Nombre AS CuentaNombre, c.Afectable,
-           a.Codigo AS SatCod, m.TipoMovto, m.Importe, m.Referencia, m.Id AS IdMov
+           a.Codigo AS SatCod, m.TipoMovto, m.Importe, m.Referencia, m.Guid AS Guid
       FROM MovimientosPoliza m
       JOIN Cuentas c ON c.Id = m.IdCuenta
       LEFT JOIN AgrupadoresSAT a ON a.Id = c.IdAgrupadorSAT
      WHERE m.Ejercicio >= ${FROM_YEAR}`)).recordset;
   console.log(`  ${lines.length} movimientos (patas)`);
 
-  // ── CFDI por movimiento (AsocCFDIs) — opcional, tolerante a diferencias de esquema ──
-  const cfdiByMov = new Map();
+  // ── CFDI por movimiento — AsocCFDIs.GuidRef = MovimientosPoliza.Guid, UUID directo en la asoc
+  //    (verificado 2026-08-06: NO es IdMovimientoPoliza→DocumentosAdministrativos; el link es por GUID). ──
+  const cfdiByGuid = new Map();
   try {
-    const asoc = (await mss.request().query(`
-      SELECT ac.IdMovimientoPoliza AS IdMov, da.Uuid AS Uuid
-        FROM AsocCFDIs ac
-        JOIN DocumentosAdministrativos da ON da.Id = ac.IdDocumentoAdministrativo`)).recordset;
-    for (const r of asoc) if (r.IdMov != null && r.Uuid) cfdiByMov.set(Number(r.IdMov), String(r.Uuid).trim());
-    console.log(`  ${cfdiByMov.size} movimientos con CFDI (AsocCFDIs)`);
+    const asoc = (await mss.request().query(`SELECT GuidRef, UUID FROM AsocCFDIs WHERE UUID IS NOT NULL AND GuidRef IS NOT NULL`)).recordset;
+    for (const r of asoc) {
+      const g = String(r.GuidRef).trim().toUpperCase();
+      if (g && !cfdiByGuid.has(g)) cfdiByGuid.set(g, String(r.UUID).trim());
+    }
+    console.log(`  ${cfdiByGuid.size} movimientos con CFDI (AsocCFDIs.GuidRef → UUID)`);
   } catch (e) {
     console.warn(`  ⚠ AsocCFDIs no resuelto (${e.message}) — cfdi_uuid quedará null; cablear el join en feeds.`);
   }
@@ -100,7 +101,7 @@ const anioMes = (y, p) => `${y}-${Number(p) <= 12 ? String(Number(p)).padStart(2
       String(l.TipoPol), String(l.Folio), Number(l.NumMovto) || 0,
       cuenta, (l.CuentaNombre || '').trim() || null, l.Afectable == null ? null : !!l.Afectable,
       cuenta.split('-')[0], cuenta.slice(0, 1), ca, round2(l.Importe),
-      (l.Referencia || '').trim() || null, cfdiByMov.get(Number(l.IdMov)) || null,
+      (l.Referencia || '').trim() || null, cfdiByGuid.get(String(l.Guid || '').trim().toUpperCase()) || null,
       (l.SatCod || '').trim() || null, anioMes(l.Ejercicio, l.Periodo),
     ];
   });
