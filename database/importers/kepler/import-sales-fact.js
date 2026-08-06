@@ -175,6 +175,7 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
              IS DISTINCT FROM
              (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`, [M]);
     await db.query('COMMIT');
+    await db.query(`ANALYZE analytics.sales_daily`); // RS.12c — stats frescas → plan bueno en sell-out
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
     if (APPLY) await hb.end('kepler_sales_fact', { status: 'ok', rows: up.rowCount });
   } catch (e) {

@@ -95,7 +95,10 @@ const SELECT_SQL = `
                            WHERE s.product_id = t.product_id AND s.warehouse_id = t.warehouse_id
                              AND s.channel = t.channel AND s.year_month = t.year_month)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
+    // RS.12c — refrescar estadísticas: el bulk-upsert deja stats obsoletas → el planner
+    // degrada el sell-out (medido: 7.5s → 1s con ANALYZE). Barato, corre en cada feed.
+    await db.query(`ANALYZE analytics.sales_boxes_monthly`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas). ANALYZE OK.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

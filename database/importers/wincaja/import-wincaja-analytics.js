@@ -133,6 +133,10 @@ const SELECT_SRC = `
     console.log(`analytics.sales_daily (wincaja*): ${up.rowCount} escritas (nuevas/cambiadas), ${del.rowCount} borradas`);
   });
 
+  // RS.12c — refrescar estadísticas: el bulk-upsert deja stats obsoletas y el planner degrada
+  // el sell-out (medido: rollup de cajas 7.5s→1s con ANALYZE). Barato; corre en cada feed.
+  await db.raw(`ANALYZE analytics.sales_daily`);
+
   const chk = (await db.raw(
     `SELECT channel, count(*)::int n, coalesce(round(sum(revenue)::numeric,0),0) rev, count(distinct warehouse_id) wh
      FROM analytics.sales_daily WHERE tenant_id = ? AND channel LIKE 'wincaja%' GROUP BY channel ORDER BY channel`, [TENANT])).rows;
