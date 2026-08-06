@@ -276,6 +276,9 @@ export class SupplierPaymentProofsService {
       const matched = await this.linkedBankMovements(trx, pago.doc_prefix, sucursal, folio);
       const conciliado = matched.length > 0;
 
+      // descuentos/apoyos que explican el delta factura vs pago (X-D-40/X-D-55 del proveedor)
+      const adjustments = await this.relatedAdjustments(trx, pago);
+
       const enriched = [] as any[];
       for (const d of deposits) {
         const otros = d.ref_norm ? otrosPorRef[d.ref_norm] || [] : [];
@@ -289,8 +292,51 @@ export class SupplierPaymentProofsService {
           banco: { conciliado, estado: cand.estado, matched, candidatos: cand.movimientos },
         });
       }
-      return { pago: { ...pago, monto: Number(pago.monto) }, deposits: enriched };
+      return { pago: { ...pago, monto: Number(pago.monto) }, deposits: enriched, adjustments };
     });
+  }
+
+  /**
+   * Descuentos y apoyos del proveedor que explican por qué el banco pagó ≠ factura:
+   * notas de crédito (X-D-55) y devoluciones de compra (X-D-40) de Kepler
+   * (`analytics.erp_purchase_adjustments`, RE.10). Liga por `proveedor_code` (fallback
+   * nombre) en una ventana alrededor de la fecha del pago; marca `factura_match` cuando
+   * la factura de la nota coincide con algún folio del concepto del pago. NO es cuadre al
+   * peso — es el contexto que /compras/descuentos ya contabiliza. Read-only.
+   */
+  private async relatedAdjustments(trx: any, pago: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const code = (pago.proveedor_code || '').trim();
+    const nombre = (pago.proveedor_nombre || '').trim();
+    if (!code && !nombre) return { rows: [], total_monto: 0, total_factura: 0, deep_link_q: null };
+    // folios de factura del concepto del pago ("F 906 907" → ['906','907'])
+    const tokens = String(pago.concepto || '').match(/\d{2,}/g) || [];
+    const WINDOW = 60; // días alrededor del pago (la nota puede emitirse antes o después)
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const q = trx('analytics.erp_purchase_adjustments')
+      .where('tenant_id', tenantId)
+      .select('doctype', 'adjustment_date', 'factura_ref', 'motivo', 'categoria',
+        trx.raw('monto::numeric AS monto'))
+      .orderBy('adjustment_date', 'desc')
+      .limit(25);
+    if (code) q.where('proveedor_code', code);
+    else q.whereRaw('proveedor_nombre ILIKE ?', [nombre]);
+    if (pago.pago_date) {
+      const base = new Date(pago.pago_date);
+      if (!isNaN(base.getTime())) {
+        const from = new Date(base); from.setDate(from.getDate() - WINDOW);
+        const to = new Date(base); to.setDate(to.getDate() + WINDOW);
+        q.whereBetween('adjustment_date', [iso(from), iso(to)]);
+      }
+    }
+    const rows = (await q).map((r: any) => {
+      const hay = `${r.factura_ref || ''} ${r.motivo || ''}`;
+      const facturaMatch = tokens.length > 0 && tokens.some((t) => hay.includes(t));
+      return { ...r, monto: Number(r.monto) || 0, factura_match: facturaMatch };
+    }).sort((a: any, b: any) => Number(b.factura_match) - Number(a.factura_match));
+    const total = rows.reduce((s: number, r: any) => s + r.monto, 0);
+    const totalFactura = rows.filter((r: any) => r.factura_match).reduce((s: number, r: any) => s + r.monto, 0);
+    return { rows, total_monto: total, total_factura: totalFactura, deep_link_q: nombre || code };
   }
 
   /**
