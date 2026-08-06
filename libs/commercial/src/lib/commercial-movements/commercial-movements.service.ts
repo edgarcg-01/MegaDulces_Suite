@@ -913,7 +913,11 @@ export class CommercialMovementsService {
    *    es COMPRA de zona ('COMPRA ZAM CANINDO' en 515-001 ~$23M/trim) → el Δ negativo grande
    *    es esperado, este cuadre solo mide el canal CEDIS.
    *  · MADERO recibe poco directo del CEDIS (Wincaja tercero='0' chico); se resurte vía
-   *    Morelia Abastos (Wincaja tercero='30') → tercero='0' subcuenta su recepción real.
+   *    Morelia Abastos (Wincaja tercero='30'). Por eso la recepción cuenta TODOS los terceros
+   *    de traspaso (CEDIS + tienda hermana), no solo '0' — se decompone en wincaja_cedis/inter.
+   *  · Caveat de red: contar el traspaso inter-tienda puede DOBLE-contar a nivel red (lo que
+   *    CEDIS→Abastos y luego Abastos→Madero es el mismo bien). Por tienda vs su destino Kepler
+   *    es correcto; el total de red es indicativo, no una identidad.
    * Cobertura Wincaja por tienda varía → `last_date` avisa meses parciales. Unidad Wincaja ≠
    * piezas Kepler → comparar $ (costo), no piezas.
    */
@@ -956,19 +960,26 @@ export class CommercialMovementsService {
         .andWhereRaw('COALESCE(importe,0)<>0')
         .groupBy('anio_mes').select('anio_mes').sum({ v: 'importe' });
       const compraMap = new Map<string, number>(compra.map((r) => [r.anio_mes, Number(r.v) || 0]));
+      // Recepción por TRASPASO (tipo C). El `tercero` distingue el origen:
+      //   '0' = CEDIS (almacén origen 00) · códigos de tienda SIN padding ('10','30','32','50'…)
+      //   = traspaso inter-tienda (ej. Madero se resurte desde Abastos=30). Los terceros de
+      //   3+ dígitos con padding ('285','013','335'…) son PROVEEDORES (compra directa) → NO
+      //   son traspaso, se excluyen. Se decompone en cedis-directo vs inter-tienda para transparencia.
+      const STORE_TERCEROS = ['0', '01', '02', '03', '04', '05', '10', '30', '32', '40', '42', '44', '50', '54'];
       const rec: any[] = await trx('wincaja.maestro_mov_almacen as m')
         .join('wincaja.detalles_mov_almacen as d', function (this: any) {
           this.on('d.tenant_id', 'm.tenant_id').andOn('d.source_branch', 'm.source_branch')
             .andOn('d.source_dataset', 'm.source_dataset').andOn('d.consecutivo', 'm.consecutivo');
         })
-        // recepción del CEDIS = tipo C + tercero '0' (almacén origen 00). El obs 'A0 T99…' solo
-        // existe en el dataset 'actual'; en 'concentrada' viene vacío → NO filtrar por obs.
         .where('m.tenant_id', tenantId).whereIn('m.source_branch', STORES.map((s) => s.code))
-        .andWhere('m.tipo', 'C').andWhere('m.tercero', '0')
+        .andWhere('m.tipo', 'C').whereIn('m.tercero', STORE_TERCEROS)
         .andWhereRaw(`to_char(m.fecha,'YYYY-MM') >= ?`, [fromYm]).andWhereRaw(`to_char(m.fecha,'YYYY-MM') <= ?`, [toYm])
         .groupByRaw(`m.source_branch, to_char(m.fecha,'YYYY-MM')`)
         .select(trx.raw(`m.source_branch AS code`), trx.raw(`to_char(m.fecha,'YYYY-MM') AS ym`),
-          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) AS costo`), trx.raw(`COUNT(DISTINCT m.consecutivo) AS docs`));
+          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) AS costo`),
+          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) FILTER (WHERE m.tercero='0') AS costo_cedis`),
+          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) FILTER (WHERE m.tercero<>'0') AS costo_inter`),
+          trx.raw(`COUNT(DISTINCT m.consecutivo) AS docs`));
       const cov: any[] = await trx('wincaja.maestro_mov_almacen')
         .where('tenant_id', tenantId).whereIn('source_branch', STORES.map((s) => s.code))
         .groupBy('source_branch').select('source_branch').max('fecha as last_date');
@@ -982,8 +993,10 @@ export class CommercialMovementsService {
         const k = `${code}|${r.anio_mes}`;
         kMap.set(k, (kMap.get(k) || 0) + (Number(r.importe) || 0));
       }
-      const wMap = new Map<string, { costo: number; docs: number }>();
-      for (const r of rec) wMap.set(`${r.code}|${r.ym}`, { costo: Number(r.costo) || 0, docs: Number(r.docs) || 0 });
+      const wMap = new Map<string, { costo: number; cedis: number; inter: number; docs: number }>();
+      for (const r of rec) wMap.set(`${r.code}|${r.ym}`, {
+        costo: Number(r.costo) || 0, cedis: Number(r.costo_cedis) || 0, inter: Number(r.costo_inter) || 0, docs: Number(r.docs) || 0,
+      });
       const lastByCode = new Map(cov.map((c) => [c.source_branch, c.last_date]));
 
       const rows: any[] = [];
@@ -991,13 +1004,15 @@ export class CommercialMovementsService {
       for (const st of STORES) {
         for (const ym of months) {
           const kepler = kMap.get(`${st.code}|${ym}`) || 0;
-          const w = wMap.get(`${st.code}|${ym}`) || { costo: 0, docs: 0 };
+          const w = wMap.get(`${st.code}|${ym}`) || { costo: 0, cedis: 0, inter: 0, docs: 0 };
           const compraZona = st.code === '50' ? (compraMap.get(ym) || 0) : 0;
           if (kepler === 0 && w.costo === 0 && compraZona === 0) continue;
           const delta = kepler - w.costo;
           rows.push({
             code: st.code, name: st.name, anio_mes: ym,
-            kepler_envio: kepler, wincaja_recibido: w.costo, docs: w.docs, delta,
+            kepler_envio: kepler, wincaja_recibido: w.costo,
+            wincaja_cedis: w.cedis, wincaja_inter: w.inter, // desglose: directo CEDIS vs vía tienda hermana
+            docs: w.docs, delta,
             kepler_compra_zona: compraZona, // solo Canindo: 515-001 COMPRA (canal real, no CEDIS)
           });
           totals.kepler += kepler; totals.wincaja += w.costo; totals.delta += delta;
