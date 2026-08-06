@@ -75,6 +75,48 @@ const APP_SOURCES: SourceCfg[] = [
           FROM analytics.sales_daily WHERE sale_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE`,
     warnH: 44, critH: 72, cadence: 'intradía + nightly',
   },
+  // Wincaja POR-ALMACÉN — el max(business_date) GLOBAL (wincaja_feed) NO ve un hueco de UN almacén:
+  // si 32/50 están al día, el agregado se ve fresco aunque 30 esté muerto (bug jul-2026: MD-30 sin
+  // julio, invisible al monitoreo global). Estas dos fuentes miran las 3 sucursales wincaja_only
+  // (30/32/50) por separado.
+  //  (a) REZAGO ACTUAL: la MÁS vieja de las 3 (min de max business_date) → un almacén que dejó de
+  //      alimentar salta aunque los otros estén frescos.
+  {
+    key: 'wincaja_branch_stale', label: 'Wincaja — almacén rezagado (30/32/50)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    sql: `SELECT min(last_sale)::timestamp AS last_update,
+                 string_agg(source_branch || ':' || to_char(last_sale,'DD/MM'), ' · ' ORDER BY source_branch) AS note_extra
+          FROM (SELECT source_branch, max(business_date) AS last_sale
+                  FROM wincaja.v_sales_lines
+                 WHERE business_date BETWEEN CURRENT_DATE - 40 AND CURRENT_DATE
+                   AND source_branch IN ('30','32','50')
+                 GROUP BY source_branch) t`,
+    warnH: 44, critH: 72, cadence: 'diario (feed on-prem Wincaja → prod)',
+  },
+  //  (b) COBERTURA DEL MES CERRADO: un HUECO en medio de la serie (feed que se recupera después) es
+  //      invisible al rezago — para agosto, MD-30 volvió el 1-ago y su max se ve fresco pese al hoyo
+  //      de julio. Cuenta días con venta del mes anterior por almacén; <20 días = hueco → critical
+  //      (last_update viejo fuerza el estado; se auto-resuelve al hacer backfill).
+  {
+    key: 'wincaja_month_coverage', label: 'Wincaja — cobertura mes cerrado (hueco de feed)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    sql: `WITH lm AS (
+            SELECT date_trunc('month', CURRENT_DATE - interval '1 month')::date AS m_start,
+                   (date_trunc('month', CURRENT_DATE) - interval '1 day')::date AS m_end,
+                   to_char(CURRENT_DATE - interval '1 month','YYYY-MM') AS ym),
+               exp AS (SELECT unnest(ARRAY['30','32','50']) AS source_branch),
+               cov AS (
+                 SELECT e.source_branch, count(DISTINCT v.business_date) AS days
+                   FROM exp e
+                   LEFT JOIN wincaja.v_sales_lines v
+                     ON v.source_branch = e.source_branch
+                    AND v.business_date BETWEEN (SELECT m_start FROM lm) AND (SELECT m_end FROM lm)
+                  GROUP BY e.source_branch),
+               bad AS (SELECT * FROM cov WHERE days < 20)
+          SELECT CASE WHEN EXISTS (SELECT 1 FROM bad) THEN now() - interval '100 days' ELSE now() END AS last_update,
+                 (SELECT ym FROM lm) || ' · ' ||
+                 COALESCE((SELECT string_agg(source_branch || '=' || days || 'd', ', ' ORDER BY source_branch) FROM bad),
+                          'cobertura completa 30/32/50') AS note_extra`,
+    warnH: 24, critH: 48, cadence: 'mensual (verifica el mes anterior completo)',
+  },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
   // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
   // CONSCIENTE DEL HORARIO: fuera de 10:00–21:30 MX la tienda está cerrada → last_update=now()
