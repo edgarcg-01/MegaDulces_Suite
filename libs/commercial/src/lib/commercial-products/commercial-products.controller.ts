@@ -10,7 +10,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CommercialProductsService, UpdateProductDto } from './commercial-products.service';
 import { RolesGuard } from '@megadulces/platform-core';
-import { RequirePermissions } from '@megadulces/platform-core';
+import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
@@ -54,7 +54,9 @@ export class CommercialProductsController {
   }
 
   @Get('suppliers')
-  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  // Lookup compartido: catálogo de productos + /comercial/salidas (filtro de proveedor).
+  // Independencia de permisos entre features: basta VER productos O salidas.
+  @RequireAnyPermission(Permission.COMMERCIAL_PRODUCTS_VER, Permission.COMMERCIAL_SALIDAS_VER)
   @ApiOperation({ summary: 'Proveedores con productos (id + nombre + # productos) para el filtro.' })
   suppliers() {
     return this.service.suppliers();

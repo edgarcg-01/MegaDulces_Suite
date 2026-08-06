@@ -6,7 +6,7 @@ import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RolesGuard } from '@megadulces/platform-core';
-import { RequirePermissions } from '@megadulces/platform-core';
+import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 @ApiTags('commercial-analytics')
@@ -498,14 +498,17 @@ export class CommercialAnalyticsController {
   // ─────────── Fase RS — Generador Sell-Out por empresa ───────────
 
   @Get('sell-out/brands')
-  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  // Lookup compartido: lo consume Sell-Out y también /comercial/salidas (filtro de marca).
+  // Basta con VER cualquiera de las dos (independencia de permisos entre features).
+  @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
   @ApiOperation({ summary: 'RS — Empresas/proveedores (marcas con productos) para el selector de reporte.' })
   sellOutBrands(@Query('search') search?: string) {
     return this.service.sellOutBrands(search);
   }
 
   @Get('sell-out/warehouses')
-  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  // Lookup compartido: Sell-Out + /comercial/salidas (filtro de sucursal).
+  @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
   @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta (para el selector del reporte).' })
   sellOutWarehouses() {
     return this.service.sellOutWarehouses();
