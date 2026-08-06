@@ -142,8 +142,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
                 <ng-template #header>
                   <tr><th class="cq-w-date">Fecha</th><th class="cq-w-folio">Folio</th><th class="cq-w-suc">Suc</th><th class="ta-r cq-w-amt">Importe</th></tr>
                 </ng-template>
-                <ng-template #body let-m>
-                  <tr>
+                <ng-template #body let-m let-i="rowIndex">
+                  <tr [class.cq-xhover]="hoverIdx() === i" (mouseenter)="hoverIdx.set(i)" (mouseleave)="hoverIdx.set(null)">
                     <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
                     <td class="cq-mono muted">{{ m.folio }}</td>
                     <td class="cq-mono muted">{{ m.sucursal }}</td>
@@ -163,8 +163,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
                 <ng-template #header>
                   <tr><th class="cq-w-date">Fecha</th><th class="cq-w-tipo">Tipo</th><th class="cq-w-folio">Folio</th><th class="ta-r cq-w-amt">Importe</th></tr>
                 </ng-template>
-                <ng-template #body let-m>
-                  <tr>
+                <ng-template #body let-m let-i="rowIndex">
+                  <tr [class.cq-xhover]="hoverIdx() === i" (mouseenter)="hoverIdx.set(i)" (mouseleave)="hoverIdx.set(null)">
                     <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
                     <td><p-tag [value]="m.tipo_label" [severity]="tagSev(m.categoria)" styleClass="cq-tag" /></td>
                     <td class="cq-mono muted">{{ m.folio }}</td>
@@ -231,6 +231,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-side-total small { color:var(--text-faint); font-weight:400; }
     .cq-debe { color:var(--warn-fg); }
     .cq-haber { color:var(--ok-fg); }
+    /* hover cruzado: subraya la fila alineada en AMBAS columnas (inset → sin shift de layout) */
+    :host ::ng-deep tr.cq-xhover > td { background:color-mix(in srgb, var(--action) 10%, transparent); box-shadow:inset 0 -2px 0 var(--action); }
     .cq-balance { display:flex; align-items:stretch; gap:.6rem; margin-top:.9rem; padding:.7rem .9rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
     .cq-bal-cell { display:flex; flex-direction:column; gap:.15rem; flex:1; min-width:0; }
     .cq-bal-lbl { font-size:.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -280,6 +282,9 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly totalCompras = computed(() => this.comprasMoves().reduce((s, m) => s + Math.abs(m.importe || 0), 0));
   readonly totalPagos = computed(() => this.pagosMoves().reduce((s, m) => s + Math.abs(m.importe || 0), 0));
   readonly pendiente = computed(() => this.totalCompras() - this.totalPagos());
+  // Hover cruzado: al pasar por la fila i de un lado, se subraya la fila i del otro (alineadas por
+  // posición) → ayuda a leer compra vs pago a la misma altura.
+  readonly hoverIdx = signal<number | null>(null);
 
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap;
