@@ -10,12 +10,13 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DatePickerModule } from 'primeng/datepicker';
-import { CheckboxModule } from 'primeng/checkbox';
+import { SelectModule } from 'primeng/select';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeLazyLoad } from '../../../shared/util';
-import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntradaRow } from '../compras.service';
+import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, AdjustmentForEntradaRow } from '../compras.service';
 
 /**
  * CXP.3 — "Compras 360": el Excel de recepciones en una interfaz. Una fila por orden
@@ -30,7 +31,7 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
-    TableModule, TagModule, DatePickerModule, CheckboxModule, DialogModule, MetricStripComponent, ContextHelpComponent,
+    TableModule, TagModule, DatePickerModule, SelectModule, InputNumberModule, DialogModule, MetricStripComponent, ContextHelpComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -49,9 +50,16 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor, OC o folio…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar por proveedor, OC o folio" />
         </p-iconfield>
+        <p-select [options]="sucursalOpts()" [ngModel]="sucursal()" (onChange)="onSucursal($event.value)" optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true" [filter]="true" styleClass="c3-sel" ariaLabel="Filtrar por sucursal" />
+        <p-select [options]="ocOpts" [ngModel]="conOc()" (onChange)="onOc($event.value)" optionLabel="label" optionValue="value" placeholder="OC: todas" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por orden de compra" />
+        <p-select [options]="ajusteOpts" [ngModel]="ajusteMode()" (onChange)="onAjuste($event.value)" optionLabel="label" optionValue="value" placeholder="Ajuste: todos" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por ajuste" />
         <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="c3-dp" ariaLabel="Desde" />
         <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="c3-dp" ariaLabel="Hasta" />
-        <label class="c3-chk"><p-checkbox [ngModel]="conAjuste()" (ngModelChange)="onToggleAdj($event)" [binary]="true" inputId="c3-adj" /> <span>Solo con ajuste</span></label>
+        <p-inputnumber [ngModel]="montoMin()" (ngModelChange)="onMonto('min', $event)" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="0" [min]="0" placeholder="Monto mín" styleClass="c3-num-in" inputStyleClass="p-inputtext-sm" ariaLabel="Monto mínimo de factura" />
+        <p-inputnumber [ngModel]="montoMax()" (ngModelChange)="onMonto('max', $event)" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="0" [min]="0" placeholder="Monto máx" styleClass="c3-num-in" inputStyleClass="p-inputtext-sm" ariaLabel="Monto máximo de factura" />
+        @if (hasFilters()) {
+          <button pButton type="button" class="p-button-sm p-button-text c3-clear" (click)="clearFilters()"><span class="pi pi-filter-slash" aria-hidden="true"></span>&nbsp;Limpiar</button>
+        }
       </div>
 
       @if (err(); as e) {
@@ -173,7 +181,11 @@ import { ComprasService, Compras360Row, Compras360Response, AdjustmentForEntrada
     .c3-head-actions { display:flex; gap:.5rem; }
     .c3-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
     .c3-search input { min-width:230px; }
-    .c3-chk { display:inline-flex; align-items:center; gap:.45rem; font-size:.8rem; color:var(--text-muted); cursor:pointer; }
+    :host ::ng-deep .c3-sel { min-width:12rem; }
+    :host ::ng-deep .c3-sel-sm { min-width:9rem; }
+    :host ::ng-deep .c3-num-in { width:9.5rem; }
+    :host ::ng-deep .c3-num-in input { width:100%; text-align:right; font-variant-numeric:tabular-nums; }
+    .c3-clear { color:var(--text-muted); }
     .c3-table { margin-top:.6rem; }
     .c3-row { cursor:pointer; }
     .c3-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
@@ -224,13 +236,22 @@ export class ComprasCompras360Component implements OnInit {
   /** Error de red de la lista (banner + reintento). Empty ≠ error. */
   readonly err = signal<string | null>(null);
   readonly search = signal('');
+  readonly sucursal = signal<string>('');
+  readonly conOc = signal<Compras360OcMode | ''>('');
+  readonly ajusteMode = signal<Compras360AjusteMode | ''>('');
+  readonly montoMin = signal<number | null>(null);
+  readonly montoMax = signal<number | null>(null);
   readonly dateFrom = signal<Date | null>(null);
   readonly dateTo = signal<Date | null>(null);
-  readonly conAjuste = signal(false);
+  readonly filters = signal<Compras360Filters | null>(null);
+  readonly sucursalOpts = computed(() => (this.filters()?.sucursales || []).map((s) => ({ label: `${s.code} · ${s.n}`, value: s.code })));
+  readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
+  readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly total = signal(0);
   private searchTimer: any;
+  private montoTimer: any;
 
   readonly detail = signal<Compras360Row | null>(null);
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
@@ -246,12 +267,32 @@ export class ComprasCompras360Component implements OnInit {
     // Estado en URL: rehidratar filtros + página (F5 y deep-link).
     const q = this.route.snapshot.queryParamMap;
     this.search.set(q.get('q') || '');
+    this.sucursal.set(q.get('suc') || '');
     this.dateFrom.set(this.fromIso(q.get('from')));
     this.dateTo.set(this.fromIso(q.get('to')));
-    this.conAjuste.set(q.get('adj') === '1');
+    const oc = q.get('oc'); this.conOc.set(oc === 'con' || oc === 'sin' ? oc : '');
+    // ajuste: param nuevo 'aj'; back-compat del viejo 'adj=1' → con ajuste.
+    const aj = q.get('aj'); this.ajusteMode.set(aj === 'con' || aj === 'sin' ? aj : (q.get('adj') === '1' ? 'con' : ''));
+    this.montoMin.set(this.toNum(q.get('mmin')));
+    this.montoMax.set(this.toNum(q.get('mmax')));
     const p = parseInt(q.get('page') || '1', 10);
     this.page.set(!Number.isFinite(p) || p < 1 ? 1 : p);
-    // La carga inicial la dispara el onLazyLoad de la p-table.
+    this.loadFilters();
+    // La carga inicial de la tabla la dispara el onLazyLoad de la p-table.
+  }
+
+  /** Carga el catálogo de filtros (sucursales) — un fallo no rompe la tabla. */
+  private loadFilters(): void {
+    this.svc.compras360Filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f) => this.filters.set(f),
+      error: () => { /* sin dropdown de sucursal; el resto sigue */ },
+    });
+  }
+
+  /** 'YYYY-MM-DD'/número → number|null. */
+  private toNum(s: string | null): number | null {
+    if (s == null || s === '') return null;
+    const n = Number(s); return Number.isFinite(n) ? n : null;
   }
 
   /** Date → 'YYYY-MM-DD' (local, sin correr por TZ). */
@@ -269,7 +310,16 @@ export class ComprasCompras360Component implements OnInit {
   }
 
   private query(all = false) {
-    return { search: this.search().trim() || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()), con_ajuste: this.conAjuste(), page: this.page(), pageSize: this.pageSize(), all };
+    return {
+      search: this.search().trim() || undefined,
+      sucursal: this.sucursal() || undefined,
+      date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()),
+      ajuste: this.ajusteMode() || undefined,
+      con_oc: this.conOc() || undefined,
+      monto_min: this.montoMin() ?? undefined,
+      monto_max: this.montoMax() ?? undefined,
+      page: this.page(), pageSize: this.pageSize(), all,
+    };
   }
 
   /** Refleja filtros + página en la URL (replaceUrl → no ensucia el historial). */
@@ -278,9 +328,14 @@ export class ComprasCompras360Component implements OnInit {
       relativeTo: this.route,
       queryParams: {
         q: this.search().trim() || null,
+        suc: this.sucursal() || null,
         from: this.toIso(this.dateFrom()) || null,
         to: this.toIso(this.dateTo()) || null,
-        adj: this.conAjuste() ? '1' : null,
+        oc: this.conOc() || null,
+        aj: this.ajusteMode() || null,
+        adj: null, // limpia el param legado
+        mmin: this.montoMin() != null ? this.montoMin() : null,
+        mmax: this.montoMax() != null ? this.montoMax() : null,
         page: this.page() > 1 ? this.page() : null,
       },
       queryParamsHandling: 'merge',
@@ -310,14 +365,24 @@ export class ComprasCompras360Component implements OnInit {
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
-  onToggleAdj(v: boolean): void {
-    this.conAjuste.set(v); this.page.set(1); this.syncUrl(); this.reload();
+  onSucursal(v: string | null): void { this.sucursal.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+  onOc(v: Compras360OcMode | null): void { this.conOc.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+  onAjuste(v: Compras360AjusteMode | null): void { this.ajusteMode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+
+  /** Monto min/max con debounce (evita un request por dígito tecleado). */
+  onMonto(which: 'min' | 'max', v: number | null): void {
+    (which === 'min' ? this.montoMin : this.montoMax).set(v ?? null);
+    if (this.montoTimer) clearTimeout(this.montoTimer);
+    this.montoTimer = setTimeout(() => { this.page.set(1); this.syncUrl(); this.reload(); }, 380);
   }
 
-  hasFilters(): boolean { return !!(this.search().trim() || this.dateFrom() || this.dateTo() || this.conAjuste()); }
+  hasFilters(): boolean {
+    return !!(this.search().trim() || this.sucursal() || this.dateFrom() || this.dateTo() || this.conOc() || this.ajusteMode() || this.montoMin() != null || this.montoMax() != null);
+  }
 
   clearFilters(): void {
-    this.search.set(''); this.dateFrom.set(null); this.dateTo.set(null); this.conAjuste.set(false);
+    this.search.set(''); this.sucursal.set(''); this.dateFrom.set(null); this.dateTo.set(null);
+    this.conOc.set(''); this.ajusteMode.set(''); this.montoMin.set(null); this.montoMax.set(null);
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
