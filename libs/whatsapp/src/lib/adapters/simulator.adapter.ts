@@ -38,6 +38,13 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
   private readonly _outbox: SimOutbound[] = [];
   private seq = 0;
 
+  /**
+   * CBW.0 — media inyectada en pruebas: media_id → binario. El endpoint/smoke
+   * manda `{ from, type:'image', media_data_uri }`; parseInbound guarda los bytes
+   * y `downloadMedia(id)` los devuelve, replicando el 2-pasos de Meta sin red.
+   */
+  private readonly mediaStore = new Map<string, { buffer: Buffer; mime: string }>();
+
   get outbox(): readonly SimOutbound[] {
     return this._outbox;
   }
@@ -98,6 +105,10 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
   /**
    * Acepta el shape del endpoint de dev: `{ from, text, wa_message_id?, profile_name? }`
    * (objeto o arreglo). Sin firma que validar.
+   *
+   * CBW.0 — soporta adjuntos: `{ from, type:'image'|'document', media_data_uri:'data:...;base64,...', text? }`.
+   * Guarda los bytes en `mediaStore` bajo un media_id sintético y devuelve el
+   * mensaje con `media:{ id, mime_type }`, igual que el adapter de Meta.
    */
   parseInbound(body: unknown): InboundMessage[] {
     const items = Array.isArray(body) ? body : [body];
@@ -107,17 +118,44 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
       const from = String(b['from'] ?? '').trim();
       const text = b['text'] != null ? String(b['text']) : null;
       if (!from) continue;
+      const rawType = String(b['type'] ?? 'text');
+      let type: InboundMessage['type'] = rawType === 'image' || rawType === 'document' ? rawType : 'text';
+      let media: InboundMessage['media'] = null;
+      const dataUri = b['media_data_uri'] != null ? String(b['media_data_uri']) : null;
+      if (dataUri) {
+        const parsed = this.parseDataUri(dataUri);
+        if (parsed) {
+          const id = `sim-media-${Date.now()}-${++this.seq}`;
+          this.mediaStore.set(id, parsed);
+          if (this.mediaStore.size > 200) this.mediaStore.delete(this.mediaStore.keys().next().value as string);
+          media = { id, mime_type: parsed.mime };
+          if (type === 'text') type = parsed.mime.includes('pdf') ? 'document' : 'image';
+        }
+      }
       out.push({
         wa_message_id: String(b['wa_message_id'] ?? `sim-in-${Date.now()}-${++this.seq}`),
         from,
         wa_id: String(b['wa_id'] ?? from),
         profile_name: (b['profile_name'] as string) ?? null,
-        type: 'text',
+        type,
         text,
+        media,
         raw: it,
         timestamp: Math.floor(Date.now() / 1000),
       });
     }
     return out;
+  }
+
+  /** CBW.0 — devuelve el binario inyectado para ese media_id (o null). */
+  async downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null> {
+    return this.mediaStore.get(mediaId) ?? null;
+  }
+
+  /** Parsea `data:<mime>;base64,<datos>` → buffer + mime. */
+  private parseDataUri(uri: string): { buffer: Buffer; mime: string } | null {
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(uri);
+    if (!m) return null;
+    return { buffer: Buffer.from(m[2], 'base64'), mime: m[1] };
   }
 }
