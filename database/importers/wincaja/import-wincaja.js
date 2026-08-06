@@ -261,9 +261,33 @@ async function reload(db, branch, dataset, spec, rows) {
     } // sin watermark (primera carga) → carga todo el snapshot
   }
 
-  // UPSERT sin DELETE (honra "nada de delete"; idempotente por onConflict). Solo se conserva
-  // el DELETE en el caso extremo de tabla SIN PK (no debería existir), donde INSERT plano
-  // duplicaría en cada corrida.
+  // CONCENTRADA + tabla SIN PK (detalles_mov_almacen surrogate): el histórico es APPEND-ONLY —
+  // las líneas de un ticket ya cargado no cambian. INSERT solo de consecutivos NUEVOS, SIN DELETE
+  // ni reinsert → mata la churn semanal del cron de concentrada (antes borraba+reescribía ~158k
+  // filas/sucursal CADA corrida, disparando el egress de Railway). Regla del proyecto: cron/tarea
+  // = solo insert/update, nunca delete+recarga (ver [[feedback_prefer_upsert_no_delete_feeds]]).
+  const hasConsecutivo = data.length > 0 && Object.prototype.hasOwnProperty.call(data[0], 'consecutivo');
+  if (!conflict && dataset === 'concentrada' && hasConsecutivo) {
+    const inserted = await withRetry(`${spec.pg} suc ${branch} (insert-nuevos)`, () => db.transaction(async (trx) => {
+      await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
+      const existingRows = await trx(`wincaja.${spec.pg}`)
+        .where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset })
+        .distinct('consecutivo');
+      const existing = new Set(existingRows.map((r) => String(r.consecutivo)));
+      const fresh = data.filter((r) => !existing.has(String(r.consecutivo)));
+      const stamped = fresh.map((r) => ({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset, ...r }));
+      for (let i = 0; i < stamped.length; i += 500) {
+        await trx(`wincaja.${spec.pg}`).insert(stamped.slice(i, i + 500));
+      }
+      return fresh.length;
+    }));
+    console.log(`    ${spec.pg} ${branch}/concentrada: +${inserted} líneas nuevas (sin delete; tickets previos intactos)`);
+    return data.length;
+  }
+
+  // UPSERT sin DELETE (honra "nada de delete"; idempotente por onConflict). El DELETE solo queda
+  // en tabla SIN PK del dataset 'actual' (vivo), donde la recarga full refleja ediciones y
+  // cancelaciones del ticket dentro del periodo corriente (ahí sí cambia el .mdb).
   await withRetry(`${spec.pg} suc ${branch}`, () => db.transaction(async (trx) => {
     await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
     if (!conflict) {
