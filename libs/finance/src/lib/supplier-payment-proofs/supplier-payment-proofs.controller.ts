@@ -26,9 +26,11 @@ export class SupplierPaymentProofsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('search') search?: string,
+    @Query('metodo') metodo?: string,
+    @Query('alertas') alertas?: string,
     @Query('limit') limit?: string,
   ) {
-    const q: ListPaymentsQuery = { estado, from, to, search, limit: limit ? Number(limit) : undefined };
+    const q: ListPaymentsQuery = { estado, from, to, search, metodo, alertas, limit: limit ? Number(limit) : undefined };
     return this.svc.listPayments(q);
   }
 

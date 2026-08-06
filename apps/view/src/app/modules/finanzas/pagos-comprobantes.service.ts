@@ -142,7 +142,7 @@ export class PagosComprobantesService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/supplier-payments`;
 
-  list(q: { estado?: string; from?: string; to?: string; search?: string } = {}): Observable<PagosReport> {
+  list(q: { estado?: string; from?: string; to?: string; search?: string; metodo?: string; alertas?: string } = {}): Observable<PagosReport> {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<PagosReport>(this.base, { params });

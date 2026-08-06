@@ -6,6 +6,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
+import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
@@ -30,7 +31,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -51,8 +52,16 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        <div class="cb-field"><label>Año</label>
+          <p-select [options]="anioOpts" [(ngModel)]="anio" (onChange)="onAnio()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por año" /></div>
+        <div class="cb-field"><label>Mes</label>
+          <p-select [options]="mesOpts" [(ngModel)]="mes" (onChange)="load()" optionLabel="label" optionValue="value" [disabled]="!anio" styleClass="cb-sel" ariaLabel="Filtrar por mes" /></div>
+        <div class="cb-field"><label>Método</label>
+          <p-select [options]="metodoOpts" [(ngModel)]="metodo" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por método de pago" /></div>
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
+        <div class="cb-field"><label>&nbsp;</label>
+          <button pButton type="button" size="small" [outlined]="!soloAlertas()" severity="danger" (click)="toggleAlertas()" [attr.aria-pressed]="soloAlertas()" title="Solo pagos con alerta de control (cuenta ajena / clave repetida)"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Solo alertas</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -375,6 +384,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }
+    .cb-sel { min-width: 11rem; }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     .cb-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cb-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
@@ -509,6 +519,16 @@ export class FinanzasPagosComprobantesComponent {
 
   readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con comprobante', value: 'con_comprobante' }, { label: 'Validados', value: 'validado' }, { label: 'Todos', value: '' }];
   search = '';
+  // filtros: año (2025→hoy), mes, método de pago, solo alertas
+  anio = '';
+  mes = '';
+  metodo = '';
+  readonly soloAlertas = signal(false);
+  readonly anioOpts = [{ label: 'Todos los años', value: '' },
+    ...Array.from({ length: (new Date().getFullYear() - 2025) + 1 }, (_, i) => { const y = new Date().getFullYear() - i; return { label: String(y), value: String(y) }; })];
+  readonly mesOpts = [{ label: 'Todos los meses', value: '' },
+    ...['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((n, i) => ({ label: n, value: String(i + 1) }))];
+  readonly metodoOpts = [{ label: 'Todos los métodos', value: '' }, { label: 'Transferencia', value: 'transferencia' }, { label: 'Cheque', value: 'cheque' }, { label: 'Anticipo', value: 'anticipo' }];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   // attach dialog
@@ -577,11 +597,28 @@ export class FinanzasPagosComprobantesComponent {
   setEstado(v: string) { this.estadoSel.set(v); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
 
+  /** Año seleccionado → rango de fechas (año completo, o mes específico si hay mes). */
+  private dateRange(): { from?: string; to?: string } {
+    if (!this.anio) return {};
+    if (!this.mes) return { from: `${this.anio}-01-01`, to: `${this.anio}-12-31` };
+    const mm = String(this.mes).padStart(2, '0');
+    const last = new Date(Number(this.anio), Number(this.mes), 0).getDate();
+    return { from: `${this.anio}-${mm}-01`, to: `${this.anio}-${mm}-${String(last).padStart(2, '0')}` };
+  }
+
+  /** Cambio de año: si vuelve a "Todos", limpia el mes (no aplica sin año). */
+  onAnio() { if (!this.anio) this.mes = ''; this.load(); }
+  toggleAlertas() { this.soloAlertas.update((v) => !v); this.load(); }
+
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.list({ estado: this.estadoSel() || undefined, search: this.search || undefined })
+    const { from, to } = this.dateRange();
+    this.svc.list({
+      estado: this.estadoSel() || undefined, search: this.search || undefined,
+      from, to, metodo: this.metodo || undefined, alertas: this.soloAlertas() ? 'true' : undefined,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },

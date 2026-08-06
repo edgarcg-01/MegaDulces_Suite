@@ -32,6 +32,8 @@ export interface ListPaymentsQuery {
   from?: string;
   to?: string;
   search?: string;
+  metodo?: string;            // 'transferencia' | 'cheque' | 'anticipo'
+  alertas?: string | boolean; // 'true' → solo pagos con alerta de control (cuenta ajena / clave repetida)
   limit?: number;
 }
 
@@ -102,9 +104,14 @@ export class SupplierPaymentProofsService {
 
       if (q.from) b.where('c.pago_date', '>=', q.from);
       if (q.to) b.where('c.pago_date', '<=', q.to);
+      if (q.metodo) b.where('c.metodo_pago', q.metodo);
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+      // solo alertas de control: cuenta de origen ajena O clave de rastreo repetida
+      if (q.alertas === true || q.alertas === 'true') {
+        b.whereRaw('(COALESCE(d.cuenta_ajena, false) = true OR d.refs && ?::text[])', [dupRefs]);
+      }
       applySmartSearch(b, q.search, {
         columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio'],
         numeric: ['c.monto'],
@@ -123,6 +130,7 @@ export class SupplierPaymentProofsService {
         .where('c.tenant_id', tenantId);
       if (q.from) kpiBase.where('c.pago_date', '>=', q.from);
       if (q.to) kpiBase.where('c.pago_date', '<=', q.to);
+      if (q.metodo) kpiBase.where('c.metodo_pago', q.metodo);
       const [k] = await kpiBase.select(
         trx.raw('COUNT(*)::int AS pagos'),
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
