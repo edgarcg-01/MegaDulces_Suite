@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   TenantKnexService,
   TenantContextService,
@@ -212,16 +212,99 @@ export class BankCaptureService {
     });
   }
 
-  /** Valida la captura (revisor). `confirmado`/`pendiente` → `validado`. */
+  /**
+   * Valida la captura (revisor) Y la **materializa como renglón de depósito en el
+   * libro** (`finance.bank_movements`) — sin teclear nada. Requiere cuenta resuelta
+   * (ADR-042: el motor pone los números, el humano da el visto bueno; recién ahí
+   * toca el libro). Idempotente: `client_uuid = whatsapp:<captureId>`.
+   */
   async validate(id: string, actor: string): Promise<any> {
     return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.bank_capture_inbox')
+      const cap = await trx('finance.bank_capture_inbox')
         .where({ id })
         .whereIn('status', ['pendiente_confirmacion', 'confirmado'])
-        .update({ status: 'validado', validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
+        .first();
+      if (!cap) {
+        return trx('finance.bank_capture_inbox').where({ id }).first('id', 'status', 'bank_movement_id');
+      }
+      if (!cap.bank_account_id) {
+        throw new BadRequestException('Asigna la cuenta antes de validar (el OCR no la identificó).');
+      }
+      const movementId = await this.postToLedger(trx, cap);
+      const [row] = await trx('finance.bank_capture_inbox')
+        .where({ id })
+        .update({ status: 'validado', bank_movement_id: movementId, validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
+        .returning(['id', 'status', 'bank_movement_id']);
       return row;
     });
+  }
+
+  /**
+   * Escribe el depósito en el libro: encuentra/crea el estado de cuenta del mes de
+   * la cuenta, inserta el movimiento (ingreso cobranza / código 102) y actualiza los
+   * totales del statement. Devuelve el id del movimiento. Corre dentro de la trx de
+   * validate() (mismo scope de tenant).
+   */
+  private async postToLedger(trx: any, cap: any): Promise<string> {
+    const tid = this.tenantId();
+    const movementDate = this.ymd(cap.movement_date) || this.ymd(cap.created_at) || new Date().toISOString().slice(0, 10);
+    const period = movementDate.slice(0, 7); // YYYY-MM
+
+    // 1) Statement (cuenta × periodo) — encuentra o crea.
+    let stmt = await trx('finance.bank_statements')
+      .where({ tenant_id: tid, bank_account_id: cap.bank_account_id, period })
+      .first('id');
+    if (!stmt) {
+      [stmt] = await trx('finance.bank_statements')
+        .insert({ tenant_id: tid, bank_account_id: cap.bank_account_id, period, status: 'reconciling', source_file: 'whatsapp', imported_by: 'whatsapp', imported_at: trx.fn.now() })
+        .returning('id');
+    }
+
+    // 2) Categoría cobranza (ingreso / código 102).
+    const cat = await trx('finance.movement_categories').where({ tenant_id: tid, code: 'cobranza' }).first('id');
+
+    // 3) Movimiento (idempotente por captura).
+    const amount = Number(cap.amount_in) || 0;
+    const [mov] = await trx('finance.bank_movements')
+      .insert({
+        tenant_id: tid,
+        statement_id: stmt.id,
+        bank_account_id: cap.bank_account_id,
+        movement_date: movementDate,
+        category_id: cat?.id ?? null,
+        raw_type: 'I',
+        raw_code: '102',
+        sucursal: cap.sucursal,
+        concept: cap.concept,
+        amount_in: amount,
+        amount_out: 0,
+        recon_status: 'pending',
+        client_uuid: `whatsapp:${cap.id}`,
+        source_file: 'whatsapp',
+        classified_by: 'manual',
+      })
+      .onConflict(['tenant_id', 'client_uuid'])
+      .merge({ amount_in: amount, sucursal: cap.sucursal, concept: cap.concept, bank_account_id: cap.bank_account_id, updated_at: trx.fn.now() })
+      .returning('id');
+
+    // 4) Totales del statement (RHS usa valores viejos → nuevo cierre correcto).
+    await trx('finance.bank_statements')
+      .where({ id: stmt.id })
+      .update({
+        total_in: trx.raw('total_in + ?', [amount]),
+        closing_balance: trx.raw('opening_balance + total_in + ? - total_out', [amount]),
+        updated_at: trx.fn.now(),
+      });
+
+    return mov.id as string;
+  }
+
+  /** Coerción a 'YYYY-MM-DD' (Date o string), o null. */
+  private ymd(v: any): string | null {
+    if (!v) return null;
+    if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+    const m = String(v).match(/^\d{4}-\d{2}-\d{2}/);
+    return m ? m[0] : null;
   }
 
   /** Rechaza la captura (revisor) con motivo. */

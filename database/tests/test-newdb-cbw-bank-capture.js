@@ -109,6 +109,39 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
         .where({ from_phone: phone, status: 'pendiente_confirmacion' }).first('id');
       ok(!noPending, 'confirm: sin pendientes, no hay a qué aplicar SÍ/NO');
 
+      // ── 6b. validate() MATERIALIZA el depósito en el libro (postToLedger) ────
+      const capRow = await trx('finance.bank_capture_inbox').where({ id: cap.id })
+        .first('id', 'bank_account_id', 'movement_date', 'sucursal', 'concept', 'amount_in');
+      const period = String(capRow.movement_date instanceof Date ? capRow.movement_date.toISOString().slice(0, 10) : capRow.movement_date).slice(0, 7);
+      // statement del mes (encuentra o crea)
+      let stmt = await trx('finance.bank_statements').where({ tenant_id: T, bank_account_id: capRow.bank_account_id, period }).first('id', 'total_in');
+      if (!stmt) {
+        [stmt] = await trx('finance.bank_statements').insert({ tenant_id: T, bank_account_id: capRow.bank_account_id, period, status: 'reconciling', source_file: 'whatsapp', imported_by: 'whatsapp' }).returning(['id', 'total_in']);
+      }
+      const cat = await trx('finance.movement_categories').where({ tenant_id: T, code: 'cobranza' }).first('id');
+      ok(!!cat, 'existe la categoría cobranza (ingreso 102) para clasificar el depósito');
+      const [mov] = await trx('finance.bank_movements').insert({
+        tenant_id: T, statement_id: stmt.id, bank_account_id: capRow.bank_account_id, movement_date: capRow.movement_date,
+        category_id: cat?.id ?? null, raw_type: 'I', raw_code: '102', sucursal: capRow.sucursal, concept: capRow.concept,
+        amount_in: capRow.amount_in, amount_out: 0, recon_status: 'pending', client_uuid: `whatsapp:${capRow.id}`,
+        source_file: 'whatsapp', classified_by: 'manual',
+      }).onConflict(['tenant_id', 'client_uuid']).merge({ amount_in: capRow.amount_in, updated_at: trx.fn.now() }).returning(['id', 'raw_type', 'raw_code', 'amount_in']);
+      ok(mov.raw_type === 'I' && mov.raw_code === '102', 'materializa: renglón de depósito M=I código 102 en el libro');
+      ok(Number(mov.amount_in) === 3940.04, 'materializa: amount_in = monto de la captura');
+
+      await trx('finance.bank_capture_inbox').where({ id: cap.id })
+        .update({ status: 'validado', bank_movement_id: mov.id, validated_by: 'rev', validated_at: trx.fn.now() });
+      const linked = await trx('finance.bank_capture_inbox').where({ id: cap.id }).first('status', 'bank_movement_id');
+      ok(linked.status === 'validado' && linked.bank_movement_id === mov.id, 'validate: captura → validado + ligada al movimiento del libro');
+
+      // Idempotencia del posteo: mismo client_uuid no duplica el renglón.
+      await trx('finance.bank_movements').insert({
+        tenant_id: T, statement_id: stmt.id, bank_account_id: capRow.bank_account_id, movement_date: capRow.movement_date,
+        raw_type: 'I', raw_code: '102', amount_in: capRow.amount_in, client_uuid: `whatsapp:${capRow.id}`, classified_by: 'manual',
+      }).onConflict(['tenant_id', 'client_uuid']).merge({ updated_at: trx.fn.now() });
+      const movCount = await trx('finance.bank_movements').where({ tenant_id: T, client_uuid: `whatsapp:${capRow.id}` }).count('* as n').first();
+      ok(Number(movCount.n) === 1, 'materializa: idempotente — revalidar no duplica el renglón (client_uuid whatsapp:<id>)');
+
       // ── 7. Aislamiento por tenant (filtro explícito, como analytics.*) ────
       const otherTenant = await trx('finance.bank_capture_inbox')
         .where({ tenant_id: '00000000-0000-0000-0000-0000000000ff', wa_message_id: 'wamid.SMOKE-CBW-1' }).first('id');

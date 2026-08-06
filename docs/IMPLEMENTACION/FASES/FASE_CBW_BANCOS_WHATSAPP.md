@@ -86,7 +86,7 @@ ConversationOrchestrator (bot comercial)                     BankCaptureService 
       └─ rechazar → status='rechazado'
 ```
 
-**Regla dura:** el `BankCaptureService` **nunca** inserta en `finance.bank_movements`. Solo escribe en `bank_capture_inbox`. El movimiento real lo produce el estado de cuenta (importer CB). La captura **se cuadra contra** ese movimiento (patrón `bank_recon_matches` / cuadre de CC), igual que la conciliación banco↔Kepler ya existente.
+**Regla dura:** el `BankCaptureService` **nunca auto-asienta al llegar** — la captura vive en `bank_capture_inbox` (staging). Es la **validación humana** (en la bandeja) la que **materializa el depósito como renglón en el libro** (`finance.bank_movements`: `M=I` / código `102` / cobranza, statement del mes de la cuenta, totales actualizados, `client_uuid=whatsapp:<id>` idempotente). Modelo *go-forward* de CB (agosto 2026+ el libro se lleva por la interfaz, no por Excel). El renglón nace `recon_status='pending'` y concilia contra Kepler/ContPAQi como cualquier otro.
 
 ---
 
