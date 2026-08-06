@@ -1,6 +1,8 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService, normalizeMxPhone } from '@megadulces/platform-core';
+import { BANK_CAPTURE_PORT } from '@megadulces/contracts';
+import type { BankCapturePort, BankCaptureSender } from '@megadulces/contracts';
 import { WHATSAPP_PORT } from '../ports/whatsapp.port';
 import type {
   ImageMessage,
@@ -14,21 +16,32 @@ import { ConversationThreadService } from '../conversation/conversation-thread.s
 import { ConversationOrchestratorService } from '../conversation/conversation-orchestrator.service';
 import { WhatsAppOptinService } from '../broadcast/whatsapp-optin.service';
 
+/**
+ * CBW (ADR-042) — desvío bancario de un mensaje de un remitente autorizado.
+ * `capture` = trae imagen/documento (media_id a descargar); `confirm` = texto SÍ/NO
+ * sobre la última captura pendiente. Sin thread conversacional (audit en el inbox).
+ */
+type BankInJob =
+  | { action: 'capture'; media_id: string; mime: string; caption: string | null; sender: BankCaptureSender }
+  | { action: 'confirm'; decision: 'yes' | 'no' };
+
 /** Payload de un job de ENTRADA (un mensaje del cliente a procesar). */
 interface InJobPayload {
-  thread_id: string;
+  thread_id: string | null;
   phone: string;
   wa_id: string;
   text: string | null;
   /** FIQ.5 — coords si el mensaje fue un pin de ubicación. */
   location?: { lat: number; lng: number; name?: string | null; address?: string | null } | null;
   wa_message_id: string;
+  /** CBW — si viene, el mensaje se procesa como captura bancaria, no comercial. */
+  bank?: BankInJob;
 }
 
 /** Payload de un job de SALIDA (una respuesta a enviar por el puerto). */
 interface OutJobPayload {
   to: string;
-  thread_id: string;
+  thread_id: string | null;
   kind: 'text' | 'interactive' | 'image' | 'template';
   body: string;
   interactive?: InteractiveMessage;
@@ -79,6 +92,9 @@ export class WhatsAppIngestService implements OnModuleInit {
     private readonly orchestrator: ConversationOrchestratorService,
     private readonly optin: WhatsAppOptinService,
     private readonly tenantCtx: TenantContextService,
+    // CBW (ADR-042): captura bancaria por WhatsApp. @Optional — solo hay binding
+    // con ENABLE_MULTITENANT=true; sin él, todo sigue por el camino comercial.
+    @Optional() @Inject(BANK_CAPTURE_PORT) private readonly bankCapture?: BankCapturePort,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -111,8 +127,12 @@ export class WhatsAppIngestService implements OnModuleInit {
   private async acceptMessages(messages: InboundMessage[]): Promise<number> {
     let accepted = 0;
     for (const msg of messages) {
-      if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'location') {
-        this.logger.debug(`Mensaje ${msg.type} ignorado (soportado: texto/interactive/location).`);
+      // CBW: imagen/documento también son enrutables (posible captura bancaria).
+      const routable =
+        msg.type === 'text' || msg.type === 'interactive' || msg.type === 'location' ||
+        msg.type === 'image' || msg.type === 'document';
+      if (!routable) {
+        this.logger.debug(`Mensaje ${msg.type} ignorado (no enrutable).`);
         continue;
       }
       const tenantId = await this.resolveTenantId(msg);
@@ -122,6 +142,28 @@ export class WhatsAppIngestService implements OnModuleInit {
       await this.tenantCtx.run({ tenantId }, async () => {
         if (await this.threads.isDuplicateInbound(msg)) {
           this.logger.debug(`Duplicado ${msg.wa_message_id} — ignorado.`);
+          return;
+        }
+        // CBW (ADR-042): ¿es una captura bancaria de un remitente autorizado?
+        // Se decide ANTES del bot comercial. Si lo es, no toca conversation_threads.
+        const bank = await this.tryBuildBankJob(msg, phone);
+        if (bank) {
+          const payload: InJobPayload = {
+            thread_id: null,
+            phone,
+            wa_id: msg.wa_id,
+            text: msg.text ?? null,
+            wa_message_id: msg.wa_message_id,
+            bank,
+          };
+          await this.queue.enqueue({ dir: 'in', tenant_id: tenantId, payload }, `in:${tenantId}:${msg.wa_message_id}`);
+          accepted++;
+          return;
+        }
+        // No bancario: imagen/documento de un NO autorizado se ignoran (el bot
+        // comercial solo maneja texto/interactive/location).
+        if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'location') {
+          this.logger.debug(`Mensaje ${msg.type} de no-autorizado ignorado.`);
           return;
         }
         const thread = await this.threads.getOrCreate(phone, msg.wa_id, msg.profile_name);
@@ -144,6 +186,40 @@ export class WhatsAppIngestService implements OnModuleInit {
       });
     }
     return accepted;
+  }
+
+  /**
+   * CBW — decide si el mensaje va al flujo bancario. Solo consulta la allowlist si
+   * hay algo bancario que hacer (una imagen/documento, o un texto SÍ/NO que podría
+   * confirmar una captura pendiente). Devuelve el job bancario o null (→ comercial).
+   * Debe correr dentro del scope de tenant (CLS) ya establecido.
+   */
+  private async tryBuildBankJob(msg: InboundMessage, phone: string): Promise<BankInJob | null> {
+    if (!this.bankCapture) return null;
+    const isMedia = (msg.type === 'image' || msg.type === 'document') && !!msg.media;
+    const decision = msg.type === 'text' ? this.parseYesNo(msg.text ?? null) : null;
+    if (!isMedia && !decision) return null;
+    let sender: BankCaptureSender | null = null;
+    try {
+      sender = await this.bankCapture.resolveSender(phone);
+    } catch (e: any) {
+      this.logger.warn(`resolveSender falló (${e?.message}) — sigo por camino comercial.`);
+      return null;
+    }
+    if (!sender) return null;
+    if (isMedia && msg.media) {
+      return { action: 'capture', media_id: msg.media.id, mime: msg.media.mime_type, caption: msg.text ?? null, sender };
+    }
+    return { action: 'confirm', decision: decision as 'yes' | 'no' };
+  }
+
+  /** Interpreta un texto corto como SÍ/NO (confirmación de captura). null si no aplica. */
+  private parseYesNo(text: string | null): 'yes' | 'no' | null {
+    const t = (text || '').trim().toLowerCase();
+    if (!t || t.length > 12) return null;
+    if (/^(s[ií]|si|sí|s|ok|okay|dale|confirmo|correcto|va)$/.test(t)) return 'yes';
+    if (/^(no|n|cancela|cancelar|incorrecto)$/.test(t)) return 'no';
+    return null;
   }
 
   /**
@@ -180,13 +256,21 @@ export class WhatsAppIngestService implements OnModuleInit {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as InJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
+      // CBW (ADR-042): rama bancaria — descarga la media + OCR + staging, o confirma.
+      if (p.bank) {
+        await this.handleBankJob(tenantId, p);
+        return;
+      }
+      // A partir de aquí es camino COMERCIAL: siempre trae thread (defensivo).
+      if (!p.thread_id) return;
+      const threadId = p.thread_id;
       // Opt-out de marketing SIEMPRE primero (regla Meta): "BAJA"/"STOP" → baja +
       // acuse, sin pasar por el orquestador.
       if (this.optin.isOptOutMessage(p.text)) {
         await this.optin.optOut(p.phone);
         await this.enqueueOut(tenantId, {
           to: p.phone,
-          thread_id: p.thread_id,
+          thread_id: threadId,
           kind: 'text',
           body: 'Listo, no te enviaremos más promociones. Si querés volver a recibirlas, escribinos. 🙌',
         });
@@ -198,10 +282,10 @@ export class WhatsAppIngestService implements OnModuleInit {
       const cap = Number(process.env.WHATSAPP_DAILY_TURN_CAP) || 50;
       const recentTurns = await this.threads.countRecentTurns(p.phone, 24);
       if (recentTurns >= cap) {
-        await this.threads.update(p.thread_id, { handoff: true, state: 'handoff' });
+        await this.threads.update(threadId, { handoff: true, state: 'handoff' });
         await this.enqueueOut(tenantId, {
           to: p.phone,
-          thread_id: p.thread_id,
+          thread_id: threadId,
           kind: 'text',
           body: 'Gracias por tu mensaje 🙌 En breve un asesor de Mega Dulces continúa tu atención.',
         });
@@ -210,11 +294,45 @@ export class WhatsAppIngestService implements OnModuleInit {
       }
       // FIQ.5: un pin de ubicación llega sin texto → sinteticé uno para el LLM.
       const userText = p.text || (p.location ? '📍 Te comparto mi ubicación' : '');
-      const result = await this.orchestrator.handleTurn(p.thread_id, userText, {
+      const result = await this.orchestrator.handleTurn(threadId, userText, {
         location: p.location || undefined,
       });
-      await this.enqueueOut(tenantId, { to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
+      await this.enqueueOut(tenantId, { to: p.phone, thread_id: threadId, kind: 'text', body: result.reply });
     });
+  }
+
+  /**
+   * CBW (ADR-042) — procesa un job bancario. `capture`: descarga la media por el
+   * puerto (Meta/simulador) y la manda al motor de captura (Cloudinary + OCR +
+   * staging). `confirm`: aplica SÍ/NO a la última captura pendiente. La respuesta
+   * al remitente se encola como 'out' (sin thread). Best-effort: sin binding no
+   * llega acá (el ingest no arma el job).
+   */
+  private async handleBankJob(tenantId: string, p: InJobPayload): Promise<void> {
+    if (!this.bankCapture || !p.bank) return;
+    if (p.bank.action === 'capture') {
+      const media = await this.port.downloadMedia(p.bank.media_id);
+      if (!media) {
+        await this.enqueueOut(tenantId, { to: p.phone, thread_id: null, kind: 'text', body: 'No pude descargar la imagen 😕 ¿Puedes reenviarla?' });
+        return;
+      }
+      const res = await this.bankCapture.capture({
+        fromPhone: p.phone,
+        sender: p.bank.sender,
+        waMessageId: p.wa_message_id,
+        fileBase64: media.buffer.toString('base64'),
+        mime: media.mime,
+        caption: p.bank.caption,
+      });
+      await this.enqueueOut(tenantId, { to: p.phone, thread_id: null, kind: 'text', body: res.reply });
+      return;
+    }
+    // confirm
+    const res = await this.bankCapture.confirm(p.phone, p.bank.decision);
+    if (res) {
+      await this.enqueueOut(tenantId, { to: p.phone, thread_id: null, kind: 'text', body: res.reply });
+    }
+    // Sin captura pendiente → no respondemos (evita ruido si el "sí/no" no era para esto).
   }
 
   /** Worker de SALIDA. Envía por el puerto (Meta/simulador) y registra 'out'. */
@@ -227,12 +345,15 @@ export class WhatsAppIngestService implements OnModuleInit {
       else if (p.kind === 'image' && p.image) res = await this.port.sendImage(p.to, p.image);
       else if (p.kind === 'template' && p.template) res = await this.port.sendTemplate(p.to, p.template);
       else res = await this.port.sendText(p.to, p.body);
-      await this.threads.logMessage(p.thread_id, 'out', {
-        wa_message_id: res.message_id,
-        type: p.kind,
-        body: p.body,
-        payload: p.interactive ?? p.image ?? p.template ?? null,
-      });
+      // CBW: las respuestas bancarias no tienen thread → no se registran en messages.
+      if (p.thread_id) {
+        await this.threads.logMessage(p.thread_id, 'out', {
+          wa_message_id: res.message_id,
+          type: p.kind,
+          body: p.body,
+          payload: p.interactive ?? p.image ?? p.template ?? null,
+        });
+      }
     });
   }
 

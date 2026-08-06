@@ -11,3 +11,4 @@ export * from './ports/recon-notifier.port';
 export * from './ports/finance-findings-sink.port';
 export * from './ports/invoice-issuer.port';
 export * from './ports/commerce-conversation.port';
+export * from './ports/bank-capture.port';
