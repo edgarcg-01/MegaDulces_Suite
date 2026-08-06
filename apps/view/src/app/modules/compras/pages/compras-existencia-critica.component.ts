@@ -131,7 +131,7 @@ interface DraftLine {
             <th pSortableColumn="abc_class">Clase <p-sorticon field="abc_class" /></th>
             <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
             <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
-            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sorticon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="on_hand" title="Existencia en CAJAS. Almacenes Wincaja (Morelia) se convierten por su factor_venta; el resto por piezas/caja (c84).">Existencia (cajas) <p-sorticon field="on_hand" /></th>
             <th class="ec-r" pSortableColumn="min_stock">Mín <p-sorticon field="min_stock" /></th>
             <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sorticon field="reorder_point" /></th>
             <th class="ec-r" pSortableColumn="max_stock">Máx <p-sorticon field="max_stock" /></th>
@@ -167,15 +167,15 @@ interface DraftLine {
               @if (revNum(r.monthly_revenue) > 0) { {{ money(r.monthly_revenue) }} }
               @else { <span class="ec-muted">—</span> }
             </td>
-            <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
-            <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-0' }}</td>
-            <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-0' }}</td>
-            <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-0' }}</td>
-            <td class="ec-r" [title]="safetyTitle(r)">{{ r.safety_stock != null ? (r.safety_stock | number:'1.0-0') : '—' }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
-            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-0') : '—' }}</td>
-            <td class="ec-r ec-muted">{{ r.suggested_qty | number:'1.0-0' }}</td>
-            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-0')) : ''">{{ (r.transfer_in || 0) > 0 ? (r.transfer_in | number:'1.0-0') : '—' }}</td>
-            <td class="ec-r ec-strong">{{ (r.buy_qty ?? r.suggested_qty) | number:'1.0-0' }}</td>
+            <td class="ec-r" [title]="cajaTitle(r)">{{ r.on_hand | number:'1.0-1' }}</td>
+            <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-1' }}</td>
+            <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-1' }}</td>
+            <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-1' }}</td>
+            <td class="ec-r" [title]="safetyTitle(r)">{{ r.safety_stock != null ? (r.safety_stock | number:'1.0-1') : '—' }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
+            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-1') : '—' }}</td>
+            <td class="ec-r ec-muted">{{ r.suggested_qty | number:'1.0-1' }}</td>
+            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-1')) : ''">{{ (r.transfer_in || 0) > 0 ? (r.transfer_in | number:'1.0-1') : '—' }}</td>
+            <td class="ec-r ec-strong">{{ (r.buy_qty ?? r.suggested_qty) | number:'1.0-1' }}</td>
             <td><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)"></p-tag></td>
             <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
             <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
@@ -763,5 +763,13 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const svc = r.service_level != null ? (r.service_level * 100).toFixed(0) + '%' : '—';
     const lt = r.lead_time_days ?? '—';
     return `Safety stock por nivel de servicio ${svc} (Z×σ×√lead). Lead ${lt}d.`;
+  }
+  cajaTitle(r: CriticalStockRow) {
+    const f = r.caja_factor != null ? Number(r.caja_factor) : null;
+    const win = !!r.warehouse_code && ['MD-30', 'MD-32', 'MD-50'].includes(r.warehouse_code);
+    if (!f || f <= 1) return 'Cifras en cajas';
+    return win
+      ? `Cajas = existencia Wincaja ÷ ${f} (paquetes por caja)`
+      : `Cajas = existencia ÷ ${f} (piezas por caja)`;
   }
 }

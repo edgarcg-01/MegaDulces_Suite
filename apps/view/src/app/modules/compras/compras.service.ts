@@ -61,6 +61,7 @@ export interface CriticalStockRow {
   next_due_date?: string | null;
   cadence_band?: 'rapida' | 'promedio' | 'mal_abasto' | null;
   source_warehouse_code?: string | null;
+  caja_factor?: number; // divisor por-almacén usado para mostrar en cajas (Wincaja=factor_venta, resto=c84)
 }
 // RA-PRO.17 — Compra sugerida anclada en el ritmo de compra REAL (entrada X-A-40).
 export interface PurchaseSuggestionRow {
