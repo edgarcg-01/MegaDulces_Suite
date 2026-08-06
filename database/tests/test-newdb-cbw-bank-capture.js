@@ -142,6 +142,23 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
       const movCount = await trx('finance.bank_movements').where({ tenant_id: T, client_uuid: `whatsapp:${capRow.id}` }).count('* as n').first();
       ok(Number(movCount.n) === 1, 'materializa: idempotente — revalidar no duplica el renglón (client_uuid whatsapp:<id>)');
 
+      // ── 6c. Manejo de errores: la columna error_detail registra el problema ──
+      const [errCap] = await trx('finance.bank_capture_inbox').insert({
+        tenant_id: T, source: 'whatsapp', from_phone: phone, sender_id: sender.id,
+        wa_message_id: 'wamid.SMOKE-CBW-ERR', files: JSON.stringify([]),
+        ocr_status: 'ilegible', amount_in: 0, status: 'pendiente_confirmacion',
+        error_detail: 'La imagen no parece un comprobante de depósito.',
+      }).returning(['id', 'error_detail', 'bank_account_id']);
+      ok(errCap.error_detail?.includes('no parece'), 'error: se registra error_detail cuando la imagen no es válida');
+
+      // validate() sin cuenta → error accionable (no materializa, no ensucia el libro).
+      const noAccount = errCap.bank_account_id == null;
+      ok(noAccount, 'error: captura inválida no resolvió cuenta (bloquea validación con aviso)');
+
+      // Éxito limpia el error: al validar la buena, error_detail queda NULL.
+      const goodErr = await trx('finance.bank_capture_inbox').where({ id: cap.id }).first('error_detail');
+      ok(goodErr.error_detail == null, 'error: la captura validada quedó sin error_detail (limpio)');
+
       // ── 7. Aislamiento por tenant (filtro explícito, como analytics.*) ────
       const otherTenant = await trx('finance.bank_capture_inbox')
         .where({ tenant_id: '00000000-0000-0000-0000-0000000000ff', wa_message_id: 'wamid.SMOKE-CBW-1' }).first('id');

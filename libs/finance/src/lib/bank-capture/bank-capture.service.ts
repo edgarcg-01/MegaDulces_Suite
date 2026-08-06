@@ -66,8 +66,10 @@ export class BankCaptureService {
   }): Promise<BankCaptureResult> {
     const phone = normalizeMxPhone(input.fromPhone) || input.fromPhone;
     const mediaType = this.coerceMediaType(input.mime);
+    let errorDetail: string | null = null;
 
-    // 1) Cloudinary (data URI con prefijo; detecta PDF vs imagen).
+    // 1) Cloudinary (data URI con prefijo; detecta PDF vs imagen). Defensivo: si no
+    //    sube, guardamos la captura igual (con el error) — no se pierde la evidencia.
     let files: Array<{ url: string; public_id: string; kind: string }> = [];
     try {
       const up = await this.cloudinary.uploadDocumentBase64(
@@ -77,52 +79,82 @@ export class BankCaptureService {
       files = [{ url: up.url, public_id: up.public_id, kind: up.kind }];
     } catch (e: any) {
       this.logger.error(`Cloudinary falló: ${e?.message}`);
+      errorDetail = 'No se pudo subir la imagen (almacenamiento). Reenviar.';
     }
 
-    // 2) OCR de la ficha (degrada a 'sin_key'/'ilegible' sin romper).
-    const fields = await this.ocr.extractDepositSlip(input.fileBase64, mediaType);
+    // 2) OCR de la ficha. Nunca lanza (el extractor degrada), pero lo blindamos igual.
+    let fields: any = {};
+    try {
+      fields = await this.ocr.extractDepositSlip(input.fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.error(`OCR falló: ${e?.message}`);
+      errorDetail = errorDetail || 'No se pudo leer la imagen (OCR).';
+    }
     const hasKey = !!process.env.ANTHROPIC_API_KEY;
     const ocrStatus = !hasKey ? 'sin_key' : fields.monto != null ? 'ok' : 'ilegible';
 
-    // 3) Resolver la cuenta: OCR (banco + últimos 4) → catálogo; fallback a la cuenta del remitente.
-    const bankAccountId = await this.resolveAccount(fields.cuenta_dest, input.sender.default_bank_account_id);
+    // 2b) ¿Es realmente un comprobante? Sin monto NI banco NI referencia → no válido.
+    const looksInvalid = ocrStatus === 'ilegible' && !fields.banco && !fields.referencia && !fields.cuenta_dest;
+    if (looksInvalid && !errorDetail) errorDetail = 'La imagen no parece un comprobante de depósito.';
 
-    // 4) Insertar la captura en staging (pendiente_confirmacion).
+    // 3) Resolver la cuenta: OCR (banco + últimos 4) → catálogo; fallback al remitente.
+    let bankAccountId: string | null = null;
+    try {
+      bankAccountId = await this.resolveAccount(fields.cuenta_dest, input.sender.default_bank_account_id);
+    } catch (e: any) {
+      this.logger.warn(`resolveAccount falló: ${e?.message}`);
+    }
+
+    // 4) Insertar la captura en staging (SIEMPRE — aunque haya error, para no perderla).
     const concept = [input.sender.full_name, fields.ordenante].filter(Boolean).join(' — ') || 'Depósito WhatsApp';
     const amountIn = Number(fields.monto) > 0 ? Number(fields.monto) : 0;
-    const captureId = await this.tk.run(async (trx) => {
-      const [row] = await trx('finance.bank_capture_inbox')
-        .insert({
-          tenant_id: this.tenantId(),
-          source: 'whatsapp',
-          from_phone: phone,
-          sender_id: input.sender.id,
-          wa_message_id: input.waMessageId,
-          files: JSON.stringify(files),
-          ocr_monto: fields.monto ?? null,
-          ocr_fecha: fields.fecha ?? null,
-          ocr_banco: fields.banco ?? null,
-          ocr_cuenta_dest: fields.cuenta_dest ?? null,
-          ocr_referencia: fields.referencia ?? null,
-          ocr_ordenante: fields.ordenante ?? null,
-          ocr_metodo: fields.metodo ?? null,
-          ocr_raw: JSON.stringify(fields),
-          ocr_status: ocrStatus,
-          bank_account_id: bankAccountId,
-          sucursal: input.sender.sucursal,
-          concept,
-          amount_in: amountIn,
-          amount_out: 0,
-          movement_date: fields.fecha ?? null,
-          status: 'pendiente_confirmacion',
-        })
-        .onConflict(['tenant_id', 'wa_message_id'])
-        .merge({ updated_at: trx.fn.now() }) // reenvío del mismo mensaje = idempotente
-        .returning('id');
-      return row?.id as string;
-    });
+    let captureId: string | null = null;
+    try {
+      captureId = await this.tk.run(async (trx) => {
+        const [row] = await trx('finance.bank_capture_inbox')
+          .insert({
+            tenant_id: this.tenantId(),
+            source: 'whatsapp',
+            from_phone: phone,
+            sender_id: input.sender.id,
+            wa_message_id: input.waMessageId,
+            files: JSON.stringify(files),
+            ocr_monto: fields.monto ?? null,
+            ocr_fecha: fields.fecha ?? null,
+            ocr_banco: fields.banco ?? null,
+            ocr_cuenta_dest: fields.cuenta_dest ?? null,
+            ocr_referencia: fields.referencia ?? null,
+            ocr_ordenante: fields.ordenante ?? null,
+            ocr_metodo: fields.metodo ?? null,
+            ocr_raw: JSON.stringify(fields ?? {}),
+            ocr_status: ocrStatus,
+            bank_account_id: bankAccountId,
+            sucursal: input.sender.sucursal,
+            concept,
+            amount_in: amountIn,
+            amount_out: 0,
+            movement_date: fields.fecha ?? null,
+            status: 'pendiente_confirmacion',
+            error_detail: errorDetail,
+          })
+          .onConflict(['tenant_id', 'wa_message_id'])
+          .merge({ updated_at: trx.fn.now() }) // reenvío del mismo mensaje = idempotente
+          .returning('id');
+        return (row?.id as string) ?? null;
+      });
+    } catch (e: any) {
+      // Falla al guardar la captura misma: avisamos a Cobranza y respondemos honesto.
+      this.logger.error(`No se pudo guardar la captura: ${e?.message}`);
+      await this.notifyError('No se pudo guardar una captura de depósito por WhatsApp', 0, input.sender.sucursal);
+      return { reply: '⚠️ Recibí tu comprobante pero tuve un problema al guardarlo. Un compañero de Crédito y Cobranza fue avisado. Puedes reenviarlo en un momento.', capture_id: null };
+    }
 
-    return { reply: this.buildConfirmPrompt(fields, ocrStatus), capture_id: captureId ?? null };
+    // 5) Si hubo cualquier problema (subida/OCR/validez), avisamos a Cobranza para que lo revise a mano.
+    if (errorDetail) {
+      await this.notifyError(`Captura con problema: ${errorDetail}`, amountIn, input.sender.sucursal);
+    }
+
+    return { reply: this.buildConfirmPrompt(fields, ocrStatus, errorDetail), capture_id: captureId };
   }
 
   /** CBW.3 — SÍ/NO sobre la última captura pendiente del teléfono. */
@@ -172,7 +204,7 @@ export class BankCaptureService {
         .select(
           'i.id', 'i.status', 'i.from_phone', 'i.sucursal', 'i.concept',
           'i.amount_in', 'i.amount_out', 'i.movement_date', 'i.ocr_banco', 'i.ocr_cuenta_dest',
-          'i.ocr_referencia', 'i.ocr_status', 'i.files', 'i.bank_movement_id', 'i.notified_at', 'i.created_at',
+          'i.ocr_referencia', 'i.ocr_status', 'i.files', 'i.bank_movement_id', 'i.notified_at', 'i.error_detail', 'i.created_at',
           's.full_name as sender_name',
           trx.raw(`COALESCE(a.bank || ' ' || a.account_label, NULL) as cuenta`),
         );
@@ -219,24 +251,42 @@ export class BankCaptureService {
    * toca el libro). Idempotente: `client_uuid = whatsapp:<captureId>`.
    */
   async validate(id: string, actor: string): Promise<any> {
-    return this.tk.run(async (trx) => {
-      const cap = await trx('finance.bank_capture_inbox')
-        .where({ id })
-        .whereIn('status', ['pendiente_confirmacion', 'confirmado'])
-        .first();
-      if (!cap) {
-        return trx('finance.bank_capture_inbox').where({ id }).first('id', 'status', 'bank_movement_id');
-      }
-      if (!cap.bank_account_id) {
-        throw new BadRequestException('Asigna la cuenta antes de validar (el OCR no la identificó).');
-      }
-      const movementId = await this.postToLedger(trx, cap);
-      const [row] = await trx('finance.bank_capture_inbox')
-        .where({ id })
-        .update({ status: 'validado', bank_movement_id: movementId, validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
-        .returning(['id', 'status', 'bank_movement_id']);
-      return row;
-    });
+    try {
+      return await this.tk.run(async (trx) => {
+        const cap = await trx('finance.bank_capture_inbox')
+          .where({ id })
+          .whereIn('status', ['pendiente_confirmacion', 'confirmado'])
+          .first();
+        if (!cap) {
+          return trx('finance.bank_capture_inbox').where({ id }).first('id', 'status', 'bank_movement_id');
+        }
+        if (!cap.bank_account_id) {
+          throw new BadRequestException('Asigna la cuenta antes de validar (el OCR no la identificó).');
+        }
+        const movementId = await this.postToLedger(trx, cap);
+        if (!movementId) throw new Error('El libro no devolvió el renglón (postToLedger).');
+        const [row] = await trx('finance.bank_capture_inbox')
+          .where({ id })
+          // éxito → limpiamos cualquier error previo.
+          .update({ status: 'validado', bank_movement_id: movementId, error_detail: null, validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
+          .returning(['id', 'status', 'bank_movement_id']);
+        return row;
+      });
+    } catch (e: any) {
+      // Error CONOCIDO y accionable por el usuario (falta cuenta) → pasa tal cual, sin molestar a Perla.
+      if (e instanceof BadRequestException) throw e;
+      // Error inesperado escribiendo el libro ("el workbook no se actualiza") → registrar + avisar a Cobranza.
+      this.logger.error(`validate/postToLedger falló (${id}): ${e?.message}`);
+      await this.recordError(id, `No se pudo escribir en el libro: ${e?.message || e}`).catch(() => undefined);
+      const cap = await this.get(id).catch(() => null);
+      await this.notifyError('No se pudo agregar un depósito al libro', Number(cap?.amount_in) || 0, cap?.sucursal ?? null);
+      throw new BadRequestException('No se pudo agregar el depósito al libro. Crédito y Cobranza fue notificada para revisarlo.');
+    }
+  }
+
+  /** Registra el detalle de un error en la captura (fuera de la trx que pudo hacer rollback). */
+  private async recordError(id: string, detail: string): Promise<void> {
+    await this.tk.run((trx) => trx('finance.bank_capture_inbox').where({ id }).update({ error_detail: detail, updated_at: trx.fn.now() }));
   }
 
   /**
@@ -418,6 +468,21 @@ export class BankCaptureService {
     }
   }
 
+  /**
+   * Avisa a Crédito y Cobranza que una captura tuvo un PROBLEMA y necesita revisión
+   * manual (no se subió / no es válida / no se pudo escribir en el libro). Best-effort.
+   */
+  private async notifyError(titulo: string, importe: number, sucursal: string | null): Promise<void> {
+    if (!this.notifier) return;
+    try {
+      await this.notifier.notifyCritical(this.tenantId(), [
+        { rule_key: 'deposito_whatsapp_error', titulo: `⚠️ ${titulo}${sucursal ? ` · Suc ${sucursal}` : ''}`, importe: Number(importe) || 0 },
+      ]);
+    } catch (e: any) {
+      this.logger.warn(`notifyError best-effort falló: ${e?.message}`);
+    }
+  }
+
   /** OCR banco+últimos-4 → bank_account por account_label (tail 4 dígitos); fallback default del remitente. */
   private async resolveAccount(cuentaDest: string | null, fallbackId: string | null): Promise<string | null> {
     const digits = (cuentaDest || '').replace(/\D/g, '');
@@ -443,11 +508,19 @@ export class BankCaptureService {
     return 'image/jpeg';
   }
 
-  /** Texto de respuesta: lo leído + petición de confirmación SÍ/NO. */
+  /** Texto de respuesta: lo leído + petición de confirmación SÍ/NO (o el problema detectado). */
   private buildConfirmPrompt(
     f: { monto: number | null; banco: string | null; referencia: string | null; cuenta_dest: string | null },
     ocrStatus: string,
+    errorDetail?: string | null,
   ): string {
+    // Problema de subida o imagen no válida → honesto, sin pedir confirmación de un dato que no hay.
+    if (errorDetail && /no se pudo subir/i.test(errorDetail)) {
+      return '⚠️ No pude guardar bien tu imagen. ¿Puedes reenviarla? Si sigue fallando, avisa a Crédito y Cobranza.';
+    }
+    if (errorDetail && /no parece un comprobante/i.test(errorDetail)) {
+      return '🤔 Esta imagen no parece un comprobante de depósito. Si sí lo es, mándala más clara o completa. La revisará Crédito y Cobranza.';
+    }
     if (ocrStatus === 'sin_key') {
       return '📸 Recibí tu comprobante. Un compañero lo revisará en breve. ¡Gracias!';
     }

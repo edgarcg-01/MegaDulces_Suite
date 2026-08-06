@@ -23,6 +23,7 @@ export interface BankCapture {
   files: { url: string; public_id: string; kind: string }[] | string;
   bank_movement_id: string | null;
   notified_at: string | null;
+  error_detail: string | null;
   created_at: string;
 }
 
