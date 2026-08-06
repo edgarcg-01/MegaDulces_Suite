@@ -144,6 +144,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.supplierLedger({ date_from, date_to, search });
   }
 
+  @Get('supplier-ledger/detail')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.7 — desglose (auxiliar 201) de un proveedor: movimientos individuales (factura/pago/nota/devolución) con folio, fecha, importe (con signo) y saldo corrido. Params: proveedor, date_from, date_to.' })
+  supplierLedgerDetail(@Query('proveedor') proveedor?: string, @Query('date_from') date_from?: string, @Query('date_to') date_to?: string) {
+    return this.svc.supplierLedgerDetail({ proveedor, date_from, date_to });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })
