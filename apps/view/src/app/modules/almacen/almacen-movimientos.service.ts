@@ -182,6 +182,7 @@ export interface TransfersLedgerDetailResponse {
 export interface WincajaCheckRow {
   code: string; name: string; anio_mes: string;
   kepler_envio: number; wincaja_recibido: number; docs: number; delta: number;
+  kepler_compra_zona?: number; // solo Canindo: canal COMPRA de zona (515-001), no CEDIS
 }
 export interface WincajaCheckStore { code: string; name: string; last_date: string | null; }
 export interface TransfersWincajaCheckResponse {
