@@ -200,6 +200,17 @@ export class CommercialReplenishmentService {
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
   private onHand() { return '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))'; }
+  // Factor de caja POR ALMACÉN, solo para MOSTRAR en cajas. Los almacenes ciegos de Wincaja
+  // (MD-30/32/50) guardan la existencia en SU unidad (paquetes en multi-pack), no en piezas como
+  // Kepler → dividir por el resolver canónico (c84) daría cajas ~10x bajas. Ahí se usa
+  // factor_venta (analytics.wincaja_product_box_factor, set doble-testigo: anida + costo=paquete);
+  // el resto usa el resolver c84/etiquetera. Es SOLO display: buckets/orden/costos siguen en la
+  // unidad cruda por almacén (auto-consistente), así el sugerido y la clasificación no cambian.
+  // Requiere que la query joinee `w` (warehouses), `wcf` y `cbf`. >=1.
+  private cajaFactor() {
+    return `CASE WHEN w.code IN ('MD-30','MD-32','MD-50') AND wcf.factor_venta > 1
+                 THEN wcf.factor_venta ELSE GREATEST(COALESCE(cbf.box_factor, 1), 1) END`;
+  }
   private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
@@ -247,6 +258,7 @@ export class CommercialReplenishmentService {
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
     const it = this.inTransit();
+    const cf = this.cajaFactor(); // divisor por-almacén para MOSTRAR cantidades en cajas (display only)
     // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca (helper cadenceTarget()).
     // Las demás bases (min/reorden/máx) intactas.
     const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
@@ -300,6 +312,11 @@ export class CommercialReplenishmentService {
         .leftJoin(
           trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
           (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
+        // Factor de caja por-almacén para DISPLAY (cajas): resolver canónico + override Wincaja.
+        .leftJoin('analytics.v_product_box_factor as cbf', (j) =>
+          j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
+        .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
+          j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto: Σ (existencia − máximo) en TODAS las sucursales del tenant.
         // Sirve para cubrir el déficit de una sucursal con el sobrante de otra (traspaso) ANTES de comprar.
         .leftJoin(
@@ -345,20 +362,23 @@ export class CommercialReplenishmentService {
           trx.raw('w.code AS warehouse_code'),
           trx.raw('pr.sku AS sku'),
           trx.raw('pr.nombre AS nombre'),
-          trx.raw(`${oh} AS on_hand`),
-          trx.raw(`${it} AS in_transit`),
-          'rp.min_stock',
-          'rp.reorder_point',
-          'rp.max_stock',
+          // Cantidades MOSTRADAS en cajas (÷ factor por-almacén). El bucket/orden/costo abajo
+          // siguen en la unidad cruda (oh/target sin dividir) → clasificación y $ intactos.
+          trx.raw(`ROUND((${oh}) / (${cf}), 1) AS on_hand`),
+          trx.raw(`ROUND((${it}) / (${cf}), 1) AS in_transit`),
+          trx.raw(`ROUND(rp.min_stock / (${cf}), 1) AS min_stock`),
+          trx.raw(`ROUND(rp.reorder_point / (${cf}), 1) AS reorder_point`),
+          trx.raw(`ROUND(rp.max_stock / (${cf}), 1) AS max_stock`),
+          trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           'rp.source',
           // RA-PRO.1/2 — política profesional: safety stock por nivel de servicio + segmentación XYZ
-          trx.raw('rp.safety_stock AS safety_stock'),
+          trx.raw(`ROUND(rp.safety_stock / (${cf}), 1) AS safety_stock`),
           trx.raw('rp.service_level AS service_level'),
           trx.raw('rp.xyz_class AS xyz_class'),
           trx.raw('rp.demand_cv AS demand_cv'),
           trx.raw('rp.policy_method AS policy_method'),
           trx.raw('rp.lead_time_days AS lead_time_days'),
-          trx.raw('ih.avg_daily_units AS avg_daily_units'),
+          trx.raw(`ROUND(ih.avg_daily_units / (${cf}), 2) AS avg_daily_units`),
           // RA-PRO.9 — contexto de canal/ciclo (para columnas y para que el detalle case con Qué Toca)
           trx.raw('rc.via AS replenish_via'),
           trx.raw('rc.cadence_days AS cadence_days'),
@@ -379,13 +399,13 @@ export class CommercialReplenishmentService {
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
           trx.raw(`${this.bucketExpr()} AS bucket`),
-          trx.raw(`GREATEST(0, ${target} - ${oh} - ${it}) AS suggested_qty`),
+          trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) / (${cf}), 1) AS suggested_qty`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}, 2) AS suggested_cost`),
           // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
-          trx.raw(`GREATEST(0, ${oh} - rp.max_stock) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
-          trx.raw(`GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) AS surplus_network`), // sobrante del producto en OTRAS sucursales
-          trx.raw(`LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) AS transfer_in`), // cubrible por traspaso
-          trx.raw(`GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) AS buy_qty`), // compra REAL (residual)
+          trx.raw(`ROUND(GREATEST(0, ${oh} - rp.max_stock) / (${cf}), 1) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
+          trx.raw(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1) AS surplus_network`), // sobrante del producto en OTRAS sucursales
+          trx.raw(`ROUND(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
+          trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
           trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${this.costUnit()}, 2) AS buy_cost`),
           trx.raw(`CASE
               WHEN GREATEST(0, ${oh} - rp.max_stock) > 0 THEN 'sobrante'
@@ -402,7 +422,7 @@ export class CommercialReplenishmentService {
           // Sort explícito por columna (whitelist). Si no hay, cae al orden por
           // prioridad de valor (default de negocio). El sugerido default es un
           // desempate útil aún cuando el usuario ordena por otra cosa.
-          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it);
+          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it, cf);
           if (sortExpr) {
             const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
             qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
@@ -425,8 +445,10 @@ export class CommercialReplenishmentService {
    * la columna no es válida (→ orden por defecto). NUNCA interpola el input del
    * usuario en el SQL: sólo la llave del mapa decide la expresión.
    */
-  private sortableExpr(key: string | undefined, target: string, oh: string, it: string): string | null {
+  private sortableExpr(key: string | undefined, target: string, oh: string, it: string, cf = '1'): string | null {
     if (!key) return null;
+    // Cantidades se ordenan en CAJAS (÷ factor por-almacén) para casar con lo que se muestra;
+    // así ordenar por Existencia compara cajas reales entre almacenes, no unidades crudas mixtas.
     const map: Record<string, string> = {
       sku: 'pr.sku',
       nombre: 'pr.nombre',
@@ -434,13 +456,13 @@ export class CommercialReplenishmentService {
       abc_class: 'COALESCE(abc.abc_class, rp.abc_class)',
       sales_rank: 'sr.sales_rank',
       monthly_revenue: this.monthlyRevenue(),
-      on_hand: oh,
-      min_stock: 'rp.min_stock',
-      reorder_point: 'rp.reorder_point',
-      max_stock: 'rp.max_stock',
-      safety_stock: 'rp.safety_stock',
-      in_transit: it,
-      suggested_qty: `GREATEST(0, ${target} - ${oh} - ${it})`,
+      on_hand: `(${oh}) / (${cf})`,
+      min_stock: `rp.min_stock / (${cf})`,
+      reorder_point: `rp.reorder_point / (${cf})`,
+      max_stock: `rp.max_stock / (${cf})`,
+      safety_stock: `rp.safety_stock / (${cf})`,
+      in_transit: `(${it}) / (${cf})`,
+      suggested_qty: `GREATEST(0, ${target} - ${oh} - ${it}) / (${cf})`,
       suggested_cost: `GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}`,
       supplier_name: 'sup.name',
     };
@@ -459,6 +481,11 @@ export class CommercialReplenishmentService {
         .leftJoin('commercial.stock as s', (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
+        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
+        .leftJoin('analytics.v_product_box_factor as cbf', (j) =>
+          j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
+        .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
+          j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
         .leftJoin('analytics.purchase_in_transit as pit', (j) =>
           j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
         // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
@@ -480,6 +507,7 @@ export class CommercialReplenishmentService {
           .andWhereRaw('sup.name ILIKE ?', [`%${q.search.trim()}%`]);
       }
       const cost = this.costUnit();
+      const cf = this.cajaFactor(); // divisor por-almacén para SUMar cajas reales (display)
 
       const r: any = await base
         .select(
@@ -497,10 +525,10 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}), 2) AS reorden_valor`),
           trx.raw(`ROUND(SUM(rp.max_stock * ${cost}), 2) AS max_valor`),
           trx.raw(`ROUND(SUM(${oh} * ${cost}), 2) AS existencia_valor`),
-          trx.raw(`ROUND(SUM(rp.min_stock), 2) AS min_cajas`),
-          trx.raw(`ROUND(SUM(rp.reorder_point), 2) AS reorden_cajas`),
-          trx.raw(`ROUND(SUM(rp.max_stock), 2) AS max_cajas`),
-          trx.raw(`ROUND(SUM(${oh}), 2) AS existencia_cajas`),
+          trx.raw(`ROUND(SUM(rp.min_stock / (${cf})), 2) AS min_cajas`),
+          trx.raw(`ROUND(SUM(rp.reorder_point / (${cf})), 2) AS reorden_cajas`),
+          trx.raw(`ROUND(SUM(rp.max_stock / (${cf})), 2) AS max_cajas`),
+          trx.raw(`ROUND(SUM(${oh} / (${cf})), 2) AS existencia_cajas`),
         ).first();
       return r;
     });

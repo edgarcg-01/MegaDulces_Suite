@@ -132,7 +132,7 @@ export class ReplenishmentExportService {
       { h: 'ABC', v: (r) => r.abc_class ?? '', width: 6 },
       { h: 'XYZ', v: (r) => r.xyz_class ?? '', width: 6 },
       { h: 'Rank vta', v: (r) => (r.sales_rank != null ? Number(r.sales_rank) : ''), fmt: NUM, width: 8 },
-      { h: 'Existencia', v: (r) => Number(r.on_hand) || 0, fmt: NUM, width: 11 },
+      { h: 'Existencia (cajas)', v: (r) => Number(r.on_hand) || 0, fmt: NUM, width: 13 },
       { h: 'Mínimo', v: (r) => Number(r.min_stock) || 0, fmt: NUM, width: 9 },
       { h: 'Reorden', v: (r) => Number(r.reorder_point) || 0, fmt: NUM, width: 9 },
       { h: 'Máximo', v: (r) => Number(r.max_stock) || 0, fmt: NUM, width: 9 },
