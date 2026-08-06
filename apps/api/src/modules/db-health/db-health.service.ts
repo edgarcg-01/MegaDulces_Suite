@@ -188,6 +188,9 @@ interface CronCfg { key: string; label: string; cadence: string; warnH: number; 
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50 },
+  // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
+  // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
+  { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
   { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400 },
   // Internos del API (@Cron NestJS)
