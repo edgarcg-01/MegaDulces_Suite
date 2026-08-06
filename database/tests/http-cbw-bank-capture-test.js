@@ -56,7 +56,7 @@ function getDb() {
   let token, senderId, accountId, captureId, movementId;
   try {
     console.log('── 1. Login auth-mt ──');
-    const login = await req('POST', '/auth-mt/login', { username: 'superoot', password: 'superoot' });
+    const login = await req('POST', '/auth-mt/login', { tenant_slug: 'mega_dulces', username: 'superoot', password: 'superoot' });
     token = login.body?.access_token;
     check('login devuelve JWT', !!token, `status=${login.status}`);
     if (!token) throw new Error('sin token');
