@@ -81,11 +81,13 @@ export class CommercialMovementsController {
 
   @Get('transfers-cuadre.pdf')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
-  @ApiOperation({ summary: 'DM.12 — Reporte mensual del Cuadre de traspasos en PDF (contable mayor 515 + matriz física + folios sin cuadrar). Honra rango de fechas; ignora filtro de almacén.' })
+  @ApiOperation({ summary: 'DM.12 — Reporte del Cuadre de traspasos en PDF. mode=global (consolidado 4 secciones) | resumen (concentrado por sucursal) | detalle (desglosado por sucursal). Honra rango de fechas; ignora filtro de almacén.' })
   async exportCuadrePdf(@Res() res: Response, @Query() raw: Record<string, string>) {
+    const mode = (['global', 'resumen', 'detalle'].includes(raw.mode || '') ? raw.mode : 'global') as 'global' | 'resumen' | 'detalle';
     const data = await this.svc.exportCuadreData(this.q(raw));
-    const buf = await this.exporter.buildCuadrePdf(data);
-    this.sendFile(res, buf, this.exporter.cuadreFileName(data.range, 'pdf'), 'application/pdf');
+    const buf = await this.exporter.buildCuadrePdf(data, mode);
+    const suffix = mode === 'resumen' ? ' concentrado' : mode === 'detalle' ? ' por sucursal' : '';
+    this.sendFile(res, buf, this.exporter.cuadreFileName(data.range, 'pdf').replace('.pdf', `${suffix}.pdf`), 'application/pdf');
   }
 
   @Get('export.xlsx')
