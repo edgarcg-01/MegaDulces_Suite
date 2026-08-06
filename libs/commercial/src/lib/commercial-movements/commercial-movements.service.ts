@@ -895,11 +895,27 @@ export class CommercialMovementsService {
    * tienda×mes: Σ salida CEDIS (Kepler 515-002, mapeada por nombre de destino) vs Σ recepción
    * CEDIS (Wincaja tipo C / tercero 0 / obs 'A0 …', costo). NO folio-a-folio (no hay llave).
    *
-   * Mapa nombre Kepler → tienda (catálogo wincaja.branches + confirmación negocio 2026-08):
-   *   50 CANINDO ← 'CANINDO' · 32 Morelia Madero ← 'MM'/'MADERO' · 30 Morelia Abastos ← 'M.A'/'MORELIA ABASTOS'.
-   * Ojo: 'ABASTOS LA PIEDAD'/'ABASTOS L.P' es La Piedad (suc 42 migrada), NO 30.
-   * Caveat: cobertura Wincaja por tienda varía (datasets) → `wincaja_last_date` para avisar
-   * meses parciales. Unidad Wincaja ≠ piezas Kepler → comparar $ (costo), no piezas.
+   * Estructura Kepler (2026-08): las pólizas viven en 6 DBs de sucursal md_00..md_05
+   * (00=CEDIS, 01=Padre Hidalgo, 02=Piedad, 03=8 Esquinas, 04=Yurécuaro, 05=Zamora) →
+   * `gl_poliza_lines.sucursal` = branch de origen. El 98% del 515-002 se contabiliza en
+   * suc=00 (CEDIS es el origen de todo traspaso saliente); el DESTINO solo está en el texto
+   * libre `referencia`, con MUCHAS variantes por captura manual.
+   *
+   * Mapa nombre Kepler → tienda Wincaja (verificado vs data 2026-08):
+   *   30 Morelia Abastos ← 'M.A' + 'ABASTOS' pelón (misma serie de folio T-79XX). OJO: excluir
+   *       'ABASTOS LA PIEDAD'/'L.P'/'LP' → esa es La Piedad (suc 02, NO Wincaja) y va ANTES.
+   *   32 Morelia Madero ← 'M.M' (con puntos, no 'MM') / 'MADERO'.
+   *   50 Canindo ← 'CANINDO' / 'CAN …'.
+   * Se descartan 'TRASPASO A CEDIS T99-…' (retorno inverso, no despacho a tienda).
+   *
+   * Caveats estructurales (NO son bug del cuadre — así abastece el negocio):
+   *  · CANINDO se surte casi NADA por traspaso CEDIS (515-002 ~$1.9M/trim); su entrada real
+   *    es COMPRA de zona ('COMPRA ZAM CANINDO' en 515-001 ~$23M/trim) → el Δ negativo grande
+   *    es esperado, este cuadre solo mide el canal CEDIS.
+   *  · MADERO recibe poco directo del CEDIS (Wincaja tercero='0' chico); se resurte vía
+   *    Morelia Abastos (Wincaja tercero='30') → tercero='0' subcuenta su recepción real.
+   * Cobertura Wincaja por tienda varía → `last_date` avisa meses parciales. Unidad Wincaja ≠
+   * piezas Kepler → comparar $ (costo), no piezas.
    */
   async transfersWincajaCheck(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -912,9 +928,11 @@ export class CommercialMovementsService {
     ];
     const classify = (ref: string | null): string | null => {
       const s = (ref || '').toUpperCase();
-      if (/CANINDO/.test(s)) return '50';
-      if (/MORELIA MADERO|\bMADERO\b|\bMM\b/.test(s)) return '32';
-      if (/MORELIA ABASTOS|\bM\.?A\b/.test(s)) return '30';
+      if (/T99/.test(s) && /CEDIS/.test(s)) return null;                    // retorno a CEDIS (reverso)
+      if (/CANINDO|\bCAN\b/.test(s)) return '50';
+      if (/M\.?M\b|MORELIA MADERO|\bMADERO\b/.test(s)) return '32';
+      if (/ABASTOS L\.?P|LA PIEDAD|\bL\.?P\b|\bLP\b/.test(s)) return null;  // La Piedad (suc 02), NO tienda Wincaja
+      if (/M\.?A\b|MORELIA ABAST|\bABASTOS\b/.test(s)) return '30';         // M.A + 'ABASTOS' pelón (misma serie T-79XX)
       return null;
     };
     const months: string[] = [];
@@ -928,6 +946,16 @@ export class CommercialMovementsService {
         .andWhere('anio_mes', '>=', fromYm).andWhere('anio_mes', '<=', toYm)
         .andWhereRaw('COALESCE(importe,0)<>0')
         .select('anio_mes', 'importe', 'referencia');
+      // Canal COMPRA de zona (515-001 'COMPRA … CANINDO') — abastece Canindo casi por completo,
+      // NO es traspaso CEDIS. Se muestra como contexto para explicar el Δ negativo, fuera del cuadre.
+      const compra: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).andWhere('source', 'kepler')
+        .andWhereRaw(`cuenta LIKE '515-001%'`)
+        .andWhereRaw(`UPPER(referencia) LIKE '%CANINDO%'`)
+        .andWhere('anio_mes', '>=', fromYm).andWhere('anio_mes', '<=', toYm)
+        .andWhereRaw('COALESCE(importe,0)<>0')
+        .groupBy('anio_mes').select('anio_mes').sum({ v: 'importe' });
+      const compraMap = new Map<string, number>(compra.map((r) => [r.anio_mes, Number(r.v) || 0]));
       const rec: any[] = await trx('wincaja.maestro_mov_almacen as m')
         .join('wincaja.detalles_mov_almacen as d', function (this: any) {
           this.on('d.tenant_id', 'm.tenant_id').andOn('d.source_branch', 'm.source_branch')
@@ -964,11 +992,13 @@ export class CommercialMovementsService {
         for (const ym of months) {
           const kepler = kMap.get(`${st.code}|${ym}`) || 0;
           const w = wMap.get(`${st.code}|${ym}`) || { costo: 0, docs: 0 };
-          if (kepler === 0 && w.costo === 0) continue;
+          const compraZona = st.code === '50' ? (compraMap.get(ym) || 0) : 0;
+          if (kepler === 0 && w.costo === 0 && compraZona === 0) continue;
           const delta = kepler - w.costo;
           rows.push({
             code: st.code, name: st.name, anio_mes: ym,
             kepler_envio: kepler, wincaja_recibido: w.costo, docs: w.docs, delta,
+            kepler_compra_zona: compraZona, // solo Canindo: 515-001 COMPRA (canal real, no CEDIS)
           });
           totals.kepler += kepler; totals.wincaja += w.costo; totals.delta += delta;
         }

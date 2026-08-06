@@ -381,7 +381,7 @@ import { Permission } from '../../../core/constants/permissions';
                   </div>
                 </header>
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Tienda</th><th>Mes</th><th class="dm-r">CEDIS despachó (Kepler)</th><th class="dm-r">Tienda recibió (Wincaja)</th><th class="dm-r">Docs</th><th class="dm-r">Δ</th></tr></thead>
+                  <thead><tr><th>Tienda</th><th>Mes</th><th class="dm-r">CEDIS despachó (Kepler)</th><th class="dm-r">Tienda recibió (Wincaja)</th><th class="dm-r">+ Compra zona</th><th class="dm-r">Docs</th><th class="dm-r">Δ</th></tr></thead>
                   <tbody>
                     @for (r of wc.rows; track r.code + r.anio_mes) {
                       <tr>
@@ -389,10 +389,11 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-mono">{{ r.anio_mes }}</td>
                         <td class="dm-r up">{{ money(r.kepler_envio) }}</td>
                         <td class="dm-r">{{ money(r.wincaja_recibido) }}</td>
+                        <td class="dm-r dm-muted">{{ r.kepler_compra_zona ? money(r.kepler_compra_zona) : '—' }}</td>
                         <td class="dm-r dm-muted">{{ r.docs || '—' }}</td>
                         <td class="dm-r dm-delta" [class.ok]="wincajaOk(r.delta, r.kepler_envio)" [class.bad]="!wincajaOk(r.delta, r.kepler_envio)">{{ wincajaOk(r.delta, r.kepler_envio) ? 'cuadra' : signed(r.delta) }}</td>
                       </tr>
-                    } @empty { <tr><td colspan="6" class="dm-empty">Sin traspasos a tiendas Wincaja en el rango.</td></tr> }
+                    } @empty { <tr><td colspan="7" class="dm-empty">Sin traspasos a tiendas Wincaja en el rango.</td></tr> }
                   </tbody>
                 </table>
                 <div class="dm-check-foot dm-muted">
@@ -400,7 +401,7 @@ import { Permission } from '../../../core/constants/permissions';
                   @for (s of wc.stores; track s.code) { {{ s.code }}·{{ s.name }}: {{ s.last_date ? (s.last_date | date:'yyyy-MM-dd') : 's/d' }}@if (!$last) { · } }
                   @if (wc.kepler_unmapped) { <span class="down"> · Kepler sin mapear a tienda: {{ money(wc.kepler_unmapped) }}</span> }
                 </div>
-                <p class="dm-block-sub">⚠️ Un mes con Wincaja incompleto (fecha de corte anterior al fin del mes) infla el Δ artificialmente — compará meses cerrados.</p>
+                <p class="dm-block-sub">⚠️ El Δ no es solo error: <strong>Canindo (50)</strong> se surte por <em>compra de zona</em> (columna «+ Compra zona», 515-001), casi nada por CEDIS → su Δ negativo es esperado. <strong>Madero (32)</strong> se resurte vía Morelia Abastos, no directo del CEDIS → Wincaja recibió subcuenta. Un mes con Wincaja incompleto (corte antes de fin de mes) también infla el Δ — compará meses cerrados.</p>
               </section>
             }
           }
