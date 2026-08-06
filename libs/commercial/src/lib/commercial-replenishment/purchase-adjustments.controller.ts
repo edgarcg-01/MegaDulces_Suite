@@ -137,6 +137,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.polizaForReceipt({ sucursal: sucursal || '', folio: folio || '', tipo_pol });
   }
 
+  @Get('supplier-ledger')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.7 — cuadre contable por proveedor (estado de cuenta 201 de Kepler): facturado (XA2001/XA1001) vs pagado (XD2601/XD2501) vs notas (XD5501) vs devoluciones (XD4001) + Δ del periodo. Filtros: date_from, date_to (acotan por mes), search.' })
+  supplierLedger(@Query('date_from') date_from?: string, @Query('date_to') date_to?: string, @Query('search') search?: string) {
+    return this.svc.supplierLedger({ date_from, date_to, search });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })
