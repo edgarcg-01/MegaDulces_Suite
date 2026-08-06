@@ -83,6 +83,11 @@ export class CommercialMovementsController {
     });
   }
 
+  @Get('transfers-wincaja-check')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.13 — Cuadre traspasos Kepler→Wincaja (tiendas solo-Wincaja 30/32/50): Σ salida CEDIS (515-002 mapeada por destino) vs Σ recepción CEDIS en Wincaja (costo), por tienda×mes + Δ. Honra rango; ignora filtro de almacén.' })
+  transfersWincajaCheck(@Query() raw: Record<string, string>) { return this.svc.transfersWincajaCheck(this.q(raw)); }
+
   @Get('transfers-cuadre.pdf')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.12 — Reporte del Cuadre de traspasos en PDF. mode=global (consolidado 4 secciones) | resumen (concentrado por sucursal) | detalle (desglosado por sucursal). Honra rango de fechas; ignora filtro de almacén.' })

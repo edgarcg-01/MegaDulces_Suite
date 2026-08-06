@@ -16,6 +16,7 @@ import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
   TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse, LedgerDetailFilters,
+  TransfersWincajaCheckResponse,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -365,6 +366,43 @@ import { Permission } from '../../../core/constants/permissions';
                 }
               } @else { <div class="dm-empty">Sin datos.</div> }
             </section>
+
+            <!-- ── Cuadre Kepler → Wincaja (tiendas solo-Wincaja 30/32/50) ── -->
+            @if (wincaja(); as wc) {
+              <section class="dm-block">
+                <header class="dm-block-head">
+                  <div>
+                    <h2 class="dm-block-title"><i class="pi pi-shop" aria-hidden="true"></i> Traspasos CEDIS → tiendas Wincaja <span class="dm-muted">· 30/32/50 (no están en Kepler)</span></h2>
+                    <p class="dm-block-sub">Cuadre por totales: lo que el CEDIS <strong>despachó</strong> (Kepler 515-002, por destino) vs lo que la tienda <strong>recibió</strong> en Wincaja (costo). Estas tiendas no están en Kepler → sus recepciones no salen en el 515. Comparación por $ (unidad Wincaja ≠ piezas Kepler); Δ ≠ 0 = revisar.</p>
+                  </div>
+                  <div class="dm-total" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="!wincajaOk(wc.totals.delta, wc.totals.kepler)">
+                    <span class="dm-total-lbl">Δ Kepler − Wincaja</span>
+                    <span class="dm-total-val">{{ signed(wc.totals.delta) }}</span>
+                  </div>
+                </header>
+                <table class="dm-docs dm-tbl">
+                  <thead><tr><th>Tienda</th><th>Mes</th><th class="dm-r">CEDIS despachó (Kepler)</th><th class="dm-r">Tienda recibió (Wincaja)</th><th class="dm-r">Docs</th><th class="dm-r">Δ</th></tr></thead>
+                  <tbody>
+                    @for (r of wc.rows; track r.code + r.anio_mes) {
+                      <tr>
+                        <td class="dm-strong">{{ r.code }} · {{ r.name }}</td>
+                        <td class="dm-mono">{{ r.anio_mes }}</td>
+                        <td class="dm-r up">{{ money(r.kepler_envio) }}</td>
+                        <td class="dm-r">{{ money(r.wincaja_recibido) }}</td>
+                        <td class="dm-r dm-muted">{{ r.docs || '—' }}</td>
+                        <td class="dm-r dm-delta" [class.ok]="wincajaOk(r.delta, r.kepler_envio)" [class.bad]="!wincajaOk(r.delta, r.kepler_envio)">{{ wincajaOk(r.delta, r.kepler_envio) ? 'cuadra' : signed(r.delta) }}</td>
+                      </tr>
+                    } @empty { <tr><td colspan="6" class="dm-empty">Sin traspasos a tiendas Wincaja en el rango.</td></tr> }
+                  </tbody>
+                </table>
+                <div class="dm-check-foot dm-muted">
+                  Cobertura Wincaja (último movimiento):
+                  @for (s of wc.stores; track s.code) { {{ s.code }}·{{ s.name }}: {{ s.last_date ? (s.last_date | date:'yyyy-MM-dd') : 's/d' }}@if (!$last) { · } }
+                  @if (wc.kepler_unmapped) { <span class="down"> · Kepler sin mapear a tienda: {{ money(wc.kepler_unmapped) }}</span> }
+                </div>
+                <p class="dm-block-sub">⚠️ Un mes con Wincaja incompleto (fecha de corte anterior al fin del mes) infla el Δ artificialmente — compará meses cerrados.</p>
+              </section>
+            }
           }
         </p-tabpanel>
         </p-tabpanels>
@@ -662,6 +700,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
   detail = signal<TransfersLedgerDetailResponse | null>(null); // pólizas 515 clasificadas
+  wincaja = signal<TransfersWincajaCheckResponse | null>(null); // cuadre Kepler→Wincaja
   detailLoading = signal(false);
   // Filtros de la vista del detalle (server-side)
   dBucket: '' | 'exacto' | 'costo' | 'sin_rastro' = '';
@@ -702,9 +741,10 @@ export class AlmacenMovimientosComponent implements OnInit {
       ledger: this.api.transfersLedger(f),
       matrix: this.api.transfersMatrix(f),
       check: this.api.transfersCheck(f),
+      wincaja: this.api.transfersWincajaCheck(f),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
-        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check);
+        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check); this.wincaja.set(r.wincaja);
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
@@ -789,6 +829,12 @@ export class AlmacenMovimientosComponent implements OnInit {
     } else if (r.rcv_folio && r.dest_wh_id) {
       this.openDocument({ folio: r.rcv_folio, warehouse_id: r.dest_wh_id, doc_code: 'TrsfRcv', doc_serie: null } as FolioRow);
     }
+  }
+
+  /** Cuadre Kepler↔Wincaja: tolerante (valuación distinta) — |Δ| < $500 o < 2% de lo despachado. */
+  wincajaOk(delta: number, base: number): boolean {
+    const d = Math.abs(Number(delta) || 0);
+    return d < 500 || d < Math.abs(Number(base) || 0) * 0.02;
   }
 
   /** Cuadra si |Δ| es despreciable: < $1 absoluto o < 0.1% de las entradas del período. */

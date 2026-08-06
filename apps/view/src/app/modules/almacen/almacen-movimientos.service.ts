@@ -178,6 +178,20 @@ export interface TransfersLedgerDetailResponse {
   cost_pairs: LedgerCostPair[]; cost_total: number; cost_truncated: boolean;
 }
 
+/** DM.13 — cuadre Kepler→Wincaja (tiendas solo-Wincaja 30/32/50). */
+export interface WincajaCheckRow {
+  code: string; name: string; anio_mes: string;
+  kepler_envio: number; wincaja_recibido: number; docs: number; delta: number;
+}
+export interface WincajaCheckStore { code: string; name: string; last_date: string | null; }
+export interface TransfersWincajaCheckResponse {
+  range: { from: string; to: string };
+  stores: WincajaCheckStore[];
+  rows: WincajaCheckRow[];
+  totals: { kepler: number; wincaja: number; delta: number };
+  kepler_unmapped: number;
+}
+
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
   doc_types: { doc_code: string; movement_label: string; movement_kind: MovementKind }[];
@@ -229,6 +243,10 @@ export class AlmacenMovimientosService {
   /** DM.12 — matriz física origen→destino de traspasos. */
   transfersMatrix(f: MovementsFilters): Observable<TransfersMatrixResponse> {
     return this.http.get<TransfersMatrixResponse>(`${this.base}/transfers-matrix`, { params: this.params(f) });
+  }
+  /** DM.13 — cuadre Kepler→Wincaja (tiendas solo-Wincaja) por tienda×mes. */
+  transfersWincajaCheck(f: MovementsFilters): Observable<TransfersWincajaCheckResponse> {
+    return this.http.get<TransfersWincajaCheckResponse>(`${this.base}/transfers-wincaja-check`, { params: this.params(f) });
   }
   /** DM.12 — pólizas 515 clasificadas (exacto/costo/sin_rastro) + contraparte, con filtros de vista. */
   transfersLedgerDetail(f: MovementsFilters, d: LedgerDetailFilters = {}): Observable<TransfersLedgerDetailResponse> {
