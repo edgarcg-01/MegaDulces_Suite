@@ -33,7 +33,9 @@ import { money0, dmy } from './bancos-shared';
         <span class="bc-kpi-n mono">{{ money(kpis().total_monto) }}</span><span class="bc-kpi-l">Monto (conf.+valid.)</span></div>
     </div>
 
-    <p class="bc-note">Depósitos recibidos por WhatsApp de los encargados de plaza. Al validar, el depósito se agrega al libro (Movimientos) automáticamente.</p>
+    <p class="bc-note">Depósitos recibidos por WhatsApp de los encargados de plaza. Al validar, el depósito se agrega al libro (Movimientos) automáticamente.
+      @if (errorCount() > 0) { <span class="bc-note-warn"><i class="pi pi-exclamation-triangle"></i> {{ errorCount() }} con problema — revisar.</span> }
+    </p>
 
     @if (loading()) {
       <div class="bc-skel" aria-busy="true">@for (i of [1,2,3,4,5]; track i) { <div class="bc-skel-row"></div> }</div>
@@ -49,9 +51,12 @@ import { money0, dmy } from './bancos-shared';
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-r>
-            <tr [class.bc-rej]="r.status==='rechazado' || r.status==='descartado'">
+            <tr [class.bc-rej]="r.status==='rechazado' || r.status==='descartado'" [class.bc-err]="r.error_detail">
               <td class="mono muted">{{ dmy(r.created_at) }}</td>
-              <td><span class="bc-strong">{{ r.sender_name || r.from_phone }}</span></td>
+              <td>
+                <span class="bc-strong">{{ r.sender_name || r.from_phone }}</span>
+                @if (r.error_detail) { <div class="bc-err-msg"><i class="pi pi-exclamation-triangle"></i> {{ r.error_detail }}</div> }
+              </td>
               <td class="mono">{{ r.sucursal || '—' }}</td>
               <td>
                 <div class="bc-bank">{{ r.ocr_banco || '—' }}</div>
@@ -90,6 +95,8 @@ import { money0, dmy } from './bancos-shared';
     .bc-kpi-n { font-size: var(--fs-lg, 1.125rem); font-weight: 700; color: var(--text-main); }
     .bc-kpi-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .bc-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); }
+    .bc-note-warn { color: var(--warn-fg); margin-left: var(--sp-2); }
+    .bc-note-warn i { font-size: 0.7rem; margin-right: 2px; }
     .bc-tablewrap { padding: 0; overflow: hidden; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .muted { color: var(--text-muted); } .ta-r { text-align: right; }
@@ -97,6 +104,9 @@ import { money0, dmy } from './bancos-shared';
     .bc-bank { font-size: var(--fs-sm); } .bc-acct { font-size: var(--fs-xs); }
     .bc-ref { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bc-rej { opacity: 0.5; }
+    .bc-err > td { background: color-mix(in srgb, var(--warn-fg) 6%, transparent); }
+    .bc-err-msg { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: var(--fs-xs); color: var(--warn-fg); }
+    .bc-err-msg i { font-size: 0.75rem; }
     .bc-badge { display: inline-block; font-size: var(--fs-2xs, 0.7rem); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-pill); }
     .st-pendiente_confirmacion { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .st-confirmado { color: var(--action); background: color-mix(in srgb, var(--action) 12%, transparent); }
@@ -126,6 +136,7 @@ export class BancosCapturasComponent implements OnInit {
     const k = this.kpis();
     return k.pendiente_confirmacion + k.confirmado + k.validado + k.rechazado + k.descartado;
   });
+  readonly errorCount = computed(() => this.rows().filter((r) => !!r.error_detail).length);
 
   readonly money = money0;
   readonly dmy = dmy;
