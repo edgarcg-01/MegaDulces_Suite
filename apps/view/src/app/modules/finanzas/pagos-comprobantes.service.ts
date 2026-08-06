@@ -101,6 +101,23 @@ export interface PagoCandidate {
   deposits: number; concepto_match?: boolean;
 }
 
+/** Nota de crédito / devolución de compra (X-D-55/X-D-40) que explica el delta factura vs pago. */
+export interface RelatedAdjustment {
+  doctype: string;              // XD55 (nota crédito) | XD40 (devolución)
+  adjustment_date: string | null;
+  factura_ref: string | null;
+  motivo: string | null;
+  categoria: string | null;
+  monto: number;
+  factura_match: boolean;       // la factura de la nota coincide con el concepto del pago
+}
+export interface RelatedAdjustments {
+  rows: RelatedAdjustment[];
+  total_monto: number;
+  total_factura: number;        // suma de las notas que ligan a la(s) factura(s) del pago
+  deep_link_q: string | null;   // término para /compras/descuentos?q=
+}
+
 export interface PagoDetail {
   pago: {
     sucursal: string; folio: string; doc_prefix?: string; metodo_pago?: string | null;
@@ -108,6 +125,7 @@ export interface PagoDetail {
     proveedor_rfc: string | null; concepto: string | null; monto: number;
   };
   deposits: ProofDeposit[];
+  adjustments?: RelatedAdjustments;
 }
 
 export interface AttachPayment {

@@ -15,6 +15,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
+import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
@@ -328,6 +329,36 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
               @if (d.comentarios) { <div class="cb-view-coment">{{ d.comentarios }}</div> }
             </div>
           }
+
+          @if (v.adjustments?.rows?.length) {
+            <div class="cb-adj">
+              <div class="cb-adj-head">
+                <span class="cb-adj-title"><i class="pi pi-percentage"></i> Descuentos y notas de crédito del proveedor</span>
+                <button pButton type="button" size="small" text (click)="openDescuentos(v.adjustments?.deep_link_q)" title="Ver en Compras · Descuentos y apoyos"><span class="p-button-label">Ver en Compras</span><span class="p-button-icon p-button-icon-right pi pi-arrow-up-right" aria-hidden="true"></span></button>
+              </div>
+              <p class="cb-adj-note">Explican por qué el banco pagó ≠ factura. Registradas en Kepler (X-D-55 / X-D-40) — no cuadre al peso, contexto de RE.10.</p>
+              @if (v.adjustments?.total_factura) {
+                <div class="cb-adj-kpi"><strong>{{ money(v.adjustments?.total_factura || 0) }}</strong> ligado a la(s) factura(s) de este pago · <span class="muted">{{ money(v.adjustments?.total_monto || 0) }} en la ventana</span></div>
+              } @else {
+                <div class="cb-adj-kpi muted">{{ money(v.adjustments?.total_monto || 0) }} en ajustes del proveedor (ventana ±60 días)</div>
+              }
+              <div class="cb-adj-scroll">
+                <table class="cb-adj-tbl">
+                  <tbody>
+                    @for (a of v.adjustments?.rows || []; track $index) {
+                      <tr [class.cb-adj-hit]="a.factura_match">
+                        <td class="mono">{{ a.adjustment_date | date:'dd/MM/yy' }}</td>
+                        <td>{{ a.doctype === 'XD40' ? 'Devolución' : 'Nota créd.' }}</td>
+                        <td class="cb-adj-mot" [title]="a.motivo || a.factura_ref || ''">{{ a.factura_ref || a.motivo || '—' }}</td>
+                        <td><span class="cb-adj-cat">{{ catLabel(a.categoria) }}</span></td>
+                        <td class="ta-r strong">{{ money(a.monto) }}@if (a.factura_match) { <i class="pi pi-link cb-adj-link" title="Coincide con la factura de este pago"></i> }</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          }
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showView.set(false)"><span class="p-button-label">Cerrar</span></button>
@@ -440,6 +471,23 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
     .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr auto; gap: .5rem; align-items: center; color: var(--text-main); }
     .cb-bank-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-bank-by { font-size: .7rem; color: var(--text-muted); }
+    /* descuentos / notas de crédito del proveedor (enlace a /compras/descuentos, RE.10) */
+    .cb-adj { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .7rem .85rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .5rem; }
+    .cb-adj-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .cb-adj-title { font-weight: 600; font-size: .86rem; display: inline-flex; align-items: center; gap: .4rem; }
+    .cb-adj-title i { color: var(--action); }
+    .cb-adj-note { font-size: .74rem; color: var(--text-muted); margin: 0; }
+    .cb-adj-kpi { font-size: .82rem; }
+    .cb-adj-kpi strong { color: var(--action); font-family: var(--font-mono); }
+    .cb-adj-scroll { max-height: 15rem; overflow-y: auto; }
+    .cb-adj-tbl { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .cb-adj-tbl td { padding: .28rem .4rem; border-bottom: 1px solid var(--border-color); }
+    .cb-adj-tbl tr:last-child td { border-bottom: 0; }
+    .cb-adj-tbl .ta-r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cb-adj-hit td { background: var(--hover-bg); }
+    .cb-adj-mot { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+    .cb-adj-cat { font-size: .72rem; color: var(--text-muted); }
+    .cb-adj-link { color: var(--action); margin-left: .3rem; font-size: .75rem; }
   `],
 })
 export class FinanzasPagosComprobantesComponent {
@@ -448,6 +496,7 @@ export class FinanzasPagosComprobantesComponent {
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   readonly report = signal<PagosReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -512,6 +561,18 @@ export class FinanzasPagosComprobantesComponent {
   }
   bankLabel(e: string): string { return ({ confirmado: 'Cargo confirmado en el banco', multiple: 'Posibles cargos — revisa cuál', sin_match: 'Sin cargo en el estado de cuenta', sin_dato: 'No verificable (falta monto/fecha)' } as Record<string, string>)[e] || e; }
   bankIcon(e: string): string { return ({ confirmado: 'pi-check-circle', multiple: 'pi-question-circle', sin_match: 'pi-times-circle', sin_dato: 'pi-minus-circle' } as Record<string, string>)[e] || 'pi-minus-circle'; }
+
+  private readonly CAT_LABEL: Record<string, string> = {
+    faltante: 'Faltante', no_solicitado: 'No solicitado', mal_estado: 'Mal estado', cambiada: 'Cambios',
+    devolucion_otra: 'Devolución', factura_duplicada: 'Factura duplicada', diferencia_monto: 'Diferencia de monto',
+    pronto_pago: 'Pronto pago', apoyo_marca: 'Apoyo de marca', descuento_comercial: 'Descuento', saldo_favor: 'Saldo a favor', otro: 'Otro',
+  };
+  catLabel(c: string | null): string { return c ? (this.CAT_LABEL[c] || c) : 'Sin motivo'; }
+
+  /** Salta a /compras/descuentos filtrando por el proveedor (su lugar de contabilización). */
+  openDescuentos(q?: string | null): void {
+    this.router.navigate(['/compras/descuentos'], { queryParams: q ? { q } : {} });
+  }
 
   setEstado(v: string) { this.estadoSel.set(v); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
