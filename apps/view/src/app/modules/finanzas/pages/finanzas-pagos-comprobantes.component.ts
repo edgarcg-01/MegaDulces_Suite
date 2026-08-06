@@ -546,7 +546,7 @@ export class FinanzasPagosComprobantesComponent {
       { label: 'Pagos', value: r.kpis.pagos },
       { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
-      { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
+      { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
     const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
     if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });

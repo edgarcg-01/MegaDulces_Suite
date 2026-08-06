@@ -278,7 +278,7 @@ export class FinanzasComprobacionGastosComponent {
       { label: 'Gastos', value: r.kpis.gastos },
       { label: 'Comprobados', value: r.kpis.comprobados, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
-      { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
+      { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
   }
 

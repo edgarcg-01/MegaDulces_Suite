@@ -603,7 +603,7 @@ export class FinanzasCobranzaComponent {
   bancoKpis(r: UnmatchedBankReport): MetricStripItem[] {
     return [
       { label: 'Abonos sin ligar', value: r.kpis.abonos },
-      { label: '$ sin conciliar', value: this.money(r.kpis.monto), tone: 'warn' },
+      { label: '$ sin conciliar', value: Number(r.kpis.monto) || 0, format: 'currency-short', tone: 'warn' },
       { label: 'Sin cobro (investigar)', value: r.kpis.huerfanos, tone: r.kpis.huerfanos > 0 ? 'bad' : 'ok' },
     ];
   }
@@ -643,7 +643,7 @@ export class FinanzasCobranzaComponent {
       { label: 'Cobros', value: r.kpis.cobros },
       { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
-      { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
+      { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
     const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
     if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });
