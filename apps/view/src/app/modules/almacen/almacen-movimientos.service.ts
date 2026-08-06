@@ -152,9 +152,9 @@ export interface LedgerCostPair {
 /** Póliza 515 clasificada (tabla filtrable): bucket + contraparte (dónde está). */
 export interface LedgerEntry {
   anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string;
-  importe: number; referencia: string | null; tipo_pol: string | null; folio: string | null;
+  importe: number; destino: string | null; referencia: string | null; tipo_pol: string | null; folio: string | null;
   bucket: 'exacto' | 'costo' | 'sin_rastro'; delta: number | null;
-  cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null;
+  cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null; cp_destino: string | null;
 }
 /** Filtros de la vista del detalle. */
 export interface LedgerDetailFilters {
