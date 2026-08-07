@@ -50,6 +50,7 @@ export interface LedgerDetailFilters {
   bucket?: string;      // exacto | costo | sin_rastro
   kind?: string;        // entrada | salida
   sucursal?: string;    // 00..05
+  destinos?: string[];  // filtrar por tienda destino (una o más), etiqueta canónica de destino()
   search?: string;      // folio / referencia (ILIKE contains)
   min_amount?: string | number;
 }
@@ -789,6 +790,8 @@ export class CommercialMovementsService {
     const fBucket = ['exacto', 'costo', 'sin_rastro'].includes(f.bucket || '') ? f.bucket : null;
     const fKind = f.kind === 'entrada' || f.kind === 'salida' ? f.kind : null;
     const fSuc = (f.sucursal || '').trim() || null;
+    const fDestinos = Array.isArray(f.destinos) ? f.destinos.filter(Boolean) : [];
+    const fDestSet = fDestinos.length ? new Set(fDestinos) : null;
     const fSearch = (f.search || '').trim().toLowerCase() || null;
     const fMin = Number(f.min_amount) > 0 ? Number(f.min_amount) : 0;
 
@@ -887,6 +890,7 @@ export class CommercialMovementsService {
         (!fBucket || e.bucket === fBucket) &&
         (!fKind || e.kind === fKind) &&
         (!fSuc || String(e.sucursal) === fSuc) &&
+        (!fDestSet || fDestSet.has(e.destino || '')) &&
         (fMin <= 0 || e.importe >= fMin) &&
         (!fSearch || `${e.referencia || ''} ${e.tipo_pol || ''} ${e.folio || ''} ${e.cp_ref || ''}`.toLowerCase().includes(fSearch)),
       ).sort((a, b) => b.importe - a.importe);
