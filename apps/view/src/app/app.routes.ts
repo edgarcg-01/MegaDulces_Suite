@@ -462,10 +462,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
-        // CXP.10 — Deuda a proveedores (ContPAQi): lo que se debe según los libros fiscales.
+        // CXP.10 — "Deuda a proveedores" quedó FUSIONADA en "Cuadre y deuda" (cuadre-proveedor,
+        // modo "Lo que se debe"). Redirect para bookmarks/links viejos.
         path: 'deuda-contpaqi',
-        loadComponent: () => import('./modules/compras/pages/compras-deuda-contpaqi.component').then(m => m.ComprasDeudaContpaqiComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        redirectTo: 'cuadre-proveedor',
+        pathMatch: 'full',
       },
       {
         path: 'categorias',

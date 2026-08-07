@@ -15,7 +15,7 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
-import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedgerMove, SupplierInvoiceLedgerResponse, SupplierInvoiceTotals, InvoiceEstado, SupplierFiscalLedgerResponse } from '../compras.service';
+import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedgerMove, SupplierInvoiceLedgerResponse, SupplierInvoiceTotals, InvoiceEstado, SupplierFiscalLedgerResponse, ContpaqiPayablesResponse, ContpaqiPayableRow } from '../compras.service';
 
 /**
  * CXP.7 — "Cuadre contable por proveedor": estado de cuenta de la 201 (Proveedores) según
@@ -36,22 +36,31 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Cuadre contable por proveedor</h1>
-          <p class="surf-page-sub">Estado de cuenta de la 201 (Proveedores) según los libros de Kepler: qué le facturaste, qué le pagaste y qué te acreditó por notas, por proveedor. <b>Δ</b> = movimiento neto de la deuda en el periodo (no saldo absoluto).</p>
+          <h1>Cuadre y deuda por proveedor</h1>
+          <p class="surf-page-sub">Cuánto le debes a cada proveedor y su estado de cuenta. <b>Lo que se debe</b> = saldo real de ContPAQi (libros fiscales); <b>Movimiento</b> = facturado/pagado de Kepler (201) en el periodo. Clic en un proveedor → cuadre de 3 lentes (Contable · Por factura · Fiscal).</p>
         </div>
         <div class="cq-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
 
+      <div class="cq-modebar" role="tablist" aria-label="Vista de entrada">
+        <button type="button" role="tab" class="cq-mode" [class.is-active]="entryMode()==='debe'" [attr.aria-selected]="entryMode()==='debe'" (click)="setMode('debe')"><span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Lo que se debe (ContPAQi)</button>
+        <button type="button" role="tab" class="cq-mode" [class.is-active]="entryMode()==='kepler'" [attr.aria-selected]="entryMode()==='kepler'" (click)="setMode('kepler')"><span class="pi pi-book" aria-hidden="true"></span>&nbsp;Movimiento (Kepler 201)</button>
+      </div>
+
       <div class="cq-filters">
         <p-iconfield styleClass="cq-search">
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
-        <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cq-sel" ariaLabel="Rango de fecha rápido" />
-        <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="cq-dp" ariaLabel="Desde" />
-        <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cq-dp" ariaLabel="Hasta" />
+        @if (entryMode() === 'kepler') {
+          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cq-sel" ariaLabel="Rango de fecha rápido" />
+          <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="cq-dp" ariaLabel="Desde" />
+          <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cq-dp" ariaLabel="Hasta" />
+        } @else {
+          <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!onlyStale()" (click)="toggleStale()"><span class="pi pi-clock" aria-hidden="true"></span>&nbsp;Solo saldos viejos</button>
+        }
         @if (hasFilters()) {
           <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="pi pi-filter-slash" aria-hidden="true"></span>&nbsp;Limpiar</button>
         }
@@ -65,55 +74,92 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
         </div>
       }
 
-      @if (data(); as d) {
-        <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales del cuadre por proveedor" />
-      }
-
-      @if (loading()) {
-        <div class="cq-skel">
-          @for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }
-        </div>
-      } @else if (data(); as d) {
-        <p-table [value]="d.rows" [loading]="false" styleClass="p-datatable-sm surf-table surf-table--sticky cq-table"
-                 [rowHover]="true" [scrollable]="true" scrollHeight="flex">
-          <ng-template #header>
-            <tr>
-              <th>Proveedor</th>
-              <th class="ta-r cq-w-amt">Facturado</th>
-              <th class="ta-r cq-w-amt">Pagado</th>
-              <th class="ta-r cq-w-amt">Notas</th>
-              <th class="ta-r cq-w-amt">Devol.</th>
-              <th class="ta-r cq-w-amt">Δ periodo</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-r>
-            <tr class="cq-row" role="button" tabindex="0"
-                [attr.aria-label]="'Ver desglose de ' + (r.proveedor || 'sin referencia')"
-                (click)="openDetail(r)" (keydown.enter)="openDetail(r)" (keydown.space)="$event.preventDefault(); openDetail(r)">
-              <td class="cq-prov" [title]="r.proveedor">{{ r.proveedor || '—' }} <span class="cq-drillhint" aria-hidden="true">→ desglose</span></td>
-              <td class="ta-r cq-num">{{ money(r.facturado) }}</td>
-              <td class="ta-r cq-num">{{ r.pagado ? money(r.pagado) : '—' }}</td>
-              <td class="ta-r cq-num" [class.cq-pos]="r.notas > 0">{{ r.notas ? money(r.notas) : '—' }}</td>
-              <td class="ta-r cq-num">{{ r.devoluciones ? money(r.devoluciones) : '—' }}</td>
-              <td class="ta-r cq-num cq-strong" [class.cq-up]="r.delta > 0" [class.cq-down]="r.delta < 0">{{ money(r.delta) }}</td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage>
-            <tr><td colspan="6">
-              <div class="cq-empty-op">
+      @if (entryMode() === 'debe') {
+        <!-- LO QUE SE DEBE (ContPAQi): saldo real de la 2120 por proveedor -->
+        @if (payables(); as p) {
+          <app-metric-strip [items]="payKpis(p)" ariaLabel="Totales de deuda a proveedores" />
+        }
+        @if (loading()) {
+          <div class="cq-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
+        } @else if (payables(); as p) {
+          <p-table [value]="p.rows" styleClass="p-datatable-sm surf-table surf-table--sticky cq-table"
+                   [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="p.rows.length > 100" [rows]="100">
+            <ng-template #header>
+              <tr><th>Proveedor</th><th class="ta-r cq-w-amt">Se debe</th><th class="cq-w-mes">Último mov.</th></tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr class="cq-row" role="button" tabindex="0"
+                  [attr.aria-label]="'Ver cuadre de ' + (r.proveedor || 'proveedor')"
+                  (click)="openDebe(r)" (keydown.enter)="openDebe(r)" (keydown.space)="$event.preventDefault(); openDebe(r)">
+                <td class="cq-prov" [title]="r.proveedor">{{ r.proveedor || '—' }} <span class="cq-drillhint" aria-hidden="true">→ cuadre</span></td>
+                <td class="ta-r cq-num cq-strong" [class.cq-down]="r.saldo < 0">{{ money(r.saldo) }}</td>
+                <td class="cq-w-mes"><span class="cq-mono muted">{{ r.hasta }}</span>@if (r.stale) { <p-tag value="viejo" severity="warn" styleClass="cq-tag" /> }</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="3"><div class="cq-empty-op">
                 <i class="pi pi-inbox" aria-hidden="true"></i>
-                <span class="cq-empty-op-title">Sin movimientos</span>
+                <span class="cq-empty-op-title">Sin saldos</span>
                 @if (hasFilters()) {
-                  <span class="cq-empty-op-sub">Ningún proveedor coincide con los filtros actuales.</span>
+                  <span class="cq-empty-op-sub">Ningún proveedor coincide con los filtros.</span>
                   <button pButton type="button" class="p-button-sm p-button-outlined" (click)="clearFilters()" label="Quitar filtros"></button>
                 } @else {
-                  <span class="cq-empty-op-sub">No hay pólizas de proveedor (201) en el periodo (o falta el feed de pólizas de Kepler).</span>
+                  <span class="cq-empty-op-sub">No hay saldos de proveedores en ContPAQi (o falta cargar la balanza en este entorno).</span>
                 }
-              </div>
-            </td></tr>
-          </ng-template>
-        </p-table>
-        <p class="cq-foot">Movimiento de la cuenta <b>201 Proveedores</b> en los libros de Kepler: <b>Facturado</b> = abonos (XA2001/comprobación) · <b>Pagado</b> = cargos de pago (XD2601/XD2501) · <b>Notas</b> = notas de crédito (XD5501) · <b>Devol.</b> = devoluciones (XD4001). <b>Δ</b> = facturado − pagado − notas − devol (cuánto creció/bajó la deuda en el periodo; no incluye saldo de apertura). Algunas filas son entidades internas (el dueño, sucursales) porque la 201 también asienta deuda inter-sucursal. <b>Clic en una fila</b> para ver el desglose (folios, fechas, saldo corrido).</p>
+              </div></td></tr>
+            </ng-template>
+          </p-table>
+          <p class="cq-foot">Saldo <b>acreedor</b> de la cuenta de proveedores (2120) en la balanza de ContPAQi = <b>lo que se debe</b> (apertura del ejercicio + Σ facturado − pagado del año). <span class="cq-down">Negativo</span> = pagado de más / saldo a favor. <b>Viejo</b> = ≥3 meses sin movimiento (saldo colgado, posible antigüedad). Al cierre de <b>{{ p.as_of }}</b>. <b>Clic en una fila</b> → cuadre de 3 lentes.</p>
+        }
+      } @else {
+        <!-- MOVIMIENTO (Kepler 201): facturado/pagado/notas/Δ del periodo -->
+        @if (data(); as d) {
+          <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales del cuadre por proveedor" />
+        }
+        @if (loading()) {
+          <div class="cq-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
+        } @else if (data(); as d) {
+          <p-table [value]="d.rows" [loading]="false" styleClass="p-datatable-sm surf-table surf-table--sticky cq-table"
+                   [rowHover]="true" [scrollable]="true" scrollHeight="flex">
+            <ng-template #header>
+              <tr>
+                <th>Proveedor</th>
+                <th class="ta-r cq-w-amt">Facturado</th>
+                <th class="ta-r cq-w-amt">Pagado</th>
+                <th class="ta-r cq-w-amt">Notas</th>
+                <th class="ta-r cq-w-amt">Devol.</th>
+                <th class="ta-r cq-w-amt">Δ periodo</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr class="cq-row" role="button" tabindex="0"
+                  [attr.aria-label]="'Ver desglose de ' + (r.proveedor || 'sin referencia')"
+                  (click)="openKepler(r)" (keydown.enter)="openKepler(r)" (keydown.space)="$event.preventDefault(); openKepler(r)">
+                <td class="cq-prov" [title]="r.proveedor">{{ r.proveedor || '—' }} <span class="cq-drillhint" aria-hidden="true">→ desglose</span></td>
+                <td class="ta-r cq-num">{{ money(r.facturado) }}</td>
+                <td class="ta-r cq-num">{{ r.pagado ? money(r.pagado) : '—' }}</td>
+                <td class="ta-r cq-num" [class.cq-pos]="r.notas > 0">{{ r.notas ? money(r.notas) : '—' }}</td>
+                <td class="ta-r cq-num">{{ r.devoluciones ? money(r.devoluciones) : '—' }}</td>
+                <td class="ta-r cq-num cq-strong" [class.cq-up]="r.delta > 0" [class.cq-down]="r.delta < 0">{{ money(r.delta) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="6">
+                <div class="cq-empty-op">
+                  <i class="pi pi-inbox" aria-hidden="true"></i>
+                  <span class="cq-empty-op-title">Sin movimientos</span>
+                  @if (hasFilters()) {
+                    <span class="cq-empty-op-sub">Ningún proveedor coincide con los filtros actuales.</span>
+                    <button pButton type="button" class="p-button-sm p-button-outlined" (click)="clearFilters()" label="Quitar filtros"></button>
+                  } @else {
+                    <span class="cq-empty-op-sub">No hay pólizas de proveedor (201) en el periodo (o falta el feed de pólizas de Kepler).</span>
+                  }
+                </div>
+              </td></tr>
+            </ng-template>
+          </p-table>
+          <p class="cq-foot">Movimiento de la cuenta <b>201 Proveedores</b> en los libros de Kepler: <b>Facturado</b> = abonos (XA2001/comprobación) · <b>Pagado</b> = cargos de pago (XD2601/XD2501) · <b>Notas</b> = notas de crédito (XD5501) · <b>Devol.</b> = devoluciones (XD4001). <b>Δ</b> = facturado − pagado − notas − devol (movimiento del periodo; no incluye saldo de apertura). Algunas filas son entidades internas (el dueño, sucursales). <b>Clic en una fila</b> para ver el desglose.</p>
+        }
       }
     </div>
 
@@ -125,13 +171,6 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='fiscal'" [attr.aria-selected]="dtTab()==='fiscal'" (click)="setTab('fiscal')">Fiscal (ContPAQi)</button>
         </div>
         @if (dtTab() === 'contable') {
-        <div class="cq-dt-kpis">
-          <span>Facturado <b>{{ money(d.facturado) }}</b></span>
-          <span>Pagado <b>{{ money(d.pagado) }}</b></span>
-          <span>Notas <b>{{ money(d.notas) }}</b></span>
-          <span>Devol. <b>{{ money(d.devoluciones) }}</b></span>
-          <span>Δ <b>{{ money(d.delta) }}</b></span>
-        </div>
         @if (movesLoading()) {
           <p class="cq-empty">Cargando movimientos…</p>
         } @else if (moves().length === 0) {
@@ -299,6 +338,12 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
     .cq-search input { min-width:220px; }
     :host ::ng-deep .cq-sel { min-width:11rem; }
+    .cq-modebar { display:flex; gap:.3rem; margin:.8rem 0 .2rem; border-bottom:1px solid var(--border-color); flex-wrap:wrap; }
+    .cq-mode { appearance:none; background:none; border:0; border-bottom:2px solid transparent; padding:.5rem .9rem; font:inherit; font-size:.86rem; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; }
+    .cq-mode:hover { color:var(--text-main); }
+    .cq-mode.is-active { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
+    .cq-mode:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; border-radius:var(--r-sm); }
+    .cq-w-mes { width:9rem; }
     .cq-table { margin-top:.6rem; }
     .cq-row { cursor:pointer; }
     .cq-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
@@ -386,7 +431,10 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
-  readonly data = signal<SupplierLedgerResponse | null>(null);
+  readonly data = signal<SupplierLedgerResponse | null>(null);        // modo 'kepler' (movimiento 201)
+  readonly payables = signal<ContpaqiPayablesResponse | null>(null);  // modo 'debe' (ContPAQi, lo que se debe)
+  readonly entryMode = signal<'debe' | 'kepler'>('debe');
+  readonly onlyStale = signal(false);
   readonly loading = signal(false);
   readonly err = signal<string | null>(null);
   readonly search = signal('');
@@ -396,8 +444,9 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly presetOpts = DATE_PRESET_OPTIONS;
   private searchTimer: any;
   readonly skelRows = Array.from({ length: 8 });
-  // Desglose (auxiliar 201) del proveedor seleccionado.
-  readonly detail = signal<SupplierLedgerRow | null>(null);
+  // Drill (3 lentes) del proveedor. `drillName` = nombre que resuelve las lentes Kepler (para filas
+  // ContPAQi, el nombre Kepler mapeado); `proveedor` = etiqueta a mostrar.
+  readonly detail = signal<{ proveedor: string; drillName: string } | null>(null);
   readonly moves = signal<SupplierLedgerMove[]>([]);
   readonly movesLoading = signal(false);
   readonly saldoFinal = signal(0);
@@ -453,11 +502,19 @@ export class ComprasCuadreProveedorComponent implements OnInit {
 
   reload(): void {
     this.loading.set(true); this.err.set(null);
-    this.svc.supplierLedger({ search: this.search() || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (d) => { this.data.set(d); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.err.set('No se pudo cargar el cuadre por proveedor.'); },
-      });
+    if (this.entryMode() === 'debe') {
+      this.svc.contpaqiPayables({ search: this.search() || undefined, only_stale: this.onlyStale() })
+        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (p) => { this.payables.set(p); this.loading.set(false); },
+          error: () => { this.loading.set(false); this.err.set('No se pudo cargar la deuda a proveedores (ContPAQi).'); },
+        });
+    } else {
+      this.svc.supplierLedger({ search: this.search() || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) })
+        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (d) => { this.data.set(d); this.loading.set(false); },
+          error: () => { this.loading.set(false); this.err.set('No se pudo cargar el movimiento por proveedor.'); },
+        });
+    }
   }
 
   retry(): void { this.err.set(null); this.reload(); }
@@ -490,19 +547,34 @@ export class ComprasCuadreProveedorComponent implements OnInit {
     this.syncUrl(); this.reload();
   }
 
-  hasFilters(): boolean { return !!(this.search().trim() || this.dateFrom() || this.dateTo()); }
+  hasFilters(): boolean {
+    return !!(this.search().trim() || (this.entryMode() === 'kepler' ? (this.dateFrom() || this.dateTo()) : this.onlyStale()));
+  }
 
   clearFilters(): void {
-    this.search.set(''); this.dateFrom.set(null); this.dateTo.set(null); this.preset.set('');
+    this.search.set(''); this.dateFrom.set(null); this.dateTo.set(null); this.preset.set(''); this.onlyStale.set(false);
     this.syncUrl(); this.reload();
   }
 
-  /** Abre el desglose del proveedor. Arranca en la lente contable (201); la de facturas es lazy. */
-  openDetail(r: SupplierLedgerRow): void {
-    this.detail.set(r);
-    this.dtTab.set('contable'); this.invoice.set(null);
+  /** Cambia entre "Lo que se debe (ContPAQi)" y "Movimiento (Kepler 201)". */
+  setMode(m: 'debe' | 'kepler'): void {
+    if (this.entryMode() === m) return;
+    this.entryMode.set(m);
+    this.reload();
+  }
+  toggleStale(): void { this.onlyStale.set(!this.onlyStale()); this.reload(); }
+
+  /** Fila del modo "Movimiento (Kepler 201)": el nombre 201 resuelve todas las lentes. */
+  openKepler(r: SupplierLedgerRow): void { this.openDrill(r.proveedor || '', r.proveedor || ''); }
+  /** Fila del modo "Lo que se debe (ContPAQi)": usa el nombre Kepler mapeado para las lentes Kepler. */
+  openDebe(r: ContpaqiPayableRow): void { this.openDrill(r.proveedor || '', r.proveedor_kepler || r.proveedor || ''); }
+
+  /** Abre el drill (3 lentes). `drillName` alimenta las lentes; arranca en Contable, factura/fiscal son lazy. */
+  private openDrill(proveedor: string, drillName: string): void {
+    this.detail.set({ proveedor, drillName });
+    this.dtTab.set('contable'); this.invoice.set(null); this.fiscal.set(null);
     this.moves.set([]); this.saldoFinal.set(0); this.movesLoading.set(true);
-    this.svc.supplierLedgerDetail({ proveedor: r.proveedor || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) })
+    this.svc.supplierLedgerDetail({ proveedor: drillName || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.moves.set(d.rows || []); this.saldoFinal.set(d.saldo_final || 0); this.movesLoading.set(false); },
         error: () => { this.movesLoading.set(false); },
@@ -519,7 +591,7 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   private loadInvoices(): void {
     const r = this.detail(); if (!r) return;
     this.invoiceLoading.set(true);
-    this.svc.supplierInvoiceLedger({ proveedor: r.proveedor || undefined })
+    this.svc.supplierInvoiceLedger({ proveedor: r.drillName || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.invoice.set(d); this.invoiceLoading.set(false); },
         error: () => { this.invoice.set({ found: false, proveedor_code: null, proveedor_nombre: null, totals: null, rows: [] }); this.invoiceLoading.set(false); },
@@ -528,7 +600,7 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   private loadFiscal(): void {
     const r = this.detail(); if (!r) return;
     this.fiscalLoading.set(true);
-    this.svc.supplierFiscalLedger({ proveedor: r.proveedor || undefined })
+    this.svc.supplierFiscalLedger({ proveedor: r.drillName || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.fiscal.set(d); this.fiscalLoading.set(false); },
         error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
@@ -553,6 +625,14 @@ export class ComprasCuadreProveedorComponent implements OnInit {
       { label: 'Pagado', value: d.totals.pagado, format: 'currency-short', tone: 'ok' },
       { label: 'Notas de crédito', value: d.totals.notas, format: 'currency-short', tone: 'warn' },
       { label: 'Δ deuda (periodo)', value: d.totals.delta, format: 'currency-short', tone: 'brand' },
+    ];
+  }
+
+  payKpis(p: ContpaqiPayablesResponse): MetricStripItem[] {
+    return [
+      { label: 'Se debe (total)', value: p.total_debe, format: 'currency-short', tone: 'brand', sub: `${p.n} proveedor(es)` },
+      { label: 'Saldo a favor', value: Math.abs(p.total_favor), format: 'currency-short', tone: 'ok' },
+      { label: 'Saldos viejos', value: p.n_stale, format: 'number', tone: 'warn', sub: 'sin mov. reciente' },
     ];
   }
 

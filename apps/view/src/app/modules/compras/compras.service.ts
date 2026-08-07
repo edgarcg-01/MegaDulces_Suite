@@ -1107,7 +1107,7 @@ export interface FiscalContpaqi extends FiscalBook { matched: boolean; cuentas: 
 export interface FiscalMonth { anio_mes: string; abonos: number; cargos: number; saldo: number }
 export interface SupplierFiscalLedgerResponse { proveedor: string | null; contpaqi: FiscalContpaqi; operativo: (FiscalBook & { proveedor_code: string }) | null; contable: FiscalBook | null; rows: FiscalMonth[] }
 
-export interface ContpaqiPayableRow { cuenta: string; proveedor: string | null; saldo: number; hasta: string; stale: boolean }
+export interface ContpaqiPayableRow { cuenta: string; proveedor: string | null; proveedor_kepler: string | null; saldo: number; hasta: string; stale: boolean }
 export interface ContpaqiPayablesResponse { as_of: string; total_debe: number; total_favor: number; neto: number; n: number; n_stale: number; rows: ContpaqiPayableRow[] }
 
 export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
