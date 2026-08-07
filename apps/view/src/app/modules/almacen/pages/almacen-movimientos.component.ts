@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -21,6 +22,8 @@ import {
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * DM.2 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -34,23 +37,16 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-almacen-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule, MetricStripComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in dm-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Diario de movimientos</h1>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Diario de movimientos <app-context-help topic="almacen-movimientos" /></h1>
           <p class="surf-page-sub">Movimientos de inventario por día. Abrí un día para ver sus documentos y auditarlos.</p>
         </div>
         <div class="dm-head-right">
-          @if (summary(); as s) {
-            <div class="dm-strip">
-              <span class="up">+{{ s.totals.entradas | number:'1.0-2' }}</span> entradas ·
-              <span class="down">−{{ absN(s.totals.salidas) | number:'1.0-2' }}</span> salidas ·
-              <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
-            </div>
-          }
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
@@ -91,6 +87,10 @@ import { Permission } from '../../../core/constants/permissions';
         <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
       </div>
 
+      @if (summary(); as s) {
+        <app-metric-strip [items]="summaryMetrics(s)" ariaLabel="Resumen de movimientos del rango" />
+      }
+
       @if (error()) {
         <div class="dm-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -101,7 +101,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <!-- Tabla por DÍA (expandible) -->
       <p-table [value]="days()" [loading]="loading()" dataKey="key" [expandedRowKeys]="expanded"
-               (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table" [scrollable]="true" scrollHeight="flex">
+               (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table surf-table--sticky" [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
             <th style="width:2.5rem"></th>
@@ -134,7 +134,8 @@ import { Permission } from '../../../core/constants/permissions';
                   </thead>
                   <tbody>
                     @for (l of dayDocs()[day.key]; track l.warehouse_id + l.doc_code + l.folio) {
-                      <tr class="dm-row" (click)="openDocument(l)">
+                      <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Abrir documento ' + l.folio"
+                          (click)="openDocument(l)" (keydown.enter)="openDocument(l)" (keydown.space)="$event.preventDefault(); openDocument(l)">
                         <td><p-tag [value]="l.movement_label" [severity]="kindSev(l.movement_kind)" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
                         <td class="dm-muted">
@@ -172,7 +173,18 @@ import { Permission } from '../../../core/constants/permissions';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="6" class="dm-empty">Sin movimientos en el rango seleccionado.</td></tr>
+          <tr><td colspan="6">
+            <div class="dm-empty-op">
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <span class="dm-empty-op-title">Sin movimientos</span>
+              @if (hasFilters()) {
+                <span class="dm-empty-op-sub">Ningún movimiento coincide con los filtros actuales.</span>
+                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="clearFilters()" label="Quitar filtros"></button>
+              } @else {
+                <span class="dm-empty-op-sub">No hay movimientos de inventario en el rango seleccionado.</span>
+              }
+            </div>
+          </td></tr>
         </ng-template>
       </p-table>
         </p-tabpanel>
@@ -277,6 +289,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <div class="dm-filters dm-detail-filters">
                   <p-select [options]="bucketOpts" [(ngModel)]="dBucket" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
                   <p-select [options]="dKindOpts" [(ngModel)]="dKind" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
+                  <p-multiselect [options]="destOpts" [(ngModel)]="dDest" (onChange)="loadDetail()" optionLabel="label" optionValue="value" placeholder="Todas las tiendas" [maxSelectedLabels]="2" selectedItemsLabel="{0} tiendas" styleClass="dm-sel" appendTo="body"></p-multiselect>
                   <p-select [options]="sucOpts()" [(ngModel)]="dSuc" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                   <p-select [options]="dMinOpts" [(ngModel)]="dMin" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                   <span class="dm-search"><input pInputText type="text" [(ngModel)]="dSearch" (keyup.enter)="loadDetail()" placeholder="Buscar folio o referencia…" aria-label="Buscar folio o referencia" /></span>
@@ -290,7 +303,9 @@ import { Permission } from '../../../core/constants/permissions';
                     @if (detailLoading()) { <tr><td colspan="8" class="dm-empty">Cargando…</td></tr> }
                     @else {
                       @for (r of pagedEntries(dt.entries); track $index) {
-                        <tr class="dm-row" [class.dm-hl]="r.bucket !== 'exacto'" [class.dm-hl-strong]="r.bucket === 'sin_rastro'" (click)="openCmp(r)">
+                        <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Comparar traspaso ' + (r.referencia || r.destino || '')"
+                            [class.dm-hl]="r.bucket !== 'exacto'" [class.dm-hl-strong]="r.bucket === 'sin_rastro'"
+                            (click)="openCmp(r)" (keydown.enter)="openCmp(r)" (keydown.space)="$event.preventDefault(); openCmp(r)">
                           <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)" styleClass="dm-tag"></p-tag></td>
                           <td class="dm-mono">{{ r.anio_mes }}</td>
                           <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Ent 515-001' : 'Sal 515-002' }}</td>
@@ -353,7 +368,9 @@ import { Permission } from '../../../core/constants/permissions';
                   <thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th>Fecha</th></tr></thead>
                   <tbody>
                     @for (r of unmatched(); track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id) {
-                      <tr class="dm-row" [class.dm-hl]="r.status !== 'ok'" [class.dm-hl-strong]="r.status === 'sin_recepcion' || r.status === 'sin_origen'" (click)="openTransfer(r)">
+                      <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Abrir traspaso ' + (r.origin_folio || r.rcv_folio || '')"
+                          [class.dm-hl]="r.status !== 'ok'" [class.dm-hl-strong]="r.status === 'sin_recepcion' || r.status === 'sin_origen'"
+                          (click)="openTransfer(r)" (keydown.enter)="openTransfer(r)" (keydown.space)="$event.preventDefault(); openTransfer(r)">
                         <td><p-tag [value]="checkLabel(r.status)" [severity]="checkSev(r.status)" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
                         <td class="dm-mono dm-link">{{ r.origin_folio || r.rcv_folio || '—' }}</td>
@@ -575,7 +592,12 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-day-row td { padding-top: .45rem; padding-bottom: .45rem; }
     .dm-r { text-align: right; font-variant-numeric: tabular-nums; }
     .up, .dm-r.up { color: var(--ok-fg); } .down, .dm-r.down { color: var(--bad-fg); }
-    .dm-link { color: var(--action); }
+    .dm-link { color: var(--action); font-size: .76rem; }
+    app-metric-strip { display: block; margin: .4rem 0 .9rem; }
+    .dm-empty-op { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: 2.4rem 1rem; text-align: center; }
+    .dm-empty-op .pi { font-size: 1.6rem; color: var(--text-faint); }
+    .dm-empty-op-title { font-weight: 600; color: var(--text-main); }
+    .dm-empty-op-sub { font-size: .84rem; color: var(--text-muted); max-width: 32rem; }
     .dm-dest { display: inline-flex; align-items: center; gap: .2rem; margin-left: .45rem; font-size: .74rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: .05rem .4rem; border-radius: var(--r-sm); }
     .dm-dest i { font-size: .62rem; }
     .dm-mono { font-family: var(--font-mono, ui-monospace, monospace); }
@@ -621,7 +643,6 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-pager { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .5rem; font-size: .78rem; }
     .dm-pager-ctrls { display: inline-flex; align-items: center; gap: .5rem; }
     .dm-sub { font-size: .72rem; }
-    .dm-link { color: var(--action, var(--primary-color)); font-size: .76rem; }
     /* Ventana de comparación */
     .dm-cmp-state { display: flex; align-items: center; gap: .6rem; margin-bottom: .7rem; }
     .dm-cmp { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .8rem; }
@@ -642,6 +663,7 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-docs tbody td { padding: .35rem .75rem; border-top: 1px solid var(--border-color); }
     .dm-row { cursor: pointer; }
     .dm-row:hover td { background: var(--surface-hover-bg); }
+    .dm-row:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
     .dm-audit:disabled { cursor: default; }
@@ -680,6 +702,9 @@ export class AlmacenMovimientosComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private static readonly DEST_DEFAULT = ['sucursal', 'ruta', 'cliente'];
 
   readonly canAudit = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_MOVEMENTS_GESTIONAR];
 
@@ -787,6 +812,18 @@ export class AlmacenMovimientosComponent implements OnInit {
   dBucket: '' | 'exacto' | 'costo' | 'sin_rastro' = '';
   dKind: '' | 'entrada' | 'salida' = '';
   dSuc = '';
+  dDest: string[] = []; // filtro por tienda destino (una o más)
+  destOpts = [
+    { label: 'Morelia Abastos (30)', value: 'Morelia Abastos (30)' },
+    { label: 'Morelia Madero (32)', value: 'Morelia Madero (32)' },
+    { label: 'Canindo (50)', value: 'Canindo (50)' },
+    { label: 'Padre Hidalgo (01)', value: 'Padre Hidalgo (01)' },
+    { label: 'Piedad (02)', value: 'Piedad (02)' },
+    { label: '8 Esquinas (03)', value: '8 Esquinas (03)' },
+    { label: 'Yurécuaro (04)', value: 'Yurécuaro (04)' },
+    { label: 'Zamora (05)', value: 'Zamora (05)' },
+    { label: 'CEDIS (00)', value: 'CEDIS (00)' },
+  ];
   dSearch = '';
   dMin: number | null = null;
   bucketOpts = [
@@ -837,10 +874,12 @@ export class AlmacenMovimientosComponent implements OnInit {
     const tab = String(v);
     this.activeTab.set(tab);
     if (tab === 'cuadre' && !this.cuadreLoaded()) this.loadCuadre();
+    else this.syncUrl();
   }
 
   /** Carga los 3 lentes del informe (contable + matriz + folios) para el rango propio. */
   loadCuadre(): void {
+    this.syncUrl();
     const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
     this.cuadreLoading.set(true);
     forkJoin({
@@ -859,7 +898,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
 
   private detailFilters(): LedgerDetailFilters {
-    return { bucket: this.dBucket, kind: this.dKind, sucursal: this.dSuc || undefined, search: this.dSearch || undefined, min_amount: this.dMin };
+    return { bucket: this.dBucket, kind: this.dKind, sucursal: this.dSuc || undefined, destinos: this.dDest.length ? this.dDest : undefined, search: this.dSearch || undefined, min_amount: this.dMin };
   }
 
   /** Carga (o recarga con filtros) el detalle clasificado de pólizas 515. */
@@ -976,11 +1015,91 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.rehydrateFromUrl();
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f: MovementsFilterOpts) => {
       this.warehouseOpts.set(f.warehouses.filter(w => w.code).map(w => ({ label: `${w.code} — ${w.name}`, value: w.id })));
       this.docTypeOpts.set(f.doc_types.map(d => ({ label: d.movement_label, value: d.doc_code })));
     });
     this.reload();
+    if (this.activeTab() === 'cuadre') this.loadCuadre();
+  }
+
+  /** Rehidrata filtros + tab + rango del cuadre desde los query params (F5 / deep-link). */
+  private rehydrateFromUrl(): void {
+    const q = this.route.snapshot.queryParamMap;
+    const csv = (k: string) => { const v = q.get(k); return v ? v.split(',').filter(Boolean) : null; };
+    this.fWarehouses = csv('wh') || [];
+    this.fFrom = this.fromIso(q.get('from'));
+    this.fTo = this.fromIso(q.get('to'));
+    this.fKind = (q.get('kind') as '' | 'entrada' | 'salida') || '';
+    this.fDocCode = q.get('doc') || '';
+    this.fSearch = q.get('q') || '';
+    this.fEstado = (q.get('estado') as '' | 'en_transito' | 'completado' | 'diferencia') || '';
+    this.fTransferWhs = csv('twh') || [];
+    const dest = csv('dest'); if (dest && dest.length) this.fDestKinds = dest;
+    if (q.get('tab') === 'cuadre') this.activeTab.set('cuadre');
+    const cm = q.get('cmonth');
+    if (cm) { this.cMonth = cm; const [y, m] = cm.split('-').map(Number); this.cFrom = new Date(y, m - 1, 1); this.cTo = new Date(y, m, 0); }
+    else { const cf = this.fromIso(q.get('cfrom')); const ct = this.fromIso(q.get('cto')); if (cf) this.cFrom = cf; if (ct) this.cTo = ct; }
+  }
+
+  /** 'YYYY-MM-DD' → Date (local, sin correr por TZ). */
+  private fromIso(s: string | null): Date | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }
+
+  /** Refleja filtros + tab + rango del cuadre en la URL (replaceUrl → no ensucia el historial). */
+  private syncUrl(): void {
+    const dk = this.fDestKinds;
+    const dkParam = (dk.length === 3 || !dk.length) ? null : dk.join(',');
+    const inCuadre = this.activeTab() === 'cuadre';
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+      queryParams: {
+        tab: inCuadre ? 'cuadre' : null,
+        wh: this.fWarehouses.length ? this.fWarehouses.join(',') : null,
+        from: this.fFrom ? this.iso(this.fFrom) : null,
+        to: this.fTo ? this.iso(this.fTo) : null,
+        kind: this.fKind || null,
+        doc: this.fDocCode || null,
+        q: this.fSearch.trim() || null,
+        estado: this.fEstado || null,
+        twh: this.fTransferWhs.length ? this.fTransferWhs.join(',') : null,
+        dest: dkParam,
+        cmonth: inCuadre ? (this.cMonth || null) : null,
+        cfrom: inCuadre && !this.cMonth ? this.iso(this.cFrom) : null,
+        cto: inCuadre && !this.cMonth ? this.iso(this.cTo) : null,
+      },
+    });
+  }
+
+  /** ¿Hay algún filtro del Diario activo (destino distinto del default cuenta)? */
+  hasFilters(): boolean {
+    const dkNonDefault = this.fDestKinds.length !== 3;
+    return !!(this.fWarehouses.length || this.fFrom || this.fTo || this.fKind || this.fDocCode
+      || this.fSearch.trim() || this.fEstado || this.fTransferWhs.length || dkNonDefault);
+  }
+
+  /** Limpia los filtros del Diario (CTA del empty state) y recarga. */
+  clearFilters(): void {
+    this.fWarehouses = []; this.fFrom = null; this.fTo = null; this.fKind = ''; this.fDocCode = '';
+    this.fSearch = ''; this.fEstado = ''; this.fTransferWhs = [];
+    this.fDestKinds = [...AlmacenMovimientosComponent.DEST_DEFAULT];
+    this.reload();
+  }
+
+  /** Resumen del rango → MetricStrip (ADR-033). Números coercionados (numeric llega como string). */
+  summaryMetrics(s: MovementsSummary): MetricStripItem[] {
+    return [
+      { label: 'Entradas', value: Number(s.totals.entradas) || 0, format: 'number', tone: 'ok' },
+      { label: 'Salidas', value: Math.abs(Number(s.totals.salidas) || 0), format: 'number', tone: 'bad' },
+      { label: 'Valor', value: Number(s.totals.valor) || 0, format: 'currency-short', tone: 'brand' },
+      { label: 'Documentos', value: Number(s.totals.documentos) || 0, format: 'number', tone: 'default' },
+    ];
   }
 
   private currentFilters(): MovementsFilters {
@@ -998,6 +1117,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
 
   reload(): void {
+    this.syncUrl();
     // limpiar expansión/caché al cambiar filtros
     this.expanded = {};
     this.dayDocs.set({});

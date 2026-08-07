@@ -161,6 +161,7 @@ export interface LedgerDetailFilters {
   bucket?: '' | 'exacto' | 'costo' | 'sin_rastro';
   kind?: '' | 'entrada' | 'salida';
   sucursal?: string;
+  destinos?: string[];
   search?: string;
   min_amount?: number | null;
 }
@@ -254,6 +255,7 @@ export class AlmacenMovimientosService {
   transfersLedgerDetail(f: MovementsFilters, d: LedgerDetailFilters = {}): Observable<TransfersLedgerDetailResponse> {
     const extra: Record<string, string | number | undefined> = {
       bucket: d.bucket || undefined, detail_kind: d.kind || undefined, sucursal: d.sucursal || undefined,
+      destinos: d.destinos && d.destinos.length ? d.destinos.join(',') : undefined,
       q: d.search || undefined, min_amount: d.min_amount || undefined,
     };
     return this.http.get<TransfersLedgerDetailResponse>(`${this.base}/transfers-ledger-detail`, { params: this.params(f, extra) });
