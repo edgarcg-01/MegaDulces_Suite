@@ -31,6 +31,24 @@ function normalizeWhatsapp(raw?: string | null): string | null {
   return e164;
 }
 
+/**
+ * Normaliza visitDays a un arreglo de enteros válidos (ISO weekday 1-7).
+ * Acepta Set<number>, number[] u otros iterables; filtra valores inválidos
+ * para evitar mandar algo distinto de un array a Postgres (p.ej. "[object Set]").
+ */
+function toVisitDaysArray(visitDays: unknown): number[] {
+  const arr = Array.isArray(visitDays)
+    ? visitDays
+    : visitDays instanceof Set
+      ? Array.from(visitDays)
+      : visitDays
+        ? Array.from(visitDays as Iterable<unknown>)
+        : [];
+  return arr
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+}
+
 /** Radio default de "cliente cercano": más amplio que los 30 m de tiendas (clientes dispersos + drift GPS + estacionar). */
 const DEFAULT_NEARBY_RADIUS_M = 80;
 /** Separación mínima entre coords canónicas de 2 clientes distintos: por debajo, la detección sería ambigua → guard anti-traslape. */
@@ -731,6 +749,11 @@ export class CommercialVendorRoutesService {
       // (un 23505 la abortaría → 25P02).
       const code = 'V-' + randomBytes(5).toString('hex').toUpperCase();
 
+      // Blindaje: visitDays puede venir como Set (o cualquier otra cosa) desde
+      // ramas previas; normalizamos siempre a number[] antes de tocar la DB
+      // para no repetir el bug de "[object Set]" en smallint[].
+      const visitDaysArray = toVisitDaysArray(visitDays);
+
       try {
         const [row] = await trx('commercial.customers')
           .insert({
@@ -742,8 +765,8 @@ export class CommercialVendorRoutesService {
             phone: dto.phone?.trim() || null,
             whatsapp,
             sales_route: salesRoute,
-            visit_days: visitDays.length
-              ? trx.raw('?::smallint[]', ['{' + visitDays.join(',') + '}'])
+            visit_days: visitDaysArray.length
+              ? trx.raw('?::smallint[]', ['{' + visitDaysArray.join(',') + '}'])
               : null,
             default_price_list_id: defaultPl?.id || null,
             credit_limit: 0,
