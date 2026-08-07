@@ -15,7 +15,7 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
-import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedgerMove, SupplierInvoiceLedgerResponse, SupplierInvoiceTotals, InvoiceEstado } from '../compras.service';
+import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedgerMove, SupplierInvoiceLedgerResponse, SupplierInvoiceTotals, InvoiceEstado, SupplierFiscalLedgerResponse } from '../compras.service';
 
 /**
  * CXP.7 — "Cuadre contable por proveedor": estado de cuenta de la 201 (Proveedores) según
@@ -122,6 +122,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
         <div class="cq-dt-tabs" role="tablist" aria-label="Lente del desglose">
           <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='contable'" [attr.aria-selected]="dtTab()==='contable'" (click)="setTab('contable')">Contable (201)</button>
           <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='factura'" [attr.aria-selected]="dtTab()==='factura'" (click)="setTab('factura')">Por factura</button>
+          <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='fiscal'" [attr.aria-selected]="dtTab()==='fiscal'" (click)="setTab('fiscal')">Fiscal (ContPAQi)</button>
         </div>
         @if (dtTab() === 'contable') {
         <div class="cq-dt-kpis">
@@ -184,7 +185,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           </div>
           <p class="cq-dt-note">Cuenta-T de la <b>201 Proveedores</b> (Kepler). <b>Compras</b> = facturado (sube deuda) · <b>Pagos y créditos</b> = pagos, notas y devoluciones (bajan deuda). <b>Pendiente</b> = Compras − Pagos: lo no cubierto en el periodo (movimiento neto, sin saldo de apertura). Cada renglón alinea la compra y el pago de la <b>misma posición cronológica</b> (ambos lados ordenados por fecha) — Kepler <b>no liga factura↔pago 1:1</b>, así que es un cuadre por totales del periodo, no una liga línea a línea.</p>
         }
-        } @else {
+        } @else if (dtTab() === 'factura') {
           <!-- POR FACTURA (documental): cada entrada real con estado de pago estimado FIFO -->
           @if (invoiceLoading()) {
             <p class="cq-empty">Cargando facturas…</p>
@@ -235,6 +236,57 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
               <p class="cq-dt-note">Cada fila es una <b>factura/entrada real</b> (recepciones de Kepler). El <b>estado de pago es una estimación FIFO</b>: los pagos del proveedor —que Kepler asienta <b>batcheados</b>, sin ligar folio a folio— se aplican a las facturas <b>más antiguas primero</b>. Por eso las pendientes suelen ser las más recientes (no necesariamente vencidas). <b>Neto</b> = factura − ajustes ligados por folio (devolución/nota, marcadas con <b>*</b>). Histórico completo del proveedor (máx. 300 filas, más recientes primero).</p>
             }
           }
+        } @else {
+          <!-- FISCAL (ContPAQi): las 3 verdades del proveedor + movimientos ContPAQi -->
+          @if (fiscalLoading()) {
+            <p class="cq-empty">Cargando libros fiscales…</p>
+          } @else if (fiscal(); as fx) {
+            <table class="cq-3way">
+              <thead>
+                <tr><th>Libro</th><th class="ta-r">Facturado</th><th class="ta-r">Pagado</th><th class="ta-r">Saldo</th></tr>
+              </thead>
+              <tbody>
+                <tr class="cq-3way-best">
+                  <td>Kepler operativo <span class="cq-3way-tag">facturas/pagos reales</span></td>
+                  @if (fx.operativo; as o) {
+                    <td class="ta-r cq-num">{{ money(o.facturado) }}</td><td class="ta-r cq-num">{{ money(o.pagado) }}</td><td class="ta-r cq-num cq-strong">{{ money(o.saldo) }}</td>
+                  } @else { <td class="ta-r muted cq-3way-nd" colspan="3">sin datos</td> }
+                </tr>
+                <tr>
+                  <td>Kepler contable <span class="cq-3way-tag">cuenta 201</span></td>
+                  @if (fx.contable; as c) {
+                    <td class="ta-r cq-num">{{ money(c.facturado) }}</td><td class="ta-r cq-num">{{ money(c.pagado) }}</td><td class="ta-r cq-num">{{ money(c.saldo) }}</td>
+                  } @else { <td class="ta-r muted cq-3way-nd" colspan="3">sin datos</td> }
+                </tr>
+                <tr>
+                  <td>ContPAQi fiscal <span class="cq-3way-tag">cuenta 2120</span></td>
+                  @if (fx.contpaqi.matched) {
+                    <td class="ta-r cq-num">{{ money(fx.contpaqi.facturado) }}</td><td class="ta-r cq-num">{{ money(fx.contpaqi.pagado) }}</td><td class="ta-r cq-num">{{ money(fx.contpaqi.saldo) }}</td>
+                  } @else { <td class="ta-r muted cq-3way-nd" colspan="3">no ligado a ContPAQi</td> }
+                </tr>
+              </tbody>
+            </table>
+            @if (!fx.contpaqi.matched) {
+              <div class="cq-xcheck cq-xcheck--warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Este proveedor <b>no se pudo ligar a ContPAQi</b> por nombre (los libros usan otra grafía/ortografía). Sin comparación fiscal para este.</span></div>
+            } @else {
+              <p-table [value]="fx.rows" styleClass="p-datatable-sm surf-table cq-inv" [scrollable]="true" scrollHeight="38vh" [rowHover]="true">
+                <ng-template #header>
+                  <tr><th class="cq-w-date">Periodo</th><th class="cq-w-tipo">Tipo</th><th class="cq-w-folio">Folio</th><th>Referencia</th><th class="cq-w-estado">Mov.</th><th class="ta-r cq-w-amt">Importe</th></tr>
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td class="cq-mono">{{ r.anio_mes }}</td>
+                    <td class="cq-mono muted">{{ r.tipo_pol }}</td>
+                    <td class="cq-mono muted">{{ r.folio }}</td>
+                    <td class="muted" [title]="r.referencia">{{ r.referencia || '—' }}</td>
+                    <td><p-tag [value]="r.categoria === 'facturado' ? 'Factura' : 'Pago'" [severity]="r.categoria === 'facturado' ? 'warn' : 'success'" styleClass="cq-tag" /></td>
+                    <td class="ta-r cq-num">{{ money(r.importe) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            }
+            <p class="cq-dt-note"><b>Tres libros del mismo proveedor.</b> <b>Kepler operativo</b> = facturas/pagos reales (el más completo, ver pestaña "Por factura"). <b>Kepler contable</b> = cuenta 201 (póliza, cargada parcial). <b>ContPAQi fiscal</b> = cuenta de proveedores <b>2120</b> del SoR contable (consolidado, filtrado fiscal). <b>No atan al peso</b>: distinto alcance, periodo y filtro — sirve para ver <b>divergencia</b> (ej. mucho en operación pero casi nada en ContPAQi), no cuadre exacto. Match Kepler↔ContPAQi por <b>nombre normalizado</b> (sin acentos ni signos); si difiere la grafía, no liga.</p>
+          }
         }
       }
     </p-dialog>
@@ -284,6 +336,15 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-xcheck--warn .pi { color:var(--warn-fg); }
     .cq-adjmark { color:var(--warn-fg); font-weight:700; margin-left:.1rem; }
     .cq-w-estado { width:6.5rem; }
+    /* 3-vías (fiscal): un renglón por libro */
+    .cq-3way { width:100%; border-collapse:collapse; margin-bottom:.8rem; font-size:.82rem; }
+    .cq-3way th, .cq-3way td { padding:.5rem .7rem; border-bottom:1px solid var(--border-color); }
+    .cq-3way th { text-align:left; font-weight:600; color:var(--text-muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+    .cq-3way td { color:var(--text-main); }
+    .cq-3way .cq-num { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+    .cq-3way-best td { background:color-mix(in srgb, var(--ok-fg) 8%, transparent); }
+    .cq-3way-tag { display:inline-block; margin-left:.4rem; font-size:.68rem; color:var(--text-faint); }
+    .cq-3way-nd { font-style:italic; }
     :host ::ng-deep .cq-tag { font-size:.64rem; }
     /* Comparación estricta: una sola tabla, dos mitades (Compras | Pagos) alineadas renglón a
        renglón. Divisor central en la 5ª columna; celdas vacías tenues donde no hay contraparte. */
@@ -338,9 +399,11 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly saldoFinal = signal(0);
   // Lente del desglose: 'contable' (201) | 'factura' (documental FIFO). La vista por factura se
   // carga bajo demanda (histórico completo del proveedor, ignora el rango de fecha del cuadre).
-  readonly dtTab = signal<'contable' | 'factura'>('contable');
+  readonly dtTab = signal<'contable' | 'factura' | 'fiscal'>('contable');
   readonly invoice = signal<SupplierInvoiceLedgerResponse | null>(null);
   readonly invoiceLoading = signal(false);
+  readonly fiscal = signal<SupplierFiscalLedgerResponse | null>(null);
+  readonly fiscalLoading = signal(false);
   // Cuenta-T: compras (facturado, sube deuda) a la izquierda; pagos/notas/devoluciones (bajan) a la
   // derecha. `signed` > 0 = compra · < 0 = pago/crédito (lo escribe el backend por categoría).
   readonly comprasMoves = computed(() => this.moves().filter((m) => m.signed > 0));
@@ -441,12 +504,13 @@ export class ComprasCuadreProveedorComponent implements OnInit {
         error: () => { this.movesLoading.set(false); },
       });
   }
-  closeDetail(): void { this.detail.set(null); this.moves.set([]); this.invoice.set(null); this.dtTab.set('contable'); }
+  closeDetail(): void { this.detail.set(null); this.moves.set([]); this.invoice.set(null); this.fiscal.set(null); this.dtTab.set('contable'); }
 
-  /** Cambia de lente; la vista por factura se carga la primera vez que se abre. */
-  setTab(t: 'contable' | 'factura'): void {
+  /** Cambia de lente; las vistas por factura / fiscal se cargan la primera vez que se abren. */
+  setTab(t: 'contable' | 'factura' | 'fiscal'): void {
     this.dtTab.set(t);
     if (t === 'factura' && !this.invoice() && !this.invoiceLoading()) this.loadInvoices();
+    if (t === 'fiscal' && !this.fiscal() && !this.fiscalLoading()) this.loadFiscal();
   }
   private loadInvoices(): void {
     const r = this.detail(); if (!r) return;
@@ -455,6 +519,15 @@ export class ComprasCuadreProveedorComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.invoice.set(d); this.invoiceLoading.set(false); },
         error: () => { this.invoice.set({ found: false, proveedor_code: null, proveedor_nombre: null, totals: null, rows: [] }); this.invoiceLoading.set(false); },
+      });
+  }
+  private loadFiscal(): void {
+    const r = this.detail(); if (!r) return;
+    this.fiscalLoading.set(true);
+    this.svc.supplierFiscalLedger({ proveedor: r.proveedor || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.fiscal.set(d); this.fiscalLoading.set(false); },
+        error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
       });
   }
 

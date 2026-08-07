@@ -635,6 +635,95 @@ export class PurchaseAdjustmentsService {
     });
   }
 
+  /** Resuelve el código Kepler de un proveedor por su nombre (exacto → prefijo, en pagos y facturas). */
+  private async resolveProveedorCode(trx: Knex, tenantId: string, nombre: string): Promise<string | null> {
+    const q = async (table: string, mode: 'exact' | 'prefix'): Promise<string | null> => {
+      let qb = trx(table).where('tenant_id', tenantId);
+      qb = mode === 'exact' ? qb.where('proveedor_nombre', nombre) : qb.where('proveedor_nombre', 'ilike', `${nombre}%`);
+      const r: any[] = await qb.groupBy('proveedor_code').select('proveedor_code').sum({ t: 'monto' }).orderByRaw('sum(monto) desc').limit(1);
+      return r[0]?.proveedor_code || null;
+    };
+    return (await q('analytics.erp_supplier_payments', 'exact')) || (await q('analytics.erp_goods_receipts', 'exact'))
+      || (await q('analytics.erp_supplier_payments', 'prefix')) || (await q('analytics.erp_goods_receipts', 'prefix'));
+  }
+
+  /**
+   * CXP.9 — TERCERA lente del cuadre: FISCAL (ContPAQi). Compara al mismo proveedor en los TRES
+   * libros: Kepler operativo (facturas/pagos reales) vs Kepler contable (201) vs ContPAQi fiscal
+   * (SoR, cuenta de proveedores 2120*, ya filtrada Afectable=1 al importar). ContPAQi segmenta por
+   * proveedor en la CUENTA (`cuenta_nombre`), no en `referencia` (que trae folios). El match
+   * Kepler↔ContPAQi es por NOMBRE NORMALIZADO (mayúsculas, sin acentos ni signos, igualdad o
+   * prefijo) porque los nombres difieren en puntuación/acentos ("CANEL'S" vs "CANEL?S", doble
+   * espacio, truncados) — el prefijo CRUDO producía falsos positivos ($185k en vez de $34M). Los
+   * tres libros NO atan al peso: distinto alcance/periodo/filtro fiscal → sirve para ver
+   * DIVERGENCIA, no cuadre exacto. analytics.* sin RLS → tenant explícito.
+   */
+  async supplierFiscalLedger(q: { proveedor?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const nombre = (q.proveedor || '').trim();
+    if (!nombre) return { proveedor: null, contpaqi: { matched: false }, operativo: null, contable: null, rows: [] as any[] };
+    const norm = (s: string) => (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
+    const target = norm(nombre);
+    return this.tk.run(async (trx) => {
+      // ContPAQi: agregados por cuenta de proveedores (2120*), match por nombre normalizado.
+      const cpqAccs: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).where('source', 'contpaqi').where('cuenta', 'like', '2120%')
+        .groupBy('cuenta')
+        .select('cuenta', trx.raw('max(cuenta_nombre) AS nom'),
+          trx.raw("COALESCE(sum(importe) FILTER (WHERE cargo_abono='A'),0)::numeric AS fact"),
+          trx.raw("COALESCE(sum(importe) FILTER (WHERE cargo_abono='C'),0)::numeric AS pag"),
+          trx.raw('count(*)::int AS n'));
+      let hits = target.length >= 4 ? cpqAccs.filter((a) => norm(a.nom) === target) : [];
+      if (!hits.length && target.length >= 8) {
+        hits = cpqAccs.filter((a) => { const rn = norm(a.nom); return rn.length >= 8 && (rn.startsWith(target) || target.startsWith(rn)); });
+      }
+      let contpaqi: any;
+      if (hits.length) {
+        const cuentas = hits.map((h) => h.cuenta);
+        const fact = hits.reduce((s, h) => s + (Number(h.fact) || 0), 0);
+        const pag = hits.reduce((s, h) => s + (Number(h.pag) || 0), 0);
+        const n = hits.reduce((s, h) => s + (Number(h.n) || 0), 0);
+        contpaqi = { matched: true, cuentas, cuenta_nombre: hits[0].nom, facturado: fact, pagado: pag, saldo: fact - pag, n };
+      } else {
+        contpaqi = { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, n: 0 };
+      }
+
+      // ContPAQi: movimientos (detalle) de las cuentas casadas.
+      let rows: any[] = [];
+      if (contpaqi.matched) {
+        const mv: any[] = await trx('analytics.gl_poliza_lines')
+          .where('tenant_id', tenantId).where('source', 'contpaqi').whereIn('cuenta', contpaqi.cuentas)
+          .select('anio_mes', 'tipo_pol', 'folio', 'referencia', 'cargo_abono', 'cfdi_uuid', trx.raw('importe::numeric AS importe'))
+          .orderByRaw('anio_mes desc nulls last, folio desc').limit(300);
+        rows = mv.map((r) => ({
+          anio_mes: r.anio_mes, tipo_pol: r.tipo_pol, folio: r.folio, referencia: r.referencia || null,
+          cargo_abono: r.cargo_abono, cfdi_uuid: r.cfdi_uuid || null, importe: Number(r.importe) || 0,
+          categoria: r.cargo_abono === 'A' ? 'facturado' : 'pagado',
+        }));
+      }
+
+      // Kepler operativo (facturas/pagos reales, histórico completo).
+      const code = await this.resolveProveedorCode(trx as unknown as Knex, tenantId, nombre);
+      let operativo: any = null;
+      if (code) {
+        const [rc]: any = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).where('proveedor_code', code).select(trx.raw('COALESCE(sum(monto),0)::numeric AS f'));
+        const [pc]: any = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).where('proveedor_code', code).select(trx.raw('COALESCE(sum(monto),0)::numeric AS p'));
+        const f = Number(rc?.f) || 0; const p = Number(pc?.p) || 0;
+        operativo = { facturado: f, pagado: p, saldo: f - p, proveedor_code: code };
+      }
+
+      // Kepler contable (201, por nombre, histórico completo).
+      const l2: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).where('source', 'kepler').where('cuenta_mayor', '201').where('referencia', nombre)
+        .select('cargo_abono', 'tipo_pol').sum({ m: 'importe' }).groupBy('cargo_abono', 'tipo_pol');
+      let cf = 0; let cp = 0;
+      for (const r of l2) { const m = Number(r.m) || 0; if (r.cargo_abono === 'A') cf += m; else if (r.tipo_pol === 'XD2601' || r.tipo_pol === 'XD2501') cp += m; }
+      const contable = { facturado: cf, pagado: cp, saldo: cf - cp };
+
+      return { proveedor: nombre, contpaqi, operativo, contable, rows };
+    });
+  }
+
   /**
    * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
    * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
