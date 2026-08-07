@@ -1059,6 +1059,15 @@ export class ComprasService {
     const qs = p.toString();
     return this.http.get<SupplierLedgerDetailResponse>(`${this.adjBase}/supplier-ledger/detail${qs ? '?' + qs : ''}`);
   }
+
+  /** CXP.8 — cuadre POR FACTURA de un proveedor: entradas reales con estado de pago FIFO + cross-check vs 201. */
+  supplierInvoiceLedger(q: { proveedor_code?: string; proveedor?: string }): Observable<SupplierInvoiceLedgerResponse> {
+    const p = new URLSearchParams();
+    if (q.proveedor_code) p.set('proveedor_code', q.proveedor_code);
+    if (q.proveedor) p.set('proveedor', q.proveedor);
+    const qs = p.toString();
+    return this.http.get<SupplierInvoiceLedgerResponse>(`${this.adjBase}/supplier-invoice-ledger${qs ? '?' + qs : ''}`);
+  }
 }
 
 export interface SupplierLedgerMove { fecha: string | null; anio_mes: string; tipo_pol: string; tipo_label: string; folio: string; sucursal: string; cargo_abono: 'C' | 'A'; importe: number; signed: number; saldo: number; categoria: string; concepto: string | null }
@@ -1066,6 +1075,15 @@ export interface SupplierLedgerDetailResponse { proveedor: string | null; total:
 
 export interface SupplierLedgerRow { proveedor: string | null; facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number; n: number }
 export interface SupplierLedgerResponse { source: string; total: number; totals: { facturado: number; pagado: number; notas: number; devoluciones: number; otros: number; delta: number }; rows: SupplierLedgerRow[] }
+
+export type InvoiceEstado = 'pagada' | 'parcial' | 'pendiente';
+export interface SupplierInvoiceRow { folio: string; sucursal: string; oc_folio: string | null; concepto: string | null; fecha: string | null; bruto: number; ajuste: number; neto: number; pagado: number; pendiente: number; estado: InvoiceEstado }
+export interface SupplierInvoiceTotals {
+  facturado: number; pagado: number; saldo: number; anticipo: number;
+  n_facturas: number; n_pagadas: number; n_parciales: number; n_pendientes: number; pendiente_total: number; n_pagos: number;
+  contable: { facturado: number; pagado: number; saldo: number } | null;
+}
+export interface SupplierInvoiceLedgerResponse { found: boolean; proveedor_code: string | null; proveedor_nombre: string | null; totals: SupplierInvoiceTotals | null; rows: SupplierInvoiceRow[] }
 
 export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
 export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }

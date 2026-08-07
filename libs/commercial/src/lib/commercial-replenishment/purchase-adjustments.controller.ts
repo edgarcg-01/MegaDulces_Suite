@@ -151,6 +151,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.supplierLedgerDetail({ proveedor, date_from, date_to });
   }
 
+  @Get('supplier-invoice-ledger')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.8 — cuadre POR FACTURA (documental) de un proveedor: cada entrada real (erp_goods_receipts) con ajuste ligado + estado de pago FIFO (pagada/parcial/pendiente) + cross-check vs saldo contable 201 (expone póliza Kepler incompleta). El link factura↔pago es estimación FIFO, no estructural. Params: proveedor_code (o proveedor por nombre).' })
+  supplierInvoiceLedger(@Query('proveedor_code') proveedor_code?: string, @Query('proveedor') proveedor?: string) {
+    return this.svc.supplierInvoiceLedger({ proveedor_code, proveedor });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })
