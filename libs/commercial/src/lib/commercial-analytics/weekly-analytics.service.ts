@@ -249,20 +249,19 @@ export class WeeklyAnalyticsService {
       //    Excluye rutas (is_route) y evita el desfase branches.warehouse_code('MD-10') vs código '01'
       //    (esos van por kepler_code, que aquí se excluyen del lado Wincaja y se cubren con el POS).
       const prevTo = addDays(prevToExcl, -1);
-      // store_live_tickets se llave por kepler_code ('01'..'05'); el resto de la vista usa el
-      // código comercial ('MD-54'…). Traducimos kepler_code → warehouse_code vía wincaja.branches
-      // para que el filtro por sucursal y el rollup por sucursal cuadren (antes: 0 tickets → ticket
-      // promedio $0 al ver una sola sucursal Kepler).
-      const bWh = wh ? `AND b2.warehouse_code = ?` : ``;
+      // store_live_tickets.warehouse_code YA es el código comercial ('01'..'05'), idéntico a
+      // commercial.warehouses.code y al lado maestro ('MD-30'…) → se filtra y agrupa DIRECTO,
+      // sin traducir. (Un JOIN a branches.kepler_code lo convertía a 'MD-54' y luego filtraba
+      // b2.warehouse_code='05' → 0 filas: ese era el bug de "ticket promedio $0" en sucursales
+      // Kepler. El código comercial ya coincide en ambos lados, no hay nada que traducir.)
+      const bWh = wh ? `AND warehouse_code = ?` : ``;
       const mWh = wh ? `AND b.warehouse_code = ?` : ``;
       const tkDaily: any = await trx.raw(
         `WITH tk AS (
-           SELECT b2.warehouse_code, slt.ticket_ts::date AS d, count(*)::int AS tickets,
-                  COALESCE(sum(jsonb_array_length(slt.items)), 0)::int AS lines
-             FROM analytics.store_live_tickets slt
-             JOIN wincaja.branches b2 ON b2.tenant_id = slt.tenant_id
-                                     AND b2.kepler_code = slt.warehouse_code AND b2.is_route = false
-            WHERE slt.tenant_id = ? AND slt.ticket_ts::date >= ? AND slt.ticket_ts::date <= ? ${bWh}
+           SELECT warehouse_code, ticket_ts::date AS d, count(*)::int AS tickets,
+                  COALESCE(sum(jsonb_array_length(items)), 0)::int AS lines
+             FROM analytics.store_live_tickets
+            WHERE tenant_id = ? AND ticket_ts::date >= ? AND ticket_ts::date <= ? ${bWh}
             GROUP BY 1, 2
            UNION ALL
            SELECT b.warehouse_code, m.fecha::date AS d,
