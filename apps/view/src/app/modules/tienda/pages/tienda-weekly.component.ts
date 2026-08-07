@@ -37,7 +37,7 @@ type Mode = 'rango' | 'semana';
     <div class="surf-page in wk-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Análisis de tienda</h1>
+          <h1>Análisis de ventas</h1>
           <p class="surf-page-sub">Venta, tickets y productos por ticket de tu sucursal. Elegí un rango o mirá por semana.</p>
         </div>
         @if (scopedWarehouse) { <span class="wk-scope"><i class="pi pi-map-marker"></i> {{ branchLabel() }}</span> }
