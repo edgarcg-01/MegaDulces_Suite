@@ -1068,6 +1068,14 @@ export class ComprasService {
     const qs = p.toString();
     return this.http.get<SupplierInvoiceLedgerResponse>(`${this.adjBase}/supplier-invoice-ledger${qs ? '?' + qs : ''}`);
   }
+
+  /** CXP.9 — tercera lente: FISCAL (ContPAQi) — proveedor en los 3 libros + movimientos ContPAQi. */
+  supplierFiscalLedger(q: { proveedor?: string }): Observable<SupplierFiscalLedgerResponse> {
+    const p = new URLSearchParams();
+    if (q.proveedor) p.set('proveedor', q.proveedor);
+    const qs = p.toString();
+    return this.http.get<SupplierFiscalLedgerResponse>(`${this.adjBase}/supplier-fiscal-ledger${qs ? '?' + qs : ''}`);
+  }
 }
 
 export interface SupplierLedgerMove { fecha: string | null; anio_mes: string; tipo_pol: string; tipo_label: string; folio: string; sucursal: string; cargo_abono: 'C' | 'A'; importe: number; signed: number; saldo: number; categoria: string; concepto: string | null }
@@ -1084,6 +1092,11 @@ export interface SupplierInvoiceTotals {
   contable: { facturado: number; pagado: number; saldo: number } | null;
 }
 export interface SupplierInvoiceLedgerResponse { found: boolean; proveedor_code: string | null; proveedor_nombre: string | null; totals: SupplierInvoiceTotals | null; rows: SupplierInvoiceRow[] }
+
+export interface FiscalBook { facturado: number; pagado: number; saldo: number }
+export interface FiscalContpaqi extends FiscalBook { matched: boolean; cuentas: string[]; cuenta_nombre: string | null; n: number }
+export interface FiscalMove { anio_mes: string; tipo_pol: string; folio: string; referencia: string | null; cargo_abono: 'C' | 'A'; cfdi_uuid: string | null; importe: number; categoria: string }
+export interface SupplierFiscalLedgerResponse { proveedor: string | null; contpaqi: FiscalContpaqi; operativo: (FiscalBook & { proveedor_code: string }) | null; contable: FiscalBook | null; rows: FiscalMove[] }
 
 export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
 export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }

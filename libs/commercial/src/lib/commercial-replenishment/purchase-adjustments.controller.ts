@@ -158,6 +158,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.supplierInvoiceLedger({ proveedor_code, proveedor });
   }
 
+  @Get('supplier-fiscal-ledger')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.9 — tercera lente: FISCAL (ContPAQi). Compara al proveedor en los 3 libros: Kepler operativo (facturas/pagos) vs Kepler contable (201) vs ContPAQi fiscal (cuenta proveedores 2120*, match por nombre normalizado) + movimientos ContPAQi. Los 3 NO atan al peso (distinto alcance/periodo). Param: proveedor (nombre).' })
+  supplierFiscalLedger(@Query('proveedor') proveedor?: string) {
+    return this.svc.supplierFiscalLedger({ proveedor });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })
