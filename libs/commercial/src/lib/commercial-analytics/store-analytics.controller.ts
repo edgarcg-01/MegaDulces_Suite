@@ -34,4 +34,20 @@ export class StoreAnalyticsController {
     const effective = user?.warehouse_code || warehouseCode || undefined;
     return this.weeklySvc.weekly({ week, weeks: weeks ? Number(weeks) : undefined, warehouse_code: effective });
   }
+
+  @Get('range')
+  @RequirePermissions(Permission.STORE_ANALYTICS_VER)
+  @ApiQuery({ name: 'from', required: true, description: "Inicio del rango (ISO 'YYYY-MM-DD', inclusivo)." })
+  @ApiQuery({ name: 'to', required: true, description: "Fin del rango (ISO 'YYYY-MM-DD', inclusivo)." })
+  @ApiQuery({ name: 'warehouse_code', required: false, description: 'Ignorado si el usuario ya está scopeado a una sucursal.' })
+  @ApiOperation({ summary: 'Tienda — análisis por rango personalizado: venta, tickets, ticket promedio, productos por ticket, margen, unidades + serie diaria y top productos (vs período previo).' })
+  range(
+    @ReqUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouse_code') warehouseCode?: string,
+  ) {
+    const effective = user?.warehouse_code || warehouseCode || undefined;
+    return this.weeklySvc.range({ from, to, warehouse_code: effective });
+  }
 }
