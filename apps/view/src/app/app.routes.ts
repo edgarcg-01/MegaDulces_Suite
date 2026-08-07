@@ -462,6 +462,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
+        // CXP.10 — Deuda a proveedores (ContPAQi): lo que se debe según los libros fiscales.
+        path: 'deuda-contpaqi',
+        loadComponent: () => import('./modules/compras/pages/compras-deuda-contpaqi.component').then(m => m.ComprasDeudaContpaqiComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]

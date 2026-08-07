@@ -258,10 +258,10 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
                     <td class="ta-r cq-num">{{ money(c.facturado) }}</td><td class="ta-r cq-num">{{ money(c.pagado) }}</td><td class="ta-r cq-num">{{ money(c.saldo) }}</td>
                   } @else { <td class="ta-r muted cq-3way-nd" colspan="3">sin datos</td> }
                 </tr>
-                <tr>
-                  <td>ContPAQi fiscal <span class="cq-3way-tag">cuenta 2120</span></td>
+                <tr class="cq-3way-fiscal">
+                  <td>ContPAQi fiscal <span class="cq-3way-tag">cuenta 2120@if (fx.contpaqi.ejercicio) { · ej. {{ fx.contpaqi.ejercicio }}}</span></td>
                   @if (fx.contpaqi.matched) {
-                    <td class="ta-r cq-num">{{ money(fx.contpaqi.facturado) }}</td><td class="ta-r cq-num">{{ money(fx.contpaqi.pagado) }}</td><td class="ta-r cq-num">{{ money(fx.contpaqi.saldo) }}</td>
+                    <td class="ta-r cq-num">{{ money(fx.contpaqi.facturado) }}</td><td class="ta-r cq-num">{{ money(fx.contpaqi.pagado) }}</td><td class="ta-r cq-num cq-strong" [title]="'Saldo REAL con apertura = lo que se debe'">{{ money(fx.contpaqi.saldo) }}</td>
                   } @else { <td class="ta-r muted cq-3way-nd" colspan="3">no ligado a ContPAQi</td> }
                 </tr>
               </tbody>
@@ -269,23 +269,24 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
             @if (!fx.contpaqi.matched) {
               <div class="cq-xcheck cq-xcheck--warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Este proveedor <b>no se pudo ligar a ContPAQi</b> por nombre (los libros usan otra grafía/ortografía). Sin comparación fiscal para este.</span></div>
             } @else {
-              <p-table [value]="fx.rows" styleClass="p-datatable-sm surf-table cq-inv" [scrollable]="true" scrollHeight="38vh" [rowHover]="true">
+              @if (fx.contpaqi.saldo_ini) {
+                <p class="cq-fiscal-ini">Saldo inicial del ejercicio {{ fx.contpaqi.ejercicio }}: <b>{{ money(fx.contpaqi.saldo_ini) }}</b> · saldo actual (lo que se debe): <b>{{ money(fx.contpaqi.saldo) }}</b></p>
+              }
+              <p-table [value]="fx.rows" styleClass="p-datatable-sm surf-table cq-inv" [scrollable]="true" scrollHeight="36vh" [rowHover]="true">
                 <ng-template #header>
-                  <tr><th class="cq-w-date">Periodo</th><th class="cq-w-tipo">Tipo</th><th class="cq-w-folio">Folio</th><th>Referencia</th><th class="cq-w-estado">Mov.</th><th class="ta-r cq-w-amt">Importe</th></tr>
+                  <tr><th class="cq-w-date">Mes</th><th class="ta-r cq-w-amt">Facturado</th><th class="ta-r cq-w-amt">Pagado</th><th class="ta-r cq-w-amt">Saldo</th></tr>
                 </ng-template>
                 <ng-template #body let-r>
                   <tr>
                     <td class="cq-mono">{{ r.anio_mes }}</td>
-                    <td class="cq-mono muted">{{ r.tipo_pol }}</td>
-                    <td class="cq-mono muted">{{ r.folio }}</td>
-                    <td class="muted" [title]="r.referencia">{{ r.referencia || '—' }}</td>
-                    <td><p-tag [value]="r.categoria === 'facturado' ? 'Factura' : 'Pago'" [severity]="r.categoria === 'facturado' ? 'warn' : 'success'" styleClass="cq-tag" /></td>
-                    <td class="ta-r cq-num">{{ money(r.importe) }}</td>
+                    <td class="ta-r cq-num">{{ r.abonos ? money(r.abonos) : '—' }}</td>
+                    <td class="ta-r cq-num">{{ r.cargos ? money(r.cargos) : '—' }}</td>
+                    <td class="ta-r cq-num cq-strong">{{ money(r.saldo) }}</td>
                   </tr>
                 </ng-template>
               </p-table>
             }
-            <p class="cq-dt-note"><b>Tres libros del mismo proveedor.</b> <b>Kepler operativo</b> = facturas/pagos reales (el más completo, ver pestaña "Por factura"). <b>Kepler contable</b> = cuenta 201 (póliza, cargada parcial). <b>ContPAQi fiscal</b> = cuenta de proveedores <b>2120</b> del SoR contable (consolidado, filtrado fiscal). <b>No atan al peso</b>: distinto alcance, periodo y filtro — sirve para ver <b>divergencia</b> (ej. mucho en operación pero casi nada en ContPAQi), no cuadre exacto. Match Kepler↔ContPAQi por <b>nombre normalizado</b> (sin acentos ni signos); si difiere la grafía, no liga.</p>
+            <p class="cq-dt-note"><b>Tres libros del mismo proveedor.</b> <b>Kepler operativo</b> = facturas/pagos reales (el más completo, ver "Por factura"). <b>Kepler contable</b> = cuenta 201 (póliza). <b>ContPAQi fiscal</b> = cuenta de proveedores <b>2120</b> de la balanza (SoR contable). El <b>saldo de ContPAQi es el REAL</b> (incluye saldo de apertura del ejercicio) = <b>lo que se debe</b>; facturado/pagado son los movimientos del año. Kepler no trae apertura → su "saldo" es solo movimiento. <b>No atan al peso</b> (distinto alcance/periodo). Match Kepler↔ContPAQi por <b>nombre normalizado</b>; si difiere la grafía, no liga.</p>
           }
         }
       }
@@ -345,6 +346,9 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-3way-best td { background:color-mix(in srgb, var(--ok-fg) 8%, transparent); }
     .cq-3way-tag { display:inline-block; margin-left:.4rem; font-size:.68rem; color:var(--text-faint); }
     .cq-3way-nd { font-style:italic; }
+    :host ::ng-deep .cq-3way-fiscal td:last-child { font-weight:700; }
+    .cq-fiscal-ini { font-size:.78rem; color:var(--text-muted); margin:.2rem 0 .7rem; }
+    .cq-fiscal-ini b { color:var(--text-main); font-family:var(--font-mono); }
     :host ::ng-deep .cq-tag { font-size:.64rem; }
     /* Comparación estricta: una sola tabla, dos mitades (Compras | Pagos) alineadas renglón a
        renglón. Divisor central en la 5ª columna; celdas vacías tenues donde no hay contraparte. */
@@ -527,7 +531,7 @@ export class ComprasCuadreProveedorComponent implements OnInit {
     this.svc.supplierFiscalLedger({ proveedor: r.proveedor || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.fiscal.set(d); this.fiscalLoading.set(false); },
-        error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
+        error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
       });
   }
 

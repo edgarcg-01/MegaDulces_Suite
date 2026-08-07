@@ -165,6 +165,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.supplierFiscalLedger({ proveedor });
   }
 
+  @Get('contpaqi-payables')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.10 — "Lo que se debe" a proveedores según ContPAQi: saldo REAL de la cuenta 2120 (balanza contpaqi_ledger_monthly, con apertura) por proveedor + total + flag stale (saldo viejo sin movimiento). Filtros: search, only_stale.' })
+  contpaqiPayables(@Query('search') search?: string, @Query('only_stale') only_stale?: string) {
+    return this.svc.contpaqiPayables({ search, only_stale: only_stale === 'true' || only_stale === '1' });
+  }
+
   @Get('landed-cost')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search, date_from, date_to (acotan compras/pagos/notas al periodo), only_anomalo.' })

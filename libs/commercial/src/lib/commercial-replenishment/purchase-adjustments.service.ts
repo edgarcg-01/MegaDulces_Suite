@@ -665,41 +665,44 @@ export class PurchaseAdjustmentsService {
     const norm = (s: string) => (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
     const target = norm(nombre);
     return this.tk.run(async (trx) => {
-      // ContPAQi: agregados por cuenta de proveedores (2120*), match por nombre normalizado.
-      const cpqAccs: any[] = await trx('analytics.gl_poliza_lines')
-        .where('tenant_id', tenantId).where('source', 'contpaqi').where('cuenta', 'like', '2120%')
-        .groupBy('cuenta')
-        .select('cuenta', trx.raw('max(cuenta_nombre) AS nom'),
-          trx.raw("COALESCE(sum(importe) FILTER (WHERE cargo_abono='A'),0)::numeric AS fact"),
-          trx.raw("COALESCE(sum(importe) FILTER (WHERE cargo_abono='C'),0)::numeric AS pag"),
-          trx.raw('count(*)::int AS n'));
-      let hits = target.length >= 4 ? cpqAccs.filter((a) => norm(a.nom) === target) : [];
+      // ContPAQi desde la BALANZA (`contpaqi_ledger_monthly`, con saldo de APERTURA): saldo REAL
+      // ("lo que se debe") + evolución mensual del último ejercicio. `gl_poliza_lines` solo tenía
+      // movimientos parciales sin apertura → daba saldo engañoso. Match por nombre normalizado
+      // sobre la cuenta de proveedores 2120*.
+      const cpqAccs: any[] = await trx('analytics.contpaqi_ledger_monthly')
+        .where('tenant_id', tenantId).where('cuenta', 'like', '2120%')
+        .distinct('cuenta', 'cuenta_nombre');
+      let hits = target.length >= 4 ? cpqAccs.filter((a) => norm(a.cuenta_nombre) === target) : [];
       if (!hits.length && target.length >= 8) {
-        hits = cpqAccs.filter((a) => { const rn = norm(a.nom); return rn.length >= 8 && (rn.startsWith(target) || target.startsWith(rn)); });
+        hits = cpqAccs.filter((a) => { const rn = norm(a.cuenta_nombre); return rn.length >= 8 && (rn.startsWith(target) || target.startsWith(rn)); });
       }
       let contpaqi: any;
+      let rows: any[] = [];
       if (hits.length) {
         const cuentas = hits.map((h) => h.cuenta);
-        const fact = hits.reduce((s, h) => s + (Number(h.fact) || 0), 0);
-        const pag = hits.reduce((s, h) => s + (Number(h.pag) || 0), 0);
-        const n = hits.reduce((s, h) => s + (Number(h.n) || 0), 0);
-        contpaqi = { matched: true, cuentas, cuenta_nombre: hits[0].nom, facturado: fact, pagado: pag, saldo: fact - pag, n };
+        const [ejr]: any = await trx('analytics.contpaqi_ledger_monthly').where('tenant_id', tenantId).whereIn('cuenta', cuentas).max({ ej: 'ejercicio' });
+        const ej = Number(ejr?.ej) || null;
+        // meses del último ejercicio (sum agrega si el proveedor tuviera >1 cuenta 2120)
+        const mens: any[] = ej ? await trx('analytics.contpaqi_ledger_monthly')
+          .where('tenant_id', tenantId).whereIn('cuenta', cuentas).where('ejercicio', ej)
+          .groupBy('anio_mes', 'periodo')
+          .select('anio_mes', 'periodo',
+            trx.raw('COALESCE(sum(abonos::numeric),0) AS abonos'),
+            trx.raw('COALESCE(sum(cargos::numeric),0) AS cargos'),
+            trx.raw('COALESCE(sum(saldo_ini::numeric),0) AS saldo_ini'))
+          .orderBy('periodo') : [];
+        const saldoIni = mens.length ? Number(mens[0].saldo_ini) || 0 : 0; // apertura del ejercicio (acreedor = se debe)
+        let running = saldoIni;
+        rows = mens.map((m) => {
+          const ab = Number(m.abonos) || 0; const cg = Number(m.cargos) || 0;
+          running += ab - cg; // abono sube la deuda, cargo (pago) la baja
+          return { anio_mes: m.anio_mes, abonos: ab, cargos: cg, saldo: running };
+        });
+        const facturado = rows.reduce((s, r) => s + r.abonos, 0);
+        const pagado = rows.reduce((s, r) => s + r.cargos, 0);
+        contpaqi = { matched: true, cuentas, cuenta_nombre: hits[0].cuenta_nombre, facturado, pagado, saldo: running, saldo_ini: saldoIni, ejercicio: ej, n: rows.length };
       } else {
-        contpaqi = { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, n: 0 };
-      }
-
-      // ContPAQi: movimientos (detalle) de las cuentas casadas.
-      let rows: any[] = [];
-      if (contpaqi.matched) {
-        const mv: any[] = await trx('analytics.gl_poliza_lines')
-          .where('tenant_id', tenantId).where('source', 'contpaqi').whereIn('cuenta', contpaqi.cuentas)
-          .select('anio_mes', 'tipo_pol', 'folio', 'referencia', 'cargo_abono', 'cfdi_uuid', trx.raw('importe::numeric AS importe'))
-          .orderByRaw('anio_mes desc nulls last, folio desc').limit(300);
-        rows = mv.map((r) => ({
-          anio_mes: r.anio_mes, tipo_pol: r.tipo_pol, folio: r.folio, referencia: r.referencia || null,
-          cargo_abono: r.cargo_abono, cfdi_uuid: r.cfdi_uuid || null, importe: Number(r.importe) || 0,
-          categoria: r.cargo_abono === 'A' ? 'facturado' : 'pagado',
-        }));
+        contpaqi = { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, n: 0 };
       }
 
       // Kepler operativo (facturas/pagos reales, histórico completo).
@@ -721,6 +724,52 @@ export class PurchaseAdjustmentsService {
       const contable = { facturado: cf, pagado: cp, saldo: cf - cp };
 
       return { proveedor: nombre, contpaqi, operativo, contable, rows };
+    });
+  }
+
+  /**
+   * CXP.10 — "Lo que se debe" a proveedores según ContPAQi (SoR fiscal): saldo REAL de la cuenta
+   * de proveedores 2120* desde la BALANZA (`contpaqi_ledger_monthly`, que trae saldo de APERTURA
+   * del ejercicio). saldo = apertura(último ejercicio cargado) + Σ(abonos − cargos) del año. `stale`
+   * = la cuenta no movió en el último mes global (saldo viejo colgado → aging/riesgo). NO usa
+   * `gl_poliza_lines` (movimientos parciales sin apertura → saldo engañoso, daba total negativo).
+   * Read-only; analytics.* sin RLS → tenant explícito (named binding, evita el gotcha del `?`).
+   * Filtros: search, only_stale.
+   */
+  async contpaqiPayables(q: { search?: string; only_stale?: boolean } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const res: any = await trx.raw(
+        `WITH ly AS (
+           SELECT cuenta, MAX(ejercicio) ej FROM analytics.contpaqi_ledger_monthly
+            WHERE tenant_id = :tenant AND cuenta LIKE '2120%' GROUP BY cuenta)
+         SELECT l.cuenta,
+                max(l.cuenta_nombre) AS proveedor,
+                max(l.saldo_ini::numeric) AS saldo_ini,
+                sum(l.abonos::numeric - l.cargos::numeric) AS mov,
+                max(l.anio_mes) AS hasta
+           FROM analytics.contpaqi_ledger_monthly l
+           JOIN ly ON ly.cuenta = l.cuenta AND ly.ej = l.ejercicio
+          WHERE l.tenant_id = :tenant
+          GROUP BY l.cuenta`,
+        { tenant: tenantId },
+      );
+      const agg: any[] = res.rows || res;
+      const globalHasta = agg.reduce((m, r) => (r.hasta && r.hasta > m ? r.hasta : m), '');
+      const mkey = (am: string) => { const [y, mo] = String(am || '').split('-').map(Number); return (y || 0) * 12 + (mo || 0); };
+      const gk = mkey(globalHasta);
+      let rows = agg.map((r) => {
+        const saldo = (Number(r.saldo_ini) || 0) + (Number(r.mov) || 0);
+        // stale = sin movimiento en 3+ meses (saldo colgado/aging), no solo "le falta el último mes".
+        return { cuenta: r.cuenta, proveedor: r.proveedor, saldo, hasta: r.hasta, stale: !!(r.hasta && gk - mkey(r.hasta) >= 3) };
+      }).filter((r) => Math.abs(r.saldo) >= 1);
+      if (q.search && q.search.trim()) { const s = q.search.trim().toLowerCase(); rows = rows.filter((r) => (r.proveedor || '').toLowerCase().includes(s)); }
+      if (q.only_stale) rows = rows.filter((r) => r.stale);
+      rows.sort((a, b) => b.saldo - a.saldo);
+      const total_debe = rows.filter((r) => r.saldo > 0).reduce((s, r) => s + r.saldo, 0);
+      const total_favor = rows.filter((r) => r.saldo < 0).reduce((s, r) => s + r.saldo, 0);
+      const n_stale = rows.filter((r) => r.stale && r.saldo > 0).length;
+      return { as_of: globalHasta, total_debe, total_favor, neto: total_debe + total_favor, n: rows.length, n_stale, rows: rows.slice(0, 1000) };
     });
   }
 
