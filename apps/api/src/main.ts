@@ -38,6 +38,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
+import compression from 'compression';
 import { ScheduleModule } from '@nestjs/schedule';
 import { INestApplicationContext } from '@nestjs/common';
 import { ServerOptions } from 'socket.io';
@@ -112,6 +113,12 @@ async function bootstrap() {
   // Sin esto el ThrottlerGuard keyea TODO al loopback (rate-limit = bucket
   // compartido global, inútil) y las IPs de auditoría son las del proxy.
   app.set('trust proxy', 1);
+
+  // Compresión gzip de TODAS las respuestas (JSON de reportes, estático). El JSON de
+  // texto baja ~75-85% → recorta egress de Railway directamente. threshold 1KB: no
+  // comprime payloads chicos (no vale el CPU). Respeta `x-no-compression` en el request.
+  // Va lo más afuera posible (antes de rutas y estático) para envolver todas las salidas.
+  app.use(compression({ threshold: 1024 }));
 
   // Crear carpeta uploads si no existe
   const uploadsPath = join(__dirname, '..', 'uploads');
