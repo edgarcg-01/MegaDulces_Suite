@@ -241,26 +241,56 @@ export class WeeklyAnalyticsService {
           WHERE psd.tenant_id = ? AND psd.sale_date >= ? AND psd.sale_date < ? ${whClause}`,
         [from, toExcl, prevFrom, prevToExcl, tenantId, prevFrom, toExcl, ...whBind],
       );
-      // 3) Tickets (documentos) + líneas (detalles), cur vs previo. Wincaja, mapeado a sucursal.
-      const bClause = wh ? `AND b.warehouse_code = ?` : ``;
-      const tk: any = await trx.raw(
-        `SELECT count(DISTINCT (m.source_branch || '|' || m.consecutivo)) FILTER (WHERE m.fecha::date >= ? AND m.fecha::date <= ?) AS tk_cur,
-                count(DISTINCT (m.source_branch || '|' || m.consecutivo)) FILTER (WHERE m.fecha::date >= ? AND m.fecha::date <= ?) AS tk_prev,
-                count(dt.*) FILTER (WHERE m.fecha::date >= ? AND m.fecha::date <= ?)::float AS ln_cur,
-                count(dt.*) FILTER (WHERE m.fecha::date >= ? AND m.fecha::date <= ?)::float AS ln_prev
-           FROM wincaja.maestro_mov_almacen m
-           JOIN wincaja.branches b ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
-           LEFT JOIN wincaja.detalles_mov_almacen dt
-             ON dt.tenant_id = m.tenant_id AND dt.source_branch = m.source_branch
-            AND dt.source_dataset = m.source_dataset AND dt.consecutivo = m.consecutivo AND dt.tipo = 'V'
-          WHERE m.tenant_id = ? AND m.tipo = 'V' AND COALESCE(m.cancelado, false) = false
-            AND m.fecha::date >= ? AND m.fecha::date <= ? ${bClause}`,
-        [from, to, prevFrom, addDays(prevToExcl, -1), from, to, prevFrom, addDays(prevToExcl, -1),
-         tenantId, prevFrom, to, ...(wh ? [wh] : [])],
+      // 3) Tickets de TIENDA (mostrador, NO ruta) + líneas, por (sucursal, día) para [previo..to].
+      //    Fuente unificada por CÓDIGO COMERCIAL, disjunta (sin doble conteo):
+      //      · analytics.store_live_tickets → stores '01'–'05' (POS en vivo = lo que ve /tienda/live;
+      //        Wincaja está congelado para esas plazas, que ya migraron a Kepler).
+      //      · wincaja.maestro_mov_almacen (is_route=false, kepler_code IS NULL) → MD-30/32/50/00.
+      //    Excluye rutas (is_route) y evita el desfase branches.warehouse_code('MD-10') vs código '01'
+      //    (esos van por kepler_code, que aquí se excluyen del lado Wincaja y se cubren con el POS).
+      const prevTo = addDays(prevToExcl, -1);
+      const bWh = wh ? `AND warehouse_code = ?` : ``;
+      const mWh = wh ? `AND b.warehouse_code = ?` : ``;
+      const tkDaily: any = await trx.raw(
+        `WITH tk AS (
+           SELECT warehouse_code, ticket_ts::date AS d, count(*)::int AS tickets,
+                  COALESCE(sum(jsonb_array_length(items)), 0)::int AS lines
+             FROM analytics.store_live_tickets
+            WHERE tenant_id = ? AND ticket_ts::date >= ? AND ticket_ts::date <= ? ${bWh}
+            GROUP BY 1, 2
+           UNION ALL
+           SELECT b.warehouse_code, m.fecha::date AS d,
+                  count(DISTINCT (m.source_branch || '|' || m.consecutivo))::int AS tickets,
+                  count(dt.*)::int AS lines
+             FROM wincaja.maestro_mov_almacen m
+             JOIN wincaja.branches b ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
+                                    AND b.is_route = false AND b.kepler_code IS NULL
+             LEFT JOIN wincaja.detalles_mov_almacen dt
+               ON dt.tenant_id = m.tenant_id AND dt.source_branch = m.source_branch
+              AND dt.source_dataset = m.source_dataset AND dt.consecutivo = m.consecutivo AND dt.tipo = 'V'
+            WHERE m.tenant_id = ? AND m.tipo = 'V' AND COALESCE(m.cancelado, false) = false
+              AND m.fecha::date >= ? AND m.fecha::date <= ? ${mWh}
+            GROUP BY 1, 2
+         )
+         SELECT warehouse_code, d, sum(tickets)::int AS tickets, sum(lines)::int AS lines
+           FROM tk GROUP BY 1, 2`,
+        [tenantId, prevFrom, to, ...(wh ? [wh] : []), tenantId, prevFrom, to, ...(wh ? [wh] : [])],
       );
-      const t = tk.rows[0];
-      const tkCur = Number(t.tk_cur) || 0, tkPrev = Number(t.tk_prev) || 0;
-      const lnCur = Number(t.ln_cur) || 0, lnPrev = Number(t.ln_prev) || 0;
+      const inCur = (d: string) => d >= from && d <= to;
+      const inPrev = (d: string) => d >= prevFrom && d <= prevTo;
+      let tkCur = 0, tkPrev = 0, lnCur = 0, lnPrev = 0;
+      const tkByDay = new Map<string, number>();
+      const brAgg = new Map<string, { tickets: number; lines: number }>();
+      for (const r of tkDaily.rows) {
+        const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
+        const tks = Number(r.tickets) || 0, lns = Number(r.lines) || 0;
+        if (inCur(d)) {
+          tkCur += tks; lnCur += lns;
+          tkByDay.set(d, (tkByDay.get(d) || 0) + tks);
+          const a = brAgg.get(r.warehouse_code) || { tickets: 0, lines: 0 };
+          a.tickets += tks; a.lines += lns; brAgg.set(r.warehouse_code, a);
+        } else if (inPrev(d)) { tkPrev += tks; lnPrev += lns; }
+      }
       const s = sd.rows[0], p = psd.rows[0];
       const avg = (rev: number, n: number) => (n > 0 ? rev / n : 0);
       const basket = (ln: number, n: number) => (n > 0 ? ln / n : 0);
@@ -274,25 +304,13 @@ export class WeeklyAnalyticsService {
         basket: { cur: basket(lnCur, tkCur), prev: basket(lnPrev, tkPrev), delta_pct: pct(basket(lnCur, tkCur), basket(lnPrev, tkPrev)) },
       };
 
-      // 4) Serie DIARIA (venta + unidades de sales_daily, tickets de maestro).
+      // 4) Serie DIARIA (venta + unidades de sales_daily; tickets de tienda de tkByDay).
       const dailySd: any = await trx.raw(
         `SELECT sd.sale_date::date AS d, sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
            FROM analytics.sales_daily sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
           GROUP BY 1 ORDER BY 1`,
         [tenantId, from, toExcl, ...whBind],
-      );
-      const dailyTk: any = await trx.raw(
-        `SELECT m.fecha::date AS d, count(DISTINCT (m.source_branch || '|' || m.consecutivo)) AS tickets
-           FROM wincaja.maestro_mov_almacen m
-           JOIN wincaja.branches b ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
-          WHERE m.tenant_id = ? AND m.tipo = 'V' AND COALESCE(m.cancelado, false) = false
-            AND m.fecha::date >= ? AND m.fecha::date <= ? ${bClause}
-          GROUP BY 1`,
-        [tenantId, from, to, ...(wh ? [wh] : [])],
-      );
-      const tkByDay = new Map<string, number>(
-        dailyTk.rows.map((r: any) => [(r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10)), Number(r.tickets) || 0]),
       );
       const series = dailySd.rows.map((r: any) => {
         const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
@@ -308,18 +326,8 @@ export class WeeklyAnalyticsService {
           GROUP BY w.code, w.name ORDER BY revenue DESC`,
         [tenantId, from, toExcl, ...whBind],
       );
-      const brTk: any = await trx.raw(
-        `SELECT b.warehouse_code AS code, count(DISTINCT (m.source_branch || '|' || m.consecutivo)) AS tickets
-           FROM wincaja.maestro_mov_almacen m
-           JOIN wincaja.branches b ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
-          WHERE m.tenant_id = ? AND m.tipo = 'V' AND COALESCE(m.cancelado, false) = false
-            AND m.fecha::date >= ? AND m.fecha::date <= ? ${bClause}
-          GROUP BY b.warehouse_code`,
-        [tenantId, from, to, ...(wh ? [wh] : [])],
-      );
-      const brTkMap = new Map<string, number>(brTk.rows.map((r: any) => [r.code, Number(r.tickets) || 0]));
       const by_branch = branchRes.rows.map((r: any) => {
-        const tks = brTkMap.get(r.code) || 0;
+        const tks = brAgg.get(r.code)?.tickets || 0;
         return {
           code: r.code, name: r.name, revenue: +r.revenue, margin: +r.margin, units: +r.units,
           tickets: tks, avg_ticket: avg(+r.revenue, tks),
