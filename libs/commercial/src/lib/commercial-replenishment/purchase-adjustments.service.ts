@@ -530,6 +530,112 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
+   * CXP.8 — CUADRE POR FACTURA (documental) de un proveedor: cada entrada/factura real
+   * (`erp_goods_receipts`) con su ajuste estructural ligado (por `entrada_folio`) y su
+   * ESTADO DE PAGO estimado FIFO — los pagos (XD2601 batcheados) consumen las facturas más
+   * antiguas primero, porque el link factura↔pago NO es estructural en Kepler. El header
+   * compara el saldo DOCUMENTAL (facturas − pagos) vs el CONTABLE (201) para exponer cuándo
+   * la póliza Kepler está incompleta. Llave = `proveedor_code` (la misma en los 3 feeds:
+   * facturas/pagos/201). Histórico completo (FIFO necesita apertura). analytics.* sin RLS →
+   * tenant explícito. El link por-factura es una ESTIMACIÓN (FIFO), no un match estructural.
+   */
+  async supplierInvoiceLedger(q: { proveedor_code?: string; proveedor?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // 1. resolver proveedor_code (el drill llega por nombre de la 201, que == proveedor_nombre del feed)
+      let code = (q.proveedor_code || '').trim() || null;
+      let nombre = (q.proveedor || '').trim() || null;
+      if (!code && nombre) {
+        // el nombre llega de la 201 (referencia) y a veces viene TRUNCADO vs el feed
+        // ("…N.C DE" vs "…N.C DE CV") → intento exacto y luego por PREFIJO, en pagos y facturas.
+        const resolve = async (table: string, mode: 'exact' | 'prefix'): Promise<string | null> => {
+          let qb = trx(table).where('tenant_id', tenantId);
+          qb = mode === 'exact' ? qb.where('proveedor_nombre', nombre) : qb.where('proveedor_nombre', 'ilike', `${nombre}%`);
+          const r: any[] = await qb.groupBy('proveedor_code').select('proveedor_code').sum({ t: 'monto' }).orderByRaw('sum(monto) desc').limit(1);
+          return r[0]?.proveedor_code || null;
+        };
+        code = (await resolve('analytics.erp_supplier_payments', 'exact'))
+          || (await resolve('analytics.erp_goods_receipts', 'exact'))
+          || (await resolve('analytics.erp_supplier_payments', 'prefix'))
+          || (await resolve('analytics.erp_goods_receipts', 'prefix'));
+      }
+      if (!code) return { found: false, proveedor_code: null, proveedor_nombre: nombre, totals: null, rows: [] as any[] };
+
+      // 2. facturas (entradas reales) — histórico, asc para FIFO
+      const facts: any[] = await trx('analytics.erp_goods_receipts')
+        .where('tenant_id', tenantId).where('proveedor_code', code)
+        .select('folio', 'sucursal', 'oc_folio', 'concepto',
+          trx.raw('receipt_date::date AS receipt_date'), trx.raw('monto::numeric AS monto'))
+        .orderByRaw('receipt_date asc nulls last, folio asc');
+      if (!nombre) {
+        const nm: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).where('proveedor_code', code).select('proveedor_nombre').limit(1);
+        nombre = nm[0]?.proveedor_nombre || null;
+      }
+
+      // 3. ajustes estructurales ligados por entrada_folio (devolución/nota → reducen lo adeudado)
+      const adjRows: any[] = await trx('analytics.erp_purchase_adjustments')
+        .where('tenant_id', tenantId).where('proveedor_code', code)
+        .whereNotNull('entrada_folio').whereRaw("entrada_folio <> ''")
+        .groupBy('entrada_folio').select('entrada_folio').sum({ m: 'monto' });
+      const adjByFolio = new Map<string, number>();
+      for (const a of adjRows) adjByFolio.set(String(a.entrada_folio), Number(a.m) || 0);
+
+      // 4. total pagado (histórico) + conteo
+      const payAgg: any[] = await trx('analytics.erp_supplier_payments')
+        .where('tenant_id', tenantId).where('proveedor_code', code)
+        .select(trx.raw('COALESCE(sum(monto),0)::numeric AS total'), trx.raw('count(*)::int AS n'));
+      const totalPagado = Number(payAgg[0]?.total) || 0;
+      const nPagos = Number(payAgg[0]?.n) || 0;
+
+      // 5. FIFO: el pago acumulado consume las facturas más antiguas primero
+      let cum = 0, nPagadas = 0, nParciales = 0, nPendientes = 0;
+      const all = facts.map((f) => {
+        const bruto = Number(f.monto) || 0;
+        const ajuste = adjByFolio.get(String(f.folio)) || 0;
+        const neto = bruto - ajuste;
+        const prev = cum; cum += neto;
+        let pagado = 0; let estado = 'pendiente';
+        if (cum <= totalPagado) { pagado = neto; estado = 'pagada'; nPagadas++; }
+        else if (prev >= totalPagado) { pagado = 0; estado = 'pendiente'; nPendientes++; }
+        else { pagado = totalPagado - prev; estado = 'parcial'; nParciales++; }
+        return {
+          folio: f.folio, sucursal: f.sucursal, oc_folio: f.oc_folio || null, concepto: f.concepto || null,
+          fecha: f.receipt_date, bruto, ajuste, neto, pagado, pendiente: neto - pagado, estado,
+        };
+      });
+      const facturado = all.reduce((s, r) => s + r.neto, 0);
+      const pendiente_total = all.reduce((s, r) => s + r.pendiente, 0);
+      const anticipo = totalPagado > facturado ? totalPagado - facturado : 0;
+
+      // 6. cross-check CONTABLE (201, por nombre) — expone si la póliza Kepler está incompleta
+      let contable: { facturado: number; pagado: number; saldo: number } | null = null;
+      if (nombre) {
+        const l2: any[] = await trx('analytics.gl_poliza_lines')
+          .where('tenant_id', tenantId).where('source', 'kepler').where('cuenta_mayor', '201').where('referencia', nombre)
+          .select('cargo_abono', 'tipo_pol').sum({ m: 'importe' }).groupBy('cargo_abono', 'tipo_pol');
+        let f201 = 0; let p201 = 0;
+        for (const r of l2) {
+          const m = Number(r.m) || 0;
+          if (r.cargo_abono === 'A') f201 += m;
+          else if (r.tipo_pol === 'XD2601' || r.tipo_pol === 'XD2501') p201 += m;
+        }
+        contable = { facturado: f201, pagado: p201, saldo: f201 - p201 };
+      }
+
+      const rows = all.slice().reverse().slice(0, 300); // más reciente primero, cap 300
+      return {
+        found: true, proveedor_code: code, proveedor_nombre: nombre,
+        totals: {
+          facturado, pagado: totalPagado, saldo: facturado - totalPagado, anticipo,
+          n_facturas: all.length, n_pagadas: nPagadas, n_parciales: nParciales, n_pendientes: nPendientes,
+          pendiente_total, n_pagos: nPagos, contable,
+        },
+        rows,
+      };
+    });
+  }
+
+  /**
    * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
    * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
    * `rate` = desc/compras; `costo_neto` = compras − desc. Le dice al comprador que su
