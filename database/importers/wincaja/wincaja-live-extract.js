@@ -51,14 +51,21 @@ const WH_CODE_MODE = process.env.WH_CODE_MODE === 'source_branch' ? 'source_bran
 const DRY = process.argv.includes('--dry');
 const STATE_FILE = path.join(__dirname, '.wincaja-live-extract.json');
 
-// Rutas de las COPIAS-sombra (las deja SyncBack). Ajustar a tu staging real.
-const STORES = process.env.WINCAJA_LIVE_MDBS
-  ? JSON.parse(process.env.WINCAJA_LIVE_MDBS)
-  : [
-      { code: '30', mdb: path.join(__dirname, '_shadow', '30.mdb'), warehouse_code: 'MD-30', name: 'Morelia Abastos' },
-      { code: '32', mdb: path.join(__dirname, '_shadow', '32.mdb'), warehouse_code: 'MD-32', name: 'Morelia Madero' },
-      { code: '50', mdb: path.join(__dirname, '_shadow', '50.mdb'), warehouse_code: 'MD-50', name: 'Canindo' },
-    ];
+// Rutas de las COPIAS-sombra en Z: (= \\192.168.0.245\D, las deja SyncBack). Default =
+// las MISMAS rutas que ya usa el import diario en .249 (verificado 2026-08). Override:
+//   WINCAJA_LIVE_MDBS_FILE = ruta a un .json con el array (recomendado para Task Scheduler
+//     — evita el infierno de escapar JSON+backslashes en env),  o
+//   WINCAJA_LIVE_MDBS      = el array JSON inline (usar barras normales '/' en las rutas).
+const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
+const STORES = (() => {
+  if (process.env.WINCAJA_LIVE_MDBS_FILE) return JSON.parse(fs.readFileSync(process.env.WINCAJA_LIVE_MDBS_FILE, 'utf8'));
+  if (process.env.WINCAJA_LIVE_MDBS) return JSON.parse(process.env.WINCAJA_LIVE_MDBS);
+  return [
+    { code: '30', mdb: `${MDB_BASE}/30 MORELIA ABASTOS.MDB`, warehouse_code: 'MD-30', name: 'Morelia Abastos' },
+    { code: '32', mdb: `${MDB_BASE}/32 MORELIA MADERO.MDB`, warehouse_code: 'MD-32', name: 'Morelia Madero' },
+    { code: '50', mdb: `${MDB_BASE}/50 CANINDO.MDB`, warehouse_code: 'MD-50', name: 'Canindo' },
+  ];
+})();
 
 const loadState = () => { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; } };
 const saveState = (s) => { try { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 1)); } catch (e) { console.warn('watermark no guardado:', e.message); } };
