@@ -75,7 +75,7 @@ COPY database ./database
 # El heap 4096 es techo, no reserva (view ~3-4GB + api <1GB ≈ 5-6GB de 8GB).
 # Una sola instancia Nx coordina el cache; NO usar `&` de shell (dos procesos
 # nx se pisarían el cache).
-RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx,target=/app/.nx/cache,sharing=locked \
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx2,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx run-many -t build -p view,api --configuration=production --parallel=2
 
