@@ -28,6 +28,24 @@ export interface WeeklyReport {
   by_product: WeeklyProductRow[];
 }
 
+/** ST.1 — Análisis por RANGO personalizado (métricas de operación de tienda). */
+export interface RangeKpi { cur: number; prev: number; delta_pct: number | null; }
+export interface RangeSeriesPoint { date: string; revenue: number; margin: number; units: number; tickets: number; }
+export interface RangeBranchRow { code: string; name: string; revenue: number; margin: number; units: number; tickets: number; avg_ticket: number; }
+export interface RangeProductRow { product_id: string; sku: string; nombre: string; brand: string | null; revenue: number; margin: number; units: number; }
+export interface RangeReport {
+  period: { from: string; to: string; days: number };
+  prev_period: { from: string; to: string };
+  scoped_warehouse: string | null;
+  kpis: {
+    revenue: RangeKpi; margin: RangeKpi; units: RangeKpi; units_official: RangeKpi;
+    tickets: RangeKpi; avg_ticket: RangeKpi; basket: RangeKpi;
+  };
+  series: RangeSeriesPoint[];
+  by_branch: RangeBranchRow[];
+  by_product: RangeProductRow[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class WeeklyService {
   private readonly http = inject(HttpClient);
@@ -39,5 +57,11 @@ export class WeeklyService {
     if (q?.weeks) p.set('weeks', String(q.weeks));
     const qs = p.toString();
     return this.http.get<WeeklyReport>(`${this.base}/weekly${qs ? '?' + qs : ''}`);
+  }
+
+  range(q: { from: string; to: string }): Observable<RangeReport> {
+    const p = new URLSearchParams();
+    p.set('from', q.from); p.set('to', q.to);
+    return this.http.get<RangeReport>(`${this.base}/range?${p.toString()}`);
   }
 }
