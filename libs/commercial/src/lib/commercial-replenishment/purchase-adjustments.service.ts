@@ -758,10 +758,17 @@ export class PurchaseAdjustmentsService {
       const globalHasta = agg.reduce((m, r) => (r.hasta && r.hasta > m ? r.hasta : m), '');
       const mkey = (am: string) => { const [y, mo] = String(am || '').split('-').map(Number); return (y || 0) * 12 + (mo || 0); };
       const gk = mkey(globalHasta);
+      // Mapa inverso ContPAQi→Kepler por nombre normalizado: para que el drill (que resuelve las lentes
+      // Kepler por nombre) funcione al abrir desde una fila ContPAQi con grafía distinta (CANEL'S vs CANEL?S).
+      const norm = (s: string) => (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
+      const knP: any[] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).distinct('proveedor_nombre');
+      const knR: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).distinct('proveedor_nombre');
+      const keplerByNorm = new Map<string, string>();
+      for (const k of knP.concat(knR)) { const nm = k.proveedor_nombre as string; if (nm) { const key = norm(nm); if (key && !keplerByNorm.has(key)) keplerByNorm.set(key, nm); } }
       let rows = agg.map((r) => {
         const saldo = (Number(r.saldo_ini) || 0) + (Number(r.mov) || 0);
         // stale = sin movimiento en 3+ meses (saldo colgado/aging), no solo "le falta el último mes".
-        return { cuenta: r.cuenta, proveedor: r.proveedor, saldo, hasta: r.hasta, stale: !!(r.hasta && gk - mkey(r.hasta) >= 3) };
+        return { cuenta: r.cuenta, proveedor: r.proveedor, proveedor_kepler: keplerByNorm.get(norm(r.proveedor)) || null, saldo, hasta: r.hasta, stale: !!(r.hasta && gk - mkey(r.hasta) >= 3) };
       }).filter((r) => Math.abs(r.saldo) >= 1);
       if (q.search && q.search.trim()) { const s = q.search.trim().toLowerCase(); rows = rows.filter((r) => (r.proveedor || '').toLowerCase().includes(s)); }
       if (q.only_stale) rows = rows.filter((r) => r.stale);
