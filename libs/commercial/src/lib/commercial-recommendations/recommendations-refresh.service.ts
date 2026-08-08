@@ -7,8 +7,8 @@ import { RecommendationsService } from './recommendations.service';
 /**
  * Refresh nightly de las canastas estratégicas.
  *
- * Schedule: 3 AM TZ MX (servidor en UTC suma 6h → '0 9 * * *' UTC ~ 3 AM MX
- * en horario estándar; en DST esto se corre 4 AM, aceptable).
+ * Schedule: 03:20 AM TZ MX (timeZone explícito; el contenedor corre en MX, así
+ * que la hora se expresa en wall-clock MX, no en UTC).
  *
  * Itera todos los customers activos del tenant y recomputa cada uno.
  * Si crece la cantidad, dividir en batches o mover a BullMQ job queue.
@@ -23,7 +23,7 @@ export class RecommendationsRefreshService {
     private readonly recommendations: RecommendationsService,
   ) {}
 
-  @Cron('0 0 9 * * *') // 9 AM UTC = 3 AM MX
+  @Cron('0 20 3 * * *', { timeZone: 'America/Mexico_City' }) // 3:20 AM MX
   async scheduledRefresh(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Skip: previous refresh still running');

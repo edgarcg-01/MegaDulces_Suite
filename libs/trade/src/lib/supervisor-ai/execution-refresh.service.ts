@@ -48,8 +48,8 @@ export class ExecutionRefreshService {
     private readonly adaptiveThresholds: AdaptiveThresholdsService,
   ) {}
 
-  // 08:30 UTC = 02:30 America/Mexico_City (después del refresh de Customer360 a las 08:00 UTC).
-  @Cron('0 30 8 * * *')
+  // 02:40 America/Mexico_City (timeZone explícito; el contenedor corre en MX).
+  @Cron('0 40 2 * * *', { timeZone: 'America/Mexico_City' })
   async scheduledRefresh(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('execution_360 refresh: corrida previa en curso, skip');

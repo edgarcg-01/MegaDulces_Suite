@@ -61,7 +61,7 @@ export class MaatActionProposerService {
     return this.proposeForTenant(this.tenantCtx.requireTenantId());
   }
 
-  @Cron('0 30 9 * * *') // 09:30 UTC = 03:30 MX — tras el scanner (09:00) y el bridge de compras (06:30)
+  @Cron('0 30 3 * * *', { timeZone: 'America/Mexico_City' }) // 03:30 MX — tras el scanner (03:00) y el bridge de compras (00:30)
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: proposer previo aún corriendo'); return; }
     this.running = true;

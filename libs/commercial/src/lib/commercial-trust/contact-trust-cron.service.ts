@@ -26,7 +26,7 @@ export class ContactTrustCronService {
     private readonly engine: ContactTrustEngineService,
   ) {}
 
-  @Cron('0 30 8 * * *') // 8:30 UTC = 2:30 AM MX
+  @Cron('0 30 2 * * *', { timeZone: 'America/Mexico_City' }) // 2:30 AM MX
   async scheduledScan(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Skip: previous contact-trust scan still running');

@@ -23,7 +23,8 @@ export class ReconciliationScannerService {
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
-  @Cron('0 15 9 * * *')
+  // 03:15 MX (timeZone explícito; el contenedor corre en MX).
+  @Cron('0 15 3 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: scan previo aún corriendo'); return; }
     await this.scanAllTenants('cron');

@@ -24,7 +24,7 @@ export class ProspectsRefreshService {
     private readonly prospects: ProspectsService,
   ) {}
 
-  @Cron('0 30 9 * * *') // 9:30 UTC ≈ 3:30 AM MX
+  @Cron('0 40 3 * * *', { timeZone: 'America/Mexico_City' }) // 3:40 AM MX
   async scheduledDedup(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Skip: dedup previo aún corriendo');

@@ -133,8 +133,8 @@ export class CommercialTrackingService {
 
   // ─────────── consolidación (cron, cross-tenant via admin) ───────────
 
-  /** 09:10 UTC = 03:10 MX: consolida el día anterior para todos los usuarios. */
-  @Cron('0 10 9 * * *')
+  /** 03:10 MX (timeZone explícito): consolida el día anterior para todos los usuarios. */
+  @Cron('0 10 3 * * *', { timeZone: 'America/Mexico_City' })
   async scheduledConsolidate(): Promise<void> {
     if (!this.adminKnex) {
       this.logger.debug('Skip consolidate: KNEX_NEW_DB_ADMIN no disponible');

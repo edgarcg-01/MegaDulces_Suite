@@ -50,7 +50,7 @@ export class PurchaseAdjustmentsFindingsBridgeService {
     return this.syncForTenant(this.tenantCtx.requireTenantId());
   }
 
-  @Cron('0 30 6 * * *') // 06:30 UTC = 00:30 America/Mexico_City (tras el scanner de reorden)
+  @Cron('0 30 0 * * *', { timeZone: 'America/Mexico_City' }) // 00:30 America/Mexico_City (tras el scanner de reorden)
   async scheduledSync(): Promise<void> {
     if (process.env.ENABLE_DUP_FINDINGS_SCAN === 'false') return;
     if (!this.sink) { this.logger.debug('FINANCE_FINDINGS_SINK_PORT no ligado — sync no-op.'); return; }

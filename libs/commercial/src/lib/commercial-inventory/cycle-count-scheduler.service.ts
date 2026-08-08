@@ -32,7 +32,7 @@ export class CycleCountSchedulerService {
     private readonly counts: InventoryCountService,
   ) {}
 
-  @Cron('0 0 8 * * *') // 8 AM UTC ≈ 2 AM MX
+  @Cron('0 0 2 * * *', { timeZone: 'America/Mexico_City' }) // 2 AM MX
   async scheduled(): Promise<void> {
     if (process.env.ENABLE_CYCLE_COUNT_CRON !== 'true') return;
     if (this.isRunning) {
