@@ -406,6 +406,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
     { label: 'Cobranza', icon: 'pi pi-money-bill', route: '/finanzas/cobranza', permission: Permission.FINANCE_COLLECTIONS_VER },
     { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+    { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
     { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
@@ -445,7 +446,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Órdenes de entrada', icon: 'pi pi-inbox',                route: '/compras/entradas',           permission: Permission.COMPRAS_VER },
     { label: 'Compras 360',        icon: 'pi pi-table',                route: '/compras/compras-360',        permission: Permission.COMPRAS_VER },
     { label: 'Costo neto',         icon: 'pi pi-dollar',               route: '/compras/costo-neto',         permission: Permission.COMPRAS_VER },
-    { label: 'Cuadre y deuda',     icon: 'pi pi-wallet',               route: '/compras/cuadre-proveedor',   permission: Permission.COMPRAS_VER },
     { label: 'Descuentos y apoyos', icon: 'pi pi-percentage',          route: '/compras/descuentos',         permission: Permission.COMPRAS_VER },
   ];
 

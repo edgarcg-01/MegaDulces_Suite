@@ -288,6 +288,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // CXP.7 — Cuadre y deuda por proveedor (CxP/Tesorería): estado de cuenta 201 Kepler +
+        // deuda real ContPAQi 2120. Vive en Finanzas (el componente sigue en modules/compras
+        // porque consume ComprasService). Antes en /compras/cuadre-proveedor (redirect abajo).
+        path: 'cuadre-proveedor',
+        loadComponent: () => import('./modules/compras/pages/compras-cuadre-proveedor.component').then(m => m.ComprasCuadreProveedorComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
@@ -456,16 +464,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
-        // CXP.7 — Cuadre contable por proveedor: estado de cuenta 201 (Kepler).
+        // CXP.7 — "Cuadre y deuda por proveedor" SE MUDÓ a Finanzas (CxP/Tesorería). Redirects
+        // para bookmarks/links viejos de Compras.
         path: 'cuadre-proveedor',
-        loadComponent: () => import('./modules/compras/pages/compras-cuadre-proveedor.component').then(m => m.ComprasCuadreProveedorComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        redirectTo: '/finanzas/cuadre-proveedor',
+        pathMatch: 'full',
       },
       {
-        // CXP.10 — "Deuda a proveedores" quedó FUSIONADA en "Cuadre y deuda" (cuadre-proveedor,
-        // modo "Lo que se debe"). Redirect para bookmarks/links viejos.
         path: 'deuda-contpaqi',
-        redirectTo: 'cuadre-proveedor',
+        redirectTo: '/finanzas/cuadre-proveedor',
         pathMatch: 'full',
       },
       {
