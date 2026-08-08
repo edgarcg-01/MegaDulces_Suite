@@ -48,16 +48,27 @@ export class StoreService {
       };
       let ins: any[] = [];
       try {
+        // Upsert idempotente: en conflicto ACTUALIZA los campos de datos (sana un ticket
+        // re-empujado con mejor info, p.ej. descripcion de producto que antes venia vacia).
+        // (xmax = 0) => fue alta real -> solo entonces contamos e emitimos (no spam en re-seed).
         ins = await this.knex('analytics.store_live_tickets')
           .insert(row)
           .onConflict(['tenant_id', 'warehouse_code', 'serie', 'folio'])
-          .ignore()
-          .returning('id');
+          .merge({
+            warehouse_name: row.warehouse_name,
+            ticket_ts: row.ticket_ts,
+            total: row.total,
+            forma_pago: row.forma_pago,
+            cajero: row.cajero,
+            items: row.items,
+          })
+          .returning(['id', this.knex.raw('(xmax = 0) AS is_new')]);
       } catch (e: any) {
         this.logger.warn(`ingest insert falló (${t.warehouse_code}/${t.folio}): ${e.message}`);
         continue;
       }
-      if (!ins.length) continue; // ya existía (idempotente)
+      const isNew = ins.length && (ins[0].is_new === true || ins[0].is_new === 't');
+      if (!isNew) continue; // ya existía: solo se actualizaron los datos, no contamos ni emitimos
       inserted++;
       if (!emit) continue; // backfill histórico: no emitir por WS
       this.gateway.emitTicket(TENANT, { ...t, total });
