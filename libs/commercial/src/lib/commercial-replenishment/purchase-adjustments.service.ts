@@ -15,12 +15,17 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * Motor lee/agrega; LLM afinará el tail `sin_motivo` en un paso posterior.
  */
 
-// Predicado SQL: CONSERVA solo referencias externas (deja pasar NULL / '(sin referencia)') y
-// descarta las cuentas INTERNAS de la 201 — traspasos inter-sucursal (SUCURSAL *), caja chica /
-// gastos internos (GASTOS GENERALES/GASTOS CAJA CHICA/CAJA CHICA), viáticos y comisiones internas.
+// Predicado SQL: CONSERVA solo referencias EXTERNAS (deja pasar NULL / '(sin referencia)') y
+// descarta las cuentas INTERNAS de la 201:
+//   · traspasos inter-sucursal (SUCURSAL *)
+//   · caja chica / gastos internos (GASTOS GENERALES / GASTOS CAJA CHICA / CAJA CHICA)
+//   · viáticos y comisiones internas (VIATICOS, COMISION Y VIATICOS, COMISIONES RUTAS)
+//   · nómina / mano de obra propia (NOMINA, AGUINALDO, FINIQUITO, PTU, SUELDO)
+// OJO: usa prefijos ANCLADOS (^) y NUNCA 'COMISION' a secas → así NO esconde a "COMISION FEDERAL
+// DE ELECTRICIDAD" (CFE, proveedor/servicio REAL). Bancos e instituciones externas quedan visibles.
 // `~*` = regex case-insensitive de Postgres; sin bindings (?), string literal → seguro con knex.raw.
 const INTERNAL_REF_KEEP =
-  `(referencia IS NULL OR referencia !~* '^(SUCURSAL |GASTOS GENERALES|GASTOS CAJA CHICA|CAJA CHICA|VIATICOS|COMISION Y VIATICOS)')`;
+  `(referencia IS NULL OR referencia !~* '^(SUCURSAL |GASTOS GENERALES|GASTOS CAJA CHICA|CAJA CHICA|VIATICOS|COMISION Y VIATICOS|COMISIONES RUTAS|NOMINA|AGUINALDO|FINIQUITO|PTU|SUELDO)')`;
 
 export interface AdjustmentsQuery {
   doctype?: string;    // XD40 | XD55
