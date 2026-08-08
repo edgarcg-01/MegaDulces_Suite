@@ -19,7 +19,8 @@ export class EstatusScannerService {
     private readonly estatus: EstatusService,
   ) {}
 
-  @Cron('0 0 9 * * *')
+  // 01:30 MX (timeZone explícito; el contenedor corre en MX).
+  @Cron('0 30 1 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: validación de estatus previa aún corriendo'); return; }
     this.running = true;

@@ -51,10 +51,12 @@ export class MegaDulcesSyncService {
   ) {}
 
   /**
-   * Schedule fijo: 03:00 AM hora MX cada noche.
-   * `0 0 9 * * *` = 09:00 UTC = 03:00 MX (sin DST en la mayoría del país).
+   * Schedule fijo: 03:05 AM hora MX cada noche.
+   * El contenedor corre en TZ MX (Dockerfile), así que fijamos timeZone explícito
+   * y la hora en wall-clock MX — NO en UTC (bug histórico: sin timeZone, @Cron usa
+   * la hora local del proceso = MX, así que un '0 0 9' disparaba a las 9 AM MX).
    */
-  @Cron('0 0 9 * * *')
+  @Cron('0 5 3 * * *', { timeZone: 'America/Mexico_City' })
   async scheduledSync(): Promise<void> {
     if (!this.adminKnex) {
       this.logger.debug('Skip: KNEX_NEW_DB_ADMIN no disponible (DATABASE_URL_NEW no seteado)');

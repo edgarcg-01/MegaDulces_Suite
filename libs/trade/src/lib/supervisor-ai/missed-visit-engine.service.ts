@@ -82,8 +82,8 @@ export class MissedVisitEngineService {
     )`;
   }
 
-  // 03:00 UTC = 21:00 America/Mexico_City (fin de jornada). MX no observa DST → offset fijo.
-  @Cron('0 0 3 * * *')
+  // 21:00 America/Mexico_City (fin de jornada; timeZone explícito, el contenedor corre en MX).
+  @Cron('0 0 21 * * *', { timeZone: 'America/Mexico_City' })
   async scheduledScan(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('missed_visit scan: corrida previa en curso, skip');

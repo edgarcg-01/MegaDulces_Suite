@@ -30,7 +30,7 @@ export class Customer360RefreshService {
     private readonly calibration: CommercialCalibrationService,
   ) {}
 
-  @Cron('0 0 8 * * *') // 8 AM UTC = 2 AM MX
+  @Cron('0 0 2 * * *', { timeZone: 'America/Mexico_City' }) // 2 AM MX (antes del refresh de execution_360 a las 2:40)
   async scheduledRefresh(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Skip: previous customer_360 refresh still running');

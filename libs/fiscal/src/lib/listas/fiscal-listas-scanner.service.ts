@@ -26,7 +26,8 @@ export class FiscalListasScannerService {
     private readonly bridge: FiscalFindingsBridgeService,
   ) {}
 
-  @Cron('0 0 7 * * *')
+  // 01:00 MX (timeZone explícito; el contenedor corre en MX).
+  @Cron('0 0 1 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: scan fiscal previo aún corriendo'); return; }
     await this.runFullScan('cron');

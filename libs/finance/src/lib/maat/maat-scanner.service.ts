@@ -29,7 +29,9 @@ export class MaatScannerService {
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
-  @Cron('0 0 9 * * *')
+  // 03:00 MX (timeZone explícito: el contenedor corre en MX; sin timeZone un
+  // '0 0 9' disparaba a las 9 AM MX en plena hora pico de vendedores).
+  @Cron('0 0 3 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: scan previo aún corriendo'); return; }
     await this.scanAllTenants('cron');

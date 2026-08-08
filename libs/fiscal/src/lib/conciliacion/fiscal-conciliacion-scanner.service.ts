@@ -21,7 +21,8 @@ export class FiscalConciliacionScannerService {
     private readonly cruce: PolizaCruceService,
   ) {}
 
-  @Cron('0 0 8 * * *')
+  // 02:15 MX (timeZone explícito; el contenedor corre en MX).
+  @Cron('0 15 2 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: conciliación previa aún corriendo'); return; }
     this.running = true;

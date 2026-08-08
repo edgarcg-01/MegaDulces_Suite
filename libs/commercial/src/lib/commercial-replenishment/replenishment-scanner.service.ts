@@ -25,7 +25,7 @@ export class ReplenishmentScannerService {
 
   constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
 
-  @Cron('0 0 6 * * *') // 06:00 UTC = 00:00 America/Mexico_City
+  @Cron('0 0 0 * * *', { timeZone: 'America/Mexico_City' }) // 00:00 America/Mexico_City
   async scheduledScan(): Promise<void> {
     if (process.env.ENABLE_REPLENISHMENT_SCAN === 'false') return;
     if (this.isRunning) { this.logger.warn('Skip: previous scan still running'); return; }
