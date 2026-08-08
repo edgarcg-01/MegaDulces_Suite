@@ -1016,12 +1016,11 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.cuadreError.set(null);
     forkJoin({
       ledger: this.api.transfersLedger(f),
-      matrix: this.api.transfersMatrix(f),
-      check: this.api.transfersCheck(f),
+      physical: this.api.transfersPhysical(f), // matriz + check en 1 ejecución del pareo (dedup)
       wincaja: this.api.transfersWincajaCheck(f),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
-        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check); this.wincaja.set(r.wincaja);
+        this.ledger.set(r.ledger); this.matrix.set(r.physical.matrix); this.check.set(r.physical.check); this.wincaja.set(r.wincaja);
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       // No tragar la falla: si un endpoint 500ea, mostrar error + reintentar (no "Sin datos" engañoso).

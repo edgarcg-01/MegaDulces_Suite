@@ -526,25 +526,27 @@ export class CommercialMovementsService {
    *   sin_recepcion → salió y nadie lo ha recibido (en tránsito o perdido)
    *   sin_origen    → recepción sin salida visible (origen fuera de ventana o no registrado)
    */
-  async transfersCheck(q: MovementsQuery) {
+  /**
+   * DM.12/DM.3 — PAREO FÍSICO base (una sola ejecución del CTE) → deriva EN JS tanto el `check`
+   * folio a folio como la `matrix` origen→destino. Antes transfersCheck y transfersMatrix corrían
+   * el MISMO pareo LATERAL dos veces por carga del Cuadre; esto lo computa una vez (dedup).
+   * Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
+   * sucursales; el LATERAL elige la salida de cantidad+fecha más cercana. La matriz excluye
+   * 'sin_origen' (recepción sin salida visible) para conservar su semántica original (origen→destino).
+   */
+  async transfersPhysical(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     const whs = this.whIds(q);
     const twhs = this.transferWhIds(q);
-    // DM.11b — mismo filtro de destino que el listado: por defecto solo sucursal (evita que
-    // rutas/clientes aparezcan como falsos "sin recepción"). ROUTE_RX sin `?` → seguro inline.
     const destSql = this.destBucketSql(this.destKinds(q), tenantId);
     const shpDestSql = destSql ? ` AND ${destSql}` : '';
     return this.tk.run(async (trx) => {
-      // Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
-      // sucursales de origen. Ranking LATERAL: para cada recepción se elige el candidato de
-      // salida con cantidad más cercana (y luego fecha más cercana). c10/c11 no discriminan
-      // (verificado 2026-07-10: par real con TI001≠TI002).
-      const rows = (await trx.raw(`
+      const all: any[] = (await trx.raw(`
         WITH shp AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label  -- DM.11 destino
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
@@ -567,8 +569,8 @@ export class CommercialMovementsService {
             WHERE s.folio = r.parent_folio
               AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
               AND s.warehouse_id <> r.warehouse_id
-              AND s.doc_date <= r.doc_date  -- física: la recepción nunca es anterior a la salida (folios colisionan entre sucursales)
-              AND s.doc_date >= r.doc_date - 15  -- tope de tránsito 15d (99.4% de los pareos exactos ≤11d); más viejo = coincidencia de folio
+              AND s.doc_date <= r.doc_date
+              AND s.doc_date >= r.doc_date - 15
             ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
             LIMIT 1
           ) s ON true
@@ -592,23 +594,55 @@ export class CommercialMovementsService {
           FROM paired
           UNION ALL
           SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
           FROM unreceived u
           LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
           LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
         ) t
-        WHERE 1=1 ${whs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
-                  ${twhs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
-        ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
-                 coalesce(t.ship_date, t.rcv_date) DESC
-        LIMIT 500
-      `, [tenantId, from, to, tenantId, from, to, tenantId,
-          ...(whs.length ? [whs, whs] : []),
-          ...(twhs.length ? [twhs, twhs] : [])])).rows;
-      const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
-      for (const r of rows) totals[r.status as keyof typeof totals]++;
-      return { range: { from, to }, totals, rows };
+        LIMIT 50000
+      `, [tenantId, from, to, tenantId, from, to, tenantId])).rows;
+
+      // ── check: folio a folio (honra whs/twhs), prioriza problemas, top 500 ──
+      const inSet = (r: any, set: string[]) => set.includes(r.origin_wh_id) || set.includes(r.dest_wh_id);
+      let checkAll = all;
+      if (whs.length) checkAll = checkAll.filter((r) => inSet(r, whs));
+      if (twhs.length) checkAll = checkAll.filter((r) => inSet(r, twhs));
+      const cTotals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
+      for (const r of checkAll) cTotals[r.status as keyof typeof cTotals]++;
+      const prio: Record<string, number> = { diferencia: 0, sin_recepcion: 1, sin_origen: 2, ok: 4 };
+      const dms = (r: any) => new Date(r.ship_date || r.rcv_date || 0).getTime();
+      const checkRows = [...checkAll]
+        .sort((a, b) => (prio[a.status] - prio[b.status]) || (dms(b) - dms(a)))
+        .slice(0, 500);
+
+      // ── matrix: agrega por par origen→destino (excluye sin_origen), top 300 por monto ──
+      const mmap = new Map<string, any>();
+      for (const r of all) {
+        if (r.status === 'sin_origen') continue;
+        const key = `${r.origin_wh_id || ''}|${r.dest_wh_id || ''}`;
+        let m = mmap.get(key);
+        if (!m) { m = { origin_wh_id: r.origin_wh_id, origin_wh: r.origin_wh, dest_wh_id: r.dest_wh_id, dest_wh: r.dest_wh, qty_sent: 0, qty_received: 0, amount: 0, n_ok: 0, n_diferencia: 0, n_sin_recepcion: 0 }; mmap.set(key, m); }
+        m.qty_sent += Number(r.qty_sent) || 0; m.qty_received += Number(r.qty_received) || 0; m.amount += Number(r.amount) || 0;
+        if (r.status === 'ok') m.n_ok++; else if (r.status === 'diferencia') m.n_diferencia++; else if (r.status === 'sin_recepcion') m.n_sin_recepcion++;
+      }
+      const mRows = [...mmap.values()]
+        .map((m) => ({ ...m, delta_qty: m.qty_received - m.qty_sent }))
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 300);
+      const mTotals = { qty_sent: 0, qty_received: 0, amount: 0, n_ok: 0, n_diferencia: 0, n_sin_recepcion: 0 };
+      for (const m of mRows) { mTotals.qty_sent += m.qty_sent; mTotals.qty_received += m.qty_received; mTotals.amount += m.amount; mTotals.n_ok += m.n_ok; mTotals.n_diferencia += m.n_diferencia; mTotals.n_sin_recepcion += m.n_sin_recepcion; }
+
+      return {
+        range: { from, to },
+        check: { range: { from, to }, totals: cTotals, rows: checkRows },
+        matrix: { range: { from, to }, totals: mTotals, rows: mRows },
+      };
     });
+  }
+
+  /** DM.3 — folio a folio (delegado a transfersPhysical; una sola ejecución del pareo). */
+  async transfersCheck(q: MovementsQuery) {
+    return (await this.transfersPhysical(q)).check;
   }
 
   /**
@@ -773,76 +807,7 @@ export class CommercialMovementsService {
    * sucursales entre las que no cuadra. Honra rango de fechas + destino; ignora filtro de almacén.
    */
   async transfersMatrix(q: MovementsQuery) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const { from, to } = this.range(q);
-    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
-    const shpDestSql = destSql ? ` AND ${destSql}` : '';
-    return this.tk.run(async (trx) => {
-      const rows = (await trx.raw(`
-        WITH shp AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
-                 SUM(m.qty) AS qty, SUM(m.amount) AS amount, max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label,
-                 MIN(m.doc_date) AS doc_date
-          FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
-        ), rcv AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty
-          FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
-        ), paired AS (
-          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.qty AS qty_sent, s.amount,
-                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.qty AS qty_received,
-                 CASE WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 'ok' ELSE 'diferencia' END AS status
-          FROM rcv r
-          JOIN LATERAL (
-            SELECT * FROM shp s WHERE s.folio = r.parent_folio
-              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
-              AND s.warehouse_id <> r.warehouse_id
-              AND s.doc_date <= r.doc_date AND s.doc_date >= r.doc_date - 15
-            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
-            LIMIT 1
-          ) s ON true
-        ), unreceived AS (
-          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.qty AS qty_sent, s.amount,
-                 dm.warehouse_id AS dest_wh_id, coalesce(dw.name, dw.code, s.dest_label, s.dest_code) AS dest_wh,
-                 0::numeric AS qty_received, 'sin_recepcion' AS status
-          FROM shp s
-          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = s.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
-          WHERE NOT EXISTS (
-            SELECT 1 FROM rcv r WHERE r.parent_folio = s.folio
-              AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
-              AND r.warehouse_id <> s.warehouse_id
-              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
-        )
-        SELECT origin_wh_id, origin_wh, dest_wh_id, dest_wh,
-               SUM(qty_sent)::numeric AS qty_sent, SUM(qty_received)::numeric AS qty_received,
-               SUM(amount)::numeric AS amount, (SUM(qty_received) - SUM(qty_sent))::numeric AS delta_qty,
-               count(*) FILTER (WHERE status='ok')::int AS n_ok,
-               count(*) FILTER (WHERE status='diferencia')::int AS n_diferencia,
-               count(*) FILTER (WHERE status='sin_recepcion')::int AS n_sin_recepcion
-        FROM (SELECT * FROM paired UNION ALL SELECT * FROM unreceived) t
-        GROUP BY origin_wh_id, origin_wh, dest_wh_id, dest_wh
-        ORDER BY SUM(amount) DESC NULLS LAST
-        LIMIT 300
-      `, [tenantId, from, to, tenantId, from, to, tenantId])).rows;
-      const totals = {
-        qty_sent: 0, qty_received: 0, amount: 0,
-        n_ok: 0, n_diferencia: 0, n_sin_recepcion: 0,
-      };
-      for (const r of rows) {
-        totals.qty_sent += Number(r.qty_sent) || 0;
-        totals.qty_received += Number(r.qty_received) || 0;
-        totals.amount += Number(r.amount) || 0;
-        totals.n_ok += r.n_ok; totals.n_diferencia += r.n_diferencia; totals.n_sin_recepcion += r.n_sin_recepcion;
-      }
-      return { range: { from, to }, totals, rows };
-    });
+    return (await this.transfersPhysical(q)).matrix;
   }
 
   /**
@@ -1223,10 +1188,10 @@ export class CommercialMovementsService {
 
   /** DM.12 — junta los lentes del cuadre (contable + matriz física + folios + detalle) para el PDF. */
   async exportCuadreData(q: MovementsQuery) {
-    const [ledger, matrix, check, detail] = await Promise.all([
-      this.transfersLedger(q), this.transfersMatrix(q), this.transfersCheck(q), this.transfersLedgerDetail(q),
+    const [ledger, physical, detail] = await Promise.all([
+      this.transfersLedger(q), this.transfersPhysical(q), this.transfersLedgerDetail(q),
     ]);
-    return { range: this.range(q), ledger, matrix, check, detail };
+    return { range: this.range(q), ledger, matrix: physical.matrix, check: physical.check, detail };
   }
 
   /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */
