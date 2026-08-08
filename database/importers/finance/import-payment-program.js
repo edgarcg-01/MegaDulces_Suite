@@ -227,12 +227,13 @@ async function reconKepler(db) {
           kepler_flag=EXCLUDED.kepler_flag, concepto=EXCLUDED.concepto, recibio=EXCLUDED.recibio, updated_at=now()`, params);
       up += res.rowCount;
     }
-    // términos → suppliers (match por nombre; solo donde resuelve)
+    // términos → suppliers (match por nombre; solo donde resuelve). El DESCUENTO PP NO se escribe
+    // aquí: vive en commercial.supplier_discount_policy (evita duplicar la política de descuento).
     let tset = 0;
     for (const t of terms) {
       const s = resolveSupplier(t.name); if (!s) continue;
-      await db.query(`UPDATE catalog.suppliers SET credit_days=COALESCE($2,credit_days), pp_discount_pct=COALESCE($3,pp_discount_pct), invoice_type=COALESCE($4,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$5`,
-        [M, t.credit_days, t.pp, t.invoice_type, s.id]);
+      await db.query(`UPDATE catalog.suppliers SET credit_days=COALESCE($2,credit_days), invoice_type=COALESCE($3,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$4`,
+        [M, t.credit_days, t.invoice_type, s.id]);
       tset++;
     }
     await db.query('COMMIT');

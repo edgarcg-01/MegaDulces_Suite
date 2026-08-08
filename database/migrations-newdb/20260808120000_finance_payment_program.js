@@ -69,9 +69,10 @@ exports.up = async function (knex) {
       await knex.raw(`ALTER TABLE catalog.suppliers ADD COLUMN ${ddl}`);
     }
   };
-  await addCol('credit_days', 'credit_days int');                 // DÍAS DE CRÉDITO
-  await addCol('pp_discount_pct', 'pp_discount_pct numeric');     // DESCUENTO PRONTO PAGO %
+  await addCol('credit_days', 'credit_days int');                 // DÍAS DE CRÉDITO (net terms)
   await addCol('invoice_type', "invoice_type text");             // 'fiscal' | 'remision'
+  // NOTA: el DESCUENTO PRONTO PAGO NO se guarda aquí — vive en commercial.supplier_discount_policy
+  // (expected_discount_rate/discount_days/discount_type). Evita duplicar la política de descuento.
 };
 
 exports.down = async function (knex) {

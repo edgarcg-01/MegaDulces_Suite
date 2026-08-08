@@ -20,7 +20,7 @@ interface PPRow {
   supplier_text: string | null; supplier_name: string | null; sucursal_code: string | null;
   tipo: string | null; method: string | null; method_ref: string | null; bank_text: string | null;
   amount: number; invoice_folios: string | null; kepler_flag: boolean | null;
-  credit_days: number | null; pp_discount_pct: number | null;
+  credit_days: number | null;
 }
 interface PPResponse {
   rows: PPRow[];
@@ -50,7 +50,7 @@ interface PPRecon { months: PPReconMonth[] }
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Programa de Pagos</h1>
-          <p class="surf-page-sub">Qué paga Tesorería, a quién, de qué banco, con qué método y cuándo — mes a mes. <b>KEPLER</b> marca si el pago ya quedó registrado en el ERP. Espejo del programa de pagos (read-only).</p>
+          <p class="surf-page-sub">Ejecución de pagos de Tesorería <b>vs</b> el ERP: qué ya se pagó (banco, método, cuándo) y qué <b>aún no está asentado en Kepler</b> (columna KEPLER). Útil sobre todo para el mes en curso —lo ya posteado se ve al detalle en <b>Pagos a proveedor</b>. Espejo read-only del programa.</p>
         </div>
         <div class="pp-head-actions">
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showRecon()" (click)="toggleRecon()"><span class="pi pi-check-square" aria-hidden="true"></span>&nbsp;Conciliación</button>
@@ -155,7 +155,7 @@ interface PPRecon { months: PPReconMonth[] }
             <tr><td colspan="9"><div class="pp-empty-op"><i class="pi pi-inbox" aria-hidden="true"></i><span class="pp-empty-op-title">Sin pagos</span><span class="pp-empty-op-sub">Ningún pago coincide con los filtros.</span></div></td></tr>
           </ng-template>
         </p-table>
-        <p class="pp-foot">Espejo del <b>Programa de Pagos</b> de Tesorería (finance.payment_program). <b>Método</b>: transferencia/cheque/factoraje/anticipo. <b>KEPLER</b>: ✓ registrado en el ERP · <b>no</b> = pagado pero aún no asentado (normal en el mes en curso). "·?" = proveedor no resuelto contra el catálogo. Máx {{ d.rows.length }} filas mostradas.</p>
+        <p class="pp-foot">Espejo del <b>Programa de Pagos</b> de Tesorería (finance.payment_program). <b>Valor único:</b> los pagos con KEPLER=<b>no</b> son ejecutados por Tesorería y <b>aún no asentados en el ERP</b> (en agosto: la mayoría, por el rezago de posteo). Lo ya posteado vive con más detalle en <b>Pagos a proveedor</b> (analytics.erp_supplier_payments) y la política de descuento en Compras. <b>Método</b>: transferencia/cheque/factoraje/anticipo. "·?" = proveedor no resuelto. Máx {{ d.rows.length }} filas.</p>
       }
     </div>
   `,

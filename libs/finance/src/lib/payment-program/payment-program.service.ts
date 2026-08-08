@@ -45,7 +45,7 @@ export class PaymentProgramService {
         .select('pp.id', 'pp.source_month', 'pp.pay_date', 'pp.clearing_date', 'pp.supplier_text',
           'pp.sucursal_code', 'pp.tipo', 'pp.method', 'pp.method_ref', 'pp.bank_text',
           'pp.amount', 'pp.invoice_folios', 'pp.kepler_flag',
-          trx.raw('s.name AS supplier_name'), trx.raw('s.credit_days AS credit_days'), trx.raw('s.pp_discount_pct AS pp_discount_pct'))
+          trx.raw('s.name AS supplier_name'), trx.raw('s.credit_days AS credit_days'))
         .orderByRaw('pp.pay_date desc nulls last, pp.amount desc')
         .limit(limit);
 
