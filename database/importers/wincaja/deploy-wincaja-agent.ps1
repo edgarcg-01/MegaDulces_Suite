@@ -121,23 +121,40 @@ function Get-NewTickets {
       })
     }
     $r2.Close()
+    # Anti-carrera (.mdb vivo): NO empujar tickets con 0 lineas y NO avanzar el watermark por
+    # debajo del folio EN CURSO mas viejo (0 items y fresco < GRACE) -> se re-lee hasta que
+    # tenga lineas y el merge del ingest lo sana. 0-items VIEJO = huerfano real: se ignora.
+    $GRACE_MIN = 5
+    $now = Get-Date
+    $graceCut = $now.AddMinutes(-1 * $GRACE_MIN)
     $tickets = New-Object System.Collections.ArrayList
+    $firstInProgress = $null
     foreach ($cons in $heads.Keys) {
       $items = if ($lines.ContainsKey($cons)) { @($lines[$cons]) } else { @() }
-      $total = ($items | Measure-Object -Property importe -Sum).Sum
-      [void]$tickets.Add([pscustomobject]@{
-        warehouse_code = $WarehouseCode
-        warehouse_name = $WarehouseName
-        serie          = 'WC'
-        folio          = $cons
-        ticket_ts      = $heads[$cons].ts
-        total          = [double]$total
-        forma_pago     = $null
-        cajero         = $heads[$cons].cajero
-        items          = $items
-      })
+      if ($items.Count -gt 0) {
+        $total = ($items | Measure-Object -Property importe -Sum).Sum
+        [void]$tickets.Add([pscustomobject]@{
+          warehouse_code = $WarehouseCode
+          warehouse_name = $WarehouseName
+          serie          = 'WC'
+          folio          = $cons
+          ticket_ts      = $heads[$cons].ts
+          total          = [double]$total
+          forma_pago     = $null
+          cajero         = $heads[$cons].cajero
+          items          = $items
+        })
+      } else {
+        $tdt = try { [datetime]::Parse($heads[$cons].ts) } catch { $now }
+        if ($tdt -ge $graceCut) {
+          $ci = intval $cons
+          if ($null -eq $firstInProgress -or $ci -lt $firstInProgress) { $firstInProgress = $ci }
+        }
+      }
     }
-    return @{ tickets = @($tickets | Sort-Object { intval $_.folio }); maxCons = $maxCons }
+    $safeMax = if ($null -ne $firstInProgress) { [int64]($firstInProgress - 1) } else { $maxCons }
+    if ($safeMax -lt $sinceCons) { $safeMax = $sinceCons }
+    return @{ tickets = @($tickets | Sort-Object { intval $_.folio }); maxCons = $safeMax }
   } finally { $conn.Close() }
 }
 function Push-Tickets($tickets) {
