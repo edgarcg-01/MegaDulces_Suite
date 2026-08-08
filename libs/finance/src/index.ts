@@ -24,3 +24,5 @@ export * from './lib/bank-capture/finance-bank-capture.module';
 export * from './lib/bank-capture/bank-capture.service';
 export * from './lib/polizas/finance-polizas.module';
 export * from './lib/polizas/polizas.service';
+export * from './lib/payment-program/finance-payment-program.module';
+export * from './lib/payment-program/payment-program.service';

@@ -296,6 +296,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
+        path: 'programa-pagos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
