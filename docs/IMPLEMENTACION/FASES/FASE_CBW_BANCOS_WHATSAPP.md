@@ -167,7 +167,7 @@ Bloquean **producción real**, NO el desarrollo con simulador:
 1. Credenciales Meta reales en Railway: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` + `WHATSAPP_PROVIDER=meta` (hoy el canal está en simulador).
 2. `ANTHROPIC_API_KEY` en Railway (ya requerido por Maat/OCR).
 3. `CLOUDINARY_*` en Railway (ya requerido).
-4. **Lista de remitentes** (teléfono E.164 → nombre → sucursal → cuenta por defecto) para el seed de CBW.1.
+4. **Lista de remitentes** (teléfono → nombre → sucursal → cuenta) — el importer ya está listo: `database/scripts/seed-bank-capture-senders.js` (CSV/JSON, normaliza teléfono, resuelve cuenta, UPSERT idempotente, dry-run por default). Solo falta llenar la lista y correr `--apply`. Formato CSV: `phone,full_name,sucursal,cuenta`.
 5. Confirmar que el número es interno; si se comparte con el bot comercial, el ruteo por allowlist ya separa caminos (mismo número, dos flujos según remitente).
 6. Migración de las 2 tablas + permisos aplicada a Railway (Batch nuevo).
 
