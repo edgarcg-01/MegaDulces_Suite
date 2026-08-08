@@ -20,6 +20,7 @@ const ExcelJS = require('exceljs');
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
+const RECON_ONLY = process.argv.includes('--recon-only');   // PP.4: solo re-derivar kepler_matched
 const M = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const FILE = process.env.FILE || 'C:/Users/Sistemas/Downloads/PROGRAMA PAGOS 2026 (1).xlsx';
 
@@ -83,10 +84,40 @@ function mapHeaders(ws) {
   };
 }
 
+// PP.4 — deriva kepler_matched: ¿existe en Kepler un pago 201 (XD2601/XD2501) que empate este pago
+// del programa? Match por (mes + monto ±$1 + solapamiento de tokens proveedor↔referencia). Robusto y
+// full-cobertura (todos los meses, no solo los que traen la columna KEPLER en el Excel).
+async function reconKepler(db) {
+  const kp = (await db.query(
+    `SELECT anio_mes, referencia, round(importe::numeric) amt FROM analytics.gl_poliza_lines
+      WHERE tenant_id=$1 AND source='kepler' AND cuenta_mayor='201' AND tipo_pol IN ('XD2601','XD2501') AND anio_mes >= '2026-01'`, [M])).rows;
+  const idx = new Map();
+  for (const r of kp) { const k = `${r.anio_mes}|${Number(r.amt)}`; if (!idx.has(k)) idx.set(k, []); idx.get(k).push(new Set(normTokens(r.referencia))); }
+  const pp = (await db.query(`SELECT id, source_month, amount, supplier_text FROM finance.payment_program WHERE tenant_id=$1`, [M])).rows;
+  const yes = [], no = [];
+  for (const p of pp) {
+    const amt = Math.round(Number(p.amount) || 0); const ptok = new Set(normTokens(p.supplier_text)); let ok = false;
+    for (const d of [0, 1, -1]) {
+      const bucket = idx.get(`${p.source_month}|${amt + d}`); if (!bucket) continue;
+      for (const rtok of bucket) {
+        if (!ptok.size) { ok = true; break; }
+        let inter = 0; for (const w of ptok) if (rtok.has(w)) inter++;
+        if (inter / Math.max(1, Math.min(ptok.size, rtok.size)) >= 0.4) { ok = true; break; }
+      }
+      if (ok) break;
+    }
+    (ok ? yes : no).push(p.id);
+  }
+  const upd = async (ids, val) => { for (let i = 0; i < ids.length; i += 1000) { const c = ids.slice(i, i + 1000); await db.query(`UPDATE finance.payment_program SET kepler_matched=$2, updated_at=now() WHERE tenant_id=$1 AND id = ANY($3::uuid[])`, [M, val, c]); } };
+  await upd(yes, true); await upd(no, false);
+  console.log(`  recon Kepler: ${yes.length} con registro · ${no.length} SIN registro en Kepler (de ${pp.length})`);
+}
+
 (async () => {
   const db = new Client({ connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW || '') ? false : { rejectUnauthorized: false } });
   await db.connect();
   await db.query(`select set_config('app.tenant_id',$1,false)`, [M]);
+  if (RECON_ONLY) { console.log('\n=== PP.4 recon Kepler (solo re-derivar kepler_matched) ==='); await reconKepler(db); await db.end(); return; }
   console.log(`\n=== Import PROGRAMA PAGOS → finance.payment_program (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n  archivo: ${FILE}`);
 
   // catálogo de proveedores para resolver (index por token)
@@ -207,5 +238,9 @@ function mapHeaders(ws) {
     await db.query('COMMIT');
     console.log(`\n[APPLY] payment_program upsert=${up} · términos aplicados a ${tset} proveedores.`);
   } catch (e) { await db.query('ROLLBACK'); throw e; }
+  // NOTA PP.4: NO se auto-deriva kepler_matched — el match per-pago vs Kepler 201 resultó poco
+  // confiable (pagos batcheados / monto posteado distinto / cruce de mes → falsos "sin registro",
+  // validado contra el flag propio del Excel jul/ago). La señal confiable es la columna KEPLER de
+  // Tesorería. `--recon-only` deja la heurística disponible como experimento, no como control.
   await db.end();
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });

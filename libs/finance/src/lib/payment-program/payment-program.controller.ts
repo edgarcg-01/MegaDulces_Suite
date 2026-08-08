@@ -30,6 +30,13 @@ export class PaymentProgramController {
     return this.svc.list(q);
   }
 
+  @Get('recon')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PP.4 — conciliación por mes: control 3-vías (programa/Kepler-201/bancos-CB, universos distintos = informativo) + flag KEPLER de Tesorería (señal confiable de pagado-no-asentado).' })
+  recon() {
+    return this.svc.recon();
+  }
+
   @Get('facets')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Facetas para filtros: meses, bancos, métodos, tipos.' })
