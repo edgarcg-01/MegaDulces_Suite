@@ -61,7 +61,9 @@ export class MaatFindingsService {
       const pend: any = await base().whereIn('status', ['nuevo', 'en_revision'])
         .select(trx.raw('COUNT(*)::int AS n'),
           trx.raw("COUNT(*) FILTER (WHERE severity='critical')::int AS criticos"),
-          trx.raw('ROUND(SUM(importe)::numeric,2) AS monto')).first();
+          // "$ en riesgo" = SOLO riesgo/error de captura con severidad accionable (warn/critical).
+          // Las oportunidades (ahorro por spread) e info NO son dinero en riesgo → no inflan el KPI.
+          trx.raw("ROUND(SUM(importe) FILTER (WHERE clase IN ('riesgo','error_captura') AND severity IN ('warn','critical'))::numeric,2) AS monto")).first();
       const porClase = await base().whereIn('status', ['nuevo', 'en_revision'])
         .groupBy('clase').select('clase', trx.raw('COUNT(*)::int AS n')).orderBy('clase');
       return {

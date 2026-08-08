@@ -63,7 +63,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
   { rule_key: 'contpaqi_proveedor_efos', clase: 'riesgo', nombre: 'Proveedor en lista negra del SAT (EFOS/69)', descripcion: 'Proveedor de la contabilidad (ContPAQi) cuyo RFC está en la lista negra del SAT: 69B = EFOS (facturan operaciones simuladas → CFDI no deducible, foco de auditoría), 69 = art. 69 CFF (incumplido / no localizado / cancelado). Cruce por RFC exacto sobre los proveedores reales de los libros.', params: {} },
-  { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, min_proveedores: 2, min_compras: 2 } },
+  { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, max_spread_pct: 300, min_proveedores: 2, min_compras: 2 } },
   // PV.2 — validación de pólizas (Fase PV): ¿se subió mal esta póliza? Leen analytics.gl_polizas/gl_poliza_lines.
   { rule_key: 'poliza_no_cuadra', clase: 'error_captura', nombre: 'Póliza descuadrada', descripcion: 'Póliza cuyos cargos ≠ abonos (rompe la partida doble). Fuente ContPAQi (libros fiscales). Es la validación de raíz que antes no se podía hacer por falta del detalle de dos patas por póliza.', params: { min_monto: 1, limit: 300 } },
   { rule_key: 'cuenta_no_afectable', clase: 'error_captura', nombre: 'Posteo a cuenta no afectable', descripcion: 'Una pata de póliza postea a una cuenta de agrupación (no de detalle/hoja) — típico error de captura que descuadra reportes por cuenta.', params: { min_monto: 1, limit: 200 } },
@@ -458,6 +458,10 @@ export class MaatDetectorService {
   // ── oportunidad: mismo SKU a varios proveedores con spread de precio ──
   private async detSpread(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
     const minSpread = (Number(p.min_spread_pct) || 15) / 100;
+    // Tope superior: un spread > maxSpread (300% ⇒ el más caro cuesta >4× el más barato) NO es
+    // una diferencia de precio negociable — es MEZCLA DE UNIDADES (pieza vs caja vs kg) o una
+    // pseudo-línea contable ('00001' = "VENTAS AL 0 %", $1 vs $713k). Se descarta.
+    const maxSpread = (Number(p.max_spread_pct) || 300) / 100;
     const minProv = Number(p.min_proveedores) || 2;
     const rows = await trx('analytics.expense_document_lines as l')
       .join('analytics.expense_documents as d', function (this: any) {
@@ -465,9 +469,11 @@ export class MaatDetectorService {
           .andOn('d.doc_tipo', 'l.doc_tipo').andOn('d.doc_folio', 'l.doc_folio');
       })
       .where('l.tenant_id', tenantId).whereRaw('l.costo_unitario > 0').whereNotNull('d.beneficiario')
+      // Excluye pseudo-SKUs contables (no son productos comprables): ventas/IVA/ajustes.
+      .whereRaw("l.sku !~ '^0+$' AND COALESCE(l.producto,'') !~* '^(VENTAS|IVA|AJUSTE|REDONDEO|DESCUENTO)'")
       .groupBy('l.sku')
       .havingRaw('count(distinct d.beneficiario) >= ?', [minProv])
-      .havingRaw('min(l.costo_unitario) > 0 AND (max(l.costo_unitario)-min(l.costo_unitario))/min(l.costo_unitario) >= ?', [minSpread])
+      .havingRaw('min(l.costo_unitario) > 0 AND (max(l.costo_unitario)-min(l.costo_unitario))/min(l.costo_unitario) BETWEEN ? AND ?', [minSpread, maxSpread])
       .select('l.sku', trx.raw('MAX(l.producto) AS producto'),
         trx.raw('ROUND(MIN(l.costo_unitario)::numeric,2) AS min_c'), trx.raw('ROUND(MAX(l.costo_unitario)::numeric,2) AS max_c'),
         trx.raw('count(distinct d.beneficiario)::int AS provs'), trx.raw('SUM(l.cantidad)::numeric AS qty'))
