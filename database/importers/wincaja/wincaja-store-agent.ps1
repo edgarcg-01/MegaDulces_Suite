@@ -138,7 +138,7 @@ if (-not $Dry) {
   if (-not $IngestKey) { throw 'Falta STORE_INGEST_KEY (-IngestKey o env).' }
 }
 $mode = if ($Dry) { 'DRY' } elseif ($Once) { 'ONCE' } else { "loop ${IntervalSeconds}s" }
-# En --once (Task Scheduler c/N seg) NO imprimir header cada ciclo → log limpio (solo cuando hay tickets).
+# En --once (Task Scheduler c/N seg) NO imprimir header cada ciclo -> log limpio (solo cuando hay tickets).
 if (-not $Once) { Write-Host ("=== wincaja-store-agent {0} ({1}) - {2} ===" -f $WarehouseCode, $Mdb, $mode) }
 
 if ($Dry -or $Once) { [void](Invoke-Cycle); return }
