@@ -122,6 +122,7 @@ function fetchNew(store, wm) {
     if (consInt <= sinceCons) continue;                  // ya empujado
     if (consInt > maxCons) maxCons = consInt;
     const items = byCons.get(String(h.Consecutivo)) || [];
+    if (!items.length) continue; // folio sin lineas (venta anulada/interrumpida) -> no reportar
     const total = items.reduce((a, it) => a + it.importe, 0);
     // Fecha 'YYYY-MM-DDTHH:MM:SS' (solo fecha) + Hora (timestamp 1899, se toma la hora).
     const dateP = String(h.Fecha || '').slice(0, 10);
