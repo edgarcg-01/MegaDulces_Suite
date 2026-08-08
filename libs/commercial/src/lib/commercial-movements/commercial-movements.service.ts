@@ -895,8 +895,11 @@ export class CommercialMovementsService {
         (!fSearch || `${e.referencia || ''} ${e.tipo_pol || ''} ${e.folio || ''} ${e.cp_ref || ''}`.toLowerCase().includes(fSearch)),
       ).sort((a, b) => b.importe - a.importe);
 
+      // Destinos distintos presentes (para el filtro de la vista, en vez de una lista hardcodeada).
+      const destinos = Array.from(new Set(entries.map((e) => e.destino).filter(Boolean) as string[])).sort();
+
       return {
-        range: { from: fromYm, to: toYm }, tolerance_pct: TOL * 100, window_months: 1,
+        range: { from: fromYm, to: toYm }, tolerance_pct: TOL * 100, window_months: 1, destinos,
         totals: {
           entrada: entTot, salida: salTot, delta: entTot - salTot,
           n_exact: nExact,
@@ -1045,6 +1048,89 @@ export class CommercialMovementsService {
       }
       const stores = STORES.map((st) => ({ ...st, last_date: lastByCode.get(st.code) || null }));
       return { range: { from: fromYm, to: toYm }, stores, rows, totals, kepler_unmapped: keplerUnmapped };
+    });
+  }
+
+  /**
+   * DM.13b — DETALLE folio a folio de UNA tienda×mes, cruzando los DOS sistemas: lo que el
+   * CEDIS despachó en Kepler (515-002, pólizas que mapean a esta tienda por referencia) ⇄ lo que
+   * la tienda recibió en Wincaja (documentos de traspaso tipo C). NO hay llave común folio↔folio
+   * (Kepler no conoce estas tiendas) → se muestran las dos listas lado a lado + sus totales + Δ,
+   * para localizar manualmente qué despacho corresponde a qué recepción. Reusa el mismo mapeo de
+   * destino y terceros que el cuadre por totales (transfersWincajaCheck).
+   */
+  async transfersWincajaDetail(q: MovementsQuery, code: string, anioMes: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const STORES: Record<string, string> = { '30': 'Morelia Abastos', '32': 'Morelia Madero', '50': 'Canindo' };
+    const name = STORES[code];
+    const CAP = 500;
+    // Mismo clasificador de destino que transfersWincajaCheck (referencia libre → código de tienda).
+    const classify = (ref: string | null): string | null => {
+      const s = (ref || '').toUpperCase();
+      if (/T99/.test(s) && /CEDIS/.test(s)) return null;
+      if (/CANINDO|\bCAN\b/.test(s)) return '50';
+      if (/M\.?M\b|MORELIA MADERO|\bMADERO\b/.test(s)) return '32';
+      if (/ABASTOS L\.?P|LA PIEDAD|\bL\.?P\b|\bLP\b/.test(s)) return null;
+      if (/M\.?A\b|MORELIA ABAST|\bABASTOS\b/.test(s)) return '30';
+      return null;
+    };
+    const empty = {
+      code, name: name || code, anio_mes: anioMes,
+      kepler: { rows: [] as any[], total: 0, truncated: false },
+      wincaja: { rows: [] as any[], total: 0, cedis: 0, inter: 0, truncated: false },
+      delta: 0,
+    };
+    if (!name || !/^\d{4}-\d{2}$/.test(anioMes || '')) return empty;
+
+    return this.tk.run(async (trx) => {
+      // ── Kepler: despachos 515-002 del mes que mapean a esta tienda ──
+      const salAll: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).andWhere('source', 'kepler')
+        .andWhereRaw(`cuenta LIKE '515-002%'`)
+        .andWhere('anio_mes', anioMes)
+        .andWhereRaw('COALESCE(importe,0)<>0')
+        .select('sucursal', 'importe', 'referencia', 'tipo_pol', 'folio');
+      const kRowsAll = salAll
+        .filter((r) => classify(r.referencia) === code)
+        .map((r) => ({
+          sucursal: r.sucursal, importe: Number(r.importe) || 0, referencia: r.referencia || null,
+          folio: r.folio ? `${r.tipo_pol || ''}${r.folio}` : null,
+        }))
+        .sort((a, b) => b.importe - a.importe);
+      const kTotal = kRowsAll.reduce((a, r) => a + r.importe, 0);
+
+      // ── Wincaja: recepciones por traspaso (tipo C) del mes, folio a folio ──
+      const STORE_TERCEROS = ['0', '01', '02', '03', '04', '05', '10', '30', '32', '40', '42', '44', '50', '54'];
+      const wRowsAll: any[] = await trx('wincaja.maestro_mov_almacen as m')
+        .join('wincaja.detalles_mov_almacen as d', function (this: any) {
+          this.on('d.tenant_id', 'm.tenant_id').andOn('d.source_branch', 'm.source_branch')
+            .andOn('d.source_dataset', 'm.source_dataset').andOn('d.consecutivo', 'm.consecutivo');
+        })
+        .where('m.tenant_id', tenantId).andWhere('m.source_branch', code)
+        .andWhere('m.tipo', 'C').whereIn('m.tercero', STORE_TERCEROS)
+        .andWhereRaw(`to_char(m.fecha,'YYYY-MM') = ?`, [anioMes])
+        .groupByRaw(`m.consecutivo, m.fecha, m.tercero, m.observaciones`)
+        .select(
+          trx.raw(`m.consecutivo AS folio`), trx.raw(`m.fecha::date AS fecha`), trx.raw(`m.tercero AS tercero`),
+          trx.raw(`m.observaciones AS obs`),
+          trx.raw(`SUM(ABS(COALESCE(d.valor_costo,0))) AS costo`),
+          trx.raw(`COUNT(*) AS lineas`),
+        )
+        .orderByRaw(`SUM(ABS(COALESCE(d.valor_costo,0))) DESC`);
+      const wRows = wRowsAll.map((r) => ({
+        folio: String(r.folio), fecha: r.fecha, tercero: String(r.tercero),
+        origen: r.tercero === '0' ? 'CEDIS' : `tienda ${r.tercero}`,
+        obs: (r.obs || '').trim() || null, costo: Number(r.costo) || 0, lineas: Number(r.lineas) || 0,
+      }));
+      const wTotal = wRows.reduce((a, r) => a + r.costo, 0);
+      const cedis = wRows.filter((r) => r.tercero === '0').reduce((a, r) => a + r.costo, 0);
+
+      return {
+        code, name, anio_mes: anioMes,
+        kepler: { rows: kRowsAll.slice(0, CAP), total: kTotal, truncated: kRowsAll.length > CAP },
+        wincaja: { rows: wRows.slice(0, CAP), total: wTotal, cedis, inter: wTotal - cedis, truncated: wRows.length > CAP },
+        delta: kTotal - wTotal,
+      };
     });
   }
 
