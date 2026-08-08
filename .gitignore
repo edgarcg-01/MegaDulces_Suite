@@ -106,3 +106,7 @@ database/importers/kepler/.stock-live-snapshot.json
 .nx/polygraph
 .nx/self-healing
 .nx/migrate-runs
+# TDA — artefactos runtime del extractor live Wincaja (poller .249)
+database/importers/wincaja/.wincaja-live-*.json
+database/importers/wincaja/logs/
+database/importers/wincaja/_shadow/
