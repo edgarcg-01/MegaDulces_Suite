@@ -29,6 +29,8 @@ interface PPResponse {
   by_method: { method: string; n: number; monto: number }[];
 }
 interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos: string[] }
+interface PPReconMonth { month: string; program: number; program_n: number; flag_si: number; flag_no: number; flag_na: number; monto_no: number; kepler201: number; bank_cb: number | null }
+interface PPRecon { months: PPReconMonth[] }
 
 /**
  * Fase PP.3 — Programa de Pagos (Tesorería). Espejo del Excel de pagos: qué se paga, a quién,
@@ -51,9 +53,35 @@ interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos
           <p class="surf-page-sub">Qué paga Tesorería, a quién, de qué banco, con qué método y cuándo — mes a mes. <b>KEPLER</b> marca si el pago ya quedó registrado en el ERP. Espejo del programa de pagos (read-only).</p>
         </div>
         <div class="pp-head-actions">
+          <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showRecon()" (click)="toggleRecon()"><span class="pi pi-check-square" aria-hidden="true"></span>&nbsp;Conciliación</button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      @if (showRecon()) {
+        <section class="pp-recon">
+          <h2 class="pp-recon-h">Conciliación mensual</h2>
+          @if (recon(); as rc) {
+            <div class="pp-recon-scroll">
+              <table class="pp-recon-tbl">
+                <thead><tr><th>Mes</th><th class="ta-r">Programa</th><th class="ta-r">Kepler 201 (pagos)</th><th class="ta-r">Bancos (CB)</th><th class="ta-r">Pagado no en Kepler</th></tr></thead>
+                <tbody>
+                  @for (m of rc.months; track m.month) {
+                    <tr>
+                      <td class="pp-mono">{{ m.month }}</td>
+                      <td class="ta-r pp-num">{{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span></td>
+                      <td class="ta-r pp-num muted">{{ money(m.kepler201) }}</td>
+                      <td class="ta-r pp-num muted">{{ m.bank_cb === null ? '—' : money(m.bank_cb) }}</td>
+                      <td class="ta-r pp-num" [class.pp-warn]="m.flag_no > 0">{{ m.flag_no > 0 || m.flag_si > 0 ? (money(m.monto_no) + ' · ' + m.flag_no) : 's/dato' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="pp-recon-note">Los tres universos <b>no son iguales</b> — es informativo, no un descuadre: <b>Kepler 201</b> incluye nómina/inter-sucursal/gastos (superset); <b>Bancos CB</b> son todos los egresos del estado de cuenta (solo meses cargados). La señal <b>confiable</b> de "pagado pero no asentado en el ERP" es <b>Pagado no en Kepler</b> (columna KEPLER de Tesorería, $ · #), disponible donde el Excel la trae (jul/ago). "s/dato" = ese mes no traía la columna.</p>
+          } @else { <p class="pp-empty">Cargando conciliación…</p> }
+        </section>
+      }
 
       <div class="pp-filters">
         <p-select [options]="f().months" [ngModel]="month()" (onChange)="onFilter('month', $event.value)" placeholder="Mes" [showClear]="true" styleClass="pp-sel" ariaLabel="Mes" />
@@ -166,6 +194,16 @@ interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos
     .pp-empty-op-title { font-weight:600; }
     .pp-empty-op-sub { font-size:.84rem; color:var(--text-muted); }
     .pp-skel { display:flex; flex-direction:column; gap:.4rem; margin-top:1rem; }
+    .pp-recon { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.8rem 1rem; margin:.6rem 0 1rem; background:var(--card-bg); }
+    .pp-recon-h { font-size:.9rem; font-weight:700; margin:0 0 .6rem; }
+    .pp-recon-scroll { overflow-x:auto; }
+    .pp-recon-tbl { width:100%; border-collapse:collapse; font-size:.8rem; }
+    .pp-recon-tbl th, .pp-recon-tbl td { padding:.32rem .5rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    .pp-recon-tbl th { color:var(--text-muted); font-weight:600; text-align:left; }
+    .pp-recon-n { color:var(--text-faint); font-size:.72rem; margin-left:.3rem; }
+    .pp-warn { color:var(--warn-fg); font-weight:700; }
+    .pp-recon-note { font-size:.72rem; color:var(--text-faint); line-height:1.5; margin:.6rem 0 0; }
+    .pp-empty { padding:1rem; text-align:center; color:var(--text-faint); font-size:.85rem; }
   `],
 })
 export class FinanzasProgramaPagosComponent implements OnInit {
@@ -185,7 +223,17 @@ export class FinanzasProgramaPagosComponent implements OnInit {
   readonly search = signal('');
   readonly skelRows = Array.from({ length: 10 });
   readonly keplerOpts = [{ label: 'En Kepler', value: 'si' }, { label: 'No en Kepler', value: 'no' }, { label: 'Sin dato', value: 'na' }];
+  readonly showRecon = signal(false);
+  readonly recon = signal<PPRecon | null>(null);
   private searchTimer: any;
+
+  toggleRecon(): void {
+    const next = !this.showRecon(); this.showRecon.set(next);
+    if (next && !this.recon()) {
+      this.http.get<PPRecon>(`${this.base}/recon`).pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (r) => this.recon.set(r), error: () => this.recon.set({ months: [] }) });
+    }
+  }
 
   ngOnInit(): void {
     this.http.get<PPFacets>(`${this.base}/facets`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

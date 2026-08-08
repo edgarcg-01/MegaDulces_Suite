@@ -76,6 +76,50 @@ export class PaymentProgramService {
     });
   }
 
+  /**
+   * PP.4 — Conciliación por mes (control 3-vías + flag de Tesorería).
+   * OJO honesto: los tres universos NO son idénticos → el "gap" es informativo, no un descuadre:
+   *   · programa    = pagos curados de Tesorería (proveedor + gasto).
+   *   · kepler_201  = TODOS los cargos de pago de la 201 (XD2601/XD2501): incluye nómina,
+   *                   inter-sucursal, etc. → SUPERSET del programa.
+   *   · bancos_cb   = egresos del estado de cuenta (CB), donde haya periodo cargado → SUPERSET.
+   * La señal CONFIABLE de "pagado pero no asentado" es la columna KEPLER de Tesorería (flag_no),
+   * disponible sólo donde el Excel la trae (jul/ago).
+   */
+  async recon() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const prog = await trx('finance.payment_program')
+        .select(trx.raw(`source_month,
+          count(*)::int AS n, coalesce(sum(amount),0)::numeric AS monto,
+          count(*) FILTER (WHERE kepler_flag IS TRUE)::int AS flag_si,
+          count(*) FILTER (WHERE kepler_flag IS FALSE)::int AS flag_no,
+          coalesce(sum(amount) FILTER (WHERE kepler_flag IS FALSE),0)::numeric AS monto_no,
+          count(*) FILTER (WHERE kepler_flag IS NULL)::int AS flag_na`))
+        .groupBy('source_month').orderBy('source_month');
+      const kep = await trx('analytics.gl_poliza_lines')
+        .where({ tenant_id: tenantId, source: 'kepler', cuenta_mayor: '201' })
+        .whereIn('tipo_pol', ['XD2601', 'XD2501']).where('anio_mes', '>=', '2026-01')
+        .select('anio_mes').sum({ monto: 'importe' }).groupBy('anio_mes');
+      let bank: any[] = [];
+      try {
+        bank = await trx('finance.bank_movements').where('tenant_id', tenantId).where('amount_out', '>', 0)
+          .select(trx.raw(`to_char(movement_date,'YYYY-MM') AS ym`)).sum({ monto: 'amount_out' })
+          .groupByRaw(`to_char(movement_date,'YYYY-MM')`);
+      } catch { bank = []; }
+      const kByM = new Map(kep.map((r: any) => [r.anio_mes, Number(r.monto)]));
+      const bByM = new Map(bank.map((r: any) => [r.ym, Number(r.monto)]));
+      return {
+        months: prog.map((p: any) => ({
+          month: p.source_month, program: Number(p.monto), program_n: Number(p.n),
+          flag_si: Number(p.flag_si), flag_no: Number(p.flag_no), flag_na: Number(p.flag_na), monto_no: Number(p.monto_no),
+          kepler201: kByM.get(p.source_month) || 0,
+          bank_cb: bByM.has(p.source_month) ? bByM.get(p.source_month) : null,
+        })),
+      };
+    });
+  }
+
   /** Facetas para los filtros (meses, bancos, métodos, tipos). */
   async facets() {
     this.tenantCtx.requireTenantId();
