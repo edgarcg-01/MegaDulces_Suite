@@ -48,12 +48,4 @@ export interface BankCapturePort {
     mime: string;
     caption?: string | null;
   }): Promise<BankCaptureResult>;
-
-  /**
-   * CBW.3 — confirmación en chat: aplica SÍ/NO a la última captura del teléfono en
-   * estado `pendiente_confirmacion`. `yes`→`confirmado` (y dispara la notificación a
-   * Cobranza), `no`→`descartado`. Devuelve el texto a responder, o null si no hay
-   * captura pendiente (→ el ingest deja seguir el flujo normal). Scope CLS.
-   */
-  confirm(phone: string, decision: 'yes' | 'no'): Promise<BankCaptureResult | null>;
 }

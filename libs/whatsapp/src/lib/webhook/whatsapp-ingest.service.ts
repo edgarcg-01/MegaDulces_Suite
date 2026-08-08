@@ -17,13 +17,15 @@ import { ConversationOrchestratorService } from '../conversation/conversation-or
 import { WhatsAppOptinService } from '../broadcast/whatsapp-optin.service';
 
 /**
- * CBW (ADR-042) — desvío bancario de un mensaje de un remitente autorizado.
- * `capture` = trae imagen/documento (media_id a descargar); `confirm` = texto SÍ/NO
- * sobre la última captura pendiente. Sin thread conversacional (audit en el inbox).
+ * CBW (ADR-042/CBW.5) — desvío bancario de un mensaje de un remitente autorizado.
+ * `capture` = trae imagen/documento (media_id a descargar) → entra directo a la
+ * bandeja. `nudge` = mandó texto (sin foto) → le recordamos que envíe la imagen,
+ * para mantenerlo en el flujo bancario y NO caer en el bot comercial. Sin SÍ/NO
+ * (CBW.5): Cobranza es el único gate. Sin thread conversacional (audit en el inbox).
  */
 type BankInJob =
   | { action: 'capture'; media_id: string; mime: string; caption: string | null; sender: BankCaptureSender }
-  | { action: 'confirm'; decision: 'yes' | 'no' };
+  | { action: 'nudge' };
 
 /** Payload de un job de ENTRADA (un mensaje del cliente a procesar). */
 interface InJobPayload {
@@ -197,8 +199,8 @@ export class WhatsAppIngestService implements OnModuleInit {
   private async tryBuildBankJob(msg: InboundMessage, phone: string): Promise<BankInJob | null> {
     if (!this.bankCapture) return null;
     const isMedia = (msg.type === 'image' || msg.type === 'document') && !!msg.media;
-    const decision = msg.type === 'text' ? this.parseYesNo(msg.text ?? null) : null;
-    if (!isMedia && !decision) return null;
+    const isText = msg.type === 'text';
+    if (!isMedia && !isText) return null;
     let sender: BankCaptureSender | null = null;
     try {
       sender = await this.bankCapture.resolveSender(phone);
@@ -206,20 +208,12 @@ export class WhatsAppIngestService implements OnModuleInit {
       this.logger.warn(`resolveSender falló (${e?.message}) — sigo por camino comercial.`);
       return null;
     }
-    if (!sender) return null;
+    if (!sender) return null; // no autorizado → no es flujo bancario
     if (isMedia && msg.media) {
       return { action: 'capture', media_id: msg.media.id, mime: msg.media.mime_type, caption: msg.text ?? null, sender };
     }
-    return { action: 'confirm', decision: decision as 'yes' | 'no' };
-  }
-
-  /** Interpreta un texto corto como SÍ/NO (confirmación de captura). null si no aplica. */
-  private parseYesNo(text: string | null): 'yes' | 'no' | null {
-    const t = (text || '').trim().toLowerCase();
-    if (!t || t.length > 12) return null;
-    if (/^(s[ií]|si|sí|s|ok|okay|dale|confirmo|correcto|va)$/.test(t)) return 'yes';
-    if (/^(no|n|cancela|cancelar|incorrecto)$/.test(t)) return 'no';
-    return null;
+    // Remitente autorizado que escribió texto (sin foto) → recordatorio, no bot comercial.
+    return { action: 'nudge' };
   }
 
   /**
@@ -327,12 +321,11 @@ export class WhatsAppIngestService implements OnModuleInit {
       await this.enqueueOut(tenantId, { to: p.phone, thread_id: null, kind: 'text', body: res.reply });
       return;
     }
-    // confirm
-    const res = await this.bankCapture.confirm(p.phone, p.bank.decision);
-    if (res) {
-      await this.enqueueOut(tenantId, { to: p.phone, thread_id: null, kind: 'text', body: res.reply });
-    }
-    // Sin captura pendiente → no respondemos (evita ruido si el "sí/no" no era para esto).
+    // nudge: remitente autorizado escribió texto sin foto → recordatorio.
+    await this.enqueueOut(tenantId, {
+      to: p.phone, thread_id: null, kind: 'text',
+      body: '📸 Para registrar un depósito, mándame la *foto del comprobante*. Crédito y Cobranza lo aplica.',
+    });
   }
 
   /** Worker de SALIDA. Envía por el puerto (Meta/simulador) y registra 'out'. */

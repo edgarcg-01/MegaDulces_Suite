@@ -78,9 +78,9 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
         ocr_raw: JSON.stringify({ monto: 3940.04 }), ocr_status: 'ok',
         bank_account_id: matchAcct.id, sucursal: '30', concept,
         amount_in: 3940.04, amount_out: 0, movement_date: '2026-01-02',
-        status: 'pendiente_confirmacion',
+        status: 'confirmado',
       }).returning(['id', 'status', 'amount_in', 'concept', 'bank_account_id', 'bank_movement_id']);
-      ok(cap.status === 'pendiente_confirmacion', 'capture: nueva captura → pendiente_confirmacion');
+      ok(cap.status === 'confirmado', 'CBW.5: la foto entra directa a la bandeja como "por validar" (sin SÍ/NO)');
       ok(Number(cap.amount_in) === 3940.04, 'capture: monto OCR → amount_in (el cargo)');
       ok(cap.concept.startsWith('Jose Mendez'), 'capture: concept = nombre del remitente + ordenante');
       ok(cap.bank_account_id === acct.id, 'capture: cuenta resuelta guardada');
@@ -90,24 +90,21 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
       await trx('finance.bank_capture_inbox').insert({
         tenant_id: T, source: 'whatsapp', from_phone: phone, sender_id: sender.id,
         wa_message_id: 'wamid.SMOKE-CBW-1', files: JSON.stringify([]),
-        amount_in: 3940.04, status: 'pendiente_confirmacion',
+        amount_in: 3940.04, status: 'confirmado',
       }).onConflict(['tenant_id', 'wa_message_id']).merge({ updated_at: trx.fn.now() });
       const cnt = await trx('finance.bank_capture_inbox').where({ tenant_id: T, wa_message_id: 'wamid.SMOKE-CBW-1' }).count('* as n').first();
       ok(Number(cnt.n) === 1, 'idempotencia: reenvío del mismo wa_message_id no duplica (UNIQUE + merge)');
 
-      // ── 6. confirm() SÍ → confirmado ─────────────────────────────────────
-      const pending = await trx('finance.bank_capture_inbox')
-        .where({ from_phone: phone, status: 'pendiente_confirmacion' })
-        .orderBy('created_at', 'desc').first('id');
-      ok(pending && pending.id === cap.id, 'confirm: encuentra la última captura pendiente del teléfono');
-      const [confirmed] = await trx('finance.bank_capture_inbox').where({ id: pending.id })
-        .update({ status: 'confirmado', updated_at: trx.fn.now() }).returning(['status']);
-      ok(confirmed.status === 'confirmado', 'confirm SÍ: pendiente_confirmacion → confirmado');
-
-      // NO quedan pendientes → un 2º SÍ no encuentra nada (no responde).
-      const noPending = await trx('finance.bank_capture_inbox')
-        .where({ from_phone: phone, status: 'pendiente_confirmacion' }).first('id');
-      ok(!noPending, 'confirm: sin pendientes, no hay a qué aplicar SÍ/NO');
+      // ── 6. Varias fotos = varias capturas independientes (sin ambigüedad de SÍ) ──
+      const [cap2] = await trx('finance.bank_capture_inbox').insert({
+        tenant_id: T, source: 'whatsapp', from_phone: phone, sender_id: sender.id,
+        wa_message_id: 'wamid.SMOKE-CBW-2', files: JSON.stringify([]),
+        bank_account_id: acct.id, sucursal: '30', amount_in: 500, status: 'confirmado',
+      }).returning(['id', 'status']);
+      ok(cap2.status === 'confirmado', 'CBW.5: 2ª foto (1 min o 10 días después) = otra captura, también "por validar"');
+      const porValidar = await trx('finance.bank_capture_inbox')
+        .where({ from_phone: phone, status: 'confirmado' }).count('* as n').first();
+      ok(Number(porValidar.n) === 2, 'CBW.5: ambas quedan en la bandeja para Cobranza (nada se pierde)');
 
       // ── 6b. validate() MATERIALIZA el depósito en el libro (postToLedger) ────
       const capRow = await trx('finance.bank_capture_inbox').where({ id: cap.id })
@@ -146,10 +143,10 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
       const [errCap] = await trx('finance.bank_capture_inbox').insert({
         tenant_id: T, source: 'whatsapp', from_phone: phone, sender_id: sender.id,
         wa_message_id: 'wamid.SMOKE-CBW-ERR', files: JSON.stringify([]),
-        ocr_status: 'ilegible', amount_in: 0, status: 'pendiente_confirmacion',
+        ocr_status: 'ilegible', amount_in: 0, status: 'confirmado',
         error_detail: 'La imagen no parece un comprobante de depósito.',
       }).returning(['id', 'error_detail', 'bank_account_id']);
-      ok(errCap.error_detail?.includes('no parece'), 'error: se registra error_detail cuando la imagen no es válida');
+      ok(errCap.error_detail?.includes('no parece'), 'error: la captura con problema entra a la bandeja con error_detail (flag para Cobranza)');
 
       // validate() sin cuenta → error accionable (no materializa, no ensucia el libro).
       const noAccount = errCap.bank_account_id == null;
