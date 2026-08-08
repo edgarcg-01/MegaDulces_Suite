@@ -110,3 +110,6 @@ database/importers/kepler/.stock-live-snapshot.json
 database/importers/wincaja/.wincaja-live-*.json
 database/importers/wincaja/logs/
 database/importers/wincaja/_shadow/
+database/importers/wincaja/store-agent.cmd
+database/importers/wincaja/store-agent.log
+database/importers/wincaja/.wincaja-agent-*.json
