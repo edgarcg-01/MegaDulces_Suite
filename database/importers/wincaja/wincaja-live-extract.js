@@ -53,12 +53,16 @@ const DRY = process.argv.includes('--dry');
 const ONCE = process.argv.includes('--once'); // 1 ciclo real y sale (para Task Scheduler c/5min)
 const STATE_FILE = path.join(__dirname, '.wincaja-live-extract.json');
 
-// Rutas de las COPIAS-sombra en Z: (= \\192.168.0.245\D, las deja SyncBack). Default =
-// las MISMAS rutas que ya usa el import diario en .249 (verificado 2026-08). Override:
+// Rutas de las COPIAS-sombra VIVAS en Z: (= \\192.168.0.245\D). Default = Z:/Staging/Live,
+// donde SyncBack debe dejar el .mdb VIVO de cada tienda (D:\Datos\WinCaja\<tienda>.mdb) cada
+// ~5 min. OJO: NO usar Z:/Salidas/Bases/Actuales — ese es el export NOCTURNO (trae solo hasta
+// ayer; verificado 2026-08-07: max Fecha = ayer → /tienda/live (que muestra hoy) sale vacío).
+// Override:
+//   WINCAJA_MDB_BASE       = otra carpeta base (mismos nombres de archivo).
 //   WINCAJA_LIVE_MDBS_FILE = ruta a un .json con el array (recomendado para Task Scheduler
 //     — evita el infierno de escapar JSON+backslashes en env),  o
 //   WINCAJA_LIVE_MDBS      = el array JSON inline (usar barras normales '/' en las rutas).
-const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
+const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Staging/Live';
 const STORES = (() => {
   if (process.env.WINCAJA_LIVE_MDBS_FILE) return JSON.parse(fs.readFileSync(process.env.WINCAJA_LIVE_MDBS_FILE, 'utf8'));
   if (process.env.WINCAJA_LIVE_MDBS) return JSON.parse(process.env.WINCAJA_LIVE_MDBS);
