@@ -41,6 +41,69 @@ export interface ThotChatTurn {
   content: string;
 }
 
+// ── VG.2 — "Ventas Generales": Thot compone un tablero desde lenguaje natural ──────
+// El LLM SOLO emite el `spec` (qué bloques y a qué métrica/dimensión). NO calcula ni
+// devuelve cifras — el frontend rellena con datos deterministas (ADR-016/042).
+const SV_METRICS = ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'];
+const SV_DIMS = ['canal', 'marca', 'categoria', 'sucursal', 'producto', 'cliente', 'tiempo'];
+const SV_VIZ = ['bars-table', 'bars', 'table'];
+const SV_DIM_METRICS: Record<string, string[]> = {
+  canal: ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'],
+  marca: ['ventas', 'margen', 'unidades'],
+  categoria: ['ventas', 'margen', 'unidades'],
+  sucursal: ['ventas', 'unidades', 'tickets'],
+  producto: ['ventas', 'margen', 'unidades'],
+  cliente: ['ventas'],
+  tiempo: ['ventas', 'unidades', 'tickets'],
+};
+const SV_TOOL = {
+  name: 'compose_sales_view',
+  description: 'Arma el tablero de "Ventas Generales" que responde la pregunta del usuario. Devolvés SOLO la estructura (bloques); los números los pone el sistema. Siempre empezá con un bloque kpi.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Título corto del tablero.' },
+      narrative: { type: 'string', description: '1-2 frases en español que expliquen qué muestra el tablero. NO inventes cifras.' },
+      blocks: {
+        type: 'array',
+        description: 'Bloques del tablero, en orden. Empezá con un kpi.',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['kpi', 'breakdown', 'series'] },
+            title: { type: 'string' },
+            metric: { type: 'string', enum: SV_METRICS },
+            dimension: { type: 'string', enum: SV_DIMS, description: 'Solo para breakdown.' },
+            viz: { type: 'string', enum: SV_VIZ, description: 'Solo para breakdown.' },
+            range: { type: 'string', enum: ['30d', '90d', '12m'], description: 'Solo para series (histórico).' },
+            limit: { type: 'integer', description: 'Top-N para breakdown (5-100).' },
+            span: { type: 'integer', enum: [4, 6, 12], description: 'Ancho en grilla de 12; 12=fila completa, 6=media.' },
+          },
+          required: ['type'],
+        },
+      },
+    },
+    required: ['blocks'],
+  },
+};
+const SV_SYSTEM = (today: string) =>
+  `Sos Thot, el motor de ventas de Mega Dulces. Tu tarea: traducir una pregunta de ventas en un TABLERO, ` +
+  `llamando SIEMPRE a la tool compose_sales_view. NUNCA escribas números ni SQL: solo elegís qué medir y cómo mostrarlo; ` +
+  `el sistema rellena los datos reales. Hoy es ${today} (America/Mexico_City).\n\n` +
+  `Catálogo (no inventes fuera de esto):\n` +
+  `- métricas: ventas (monto $, DEFAULT), margen, unidades, tickets, ticket_promedio.\n` +
+  `- dimensiones: canal, marca, categoria, sucursal, producto, cliente, tiempo.\n` +
+  `- viz de breakdown: bars-table (default), bars, table.\n` +
+  `- series (histórico) usa range: 30d, 90d, 12m.\n\n` +
+  `Reglas:\n` +
+  `1. Primer bloque SIEMPRE type:kpi (span 12).\n` +
+  `2. "ventas" = monto por default (revenue-first); usá unidades solo si lo piden explícito.\n` +
+  `3. margen aplica a canal/marca/categoria/producto. "márgenes por proveedor" → usá dimension:marca con metric:margen.\n` +
+  `4. histórico / evolución / tendencia → un bloque series.\n` +
+  `5. Si la pregunta es amplia ("centro de control", "todas mis ventas"), armá 3-5 bloques (kpi + varios breakdown/series, span 6).\n` +
+  `6. Si es puntual ("ventas por canal"), kpi + 1 breakdown span 12.\n` +
+  `7. Poné títulos claros en español en cada bloque.`;
+
 export interface ThotToolTrace {
   name: string;
   input: any;
@@ -100,6 +163,91 @@ export class ThotChatService {
       await trx('commercial.thot_chat_log').where({ id: logId }).update({ feedback: v });
     });
     return { ok: true };
+  }
+
+  /**
+   * VG.2 — compone el tablero de "Ventas Generales" desde lenguaje natural. Una sola
+   * llamada a Claude con la tool `compose_sales_view` FORZADA: el modelo devuelve el
+   * `spec` (bloques) y nada más. Lo saneamos contra el catálogo antes de devolverlo →
+   * el LLM no puede pedir una métrica/dimensión inexistente ni colar cifras. Los datos
+   * los pone el frontend con endpoints deterministas (ADR-016/042).
+   */
+  async composeSalesView(input: { question: string; history?: ThotChatTurn[] }): Promise<{
+    spec: { title?: string; narrative?: string; blocks: any[] };
+    source: 'llm' | 'no_api_key' | 'error';
+  }> {
+    const q = (input.question || '').trim();
+    if (!q) return { spec: this.fallbackSpec('Escribí una pregunta de ventas.'), source: 'error' };
+    if (!this.apiKey) {
+      return { spec: this.fallbackSpec('El asistente no está configurado (falta ANTHROPIC_API_KEY).'), source: 'no_api_key' };
+    }
+    const hist = (input.history || []).filter((t) => t && typeof t.content === 'string').slice(-6);
+    const messages: any[] = [...hist.map((t) => ({ role: t.role, content: t.content })), { role: 'user', content: q }];
+    try {
+      const resp = await this.anthropic.messages(
+        {
+          model: CLAUDE_MODEL,
+          maxTokens: 1200,
+          system: SV_SYSTEM(mxToday()),
+          tools: [SV_TOOL],
+          toolChoice: { type: 'tool', name: 'compose_sales_view' },
+          messages,
+        },
+        { timeoutMs: TIMEOUT_MS, cachePrefix: true },
+      );
+      const tu = (Array.isArray(resp.content) ? resp.content : []).find((b: any) => b.type === 'tool_use' && b.name === 'compose_sales_view');
+      if (!tu?.input) return { spec: this.fallbackSpec('No pude interpretar la pregunta; te muestro las ventas por canal.'), source: 'llm' };
+      return { spec: this.sanitizeSpec(tu.input), source: 'llm' };
+    } catch (e: any) {
+      this.logger.warn(`composeSalesView error: ${e?.message || e}`);
+      return { spec: this.fallbackSpec('Tuve un problema; te muestro las ventas por canal.'), source: 'error' };
+    }
+  }
+
+  /** Tablero por default cuando no hay LLM o falla: KPIs + ventas por canal. */
+  private fallbackSpec(narrative: string): { title?: string; narrative?: string; blocks: any[] } {
+    return {
+      title: 'Ventas generales',
+      narrative,
+      blocks: [
+        { type: 'kpi', span: 12 },
+        { type: 'breakdown', metric: 'ventas', dimension: 'canal', viz: 'bars-table', span: 12, title: 'Ventas por canal' },
+      ],
+    };
+  }
+
+  /** Sanea el spec del LLM contra el catálogo: descarta bloques inválidos, coerciona métrica
+   *  no soportada por la dimensión, asegura un kpi al inicio, y acota límites/span/textos. */
+  private sanitizeSpec(input: any): { title?: string; narrative?: string; blocks: any[] } {
+    const raw = Array.isArray(input?.blocks) ? input.blocks : [];
+    const clampSpan = (s: any) => ([4, 6, 12].includes(Number(s)) ? Number(s) : 12);
+    const blocks: any[] = [];
+    let hasKpi = false;
+    for (const b of raw) {
+      const type = ['kpi', 'breakdown', 'series'].includes(b?.type) ? b.type : null;
+      if (!type) continue;
+      if (type === 'kpi') { if (!hasKpi) { blocks.push({ type: 'kpi', span: 12 }); hasKpi = true; } continue; }
+      let metric = SV_METRICS.includes(b?.metric) ? b.metric : 'ventas';
+      const title = typeof b?.title === 'string' ? b.title.slice(0, 80) : undefined;
+      if (type === 'breakdown') {
+        const dimension = SV_DIMS.includes(b?.dimension) && b.dimension !== 'tiempo' ? b.dimension : 'canal';
+        if (!SV_DIM_METRICS[dimension].includes(metric)) metric = 'ventas';
+        const viz = SV_VIZ.includes(b?.viz) ? b.viz : 'bars-table';
+        const limit = Math.min(100, Math.max(5, Number(b?.limit) || 20));
+        blocks.push({ type: 'breakdown', metric, dimension, viz, limit, span: clampSpan(b?.span), title });
+      } else {
+        if (!['ventas', 'unidades', 'tickets'].includes(metric)) metric = 'ventas';
+        const range = ['30d', '90d', '12m'].includes(b?.range) ? b.range : '30d';
+        blocks.push({ type: 'series', metric, range, span: clampSpan(b?.span), title });
+      }
+    }
+    if (!blocks.length) return this.fallbackSpec('');
+    if (!hasKpi) blocks.unshift({ type: 'kpi', span: 12 });
+    return {
+      title: typeof input?.title === 'string' ? input.title.slice(0, 120) : undefined,
+      narrative: typeof input?.narrative === 'string' ? input.narrative.slice(0, 600) : undefined,
+      blocks: blocks.slice(0, 8),
+    };
   }
 
   /**

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Param, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseGuards, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -32,6 +32,16 @@ export class CommercialAnalyticsController {
     @Query('live') live?: string,
   ) {
     return this.service.overview({ from, to, live: live === 'true' });
+  }
+
+  @Post('query')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'VG.1 — consulta semántica de ventas: (metric × dimension × rango) sobre analytics.sales_daily (determinista, mismos SUM que los reportes probados). body: { metric: ventas|margen|unidades|tickets|ticket_promedio, dimension: canal|marca|categoria|sucursal|producto|tiempo, from?, to? (YYYY-MM-DD), limit? }. Devuelve rows[{label,value,share,...}] + total + coverage_pct.',
+  })
+  salesQuery(@Body() body: { metric?: string; dimension?: string; from?: string; to?: string; limit?: number }) {
+    return this.service.salesQuery(body || {});
   }
 
   // ── VENTA REAL de la red (analytics.*, feeds Kepler) — Command Center ──

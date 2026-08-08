@@ -166,6 +166,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_SALIDAS_VER)]
       },
       {
+        // Fase VG — Ventas Generales: tablero de venta global por (métrica × dimensión × rango).
+        path: 'ventas-generales',
+        loadComponent: () => import('./modules/comercial/pages/ventas-generales.component').then(m => m.VentasGeneralesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
         path: 'wincaja',
         loadComponent: () => import('./modules/comercial/pages/comercial-wincaja.component').then(m => m.ComercialWincajaComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]

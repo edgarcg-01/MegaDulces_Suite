@@ -1214,6 +1214,105 @@ export class CommercialAnalyticsService {
     return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date)`);
   }
 
+  /** Valor de una fila agregada según la métrica pedida (mismos SUM que los reportes probados). */
+  private metricValue(metric: string, r: any): number {
+    const rev = Number(r?.revenue || 0), cost = Number(r?.cost || 0), units = Number(r?.units || 0), tickets = Number(r?.tickets || 0);
+    if (metric === 'margen') return rev - cost;
+    if (metric === 'unidades') return units;
+    if (metric === 'tickets') return tickets;
+    if (metric === 'ticket_promedio') return tickets > 0 ? +(rev / tickets).toFixed(2) : 0;
+    return rev; // ventas ($)
+  }
+
+  /**
+   * VG.1 — consulta semántica de ventas. Resuelve (metric × dimension × rango) sobre
+   * `analytics.sales_daily` de forma DETERMINISTA, con los MISMOS SUM(revenue/cost/units/
+   * tickets) que usan networkOverview/networkTopProducts/networkSalesByBrand (venta real).
+   * El agente (Thot) NO calcula: elige metric/dimension/rango y este método pone los números.
+   * Dimensiones: canal, marca, categoria, sucursal, producto (join a catalog/warehouses) y
+   * tiempo (serie por día). Rango por from/to (YYYY-MM-DD); default = 30d móvil MX.
+   */
+  async salesQuery(p: { metric?: string; dimension?: string; from?: string; to?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const METRICS = ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'];
+    const DIMS = ['canal', 'marca', 'categoria', 'sucursal', 'producto', 'tiempo'];
+    const metric = METRICS.includes(p?.metric || '') ? (p!.metric as string) : 'ventas';
+    const dimension = DIMS.includes(p?.dimension || '') ? (p!.dimension as string) : 'canal';
+    const limit = Math.min(200, Math.max(1, Number(p?.limit) || 20));
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const from = typeof p?.from === 'string' && dateRe.test(p.from) ? p.from : null;
+    const to = typeof p?.to === 'string' && dateRe.test(p.to) ? p.to : null;
+
+    return this.tk.run(async (trx) => {
+      const lo = from ?? this.since30d(trx);
+      const hi = to ?? this.untilToday(trx);
+      const sums = [
+        trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+        trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
+        trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
+        trx.raw('COALESCE(SUM(s.tickets),0)::int AS tickets'),
+      ];
+      const base = () => trx('analytics.sales_daily AS s')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', lo)
+        .andWhere('s.sale_date', '<=', hi);
+
+      let raw: any[] = [];
+      if (dimension === 'canal') {
+        raw = await base().groupBy('s.channel').select(trx.raw("COALESCE(s.channel,'—') AS label"), ...sums).orderByRaw('SUM(s.revenue) DESC');
+      } else if (dimension === 'tiempo') {
+        raw = await base().groupBy('s.sale_date').select(trx.raw("to_char(s.sale_date,'YYYY-MM-DD') AS label"), ...sums).orderBy('s.sale_date', 'asc');
+      } else if (dimension === 'producto') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .groupBy('s.product_id', 'p.nombre').select(trx.raw("COALESCE(p.nombre,'—') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else if (dimension === 'marca') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+          .groupBy('b.id', 'b.nombre').select(trx.raw("COALESCE(b.nombre,'—') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else if (dimension === 'categoria') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .leftJoin('catalog.categories AS c', 'c.id', 'p.category_id')
+          .groupBy('c.id', 'c.nombre').select(trx.raw("COALESCE(c.nombre,'Sin categoría') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else { // sucursal
+        raw = await base()
+          .leftJoin('commercial.warehouses AS w', (j: any) => j.on('w.id', 's.warehouse_id').andOn('w.tenant_id', 's.tenant_id'))
+          .groupBy('w.id', 'w.code', 'w.name')
+          .select(trx.raw("COALESCE(w.code,'—') AS code"), trx.raw("COALESCE(w.name,'') AS name"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      }
+
+      const rows = raw.map((r) => ({
+        label: dimension === 'sucursal' ? `${r.code} ${r.name}`.trim() : String(r.label),
+        value: this.metricValue(metric, r),
+        revenue: Number(r.revenue), cost: Number(r.cost),
+        margin: Number(r.revenue) - Number(r.cost), units: Number(r.units), tickets: Number(r.tickets),
+      }));
+
+      // Total + cobertura de costo sobre TODO el rango (para share y confianza del margen).
+      const [tot] = await trx('analytics.sales_daily AS s')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', lo)
+        .andWhere('s.sale_date', '<=', hi)
+        .select(...sums, trx.raw('COALESCE(SUM(s.revenue) FILTER (WHERE s.cost > 0),0)::numeric AS revenue_with_cost'));
+      const totalRevenue = Number(tot?.revenue || 0);
+      const totalValue = this.metricValue(metric, tot || {});
+      for (const r of rows) (r as any).share = totalValue > 0 ? +((r.value / totalValue) * 100).toFixed(2) : 0;
+
+      return {
+        metric, dimension,
+        total: totalValue,
+        coverage_pct: totalRevenue > 0 ? +((Number(tot?.revenue_with_cost || 0) / totalRevenue) * 100).toFixed(1) : 0,
+        rows,
+      };
+    });
+  }
+
   /**
    * KPIs del Command Center desde `analytics.sales_daily` (venta real 30d):
    * venta bruta, costo→margen, unidades, tickets, ticket prom, mix por canal +

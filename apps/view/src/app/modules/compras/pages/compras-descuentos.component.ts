@@ -14,6 +14,7 @@ import { MessageService } from 'primeng/api';
 import { Subject, debounceTime } from 'rxjs';
 import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { ComprasService, AdjustmentsSummary, AdjustmentRow, AdjustmentsSupplierRow, DuplicateGroup, DiscountReconRow, DiscountReconResponse, DiscountLeakageRow, DiscountLeakageResponse } from '../compras.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -29,7 +30,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
 @Component({
   selector: 'app-compras-descuentos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule, SkeletonModule, ButtonModule, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule, SkeletonModule, ButtonModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -40,12 +41,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Descuentos y apoyos <app-context-help topic="compras-descuentos" /></h1>
           <p class="surf-page-sub">Notas de crédito y devoluciones de compra de Kepler (X-D-40 / X-D-55) clasificadas por su motivo: descuentos, apoyos de marca y pronto pago — más un detector de facturas duplicadas.</p>
         </div>
-        <div class="dx-toggle" role="tablist" aria-label="Vistas de descuentos y apoyos">
-          <button type="button" role="tab" id="dx-tab-ajustes" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'ajustes'" [attr.aria-selected]="view() === 'ajustes'" (click)="setView('ajustes')">Ajustes</button>
-          <button type="button" role="tab" id="dx-tab-duplicados" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'duplicados'" [attr.aria-selected]="view() === 'duplicados'" (click)="setView('duplicados')">Posibles duplicados</button>
-          <button type="button" role="tab" id="dx-tab-reconciliacion" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'reconciliacion'" [attr.aria-selected]="view() === 'reconciliacion'" (click)="setView('reconciliacion')">Reconciliación</button>
-          <button type="button" role="tab" id="dx-tab-fuga" aria-controls="dx-panel" class="dx-tog" [class.dx-tog-on]="view() === 'fuga'" [attr.aria-selected]="view() === 'fuga'" (click)="setView('fuga')">Descuento no capturado</button>
-        </div>
+        <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vistas de descuentos y apoyos" />
       </header>
 
       @if (err(); as e) {
@@ -230,11 +226,6 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
   styles: [`
     :host { display: block; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
-    .dx-toggle { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; flex: 0 0 auto; }
-    .dx-tog { border: 0; background: transparent; padding: .4rem .8rem; font-size: .82rem; cursor: pointer; color: var(--text-muted); }
-    .dx-tog:hover { background: var(--hover-bg); }
-    .dx-tog-on, .dx-tog-on:hover { background: var(--hover-bg); color: var(--text-main); font-weight: 600; }
-    .dx-tog:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .dx-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .dx-sel { min-width: 12rem; }
     .dx-search { min-width: 14rem; }
@@ -384,11 +375,20 @@ export class ComprasDescuentosComponent implements OnInit {
     this.loadView(this.view());
   }
 
-  setView(v: ViewMode): void {
-    this.view.set(v);
+  /** Opciones del selector iOS (app-segmented) para las 4 vistas. */
+  readonly viewOpts: SegOption[] = [
+    { label: 'Ajustes', value: 'ajustes' },
+    { label: 'Posibles duplicados', value: 'duplicados' },
+    { label: 'Reconciliación', value: 'reconciliacion' },
+    { label: 'Descuento no capturado', value: 'fuga' },
+  ];
+
+  setView(v: string): void {
+    const view = v as ViewMode;
+    this.view.set(view);
     this.err.set(null);
     this.syncUrl();
-    this.loadView(v);
+    this.loadView(view);
   }
 
   /** Carga (o recarga) la vista activa. Lazy: solo la primera vez, salvo reintento. */

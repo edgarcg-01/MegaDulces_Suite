@@ -55,6 +55,30 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  'ventas-generales': {
+    title: 'Ventas generales — guía',
+    intro: 'Consultá la venta global de la red y desglosala como quieras (métrica × dimensión). Los números salen tal cual de la base — la interfaz solo los ordena y grafica; no calcula ni inventa. Venta REAL (POS/ERP), no pedidos B2B.',
+    groups: [
+      {
+        heading: 'Qué estás viendo',
+        entries: [
+          { term: 'Venta real vs pedidos', def: 'Esta pantalla mide la venta REAL registrada (POS/ERP), no el pipeline de pedidos B2B. Por eso puede diferir de "Pedidos".' },
+          { term: 'Ventas ($)', def: 'Monto vendido. Es la métrica por default: es la más confiable.' },
+          { term: 'Unidades', def: 'Cantidad vendida. OJO: tiene ruido conocido desde oct-2025 (quiebre de captura) — úsala con criterio, el monto es la verdad.' },
+          { term: 'Margen y cobertura de costo', def: 'Margen = ventas − costo. Solo aplica a lo que tiene costo capturado; el % de "cobertura de costo" te dice qué tan completo está — si es bajo, el margen es parcial.' },
+          { term: 'Ticket promedio', def: 'Ventas ÷ tickets (número de operaciones).' },
+        ],
+      },
+      {
+        heading: 'Cómo preguntar',
+        entries: [
+          { term: 'Métrica × dimensión', def: 'Elegí qué medir (ventas/margen/unidades/tickets) y por qué cortarlo (canal, marca, categoría, sucursal, producto, cliente o tiempo).' },
+          { term: 'Participación (Part.)', def: 'Cuánto pesa cada fila sobre el total del corte (share %).' },
+          { term: 'Ver en Sell-Out / Salidas', def: 'El botón lleva al reporte especializado con más detalle y export, filtrado por lo que estás viendo.' },
+        ],
+      },
+    ],
+  },
   'compras-360': {
     title: 'Compras 360 — guía',
     intro: 'El "Excel" de recepción, vivo: una fila por orden de entrada / factura de compra de Kepler con su OC, la factura, el ajuste ligado y el neto. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre.',
@@ -76,6 +100,54 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Match exacto', def: 'La devolución/nota apunta al mismo folio de entrada en Kepler. Es una liga confiable.' },
           { term: 'Match proveedor+fecha (heurístico)', def: 'Kepler no ligó la nota a la entrada; se asocia por mismo proveedor dentro de una ventana de fechas (±15 días). Es una estimación — revisar antes de darla por cierta.' },
           { term: 'Solo con ajuste', def: 'Filtro que deja solo las recepciones que tienen alguna devolución o nota ligada (las filas marcadas con la línea ámbar).' },
+        ],
+      },
+    ],
+  },
+  'compras-costo-neto': {
+    title: 'Costo neto por proveedor — guía',
+    intro: 'Tu costo REAL con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada.',
+    groups: [
+      {
+        heading: 'Los números',
+        entries: [
+          { term: 'Compras (bruto)', def: 'Total facturado por el proveedor en el periodo, antes de cualquier descuento o devolución.' },
+          { term: 'Descuento efectivo', def: 'Lo que realmente te descontaron = pronto pago al pagar (campo c84 de Kepler) + notas de crédito comerciales. NO incluye devoluciones de mercancía.' },
+          { term: '% (tasa efectiva)', def: 'Descuento efectivo ÷ compras. Es cuánto más barato te sale ese proveedor vs su lista.' },
+          { term: 'Costo neto', def: 'Compras − descuento efectivo. El costo real de comprarle a ese proveedor.' },
+        ],
+      },
+      {
+        heading: 'Cómo leerlo',
+        entries: [
+          { term: 'Tasa anómala (⚠ >20%)', def: 'Un % muy alto casi nunca es "puro descuento": suele arrastrar devoluciones o errores de captura. La fila se marca con línea ámbar y ⚠ — revísala (clic → Descuentos del proveedor) antes de usar ese % como costo.' },
+          { term: 'Para reabasto', def: 'Costo real de un producto ≈ costo de lista × (1 − %). Úsalo para comparar proveedores y decidir a quién comprar.' },
+          { term: 'Solo con compras ≥ $100k', def: 'Filtra al ruido: deja solo proveedores con volumen relevante. Quítalo para ver todos.' },
+        ],
+      },
+    ],
+  },
+  'almacen-movimientos': {
+    title: 'Diario de movimientos — guía',
+    intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abrí un día para ver sus documentos, y un documento para validar contra su contraparte antes de auditarlo. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es lectura + auditoría; no mueve inventario.',
+    groups: [
+      {
+        heading: 'Diario',
+        entries: [
+          { term: 'Documento y contraparte', def: 'Un traspaso genera una salida en el origen (TrsfShip) y una recepción en el destino (TrsfRcv). Al abrir uno se muestra el otro al lado para verificar que lo enviado = lo recibido.' },
+          { term: 'Destino (sucursal/ruta/cliente)', def: 'A dónde va el traspaso. Por defecto se muestran los tres; podés acotar a solo sucursales para conciliar traspasos entre tiendas.' },
+          { term: 'Estado', def: 'En tránsito (salió, aún no se recibe), Completado (recibido y cuadra) o Con diferencia (enviado ≠ recibido).' },
+          { term: 'Auditar', def: 'Marca el documento como revisado (queda quién y cuándo). Requiere permiso de gestión de movimientos.' },
+        ],
+      },
+      {
+        heading: 'Cuadre de traspasos',
+        entries: [
+          { term: 'Mayor 515', def: 'Cuenta puente de Kepler "Ajuste traspasos internos". Cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear $0. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.' },
+          { term: '515-001 / 515-002', def: 'Subcuentas: 001 = entrada (recepción), 002 = salida (despacho). Se comparan por importe.' },
+          { term: 'Sin rastro', def: 'Una póliza de salida (o entrada) sin su contraparte que cuadre por importe (±tolerancia) ni en la ventana de fechas. Es lo que hay que localizar en Kepler.' },
+          { term: 'Pareo tolerante', def: 'Como Kepler no liga origen↔destino 1:1, se emparejan por importe con una tolerancia de % + una ventana de ±1 mes.' },
+          { term: 'Cuadre Kepler → Wincaja', def: 'Las tiendas 30/32/50 no están en Kepler; su recepción vive en Wincaja. Se cuadra por totales en $ (la unidad de Wincaja ≠ piezas de Kepler), no línea a línea.' },
         ],
       },
     ],

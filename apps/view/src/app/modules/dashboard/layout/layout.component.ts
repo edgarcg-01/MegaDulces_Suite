@@ -287,6 +287,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Reportes',
       items: [
+        { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
         { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_SELLOUT_VER },
         { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_SALIDAS_VER },
         { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ROUTE_SALES_VER },
@@ -301,20 +302,35 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.USUARIOS_GESTIONAR },
   ];
 
-  private logisticaNavItems: NavItem[] = [
-    { label: 'Dashboard',        icon: 'pi pi-th-large',  route: '/logistica/dashboard', permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Embarques',        icon: 'pi pi-truck',     route: '/logistica/shipments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Rastreo',          icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
-    { label: 'Planeador',        icon: 'pi pi-compass',   route: '/logistica/planner',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Mis entregas',     icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Guías',            icon: 'pi pi-file-edit', route: '/logistica/guides',    permission: Permission.LOGISTICS_GUIDES_VER },
-    { label: 'Costos',           icon: 'pi pi-money-bill', route: '/logistica/costs',    permission: Permission.LOGISTICS_EXPENSES_VER },
-    { label: 'Traspasos',        icon: 'pi pi-sync',      route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
-    { label: 'Reportes',         icon: 'pi pi-chart-bar', route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Flotilla',         icon: 'pi pi-car',       route: '/logistica/fleet',     permission: Permission.LOGISTICS_FLEET_VER     },
-    { label: 'Personal',         icon: 'pi pi-users',     route: '/logistica/staff',     permission: Permission.LOGISTICS_FLEET_VER },
-    { label: 'Liquidaciones',    icon: 'pi pi-wallet',    route: '/logistica/payroll',   permission: Permission.LOGISTICS_PAYROLL_VER   },
-    { label: 'Configuración',    icon: 'pi pi-cog',       route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
+  private logisticaNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Operación',
+      items: [
+        { label: 'Dashboard',    icon: 'pi pi-th-large',  route: '/logistica/dashboard',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Embarques',    icon: 'pi pi-truck',     route: '/logistica/shipments',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Planeador',    icon: 'pi pi-compass',   route: '/logistica/planner',        permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Mis entregas', icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Guías',        icon: 'pi pi-file-edit', route: '/logistica/guides',         permission: Permission.LOGISTICS_GUIDES_VER },
+      ],
+    },
+    {
+      title: 'Flota y personal',
+      items: [
+        { label: 'Rastreo',       icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
+        { label: 'Flotilla',      icon: 'pi pi-car',        route: '/logistica/fleet',    permission: Permission.LOGISTICS_FLEET_VER },
+        { label: 'Personal',      icon: 'pi pi-users',      route: '/logistica/staff',    permission: Permission.LOGISTICS_FLEET_VER },
+        { label: 'Liquidaciones', icon: 'pi pi-wallet',     route: '/logistica/payroll',  permission: Permission.LOGISTICS_PAYROLL_VER },
+      ],
+    },
+    {
+      title: 'Costos y reportes',
+      items: [
+        { label: 'Costos',        icon: 'pi pi-money-bill', route: '/logistica/costs',     permission: Permission.LOGISTICS_EXPENSES_VER },
+        { label: 'Traspasos',     icon: 'pi pi-sync',       route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
+        { label: 'Reportes',      icon: 'pi pi-chart-bar',  route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Configuración', icon: 'pi pi-cog',        route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
+      ],
+    },
   ];
 
   private permToSubject: Record<string, string> = {
@@ -389,82 +405,172 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
   });
 
-  private tiendaNavItems: NavItem[] = [
-    { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
-    { label: 'Sucursales', icon: 'pi pi-building', route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
-    { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
-    { label: 'Cajas abiertas', icon: 'pi pi-inbox', route: '/tienda/cajas', permission: Permission.STORE_LIVE_VER },
-    { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
-    { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', permission: Permission.STORE_ARQUEO_VER },
-    { label: 'Etiquetas', icon: 'pi pi-tag', route: '/tienda/etiquetas', permission: Permission.STORE_LABELS_VER },
+  private tiendaNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Operación',
+      items: [
+        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
+        { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Cajas abiertas',  icon: 'pi pi-inbox',      route: '/tienda/cajas',    permission: Permission.STORE_LIVE_VER },
+      ],
+    },
+    {
+      title: 'Análisis y control',
+      items: [
+        { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
+        { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
+        { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
+      ],
+    },
   ];
 
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
   // Orden alineado a FINANZAS_TABS (finanzas-tabs.ts): mismo orden en sidebar y pestañas.
-  private finanzasNavItems: NavItem[] = [
-    { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
-    { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-    { label: 'Cobranza', icon: 'pi pi-money-bill', route: '/finanzas/cobranza', permission: Permission.FINANCE_COLLECTIONS_VER },
-    { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
-    { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
-    { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
-    { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
-    { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
-    { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
-    { label: 'Reembolsos', icon: 'pi pi-receipt', route: '/finanzas/comprobaciones', permission: Permission.FINANCE_EXPENSES_VER },
-    { label: 'Comprobación de gastos', icon: 'pi pi-check-circle', route: '/finanzas/comprobacion-gastos', permission: Permission.FINANCE_EXPENSES_VER },
-    { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+  private finanzasNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Egresos y bancos',
+      items: [
+        { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+        { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Cobranza', icon: 'pi pi-money-bill', route: '/finanzas/cobranza', permission: Permission.FINANCE_COLLECTIONS_VER },
+      ],
+    },
+    {
+      title: 'Pagos',
+      items: [
+        { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
+      ],
+    },
+    {
+      title: 'Gastos',
+      items: [
+        { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
+        { label: 'Reembolsos', icon: 'pi pi-receipt', route: '/finanzas/comprobaciones', permission: Permission.FINANCE_EXPENSES_VER },
+        { label: 'Comprobación de gastos', icon: 'pi pi-check-circle', route: '/finanzas/comprobacion-gastos', permission: Permission.FINANCE_EXPENSES_VER },
+      ],
+    },
+    {
+      title: 'Inteligencia',
+      items: [
+        { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
+        { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+      ],
+    },
   ];
 
   // Contabilidad (cumplimiento SAT / CFDI). Proyecto propio, separado de Finanzas.
-  private contabilidadNavItems: NavItem[] = [
-    { label: 'Listas SAT',          icon: 'pi pi-shield',         route: '/contabilidad/listas-sat',    permission: Permission.FISCAL_LISTAS_VER },
-    { label: 'CFDI',                icon: 'pi pi-file',           route: '/contabilidad/cfdi',          permission: Permission.FISCAL_CFDI_VER },
-    { label: 'Facturar',            icon: 'pi pi-file-edit',      route: '/contabilidad/facturar',      permission: Permission.FISCAL_FACTURAR_VER },
-    { label: 'Diagnóstico',         icon: 'pi pi-wrench',         route: '/contabilidad/diagnostico',   permission: Permission.FISCAL_FACTURAR_VER },
-    { label: 'Conciliación',        icon: 'pi pi-check-square',   route: '/contabilidad/conciliacion',  permission: Permission.FISCAL_CONCILIACION_VER },
-    { label: 'DIOT / IVA',          icon: 'pi pi-percentage',     route: '/contabilidad/diot',          permission: Permission.FISCAL_DIOT_VER },
-    { label: 'Descarga CFDI',       icon: 'pi pi-cloud-download', route: '/contabilidad/descarga',      permission: Permission.FISCAL_DESCARGA_VER },
-    { label: 'Materialidad',        icon: 'pi pi-folder-open',    route: '/contabilidad/materialidad',  permission: Permission.FISCAL_LISTAS_VER },
-    { label: 'Contabilidad e.',     icon: 'pi pi-book',           route: '/contabilidad/contabilidad',  permission: Permission.FISCAL_CONTAB_VER },
-    { label: 'ContPAQi',            icon: 'pi pi-database',       route: '/contabilidad/contpaqi',      permission: Permission.FISCAL_CONTAB_VER },
-    { label: 'Pólizas',             icon: 'pi pi-check-circle',   route: '/contabilidad/polizas',       permission: Permission.FISCAL_CONTAB_VER },
-    { label: 'Provisionales',       icon: 'pi pi-calculator',     route: '/contabilidad/impuestos',     permission: Permission.FISCAL_DIOT_VER },
-    { label: 'e.firma',             icon: 'pi pi-key',            route: '/contabilidad/credenciales',  permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
+  private contabilidadNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Fiscal / SAT',
+      items: [
+        { label: 'Listas SAT',    icon: 'pi pi-shield',         route: '/contabilidad/listas-sat',   permission: Permission.FISCAL_LISTAS_VER },
+        { label: 'CFDI',          icon: 'pi pi-file',           route: '/contabilidad/cfdi',         permission: Permission.FISCAL_CFDI_VER },
+        { label: 'Descarga CFDI', icon: 'pi pi-cloud-download', route: '/contabilidad/descarga',     permission: Permission.FISCAL_DESCARGA_VER },
+        { label: 'Materialidad',  icon: 'pi pi-folder-open',    route: '/contabilidad/materialidad', permission: Permission.FISCAL_LISTAS_VER },
+      ],
+    },
+    {
+      title: 'Facturación',
+      items: [
+        { label: 'Facturar',    icon: 'pi pi-file-edit', route: '/contabilidad/facturar',    permission: Permission.FISCAL_FACTURAR_VER },
+        { label: 'Diagnóstico', icon: 'pi pi-wrench',    route: '/contabilidad/diagnostico', permission: Permission.FISCAL_FACTURAR_VER },
+      ],
+    },
+    {
+      title: 'Contabilidad',
+      items: [
+        { label: 'Conciliación',    icon: 'pi pi-check-square', route: '/contabilidad/conciliacion', permission: Permission.FISCAL_CONCILIACION_VER },
+        { label: 'Contabilidad e.', icon: 'pi pi-book',         route: '/contabilidad/contabilidad', permission: Permission.FISCAL_CONTAB_VER },
+        { label: 'ContPAQi',        icon: 'pi pi-database',     route: '/contabilidad/contpaqi',     permission: Permission.FISCAL_CONTAB_VER },
+        { label: 'Pólizas',         icon: 'pi pi-check-circle', route: '/contabilidad/polizas',      permission: Permission.FISCAL_CONTAB_VER },
+      ],
+    },
+    {
+      title: 'Impuestos',
+      items: [
+        { label: 'DIOT / IVA',    icon: 'pi pi-percentage', route: '/contabilidad/diot',      permission: Permission.FISCAL_DIOT_VER },
+        { label: 'Provisionales', icon: 'pi pi-calculator', route: '/contabilidad/impuestos', permission: Permission.FISCAL_DIOT_VER },
+      ],
+    },
+    {
+      title: 'Credenciales',
+      items: [
+        { label: 'e.firma', icon: 'pi pi-key', route: '/contabilidad/credenciales', permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
+      ],
+    },
   ];
 
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
   // requisición (HITL). Proyecto propio; nav gateado por COMPRAS_VER.
-  private comprasNavItems: NavItem[] = [
-    { label: 'Pedido',             icon: 'pi pi-cart-plus',            route: '/compras/pedido',             permission: Permission.COMPRAS_VER },
-    { label: 'Asistente (Thot)',   icon: 'pi pi-comments',             route: '/compras/asistente',          permission: Permission.COMPRAS_GESTIONAR },
-    { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
-    { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart',        route: '/compras/ordenes',            permission: Permission.COMPRAS_VER },
-    { label: 'Hallazgos',          icon: 'pi pi-flag',                 route: '/compras/hallazgos',          permission: Permission.COMPRAS_VER },
-    { label: 'Proveedores',        icon: 'pi pi-truck',                route: '/compras/proveedores',        permission: Permission.COMPRAS_VER },
-    { label: 'Categorías',         icon: 'pi pi-tags',                 route: '/compras/categorias',         permission: Permission.COMPRAS_VER },
-    { label: 'Red de abasto',      icon: 'pi pi-sitemap',              route: '/compras/red',                permission: Permission.COMPRAS_VER },
-    { label: 'Órdenes de entrada', icon: 'pi pi-inbox',                route: '/compras/entradas',           permission: Permission.COMPRAS_VER },
-    { label: 'Compras 360',        icon: 'pi pi-table',                route: '/compras/compras-360',        permission: Permission.COMPRAS_VER },
-    { label: 'Costo neto',         icon: 'pi pi-dollar',               route: '/compras/costo-neto',         permission: Permission.COMPRAS_VER },
-    { label: 'Descuentos y apoyos', icon: 'pi pi-percentage',          route: '/compras/descuentos',         permission: Permission.COMPRAS_VER },
+  private comprasNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Planeación',
+      items: [
+        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_VER },
+        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_GESTIONAR },
+        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_VER },
+      ],
+    },
+    {
+      title: 'Órdenes',
+      items: [
+        { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_VER },
+        { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_VER },
+        { label: 'Órdenes de entrada', icon: 'pi pi-inbox',         route: '/compras/entradas',      permission: Permission.COMPRAS_VER },
+      ],
+    },
+    {
+      title: 'Análisis',
+      items: [
+        { label: 'Compras 360',         icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_VER },
+        { label: 'Costo neto',          icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_VER },
+        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_VER },
+        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_VER },
+      ],
+    },
+    {
+      title: 'Catálogo',
+      items: [
+        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_VER },
+        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_VER },
+      ],
+    },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación
   // de almacén — salió de Ventas. Reusa permisos COMMERCIAL_INVENTORY_*.
-  private almacenNavItems: NavItem[] = [
-    { label: 'Existencias',     icon: 'pi pi-box',            route: '/almacen/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-    { label: 'Almacenes',       icon: 'pi pi-warehouse',      route: '/almacen/warehouses',         permission: Permission.COMMERCIAL_WAREHOUSES_VER },
-    { label: 'Conteo físico',   icon: 'pi pi-qrcode',         route: '/almacen/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
-    { label: 'Folios',          icon: 'pi pi-clipboard',      route: '/almacen/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Cíclico (ABC)',   icon: 'pi pi-sync',           route: '/almacen/inventory/abc',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Pasillos',        icon: 'pi pi-th-large',       route: '/almacen/inventory/aisles',   permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
-    { label: 'Exactitud (IRA)', icon: 'pi pi-verified',       route: '/almacen/inventory/ira',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Por vencer',      icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-    { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_DEADSTOCK_VER },
-    { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_INVHEALTH_VER },
-    { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
-    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_MOVEMENTS_VER, anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER] },
+  private almacenNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Existencias',
+      items: [
+        { label: 'Existencias',  icon: 'pi pi-box',                  route: '/almacen/inventory',        permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+        { label: 'Almacenes',    icon: 'pi pi-warehouse',            route: '/almacen/warehouses',       permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+        { label: 'Por vencer',   icon: 'pi pi-calendar-times',       route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+        { label: 'Stock muerto', icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',       permission: Permission.COMMERCIAL_DEADSTOCK_VER },
+        { label: 'Salud inv.',   icon: 'pi pi-heart',                route: '/almacen/inventory-health', permission: Permission.COMMERCIAL_INVHEALTH_VER },
+      ],
+    },
+    {
+      title: 'Conteo físico',
+      items: [
+        { label: 'Conteo físico',   icon: 'pi pi-qrcode',    route: '/almacen/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
+        { label: 'Folios',          icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+        { label: 'Cíclico (ABC)',   icon: 'pi pi-sync',      route: '/almacen/inventory/abc',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+        { label: 'Pasillos',        icon: 'pi pi-th-large',  route: '/almacen/inventory/aisles',   permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
+        { label: 'Exactitud (IRA)', icon: 'pi pi-verified',  route: '/almacen/inventory/ira',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+      ],
+    },
+    {
+      title: 'Conciliación',
+      items: [
+        { label: 'Cuadre',      icon: 'pi pi-check-square',           route: '/almacen/cuadre',      permission: Permission.RECONCILIATION_VER },
+        { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_MOVEMENTS_VER, anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER] },
+      ],
+    },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
@@ -491,32 +597,32 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // Finanzas: superficie contable con nav propio, sin depender del dashboard completo
     // (un usuario de finanzas puede no tener REPORTES_VER_*). El route-guard ya gatea acceso.
     if (this.currentProject() === 'finanzas') {
-      return this.dedupeByRoute(this.finanzasNavItems);
+      return this.dedupeByRoute(this.flatOf(this.finanzasNavGroups));
     }
     // Contabilidad: superficie contable/fiscal propia. Un rol contable puede no tener
     // REPORTES_VER_* → early-return para que el sidebar no quede vacío. Cada item por permiso.
     if (this.currentProject() === 'contabilidad') {
-      return this.dedupeByRoute(this.contabilidadNavItems.filter((i) => this.hasPermFor(i)));
+      return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
     if (this.currentProject() === 'compras') {
-      return this.dedupeByRoute(this.comprasNavItems);
+      return this.dedupeByRoute(this.flatOf(this.comprasNavGroups));
     }
     // Tienda: superficie de sucursal (cajeras/encargados). Un rol `sucursal` no tiene
     // REPORTES_VER_* → sin este early-return el nav de tienda no renderizaría. Cada item
     // se filtra por su permiso (STORE_LIVE_VER / STORE_ARQUEO_VER / STORE_LABELS_VER).
     if (this.currentProject() === 'tienda') {
-      return this.dedupeByRoute(this.tiendaNavItems.filter((i) => this.hasPermFor(i)));
+      return this.dedupeByRoute(this.flatOf(this.tiendaNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Almacén / Logística: superficies operativas con nav propio. Un rol operativo
     // (p.ej. `compras`, encargado de almacén) NO tiene REPORTES_VER_EQUIPO/GLOBAL,
     // así que sin este early-return caía en el gate `!fullDashboard` de abajo y el
     // sidebar quedaba vacío. Cada item se filtra por su permiso (COMMERCIAL_INVENTORY_*, etc.).
     if (this.currentProject() === 'almacen') {
-      return this.dedupeByRoute(this.almacenNavItems.filter((i) => this.hasPermFor(i)));
+      return this.dedupeByRoute(this.flatOf(this.almacenNavGroups).filter((i) => this.hasPermFor(i)));
     }
     if (this.currentProject() === 'logistica') {
-      return this.dedupeByRoute(this.logisticaNavItems.filter((i) => this.hasPermFor(i)));
+      return this.dedupeByRoute(this.flatOf(this.logisticaNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
@@ -536,17 +642,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     const project = this.currentProject();
     const items =
       project === 'comercial'
-        ? this.comercialNavGroups.flatMap((g) => g.items)
+        ? this.flatOf(this.comercialNavGroups)
         : project === 'admin'
         ? this.adminNavItems
-        : project === 'logistica'
-        ? this.logisticaNavItems
-        : project === 'tienda'
-        ? this.tiendaNavItems
-        : project === 'finanzas'
-        ? this.finanzasNavItems
-        : project === 'almacen'
-        ? this.almacenNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
   });
@@ -560,34 +658,34 @@ export class LayoutComponent implements OnInit, OnDestroy {
   navGroups = computed<{ title: string; items: NavItem[] }[]>(() => {
     const user = this.user();
     if (!user) return [];
+    // Cada superficie agrupa sus submódulos por dominio (títulos de sección), como
+    // Trade/Comercial. `false` = no filtrar por permiso (acceso ya gateado por el route-guard).
     if (this.currentProject() === 'reparto') {
       return [{ title: 'Reparto', items: this.dedupeByRoute(this.repartoNavItems) }];
     }
     if (this.currentProject() === 'finanzas') {
-      return [{ title: 'Finanzas', items: this.dedupeByRoute(this.finanzasNavItems) }];
+      return this.mapGroups(this.finanzasNavGroups, false);
     }
     if (this.currentProject() === 'contabilidad') {
-      return [{ title: 'Contabilidad', items: this.dedupeByRoute(this.contabilidadNavItems.filter((i) => this.hasPermFor(i))) }]
-        .filter((g) => g.items.length > 0);
+      return this.mapGroups(this.contabilidadNavGroups, true);
     }
     if (this.currentProject() === 'compras') {
-      return [{ title: 'Compras', items: this.dedupeByRoute(this.comprasNavItems) }];
+      return this.mapGroups(this.comprasNavGroups, false);
+    }
+    if (this.currentProject() === 'tienda') {
+      return this.mapGroups(this.tiendaNavGroups, true);
     }
     if (this.currentProject() === 'almacen') {
-      return [{ title: 'Almacén', items: this.dedupeByRoute(this.almacenNavItems.filter((i) => this.hasPermFor(i))) }]
-        .filter((g) => g.items.length > 0);
+      return this.mapGroups(this.almacenNavGroups, true);
     }
     if (this.currentProject() === 'logistica') {
-      return [{ title: 'Logística', items: this.dedupeByRoute(this.logisticaNavItems.filter((i) => this.hasPermFor(i))) }]
-        .filter((g) => g.items.length > 0);
+      return this.mapGroups(this.logisticaNavGroups, true);
+    }
+    if (this.currentProject() === 'admin') {
+      return this.mapGroups([{ title: 'Administración', items: this.adminNavItems }], true);
     }
     if (this.currentProject() === 'comercial') {
-      return this.comercialNavGroups
-        .map((g) => ({
-          title: g.title,
-          items: this.dedupeByRoute(g.items.filter((i) => this.hasPermFor(i))),
-        }))
-        .filter((g) => g.items.length > 0);
+      return this.mapGroups(this.comercialNavGroups, true);
     }
     const groups: { title: string; items: NavItem[] }[] = [];
     // Agrupar las superficies de mapa bajo una sección "Mapas" (hermanas).
@@ -614,6 +712,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
       seen.add(i.route);
       return true;
     });
+  }
+
+  /** Aplana los grupos de un proyecto a una lista de items (para navItems/bottomNav/título). */
+  private flatOf(groups: { title: string; items: NavItem[] }[]): NavItem[] {
+    return groups.flatMap((g) => g.items);
+  }
+
+  /** Mapea grupos → {title, items} filtrados; descarta grupos vacíos. `filter`=aplicar permiso. */
+  private mapGroups(groups: { title: string; items: NavItem[] }[], filter: boolean): { title: string; items: NavItem[] }[] {
+    return groups
+      .map((g) => ({ title: g.title, items: this.dedupeByRoute(filter ? g.items.filter((i) => this.hasPermFor(i)) : g.items) }))
+      .filter((g) => g.items.length > 0);
   }
 
   adminItems = computed(() => {
