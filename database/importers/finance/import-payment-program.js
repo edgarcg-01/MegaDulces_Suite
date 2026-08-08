@@ -120,19 +120,32 @@ async function reconKepler(db) {
   if (RECON_ONLY) { console.log('\n=== PP.4 recon Kepler (solo re-derivar kepler_matched) ==='); await reconKepler(db); await db.end(); return; }
   console.log(`\n=== Import PROGRAMA PAGOS → finance.payment_program (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n  archivo: ${FILE}`);
 
-  // catálogo de proveedores para resolver (index por token)
-  const sup = (await db.query(`SELECT id, name, code FROM catalog.suppliers WHERE tenant_id=$1 AND deleted_at IS NULL`, [M])).rows;
-  const supIdx = sup.map((s) => ({ id: s.id, name: s.name, toks: new Set(normTokens(s.name)) }));
+  // Palabras/textos que NO son proveedor sino FINANCIAMIENTO (factoraje, líneas de crédito).
+  const isFinancing = (txt) => /^(factoraje|revolvencia|lc\b|linea de credito|línea de crédito|credito bte|crédito bte)/i.test(String(txt || '').trim());
+  // catálogo de proveedores para resolver. Resolución FUZZY por trigramas de caracteres (unaccent +
+  // sin sufijos legales): tolera typos ("mondeñez"→mondelez, "distribuidroa"→distribuidora) y elige
+  // SIEMPRE el mismo canónico (desempate por # de productos → gana el registro con más catálogo).
+  const sup = (await db.query(
+    `SELECT id, name, (SELECT count(*) FROM catalog.products p WHERE p.tenant_id=$1 AND p.supplier_id=s.id AND p.deleted_at IS NULL) prods
+       FROM catalog.suppliers s WHERE s.tenant_id=$1 AND s.deleted_at IS NULL`, [M])).rows;
+  // Normalización LIGERA para trigramas: sin acentos/puntuación, minúsculas, quita SOLO sufijos
+  // legales (sa/de/cv/rl…) — CONSERVA palabras discriminantes (distribuidora/comercializadora/rosa)
+  // que normTokens sí borra. Esencial para que "distribuidora de la rosa" no colapse a "rosa".
+  const normLight = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\b(sa|de|cv|rl|sc|sapi|s|a|c|v|the|y|compra)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const trigrams = (s) => { const t = '  ' + normLight(s) + ' '; const g = new Set(); for (let i = 0; i < t.length - 2; i++) g.add(t.slice(i, i + 3)); return g; };
+  const supIdx = sup.map((s) => ({ id: s.id, name: s.name, prods: Number(s.prods) || 0, tg: trigrams(s.name) }));
   const resolveSupplier = (txt) => {
-    const t = normTokens(txt); if (!t.length) return null;
-    const tset = new Set(t); let best = null, bestScore = 0;
+    if (isFinancing(txt)) return null;
+    const tp = trigrams(txt); if (tp.size < 2) return null;
+    let best = null, bestScore = 0;
     for (const s of supIdx) {
-      if (!s.toks.size) continue;
-      let inter = 0; for (const w of tset) if (s.toks.has(w)) inter++;
-      const score = inter / Math.max(1, Math.min(tset.size, s.toks.size));
-      if (score > bestScore) { bestScore = score; best = s; }
+      if (!s.tg.size) continue;
+      let inter = 0; for (const g of tp) if (s.tg.has(g)) inter++;
+      const jac = inter / (tp.size + s.tg.size - inter);           // Jaccard de trigramas
+      if (jac > bestScore || (jac === bestScore && best && s.prods > best.prods)) { bestScore = jac; best = s; }
     }
-    return bestScore >= 0.5 ? best : null;
+    return bestScore >= 0.35 ? best : null;
   };
   // cuentas bancarias: banco → [id]; resoluble solo si el banco tiene UNA cuenta
   const banks = (await db.query(`SELECT id, bank FROM finance.bank_accounts WHERE tenant_id=$1 AND active`, [M])).rows;
@@ -186,7 +199,7 @@ async function reconKepler(db) {
         source_month: month, client_uuid, pay_date, clearing_date,
         supplier_id: sup1 ? sup1.id : null, supplier_text,
         sucursal_code: cols.almc ? S(cellVal(row.getCell(cols.almc))) : null,
-        tipo: cols.tipo ? tipoOf(cellVal(row.getCell(cols.tipo))) : null,
+        tipo: isFinancing(supplier_text) ? 'financiamiento' : (cols.tipo ? tipoOf(cellVal(row.getCell(cols.tipo))) : null),
         method, method_ref: ref || null, bank_account_id: resolveBank(bankC), bank_text: bankC || bank_text || null,
         amount, invoice_folios: folios || null, kepler_flag,
         concepto: supplier_text, recibio: cols.recibio ? S(cellVal(row.getCell(cols.recibio))) : null,
