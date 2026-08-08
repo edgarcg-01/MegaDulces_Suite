@@ -151,22 +151,53 @@ export class SalesBlockComponent {
 
   private load(b: SalesBlock): void {
     this.loading.set(true); this.err.set(null);
+    // Con rango explícito o filtros → endpoint semántico VG.1 (determinista, filtrable).
+    // Sin alcance → endpoints probados (network/*, historical/*) por default.
+    const scope = this.svc.hasScope({ from: b.from, to: b.to, filters: b.filters });
+    const err = (msg: string) => { this.loading.set(false); this.err.set(msg); };
+
     if (b.type === 'kpi') {
-      this.svc.kpis().subscribe({
-        next: (k) => { this.kpis.set(k); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.err.set('No se pudieron cargar los KPIs.'); },
-      });
+      if (scope) {
+        this.svc.query('ventas', 'canal', { from: b.from, to: b.to, filters: b.filters, limit: 1 }).subscribe({
+          next: (r) => {
+            const t = r.totals;
+            this.kpis.set({
+              revenue: t.revenue, margin: t.margin, margin_pct: t.revenue > 0 ? +((t.margin / t.revenue) * 100).toFixed(1) : 0,
+              units: t.units, tickets: t.tickets, avg_ticket: t.avg_ticket, unique_customers: 0, coverage: r.coverage_pct, updated_at: null,
+            });
+            this.loading.set(false);
+          },
+          error: () => err('No se pudieron cargar los KPIs.'),
+        });
+      } else {
+        this.svc.kpis().subscribe({ next: (k) => { this.kpis.set(k); this.loading.set(false); }, error: () => err('No se pudieron cargar los KPIs.') });
+      }
     } else if (b.type === 'series') {
-      const { from, to } = this.rangeDates(b.range ?? '30d');
-      this.svc.series(b.metric ?? 'ventas', from, to).subscribe({
-        next: (s) => { this.series.set(s); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.err.set('No se pudo cargar la serie.'); },
-      });
+      const filtered = !!(b.filters && (b.filters.channel || b.filters.warehouse_id || b.filters.brand_id || b.filters.category_id));
+      const { from, to } = (b.from || b.to) ? { from: b.from, to: b.to } : this.rangeDates(b.range ?? '30d');
+      if (filtered) {
+        this.svc.query(b.metric ?? 'ventas', 'tiempo', { from, to, filters: b.filters, limit: 400 }).subscribe({
+          next: (r) => { this.series.set(r.rows.map((x) => ({ day: x.label, value: x.value }))); this.loading.set(false); },
+          error: () => err('No se pudo cargar la serie.'),
+        });
+      } else {
+        this.svc.series(b.metric ?? 'ventas', from, to).subscribe({
+          next: (s) => { this.series.set(s); this.loading.set(false); },
+          error: () => err('No se pudo cargar la serie.'),
+        });
+      }
     } else {
-      this.svc.breakdown(b.metric ?? 'ventas', b.dimension ?? 'canal', b.limit ?? 20).subscribe({
-        next: (r) => { this.bd.set(r); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.err.set('No se pudo cargar el desglose.'); },
-      });
+      if (scope) {
+        this.svc.query(b.metric ?? 'ventas', b.dimension ?? 'canal', { from: b.from, to: b.to, limit: b.limit ?? 20, filters: b.filters }).subscribe({
+          next: (r) => { this.bd.set({ rows: r.rows.map((x) => ({ label: x.label, value: x.value, share: x.share })), total: r.total, coverage: r.coverage_pct }); this.loading.set(false); },
+          error: () => err('No se pudo cargar el desglose.'),
+        });
+      } else {
+        this.svc.breakdown(b.metric ?? 'ventas', b.dimension ?? 'canal', b.limit ?? 20).subscribe({
+          next: (r) => { this.bd.set(r); this.loading.set(false); },
+          error: () => err('No se pudo cargar el desglose.'),
+        });
+      }
     }
   }
 
@@ -182,14 +213,16 @@ export class SalesBlockComponent {
   }
 
   kpiItems(k: VgKpis): MetricStripItem[] {
-    return [
+    const items: MetricStripItem[] = [
       { label: 'Ventas', value: k.revenue, format: 'currency-short', tone: 'brand' },
       { label: 'Margen', value: k.margin, format: 'currency-short', tone: 'ok', sub: `${(k.margin_pct || 0).toFixed(1)}%` },
       { label: 'Unidades', value: k.units, format: 'number', tone: 'default' },
       { label: 'Tickets', value: k.tickets, format: 'number', tone: 'default' },
       { label: 'Ticket prom.', value: k.avg_ticket, format: 'currency', tone: 'default' },
-      { label: 'Clientes', value: k.unique_customers, format: 'number', tone: 'default' },
     ];
+    // "Clientes" solo cuando hay dato (los KPIs filtrados por VG.1 no lo traen).
+    if (k.unique_customers > 0) items.push({ label: 'Clientes', value: k.unique_customers, format: 'number', tone: 'default' });
+    return items;
   }
 
   fmt(v: number): string {
