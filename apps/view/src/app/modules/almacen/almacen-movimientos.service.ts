@@ -89,6 +89,15 @@ export interface TransfersCheckResponse {
   rows: TransferCheckRow[];
 }
 
+/** DM.12b — drill de la matriz: folios de un par origen→destino (enviado ⇄ recibido). */
+export interface TransfersCheckPairResponse {
+  range: { from: string; to: string };
+  origin_wh_id: string | null; dest_wh_id: string | null;
+  origin_wh: string | null; dest_wh: string | null;
+  totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number };
+  rows: TransferCheckRow[];
+}
+
 export interface DocumentCounterpart {
   kind: 'recepcion' | 'origen';
   docs: { folio: string; warehouse_id: string; warehouse_code: string | null; warehouse_name: string | null; doc_code: string; doc_serie: string | null; doc_date: string; qty: number; lineas: number }[];
@@ -250,6 +259,10 @@ export class AlmacenMovimientosService {
   }
   transfersCheck(f: MovementsFilters): Observable<TransfersCheckResponse> {
     return this.http.get<TransfersCheckResponse>(`${this.base}/transfers-check`, { params: this.params(f) });
+  }
+  /** DM.12b — folios de un par origen→destino de la matriz física (drill de comparación). */
+  transfersCheckPair(f: MovementsFilters, origin_wh_id: string | null, dest_wh_id: string | null): Observable<TransfersCheckPairResponse> {
+    return this.http.get<TransfersCheckPairResponse>(`${this.base}/transfers-check-pair`, { params: this.params(f, { origin_wh_id: origin_wh_id || '', dest_wh_id: dest_wh_id || '' }) });
   }
   /** DM.12 — conciliación contable (mayor 515): entrada vs salida por mes/sucursal. */
   transfersLedger(f: MovementsFilters): Observable<TransfersLedgerResponse> {

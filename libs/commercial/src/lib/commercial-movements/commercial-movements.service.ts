@@ -612,6 +612,93 @@ export class CommercialMovementsService {
   }
 
   /**
+   * DM.12b — DRILL de la matriz: mismos folios que transfersCheck pero SCOPEADOS a UN par
+   * origen→destino (sin el LIMIT 500 global que prioriza problemas → aquí el par sale completo).
+   * Alimenta la ventana de comparación de "Flujo físico origen → destino". origin/dest null =
+   * '(sin destino)' / 'sin origen' (rows con ese lado nulo).
+   */
+  async transfersCheckPair(q: MovementsQuery, originWhId?: string | null, destWhId?: string | null) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
+    const shpDestSql = destSql ? ` AND ${destSql}` : '';
+    const origin = originWhId || null;
+    const dest = destWhId || null;
+    const originMatch = origin ? 't.origin_wh_id = ?' : 't.origin_wh_id IS NULL';
+    const destMatch = dest ? 't.dest_wh_id = ?' : 't.dest_wh_id IS NULL';
+    const pairParams = [...(origin ? [origin] : []), ...(dest ? [dest] : [])];
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(`
+        WITH shp AS (
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
+        ), rcv AS (
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
+        ), paired AS (
+          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+                 s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
+                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
+                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
+          FROM rcv r
+          LEFT JOIN LATERAL (
+            SELECT * FROM shp s
+            WHERE s.folio = r.parent_folio
+              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+              AND s.warehouse_id <> r.warehouse_id
+              AND s.doc_date <= r.doc_date
+              AND s.doc_date >= r.doc_date - 15
+            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
+            LIMIT 1
+          ) s ON true
+        ), unreceived AS (
+          SELECT s.* FROM shp s
+          WHERE NOT EXISTS (
+            SELECT 1 FROM rcv r
+            WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
+              AND r.warehouse_id <> s.warehouse_id
+              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
+        )
+        SELECT * FROM (
+          SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
+                 dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
+                 CASE
+                   WHEN origin_folio IS NULL THEN 'sin_origen'
+                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
+                   ELSE 'diferencia'
+                 END AS status,
+                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
+          FROM paired
+          UNION ALL
+          SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
+                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+          FROM unreceived u
+          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
+        ) t
+        WHERE ${originMatch} AND ${destMatch}
+        ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
+                 coalesce(t.ship_date, t.rcv_date) DESC
+        LIMIT 2000
+      `, [tenantId, from, to, tenantId, from, to, tenantId, ...pairParams])).rows;
+      const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
+      for (const r of rows) totals[r.status as keyof typeof totals]++;
+      const origin_wh = rows.find((r: any) => r.origin_wh)?.origin_wh || null;
+      const dest_wh = rows.find((r: any) => r.dest_wh)?.dest_wh || null;
+      return { range: { from, to }, origin_wh_id: origin, dest_wh_id: dest, origin_wh, dest_wh, totals, rows };
+    });
+  }
+
+  /**
    * DM.12 — Conciliación CONTABLE de traspasos (mayor 515 "AJUSTE TRASPASO INTERNOS").
    *
    * Contracara monetaria del transfersCheck físico: lee la balanza analytics.ledger_monthly.

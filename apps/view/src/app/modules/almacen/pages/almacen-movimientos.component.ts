@@ -16,7 +16,8 @@ import { TabsModule } from 'primeng/tabs';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
-  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse, LedgerDetailFilters,
+  TransfersMatrixResponse, TransfersMatrixRow, TransfersCheckResponse, TransferCheckRow, TransfersCheckPairResponse,
+  TransfersLedgerDetailResponse, LedgerDetailFilters,
   TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -379,9 +380,11 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                   <thead><tr><th>Origen</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th class="dm-r">OK / dif / s.rec.</th></tr></thead>
                   <tbody>
                     @for (r of mx.rows; track r.origin_wh_id + '>' + r.dest_wh_id) {
-                      <tr [class.dm-hl]="!matrixQtyOk(r.delta_qty) || r.n_diferencia > 0 || r.n_sin_recepcion > 0">
+                      <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Comparar ' + (r.origin_wh || '—') + ' a ' + (r.dest_wh || 'sin destino')"
+                          [class.dm-hl]="!matrixQtyOk(r.delta_qty) || r.n_diferencia > 0 || r.n_sin_recepcion > 0"
+                          (click)="openMatrixPair(r)" (keydown.enter)="openMatrixPair(r)" (keydown.space)="$event.preventDefault(); openMatrixPair(r)">
                         <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
-                        <td>{{ r.dest_wh || '(sin destino)' }}</td>
+                        <td>{{ r.dest_wh || '(sin destino)' }} <span class="dm-link">comparar ›</span></td>
                         <td class="dm-r">{{ r.qty_sent | number:'1.0-0' }}</td>
                         <td class="dm-r">{{ r.qty_received | number:'1.0-0' }}</td>
                         <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta_qty)" [class.bad]="!matrixQtyOk(r.delta_qty)">{{ matrixQtyOk(r.delta_qty) ? 'cuadra' : (r.delta_qty>0?'+':'') + (r.delta_qty | number:'1.0-0') }}</td>
@@ -594,6 +597,45 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <div class="dm-cp cp-ok"><i class="pi pi-check-circle"></i><strong>Cuadra exacto</strong><span>Entrada y salida con el mismo importe.</span></div>
         }
       }
+    </p-dialog>
+
+    <!-- DM.12b — comparación de un par origen→destino de la matriz física (folios enviado ⇄ recibido) -->
+    <p-dialog [(visible)]="mxPairOpen" [modal]="true" [style]="{ width: '68rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template #header><span class="dm-dlg-title">Comparación de traspasos físicos</span></ng-template>
+      @if (mxPairLoading()) { <div class="dm-empty">Cargando folios…</div> }
+      @else if (mxPair(); as d) {
+        <div class="dm-cmp-state">
+          <span class="dm-strong">{{ d.origin_wh || '—' }}</span>
+          <i class="pi pi-arrow-right dm-muted" aria-hidden="true"></i>
+          <span class="dm-strong">{{ d.dest_wh || '(sin destino)' }}</span>
+          <span class="dm-muted" style="margin-left:auto">
+            <span class="up">{{ d.totals.ok }} ok</span> ·
+            <span [class.down]="d.totals.diferencia>0">{{ d.totals.diferencia }} dif</span> ·
+            <span [class.down]="d.totals.sin_recepcion>0">{{ d.totals.sin_recepcion }} s.rec</span> ·
+            <span [class.down]="d.totals.sin_origen>0">{{ d.totals.sin_origen }} s.orig</span>
+          </span>
+        </div>
+        <p class="dm-block-sub">Clic en un folio para abrir el documento y su contraparte.</p>
+        <table class="dm-docs dm-tbl">
+          <thead><tr><th>Estado</th><th>Folio salida</th><th>Folio recepción</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th>Fecha</th></tr></thead>
+          <tbody>
+            @for (r of d.rows; track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id) {
+              <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Abrir traspaso ' + (r.origin_folio || r.rcv_folio || '')"
+                  [class.dm-hl]="r.status !== 'ok'" [class.dm-hl-strong]="r.status === 'sin_recepcion' || r.status === 'sin_origen'"
+                  (click)="openTransfer(r)" (keydown.enter)="openTransfer(r)" (keydown.space)="$event.preventDefault(); openTransfer(r)">
+                <td><p-tag [value]="checkLabel(r.status)" [severity]="checkSev(r.status)" styleClass="dm-tag"></p-tag></td>
+                <td class="dm-mono dm-link">{{ r.origin_folio || '—' }}</td>
+                <td class="dm-mono">{{ r.rcv_folio || '—' }}</td>
+                <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
+                <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
+                <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta)" [class.bad]="!matrixQtyOk(r.delta)">{{ matrixQtyOk(r.delta) ? '0' : (r.delta>0?'+':'') + (r.delta | number:'1.0-0') }}</td>
+                <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
+                <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
+              </tr>
+            } @empty { <tr><td colspan="8" class="dm-empty">Sin folios para este par en el rango.</td></tr> }
+          </tbody>
+        </table>
+      } @else { <div class="dm-empty">Sin datos.</div> }
     </p-dialog>
 
     <!-- DM.13b — detalle Kepler ⇄ Wincaja de una tienda×mes (los DOS sistemas lado a lado) -->
@@ -992,6 +1034,24 @@ export class AlmacenMovimientosComponent implements OnInit {
   wcDetailOpen = false;
   wcDetailLoading = signal(false);
   wcDetail = signal<TransfersWincajaDetailResponse | null>(null);
+  // ── DM.12b: drill de la matriz física — folios de un par origen→destino ──
+  mxPairOpen = false;
+  mxPairLoading = signal(false);
+  mxPair = signal<TransfersCheckPairResponse | null>(null);
+  /** Abre la ventana de comparación de un par origen→destino de la matriz física. */
+  openMatrixPair(r: TransfersMatrixRow): void {
+    this.mxPair.set(null);
+    this.mxPairOpen = true;
+    this.mxPairLoading.set(true);
+    const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
+    this.api.transfersCheckPair(f, r.origin_wh_id, r.dest_wh_id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => { this.mxPair.set(d); this.mxPairLoading.set(false); },
+        error: () => { this.mxPairLoading.set(false); },
+      });
+  }
+
   /** Abre el detalle de los dos sistemas para una fila del cuadre Kepler→Wincaja. */
   openWincajaDetail(r: WincajaCheckRow): void {
     this.wcDetail.set(null);

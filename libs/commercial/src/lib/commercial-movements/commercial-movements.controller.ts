@@ -64,6 +64,13 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'DM.3 — Validación de traspasos: parea salida (UD41) ↔ recepción (UA50) por serie+folio y clasifica ok/diferencia/sin_recepcion/sin_origen.' })
   transfersCheck(@Query() raw: Record<string, string>) { return this.svc.transfersCheck(this.q(raw)); }
 
+  @Get('transfers-check-pair')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.12b — Drill de la matriz física: folios de UN par origen→destino (enviado ⇄ recibido, estado por folio), scopeado y completo (sin el cap 500 global). Params: origin_wh_id, dest_wh_id (vacío = sin destino/origen). Honra rango; ignora filtro de almacén.' })
+  transfersCheckPair(@Query('origin_wh_id') originWhId: string, @Query('dest_wh_id') destWhId: string, @Query() raw: Record<string, string>) {
+    return this.svc.transfersCheckPair(this.q(raw), originWhId || null, destWhId || null);
+  }
+
   @Get('transfers-ledger')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.12 — Conciliación CONTABLE de traspasos (mayor 515): entrada (515-001) vs salida (515-002) por mes y sucursal. La cuenta puente debe netear ≈ $0; Δ ≠ 0 = traspasos sin cuadrar. Honra el rango de fechas; ignora el filtro de almacén.' })
