@@ -168,6 +168,8 @@ export interface LedgerDetailFilters {
 export interface TransfersLedgerDetailResponse {
   range: { from: string; to: string };
   tolerance_pct: number; window_months: number;
+  /** Destinos (tiendas) presentes en el rango — para poblar el filtro sin lista hardcodeada. */
+  destinos?: string[];
   totals: {
     entrada: number; salida: number; delta: number;
     n_exact: number;
@@ -193,6 +195,16 @@ export interface TransfersWincajaCheckResponse {
   rows: WincajaCheckRow[];
   totals: { kepler: number; wincaja: number; delta: number };
   kepler_unmapped: number;
+}
+
+/** DM.13b — detalle folio a folio de una tienda×mes, cruzando Kepler ⇄ Wincaja. */
+export interface WincajaKeplerRow { sucursal: string; importe: number; referencia: string | null; folio: string | null; }
+export interface WincajaRecvRow { folio: string; fecha: string; tercero: string; origen: string; obs: string | null; costo: number; lineas: number; }
+export interface TransfersWincajaDetailResponse {
+  code: string; name: string; anio_mes: string;
+  kepler: { rows: WincajaKeplerRow[]; total: number; truncated: boolean };
+  wincaja: { rows: WincajaRecvRow[]; total: number; cedis: number; inter: number; truncated: boolean };
+  delta: number;
 }
 
 export interface MovementsFilterOpts {
@@ -250,6 +262,10 @@ export class AlmacenMovimientosService {
   /** DM.13 — cuadre Kepler→Wincaja (tiendas solo-Wincaja) por tienda×mes. */
   transfersWincajaCheck(f: MovementsFilters): Observable<TransfersWincajaCheckResponse> {
     return this.http.get<TransfersWincajaCheckResponse>(`${this.base}/transfers-wincaja-check`, { params: this.params(f) });
+  }
+  /** DM.13b — detalle folio a folio de una tienda×mes (Kepler 515-002 ⇄ recepción Wincaja). */
+  transfersWincajaDetail(f: MovementsFilters, code: string, anio_mes: string): Observable<TransfersWincajaDetailResponse> {
+    return this.http.get<TransfersWincajaDetailResponse>(`${this.base}/transfers-wincaja-detail`, { params: this.params(f, { code, anio_mes }) });
   }
   /** DM.12 — pólizas 515 clasificadas (exacto/costo/sin_rastro) + contraparte, con filtros de vista. */
   transfersLedgerDetail(f: MovementsFilters, d: LedgerDetailFilters = {}): Observable<TransfersLedgerDetailResponse> {

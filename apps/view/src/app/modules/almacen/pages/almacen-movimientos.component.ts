@@ -17,7 +17,7 @@ import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
   TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow, TransfersLedgerDetailResponse, LedgerDetailFilters,
-  TransfersWincajaCheckResponse,
+  TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -203,6 +203,38 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
             <span class="dm-muted dm-cuadre-note">Vista de red — ignora el filtro de almacén del Diario.</span>
           </div>
 
+          @if (cuadreError()) {
+            <div class="dm-error" role="alert">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <span>{{ cuadreError() }}</span>
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="loadCuadre()"><span class="p-button-label">Reintentar</span></button>
+            </div>
+          }
+
+          <!-- Answer-first: ¿cuadra la red en el rango? veredicto de los 3 lentes -->
+          @if (!cuadreLoading() && !cuadreError() && cuadreLoaded()) {
+            <div class="dm-verdict" role="group" aria-label="Veredicto de cuadre de la red">
+              @if (ledger(); as lg) {
+                <div class="dm-verdict-item" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
+                  <span class="dm-verdict-lbl">Contable · mayor 515</span>
+                  <span class="dm-verdict-val">{{ ledgerOk(lg.totals.delta, lg.totals.entrada) ? 'cuadra' : signed(lg.totals.delta) }}</span>
+                </div>
+              }
+              @if (detail(); as dt) {
+                <div class="dm-verdict-item" [class.ok]="!(dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida)" [class.bad]="dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida">
+                  <span class="dm-verdict-lbl">Pólizas sin rastro</span>
+                  <span class="dm-verdict-val">{{ dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida | number }}</span>
+                </div>
+              }
+              @if (wincaja(); as wc) {
+                <div class="dm-verdict-item" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="!wincajaOk(wc.totals.delta, wc.totals.kepler)">
+                  <span class="dm-verdict-lbl">Kepler → Wincaja</span>
+                  <span class="dm-verdict-val">{{ wincajaOk(wc.totals.delta, wc.totals.kepler) ? 'cuadra' : signed(wc.totals.delta) }}</span>
+                </div>
+              }
+            </div>
+          }
+
           @if (cuadreLoading()) { <div class="dm-empty">Cargando informe de cuadre…</div> }
           @else {
             <!-- ── Bloque CONTABLE (balanza Kepler, mayor 515) ── -->
@@ -289,7 +321,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                 <div class="dm-filters dm-detail-filters">
                   <p-select [options]="bucketOpts" [(ngModel)]="dBucket" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
                   <p-select [options]="dKindOpts" [(ngModel)]="dKind" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel" appendTo="body"></p-select>
-                  <p-multiselect [options]="destOpts" [(ngModel)]="dDest" (onChange)="loadDetail()" optionLabel="label" optionValue="value" placeholder="Todas las tiendas" [maxSelectedLabels]="2" selectedItemsLabel="{0} tiendas" styleClass="dm-sel" appendTo="body"></p-multiselect>
+                  <p-multiselect [options]="destOpts()" [(ngModel)]="dDest" (onChange)="loadDetail()" optionLabel="label" optionValue="value" placeholder="Todas las tiendas" [maxSelectedLabels]="2" selectedItemsLabel="{0} tiendas" styleClass="dm-sel" appendTo="body"></p-multiselect>
                   <p-select [options]="sucOpts()" [(ngModel)]="dSuc" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                   <p-select [options]="dMinOpts" [(ngModel)]="dMin" (onChange)="loadDetail()" optionLabel="label" optionValue="value" styleClass="dm-sel-sm" appendTo="body"></p-select>
                   <span class="dm-search"><input pInputText type="text" [(ngModel)]="dSearch" (keyup.enter)="loadDetail()" placeholder="Buscar folio o referencia…" aria-label="Buscar folio o referencia" /></span>
@@ -411,8 +443,10 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                   <thead><tr><th>Tienda</th><th>Mes</th><th class="dm-r">CEDIS despachó (Kepler)</th><th class="dm-r">Tienda recibió (Wincaja)</th><th class="dm-r">+ Compra zona</th><th class="dm-r">Docs</th><th class="dm-r">Δ</th></tr></thead>
                   <tbody>
                     @for (r of wc.rows; track r.code + r.anio_mes) {
-                      <tr [class.dm-hl]="!wincajaOk(r.delta, r.kepler_envio)">
-                        <td class="dm-strong">{{ r.code }} · {{ r.name }}</td>
+                      <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Ver detalle de ' + r.name + ' ' + r.anio_mes"
+                          [class.dm-hl]="!wincajaOk(r.delta, r.kepler_envio)"
+                          (click)="openWincajaDetail(r)" (keydown.enter)="openWincajaDetail(r)" (keydown.space)="$event.preventDefault(); openWincajaDetail(r)">
+                        <td class="dm-strong">{{ r.code }} · {{ r.name }} <span class="dm-link">detalle ›</span></td>
                         <td class="dm-mono">{{ r.anio_mes }}</td>
                         <td class="dm-r up">{{ money(r.kepler_envio) }}</td>
                         <td class="dm-r">{{ money(r.wincaja_recibido) }}@if (r.wincaja_inter) { <span class="dm-muted dm-sub"> (CEDIS {{ money(r.wincaja_cedis || 0) }} + hermana {{ money(r.wincaja_inter) }})</span> }</td>
@@ -562,6 +596,50 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
       }
     </p-dialog>
 
+    <!-- DM.13b — detalle Kepler ⇄ Wincaja de una tienda×mes (los DOS sistemas lado a lado) -->
+    <p-dialog [(visible)]="wcDetailOpen" [modal]="true" [style]="{ width: '74rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template #header><span class="dm-dlg-title">Detalle Kepler ⇄ Wincaja</span></ng-template>
+      @if (wcDetailLoading()) { <div class="dm-empty">Cargando detalle…</div> }
+      @else if (wcDetail(); as d) {
+        <div class="dm-cmp-state">
+          <span class="dm-strong">{{ d.code }} · {{ d.name }}</span>
+          <span class="dm-muted">{{ d.anio_mes }}</span>
+          <span class="dm-total" [class.ok]="wincajaOk(d.delta, d.kepler.total)" [class.bad]="!wincajaOk(d.delta, d.kepler.total)" style="margin-left:auto">
+            <span class="dm-total-lbl">Δ Kepler − Wincaja</span><span class="dm-total-val">{{ signed(d.delta) }}</span>
+          </span>
+        </div>
+        <div class="dm-cols two">
+          <!-- Kepler despachó -->
+          <div class="dm-col">
+            <h4 class="dm-col-h">CEDIS despachó · Kepler 515-002 · <span class="up">{{ money(d.kepler.total) }}</span></h4>
+            <table class="dm-docs dm-tbl">
+              <thead><tr><th>Folio</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia</th></tr></thead>
+              <tbody>
+                @for (k of d.kepler.rows; track $index) {
+                  <tr><td class="dm-mono">{{ k.folio || '—' }}</td><td class="dm-muted">{{ k.sucursal }}</td><td class="dm-r dm-strong">{{ money(k.importe) }}</td><td class="dm-ref">{{ k.referencia || '—' }}</td></tr>
+                } @empty { <tr><td colspan="4" class="dm-empty">Sin despachos Kepler a esta tienda en el mes.</td></tr> }
+              </tbody>
+            </table>
+            @if (d.kepler.truncated) { <div class="dm-col-foot down">Top 500 por importe — acotá el rango.</div> }
+          </div>
+          <!-- Wincaja recibió -->
+          <div class="dm-col">
+            <h4 class="dm-col-h">Tienda recibió · Wincaja · <span class="dm-strong">{{ money(d.wincaja.total) }}</span> <span class="dm-muted dm-sub">(CEDIS {{ money(d.wincaja.cedis) }} + hermana {{ money(d.wincaja.inter) }})</span></h4>
+            <table class="dm-docs dm-tbl">
+              <thead><tr><th>Folio</th><th>Fecha</th><th>Origen</th><th class="dm-r">Líneas</th><th class="dm-r">Costo</th></tr></thead>
+              <tbody>
+                @for (w of d.wincaja.rows; track $index) {
+                  <tr><td class="dm-mono">{{ w.folio }}</td><td class="dm-muted">{{ w.fecha | date:'yyyy-MM-dd' }}</td><td>{{ w.origen }}</td><td class="dm-r dm-muted">{{ w.lineas | number }}</td><td class="dm-r dm-strong">{{ money(w.costo) }}</td></tr>
+                } @empty { <tr><td colspan="5" class="dm-empty">Sin recepciones Wincaja en el mes.</td></tr> }
+              </tbody>
+            </table>
+            @if (d.wincaja.truncated) { <div class="dm-col-foot down">Top 500 por costo — acotá el rango.</div> }
+          </div>
+        </div>
+        <p class="dm-block-sub">No hay llave común folio↔folio (Kepler no conoce estas tiendas). Cada despacho del CEDIS debería tener su recepción en la tienda; compará por importe/fecha. Unidad Wincaja ≠ piezas Kepler → el cuadre es por $ (costo). La recepción incluye lo directo del CEDIS <strong>+ vía tienda hermana</strong>.</p>
+      } @else { <div class="dm-empty">Sin datos.</div> }
+    </p-dialog>
+
     <!-- Tabla de líneas reutilizable -->
     <ng-template #linesTpl let-lines="lines" let-totals="totals">
       <p-table [value]="lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="20rem">
@@ -610,6 +688,15 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     /* DM.12 — informe de cuadre de traspasos */
     .dm-cuadre-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .25rem 0 1rem; }
     .dm-cuadre-note { margin-left: .25rem; font-size: .76rem; }
+    /* Answer-first: veredicto de red */
+    .dm-verdict { display: flex; flex-wrap: wrap; gap: .6rem; margin: 0 0 1rem; }
+    .dm-verdict-item { display: flex; flex-direction: column; gap: .1rem; padding: .45rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); min-width: 11rem; }
+    .dm-verdict-item.ok { background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .dm-verdict-item.bad { background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    .dm-verdict-lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .dm-verdict-item.ok .dm-verdict-lbl, .dm-verdict-item.bad .dm-verdict-lbl { color: inherit; }
+    .dm-verdict-val { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .dm-verdict-item.ok { color: var(--ok-soft-fg); } .dm-verdict-item.bad { color: var(--bad-soft-fg); }
     .dm-block { border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); padding: .8rem .9rem; margin-bottom: 1rem; }
     .dm-block-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem 1rem; }
     .dm-block-title { margin: 0; font-size: .95rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
@@ -762,7 +849,9 @@ export class AlmacenMovimientosComponent implements OnInit {
 
   // DM.12 — pestaña "Cuadre de traspasos" (informe desglosado)
   activeTab = signal<string>('diario');
-  cFrom: Date = new Date(new Date().getFullYear(), 0, 1); // 1-ene del año en curso
+  // Default = MES EN CURSO (no 1-ene→hoy): entrar a la pestaña dispara 5 queries pesadas; un rango
+  // de 8 meses las hacía lentas. El selector de mes / los datepickers permiten ampliar cuando se quiera.
+  cFrom: Date = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // 1º del mes en curso
   cTo: Date = new Date();
   cMonth = ''; // '' = rango personalizado (usa cFrom/cTo); 'YYYY-MM' = mes puntual
   monthOpts = this.buildMonthOpts();
@@ -795,6 +884,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
   cuadreLoaded = signal(false);
   cuadreLoading = signal(false);
+  cuadreError = signal<string | null>(null);                   // error de carga del cuadre (no tragar la falla)
   dlCuadre = signal(false);                                    // descarga del reporte PDF
   cPdfMode: 'global' | 'resumen' | 'detalle' = 'global';       // alcance del reporte PDF
   pdfModeOpts = [
@@ -813,17 +903,16 @@ export class AlmacenMovimientosComponent implements OnInit {
   dKind: '' | 'entrada' | 'salida' = '';
   dSuc = '';
   dDest: string[] = []; // filtro por tienda destino (una o más)
-  destOpts = [
-    { label: 'Morelia Abastos (30)', value: 'Morelia Abastos (30)' },
-    { label: 'Morelia Madero (32)', value: 'Morelia Madero (32)' },
-    { label: 'Canindo (50)', value: 'Canindo (50)' },
-    { label: 'Padre Hidalgo (01)', value: 'Padre Hidalgo (01)' },
-    { label: 'Piedad (02)', value: 'Piedad (02)' },
-    { label: '8 Esquinas (03)', value: '8 Esquinas (03)' },
-    { label: 'Yurécuaro (04)', value: 'Yurécuaro (04)' },
-    { label: 'Zamora (05)', value: 'Zamora (05)' },
-    { label: 'CEDIS (00)', value: 'CEDIS (00)' },
+  // Fallback estático si el backend aún no devolvió `destinos` (1ª carga). El backend manda los reales.
+  private static readonly DEST_FALLBACK = [
+    'Morelia Abastos (30)', 'Morelia Madero (32)', 'Canindo (50)', 'Padre Hidalgo (01)',
+    'Piedad (02)', '8 Esquinas (03)', 'Yurécuaro (04)', 'Zamora (05)', 'CEDIS (00)',
   ];
+  /** Opciones de destino para el filtro — desde el backend (detail.destinos), no hardcodeadas. */
+  destOpts(): { label: string; value: string }[] {
+    const src = this.detail()?.destinos?.length ? this.detail()!.destinos! : AlmacenMovimientosComponent.DEST_FALLBACK;
+    return src.map((d) => ({ label: d, value: d }));
+  }
   dSearch = '';
   dMin: number | null = null;
   bucketOpts = [
@@ -877,11 +966,12 @@ export class AlmacenMovimientosComponent implements OnInit {
     else this.syncUrl();
   }
 
-  /** Carga los 3 lentes del informe (contable + matriz + folios) para el rango propio. */
+  /** Carga los 4 lentes del informe (contable + matriz + folios + Wincaja) para el rango propio. */
   loadCuadre(): void {
     this.syncUrl();
     const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
     this.cuadreLoading.set(true);
+    this.cuadreError.set(null);
     forkJoin({
       ledger: this.api.transfersLedger(f),
       matrix: this.api.transfersMatrix(f),
@@ -892,9 +982,28 @@ export class AlmacenMovimientosComponent implements OnInit {
         this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check); this.wincaja.set(r.wincaja);
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
-      error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
+      // No tragar la falla: si un endpoint 500ea, mostrar error + reintentar (no "Sin datos" engañoso).
+      error: () => { this.cuadreError.set('No se pudo cargar el informe de cuadre. Reintentá.'); this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
     });
     this.loadDetail();
+  }
+
+  // ── DM.13b: detalle folio a folio de una tienda×mes cruzando Kepler ⇄ Wincaja ──
+  wcDetailOpen = false;
+  wcDetailLoading = signal(false);
+  wcDetail = signal<TransfersWincajaDetailResponse | null>(null);
+  /** Abre el detalle de los dos sistemas para una fila del cuadre Kepler→Wincaja. */
+  openWincajaDetail(r: WincajaCheckRow): void {
+    this.wcDetail.set(null);
+    this.wcDetailOpen = true;
+    this.wcDetailLoading.set(true);
+    const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
+    this.api.transfersWincajaDetail(f, r.code, r.anio_mes)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => { this.wcDetail.set(d); this.wcDetailLoading.set(false); },
+        error: () => { this.wcDetailLoading.set(false); },
+      });
   }
 
   private detailFilters(): LedgerDetailFilters {
