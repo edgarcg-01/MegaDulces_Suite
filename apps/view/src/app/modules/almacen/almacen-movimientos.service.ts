@@ -216,6 +216,13 @@ export interface TransfersWincajaDetailResponse {
   delta: number;
 }
 
+/** DM.12 — pareo físico combinado (una ejecución) → matriz + check. */
+export interface TransfersPhysicalResponse {
+  range: { from: string; to: string };
+  matrix: TransfersMatrixResponse;
+  check: TransfersCheckResponse;
+}
+
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
   doc_types: { doc_code: string; movement_label: string; movement_kind: MovementKind }[];
@@ -271,6 +278,10 @@ export class AlmacenMovimientosService {
   /** DM.12 — matriz física origen→destino de traspasos. */
   transfersMatrix(f: MovementsFilters): Observable<TransfersMatrixResponse> {
     return this.http.get<TransfersMatrixResponse>(`${this.base}/transfers-matrix`, { params: this.params(f) });
+  }
+  /** DM.12 — pareo físico combinado (matriz + check) en una sola llamada/ejecución (dedup). */
+  transfersPhysical(f: MovementsFilters): Observable<TransfersPhysicalResponse> {
+    return this.http.get<TransfersPhysicalResponse>(`${this.base}/transfers-physical`, { params: this.params(f) });
   }
   /** DM.13 — cuadre Kepler→Wincaja (tiendas solo-Wincaja) por tienda×mes. */
   transfersWincajaCheck(f: MovementsFilters): Observable<TransfersWincajaCheckResponse> {

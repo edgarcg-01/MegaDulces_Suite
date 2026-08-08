@@ -76,6 +76,11 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'DM.12 — Conciliación CONTABLE de traspasos (mayor 515): entrada (515-001) vs salida (515-002) por mes y sucursal. La cuenta puente debe netear ≈ $0; Δ ≠ 0 = traspasos sin cuadrar. Honra el rango de fechas; ignora el filtro de almacén.' })
   transfersLedger(@Query() raw: Record<string, string>) { return this.svc.transfersLedger(this.q(raw)); }
 
+  @Get('transfers-physical')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.12 — Pareo físico UNA sola vez → { matrix, check } (dedup: antes transfers-matrix y transfers-check corrían el mismo CTE dos veces por carga del Cuadre). Honra rango; ignora filtro de almacén.' })
+  transfersPhysical(@Query() raw: Record<string, string>) { return this.svc.transfersPhysical(this.q(raw)); }
+
   @Get('transfers-matrix')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.12 — Matriz FÍSICA origen→destino de traspasos: enviado vs recibido + Δ + conteo por estado, agregado por par de sucursales. Honra rango de fechas; ignora filtro de almacén.' })
