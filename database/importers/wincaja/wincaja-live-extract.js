@@ -31,8 +31,9 @@
  *   WH_CODE_MODE      = warehouse_code | source_branch  (debe matchear el JWT del encargado)
  *
  *   & powershell ... (este proceso corre con node normal; él invoca el PS 32-bit)
- *   node database/importers/wincaja/wincaja-live-extract.js --dry   # 1 ciclo, no empuja
- *   node database/importers/wincaja/wincaja-live-extract.js         # loop
+ *   node database/importers/wincaja/wincaja-live-extract.js --dry    # 1 ciclo, no empuja
+ *   node database/importers/wincaja/wincaja-live-extract.js --once   # 1 ciclo real y sale (Task Scheduler c/5min) ← recomendado
+ *   node database/importers/wincaja/wincaja-live-extract.js          # loop interno (proceso largo)
  */
 'use strict';
 const path = require('path');
@@ -49,6 +50,7 @@ const POLL_MS = (Number(process.env.POLL_MINUTES) || 5) * 60 * 1000;
 const LOOKBACK_DAYS = Number(process.env.LOOKBACK_DAYS) || 2;
 const WH_CODE_MODE = process.env.WH_CODE_MODE === 'source_branch' ? 'source_branch' : 'warehouse_code';
 const DRY = process.argv.includes('--dry');
+const ONCE = process.argv.includes('--once'); // 1 ciclo real y sale (para Task Scheduler c/5min)
 const STATE_FILE = path.join(__dirname, '.wincaja-live-extract.json');
 
 // Rutas de las COPIAS-sombra en Z: (= \\192.168.0.245\D, las deja SyncBack). Default =
@@ -168,6 +170,7 @@ async function cycle(state) {
   console.log(`  ingest: ${INGEST_URL}  · tiendas: ${STORES.map((s) => s.code).join(',')}  · poll: ${POLL_MS / 60000}min  · wh_code: ${WH_CODE_MODE}`);
   const state = loadState();
   if (DRY) { const n = await cycle(state); console.log(`\n[DRY] ${n} tickets nuevos (nada empujado).`); return; }
+  if (ONCE) { const n = await cycle(state); console.log(`\n[ONCE] ${n} tickets empujados. Salgo.`); return; }
   const tick = async () => { try { const n = await cycle(state); if (n) console.log(`  ciclo: ${n} tickets.`); } catch (e) { console.error('ciclo falló:', e.message); } };
   await tick();
   setInterval(tick, POLL_MS);
