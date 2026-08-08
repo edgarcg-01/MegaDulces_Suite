@@ -139,9 +139,9 @@ export class PurchaseAdjustmentsController {
 
   @Get('supplier-ledger')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'CXP.7 — cuadre contable por proveedor (estado de cuenta 201 de Kepler): facturado (XA2001/XA1001) vs pagado (XD2601/XD2501) vs notas (XD5501) vs devoluciones (XD4001) + Δ del periodo. Filtros: date_from, date_to (acotan por mes), search.' })
-  supplierLedger(@Query('date_from') date_from?: string, @Query('date_to') date_to?: string, @Query('search') search?: string) {
-    return this.svc.supplierLedger({ date_from, date_to, search });
+  @ApiOperation({ summary: 'CXP.7 — cuadre contable por proveedor (estado de cuenta 201 de Kepler): facturado (XA2001/XA1001) vs pagado (XD2601/XD2501) vs notas (XD5501) vs devoluciones (XD4001) + Δ del periodo. Oculta cuentas internas (SUCURSAL/caja chica/viáticos) salvo include_internal=true. Filtros: date_from, date_to (acotan por mes), search.' })
+  supplierLedger(@Query('date_from') date_from?: string, @Query('date_to') date_to?: string, @Query('search') search?: string, @Query('include_internal') include_internal?: string) {
+    return this.svc.supplierLedger({ date_from, date_to, search, include_internal: include_internal === 'true' || include_internal === '1' });
   }
 
   @Get('supplier-ledger/detail')
