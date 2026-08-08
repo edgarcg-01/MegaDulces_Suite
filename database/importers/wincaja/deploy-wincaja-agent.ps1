@@ -105,7 +105,7 @@ function Get-NewTickets {
     }
     $r.Close()
     if ($heads.Count -eq 0) { return @{ tickets = @(); maxCons = $maxCons } }
-    $qD = "SELECT d.Consecutivo, d.Articulo, d.CantidadRegular, d.ValorVenta FROM DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo WHERE m.Tipo='V' AND m.Fecha >= $jd"
+    $qD = "SELECT d.Consecutivo, d.Articulo, d.CantidadRegular, d.ValorVenta, a.Nombre AS Nombre FROM ((DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo) LEFT JOIN Articulos AS a ON d.Articulo = a.Articulo) WHERE m.Tipo='V' AND m.Fecha >= $jd"
     $cmd2 = $conn.CreateCommand(); $cmd2.CommandText = $qD
     $r2 = $cmd2.ExecuteReader()
     $lines = @{}
@@ -115,7 +115,7 @@ function Get-NewTickets {
       if (-not $lines.ContainsKey($cons)) { $lines[$cons] = New-Object System.Collections.ArrayList }
       [void]$lines[$cons].Add([pscustomobject]@{
         sku     = [string]$r2['Articulo']
-        nombre  = ''
+        nombre  = if ($r2['Nombre'] -is [System.DBNull]) { '' } else { [string]$r2['Nombre'] }
         cant    = [double]($(if ($r2['CantidadRegular'] -is [System.DBNull]) { 0 } else { $r2['CantidadRegular'] }))
         importe = [double]($(if ($r2['ValorVenta'] -is [System.DBNull]) { 0 } else { $r2['ValorVenta'] }))
       })

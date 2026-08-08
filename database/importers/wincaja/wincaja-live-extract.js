@@ -101,14 +101,15 @@ function fetchNew(store, wm) {
 
   const heads = runQuery(store.mdb,
     `SELECT Consecutivo, Documento, Fecha, Hora, Caja, Cajero, Cancelado FROM MaestroMovAlmacen WHERE Tipo='V' AND Fecha >= ${jd}`);
+  // Lineas + descripcion del producto (LEFT JOIN al catalogo Articulos: a.Nombre). Jet exige parentesis.
   const lines = runQuery(store.mdb,
-    `SELECT d.Consecutivo, d.Articulo, d.CantidadRegular, d.ValorVenta FROM DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo WHERE m.Tipo='V' AND m.Fecha >= ${jd}`);
+    `SELECT d.Consecutivo, d.Articulo, d.CantidadRegular, d.ValorVenta, a.Nombre AS Nombre FROM ((DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo) LEFT JOIN Articulos AS a ON d.Articulo = a.Articulo) WHERE m.Tipo='V' AND m.Fecha >= ${jd}`);
 
   const byCons = new Map();
   for (const l of lines) {
     const k = String(l.Consecutivo);
     const arr = byCons.get(k) || [];
-    arr.push({ sku: String(l.Articulo || ''), nombre: '', cant: Number(l.CantidadRegular) || 0, importe: Number(l.ValorVenta) || 0 });
+    arr.push({ sku: String(l.Articulo || ''), nombre: String(l.Nombre || ''), cant: Number(l.CantidadRegular) || 0, importe: Number(l.ValorVenta) || 0 });
     byCons.set(k, arr);
   }
 
