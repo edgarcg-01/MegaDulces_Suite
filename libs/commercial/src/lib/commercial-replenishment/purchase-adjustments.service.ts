@@ -15,6 +15,13 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * Motor lee/agrega; LLM afinará el tail `sin_motivo` en un paso posterior.
  */
 
+// Predicado SQL: CONSERVA solo referencias externas (deja pasar NULL / '(sin referencia)') y
+// descarta las cuentas INTERNAS de la 201 — traspasos inter-sucursal (SUCURSAL *), caja chica /
+// gastos internos (GASTOS GENERALES/GASTOS CAJA CHICA/CAJA CHICA), viáticos y comisiones internas.
+// `~*` = regex case-insensitive de Postgres; sin bindings (?), string literal → seguro con knex.raw.
+const INTERNAL_REF_KEEP =
+  `(referencia IS NULL OR referencia !~* '^(SUCURSAL |GASTOS GENERALES|GASTOS CAJA CHICA|CAJA CHICA|VIATICOS|COMISION Y VIATICOS)')`;
+
 export interface AdjustmentsQuery {
   doctype?: string;    // XD40 | XD55
   categoria?: string;  // faltante | apoyo_marca | descuento_comercial | factura_duplicada | ...
@@ -439,7 +446,7 @@ export class PurchaseAdjustmentsService {
    * (ContPAQi consolida con tipo_pol genérico). Filtra por anio_mes derivado del rango de fecha.
    * analytics.* sin RLS → tenant explícito.
    */
-  async supplierLedger(q: { date_from?: string; date_to?: string; search?: string } = {}) {
+  async supplierLedger(q: { date_from?: string; date_to?: string; search?: string; include_internal?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const fromM = q.date_from ? q.date_from.slice(0, 7) : undefined; // 'YYYY-MM'
     const toM = q.date_to ? q.date_to.slice(0, 7) : undefined;
@@ -449,6 +456,11 @@ export class PurchaseAdjustmentsService {
       if (fromM) b = b.where('anio_mes', '>=', fromM);
       if (toM) b = b.where('anio_mes', '<=', toM);
       if (q.search && q.search.trim()) b = b.where('referencia', 'ilike', `%${q.search.trim()}%`);
+      // Por default OCULTA las cuentas INTERNAS (no son proveedores externos): traspasos inter-sucursal
+      // (SUCURSAL *), caja chica y gastos internos (GASTOS GENERALES/CAJA CHICA), viáticos y comisiones.
+      // La 201 las asienta con el mismo doctype que una compra (XA2001) → inflaban el cuadre con
+      // movimiento que se netea al consolidar. include_internal=true las trae de vuelta.
+      if (!q.include_internal) b = b.whereRaw(INTERNAL_REF_KEEP);
       const rows: any[] = await b
         .select('referencia', 'tipo_pol', 'cargo_abono')
         .sum({ monto: 'importe' }).count({ n: '*' })
