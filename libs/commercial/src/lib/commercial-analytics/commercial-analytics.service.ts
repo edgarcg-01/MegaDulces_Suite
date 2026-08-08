@@ -1232,7 +1232,10 @@ export class CommercialAnalyticsService {
    * Dimensiones: canal, marca, categoria, sucursal, producto (join a catalog/warehouses) y
    * tiempo (serie por día). Rango por from/to (YYYY-MM-DD); default = 30d móvil MX.
    */
-  async salesQuery(p: { metric?: string; dimension?: string; from?: string; to?: string; limit?: number }) {
+  async salesQuery(p: {
+    metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
+    channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+  }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const METRICS = ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'];
     const DIMS = ['canal', 'marca', 'categoria', 'sucursal', 'producto', 'tiempo'];
@@ -1242,6 +1245,11 @@ export class CommercialAnalyticsService {
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     const from = typeof p?.from === 'string' && dateRe.test(p.from) ? p.from : null;
     const to = typeof p?.to === 'string' && dateRe.test(p.to) ? p.to : null;
+    // Filtros de alcance (WHERE) — recortan el universo antes de agrupar por la dimensión.
+    const channel = typeof p?.channel === 'string' && p.channel ? p.channel : null;
+    const warehouseId = typeof p?.warehouse_id === 'string' && p.warehouse_id ? p.warehouse_id : null;
+    const brandId = typeof p?.brand_id === 'string' && p.brand_id ? p.brand_id : null;
+    const categoryId = typeof p?.category_id === 'string' && p.category_id ? p.category_id : null;
 
     return this.tk.run(async (trx) => {
       const lo = from ?? this.since30d(trx);
@@ -1252,10 +1260,26 @@ export class CommercialAnalyticsService {
         trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
         trx.raw('COALESCE(SUM(s.tickets),0)::int AS tickets'),
       ];
-      const base = () => trx('analytics.sales_daily AS s')
+      // Aplica los filtros de alcance a cualquier query base (breakdown y total).
+      // brand/category via EXISTS sobre catalog.products → compone con cualquier dimensión
+      // sin chocar con los joins (alias p) que agregan las ramas producto/marca/categoria.
+      const applyFilters = (qb: any) => {
+        if (channel) qb.andWhere('s.channel', channel);
+        if (warehouseId) qb.andWhere('s.warehouse_id', warehouseId);
+        if (brandId) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.brand_id', brandId);
+        });
+        if (categoryId) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.category_id', categoryId);
+        });
+        return qb;
+      };
+      const base = () => applyFilters(trx('analytics.sales_daily AS s')
         .where('s.tenant_id', tenantId)
         .andWhere('s.sale_date', '>=', lo)
-        .andWhere('s.sale_date', '<=', hi);
+        .andWhere('s.sale_date', '<=', hi));
 
       let raw: any[] = [];
       if (dimension === 'canal') {
@@ -1294,21 +1318,65 @@ export class CommercialAnalyticsService {
         margin: Number(r.revenue) - Number(r.cost), units: Number(r.units), tickets: Number(r.tickets),
       }));
 
-      // Total + cobertura de costo sobre TODO el rango (para share y confianza del margen).
-      const [tot] = await trx('analytics.sales_daily AS s')
+      // Total + cobertura de costo sobre el rango YA FILTRADO (para share y confianza del margen).
+      const [tot] = await applyFilters(trx('analytics.sales_daily AS s')
         .where('s.tenant_id', tenantId)
         .andWhere('s.sale_date', '>=', lo)
-        .andWhere('s.sale_date', '<=', hi)
+        .andWhere('s.sale_date', '<=', hi))
         .select(...sums, trx.raw('COALESCE(SUM(s.revenue) FILTER (WHERE s.cost > 0),0)::numeric AS revenue_with_cost'));
       const totalRevenue = Number(tot?.revenue || 0);
       const totalValue = this.metricValue(metric, tot || {});
       for (const r of rows) (r as any).share = totalValue > 0 ? +((r.value / totalValue) * 100).toFixed(2) : 0;
 
+      const tRev = Number(tot?.revenue || 0), tCost = Number(tot?.cost || 0), tTickets = Number(tot?.tickets || 0);
       return {
         metric, dimension,
         total: totalValue,
         coverage_pct: totalRevenue > 0 ? +((Number(tot?.revenue_with_cost || 0) / totalRevenue) * 100).toFixed(1) : 0,
+        // Totales del alcance filtrado → alimentan el KPI-strip cuando hay filtros activos.
+        totals: {
+          revenue: tRev, cost: tCost, margin: tRev - tCost, units: Number(tot?.units || 0),
+          tickets: tTickets, avg_ticket: tTickets > 0 ? +(tRev / tTickets).toFixed(2) : 0,
+        },
         rows,
+      };
+    });
+  }
+
+  /**
+   * VG.1 — opciones para los filtros de "Ventas Generales". Self-sufficient (analytics):
+   * canales/sucursales/marcas/categorías CON venta real en los últimos 90 días, para no
+   * ofrecer filtros que devuelvan vacío. Todo desde analytics.sales_daily ⋈ catalog/warehouses.
+   */
+  async salesQueryFilters() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const since = trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 89)`);
+      const channels = await trx('analytics.sales_daily AS s')
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since).whereNotNull('s.channel')
+        .groupBy('s.channel').select('s.channel AS value').orderByRaw('SUM(s.revenue) DESC');
+      const warehouses = await trx('analytics.sales_daily AS s')
+        .join('commercial.warehouses AS w', (j: any) => j.on('w.id', 's.warehouse_id').andOn('w.tenant_id', 's.tenant_id'))
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('w.id', 'w.code', 'w.name').select('w.id AS value', 'w.code AS code', 'w.name AS name')
+        .orderByRaw('SUM(s.revenue) DESC');
+      const brands = await trx('analytics.sales_daily AS s')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .join('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('b.id', 'b.nombre').select('b.id AS value', 'b.nombre AS label')
+        .orderByRaw('SUM(s.revenue) DESC').limit(300);
+      const categories = await trx('analytics.sales_daily AS s')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .join('catalog.categories AS c', 'c.id', 'p.category_id')
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('c.id', 'c.nombre').select('c.id AS value', 'c.nombre AS label')
+        .orderByRaw('SUM(s.revenue) DESC').limit(300);
+      return {
+        channels: channels.map((r: any) => ({ value: r.value, label: r.value })),
+        warehouses: warehouses.map((r: any) => ({ value: r.value, label: `${r.code} ${r.name || ''}`.trim() })),
+        brands,
+        categories,
       };
     });
   }

@@ -40,8 +40,18 @@ export class CommercialAnalyticsController {
     summary:
       'VG.1 — consulta semántica de ventas: (metric × dimension × rango) sobre analytics.sales_daily (determinista, mismos SUM que los reportes probados). body: { metric: ventas|margen|unidades|tickets|ticket_promedio, dimension: canal|marca|categoria|sucursal|producto|tiempo, from?, to? (YYYY-MM-DD), limit? }. Devuelve rows[{label,value,share,...}] + total + coverage_pct.',
   })
-  salesQuery(@Body() body: { metric?: string; dimension?: string; from?: string; to?: string; limit?: number }) {
+  salesQuery(@Body() body: {
+    metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
+    channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+  }) {
     return this.service.salesQuery(body || {});
+  }
+
+  @Get('query/filters')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'VG.1 — opciones para los filtros de "Ventas Generales": canales, sucursales, marcas y categorías con venta (self-sufficient: COMMERCIAL_ANALYTICS_VER).' })
+  salesQueryFilters() {
+    return this.service.salesQueryFilters();
   }
 
   // ── VENTA REAL de la red (analytics.*, feeds Kepler) — Command Center ──

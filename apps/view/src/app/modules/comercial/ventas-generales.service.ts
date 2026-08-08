@@ -6,7 +6,7 @@ import {
   CommandCenterService, NetworkOverviewResponse, SalesByBrandRow,
   NetworkTopProductRow, HistoricalMarginRow, HistoricalByZonaRow, NetworkDailyRow, TopCustomerRow,
 } from '../dashboard/command-center/command-center.service';
-import { DashboardSpec } from './ventas-generales/dashboard-spec';
+import { DashboardSpec, VgFilters } from './ventas-generales/dashboard-spec';
 
 /**
  * Fase VG — adaptador "Ventas Generales". Traduce (métrica × dimensión × rango) a los
@@ -21,6 +21,19 @@ export type VgDimension = 'canal' | 'marca' | 'categoria' | 'sucursal' | 'produc
 export interface VgRow { label: string; value: number; share?: number; meta?: string; }
 export interface VgBreakdown { rows: VgRow[]; total: number; coverage?: number | null; note?: string; }
 export interface VgSeriesPoint { day: string; value: number; }
+/** Respuesta del endpoint semántico VG.1 (/analytics/query). */
+export interface VgQueryResponse {
+  metric: VgMetric; dimension: VgDimension; total: number; coverage_pct: number;
+  totals: { revenue: number; cost: number; margin: number; units: number; tickets: number; avg_ticket: number };
+  rows: { label: string; value: number; share: number; revenue: number; margin: number; units: number; tickets: number }[];
+}
+/** Opciones para la barra de filtros. */
+export interface VgFilterOptions {
+  channels: { value: string; label: string }[];
+  warehouses: { value: string; label: string }[];
+  brands: { value: string; label: string }[];
+  categories: { value: string; label: string }[];
+}
 export interface VgKpis {
   revenue: number; margin: number; margin_pct: number; units: number; tickets: number;
   avg_ticket: number; unique_customers: number; coverage: number | null; updated_at: string | null;
@@ -60,6 +73,28 @@ export class VentasGeneralesService {
     return this.http.post<{ spec: DashboardSpec; source: string }>(
       `${environment.apiUrl}/commercial/intelligence/thot/sales-view`, { question, history },
     );
+  }
+
+  /** VG.1 — endpoint semántico: (metric × dimension × rango × filtros) determinista. */
+  query(metric: VgMetric, dimension: VgDimension, opts: { from?: string; to?: string; limit?: number; filters?: VgFilters } = {}): Observable<VgQueryResponse> {
+    return this.http.post<VgQueryResponse>(`${environment.apiUrl}/commercial/analytics/query`, {
+      metric, dimension, from: opts.from, to: opts.to, limit: opts.limit,
+      channel: opts.filters?.channel || undefined,
+      warehouse_id: opts.filters?.warehouse_id || undefined,
+      brand_id: opts.filters?.brand_id || undefined,
+      category_id: opts.filters?.category_id || undefined,
+    });
+  }
+
+  /** Opciones para la barra de filtros (canales/sucursales/marcas/categorías con venta). */
+  filterOptions(): Observable<VgFilterOptions> {
+    return this.http.get<VgFilterOptions>(`${environment.apiUrl}/commercial/analytics/query/filters`);
+  }
+
+  /** ¿El bloque tiene rango explícito o algún filtro → debe usar el endpoint semántico? */
+  hasScope(opts: { from?: string; to?: string; filters?: VgFilters }): boolean {
+    const f = opts.filters;
+    return !!(opts.from || opts.to || f?.channel || f?.warehouse_id || f?.brand_id || f?.category_id);
   }
 
   /** KPIs globales de la red (venta real 30d móvil). Fuente: network/overview. */

@@ -1,5 +1,13 @@
 import { VgMetric, VgDimension } from '../ventas-generales.service';
 
+/** Filtros de alcance (WHERE) que recortan el universo antes de agrupar por la dimensión. */
+export interface VgFilters {
+  channel?: string | null;
+  warehouse_id?: string | null;
+  brand_id?: string | null;
+  category_id?: string | null;
+}
+
 /**
  * Fase VG — contrato `spec` del tablero generativo. Es el ÚNICO artefacto que el agente
  * (Thot, VG.2) va a emitir: describe QUÉ bloques y a qué (métrica × dimensión × rango) se
@@ -20,6 +28,11 @@ export interface SalesBlock {
   viz?: BreakdownViz;
   /** series */
   range?: '30d' | '90d' | '12m';
+  /** rango explícito (VG.1) — si viene, manda sobre `range` y usa el endpoint semántico. */
+  from?: string;
+  to?: string;
+  /** filtros de alcance (VG.1) — si hay alguno, el bloque usa el endpoint semántico. */
+  filters?: VgFilters;
   /** ancho en la grilla de 12 columnas (default 12). */
   span?: number;
 }
