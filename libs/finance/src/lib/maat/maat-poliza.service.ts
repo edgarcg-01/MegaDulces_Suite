@@ -177,15 +177,18 @@ export class MaatPolizaService {
   async detKeplerVsContpaqi(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
     const min = Number(p.min_monto) || 50000;
     const rows = await trx.raw(
+      // Excluye periodos de CIERRE CONTABLE (mes 13/14): existen en ContPAQi (ajuste/cierre
+      // anual) pero NO en la operación Kepler → parearlos genera descuadres 100% ficticios de
+      // cientos de millones. Solo se comparan meses operativos reales (01-12).
       `WITH k AS (
          SELECT familia, anio_mes, SUM(neto)::numeric AS neto
            FROM analytics.ledger_monthly
-          WHERE tenant_id = ? AND sucursal = '00'
+          WHERE tenant_id = ? AND sucursal = '00' AND RIGHT(anio_mes, 2)::int BETWEEN 1 AND 12
           GROUP BY familia, anio_mes),
        c AS (
          SELECT familia, anio_mes, SUM(neto)::numeric AS neto
            FROM analytics.contpaqi_ledger_monthly
-          WHERE tenant_id = ?
+          WHERE tenant_id = ? AND RIGHT(anio_mes, 2)::int BETWEEN 1 AND 12
           GROUP BY familia, anio_mes)
        SELECT COALESCE(k.familia,c.familia) AS familia,
               COALESCE(k.anio_mes,c.anio_mes) AS anio_mes,
