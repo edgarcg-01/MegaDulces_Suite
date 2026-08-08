@@ -426,6 +426,15 @@ export class CommercialIntelligenceController {
     return { ...result, log_id: logId };
   }
 
+  @Post('thot/sales-view')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'VG.2 — Thot compone el tablero de "Ventas Generales" desde lenguaje natural. Devuelve un `spec` (bloques) validado contra el catálogo; el frontend lo rellena con datos deterministas. El LLM no calcula ni devuelve cifras.' })
+  async thotSalesView(@Body() body: { question?: string; history?: ThotChatTurn[] }) {
+    const question = String(body?.question || '').trim();
+    const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
+    return this.chat.composeSalesView({ question, history });
+  }
+
   // ─── Dictado por voz: transcribe audio → texto (Groq Whisper) ───
   // Proxy fino: el front graba con MediaRecorder y manda el audio en base64; acá
   // lo reenviamos a Groq (la API key vive solo en el server). Calidad Whisper.
