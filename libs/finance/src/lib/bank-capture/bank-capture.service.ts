@@ -134,7 +134,9 @@ export class BankCaptureService {
             amount_in: amountIn,
             amount_out: 0,
             movement_date: fields.fecha ?? null,
-            status: 'pendiente_confirmacion',
+            // CBW.5: sin SÍ/NO — la foto entra directa a la bandeja como "por validar".
+            // Cobranza es el único gate humano (valida → materializa en el libro).
+            status: 'confirmado',
             error_detail: errorDetail,
           })
           .onConflict(['tenant_id', 'wa_message_id'])
@@ -149,35 +151,14 @@ export class BankCaptureService {
       return { reply: '⚠️ Recibí tu comprobante pero tuve un problema al guardarlo. Un compañero de Crédito y Cobranza fue avisado. Puedes reenviarlo en un momento.', capture_id: null };
     }
 
-    // 5) Si hubo cualquier problema (subida/OCR/validez), avisamos a Cobranza para que lo revise a mano.
+    // 5) Avisar a Crédito y Cobranza: cada depósito nuevo (o con problema) llega a la bandeja.
     if (errorDetail) {
       await this.notifyError(`Captura con problema: ${errorDetail}`, amountIn, input.sender.sucursal);
+    } else if (captureId) {
+      await this.notifyCobranza({ id: captureId, amount_in: amountIn, sucursal: input.sender.sucursal, ocr_banco: fields.banco ?? null });
     }
 
-    return { reply: this.buildConfirmPrompt(fields, ocrStatus, errorDetail), capture_id: captureId };
-  }
-
-  /** CBW.3 — SÍ/NO sobre la última captura pendiente del teléfono. */
-  async confirm(phone: string, decision: 'yes' | 'no'): Promise<BankCaptureResult | null> {
-    const canonical = normalizeMxPhone(phone) || phone;
-    const row = await this.tk.run(async (trx) => {
-      const pending = await trx('finance.bank_capture_inbox')
-        .where({ from_phone: canonical, status: 'pendiente_confirmacion' })
-        .orderBy('created_at', 'desc')
-        .first('id', 'amount_in', 'sucursal', 'ocr_banco');
-      if (!pending) return null;
-      const newStatus = decision === 'yes' ? 'confirmado' : 'descartado';
-      await trx('finance.bank_capture_inbox')
-        .where({ id: pending.id })
-        .update({ status: newStatus, updated_at: trx.fn.now() });
-      return { ...pending, newStatus };
-    });
-    if (!row) return null;
-    if (row.newStatus === 'confirmado') {
-      await this.notifyCobranza(row);
-      return { reply: '✅ Registrado. Crédito y Cobranza lo revisará y aplicará al cliente. ¡Gracias!', capture_id: row.id };
-    }
-    return { reply: 'Ok, lo descarté. Si te equivocaste, vuelve a enviar la foto. 🙌', capture_id: row.id };
+    return { reply: this.buildAckReply(fields, ocrStatus, errorDetail), capture_id: captureId };
   }
 
   // ── Bandeja / backend (CBW.4) ──────────────────────────────────────────────
@@ -508,35 +489,30 @@ export class BankCaptureService {
     return 'image/jpeg';
   }
 
-  /** Texto de respuesta: lo leído + petición de confirmación SÍ/NO (o el problema detectado). */
-  private buildConfirmPrompt(
+  /**
+   * CBW.5 — Acuse de recibo (sin SÍ/NO). La foto ya entró a la bandeja como "por
+   * validar"; el bot solo confirma lo que leyó (o el problema). Cobranza valida.
+   */
+  private buildAckReply(
     f: { monto: number | null; banco: string | null; referencia: string | null; cuenta_dest: string | null },
     ocrStatus: string,
     errorDetail?: string | null,
   ): string {
-    // Problema de subida o imagen no válida → honesto, sin pedir confirmación de un dato que no hay.
+    // Problema de subida o imagen no válida → honesto.
     if (errorDetail && /no se pudo subir/i.test(errorDetail)) {
       return '⚠️ No pude guardar bien tu imagen. ¿Puedes reenviarla? Si sigue fallando, avisa a Crédito y Cobranza.';
     }
     if (errorDetail && /no parece un comprobante/i.test(errorDetail)) {
-      return '🤔 Esta imagen no parece un comprobante de depósito. Si sí lo es, mándala más clara o completa. La revisará Crédito y Cobranza.';
+      return '🤔 Esta imagen no parece un comprobante de depósito. Si sí lo es, mándala más clara. La revisará Crédito y Cobranza.';
     }
     if (ocrStatus === 'sin_key') {
-      return '📸 Recibí tu comprobante. Un compañero lo revisará en breve. ¡Gracias!';
+      return '📸 Recibí tu comprobante. Crédito y Cobranza lo revisará y aplicará. ¡Gracias!';
     }
     if (ocrStatus === 'ilegible' || f.monto == null) {
-      return '📸 Recibí tu comprobante pero no pude leer bien el monto. Lo revisará Crédito y Cobranza. ¿Aun así lo registro? Responde *SÍ* o *NO*.';
+      return '📸 Recibí tu comprobante, pero no pude leer el monto — Crédito y Cobranza lo revisará y aplicará. ¡Gracias!';
     }
     const money = `$${Number(f.monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const lines = [
-      '📸 Recibí tu comprobante. Esto leí:',
-      `• Monto: ${money}`,
-      f.banco ? `• Banco: ${f.banco}` : null,
-      f.cuenta_dest ? `• Cuenta: ${f.cuenta_dest}` : null,
-      f.referencia ? `• Ref: ${f.referencia}` : null,
-      '',
-      '¿Lo registro? Responde *SÍ* o *NO*.',
-    ].filter(Boolean);
-    return lines.join('\n');
+    const banco = f.banco ? ` (${f.banco})` : '';
+    return `✅ Recibí tu depósito de ${money}${banco}. Crédito y Cobranza lo aplicará. ¡Gracias! 🙌`;
   }
 }

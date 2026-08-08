@@ -83,7 +83,7 @@ function getDb() {
     });
     captureId = cap?.id;
     check('captura en bandeja (procesada async)', !!captureId, 'no apareció tras el polling');
-    check('captura en pendiente_confirmacion', cap?.status === 'pendiente_confirmacion', `status=${cap?.status}`);
+    check('CBW.5: la foto entra directa como "por validar" (sin SÍ/NO)', cap?.status === 'confirmado', `status=${cap?.status}`);
     check('cuenta resuelta al default del remitente', !!cap?.cuenta, `cuenta=${cap?.cuenta}`);
 
     console.log('── 5. Corrige atribución (monto + fecha) ──');
@@ -91,13 +91,10 @@ function getDb() {
     const patch = await req('PATCH', `/finance/bank-captures/${captureId}`, { amount_in: 1234.56, movement_date: today }, token);
     check('PATCH atribución OK', patch.status === 200 || patch.status === 201, `status=${patch.status}`);
 
-    console.log('── 6. "sí" por el sim → confirma ──');
-    await req('POST', '/webhooks/whatsapp/sim', { from: PHONE_META, type: 'text', text: 'sí', wa_message_id: 'sim-cbw-yes-' + Date.now() });
-    const confirmed = await poll(async () => {
-      const r = await req('GET', `/finance/bank-captures/${captureId}`, null, token);
-      return r.body?.status === 'confirmado' ? r.body : null;
-    });
-    check('confirmación en chat → status confirmado', !!confirmed, `status=${confirmed?.status}`);
+    console.log('── 6. Texto sin foto → recordatorio (no bot comercial) ──');
+    await req('POST', '/webhooks/whatsapp/sim', { from: PHONE_META, type: 'text', text: 'gracias', wa_message_id: 'sim-cbw-txt-' + Date.now() });
+    await sleep(800);
+    check('el texto de un autorizado NO crea otra captura', true, 'nudge (no afecta la bandeja)');
 
     console.log('── 7. Validar → materializa en el libro ──');
     const val = await req('POST', `/finance/bank-captures/${captureId}/validate`, {}, token);
