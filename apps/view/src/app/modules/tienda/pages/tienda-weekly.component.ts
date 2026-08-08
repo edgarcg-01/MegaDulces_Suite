@@ -46,6 +46,12 @@ type Mode = 'rango' | 'semana';
       <div class="wk-modebar">
         <p-selectbutton [options]="modeOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
                         [ngModel]="mode()" (ngModelChange)="onMode($event)" styleClass="sb-liquid" />
+        @if (!scopedWarehouse && branchOpts().length) {
+          <label class="wk-ctl wk-storefilter">Sucursal
+            <p-select [options]="branchOpts()" optionLabel="label" optionValue="value"
+                      [ngModel]="storeFilter()" (ngModelChange)="onStore($event)" styleClass="sel-liquid wk-select" appendTo="body"></p-select>
+          </label>
+        }
       </div>
 
       <!-- ============================ MODO RANGO ============================ -->
@@ -200,7 +206,8 @@ type Mode = 'rango' | 'semana';
   styles: [`
     :host { display: block; }
     .wk-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action); margin-left: auto; }
-    .wk-modebar { margin-bottom: 1rem; }
+    .wk-modebar { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .wk-storefilter { margin-left: auto; }
     .wk-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
     .wk-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted); }
     app-metric-strip { display:block; margin-bottom: .5rem; }
@@ -229,6 +236,22 @@ export class TiendaWeeklyComponent implements OnInit {
   readonly modeOptions = [{ label: 'Rango', value: 'rango' as Mode }, { label: 'Semana', value: 'semana' as Mode }];
   readonly error = signal(false);
   readonly today = new Date();
+
+  // ---------- filtro por sucursal (solo roles globales; encargado va scopeado) ----------
+  readonly storeFilter = signal<string>(''); // '' = todas
+  readonly branchOpts = signal<{ label: string; value: string }[]>([]);
+  /** Solo repuebla el picker desde la respuesta "Todas" (lista completa), no desde una sucursal ya filtrada. */
+  private captureBranchOpts(rows: { code: string; name: string }[]) {
+    if (this.scopedWarehouse || this.storeFilter() || rows.length < 2) return;
+    const opts = rows
+      .map((b) => ({ label: b.name || b.code, value: b.code }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+    this.branchOpts.set([{ label: 'Todas las sucursales', value: '' }, ...opts]);
+  }
+  onStore(code: string) {
+    this.storeFilter.set(code);
+    if (this.mode() === 'rango') this.loadRange(); else this.load();
+  }
 
   // ---------- RANGO ----------
   readonly rangeRep = signal<RangeReport | null>(null);
@@ -330,9 +353,9 @@ export class TiendaWeeklyComponent implements OnInit {
     if (!this.rangeFrom || !this.rangeTo) { const r = this.computePreset(this.preset()); if (r) { this.rangeFrom = r.from; this.rangeTo = r.to; } }
     if (!this.rangeFrom || !this.rangeTo) return;
     this.error.set(false); this.rangeRep.set(null);
-    this.svc.range({ from: this.rangeFrom, to: this.rangeTo })
+    this.svc.range({ from: this.rangeFrom, to: this.rangeTo, warehouse_code: this.storeFilter() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.rangeRep.set(r), error: () => { this.error.set(true); this.rangeRep.set(null); } });
+      .subscribe({ next: (r) => { this.rangeRep.set(r); this.captureBranchOpts(r.by_branch); }, error: () => { this.error.set(true); this.rangeRep.set(null); } });
   }
 
   // ---------- SEMANA (clásico) ----------
@@ -387,10 +410,10 @@ export class TiendaWeeklyComponent implements OnInit {
 
   load() {
     this.error.set(false);
-    this.svc.weekly({ week: this.weekSel() || undefined, weeks: this.weeksN() })
+    this.svc.weekly({ week: this.weekSel() || undefined, weeks: this.weeksN(), warehouse_code: this.storeFilter() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.rep.set(r); if (!this.weekSel()) this.weekSel.set(r.ref_week.start); },
+        next: (r) => { this.rep.set(r); this.captureBranchOpts(r.by_branch); if (!this.weekSel()) this.weekSel.set(r.ref_week.start); },
         error: () => { this.error.set(true); this.rep.set(null); },
       });
   }

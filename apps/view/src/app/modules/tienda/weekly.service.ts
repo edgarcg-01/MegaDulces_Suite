@@ -51,17 +51,19 @@ export class WeeklyService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/store/analytics`;
 
-  weekly(q?: { week?: string; weeks?: number }): Observable<WeeklyReport> {
+  weekly(q?: { week?: string; weeks?: number; warehouse_code?: string }): Observable<WeeklyReport> {
     const p = new URLSearchParams();
     if (q?.week) p.set('week', q.week);
     if (q?.weeks) p.set('weeks', String(q.weeks));
+    if (q?.warehouse_code) p.set('warehouse_code', q.warehouse_code);
     const qs = p.toString();
     return this.http.get<WeeklyReport>(`${this.base}/weekly${qs ? '?' + qs : ''}`);
   }
 
-  range(q: { from: string; to: string }): Observable<RangeReport> {
+  range(q: { from: string; to: string; warehouse_code?: string }): Observable<RangeReport> {
     const p = new URLSearchParams();
     p.set('from', q.from); p.set('to', q.to);
+    if (q.warehouse_code) p.set('warehouse_code', q.warehouse_code);
     return this.http.get<RangeReport>(`${this.base}/range?${p.toString()}`);
   }
 }
