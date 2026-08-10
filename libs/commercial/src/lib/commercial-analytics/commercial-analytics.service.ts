@@ -53,6 +53,8 @@ export interface SellOutQuery {
   search?: string;
   /** RS — filtro de promos: `sin` (default, excluye marcadores $0.01) · `solo` (solo promos) · `todo` (ambos). */
   promo?: SellOutPromo;
+  /** RS.13 — layout de columnas: `plaza` = formato estándar (plaza × SUCURSAL/MAYOREO/RUTAS). Vacío = dinámico. */
+  layout?: 'plaza';
 }
 
 export type SellOutPromo = 'sin' | 'solo' | 'todo';
@@ -281,6 +283,8 @@ export interface SellOutReport {
   view: SellOutView;
   /** Dimensión de las filas: 'brand' = reporte general por empresa · 'product' = detalle · 'month' = resumen mensual. */
   row_dim: 'brand' | 'product' | 'month';
+  /** RS.13 — layout de columnas: 'plaza' = formato estándar (el exporter lo saca en cajas). */
+  layout?: 'plaza';
   columns: SellOutColumn[];
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
@@ -316,6 +320,50 @@ const CHANNEL_ORDER: Record<string, number> = {
 const NON_SALE_CHANNEL = 'traspaso';
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
 const SELLOUT_STMT_TIMEOUT = '45s';
+
+/**
+ * RS.13 — Layout "por plaza" (formato estándar del reporte que usa el equipo comercial):
+ * columnas FIJAS = plaza × tipo (SUCURSAL / MAYOREO / RUTAS), consolidando TODAS las rutas de
+ * una plaza en una sola columna. `branches` matchea el código de almacén; `routeFirstDigit`
+ * matchea rutas (`RUTA-NN`) por el primer dígito del número (1=La Piedad, 2/3=Morelia, 5=Canindo).
+ * `channels` = canales normalizados que caen en la columna ('*' = todos, para tiendas sueltas).
+ * Orden de columnas = orden del array. Config en código a propósito (editable + versionada).
+ * Lo que no matchee cae en 'OTROS' → nada se pierde y el TOTAL de columnas cuadra con el total fila.
+ */
+type PlazaCol = { key: string; label: string; branches?: string[]; routeFirstDigit?: string[]; channels: string[] | '*' };
+const SELLOUT_PLAZA_COLUMNS: PlazaCol[] = [
+  { key: 'suc_padre_hidalgo',  label: 'SUCURSAL PADRE HIDALGO',    branches: ['01'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_la_piedad',      label: 'MAYOREO LA PIEDAD',         branches: ['01', '02'],    channels: ['credito'] },
+  { key: 'rutas_la_piedad',    label: 'RUTAS LA PIEDAD',           routeFirstDigit: ['1'],    channels: ['ruta'] },
+  { key: 'suc_mor_abastos',    label: 'SUCURSAL MORELIA ABASTOS',  branches: ['MD-30'],       channels: ['mostrador', 'preventa'] },
+  { key: 'may_morelia',        label: 'MAYOREO MORELIA',           branches: ['MD-30', 'MD-32'], channels: ['credito'] },
+  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['MD-32'],       channels: ['mostrador', 'preventa'] },
+  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeFirstDigit: ['2', '3'], channels: ['ruta'] },
+  { key: 'suc_8esq',           label: 'SUCURSAL 8 ESQUINAS',       branches: ['03'],          channels: '*' },
+  { key: 'suc_abastos_piedad', label: 'SUCURSAL ABASTOS LA PIEDAD', branches: ['02'],         channels: ['mostrador', 'preventa'] },
+  { key: 'suc_yurecuaro',      label: 'SUCURSAL YURECUARO',        branches: ['04'],          channels: '*' },
+  { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['MD-50'],       channels: ['mostrador', 'preventa'] },
+  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['MD-50'],       channels: ['credito'] },
+  { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeFirstDigit: ['5'],    channels: ['ruta'] },
+  { key: 'suc_zam_centro',     label: 'SUCURSAL ZAM CENTRO',       branches: ['05'],          channels: '*' },
+];
+const PLAZA_OTROS_KEY = '__otros__';
+/** Resuelve (almacén, canal) → columna de plaza (primera que matchea) o null (→ OTROS). */
+function plazaColKey(branchCode: string, channel: string): string | null {
+  const code = String(branchCode || '');
+  const isRoute = /^RUTA-/i.test(code);
+  const routeNum = isRoute ? code.replace(/^RUTA-/i, '') : '';
+  for (const col of SELLOUT_PLAZA_COLUMNS) {
+    const chOk = col.channels === '*' || col.channels.includes(channel);
+    if (!chOk) continue;
+    if (col.routeFirstDigit) {
+      if (isRoute && col.routeFirstDigit.includes(routeNum.charAt(0))) return col.key;
+      continue; // columna de rutas: solo matchea rutas
+    }
+    if (!isRoute && col.branches?.includes(code)) return col.key;
+  }
+  return null;
+}
 // RS.2 — etiqueta corta de mes para las vistas por mes ('2026-01' → 'Ene 2026').
 const MONTH_ABBR_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 function sellOutMonthLabel(ym: string): string {
@@ -2338,15 +2386,18 @@ export class CommercialAnalyticsService {
     const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
     if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
     const search = (q.search || '').trim();
+    // RS.13 — layout "por plaza" (formato estándar): columnas fijas plaza×tipo. Incompatible con
+    // las vistas por mes y con el agrupado por empresa → siempre filas por PRODUCTO.
+    const plaza = q.layout === 'plaza';
     // RS.2 — vista: producto (default) / mes en columnas / resumen mensual.
-    const view: SellOutView = q.view === 'month_columns' || q.view === 'month_summary' ? q.view : 'product';
+    const view: SellOutView = !plaza && (q.view === 'month_columns' || q.view === 'month_summary') ? q.view : 'product';
     const monthCols = view === 'month_columns';
     const monthRows = view === 'month_summary';
     const needMonth = monthCols || monthRows;
     // Sin empresa y sin búsqueda → reporte GENERAL agrupado por EMPRESA (matriz chica,
     // ~decenas de filas). Con empresa elegida o búsqueda → detalle por PRODUCTO.
-    // En resumen mensual las filas SON los meses (no producto/empresa).
-    const byBrand = !monthRows && !brandId && !search;
+    // En resumen mensual las filas SON los meses (no producto/empresa). Plaza → siempre producto.
+    const byBrand = !plaza && !monthRows && !brandId && !search;
     if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
       throw new BadRequestException('from/to requeridos (ISO 8601)');
     const from = q.from.slice(0, 10);
@@ -2636,6 +2687,7 @@ export class CommercialAnalyticsService {
       group_by: groupBy,
       view,
       row_dim: monthRows ? 'month' : byBrand ? 'brand' : 'product',
+      layout: plaza ? 'plaza' : undefined,
       columns: [],
       rows: [],
       column_totals: {},
@@ -2652,12 +2704,58 @@ export class CommercialAnalyticsService {
     let grandMonto = 0;
     let excludedTransfers = 0;
 
+    // RS.13 — plaza: pre-crear TODAS las columnas del template (en orden), aun vacías, para que
+    // el reporte tenga el layout fijo esperado. `branch_name` = etiqueta de la columna (el
+    // exporter y el front usan branch_name como título de columna).
+    if (plaza) {
+      for (const col of SELLOUT_PLAZA_COLUMNS) {
+        columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
+        colTotals.set(col.key, { cajas: 0, monto: 0 });
+      }
+    }
+
     for (const r of raw) {
       const channel: string = r.channel;
       if (channel === NON_SALE_CHANNEL) {
         excludedTransfers += Number(r.monto) || 0;
         continue;
       }
+
+      // RS.13 — layout "por plaza": mapear (almacén, canal) → columna fija del template; sin
+      // filtros de canal/celda ni desglose por vendedor. Fila = producto. Nada se pierde: lo
+      // que no matchea cae en OTROS y el total cuadra.
+      if (plaza) {
+        const colKey = plazaColKey(r.branch_code, channel) ?? PLAZA_OTROS_KEY;
+        if (!columns.has(colKey)) {
+          columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
+          colTotals.set(colKey, { cajas: 0, monto: 0 });
+        }
+        const punits = Number(r.units) || 0;
+        const pmonto = Number(r.monto) || 0;
+        const pIsWeight = r.unit_kind === 'weight';
+        const pfs = Number(r.factor_sale);
+        const pbox = Number(r.box_size);
+        const pdiv = boxFactorMap.get(r.product_id) ?? (pfs > 1 ? pfs : (pbox > 1 ? pbox : 1));
+        const pcjaPrice = boxPriceMap.get(r.product_id) || 0;
+        const pcajas = pIsWeight ? punits : pcjaPrice > 0 ? pmonto / pcjaPrice : punits / pdiv;
+        branchesWithData.add(r.branch_name);
+        let prow = rowMap.get(r.sku);
+        if (!prow) {
+          prow = {
+            product_id: r.product_id, sku: r.sku, nombre: r.nombre,
+            uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 },
+          };
+          rowMap.set(r.sku, prow);
+        }
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0 });
+        pcell.cajas += pcajas; pcell.monto += pmonto;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto;
+        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto;
+        grandCajas += pcajas; grandMonto += pmonto;
+        continue;
+      }
+
       if (channelFilter && !channelFilter.has(channel)) continue;
       // RS.10 — Mayoreo (credito) se desglosa y filtra POR VENDEDOR, no por sucursal (solo en la
       // vista por canal). Wincaja trae el vendedor; el crédito Kepler (sin vendedor) queda en una
@@ -2802,12 +2900,15 @@ export class CommercialAnalyticsService {
         }
       }
     }
-    // Resumen mensual → filas cronológicas (mes asc). Demás vistas → por monto desc.
+    // Resumen mensual → filas cronológicas (mes asc). Plaza → por código (SKU) asc, como el
+    // reporte estándar. Demás vistas → por monto desc.
     if (monthRows) rows.sort((a, b) => a.product_id.localeCompare(b.product_id));
+    else if (plaza) rows.sort((a, b) => String(a.sku).localeCompare(String(b.sku), 'es', { numeric: true }));
     else rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
 
-    // Orden de columnas: mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
-    const orderedCols = Array.from(columns.values()).sort((a, b) => {
+    // Orden de columnas: plaza → orden del template (Map ya viene en ese orden + OTROS al final).
+    // Si no, mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
+    const orderedCols = plaza ? Array.from(columns.values()) : Array.from(columns.values()).sort((a, b) => {
       if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
       // RS.10 — Mayoreo (credito) forma su propio bloque, DESPUÉS de las sucursales, ordenado
       // por nombre de vendedor. Así queda separado y comprensible (sucursales | vendedores mayoreo).

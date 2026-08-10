@@ -154,6 +154,99 @@ export class SellOutExportService {
     return Buffer.from(buf as ArrayBuffer);
   }
 
+  // ─────────── RS.13 — Layout "por plaza" (formato estándar, CAJAS) ───────────
+
+  /** Título del período para el reporte de plaza: mismo mes → "FEBRERO 2026"; si no, rango. */
+  private plazaPeriodTitle(report: SellOutReport): string {
+    const { from, to } = report.period;
+    if (from.slice(0, 7) === to.slice(0, 7)) {
+      const [y, m] = from.split('-');
+      return `${(MONTH_LABEL[m] ?? m).toUpperCase()} ${y}`;
+    }
+    return this.periodLabel(from, to);
+  }
+
+  /**
+   * XLSX del formato estándar por plaza: 1 columna por plaza (SUCURSAL/MAYOREO/RUTAS) + TOTAL,
+   * valores en CAJAS (como el reporte manual). Sin columnas de monto.
+   */
+  async buildPlazaXlsx(report: SellOutReport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('Sell Out', { views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }] });
+    const cols = report.columns;
+    const totalCols = 3 + cols.length + 1; // código, descripción, uxc + 1/columna + TOTAL
+
+    // Fila 1 — título "SELL OUT  <MES AÑO>  <MARCA>"
+    ws.mergeCells(1, 1, 1, totalCols);
+    const title = ws.getCell(1, 1);
+    title.value = `SELL OUT  ${this.plazaPeriodTitle(report)}  ${report.brand.nombre}`;
+    title.font = { bold: true, size: 14 };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+
+    // Filas 2-3 — encabezado (una etiqueta por columna; se mergea vertical para el frozen ySplit:3).
+    ws.mergeCells(2, 1, 3, 1); ws.mergeCells(2, 2, 3, 2); ws.mergeCells(2, 3, 3, 3);
+    ws.getCell(2, 1).value = 'CÓDIGO';
+    ws.getCell(2, 2).value = 'DESCRIPCIÓN';
+    ws.getCell(2, 3).value = 'UXC';
+    cols.forEach((c, i) => { const col = 4 + i; ws.mergeCells(2, col, 3, col); ws.getCell(2, col).value = c.branch_name; });
+    const totCol = 4 + cols.length;
+    ws.mergeCells(2, totCol, 3, totCol);
+    ws.getCell(2, totCol).value = 'TOTAL';
+    [2, 3].forEach((rn) => ws.getRow(rn).eachCell((cell) => {
+      cell.font = { bold: true, size: 9 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+      cell.border = this.thin();
+    }));
+    ws.getRow(2).height = 34;
+
+    const CAJAS_FMT = '#,##0.00';
+    let rowIdx = 4;
+    for (const prod of report.rows) {
+      const row = ws.getRow(rowIdx++);
+      row.getCell(1).value = prod.sku;
+      row.getCell(2).value = prod.nombre;
+      row.getCell(3).value = prod.uxc ?? '';
+      cols.forEach((c, i) => {
+        const cell = prod.cells[c.key];
+        const cc = row.getCell(4 + i);
+        cc.value = cell ? cell.cajas : 0;
+        cc.numFmt = CAJAS_FMT;
+      });
+      const tc = row.getCell(totCol);
+      tc.value = prod.total.cajas; tc.numFmt = CAJAS_FMT; tc.font = { bold: true };
+      row.eachCell((cell) => (cell.border = this.thin()));
+    }
+
+    // Fila de totales
+    const totRow = ws.getRow(rowIdx);
+    ws.mergeCells(rowIdx, 1, rowIdx, 3);
+    totRow.getCell(1).value = 'TOTAL';
+    cols.forEach((c, i) => {
+      const t = report.column_totals[c.key] ?? { cajas: 0, monto: 0 };
+      const cc = totRow.getCell(4 + i);
+      cc.value = t.cajas; cc.numFmt = CAJAS_FMT;
+    });
+    const gc = totRow.getCell(totCol);
+    gc.value = report.grand_total.cajas; gc.numFmt = CAJAS_FMT;
+    totRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+      cell.border = this.thin();
+    });
+
+    ws.getColumn(1).width = 10;
+    ws.getColumn(2).width = 42;
+    ws.getColumn(3).width = 6;
+    for (let c = 4; c <= totalCols; c++) ws.getColumn(c).width = 14;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
   // ─────────── SAL — Salidas/Ventas por Producto (XLSX estilo Kepler) ───────────
 
   salidasFileName(report: SalidasReport): string {
