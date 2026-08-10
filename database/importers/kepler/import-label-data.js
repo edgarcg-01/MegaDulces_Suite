@@ -169,12 +169,10 @@ function resolveUnits(slots) {
       SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
         FROM kp.kdpv_prod_util WHERE c7 > 0`)).rows;
     const wholesale = new Map(); // sku → Map(present → { price, minQty })
-    const hasKgTier = new Set(); // sku con ALGÚN tier present='KG' (presentación en kilos)
     for (const r of kdpv) {
       const present = String(r.present || '').trim().toUpperCase();
       const p = Number(r.price);
       if (!present || !Number.isFinite(p) || p <= 0) continue;
-      if (present === 'KG') hasKgTier.add(r.sku);   // señal de "se vende por kilo" (cualquier min_qty)
       const mq = int(r.min_qty);
       if (!mq || mq <= 1) continue;                 // para mayoreo: solo tiers con umbral real
       let m = wholesale.get(r.sku);
@@ -209,9 +207,10 @@ function resolveUnits(slots) {
       // Un paquete REAL de piezas (mayoreo por paquete) solo aplica a base PZA con su tier PAQ.
       const tiers = wholesale.get(r.sku) || new Map();
       const bp = basePresentKey(r.unit_base);
-      // ¿Tiene presentación en kilos? unit_base=KG o algún tier present=KG. Solo entonces la
-      // etiqueta muestra "$/kg" — evita fabricar kg para bolsas/palitos (68521, POLIPRO).
-      const soldByKg = bp === 'KG' || hasKgTier.has(r.sku);
+      // ¿Tiene presentación en kilos? SOLO si unit_base='KG' (ahí piece_price ya es $/kg real).
+      // Los de gramos (250/500/400) son BOLSAS de peso fijo, no granel suelto — su tier 'KG' en
+      // Kepler es solo precio de referencia (ej. 75052 ANDINETA 5KG, 68521 PALO). No se deriva $/kg.
+      const soldByKg = bp === 'KG';
       const grouped = bp === 'PAQ' || bp === 'CJA';
       const baseTier = tiers.get(bp) || null;
       const paqTier = tiers.get('PAQ') || null;
