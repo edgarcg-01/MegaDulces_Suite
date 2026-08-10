@@ -211,11 +211,12 @@ interface AttachFile {
               <label class="cb-f"><span>IVA</span><p-inputnumber [(ngModel)]="ocrForm.iva" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
             </div>
           }
+          @if (attachFiles().length && missingRoles().length) { <div class="cb-missing"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Faltan para completar: {{ missingRoles().join(' · ') }}</div> }
           @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || !attachTarget()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || !attachTarget() || missingRoles().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         </ng-template>
     </p-dialog>
 
@@ -438,6 +439,7 @@ interface AttachFile {
     .cb-link-prov { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
     .cb-link-monto { font-family: var(--font-mono); color: var(--text-main); }
     .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
+    .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -507,6 +509,16 @@ export class ComprasEntradasComponent {
   readonly attachError = signal<string>('');
   readonly attachFiles = signal<AttachFile[]>([]);
   readonly uploadingAny = computed(() => this.attachFiles().some((f) => f.uploading));
+  // Set obligatorio de la recepción: Aplica Orden Entrada + Remisión/Factura + Vale (Ticket opcional).
+  readonly REQUIRED_ROLES: { keys: string[]; label: string }[] = [
+    { keys: ['orden_entrada'], label: 'Aplica Orden Entrada' },
+    { keys: ['remision', 'factura'], label: 'Remisión/Factura' },
+    { keys: ['vale'], label: 'Vale de recepción' },
+  ];
+  readonly missingRoles = computed(() => {
+    const files = this.attachFiles();
+    return this.REQUIRED_ROLES.filter((r) => !files.some((f) => r.keys.indexOf(f.role) >= 0)).map((r) => r.label);
+  });
   private fileSeq = 0;
   ocrForm: Partial<RemisionOcr> = {};
   readonly roleOpts = [
@@ -712,6 +724,7 @@ export class ComprasEntradasComponent {
     const t = this.attachTarget();
     const files = this.attachFiles();
     if (!t || !files.length) { this.attachError.set('Agregá al menos una foto.'); return; }
+    if (this.missingRoles().length) { this.attachError.set('Faltan documentos obligatorios: ' + this.missingRoles().join(', ') + '.'); return; }
     this.attachError.set('');
     this.saving.set(true);
     // Sube las que falten (o fallaron), conserva las ya almacenadas → UNA evidencia con TODAS las fotos.
