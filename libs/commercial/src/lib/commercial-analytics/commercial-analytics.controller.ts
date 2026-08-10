@@ -43,6 +43,7 @@ export class CommercialAnalyticsController {
   salesQuery(@Body() body: {
     metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
     channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+    sku?: string; brand?: string; category?: string;
   }) {
     return this.service.salesQuery(body || {});
   }

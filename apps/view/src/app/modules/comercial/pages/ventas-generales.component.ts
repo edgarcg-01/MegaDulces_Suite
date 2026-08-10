@@ -47,6 +47,9 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
       </form>
       @if (aiError()) { <p class="vg-ai-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ aiError() }}</p> }
       @if (mode() === 'ai' && aiNarrative()) { <p class="vg-ai-note"><i class="pi pi-sparkles" aria-hidden="true"></i> {{ aiNarrative() }}</p> }
+      @if (mode() === 'ai' && aiScope().length) {
+        <div class="vg-scope"><i class="pi pi-filter" aria-hidden="true"></i> Alcance: @for (s of aiScope(); track s) { <span class="vg-scope-chip">{{ s }}</span> }</div>
+      }
 
       <div class="vg-quick" role="group" aria-label="Preguntas rápidas">
         <button type="button" class="vg-chip vg-chip-star" [class.on]="mode() === 'cc'" (click)="controlCenter()"><i class="pi pi-compass" aria-hidden="true"></i> Centro de control</button>
@@ -105,6 +108,9 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-ai-err { display:flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--bad-fg); margin:.2rem 0 .4rem; }
     .vg-ai-note { display:flex; align-items:center; gap:.4rem; font-size:.84rem; color:var(--text-muted); margin:.2rem 0 .6rem; }
     .vg-ai-note .pi { color:var(--action); }
+    .vg-scope { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; font-size:.8rem; color:var(--text-muted); margin:-.2rem 0 .6rem; }
+    .vg-scope .pi { color:var(--action); }
+    .vg-scope-chip { display:inline-flex; align-items:center; background:var(--action-ring); color:var(--text-main); border-radius:var(--r-pill,999px); padding:.15rem .6rem; font-weight:600; }
     .vg-quick { display:flex; flex-wrap:nowrap; gap:.4rem; margin:.4rem 0 .6rem; overflow-x:auto; padding-bottom:.2rem; scrollbar-width:thin; }
     .vg-chip { flex:0 0 auto; }
     .vg-chip { display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-muted); border-radius:var(--r-pill,999px); padding:.3rem .7rem; font-size:.78rem; cursor:pointer; transition:color 120ms, border-color 120ms, background 120ms; }
@@ -150,6 +156,17 @@ export class VentasGeneralesComponent implements OnInit {
   readonly fCategory = signal<string | null>(null);
   readonly hasScopeActive = computed(() =>
     !!(this.filterFrom() || this.filterTo() || this.fChannel() || this.fWarehouse() || this.fBrand() || this.fCategory()));
+  /** Alcance textual que compuso Thot (VG.2), para mostrarlo como chips y explicar las cifras. */
+  readonly aiScope = computed<string[]>(() => {
+    const f = this.spec().blocks[0]?.filters;
+    if (!f) return [];
+    const out: string[] = [];
+    if (f.sku) out.push(`Producto ${f.sku}`);
+    if (f.brand) out.push(`Marca ${f.brand}`);
+    if (f.category) out.push(`Categoría ${f.category}`);
+    if (f.channel) out.push(`Canal ${f.channel}`);
+    return out;
+  });
 
   readonly dimOpts = (['canal', 'marca', 'categoria', 'sucursal', 'producto', 'cliente', 'tiempo'] as VgDimension[])
     .map((v) => ({ label: DIMENSION_LABEL[v], value: v }));
@@ -199,11 +216,20 @@ export class VentasGeneralesComponent implements OnInit {
       brand_id: this.fBrand() || undefined, category_id: this.fCategory() || undefined,
     };
   }
-  /** Inyecta el rango + filtros actuales en cada bloque (undefined = sin filtro → path probado). */
+  /** Inyecta el rango + filtros del builder manual en cada bloque, SIN pisar el alcance que
+   *  ya trajo Thot (VG.2: filters.sku/brand/category). El filtro manual solo agrega/override
+   *  las claves que el usuario fijó; las demás conservan lo que compuso el agente. */
   private applyScope(blocks: SalesBlock[]): SalesBlock[] {
     const { from, to } = this.currentRange();
-    const filters = this.currentFilters();
-    return blocks.map((b) => ({ ...b, from, to, filters }));
+    const manual = this.currentFilters();
+    const manualSet: VgFilters = {};
+    for (const [k, v] of Object.entries(manual)) if (v) (manualSet as Record<string, unknown>)[k] = v;
+    return blocks.map((b) => ({
+      ...b,
+      from: from ?? b.from,
+      to: to ?? b.to,
+      filters: { ...(b.filters || {}), ...manualSet },
+    }));
   }
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

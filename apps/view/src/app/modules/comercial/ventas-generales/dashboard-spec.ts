@@ -6,6 +6,10 @@ export interface VgFilters {
   warehouse_id?: string | null;
   brand_id?: string | null;
   category_id?: string | null;
+  /** Alcance por TEXTO que emite Thot (VG.2): SKU exacto, o nombre de marca/categoría. */
+  sku?: string | null;
+  brand?: string | null;
+  category?: string | null;
 }
 
 /**

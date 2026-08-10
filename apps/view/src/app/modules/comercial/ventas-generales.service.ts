@@ -83,6 +83,9 @@ export class VentasGeneralesService {
       warehouse_id: opts.filters?.warehouse_id || undefined,
       brand_id: opts.filters?.brand_id || undefined,
       category_id: opts.filters?.category_id || undefined,
+      sku: opts.filters?.sku || undefined,
+      brand: opts.filters?.brand || undefined,
+      category: opts.filters?.category || undefined,
     });
   }
 
@@ -94,7 +97,7 @@ export class VentasGeneralesService {
   /** ¿El bloque tiene rango explícito o algún filtro → debe usar el endpoint semántico? */
   hasScope(opts: { from?: string; to?: string; filters?: VgFilters }): boolean {
     const f = opts.filters;
-    return !!(opts.from || opts.to || f?.channel || f?.warehouse_id || f?.brand_id || f?.category_id);
+    return !!(opts.from || opts.to || f?.channel || f?.warehouse_id || f?.brand_id || f?.category_id || f?.sku || f?.brand || f?.category);
   }
 
   /** KPIs globales de la red (venta real 30d móvil). Fuente: network/overview. */
