@@ -19,7 +19,7 @@ export class CommercialAnalyticsController {
     private readonly service: CommercialAnalyticsService,
     private readonly refresh: AnalyticsRefreshService,
     private readonly exporter: SellOutExportService,
-    private readonly routePromo: RoutePromoService,
+    private readonly routePromoSvc: RoutePromoService,
   ) {}
 
   @Get('overview')
@@ -787,7 +787,7 @@ export class CommercialAnalyticsController {
       'Body: { enunciado, year? | from?+to?, sku?, rule? }.',
   })
   routePromo(@Body() body: PromoQuery) {
-    return this.routePromo.evaluate(body || {});
+    return this.routePromoSvc.evaluate(body || {});
   }
 
   @Get('sales-by-route.xlsx')
