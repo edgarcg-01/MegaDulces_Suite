@@ -41,9 +41,13 @@ const DRY = process.argv.includes('--dry');
 const ONCE = process.argv.includes('--once');
 const STATE_DIR = __dirname;
 
-// Copias-sombra .mdb (mismas rutas que el extractor de tickets). Default 30/32/50; el CEDIS '00'
-// (Irapuato) se agrega vía WINCAJA_STOCK_MDBS_FILE con su .mdb + warehouse_code '00'.
-const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Staging/Live';
+// Rutas .mdb. Default = Z:/Salidas/Bases/Actuales (el set "actual" que ya mantiene el pipeline
+// Wincaja en .245 — verificado 2026-08-10). FRESCURA = cadencia con que se refresca Actuales
+// (hoy irregular: algunas sucursales varias veces/día, otras ~diario). Para EXISTENCIA es
+// aceptable; NO da sub-minuto. Para al-minuto real: configurar SyncBack que copie el .mdb VIVO
+// del POS a una carpeta cada N min y apuntar WINCAJA_MDB_BASE ahí (cero cambio de código), o
+// usar el store-agent per-store (Opción A). CEDIS '00' (Irapuato): agregar vía WINCAJA_STOCK_MDBS_FILE.
+const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
 const STORES = (() => {
   if (process.env.WINCAJA_STOCK_MDBS_FILE) return JSON.parse(fs.readFileSync(process.env.WINCAJA_STOCK_MDBS_FILE, 'utf8'));
   if (process.env.WINCAJA_STOCK_MDBS) return JSON.parse(process.env.WINCAJA_STOCK_MDBS);
