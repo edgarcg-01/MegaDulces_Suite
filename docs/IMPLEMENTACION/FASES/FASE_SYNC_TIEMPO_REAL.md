@@ -144,10 +144,18 @@ Resultado: el path de sincronización frecuente sale de la factura de egress. Se
 
 **Nota honesta**: el importer aún hace 1 `SELECT public.products` chico contra Railway por corrida (mapa sku→id) = egress mínimo (~KB). Optimización futura: resolver sku→id server-side o desde el espejo on-prem. El path pesado (el upsert del delta) ya va por ingress gratis en modo `http`.
 
-**Pendientes de deploy (operacional, no código)**:
-1. Crear el servicio `feeds-ingest` en Railway (start `node services/feeds-ingest/server.js`, `DATABASE_URL_NEW`=URL interna del Postgres, `FEEDS_INGEST_KEY`=secreto, dominio público).
-2. En el runner `.249`: `FEEDS_SINK=http` + `FEEDS_INGEST_URL` + `FEEDS_INGEST_KEY`.
-3. Correr `import-branch-stock-live.js --apply` y verificar `[APPLY·http]` + frescura + egress plano. Rollback = quitar `FEEDS_SINK`.
+**Deploy ✅ EN VIVO 2026-08-10**: servicio `feeds-ingest` en Railway (balanced-dream/production) →
+`https://feeds-ingest-production.up.railway.app`. `/health`→{ok:true}; POST vacío `stock-delta`→
+rowCount 0 en 50ms (auth + Postgres interno OK); key mala→401. Vars: `FEEDS_INGEST_KEY`,
+`DATABASE_URL_NEW=${{Trade_marketing.DATABASE_URL_NEW}}`, `RAILWAY_DOCKERFILE_PATH=services/feeds-ingest/Dockerfile`.
+
+**Gotcha de deploy (resuelto)**: `railway up` sube el **git root**, no la carpeta desde donde se corre →
+por defecto tomaba el `Dockerfile` raíz (Nx del API, cache-mounts al service id del API) → build inválido → 404.
+Fix scoped: `services/feeds-ingest/Dockerfile` propio + env `RAILWAY_DOCKERFILE_PATH` (no afecta otros servicios).
+
+**Pendiente (runner `.249`, operacional)**:
+1. En `run-feeds.cmd`: `FEEDS_SINK=http` + `FEEDS_INGEST_URL=https://feeds-ingest-production.up.railway.app` + `FEEDS_INGEST_KEY=<secreto>`.
+2. Correr `import-branch-stock-live.js --apply` → verificar `[APPLY·http]` + frescura + egress plano. Rollback = quitar `FEEDS_SINK`.
 
 ---
 
