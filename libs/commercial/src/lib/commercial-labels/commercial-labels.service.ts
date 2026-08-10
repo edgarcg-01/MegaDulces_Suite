@@ -19,6 +19,7 @@ export interface LabelModel {
   box_size: number | null;
   box_price: number | null;
   unit_base: string | null;
+  sold_by_kg: boolean;
 }
 
 const n = (v: unknown): number | null => {
@@ -85,7 +86,7 @@ export class CommercialLabelsService {
           'p.id as product_id', 'p.sku', 'p.barcode as product_barcode', 'p.nombre as name',
           'l.content', 'l.barcode', 'l.barcode_format', 'l.piece_price',
           'l.wholesale_piece_min_qty', 'l.wholesale_piece_price', 'l.pack_size', 'l.pack_price',
-          'l.wholesale_pack_price', 'l.wholesale_pack_min_qty', 'l.box_size', 'l.box_price', 'l.unit_base',
+          'l.wholesale_pack_price', 'l.wholesale_pack_min_qty', 'l.box_size', 'l.box_price', 'l.unit_base', 'l.sold_by_kg',
         );
 
       // Índice por sku y por barcode del producto, para remapear al código pedido.
@@ -128,6 +129,7 @@ export class CommercialLabelsService {
           box_size: r.box_size ?? null,
           box_price: n(r.box_price),
           unit_base: r.unit_base ?? null,
+          sold_by_kg: r.sold_by_kg === true,
         });
       }
       return { labels, not_found };

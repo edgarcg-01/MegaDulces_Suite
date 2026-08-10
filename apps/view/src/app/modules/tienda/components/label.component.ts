@@ -35,6 +35,7 @@ export interface LabelModel {
   box_size: number | null;
   box_price: number | null;
   unit_base: string | null;
+  sold_by_kg?: boolean;
 }
 
 /**
@@ -235,10 +236,13 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
   /**
-   * ¿Producto a GRANEL? `unit_base` = tamaño de la porción base: "KG" (1 kg) o gramos ("500",
-   * "250", "400"). Se vende por KILO → el precio grande es por kg, derivado de la porción.
+   * ¿Producto a GRANEL (se vende por KILO)? `unit_base` = tamaño de la porción base: "KG" (1 kg)
+   * o gramos ("500"/"250"/"400"). SOLO es granel si `sold_by_kg` (Kepler: base KG o tier KG) →
+   * evita fabricar "$/kg" para bolsas/palitos con unit_base numérico que NO se venden por kilo
+   * (ej. 68521 PALO, POLIPRO). Sin presentación en kilos → 0 (cae a "Precio por pieza").
    */
   private get granelGrams(): number {
+    if (!this.model?.sold_by_kg) return 0;
     const ub = (this.model?.unit_base || '').toUpperCase();
     if (ub === 'KG') return 1000;
     return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0; // 500g/250g/400g; 0 = no es granel
