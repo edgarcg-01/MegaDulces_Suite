@@ -100,6 +100,8 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-ask-ic { color:var(--action); }
     .vg-ask input { flex:1; border:0; background:transparent; outline:none; font-size:.9rem; color:var(--text-main); }
     .vg-ask input::placeholder { color:var(--text-faint); }
+    /* el botón vive DENTRO del pill → pill flush, sin borde propio (evita doble borde) */
+    :host ::ng-deep .vg-ask button.p-button { border-radius: var(--r-pill, 999px); border: 0; flex: 0 0 auto; }
     .vg-ai-err { display:flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--bad-fg); margin:.2rem 0 .4rem; }
     .vg-ai-note { display:flex; align-items:center; gap:.4rem; font-size:.84rem; color:var(--text-muted); margin:.2rem 0 .6rem; }
     .vg-ai-note .pi { color:var(--action); }
