@@ -146,6 +146,12 @@ async function bootstrap() {
   // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
   // montado antes del global para que gane (express salta el segundo si ya parseó).
   app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
+  // Evidencia por foto (RE.5 recepción, CC cobranza, CC pagos): la remisión/ficha/
+  // comprobante llega como base64 (foto de cámara, hasta 10MB → ~13MB). Mismo motivo
+  // que expenses/proofs; sin esto el global 2mb tira 413 en /ocr, /upload y /attach.
+  app.use('/api/finance/goods-receipts', json({ limit: '16mb' }));
+  app.use('/api/finance/collections', json({ limit: '16mb' }));
+  app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));
   // WhatsApp (F.1): el webhook de Meta necesita el body CRUDO para validar la
