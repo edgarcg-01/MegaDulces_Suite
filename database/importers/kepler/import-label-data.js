@@ -169,12 +169,14 @@ function resolveUnits(slots) {
       SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
         FROM kp.kdpv_prod_util WHERE c7 > 0`)).rows;
     const wholesale = new Map(); // sku → Map(present → { price, minQty })
+    const hasKgTier = new Set(); // sku con ALGÚN tier present='KG' (presentación en kilos)
     for (const r of kdpv) {
-      const mq = int(r.min_qty);
-      if (!mq || mq <= 1) continue;                 // solo tiers con umbral real (mayoreo)
       const present = String(r.present || '').trim().toUpperCase();
       const p = Number(r.price);
       if (!present || !Number.isFinite(p) || p <= 0) continue;
+      if (present === 'KG') hasKgTier.add(r.sku);   // señal de "se vende por kilo" (cualquier min_qty)
+      const mq = int(r.min_qty);
+      if (!mq || mq <= 1) continue;                 // para mayoreo: solo tiers con umbral real
       let m = wholesale.get(r.sku);
       if (!m) { m = new Map(); wholesale.set(r.sku, m); }
       const cur = m.get(present);
@@ -207,6 +209,9 @@ function resolveUnits(slots) {
       // Un paquete REAL de piezas (mayoreo por paquete) solo aplica a base PZA con su tier PAQ.
       const tiers = wholesale.get(r.sku) || new Map();
       const bp = basePresentKey(r.unit_base);
+      // ¿Tiene presentación en kilos? unit_base=KG o algún tier present=KG. Solo entonces la
+      // etiqueta muestra "$/kg" — evita fabricar kg para bolsas/palitos (68521, POLIPRO).
+      const soldByKg = bp === 'KG' || hasKgTier.has(r.sku);
       const grouped = bp === 'PAQ' || bp === 'CJA';
       const baseTier = tiers.get(bp) || null;
       const paqTier = tiers.get('PAQ') || null;
@@ -252,6 +257,7 @@ function resolveUnits(slots) {
         u.box_price,
         (r.unit_base || '').trim().toUpperCase() || null,
         w.packMinQty || null,
+        soldByKg,
       ]);
       matched++;
     }
@@ -268,13 +274,13 @@ function resolveUnits(slots) {
       product_id uuid, content text, barcode text, barcode_format text,
       piece_price numeric, wholesale_piece_min_qty int, wholesale_piece_price numeric,
       pack_size int, pack_price numeric, wholesale_pack_price numeric,
-      box_size int, box_price numeric, unit_base text, wholesale_pack_min_qty int) ON COMMIT DROP`);
+      box_size int, box_price numeric, unit_base text, wholesale_pack_min_qty int, sold_by_kg boolean) ON COMMIT DROP`);
     for (let i = 0; i < staged.length; i += BATCH) {
       const chunk = staged.slice(i, i + BATCH);
       const vals = [], params = [];
       chunk.forEach((row, ri) => {
-        const b = ri * 14;
-        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14})`);
+        const b = ri * 15;
+        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14},$${b+15})`);
         params.push(...row);
       });
       await db.query(`INSERT INTO stg_label VALUES ${vals.join(',')}`, params);
@@ -283,11 +289,11 @@ function resolveUnits(slots) {
       INSERT INTO commercial.product_label_prices
         (id, tenant_id, product_id, content, barcode, barcode_format, piece_price,
          wholesale_piece_min_qty, wholesale_piece_price, pack_size, pack_price,
-         wholesale_pack_price, box_size, box_price, unit_base, wholesale_pack_min_qty,
+         wholesale_pack_price, box_size, box_price, unit_base, wholesale_pack_min_qty, sold_by_kg,
          source, computed_at, updated_at)
       SELECT gen_random_uuid(), $1, s.product_id, s.content, s.barcode, s.barcode_format, s.piece_price,
              s.wholesale_piece_min_qty, s.wholesale_piece_price, s.pack_size, s.pack_price,
-             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, s.wholesale_pack_min_qty,
+             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, s.wholesale_pack_min_qty, s.sold_by_kg,
              'kepler', now(), now()
       FROM stg_label s
       ON CONFLICT (tenant_id, product_id) DO UPDATE SET
@@ -296,7 +302,7 @@ function resolveUnits(slots) {
         wholesale_piece_price=EXCLUDED.wholesale_piece_price, pack_size=EXCLUDED.pack_size,
         pack_price=EXCLUDED.pack_price, wholesale_pack_price=EXCLUDED.wholesale_pack_price,
         box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, unit_base=EXCLUDED.unit_base,
-        wholesale_pack_min_qty=EXCLUDED.wholesale_pack_min_qty,
+        wholesale_pack_min_qty=EXCLUDED.wholesale_pack_min_qty, sold_by_kg=EXCLUDED.sold_by_kg,
         source='kepler', computed_at=now(), updated_at=now()
       WHERE commercial.product_label_prices.source <> 'manual'`, [M]);
     // Backfill de products.barcode (casos seguros). UPDATE puntual por producto; el guard

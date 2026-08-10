@@ -463,8 +463,10 @@ export class TiendaEtiquetasComponent {
     return 'pieza';
   }
 
-  /** Granel: gramos de la porción base (KG=1000, "500"/"250"/…). 0 = no granel. */
+  /** Granel: gramos de la porción base (KG=1000, "500"/"250"/…). 0 = no granel.
+   *  Solo si sold_by_kg (base KG o tier KG en Kepler) — bolsas/palitos numéricos no son granel. */
   private granelGrams(m: LabelModel): number {
+    if (!m.sold_by_kg) return 0;
     const ub = (m.unit_base || '').toUpperCase();
     if (ub === 'KG') return 1000;
     return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0;
