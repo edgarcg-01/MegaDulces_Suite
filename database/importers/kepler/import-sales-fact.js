@@ -71,8 +71,23 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
     // factores c81/c84. Se fusiona en el modelo para que toCanonicalPriced identifique el nivel de
     // cada línea por su PRECIO real (el label `unidad` de Kepler es inconsistente: escribe 'PAQ'
     // tanto para la pieza base como para un pack). Union de las sucursales de kepler_consolidado.
-    const kschemas = (await src.query(
+    const kschemasAll = (await src.query(
       `SELECT table_schema FROM information_schema.tables WHERE table_name='kdii' AND table_schema LIKE 'md\\_%'`)).rows.map((r) => r.table_schema);
+    // Los esquemas md_* son foreign tables (postgres_fdw) sobre srv_mdNN. Si una sucursal
+    // está caída (p.ej. Zamora/srv_md05), el UNION completo aborta con "could not connect to
+    // server". SALTAMOS la caída: probamos cada esquema (con statement_timeout acotado para no
+    // colgarnos en el connect) y unimos solo los accesibles. La sucursal omitida no aporta su
+    // escala de precios kdii → sus SKUs caen al modelo del catálogo (degradación aceptable);
+    // sus ventas ya viven en mart.ventas (tabla local, no FDW) y no se pierden.
+    const kschemas = [];
+    const kskipped = [];
+    await src.query(`SET statement_timeout = '8000'`);
+    for (const s of kschemasAll) {
+      try { await src.query(`SELECT 1 FROM ${s}.kdii LIMIT 1`); kschemas.push(s); }
+      catch (e) { kskipped.push(s); console.warn(`  ⚠️  omito ${s} (FDW no accesible): ${String(e.message || '').split('\n')[0]}`); }
+    }
+    await src.query(`SET statement_timeout = 0`);
+    if (kskipped.length) console.warn(`  ⚠️  sucursales omitidas en escala kdii: ${kskipped.join(', ')} — corrida parcial (se completa cuando vuelvan).`);
     if (kschemas.length) {
       const union = kschemas.map((s) => `SELECT c1,c81,c84,c90,c91,c92 FROM ${s}.kdii`).join(' UNION ALL ');
       const ladder = (await src.query(
