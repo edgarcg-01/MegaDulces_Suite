@@ -70,6 +70,22 @@ const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; 
 const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
 /**
+ * Presentación de kdpv_prod_util que corresponde a la UNIDAD BASE (kdii.c11).
+ * El mayoreo de la unidad de venta vive en el tier `present` == unit_base:
+ *   KG→'KG' · 250/500/400→ ese mismo número · PZA→'PZA' · PAQ→'PAQ' · CJA→'CJA'.
+ * Antes se leía SIEMPRE 'PZA' → para graneles (KG/250/…) agarraba el tier equivocado
+ * (ej. 17064 KG: tomaba PZA $49.88 en vez de KG $63.26).
+ */
+function basePresentKey(unitBase) {
+  const ub = String(unitBase || '').trim().toUpperCase();
+  if (ub === 'KG') return 'KG';
+  if (/^\d+$/.test(ub)) return ub;   // 250 / 500 / 400 …
+  if (ub === 'PAQ') return 'PAQ';
+  if (ub === 'CJA') return 'CJA';
+  return 'PZA';                       // PZA, BTO, SER, IND, null → pieza
+}
+
+/**
  * Resuelve paquete/caja desde los 2 pares (etiqueta, factor, precio) de kdii.
  * Por ETIQUETA, no por posición: PAQ→paquete, CJA→caja. Solo cuenta factores >1
  * (un PZA×1 o PAQ×1 es la base, no agrupa). KG/BTO/otros no mapean a pack/box.
@@ -146,27 +162,23 @@ function resolveUnits(slots) {
       console.table(dbg);
     }
 
-    // Tiers de mayoreo — concentrada. Dedup (present,precio); el mejor precio por presentación.
+    // Tiers de mayoreo — concentrada. Guardamos el MÁS BARATO por presentación (con umbral real,
+    // min_qty>1) → sku → Map(present → {price, minQty}). El tier de la unidad de venta se elige
+    // luego por unit_base (basePresentKey), no hardcodeado a 'PZA'.
     const kdpv = (await src.query(`
       SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
         FROM kp.kdpv_prod_util WHERE c7 > 0`)).rows;
-    const wholesale = new Map(); // sku → { pieceMinQty, piecePrice, packPrice }
+    const wholesale = new Map(); // sku → Map(present → { price, minQty })
     for (const r of kdpv) {
-      const w = wholesale.get(r.sku) || {};
+      const mq = int(r.min_qty);
+      if (!mq || mq <= 1) continue;                 // solo tiers con umbral real (mayoreo)
+      const present = String(r.present || '').trim().toUpperCase();
       const p = Number(r.price);
-      if (r.present === 'PZA' && Number(r.min_qty) > 1) {
-        // mayoreo por pieza: el tier más profundo (mejor precio)
-        if (w.piecePrice == null || p < w.piecePrice) { w.piecePrice = p; w.pieceMinQty = int(r.min_qty); }
-      } else if (r.present === 'PAQ') {
-        // mayoreo por paquete: mejor precio + su umbral (min_qty). El más barato suele ser
-        // "desde 10" → guardamos SU min_qty para que la etiqueta no imprima un "desde 3" falso.
-        if (w.packPrice == null || p < w.packPrice) {
-          w.packPrice = p;
-          const mq = int(r.min_qty);
-          w.packMinQty = mq && mq > 1 ? mq : null;
-        }
-      }
-      wholesale.set(r.sku, w);
+      if (!present || !Number.isFinite(p) || p <= 0) continue;
+      let m = wholesale.get(r.sku);
+      if (!m) { m = new Map(); wholesale.set(r.sku, m); }
+      const cur = m.get(present);
+      if (!cur || p < cur.price) m.set(present, { price: p, minQty: mq });   // el más barato por present
     }
 
     // Armar filas
@@ -190,7 +202,21 @@ function resolveUnits(slots) {
       if (!pid) { unmatched++; continue; }
       if (stagedPids.has(pid)) { dupPid++; continue; }  // 1ª fila (mayor c90 por DISTINCT ON) gana
       stagedPids.add(pid);
-      const w = wholesale.get(r.sku) || {};
+      // Mayoreo de la UNIDAD BASE = tier cuyo present == unit_base. Base agrupada (PAQ/CJA) → va en
+      // pack fields (la etiqueta lo compara vs el precio base); resto (PZA/KG/250/…) → piece fields.
+      // Un paquete REAL de piezas (mayoreo por paquete) solo aplica a base PZA con su tier PAQ.
+      const tiers = wholesale.get(r.sku) || new Map();
+      const bp = basePresentKey(r.unit_base);
+      const grouped = bp === 'PAQ' || bp === 'CJA';
+      const baseTier = tiers.get(bp) || null;
+      const paqTier = tiers.get('PAQ') || null;
+      const w = grouped
+        ? { packPrice: baseTier?.price ?? null, packMinQty: baseTier?.minQty ?? null, piecePrice: null, pieceMinQty: null }
+        : {
+            piecePrice: baseTier?.price ?? null, pieceMinQty: baseTier?.minQty ?? null,
+            packPrice: bp === 'PZA' ? (paqTier?.price ?? null) : null,
+            packMinQty: bp === 'PZA' ? (paqTier?.minQty ?? null) : null,
+          };
       // EAN real: c7 (barcode) suele traerlo, pero ~1685 productos tienen el SKU ahí; c95 lo rescata.
       const bcReal = barcodeFormat(r.barcode) ? String(r.barcode).trim() : r.barcode_alt;
       const fmt = barcodeFormat(bcReal);
