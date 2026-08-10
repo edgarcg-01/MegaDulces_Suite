@@ -67,6 +67,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_INVENTORY_CONTAR]: { label: 'Contar (inventario físico)', description: 'Registrar conteos ciegos en un folio de inventario físico (rol contador).', category: 'Comercial · Inventario físico' },
   [Permission.COMMERCIAL_INVENTORY_SUPERVISAR]: { label: 'Supervisar inventario físico', description: 'Abrir folios, ver avance/discrepancias y resolver. No reconcilia (rol supervisor).', category: 'Comercial · Inventario físico' },
   [Permission.COMMERCIAL_INVENTORY_RECONCILIAR]: { label: 'Reconciliar inventario físico', description: 'Autorizar el ajuste del saldo al físico contado y cerrar el folio (rol jefe).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_EXPIRY_VER]: { label: 'Ver Caducidades', description: 'Consultar las hojas de Control de Caducidades (inspección de anaquel).', category: 'Comercial' },
+  [Permission.COMMERCIAL_EXPIRY_CAPTURAR]: { label: 'Capturar Caducidades', description: 'Crear/editar hojas de Control de Caducidades y enviarlas (alimenta FEFO).', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_ASIGNAR]: { label: 'Asignar personas al folio', description: 'Asignar contadores y supervisores a un folio de inventario específico.', category: 'Comercial · Inventario físico' },
 
   // Comercial — pedidos y cobros

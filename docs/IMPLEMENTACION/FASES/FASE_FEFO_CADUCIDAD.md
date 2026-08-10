@@ -59,6 +59,22 @@ INDEX (tenant_id, warehouse_id, product_id, expiry_date)  -- FEFO: ORDER BY expi
 
 **P2.2 = 🟢 COMPLETA** (alertas + gate warn + dashboard; falta solo QA visual de P2.2c). **P2.3 ✅ código** (lot-movements ledger; ⏳ reinicio para verde live). **P2.4/P2.5 ⏸️ diferidos** (decisión 2026-06-18: pausar en MVP).
 
+### P2.6 — Control de Caducidades digital (retomado 2026-08-10)
+
+Digitaliza la hoja manual "CONTROL DE CADUCIDADES" (inspección de anaquel): personal de sucursal recorre el estante y captura por producto **cantidad + fecha de caducidad + estado físico (bueno/regular/malo) + observaciones + acción de seguimiento + foto de evidencia** — datos que el sub-ledger FEFO no tenía.
+
+| Ítem | Estado | Detalle |
+|---|---|---|
+| **P2.6.0** ✅ código | Schema | Mig `20260810120000`: `commercial.expiry_reviews` (encabezado: almacén, fecha, responsable snapshot, status draft/submitted) + `commercial.expiry_review_lines` (producto opcional + raw, cantidad, caducidad, condición, observación, acción, `files jsonb`, `fed_to_fefo`/`fefo_qty`). RLS forzado + FK compuestas + audit. Verificado local (tablas existen). |
+| **P2.6.1** ✅ código | Backend | `libs/commercial/commercial-expiry-reviews` (`/commercial/expiry-reviews`: list/get/create/lines CRUD/upload/submit). **Submit alimenta FEFO**: reclasifica del lote `NA` a un lote fechado `EXP-<fecha>` (mismo total → invariante intacto, trigger no dispara). Foto base64 → Cloudinary. `TenantKnexService.run()` en todo. Wireado en AppModule. |
+| **P2.6.2** ✅ código | Permisos | `COMMERCIAL_EXPIRY_VER` / `COMMERCIAL_EXPIRY_CAPTURAR` (recipe 6 touch-points: enum backend + ability.factory + frontend enums view/vendor/portal + permission-meta + authz-tree). Restrictivos → asignar en `/admin/roles` + re-login. |
+| **P2.6.3** ✅ código | Frontend | Pestaña "Caducidades" en Almacén; lista de hojas + detalle de captura **mobile-first** (alta de renglón con búsqueda de producto, chips de estado, foto por fila, días-a-caducar; sticky submit). Builds api+view verdes. |
+| **P2.6.4** 🧪 | Smoke | `database/tests/http-expiry-reviews-test.js`: crea hoja → renglones → submit → verifica lote en `/expiring` + invariante `stock.quantity` sin cambios + `fed_lines`. ⏳ **pendiente correr tras reiniciar API local** (proceso corriendo es previo al build). |
+
+**Decisiones P2.6:** superficie única responsive en `apps/view` (el captor es encargado/almacenista, no vendedor → se evita el shell de `apps/vendor` que exige `VENDOR_APP_ACCESS`). Renglón sin match al catálogo se guarda igual (raw) y NO alimenta FEFO. Foto = evidencia de validación, NO OCR de la hoja. **Diferido:** edición inline de renglones (hoy alta + borrar); OCR de hoja; offline Dexie; captura embebida en vendor.
+
+**Pendiente prod:** mig `20260810120000` a Railway + redeploy api+view + asignar permisos en `/admin/roles` + re-login.
+
 ## Riesgos / decisiones abiertas
 
 - **Doble escritura `stock`↔`stock_lots`:** todo path que mueva stock debe tocar ambos en la misma trx (mismo riesgo que hoy `stock`↔ledger). Mitigar con un helper único; nunca escribir uno sin el otro. Considerar un trigger DB que valide el invariante al cerrar la trx (defense-in-depth).

@@ -367,6 +367,56 @@ export interface ExpiringLot {
   value_at_cost: number | string;
 }
 
+// ── P2.6 — Control de Caducidades ──────────────────────────────────
+export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+
+export interface ExpiryReview {
+  id: string;
+  warehouse_id: string;
+  warehouse_code?: string;
+  warehouse_name?: string;
+  review_date: string;
+  responsible_name?: string | null;
+  status: 'draft' | 'submitted';
+  notes?: string | null;
+  submitted_at?: string | null;
+  created_at?: string;
+  line_count?: number;
+}
+
+export interface ExpiryReviewLine {
+  id: string;
+  product_id?: string | null;
+  product_code_raw?: string | null;
+  product_name_raw?: string | null;
+  sku?: string | null;
+  product_name?: string | null;
+  quantity: number | string;
+  expiry_date?: string | null;
+  condition?: 'bueno' | 'regular' | 'malo' | null;
+  observations?: string | null;
+  action?: string | null;
+  files?: ReviewFile[];
+  fed_to_fefo?: boolean;
+  fefo_qty?: number | string;
+}
+
+export interface ExpiryReviewDetail extends ExpiryReview {
+  lines: ExpiryReviewLine[];
+}
+
+export interface ExpiryLineInput {
+  product_id?: string | null;
+  product_code_raw?: string;
+  product_name_raw?: string;
+  quantity?: number;
+  expiry_date?: string | null;
+  condition?: 'bueno' | 'regular' | 'malo';
+  observations?: string;
+  action?: string;
+  files?: ReviewFile[];
+}
+
 export interface AbcRow {
   warehouse_id: string;
   warehouse_code: string;
@@ -662,6 +712,41 @@ export class ComercialService {
     if (opts.days != null) params = params.set('days', String(opts.days));
     if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
     return this.http.get<ExpiringLot[]>(`${this.base}/inventory/expiring`, { params });
+  }
+
+  // ── P2.6 — Control de Caducidades ──────────────────────────────────
+  private readonly expiryBase = `${this.base}/expiry-reviews`;
+
+  listExpiryReviews(opts: { warehouse_id?: string; status?: string; from?: string; to?: string; page?: number; pageSize?: number } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.status) params = params.set('status', opts.status);
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.page != null) params = params.set('page', String(opts.page));
+    if (opts.pageSize != null) params = params.set('pageSize', String(opts.pageSize));
+    return this.http.get<Paged<ExpiryReview>>(this.expiryBase, { params });
+  }
+  getExpiryReview(id: string) {
+    return this.http.get<ExpiryReviewDetail>(`${this.expiryBase}/${id}`);
+  }
+  createExpiryReview(body: { warehouse_id: string; review_date?: string; notes?: string }) {
+    return this.http.post<ExpiryReview>(this.expiryBase, body);
+  }
+  addExpiryLine(reviewId: string, body: ExpiryLineInput) {
+    return this.http.post<ExpiryReviewLine>(`${this.expiryBase}/${reviewId}/lines`, body);
+  }
+  updateExpiryLine(lineId: string, body: ExpiryLineInput) {
+    return this.http.patch<ExpiryReviewLine>(`${this.expiryBase}/lines/${lineId}`, body);
+  }
+  deleteExpiryLine(lineId: string) {
+    return this.http.delete<{ deleted: boolean }>(`${this.expiryBase}/lines/${lineId}`);
+  }
+  uploadExpiryFile(file_base64: string, role = 'evidencia') {
+    return this.http.post<ReviewFile>(`${this.expiryBase}/upload`, { file_base64, role });
+  }
+  submitExpiryReview(id: string) {
+    return this.http.post<{ status: string; fed_lines: number; total_lines: number }>(`${this.expiryBase}/${id}/submit`, {});
   }
 
   // ── ABC + conteo cíclico (Fase ABC) ─────────────────────────────────

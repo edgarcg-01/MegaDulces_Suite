@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Control de Caducidades digital (P2.6): la hoja de papel → interfaz que alimenta FEFO (2026-08-10)
+- Digitaliza la hoja manual "CONTROL DE CADUCIDADES" (inspección de anaquel: código, descripción, cantidad, fecha de caducidad, **estado** bueno/regular/malo, observaciones, **acción**). El personal de sucursal captura desde el celular (página responsive mobile-first) o desde oficina en escritorio; una sola superficie en `apps/view` bajo **Almacén → Control de Caducidades** (pestaña junto a "Por vencer").
+- **Alimenta FEFO**: al **enviar** una hoja, cada renglón con producto + caducidad + cantidad reclasifica esa cantidad del lote `NA` a un **lote fechado** en `commercial.stock_lots` (sin tocar `commercial.stock.quantity` → invariante `SUM(lotes)=stock` intacto, el trigger `trg_rebalance_stock_lots` no dispara) → la mercancía aparece en **"Por vencer"** y dispara las **alertas de vencimiento** existentes. La bitácora (estado/observación/acción) queda como fuente de verdad de la inspección.
+- **Foto de evidencia por renglón** (base64 → Cloudinary, patrón de comprobantes) para validar la información del producto/etiqueta.
+- Schema `commercial.expiry_reviews` + `commercial.expiry_review_lines` (mig `20260810120000`, RLS forzado + FK compuestas + audit). Backend `libs/commercial/commercial-expiry-reviews` (`/commercial/expiry-reviews`: list/get/create/lines CRUD/upload/submit). Permisos dedicados **`COMMERCIAL_EXPIRY_VER` / `COMMERCIAL_EXPIRY_CAPTURAR`** (recipe 6 touch-points; restrictivos → asignar en `/admin/roles` + re-login). Renglón sin match al catálogo se guarda igual (código/nombre crudo) y NO alimenta FEFO.
+- Builds api+view verdes. Smoke `database/tests/http-expiry-reviews-test.js` (crea hoja → renglones → submit → verifica lote en `/expiring` + invariante de stock + `fed_lines`). **Pendiente**: correr el smoke tras reiniciar la API local (proceso corriendo es previo al build) + aplicar migración a Railway + asignar permisos + re-login.
+
 ### Added — Diario de movimientos: pestaña "Cuadre de traspasos" + reporte PDF mensual (2026-08-05)
 - Nueva pestaña **Cuadre de traspasos** en `/almacen/movimientos` (`p-tabs`: Diario | Cuadre) con rango de fechas propio (vista de red). Concilia la **balanza Kepler mayor 515 «Ajuste traspasos internos»** (515-001 entrada / 515-002 salida): es cuenta puente → debe netear ≈ $0; Δ ≠ 0 = traspaso sin cuadrar o en tránsito al corte.
 - **4 desgloses**: por subcuenta (515-001/002 + Δ neto) · serie mensual + tendencia (Δ, % descuadre, **acumulado corriente**) · por sucursal · **matriz física origen→destino** (enviado/recibido/Δ/valor + conteo ok·dif·sin-recepción) · **drill de folios sin cuadrar** (clic abre el documento).
