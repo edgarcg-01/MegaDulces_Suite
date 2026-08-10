@@ -54,12 +54,22 @@ BEGIN
       WHERE d.c2='U' AND d.c3='D' AND h.c4=10 AND h.c9 >= %L
         AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> '' AND btrim(d.c10) <> ''
     $q$, v_cut);
-    EXECUTE format('DELETE FROM mart.ventas WHERE sucursal=%L AND fecha >= %L', r.db, v_cut);
-    EXECUTE format($i$ INSERT INTO mart.ventas SELECT %L, t.* FROM dblink(%L,%L) AS t(
-        almacen text, folio text, fecha date, forma_pago text, sku text, producto text, unidad text,
-        cantidad numeric, precio_neto numeric, importe numeric) $i$, r.db, conninfo, remote_sql);
-    GET DIAGNOSTICS n = ROW_COUNT; total := total + n;
-    sucursal := r.db; filas_cargadas := n; RETURN NEXT;
+    -- RESILIENCIA (2026-08-10): sub-bloque BEGIN..EXCEPTION = savepoint por sucursal.
+    -- Si una tienda está caída (dblink "could not connect"), se OMITE y el loop sigue con
+    -- las demás. El DELETE vive dentro del mismo bloque → en el rollback del savepoint la
+    -- sucursal conserva su ventana previa (no queda vacía). Antes: una tienda caída abortaba
+    -- TODA la consolidación → todas las sucursales quedaban sin refrescar.
+    BEGIN
+      EXECUTE format('DELETE FROM mart.ventas WHERE sucursal=%L AND fecha >= %L', r.db, v_cut);
+      EXECUTE format($i$ INSERT INTO mart.ventas SELECT %L, t.* FROM dblink(%L,%L) AS t(
+          almacen text, folio text, fecha date, forma_pago text, sku text, producto text, unidad text,
+          cantidad numeric, precio_neto numeric, importe numeric) $i$, r.db, conninfo, remote_sql);
+      GET DIAGNOSTICS n = ROW_COUNT; total := total + n;
+      sucursal := r.db; filas_cargadas := n; RETURN NEXT;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'refresh_ventas: omito sucursal % (%): %', r.db, r.host, SQLERRM;
+      sucursal := r.db; filas_cargadas := -1; RETURN NEXT;  -- -1 = omitida (caída), conserva datos previos
+    END;
   END LOOP;
   INSERT INTO mart.refresh_log(dias, filas) VALUES (p_days, total);
 END; $function$;
