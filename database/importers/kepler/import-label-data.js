@@ -158,8 +158,13 @@ function resolveUnits(slots) {
         // mayoreo por pieza: el tier más profundo (mejor precio)
         if (w.piecePrice == null || p < w.piecePrice) { w.piecePrice = p; w.pieceMinQty = int(r.min_qty); }
       } else if (r.present === 'PAQ') {
-        // mayoreo por paquete: mejor precio
-        if (w.packPrice == null || p < w.packPrice) w.packPrice = p;
+        // mayoreo por paquete: mejor precio + su umbral (min_qty). El más barato suele ser
+        // "desde 10" → guardamos SU min_qty para que la etiqueta no imprima un "desde 3" falso.
+        if (w.packPrice == null || p < w.packPrice) {
+          w.packPrice = p;
+          const mq = int(r.min_qty);
+          w.packMinQty = mq && mq > 1 ? mq : null;
+        }
       }
       wholesale.set(r.sku, w);
     }
@@ -220,6 +225,7 @@ function resolveUnits(slots) {
         u.box_size,
         u.box_price,
         (r.unit_base || '').trim().toUpperCase() || null,
+        w.packMinQty || null,
       ]);
       matched++;
     }
@@ -236,13 +242,13 @@ function resolveUnits(slots) {
       product_id uuid, content text, barcode text, barcode_format text,
       piece_price numeric, wholesale_piece_min_qty int, wholesale_piece_price numeric,
       pack_size int, pack_price numeric, wholesale_pack_price numeric,
-      box_size int, box_price numeric, unit_base text) ON COMMIT DROP`);
+      box_size int, box_price numeric, unit_base text, wholesale_pack_min_qty int) ON COMMIT DROP`);
     for (let i = 0; i < staged.length; i += BATCH) {
       const chunk = staged.slice(i, i + BATCH);
       const vals = [], params = [];
       chunk.forEach((row, ri) => {
-        const b = ri * 13;
-        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13})`);
+        const b = ri * 14;
+        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14})`);
         params.push(...row);
       });
       await db.query(`INSERT INTO stg_label VALUES ${vals.join(',')}`, params);
@@ -251,10 +257,12 @@ function resolveUnits(slots) {
       INSERT INTO commercial.product_label_prices
         (id, tenant_id, product_id, content, barcode, barcode_format, piece_price,
          wholesale_piece_min_qty, wholesale_piece_price, pack_size, pack_price,
-         wholesale_pack_price, box_size, box_price, unit_base, source, computed_at, updated_at)
+         wholesale_pack_price, box_size, box_price, unit_base, wholesale_pack_min_qty,
+         source, computed_at, updated_at)
       SELECT gen_random_uuid(), $1, s.product_id, s.content, s.barcode, s.barcode_format, s.piece_price,
              s.wholesale_piece_min_qty, s.wholesale_piece_price, s.pack_size, s.pack_price,
-             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, 'kepler', now(), now()
+             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, s.wholesale_pack_min_qty,
+             'kepler', now(), now()
       FROM stg_label s
       ON CONFLICT (tenant_id, product_id) DO UPDATE SET
         content=EXCLUDED.content, barcode=EXCLUDED.barcode, barcode_format=EXCLUDED.barcode_format,
@@ -262,6 +270,7 @@ function resolveUnits(slots) {
         wholesale_piece_price=EXCLUDED.wholesale_piece_price, pack_size=EXCLUDED.pack_size,
         pack_price=EXCLUDED.pack_price, wholesale_pack_price=EXCLUDED.wholesale_pack_price,
         box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, unit_base=EXCLUDED.unit_base,
+        wholesale_pack_min_qty=EXCLUDED.wholesale_pack_min_qty,
         source='kepler', computed_at=now(), updated_at=now()
       WHERE commercial.product_label_prices.source <> 'manual'`, [M]);
     // Backfill de products.barcode (casos seguros). UPDATE puntual por producto; el guard
