@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -32,7 +32,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="inventoryTabs" />
+      @if (showInvTabs) { <app-page-tabs [tabs]="inventoryTabs" /> }
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -112,9 +112,13 @@ export class ComercialExpiryReviewsComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** El strip de tabs de Almacén solo tiene sentido bajo /almacen (no en /tienda). */
+  readonly showInvTabs = this.router.url.startsWith('/almacen');
 
   reviews = signal<ExpiryReview[]>([]);
   loading = signal(false);
@@ -161,10 +165,10 @@ export class ComercialExpiryReviewsComponent {
     this.svc.createExpiryReview({ warehouse_id: this.newWarehouse, review_date: this.toYmd(this.newDate) })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate(['/almacen/inventory/caducidades', r.id]); },
+        next: (r) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate([r.id], { relativeTo: this.route }); },
         error: () => { this.creating.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo crear la hoja' }); },
       });
   }
 
-  open(r: ExpiryReview) { this.router.navigate(['/almacen/inventory/caducidades', r.id]); }
+  open(r: ExpiryReview) { this.router.navigate([r.id], { relativeTo: this.route }); }
 }

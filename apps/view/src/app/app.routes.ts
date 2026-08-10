@@ -666,6 +666,17 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-weekly.component').then(m => m.TiendaWeeklyComponent),
         canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
       },
+      {
+        // P2.6 — Control de Caducidades desde el módulo de tienda (mismo componente que /almacen)
+        path: 'caducidades',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        path: 'caducidades/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-review-detail.component').then(m => m.ComercialExpiryReviewDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
     ]
   },
   {

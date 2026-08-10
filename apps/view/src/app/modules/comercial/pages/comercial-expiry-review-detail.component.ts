@@ -345,7 +345,7 @@ export class ComercialExpiryReviewDetailComponent {
       });
   }
 
-  back() { this.router.navigate(['/almacen/inventory/caducidades']); }
+  back() { this.router.navigate(['..'], { relativeTo: this.route }); }
 
   private daysTo(expiry: string): number {
     const today = new Date(); today.setHours(0, 0, 0, 0);
