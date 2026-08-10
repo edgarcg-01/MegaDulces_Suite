@@ -29,6 +29,8 @@ interface RuleMeta {
   descripcion: string;
   clase: 'riesgo' | 'error_captura' | 'oportunidad';
   params: Record<string, any>;
+  /** default del código: false = la regla nace desactivada (respeta calibración humana en el merge). */
+  enabled?: boolean;
 }
 
 interface RawFinding {
