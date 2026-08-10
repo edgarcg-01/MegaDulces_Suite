@@ -379,6 +379,7 @@ export interface ExpiryReview {
   responsible_name?: string | null;
   status: 'draft' | 'submitted';
   notes?: string | null;
+  default_location?: string | null;
   submitted_at?: string | null;
   created_at?: string;
   line_count?: number;
@@ -396,6 +397,7 @@ export interface ExpiryReviewLine {
   condition?: 'bueno' | 'regular' | 'malo' | null;
   observations?: string | null;
   action?: string | null;
+  location?: string | null;
   files?: ReviewFile[];
   fed_to_fefo?: boolean;
   fefo_qty?: number | string;
@@ -414,6 +416,7 @@ export interface ExpiryLineInput {
   condition?: 'bueno' | 'regular' | 'malo';
   observations?: string;
   action?: string;
+  location?: string;
   files?: ReviewFile[];
 }
 
@@ -730,7 +733,7 @@ export class ComercialService {
   getExpiryReview(id: string) {
     return this.http.get<ExpiryReviewDetail>(`${this.expiryBase}/${id}`);
   }
-  createExpiryReview(body: { warehouse_id: string; review_date?: string; notes?: string }) {
+  createExpiryReview(body: { warehouse_id: string; review_date?: string; notes?: string; default_location?: string }) {
     return this.http.post<ExpiryReview>(this.expiryBase, body);
   }
   addExpiryLine(reviewId: string, body: ExpiryLineInput) {

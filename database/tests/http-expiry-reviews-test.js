@@ -65,18 +65,20 @@ function check(name, cond, detail) {
   check('stock inicial = 100', qtyBefore === 100, { qtyBefore });
 
   console.log('\n── 3. Crear hoja + renglones ──');
-  const review = await req('POST', '/commercial/expiry-reviews', { warehouse_id: whId, notes: 'Smoke P2.6' }, token);
+  const review = await req('POST', '/commercial/expiry-reviews', { warehouse_id: whId, notes: 'Smoke P2.6', default_location: 'Anaquel 3' }, token);
   const reviewId = review.body?.id;
   check('hoja creada (draft)', !!reviewId && review.body?.status === 'draft', review.body);
+  check('hoja guardó default_location', review.body?.default_location === 'Anaquel 3', review.body?.default_location);
   if (!reviewId) process.exit(1);
 
   const expDate = new Date(Date.now() + 20 * 24 * 3600 * 1000).toISOString().slice(0, 10); // vence en 20 días
   const line1 = await req('POST', `/commercial/expiry-reviews/${reviewId}/lines`, {
     product_id: productId, product_code_raw: 'SMOKE-1', quantity: 10, expiry_date: expDate,
-    condition: 'regular', observations: 'se ve dura', action: 'promocionar',
+    condition: 'regular', observations: 'se ve dura', action: 'promocionar', location: 'Anaquel 3',
     files: [{ role: 'evidencia', url: 'https://example.test/foto.jpg', kind: 'image' }],
   }, token);
-  check('renglón 1 (producto+caducidad+foto) agregado', line1.status === 201 || line1.status === 200, line1.body);
+  check('renglón 1 (producto+caducidad+foto+ubicación) agregado', line1.status === 201 || line1.status === 200, line1.body);
+  check('renglón 1 guardó location', line1.body?.location === 'Anaquel 3', line1.body?.location);
 
   const line2 = await req('POST', `/commercial/expiry-reviews/${reviewId}/lines`, {
     product_code_raw: '99999', product_name_raw: 'Producto sin match', quantity: 5, condition: 'malo', observations: 'no tiene fecha',

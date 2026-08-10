@@ -36,6 +36,7 @@ export interface CreateReviewDto {
   warehouse_id: string;
   review_date?: string; // YYYY-MM-DD, default hoy
   notes?: string;
+  default_location?: string; // ubicación por defecto (anaquel/bodega/exhibidor)
 }
 
 export interface ReviewLineDto {
@@ -47,6 +48,7 @@ export interface ReviewLineDto {
   condition?: Condition;
   observations?: string;
   action?: string;
+  location?: string; // ubicación física del renglón (anaquel/bodega/exhibidor)
   files?: ReviewFile[];
 }
 
@@ -87,6 +89,7 @@ export class CommercialExpiryReviewsService {
           responsible_user_id: ctx?.userId || null,
           responsible_name: ctx?.username || null,
           notes: dto.notes || null,
+          default_location: dto.default_location || null,
           status: 'draft',
           created_by: ctx?.userId || null,
           updated_by: ctx?.userId || null,
@@ -163,6 +166,7 @@ export class CommercialExpiryReviewsService {
           'l.condition',
           'l.observations',
           'l.action',
+          'l.location',
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
@@ -194,6 +198,7 @@ export class CommercialExpiryReviewsService {
           condition: dto.condition || null,
           observations: dto.observations || null,
           action: dto.action || null,
+          location: dto.location || null,
           files: JSON.stringify(dto.files || []),
           created_by: ctx?.userId || null,
           updated_by: ctx?.userId || null,
@@ -222,6 +227,7 @@ export class CommercialExpiryReviewsService {
       if (dto.condition !== undefined) patch.condition = dto.condition || null;
       if (dto.observations !== undefined) patch.observations = dto.observations || null;
       if (dto.action !== undefined) patch.action = dto.action || null;
+      if (dto.location !== undefined) patch.location = dto.location || null;
       if (dto.files !== undefined) patch.files = JSON.stringify(dto.files || []);
 
       const [row] = await trx('commercial.expiry_review_lines').where({ id: lineId }).update(patch).returning('*');
@@ -289,7 +295,9 @@ export class CommercialExpiryReviewsService {
         const moveQty = Math.min(qty, naQty);
         if (moveQty <= 0) continue;
 
-        const lotCode = `EXP-${String(line.expiry_date).slice(0, 10)}`;
+        // expiry_date puede venir como Date (pg parsea `date` a Date) o string.
+        const expiryYmd = this.toYmd(line.expiry_date);
+        const lotCode = `EXP-${expiryYmd}`;
 
         // Upsert del lote fechado (+moveQty) — mismo patrón que recordMovement('in').
         await trx.raw(
@@ -299,7 +307,7 @@ export class CommercialExpiryReviewsService {
            ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date)
            DO UPDATE SET quantity = commercial.stock_lots.quantity + EXCLUDED.quantity,
                          received_at = now(), updated_at = now(), updated_by = EXCLUDED.updated_by`,
-          [review.warehouse_id, line.product_id, lotCode, String(line.expiry_date).slice(0, 10), moveQty, ctx?.userId || null],
+          [review.warehouse_id, line.product_id, lotCode, expiryYmd, moveQty, ctx?.userId || null],
         );
 
         // Decrementa el lote 'NA' en la misma cantidad → total constante, invariante intacto.
@@ -334,6 +342,15 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('quantity debe ser número >= 0');
     if (dto.condition && !VALID_CONDITIONS.includes(dto.condition))
       throw new BadRequestException(`condition debe ser: ${VALID_CONDITIONS.join(', ')}`);
+  }
+
+  /** Normaliza un valor de fecha (Date que devuelve pg para `date`, o string) a 'YYYY-MM-DD'. */
+  private toYmd(v: unknown): string {
+    if (v instanceof Date) {
+      const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, '0'), d = String(v.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return String(v).slice(0, 10);
   }
 
   private async assertDraft(trx: any, reviewId: string): Promise<void> {

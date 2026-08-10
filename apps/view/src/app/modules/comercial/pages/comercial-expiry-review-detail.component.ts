@@ -70,6 +70,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <span class="erd-lbl">Fecha de caducidad</span>
               <p-datepicker [(ngModel)]="expiry" dateFormat="yy-mm-dd" [showButtonBar]="true" appendTo="body" styleClass="erd-full"></p-datepicker>
             </label>
+            <label class="erd-field">
+              <span class="erd-lbl">Ubicación</span>
+              <input pInputText [(ngModel)]="location" placeholder="Anaquel / bodega / exhibidor" class="erd-full" />
+            </label>
             <div class="erd-field">
               <span class="erd-lbl">Estado</span>
               <div class="erd-chips">
@@ -124,6 +128,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                   <span class="erd-qty">{{ l.quantity }} pz</span>
                   @if (l.expiry_date) { <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag> }
                   @if (l.condition) { <span class="erd-cond" [attr.data-c]="l.condition">{{ l.condition }}</span> }
+                  @if (l.location) { <span class="erd-loc"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ l.location }}</span> }
                   @if (l.fed_to_fefo) { <span class="erd-fefo" title="Alimentó FEFO">FEFO ✓</span> }
                 </div>
                 @if (l.observations) { <div class="erd-line-obs">{{ l.observations }}</div> }
@@ -185,6 +190,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
     .erd-cond[data-c="bueno"] { color: var(--good-fg, #1a7f37); }
     .erd-cond[data-c="regular"] { color: var(--warn-fg, #b25e00); }
     .erd-cond[data-c="malo"] { color: var(--bad-fg, #b42318); }
+    .erd-loc { font-size: var(--fs-xs, .72rem); color: var(--c-text-2, var(--text-muted)); }
     .erd-fefo { font-size: var(--fs-xs, .72rem); color: var(--good-fg, #1a7f37); }
     .erd-line-obs { margin-top: .35rem; font-size: var(--fs-sm, .85rem); color: var(--c-text-2, var(--text-muted)); }
     .erd-line-act { margin-top: .25rem; font-size: var(--fs-sm, .85rem); }
@@ -226,6 +232,7 @@ export class ComercialExpiryReviewDetailComponent {
   condition = signal<Condition | null>(null);
   observations = '';
   action = '';
+  location = '';
   pendingPhoto = signal<ReviewFile | null>(null);
 
   uploading = signal(false);
@@ -244,7 +251,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.svc.getExpiryReview(this.reviewId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.review.set(r); this.lines.set(r.lines || []); },
+        next: (r) => { this.review.set(r); this.lines.set(r.lines || []); if (!this.location) this.location = r.default_location || ''; },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudo cargar la hoja' }),
       });
   }
@@ -291,6 +298,7 @@ export class ComercialExpiryReviewDetailComponent {
       condition: this.condition() || undefined,
       observations: this.observations.trim() || undefined,
       action: this.action.trim() || undefined,
+      location: this.location.trim() || undefined,
       files: this.pendingPhoto() ? [this.pendingPhoto()!] : undefined,
     };
     this.addingLine.set(true);
