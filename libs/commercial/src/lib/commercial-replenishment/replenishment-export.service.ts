@@ -749,7 +749,7 @@ export class ReplenishmentExportService {
         const cell = ws.getCell(tr, ci + 1);
         cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
         cell.font = { bold: true };
-        cell.numFmt = c.fmt;
+        cell.numFmt = c.fmt ?? MONEY;   // toda columna 'total' trae fmt; fallback satisface el tipo
         cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
       });
     }
