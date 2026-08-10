@@ -157,6 +157,29 @@ Fix scoped: `services/feeds-ingest/Dockerfile` propio + env `RAILWAY_DOCKERFILE_
 1. En `run-feeds.cmd`: `FEEDS_SINK=http` + `FEEDS_INGEST_URL=https://feeds-ingest-production.up.railway.app` + `FEEDS_INGEST_KEY=<secreto>`.
 2. Correr `import-branch-stock-live.js --apply` → verificar `[APPLY·http]` + frescura + egress plano. Rollback = quitar `FEEDS_SINK`.
 
+## 8. Sub-fase Wincaja (al minuto vía store-agent) — decisión Edgar 2026-08-10
+
+**El cuello NO es el push (como en Kepler), es la fuente.** La frescura de Wincaja está topada por (a) cada cuánto se exporta el `.mdb` vivo del POS y (b) el import bronze `import-wincaja.js` (Jet 32-bit, DELETE por partición, 05:00 diario). Empujar más rápido no ayuda si el bronze sigue diario.
+
+**Estado hoy:**
+- **Ventas (tickets 30/32/50)**: YA casi vivo — `wincaja-store-agent.ps1` (en POS) / `wincaja-live-extract.js` (shadow-copy en .249) leen el `.mdb` incremental por `Consecutivo` y empujan a `POST /store/live/ingest` → `analytics.store_live_tickets` + WS `/tienda/live`. **Pero eso NO alimenta `commercial.stock`, `analytics.sales_daily` ni `stock_movements`** (esos siguen del batch diario).
+- **Existencia / sales_daily / movimientos / resto**: 1×/día tras el bronze, y los gold escriben Railway por el proxy (egress).
+
+**Modelo de datos (bronze):** `wincaja.existencias` (`articulo`=sku, `existencia`, `almacen`, `source_branch`) → `v_stock` → `commercial.stock`. Ventas/movimientos = `MaestroMovAlmacen`+`DetallesMovAlmacen` (`Tipo='V'` venta; otros = movimiento). Todo viene de tablas del `.mdb` por sucursal.
+
+**Diseño elegido:** store-agent live en 30/32/50 empujando **el espejo completo** a `feeds-ingest` (handlers dedicados), no solo tickets al live-view.
+
+**Rebanadas:**
+- **W.1 Existencia** — handler `wincaja-stock` ✅ EN CÓDIGO (upsert delta por `warehouse_code`, resuelve sku→product_id server-side, sin delete-not-seen). **Falta el extractor** que lea `Existencias` del `.mdb` incremental (snapshot local por sucursal) y empuje `[{sku,existencia}]` + `meta.warehouse_code`.
+- **W.2 Ventas → `analytics.sales_daily`** — handler nuevo `wincaja-sales-daily` (adaptar `import-wincaja-analytics.js`) + extractor (reusa la extracción de tickets que ya existe).
+- **W.3 Movimientos → `analytics.stock_movements`** — handler `wincaja-movements` (adaptar `import-wincaja-stock-movements.js`, block-diff).
+- **W.4 Resto del espejo** — bronze completo + gold rutas/venta-producto/cadencia CEDIS.
+
+**Decisiones abiertas (bloquean el extractor):**
+1. **Vehículo del extractor**: Opción A (PowerShell puro en cada POS, sub-minuto, deploy en 3 máquinas) vs Opción C (node en .249 leyendo shadow-copies SyncBack, reusa `lib/sink.js`, 1 máquina, ~5 min). **Recomiendo Opción C para existencia/analítica** (trivial de construir/probar, reusa el sink) y dejar Opción A solo donde se necesite sub-minuto. La extracción de tickets ya está en ambas.
+2. ~~Confirmar la tabla `.mdb` de existencias~~ ✅ RESUELTO: tabla `.mdb` = **`Existencias`**; query `SELECT Almacen, Articulo, ExistenciaInicialRegular, EntradaRegular, SalidaRegular FROM Existencias`; `existencia = ExistenciaInicialRegular + EntradaRegular − SalidaRegular` (agregar por `Articulo`=sku). Ventas/movimientos = `MaestroMovAlmacen`+`DetallesMovAlmacen` (ya extraídas por el agent de tickets).
+3. **Redeploy de `feeds-ingest`** para publicar el handler `wincaja-stock` (el deploy actual no lo trae aún).
+
 ---
 
 ## 8. Riesgos / gotchas
