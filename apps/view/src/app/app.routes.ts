@@ -561,6 +561,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
+        path: 'inventory/caducidades',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        // P2.6 — Control de Caducidades: detalle/captura de una hoja
+        path: 'inventory/caducidades/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-review-detail.component').then(m => m.ComercialExpiryReviewDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
         // ABC.3b — conteo cíclico (clasificación ABC + agenda)
         path: 'inventory/abc',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-abc.component').then(m => m.ComercialInventoryAbcComponent),

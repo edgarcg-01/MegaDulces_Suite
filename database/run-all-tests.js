@@ -55,6 +55,7 @@ const TESTS = [
   { file: 'smoke-horus-missed-visit.js', label: 'Horus.ACT (ACT.1 missed_visit + ACT.4 notify/incident + ACT.2 reorden visit_sequence + ACT.3 add_opportunity_store + ACT.5 balanceo route_rebalance_log + sales_route round-trip)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
+  { file: 'http-expiry-reviews-test.js', label: 'P2.6 Control de Caducidades (hoja+renglones+submit→alimenta FEFO: lote fechado en /expiring + invariante stock sin cambios + fed_lines + 409 re-submit)', needsApi: true },
   { file: 'http-inventory-abc-test.js', label: 'I.6 clasificación ABC (refresh + shape + filtro por clase)', needsApi: true },
   { file: 'http-inventory-cycle-count-test.js', label: 'I.7 conteo cíclico acotado (open-cycle por clase/lista)', needsApi: true },
   { file: 'http-inventory-aisles-test.js', label: 'PA.1 pasillos 2D (CRUD + mapeo bulk SKU→pasillo + carga)', needsApi: true },
