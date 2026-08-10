@@ -161,6 +161,23 @@ export class CommercialMovementsService {
     if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
     }
+    // Origen/Destino (traspasos): el doc involucra al almacén seleccionado como ORIGEN
+    // (m.warehouse_id — TrsfShip que sale de él / TrsfRcv que recibe) o como DESTINO
+    // (dest_code → transfer_dest_map). Sin la rama de DESTINO, los despachos a tiendas Wincaja
+    // (dest TI004/TI006/TI009 → 30/50/32) NO aparecían al filtrar por ellas: su warehouse_id es
+    // el CEDIS y su recepción no está en stock_movements → no había contraparte que parear.
+    // Se aplica en base() (no solo en el drill) → summary/aggregate/lines quedan CONSISTENTES.
+    const twhs = this.transferWhIds(q);
+    if (twhs.length) {
+      const ph = twhs.map(() => '?').join(',');
+      b.andWhere(function (this: any) {
+        this.whereIn('m.warehouse_id', twhs)
+          .orWhereRaw(
+            `EXISTS (SELECT 1 FROM analytics.transfer_dest_map dm WHERE dm.tenant_id = ?::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IN (${ph}))`,
+            [tenantId, ...twhs],
+          );
+      });
+    }
     // DM.11b — destino: por defecto oculta traspasos a rutas de reparto (no primordial)
     this.applyDestFilter(b, q, tenantId);
     if (q.search) {
@@ -260,7 +277,6 @@ export class CommercialMovementsService {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
     const estado = ['en_transito', 'completado', 'diferencia'].includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
-    const transferWhs = this.transferWhIds(q);
     return this.tk.run(async (trx) => {
       // base() ya acota a docs de traspaso cuando hay estado u origen/destino
       const grouped = () => this.base(trx, tenantId, q)
@@ -297,14 +313,13 @@ export class CommercialMovementsService {
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
 
-      if (estado || transferWhs.length) {
-        // estado y origen/destino requieren el PAREO (la contraparte no es columna):
-        // computar sobre TODOS los traspasos del rango (cap 2000) y paginar en memoria
+      if (estado) {
+        // 'estado' requiere el PAREO (transfer_status no es columna): computar sobre TODOS los
+        // traspasos del rango (cap 2000) y paginar en memoria. El filtro origen/destino
+        // (transfer_wh_ids) ya lo aplicó base() en SQL → aquí no se re-filtra por almacén.
         const all = await fetch(2000, 0);
         await this.annotateTransferStatus(trx, tenantId, all);
-        const filtered = all.filter((r: any) =>
-          (!estado || r.transfer_status === estado) &&
-          (!transferWhs.length || transferWhs.includes(r.warehouse_id) || transferWhs.includes(r.cp_warehouse_id)));
+        const filtered = all.filter((r: any) => r.transfer_status === estado);
         const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
         await this.annotateDest(trx, tenantId, rows);
         return { page, pageSize, total: filtered.length, rows };
