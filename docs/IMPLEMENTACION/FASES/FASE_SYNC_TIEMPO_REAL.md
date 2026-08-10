@@ -170,7 +170,7 @@ Fix scoped: `services/feeds-ingest/Dockerfile` propio + env `RAILWAY_DOCKERFILE_
 **Diseño elegido:** store-agent live en 30/32/50 empujando **el espejo completo** a `feeds-ingest` (handlers dedicados), no solo tickets al live-view.
 
 **Rebanadas:**
-- **W.1 Existencia** — handler `wincaja-stock` ✅ EN CÓDIGO (upsert delta por `warehouse_code`, resuelve sku→product_id server-side, sin delete-not-seen). **Falta el extractor** que lea `Existencias` del `.mdb` incremental (snapshot local por sucursal) y empuje `[{sku,existencia}]` + `meta.warehouse_code`.
+- **W.1 Existencia** ✅ EN CÓDIGO + DEPLEGADO: handler `wincaja-stock` en Railway (verificado en vivo, `{ok:true,rowCount:0}`) + extractor node `wincaja-stock-extract.js` (Opción C: lee `Existencias` del `.mdb` vía extract-query.ps1, snapshot-diff por sucursal, empuja `[{sku,existencia}]`+`meta.warehouse_code` con lib/sink). **Falta (Edgar en .249)**: `node database/importers/wincaja/wincaja-stock-extract.js --dry` para validar extracción, luego `--once`/loop con `FEEDS_SINK=http`+`FEEDS_INGEST_*`, y agendarlo. CEDIS '00' = agregar su `.mdb` vía `WINCAJA_STOCK_MDBS_FILE`.
 - **W.2 Ventas → `analytics.sales_daily`** — handler nuevo `wincaja-sales-daily` (adaptar `import-wincaja-analytics.js`) + extractor (reusa la extracción de tickets que ya existe).
 - **W.3 Movimientos → `analytics.stock_movements`** — handler `wincaja-movements` (adaptar `import-wincaja-stock-movements.js`, block-diff).
 - **W.4 Resto del espejo** — bronze completo + gold rutas/venta-producto/cadencia CEDIS.
