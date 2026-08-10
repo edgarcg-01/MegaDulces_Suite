@@ -56,50 +56,11 @@ const ZAMORA_CUTOVER = "DATE '2026-03-16'";
 //   · unit_kind = 'weight' si el sku es KGS, si no 'piece'
 //   · units     = kg (KGS) · piezas (PZA) · qty×factor_venta (CJA→piezas)
 // `am` = modelo del artículo (1 fila por articulo, el dataset más reciente).
-const SELECT_SRC = `
-  WITH am AS (
-    SELECT DISTINCT ON (tenant_id, articulo)
-           tenant_id, articulo,
-           upper(btrim(coalesce(unidad_venta, ''))) AS uv, factor_venta
-      FROM wincaja.articulos
-     ORDER BY tenant_id, articulo, source_dataset DESC
-  )
-  SELECT
-    p.id                         AS product_id,
-    w.id                         AS warehouse_id,
-    s.business_date              AS sale_date,
-    'wincaja_' || CASE s.sale_channel
-       WHEN 'mayoreo_credito'  THEN 'credito'
-       WHEN 'preventa_vecinal' THEN 'preventa'
-       WHEN 'ruta_venta'       THEN 'ruta'
-       WHEN 'mostrador'        THEN 'mostrador'
-       ELSE s.sale_channel END   AS channel,
-    SUM(CASE WHEN am.uv = 'CJA' THEN s.qty * COALESCE(NULLIF(am.factor_venta, 0), 1)
-             ELSE s.qty END)      AS units,
-    CASE WHEN bool_or(am.uv = 'KGS') THEN 'weight' ELSE 'piece' END AS unit_kind,
-    SUM(s.importe)               AS revenue,
-    SUM(s.costo)                 AS cost,
-    SUM(s.importe) - SUM(s.costo) AS margin,
-    SUM(s.tickets)               AS tickets
-  FROM wincaja.v_sales_daily s
-  JOIN catalog.products p
-    ON p.tenant_id = s.tenant_id AND p.sku = s.sku AND p.deleted_at IS NULL
-  JOIN commercial.warehouses w
-    ON w.tenant_id = s.tenant_id AND w.deleted_at IS NULL
-   AND w.code = CASE WHEN s.source_branch = '10' THEN '01'
-                     WHEN s.source_branch = '42' THEN '02'
-                     WHEN s.source_branch = '44' THEN '04'
-                     WHEN s.source_branch = '54' THEN '05'
-                     ELSE s.warehouse_code END
-  LEFT JOIN am ON am.tenant_id = s.tenant_id AND am.articulo = s.sku
-  WHERE s.tenant_id = ?
-    AND ( s.wincaja_only = true
-          OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
-          OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER})
-          OR (s.source_branch = '44' AND s.business_date < ${YURE_CUTOVER})
-          OR (s.source_branch = '54' AND s.business_date < ${ZAMORA_CUTOVER}) )
-  GROUP BY p.id, w.id, s.business_date, channel
-`;
+// SELECT_SRC canónico ahora vive en el módulo compartido (una sola fuente de verdad),
+// reutilizado por el handler wincaja-sales-bronze (feeds-ingest) para re-derivar scoped.
+// El tenant va INLINE en el builder → sin bind `?`. Los CUTOVER de arriba quedan documentales.
+const { buildSalesDailySrc } = require('../../../services/feeds-ingest/sales-daily-projection');
+const SELECT_SRC = buildSalesDailySrc({ tenantId: TENANT });
 
 (async () => {
   const cfg = process.env.DATABASE_URL_NEW
@@ -107,7 +68,7 @@ const SELECT_SRC = `
     : require(path.resolve(__dirname, '..', '..', 'knexfile-newdb.js')).development;
   const db = knexLib(cfg);
 
-  const [pre] = (await db.raw(`SELECT count(*)::int rows, coalesce(round(sum(revenue)::numeric,0),0) rev FROM (${SELECT_SRC}) x`, [TENANT])).rows;
+  const [pre] = (await db.raw(`SELECT count(*)::int rows, coalesce(round(sum(revenue)::numeric,0),0) rev FROM (${SELECT_SRC}) x`)).rows;
   console.log(`origen (30/32/50, SKU mapeable): ${pre.rows} filas producto-almacen-dia, revenue $${Number(pre.rev).toLocaleString()}`);
 
   if (!APPLY) { console.log('(dry-run - usar --apply)'); await db.destroy(); return; }
@@ -116,7 +77,7 @@ const SELECT_SRC = `
     // Merge SIN churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo que ya no viene
     // (scope canales wincaja%). Antes: DELETE-all-wincaja+INSERT reescribía todo cada corrida.
     await trx.raw(`CREATE TEMP TABLE stg_wsd ON COMMIT DROP AS
-      SELECT product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind FROM (${SELECT_SRC}) src`, [TENANT]);
+      SELECT product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind FROM (${SELECT_SRC}) src`);
     const up = await trx.raw(
       `INSERT INTO analytics.sales_daily AS sd (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
        SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now() FROM stg_wsd
