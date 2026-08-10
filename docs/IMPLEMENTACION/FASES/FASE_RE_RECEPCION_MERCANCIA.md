@@ -63,11 +63,12 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 
 ## 5. Fases
 
-### RE.0 — Multi-fuente [RUTA CRÍTICA]
+### RE.0 — Multi-fuente [RUTA CRÍTICA] · 🟡 Kepler ✅ / Wincaja pendiente
 - **Objetivo:** el feed cubre lo mismo que el Excel: CEDIS md_00 + sucursales Kepler md_01-05 + Wincaja.
-- **Entregable:** extender `import-goods-receipts.js` a multi-branch (reusa `STOCK_BRANCH_MAP`/BRANCHES) + nuevo feed desde `wincaja.movimiento_proveedores` (tipo compra). `erp_goods_receipts.sucursal` deja de ser siempre '00'.
-- **Schema:** `+ source` (kepler/wincaja) + sucursal real; mig aditiva.
-- **Verificado:** md_03=833, md_01=313 XA2001; wincaja.movimiento_proveedores=7,356.
+- **✅ Kepler multi-sucursal (2026-08-10, LOCAL + PROD):** `import-goods-receipts.js` recorre las 6 DBs Kepler (mismo mapa de conexiones que `import-branch-stock-live`), con el **gotcha anti-réplica** confirmado en vivo (md_03 arrastraba **501 filas c1='02'** + 2 de '01'; md_02 traía 2 de '01') → se filtra `ap.c1 = <sucursal propia derivada del dbname md_XX>`. `sucursal` sale REAL ('00'..'05'), `source_branch`='md_XX'. **Sin migración** (`sucursal`/`source_branch` ya existían; PK `(tenant, sucursal, folio)` no colisiona porque cada sucursal tiene código distinto). **Sin redeploy** (Compras 360 ya lee la tabla con filtro de sucursal opcional; el dropdown se puebla solo). Prod: **6 sucursales / 11,406 entradas / $521M / 87,495 líneas** (antes 1 suc / 8,373). Δ = +2,809 recepciones / +$79.6M antes invisibles. Por sucursal: md_00 8,596/$441M · md_02 1,106/$19.1M · md_03 872/$26.8M · md_01 350/$24.5M · md_04 282/$3.5M · md_05 200/$5.7M.
+- **⬜ Wincaja (pendiente):** feed nuevo desde `wincaja.movimiento_proveedores` (tipo compra) para las tiendas solo-Wincaja (Morelia Abastos/Madero/Canindo). El almacén top del Excel (**Morelia Abastos 348**) sigue invisible hasta esto. Requiere `+ source` (kepler/wincaja) en el schema (mig aditiva) + lectura del .mdb Jet (32-bit, patrón `import-wincaja`).
+- **Verificado (dry-run 2026-08-10):** md_03=872, md_01=350, md_02=1,106, md_04=282, md_05=200 XA2001 (c1 propia); wincaja.movimiento_proveedores=7,356 (pendiente).
+- **Notas operacionales:** el importer corre **desde la máquina de feeds** (LAN; Railway no alcanza las DBs de sucursal), escribe a prod con `DATABASE_URL_NEW=<prod>`. No está en un scheduler todavía → agregar a la rotación de feeds para frescura. Cosmético diferido: mapear código de sucursal ('00'..'05') → nombre legible en el filtro de Compras 360.
 
 ### RE.1 — Enriquecer el ancla (paridad de campos)
 - **Objetivo:** traer los campos del Excel que faltan.
