@@ -79,10 +79,27 @@ export interface WorkbookExportRow {
   valor_venta?: number | null;
   valor_exis?: number | null;
 }
+/** RA — renglón de traspaso sugerido (déficit de sucursal ← stock del CEDIS que la surte). */
+export interface TransferExportRow {
+  sku?: string | null;
+  nombre?: string | null;
+  uxc?: number | null;
+  from_code?: string | null;      // CEDIS origen
+  to_code?: string | null;        // sucursal destino
+  to_name?: string | null;
+  supplier_name?: string | null;
+  deficit_cajas?: number | null;
+  transfer_cajas?: number | null;
+  transfer_pieces?: number | null;
+  shortfall_pieces?: number | null; // déficit que el CEDIS NO cubre → se compra
+  unit_cost?: number | null;
+  transfer_value?: number | null;
+}
 export interface WorkbookExport {
   coverage_days: number;
   territories: WorkbookExportTerritory[];
   rows: WorkbookExportRow[];
+  transfers?: TransferExportRow[]; // RA — hoja "Traspasos" del workbook global (opcional)
 }
 
 /**
@@ -523,6 +540,7 @@ export class ReplenishmentExportService {
     for (const g of this.groupBySupplier(data.rows || [])) {
       this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_days);
     }
+    if (data.transfers && data.transfers.length) this.writeTransfersSheet(wb, data.transfers, data.coverage_days);
     return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   }
 
@@ -545,6 +563,7 @@ export class ReplenishmentExportService {
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
     this.writeFlatSheet(wb, 'Pedido (plano)', data.rows || [], data.territories || [], data.coverage_days);
+    if (data.transfers && data.transfers.length) this.writeTransfersSheet(wb, data.transfers, data.coverage_days);
     return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   }
 
@@ -645,6 +664,94 @@ export class ReplenishmentExportService {
         cell.numFmt = sc === pedFirstCol ? N1 : sc === pedFirstCol + 1 ? N0 : MONEY;
         cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
       }
+    }
+  }
+
+  /**
+   * RA — Hoja "Traspasos" del workbook global: un renglón por (producto × sucursal destino),
+   * con el CEDIS origen, el déficit, cuánto se cubre por traspaso vs cuánto queda por comprar,
+   * y el valor. Complementa la hoja "Todos" (que muestra el pedido bruto, sin separar canal).
+   */
+  private writeTransfersSheet(wb: ExcelJS.Workbook, rows: TransferExportRow[], coverage: number): void {
+    rows = rows ?? [];
+    const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
+    type Col = { h: string; v: (r: TransferExportRow, i: number) => string | number; fmt?: string; total?: boolean; left?: boolean; width: number };
+    const cajas = (pz?: number | null, uxc?: number | null) => { const u = Number(uxc) || 1; return u > 0 ? Math.round((Number(pz) || 0) / u * 10) / 10 : 0; };
+    const cols: Col[] = [
+      { h: '#', v: (_r, i) => i + 1, width: 5 },
+      { h: 'Producto', v: (r) => r.nombre ?? '', left: true, width: 40 },
+      { h: 'SKU', v: (r) => r.sku ?? '', left: true, width: 12 },
+      { h: 'UXC', v: (r) => Number(r.uxc) || 0, fmt: N0, width: 7 },
+      { h: 'Origen (CEDIS)', v: (r) => r.from_code ?? '', width: 13 },
+      { h: 'Destino (sucursal)', v: (r) => [r.to_code, r.to_name].filter(Boolean).join(' · '), left: true, width: 24 },
+      { h: 'Déficit (cajas)', v: (r) => Number(r.deficit_cajas) || 0, fmt: N1, width: 12 },
+      { h: 'Traspaso (cajas)', v: (r) => Number(r.transfer_cajas) || 0, fmt: N1, total: true, width: 13 },
+      { h: 'Traspaso (piezas)', v: (r) => Number(r.transfer_pieces) || 0, fmt: N0, total: true, width: 13 },
+      { h: 'Falta comprar (cajas)', v: (r) => cajas(r.shortfall_pieces, r.uxc), fmt: N1, width: 14 },
+      { h: 'Costo/Cja', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 11 },
+      { h: 'Valor traspaso', v: (r) => Number(r.transfer_value) || 0, fmt: MONEY, total: true, width: 14 },
+      { h: 'Proveedor', v: (r) => r.supplier_name ?? '', left: true, width: 26 },
+    ];
+    const lastCol = cols.length;
+    const ws = wb.addWorksheet('Traspasos', { views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }] });
+
+    // Fila 1 — título
+    ws.mergeCells(1, 1, 1, lastCol);
+    const title = ws.getCell(1, 1);
+    title.value = `TRASPASOS SUGERIDOS  ·  CEDIS → sucursal  ·  cobertura ${coverage} días`;
+    title.font = { bold: true, size: 14 };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+
+    // Fila 2 — resumen
+    const totCj = rows.reduce((s, r) => s + (Number(r.transfer_cajas) || 0), 0);
+    const totVal = rows.reduce((s, r) => s + (Number(r.transfer_value) || 0), 0);
+    ws.mergeCells(2, 1, 2, lastCol);
+    const sub = ws.getCell(2, 1);
+    sub.value = `${rows.length} traspasos  ·  ${totCj.toLocaleString('es-MX', { maximumFractionDigits: 1 })} cajas  ·  Valor ${totVal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
+    sub.font = { size: 9, color: { argb: 'FF52525B' } };
+    sub.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(2).height = 18;
+
+    // Fila 3 — encabezado
+    const hr = ws.addRow(cols.map((c) => c.h));
+    hr.eachCell((c) => {
+      c.font = { bold: true, size: 9, color: { argb: 'FF3F3F46' } };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+      c.border = this.thin();
+    });
+    hr.height = 26;
+
+    // Datos (desde fila 4)
+    rows.forEach((r, i) => {
+      const added = ws.addRow(cols.map((c) => c.v(r, i)));
+      cols.forEach((c, ci) => {
+        const cell = added.getCell(ci + 1);
+        cell.border = this.thin();
+        cell.alignment = { horizontal: c.left ? 'left' : ci === 0 ? 'center' : 'right' };
+        if (c.fmt) cell.numFmt = c.fmt;
+      });
+      added.getCell(8).font = { bold: true }; // Traspaso (cajas) = lo accionable
+    });
+
+    // Anchos + totales (SUBTOTAL respeta autofiltro)
+    cols.forEach((c, ci) => { ws.getColumn(ci + 1).width = c.width; });
+    const firstData = 4, lastData = 3 + rows.length;
+    if (rows.length) {
+      ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: lastData, column: lastCol } };
+      const totalRow = ws.addRow([]);
+      const tr = totalRow.number;
+      const tCell = ws.getCell(tr, 1); tCell.value = 'TOTAL'; tCell.font = { bold: true }; tCell.border = this.thin();
+      cols.forEach((c, ci) => {
+        if (!c.total) return;
+        const L = ws.getColumn(ci + 1).letter;
+        const cell = ws.getCell(tr, ci + 1);
+        cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
+        cell.font = { bold: true };
+        cell.numFmt = c.fmt;
+        cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
+      });
     }
   }
 

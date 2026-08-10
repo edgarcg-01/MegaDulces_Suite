@@ -127,7 +127,7 @@ export class CommercialReplenishmentController {
 
   @Get('workbook.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'RA-PRO.32.5 — Workbook del comprador a Excel: UNA HOJA por proveedor, columnas por punto de compra (mismos filtros que /workbook; exporta TODO sin paginar).' })
+  @ApiOperation({ summary: 'RA-PRO.32.5 — Workbook del comprador a Excel: hoja "Todos" + UNA HOJA por proveedor (columnas por punto de compra) + hoja "Traspasos" (CEDIS→sucursal). Mismos filtros que /workbook; exporta TODO sin paginar.' })
   async workbookXlsx(
     @Res() res: Response,
     @Query('supplier_id') supplier_id?: string,
@@ -150,8 +150,16 @@ export class CommercialReplenishmentController {
       only_overstock: only_overstock === 'true' || only_overstock === '1',
       export: true,
     });
-    const payload = { coverage_days: data.coverage_days, territories: data.territories, rows: data.rows };
-    // Export unificado (canónico): hoja "Todos" (plano) + una hoja por proveedor, en un archivo.
+    // Hoja "Traspasos" — mismos filtros estructurales (proveedor/categoría/búsqueda/cobertura).
+    // Los traspasos son CEDIS→sucursal (cross-warehouse) → no se acotan por warehouse_ids ni por
+    // iad/scope/sobrestock (refinamientos del pedido de compra); es la red completa en scope.
+    const transfers = await this.svc.transferPlan({
+      supplier_id, category_id, search,
+      coverage_days: coverage_days ? Number(coverage_days) : undefined,
+      export: true,
+    });
+    const payload = { coverage_days: data.coverage_days, territories: data.territories, rows: data.rows, transfers: transfers.rows };
+    // Export unificado (canónico): hoja "Todos" (plano) + una hoja por proveedor + hoja "Traspasos".
     // `flat=true` conserva la variante de solo-plano (compat); default = unificado.
     const buf = (flat === 'true' || flat === '1')
       ? await this.exporter.buildWorkbookFlat(payload)

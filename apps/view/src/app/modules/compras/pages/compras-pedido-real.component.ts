@@ -292,7 +292,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
             <span class="pr-bulk-sp"></span>
-            <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor"></p-button>
+            <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor + hoja Traspasos"></p-button>
             <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
