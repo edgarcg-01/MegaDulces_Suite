@@ -20,7 +20,9 @@ const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
 const { URL } = require('url');
-const { HANDLERS } = require('./apply-handlers');
+// apply-handlers vive junto al servicio feeds-ingest (única fuente del SQL de apply);
+// el modo pg lo reutiliza aquí on-prem.
+const { HANDLERS } = require('../../../services/feeds-ingest/apply-handlers');
 
 const DEFAULT_TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 

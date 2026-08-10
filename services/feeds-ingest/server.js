@@ -21,7 +21,7 @@
 const http = require('http');
 const zlib = require('zlib');
 const { Client } = require('pg');
-const { HANDLERS, UUID_RE } = require('../../database/importers/lib/apply-handlers');
+const { HANDLERS, UUID_RE } = require('./apply-handlers');
 
 const PORT = Number(process.env.PORT) || 8080;
 const KEY = process.env.FEEDS_INGEST_KEY;
