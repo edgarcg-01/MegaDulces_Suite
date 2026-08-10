@@ -1122,4 +1122,4 @@ export type Compras360OcMode = 'con' | 'sin';
 export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number }
 export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number }; rows: Compras360Row[] }
-export interface Compras360Filters { sucursales: { code: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
+export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }

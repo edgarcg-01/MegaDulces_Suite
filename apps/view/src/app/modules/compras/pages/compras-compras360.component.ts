@@ -105,7 +105,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
               (keydown.enter)="openDetail(r)"
               (keydown.space)="$event.preventDefault(); openDetail(r)">
             <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
-            <td class="c3-mono">{{ r.sucursal }}</td>
+            <td [title]="r.sucursal">{{ sucNames().get(r.sucursal) || r.sucursal }}</td>
             <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
             <td class="c3-mono muted">{{ r.oc_folio || '—' }}</td>
             <td class="c3-mono muted">{{ r.folio }}</td>
@@ -288,7 +288,9 @@ export class ComprasCompras360Component implements OnInit {
   readonly dateTo = signal<Date | null>(null);
   readonly preset = signal<string>('');
   readonly filters = signal<Compras360Filters | null>(null);
-  readonly sucursalOpts = computed(() => (this.filters()?.sucursales || []).map((s) => ({ label: `${s.code} · ${s.n}`, value: s.code })));
+  readonly sucursalOpts = computed(() => (this.filters()?.sucursales || []).map((s) => ({ label: `${s.name || s.code} · ${s.n}`, value: s.code })));
+  // Mapa código→nombre (viene del backend) para pintar el nombre de sucursal en la tabla.
+  readonly sucNames = computed(() => { const m = new Map<string, string>(); for (const s of this.filters()?.sucursales || []) m.set(s.code, s.name || s.code); return m; });
   readonly proveedorOpts = computed(() => (this.filters()?.proveedores || []).map((p) => ({ label: `${p.nombre || p.code} · ${p.n}`, value: p.code })));
   readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
   readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];

@@ -393,6 +393,13 @@ export class PurchaseAdjustmentsService {
   async compras360Filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // Mapa código→nombre (Kepler '00'..'05' + Wincaja '30'/'32'/'50'). El código crudo no dice
+      // nada al comprador; se muestra el nombre en el filtro y la tabla de Compras 360 (RE.0).
+      const NOMBRES: Record<string, string> = {
+        '00': 'CEDIS Irapuato', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos',
+        '03': '8 Esquinas', '04': 'Yurécuaro', '05': 'Zamora Centro',
+        '30': 'Morelia Abastos', '32': 'Morelia Madero', '50': 'Canindo',
+      };
       const sucs: any[] = await trx('analytics.erp_goods_receipts')
         .where('tenant_id', tenantId).whereNotNull('sucursal')
         .groupBy('sucursal').select('sucursal').count({ n: '*' }).orderBy('sucursal', 'asc');
@@ -404,7 +411,7 @@ export class PurchaseAdjustmentsService {
         .orderByRaw('max(proveedor_nombre) asc nulls last');
       const [mx]: any = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).max({ m: 'monto' });
       return {
-        sucursales: sucs.map((r) => ({ code: r.sucursal as string, n: Number(r.n) || 0 })),
+        sucursales: sucs.map((r) => ({ code: r.sucursal as string, name: NOMBRES[r.sucursal as string] || (r.sucursal as string), n: Number(r.n) || 0 })),
         proveedores: provs.map((r) => ({ code: r.proveedor_code as string, nombre: (r.proveedor_nombre as string) || null, n: Number(r.n) || 0 })),
         monto_max: Number(mx?.m) || 0,
       };
