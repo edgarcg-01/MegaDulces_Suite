@@ -52,7 +52,7 @@ async function pollBranch(b, since) {
   await c.connect();
   try {
     const { rows } = await c.query(
-      `SELECT h.c6 folio, rtrim(btrim(h.c63),'-') serie, h.c9::date fecha, h.c62 hora,
+      `SELECT h.c6 folio, rtrim(btrim(h.c63),'-') serie, h.c9::date fecha, h.c62 hora, h.c5 caja,
               coalesce(h.c16,0) total, h.c10 forma_pago, btrim(h.c67) cajero,
               d.c8 sku, d.c10 nombre, coalesce(d.c9,0) cant, coalesce(d.c13,0) importe, d.c7 linea
          FROM md.kdm1 h
@@ -72,7 +72,8 @@ async function pollBranch(b, since) {
         t = {
           warehouse_code: b.code, warehouse_name: b.name, serie: r.serie, folio: r.folio,
           ticket_ts: `${fecha}T${r.hora.length === 4 ? '0' + r.hora : r.hora}:00-06:00`,
-          total: Number(r.total) || 0, forma_pago: r.forma_pago, cajero: r.cajero || null, items: [],
+          total: Number(r.total) || 0, forma_pago: r.forma_pago, cajero: r.cajero || null,
+          caja: r.caja != null ? String(r.caja).trim() : null, items: [],
         };
         byTicket.set(key, t);
       }

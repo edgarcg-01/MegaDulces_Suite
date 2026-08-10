@@ -61,9 +61,8 @@ async function readBranch(b) {
     );
     return r.rows.map((x) => {
       const abierta = x.closed_at == null;
-      const cajero = abierta
-        ? (x.cajero_ap ? String(x.cajero_ap).trim() : null)
-        : (String(x.cajero_cierre || '').trim() || String(x.cajero_ap || '').trim() || null);
+      // c8 = cajero asignado/quien cerró (fiable); c7 = opener (supervisor) solo fallback.
+      const cajero = String(x.cajero_cierre || '').trim() || String(x.cajero_ap || '').trim() || null;
       return {
         warehouse_code: b.code, warehouse_name: b.name,
         caja: String(x.caja), folio: String(x.folio), business_date: x.fecha,
@@ -100,9 +99,10 @@ async function readFromKp() {
     );
     return r.rows.map((x) => {
       const abierta = x.closed_at == null;
-      const cajero = abierta
-        ? (x.cajero_ap ? String(x.cajero_ap).trim() : null)
-        : (String(x.cajero_cierre || '').trim() || String(x.cajero_ap || '').trim() || null);
+      // c8 (cajero_cierre) = cajero ASIGNADO a la caja (abierta) o quien cerró (cerrada).
+      // c7 (opener) suele ser un supervisor que abre TODAS las cajas → NO sirve para saber
+      // quién cobra. Preferir c8, fallback c7.
+      const cajero = String(x.cajero_cierre || '').trim() || String(x.cajero_ap || '').trim() || null;
       return {
         warehouse_code: String(x.suc), warehouse_name: BRANCH_NAMES[String(x.suc)] || `Sucursal ${x.suc}`,
         caja: String(x.caja), folio: String(x.folio), business_date: x.fecha,
