@@ -91,10 +91,15 @@ async function fetchNewTickets(db, branch, wm) {
        FROM wincaja.maestro_mov_almacen m
       WHERE m.tenant_id=$1 AND m.source_branch=$2 AND m.source_dataset='actual'
         AND m.tipo='V' AND COALESCE(m.cancelado,false)=false
-        -- Serie de documento T99 = TRASPASO a otra sucursal (tercero = ALMACEN destino),
-        -- NO es venta de mostrador/mayoreo → fuera del monitor live. T98/F70 SÍ son ventas
-        -- (mayoreo) y se quedan. (analytics.sales_daily ya excluye T99 por su filtro ALMAC%.)
-        AND upper(btrim(m.documento)) NOT LIKE 'T99%'
+        -- SOLO ventas de PDV (mostrador). Se excluyen las cajas con canal especial en
+        -- wincaja.caja_channels: mayoreo_credito(70), preventa_vecinal(15), ruta_bordo(98),
+        -- traspaso_almacen(99), almacen(90), compras(95/96). Las cajas de mostrador
+        -- (30-34, 50-53) NO están en esa tabla → se conservan. Filtro por caja (robusto),
+        -- no por serie de documento.
+        AND NOT EXISTS (
+          SELECT 1 FROM wincaja.caja_channels k
+           WHERE k.tenant_id = m.tenant_id AND k.caja = m.caja
+             AND (k.source_branch = m.source_branch OR k.source_branch = '*'))
         AND ( m.fecha::date > $3::date
               OR ( m.fecha::date = $3::date
                    AND COALESCE(NULLIF(regexp_replace(m.consecutivo,'\\D','','g'),'')::bigint,0) > $4 ) )

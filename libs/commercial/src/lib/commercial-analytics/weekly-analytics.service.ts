@@ -274,10 +274,14 @@ export class WeeklyAnalyticsService {
                ON dt.tenant_id = m.tenant_id AND dt.source_branch = m.source_branch
               AND dt.source_dataset = m.source_dataset AND dt.consecutivo = m.consecutivo AND dt.tipo = 'V'
             WHERE m.tenant_id = ? AND m.tipo = 'V' AND COALESCE(m.cancelado, false) = false
-              -- Documento T99 = TRASPASO entre sucursales (tercero = ALMACEN destino), NO ticket
-              -- de venta. T98/F70 = mayoreo → SÍ cuentan. Consistente con el poller live y con
-              -- el filtro ALMAC% de sales_daily (que ya deja el revenue $ limpio de traspasos).
-              AND upper(btrim(m.documento)) NOT LIKE 'T99%'
+              -- SOLO ventas de PDV (mostrador): se excluyen las cajas con canal especial en
+              -- caja_channels — mayoreo_credito(70), preventa_vecinal(15), ruta_bordo(98),
+              -- traspaso_almacen(99), almacen(90), compras(95/96). Las cajas de mostrador no
+              -- están en esa tabla → se conservan. Consistente con el poller live.
+              AND NOT EXISTS (
+                SELECT 1 FROM wincaja.caja_channels k
+                 WHERE k.tenant_id = m.tenant_id AND k.caja = m.caja
+                   AND (k.source_branch = m.source_branch OR k.source_branch = '*'))
               AND m.fecha::date >= ? AND m.fecha::date <= ? ${mWh}
             GROUP BY 1, 2
          )
