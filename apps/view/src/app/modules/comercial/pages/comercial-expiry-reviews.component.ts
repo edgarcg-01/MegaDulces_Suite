@@ -138,7 +138,7 @@ export class ComercialExpiryReviewsComponent {
   constructor() {
     this.svc.listWarehouses(true)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: w.name || w.code, value: w.id }))) });
     this.load();
   }
 
