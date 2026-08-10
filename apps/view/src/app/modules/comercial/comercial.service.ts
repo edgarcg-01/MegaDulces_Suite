@@ -1191,6 +1191,11 @@ export class ComercialService {
     });
   }
 
+  /** RR-PROMO — Evalúa una mecánica de incentivo de ruta desde un enunciado en lenguaje natural. */
+  routePromo(body: RoutePromoBody) {
+    return this.http.post<RoutePromoResult>(`${this.base}/analytics/sales-by-route/promo`, body);
+  }
+
   /** RR — Conciliación de cierre de ruta (corte vendedor vs venta real). Histórico D+1. */
   routeClosureReconciliation(from?: string, to?: string) {
     let params = new HttpParams();
@@ -1554,6 +1559,35 @@ export interface SalesByRouteReport {
   rows: SalesByRouteRow[];
   totals: SalesByRouteCell;
   monthly_totals: Record<string, SalesByRouteCell>;
+  generated_at: string;
+}
+
+// ── RR-PROMO — Evaluador de mecánicas de incentivo por enunciado (agente AI) ──
+export type PromoMetric = 'clientes_distintos' | 'piezas' | 'tickets' | 'monto';
+export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; }
+export interface PromoRule {
+  canal: 'ruta' | 'todos';
+  sku: string | null;
+  producto_texto: string | null;
+  metric: PromoMetric;
+  rate: number;
+  min_qty: number;
+  descripcion: string;
+  supuestos: string;
+}
+export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; base: number; payout: number; }
+export interface RoutePromoResult {
+  enunciado: string;
+  rule: PromoRule;
+  product: { sku: string; nombre: string } | null;
+  candidates?: { sku: string; nombre: string }[];
+  period: { from: string; to: string; label: string };
+  metric_label: string;
+  base_label: string;
+  rows: PromoRouteRow[];
+  total_base: number;
+  total_payout: number;
+  note: string;
   generated_at: string;
 }
 

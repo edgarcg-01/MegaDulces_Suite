@@ -5,6 +5,7 @@ import { Throttle } from '@nestjs/throttler';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
+import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -18,6 +19,7 @@ export class CommercialAnalyticsController {
     private readonly service: CommercialAnalyticsService,
     private readonly refresh: AnalyticsRefreshService,
     private readonly exporter: SellOutExportService,
+    private readonly routePromo: RoutePromoService,
   ) {}
 
   @Get('overview')
@@ -773,6 +775,19 @@ export class CommercialAnalyticsController {
       sku: sku?.trim() || undefined,
       client: client?.trim() || undefined,
     });
+  }
+
+  @Post('sales-by-route/promo')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'RR-PROMO — Evalúa una mecánica de incentivo de ruta (RD) desde un ENUNCIADO en lenguaje natural. ' +
+      'Haiku traduce el enunciado a regla; un motor SQL determinista calcula el pago por ruta. ' +
+      'Body: { enunciado, year? | from?+to?, sku?, rule? }.',
+  })
+  routePromo(@Body() body: PromoQuery) {
+    return this.routePromo.evaluate(body || {});
   }
 
   @Get('sales-by-route.xlsx')

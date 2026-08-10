@@ -27,6 +27,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
+import { RoutePromoComponent } from './comercial-route-promo.component';
 
 type DetailTab = 'productos' | 'dias' | 'clientes' | 'tickets';
 
@@ -46,7 +47,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent,
+    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -64,6 +65,9 @@ const MES: Record<string, string> = {
 
       <!-- RR — Conciliación cierre de ruta (corte vendedor vs venta real, D+1) -->
       <app-route-closure-recon />
+
+      <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
+      <app-comercial-route-promo />
 
       <div class="rr-filters card-premium card-flat">
         <div class="rr-field rr-year">
