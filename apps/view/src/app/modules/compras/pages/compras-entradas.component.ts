@@ -598,36 +598,69 @@ export class ComprasEntradasComponent {
     this.attachError.set('');
   }
 
-  /** Multi-archivo: acumula todas las fotos elegidas/tomadas (lo normal son 3–4). */
-  onFiles(ev: Event) {
+  /** Multi-archivo: acumula todas las fotos elegidas/tomadas (lo normal son 3–4).
+   *  Secuencial: garantiza que la 1ª elegida quede como ★ (Aplica Orden Entrada). */
+  async onFiles(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const picked = input.files ? Array.from(input.files) : [];
     input.value = ''; // permite volver a elegir el mismo archivo
-    for (const file of picked) this.addOne(file);
+    for (const file of picked) await this.addOne(file);
   }
 
-  private addOne(file: File) {
+  private async addOne(file: File) {
     if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
     this.attachError.set('');
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUri = String(reader.result || '');
-      const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
-      const files = this.attachFiles();
-      const isFirst = files.length === 0;
-      const hasRemision = files.some((f) => f.role === 'remision');
-      const noPrimary = !files.some((f) => f.primary);
+    let dataUri: string;
+    try { dataUri = await this.fileToDataUri(file); }
+    catch { this.attachError.set(`No se pudo leer "${file.name}".`); return; }
+    const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
+    const id = ++this.fileSeq;
+    let primary = false;
+    // Rol/primary se deciden DENTRO del update (atómico) para no colisionar si
+    // se agregan varias fotos a la vez: 1ª = Aplica Orden Entrada (★, se lee y ENLAZA),
+    // luego remisión, luego evidencia.
+    this.attachFiles.update((l) => {
+      const isFirst = l.length === 0;
+      const hasRemision = l.some((f) => f.role === 'remision');
+      primary = !l.some((f) => f.primary);
       const af: AttachFile = {
-        id: ++this.fileSeq, name: file.name, dataUri, kind,
-        // la 1ª foto = Aplica Orden Entrada (★, se lee con OCR y ENLAZA); luego remisión; luego evidencia.
+        id, name: file.name, dataUri, kind,
         role: isFirst ? 'orden_entrada' : (hasRemision ? 'evidencia' : 'remision'),
-        uploaded: null, uploading: false, failed: false, primary: noPrimary,
+        uploaded: null, uploading: false, failed: false, primary,
       };
-      this.attachFiles.update((l) => l.concat(af));
-      this.uploadOne(af.id);
-      if (af.primary) this.runOcrFor(dataUri);
-    };
-    reader.readAsDataURL(file);
+      return l.concat(af);
+    });
+    this.uploadOne(id);
+    if (primary) this.runOcrFor(dataUri);
+  }
+
+  /** Imagen → JPEG reducido (lado mayor ≤1920px, ~0.82) como data URI; el PDF se lee
+   *  tal cual. Recorta el payload de fotos de cámara (evita 413) y acelera el OCR.
+   *  Si la reducción falla, cae a leer el original (el backend acepta hasta 16mb). */
+  private async fileToDataUri(file: File): Promise<string> {
+    const readRaw = () => new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result || ''));
+      r.onerror = () => rej(r.error || new Error('read'));
+      r.readAsDataURL(file);
+    });
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    if (isPdf) return readRaw();
+    try {
+      const bmp = await createImageBitmap(file);
+      const maxDim = 1920, quality = 0.82;
+      const ratio = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const w = Math.round(bmp.width * ratio), h = Math.round(bmp.height * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('sin contexto 2D');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+      return readRaw();
+    }
   }
 
   private patch(id: number, p: Partial<AttachFile>) {
