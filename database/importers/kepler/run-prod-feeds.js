@@ -45,6 +45,7 @@ const STEPS = {
     path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
     path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking) — tras sales-fact
     path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido (almacén×producto) → /compras/pedido lee de aquí — tras demanda
+    path.join(K, 'import-cash-sessions.js'), // SM.10 — cajas ABIERTAS ahora (kp.kdpv_folio_caja, source=kp por default) → /tienda/cajas
   ],
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),

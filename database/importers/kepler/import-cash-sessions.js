@@ -12,14 +12,26 @@
  *   c7=cajero_ap c8=cajero_cierre c10=fecha_cierre('1800-01-01'=abierta).
  *
  * Uso (desde database/):
- *   node importers/kepler/import-cash-sessions.js                 # dry-run
+ *   node importers/kepler/import-cash-sessions.js                 # dry-run (fuente = DBs por sucursal)
  *   DATABASE_URL_NEW='postgres://…?sslmode=no-verify' node importers/kepler/import-cash-sessions.js --apply
+ *
+ * Fuente alterna KP_CONCENTRADA (una sola conexión, útil cuando las DBs por sucursal
+ * no son alcanzables). Lee `kp.kdpv_folio_caja` filtrando por `sucursal`:
+ *   node importers/kepler/import-cash-sessions.js --source=kp
+ *   DATABASE_URL_NEW='<prod>' node importers/kepler/import-cash-sessions.js --source=kp --apply
+ *   (KP_SRC_URL / KP_DEST_URL = conexión a KP_CONCENTRADA)
  */
 const knexLib = require('knex');
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
+// Fuente por default = KP_CONCENTRADA (un solo read del consolidado local .245, fresco y
+// barato → apto para el grupo `live` cada 15-30 min). Fallback: `--source=branches` lee
+// las 6 DBs por sucursal directo (útil si no hay consolidado a mano).
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'kp';
+const KP_SRC = process.env.KP_SRC_URL || process.env.KP_DEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+const BRANCH_NAMES = { '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8ESQ', '04': 'Yurécuaro', '05': 'Zamora Centro' };
 
 const BRANCHES = process.env.SALES_BRANCH_MAP
   ? JSON.parse(process.env.SALES_BRANCH_MAP)
@@ -64,6 +76,45 @@ async function readBranch(b) {
   }
 }
 
+/**
+ * Fuente KP_CONCENTRADA: lee TODAS las sucursales live (01..05) de un solo golpe
+ * desde `kp.kdpv_folio_caja` (discriminador `sucursal`). El centinela de cierre aquí
+ * es un timestamp `1800-01-01 …` (no el texto '1800-01-01') → open = año 1800.
+ */
+async function readFromKp() {
+  const c = new Client({ connectionString: KP_SRC, connectionTimeoutMillis: 8000, statement_timeout: 60000 });
+  await c.connect();
+  try {
+    const codes = ['01', '02', '03', '04', '05'];
+    const r = await c.query(
+      `SELECT sucursal AS suc, c2 AS caja, c3 AS folio, c5::date AS fecha,
+              -- opened_at = hora de pared MX → timestamptz explícito (TZ-safe sin importar
+              -- la zona del proceso). closed_at igual; centinela 1800 = ABIERTA → NULL.
+              ((c5::date + COALESCE(NULLIF(btrim(c6),'')::time, '00:00')) AT TIME ZONE 'America/Mexico_City') AS opened_at,
+              CASE WHEN c10 IS NULL OR c10::text LIKE '1800-%' THEN NULL
+                   ELSE (c10::timestamp AT TIME ZONE 'America/Mexico_City') END AS closed_at,
+              c7 AS cajero_ap, c8 AS cajero_cierre
+         FROM kp.kdpv_folio_caja
+        WHERE sucursal = ANY($1) AND c5::date >= (CURRENT_DATE - INTERVAL '2 days')`,
+      [codes],
+    );
+    return r.rows.map((x) => {
+      const abierta = x.closed_at == null;
+      const cajero = abierta
+        ? (x.cajero_ap ? String(x.cajero_ap).trim() : null)
+        : (String(x.cajero_cierre || '').trim() || String(x.cajero_ap || '').trim() || null);
+      return {
+        warehouse_code: String(x.suc), warehouse_name: BRANCH_NAMES[String(x.suc)] || `Sucursal ${x.suc}`,
+        caja: String(x.caja), folio: String(x.folio), business_date: x.fecha,
+        cajero_code: cajero || null, opened_at: x.opened_at, closed_at: x.closed_at,
+        status: abierta ? 'open' : 'closed',
+      };
+    });
+  } finally {
+    await c.end().catch(() => {});
+  }
+}
+
 async function upsert(db, rows) {
   let n = 0;
   for (const r of rows) {
@@ -81,14 +132,22 @@ async function upsert(db, rows) {
 
 (async () => {
   const all = [];
-  for (const b of BRANCHES) {
-    try {
-      const rows = await readBranch(b);
-      all.push(...rows);
-      const abiertas = rows.filter((r) => r.status === 'open').length;
-      console.log(`[${b.db}] ${rows.length} sesiones (${abiertas} ABIERTAS)`);
-    } catch (e) {
-      console.warn(`[${b.db}] ERROR: ${e.message}`);
+  if (SOURCE === 'kp') {
+    console.log(`Fuente: KP_CONCENTRADA (${KP_SRC.replace(/:[^@/]*@/, ':****@')})`);
+    const rows = await readFromKp();
+    all.push(...rows);
+    const abiertas = rows.filter((r) => r.status === 'open').length;
+    console.log(`[kp] ${rows.length} sesiones (${abiertas} ABIERTAS)`);
+  } else {
+    for (const b of BRANCHES) {
+      try {
+        const rows = await readBranch(b);
+        all.push(...rows);
+        const abiertas = rows.filter((r) => r.status === 'open').length;
+        console.log(`[${b.db}] ${rows.length} sesiones (${abiertas} ABIERTAS)`);
+      } catch (e) {
+        console.warn(`[${b.db}] ERROR: ${e.message}`);
+      }
     }
   }
   const abiertas = all.filter((r) => r.status === 'open');
