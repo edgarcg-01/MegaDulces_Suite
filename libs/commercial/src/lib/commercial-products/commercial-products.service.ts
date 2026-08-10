@@ -10,6 +10,8 @@ export interface ListProductsQuery {
   pageSize?: number;
   search?: string;
   brand_id?: string;
+  /** Multi-marca (promotor de marca propia): restringe a este set de brand_id. */
+  brand_ids?: string[];
   category_id?: string;
   supplier_id?: string;
   /** Filtro por `activo` (true = solo activos, false = solo inactivos). Undefined trae ambos. */
@@ -79,6 +81,11 @@ export class CommercialProductsService {
         if (query.brand_id) {
           if (!UUID_REGEX.test(query.brand_id)) throw new BadRequestException('brand_id inválido');
           q = q.where('p.brand_id', query.brand_id);
+        }
+        if (query.brand_ids?.length) {
+          const ids = query.brand_ids.filter((b) => UUID_REGEX.test(b));
+          // Set vacío/ inválido → no matchear nada (evita "traer todo" si el scoping falla).
+          q = ids.length ? q.whereIn('p.brand_id', ids) : q.whereRaw('false');
         }
         if (query.category_id) {
           if (!UUID_REGEX.test(query.category_id)) throw new BadRequestException('category_id inválido');

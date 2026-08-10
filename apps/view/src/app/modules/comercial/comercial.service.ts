@@ -653,6 +653,7 @@ export class ComercialService {
     pageSize?: number;
     search?: string;
     brand_id?: string;
+    brand_ids?: string[];
     category_id?: string;
     supplier_id?: string;
     active?: boolean;
@@ -663,6 +664,7 @@ export class ComercialService {
     if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.brand_ids?.length) params = params.set('brand_ids', opts.brand_ids.join(','));
     if (opts.category_id) params = params.set('category_id', opts.category_id);
     if (opts.supplier_id) params = params.set('supplier_id', opts.supplier_id);
     if (opts.active !== undefined) params = params.set('active', String(opts.active));
@@ -750,6 +752,29 @@ export class ComercialService {
   }
   submitExpiryReview(id: string) {
     return this.http.post<{ status: string; fed_lines: number; total_lines: number }>(`${this.expiryBase}/${id}/submit`, {});
+  }
+
+  // ── P2.6 — Promotores de marca propia ──────────────────────────────
+  private readonly promoterBase = `${this.base}/promoter-brands`;
+  /** Marcas del usuario logueado (vacío = no es promotor → ve todo). */
+  myBrands() {
+    return this.http.get<{ brand_ids: string[]; brands: { id: string; nombre: string }[] }>(`${this.promoterBase}/mine`);
+  }
+  listPromoters() {
+    return this.http.get<{ user_id: string; username: string; nombre?: string; brands: { id: string; nombre: string }[] }[]>(this.promoterBase);
+  }
+  assignableBrands(search?: string) {
+    let params = new HttpParams();
+    if (search?.trim()) params = params.set('search', search.trim());
+    return this.http.get<{ id: string; nombre: string }[]>(`${this.promoterBase}/brands`, { params });
+  }
+  promoterCandidateUsers(search?: string) {
+    let params = new HttpParams();
+    if (search?.trim()) params = params.set('search', search.trim());
+    return this.http.get<{ id: string; username: string; nombre?: string; role_name?: string }[]>(`${this.promoterBase}/users`, { params });
+  }
+  setPromoterBrands(userId: string, brand_ids: string[]) {
+    return this.http.put<{ user_id: string; brand_ids: string[] }>(`${this.promoterBase}/${userId}`, { brand_ids });
   }
 
   // ── ABC + conteo cíclico (Fase ABC) ─────────────────────────────────
