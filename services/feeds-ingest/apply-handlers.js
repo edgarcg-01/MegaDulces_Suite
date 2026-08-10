@@ -15,6 +15,7 @@
  */
 
 const { buildSalesDailySrc } = require('./sales-daily-projection');
+const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -214,8 +215,30 @@ async function applyWincajaSalesBronze(client, tenantId, rows, meta) {
       sdDel = del.rowCount;
     }
 
+    // 5) re-derivar analytics.stock_movements (todos los tipos, desde bronce acumulado) scoped
+    //    a (almacén de esta sucursal wincaja_only, días tocados). Delete+insert (ventana chica,
+    //    idempotente). source_branch='W<branch>' — el feed Kepler excluye 'W%' de su DELETE.
+    let smMv = 0;
+    if (days.length) {
+      const wcode = `MD-${branch}`; // sucursales wincaja_only 30/32/50 → MD-30/32/50
+      const whMv = await client.query(
+        `SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2 AND deleted_at IS NULL`,
+        [tenantId, wcode],
+      );
+      if (whMv.rows.length) {
+        const whId = whMv.rows[0].id;
+        const mvSel = buildMovementsSelect({ tenantId, branch: String(branch), warehouseId: whId, days });
+        await client.query(
+          `DELETE FROM analytics.stock_movements WHERE tenant_id=$1 AND warehouse_id=$2 AND source_branch=$3 AND doc_date = ANY($4::date[])`,
+          [tenantId, whId, `W${branch}`, days],
+        );
+        const insMv = await client.query(`INSERT INTO analytics.stock_movements (${SM_COLS.join(',')}) ${mvSel}`);
+        smMv = insMv.rowCount;
+      }
+    }
+
     await client.query('COMMIT');
-    return mUp + sdUp + sdDel;
+    return mUp + sdUp + sdDel + smMv;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;

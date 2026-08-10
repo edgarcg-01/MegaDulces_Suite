@@ -50,7 +50,12 @@ Push-Location $dbDir
 try { & node importers/lib/cron-heartbeat.js begin wincaja_live "Wincaja live (existencia+ventas)" 2>&1 | Out-Null } catch {}
 try {
   Run-Node 'EXISTENCIA' @('importers/wincaja/wincaja-stock-extract.js', '--once')
-  Run-Node 'VENTAS'     @('importers/wincaja/wincaja-sales-extract.js', '--once')
+  Run-Node 'VENTAS'     @('importers/wincaja/wincaja-sales-extract.js', '--once')   # tipos V → sales_daily
+  # MOVIMIENTOS: mismos extractor+handler, tipos no-V → stock_movements (watermark propio '-mov').
+  # Corre DESPUÉS de VENTAS para que el bronce V ya esté al re-derivar stock_movements.
+  $env:WINCAJA_SALES_TIPOS = 'C,E,S,D,I,P,M'; $env:WINCAJA_STATE_SUFFIX = 'mov'
+  Run-Node 'MOVIMIENTOS' @('importers/wincaja/wincaja-sales-extract.js', '--once')
+  Remove-Item Env:WINCAJA_SALES_TIPOS, Env:WINCAJA_STATE_SUFFIX -ErrorAction SilentlyContinue
   Log "########## DONE OK ##########"
   try { & node importers/lib/cron-heartbeat.js end wincaja_live ok 2>&1 | Out-Null } catch {}
 } catch {
