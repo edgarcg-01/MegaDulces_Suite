@@ -30,7 +30,14 @@ const POLL_MS = (Number(process.env.SALES_POLL_MINUTES) || 5) * 60 * 1000;
 const LOOKBACK_DAYS = Number(process.env.SALES_LOOKBACK_DAYS) || 2;
 const DRY = process.argv.includes('--dry');
 const ONCE = process.argv.includes('--once');
-const STATE_FILE = path.join(__dirname, '.wincaja-sales-extract.json');
+// Tipos de documento a extraer. Default 'V' (venta → sales_daily). Para movimientos:
+// WINCAJA_SALES_TIPOS='C,E,S,D,I,P,M' (→ stock_movements, misma re-derivación en el handler).
+const TIPOS = (process.env.WINCAJA_SALES_TIPOS || 'V').split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
+for (const t of TIPOS) if (!/^[A-Z]$/.test(t)) throw new Error(`WINCAJA_SALES_TIPOS inválido: ${t}`);
+const TIPO_IN = TIPOS.map((t) => `'${t}'`).join(',');
+// watermark separado por conjunto de tipos (evita mezclar secuencias V vs no-V).
+const STATE_SUFFIX = process.env.WINCAJA_STATE_SUFFIX ? `-${process.env.WINCAJA_STATE_SUFFIX}` : '';
+const STATE_FILE = path.join(__dirname, `.wincaja-sales-extract${STATE_SUFFIX}.json`);
 
 const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
 const STORES = (() => {
@@ -66,12 +73,12 @@ function fetchNew(store, wm) {
   const jd = jetDate(since);
 
   const heads = runQuery(store.mdb,
-    `SELECT Consecutivo, Tipo, Documento, Tercero, Referencia, Fecha, Hora, Almacen, Moneda, Paridad, Caja, Cajero, Vendedor, Cancelado, Observaciones, FechaCaptura FROM MaestroMovAlmacen WHERE Tipo='V' AND Fecha >= ${jd}`);
+    `SELECT Consecutivo, Tipo, Documento, Tercero, Referencia, Fecha, Hora, Almacen, Moneda, Paridad, Caja, Cajero, Vendedor, Cancelado, Observaciones, FechaCaptura FROM MaestroMovAlmacen WHERE Tipo IN (${TIPO_IN}) AND Fecha >= ${jd}`);
   const newHeads = heads.filter((h) => asInt(h.Consecutivo) > sinceCons);
   if (!newHeads.length) return { rows: [], maxCons: sinceCons };
 
   const lines = runQuery(store.mdb,
-    `SELECT d.Consecutivo, d.Articulo, d.Tipo, d.Documento, d.CantidadRegular, d.CantidadAuxiliar, d.ValorCosto, d.ValorVenta, d.IVA, d.IEPS, d.Descuento1, d.Descuento2, d.TipoPrecio, d.UnidadVenta FROM (DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo) WHERE m.Tipo='V' AND m.Fecha >= ${jd}`);
+    `SELECT d.Consecutivo, d.Articulo, d.Tipo, d.Documento, d.CantidadRegular, d.CantidadAuxiliar, d.ValorCosto, d.ValorVenta, d.IVA, d.IEPS, d.Descuento1, d.Descuento2, d.TipoPrecio, d.UnidadVenta FROM (DetallesMovAlmacen AS d INNER JOIN MaestroMovAlmacen AS m ON d.Consecutivo = m.Consecutivo) WHERE m.Tipo IN (${TIPO_IN}) AND m.Fecha >= ${jd}`);
   const newConsSet = new Set(newHeads.map((h) => String(h.Consecutivo)));
   const linesByCons = new Map();
   for (const l of lines) {
@@ -137,7 +144,7 @@ async function cycle(state) {
 
 (async () => {
   console.log(`\n=== WINCAJA sales extract (venta → wincaja-sales-bronze, ${DRY ? 'DRY' : sink.sinkMode()}) ===`);
-  console.log(`  sucursales: ${STORES.map((s) => s.code).join(', ')}  · poll: ${POLL_MS / 60000}min  · lookback: ${LOOKBACK_DAYS}d`);
+  console.log(`  sucursales: ${STORES.map((s) => s.code).join(', ')}  · tipos: ${TIPOS.join('')}  · poll: ${POLL_MS / 60000}min  · lookback: ${LOOKBACK_DAYS}d`);
   const state = loadState();
   if (DRY) { const n = await cycle(state); console.log(`\n[DRY] ${n} tickets nuevos (nada empujado).`); return; }
   if (ONCE) { const n = await cycle(state); console.log(`\n[ONCE] ${n} tickets empujados. Salgo.`); return; }
