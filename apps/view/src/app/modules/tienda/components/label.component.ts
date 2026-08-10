@@ -123,7 +123,7 @@ export interface LabelModel {
             }
             @if (hasMayoreoPza) {
               <div class="etq-tier">
-                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
+                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> {{ mayoreoBaseWord }}:</div>
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
               </div>
             }
@@ -197,6 +197,8 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get mayoreoPaqMin(): number | null { const m = this.num(this.model?.wholesale_pack_min_qty); return m > 1 ? m : null; }
   /** Palabra plural del tier de mayoreo agrupado: paquetes/cajas (o 'paquetes' en base pieza). */
   get mayoreoGroupWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'paquetes'; }
+  /** Unidad del mayoreo de la BASE (no agrupada): KG→'kg', granel numérico/PZA→'pzas'. */
+  get mayoreoBaseWord(): string { return (this.model?.unit_base || '').toUpperCase() === 'KG' ? 'kg' : 'pzas'; }
   /** Contenido de la caja: en base agrupada la caja trae N paquetes/cajas, no piezas. */
   get boxContentWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'pzas'; }
 
