@@ -70,7 +70,12 @@ const RULES: RuleMeta[] = [
   { rule_key: 'periodo_sospechoso', clase: 'error_captura', nombre: 'Póliza en periodo equivocado', descripcion: 'La fecha de la póliza cae en un mes/año distinto al periodo en que se registró (retro-fechada o periodo equivocado) — afecta la balanza del mes.', params: { min_monto: 1000, limit: 200 } },
   { rule_key: 'poliza_duplicada_exacta', clase: 'riesgo', nombre: 'Posible póliza duplicada', descripcion: 'La misma referencia + cuenta + importe aparece en folios de póliza distintos el mismo mes — posible asiento duplicado (lo que hoy se borra en silencio al importar).', params: { min_monto: 500, limit: 100 } },
   { rule_key: 'cfdi_importe_no_coincide', clase: 'riesgo', nombre: 'Importe de póliza ≠ CFDI', descripcion: 'El importe posteado en una pata no coincide con el total del CFDI vinculado por UUID (AsocCFDIs de ContPAQi). Cruce EXACTO — imposible en Kepler porque no guarda el UUID.', params: { tolerancia: 1, limit: 150 } },
-  { rule_key: 'kepler_vs_contpaqi_descuadre', clase: 'riesgo', nombre: 'Kepler ≠ ContPAQi (familia×mes)', descripcion: 'El neto por familia de cuenta y mes no coincide entre la operación (Kepler CEDIS) y los libros fiscales (ContPAQi) — señal de que algo se registró en un sistema y no en el otro.', params: { min_monto: 50000, limit: 100 } },
+  // DESACTIVADO por default: los dos ledgers son IRRECONCILIABLES a nivel familia×mes —
+  // cobertura de periodos distinta (2017-2024 solo en ContPAQi), familias 6/7/9 solo en Kepler
+  // y '_' solo en ContPAQi, y alcance operativo (Kepler) vs fiscal completo (ContPAQi) → todo
+  // descuadre es ruido estructural, no accionable. El gap se explora on-demand con la tool
+  // maat_libros_vs_operacion. Se deja el detector por si algún día hay una vista reconciliable.
+  { rule_key: 'kepler_vs_contpaqi_descuadre', enabled: false, clase: 'riesgo', nombre: 'Kepler ≠ ContPAQi (familia×mes)', descripcion: 'Comparación estructural operación (Kepler) vs libros fiscales (ContPAQi). DESACTIVADA: los ledgers no son reconciliables a nivel familia×mes (cobertura de periodos y taxonomía de familias distintas). Usar la herramienta on-demand en su lugar.', params: { min_monto: 50000, limit: 100 } },
   // MIQ.3 — meta-detectores (delegan en Coverage/DataQuality): vigilan al propio motor y a sus feeds.
   { rule_key: 'cobertura_punto_ciego', clase: 'riesgo', nombre: 'Punto ciego de cobertura', descripcion: 'Una categoría de riesgo financiero no tiene ningún detector activo (faltante, deshabilitado o auto-suprimido) — nadie vigila ese riesgo.', params: {} },
   { rule_key: 'calidad_datos', clase: 'error_captura', nombre: 'Calidad de datos baja', descripcion: 'Un feed que alimenta al motor (compras/gastos sin RFC, cadena sin recepción, costo faltante, balanza rezagada) está degradado — los hallazgos que dependen de él son menos confiables.', params: { umbral_warn: 20, umbral_crit: 40 } },
@@ -99,7 +104,9 @@ export class MaatDetectorService {
   private async ensureRules(trx: any, tenantId: string) {
     for (const r of RULES) {
       await trx('finance.rule_registry')
-        .insert({ tenant_id: tenantId, rule_key: r.rule_key, nombre: r.nombre, descripcion: r.descripcion, clase: r.clase, params: JSON.stringify(r.params) })
+        // enabled solo aplica en el INSERT (default del código); el merge NO lo pisa → respeta
+        // la calibración humana. Una regla puede declararse desactivada por default (enabled:false).
+        .insert({ tenant_id: tenantId, rule_key: r.rule_key, nombre: r.nombre, descripcion: r.descripcion, clase: r.clase, enabled: (r as any).enabled !== false, params: JSON.stringify(r.params) })
         .onConflict(['tenant_id', 'rule_key'])
         // preserva params/enabled/pinned/precision/suppressed — solo refresca metadata
         .merge({ nombre: r.nombre, descripcion: r.descripcion, clase: r.clase, updated_at: trx.fn.now() });
