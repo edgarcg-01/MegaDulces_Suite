@@ -119,13 +119,15 @@ async function cycle(state) {
       const res = fetchNew(store, wm);
       if (!res || !res.rows.length) continue;
       const heads = res.rows.filter((r) => r.k === 'm').length;
-      total += heads;
       if (DRY) {
         console.log(`  [DRY] ${store.code}: ${heads} tickets nuevos (${res.rows.length} filas m+d), maxCons ${res.maxCons}`);
+        total += heads;
       } else {
         const r = await sink.ship('wincaja-sales-bronze', { rows: res.rows, tenantId: TENANT, meta: { source_branch: store.code, source_dataset: 'actual' } });
+        // watermark solo tras push OK (sink lanza en error → reintentable)
         state[store.code] = { consecutivo: res.maxCons };
         saveState(state);
+        total += heads;
         console.log(`  ${store.code}: +${heads} tickets → wincaja-sales-bronze (${r.mode}, ${r.rowCount} escrituras${r.ms != null ? `, ${r.ms}ms` : ''})`);
       }
     } catch (e) { console.warn(`  ⚠️ ${store.code}: ${e.message}`); }
