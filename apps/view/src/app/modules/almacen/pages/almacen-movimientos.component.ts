@@ -15,7 +15,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TabsModule } from 'primeng/tabs';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
-  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
+  AggregateRow, FolioRow, FolioSearchRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
   TransfersMatrixResponse, TransfersMatrixRow, TransfersCheckResponse, TransferCheckRow, TransfersCheckPairResponse,
   TransfersLedgerDetailResponse, LedgerDetailFilters,
   TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow,
@@ -86,7 +86,46 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>
         <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
+        <span class="dm-search dm-folio-search">
+          <i class="pi pi-hashtag" aria-hidden="true"></i>
+          <input pInputText type="text" [(ngModel)]="folioQuery" (keyup.enter)="searchFolio()" placeholder="Buscar folio…" aria-label="Buscar por folio (número de documento)" />
+        </span>
+        <button pButton type="button" class="p-button-sm" (click)="searchFolio()" [disabled]="folioSearching()" ariaLabel="Buscar folio"><span class="p-button-icon pi" [class.pi-search]="!folioSearching()" [class.pi-spinner]="folioSearching()" [class.pi-spin]="folioSearching()" aria-hidden="true"></span>&nbsp;Folio</button>
       </div>
+
+      <!-- DM.14 — resultados del buscador de folios: un folio puede mapear a varios documentos -->
+      @if (folioResults(); as fr) {
+        <div class="dm-folio-results" role="region" aria-label="Resultados del folio">
+          <div class="dm-fr-head">
+            <span class="dm-strong"><i class="pi pi-hashtag" aria-hidden="true"></i> {{ fr.length }} documento(s) con folio “{{ folioQuery }}”</span>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFolio()" ariaLabel="Cerrar resultados"><span class="pi pi-times" aria-hidden="true"></span></button>
+          </div>
+          @if (fr.length) {
+            <table class="dm-docs">
+              <thead>
+                <tr><th>Tipo</th><th>Folio</th><th>Almacén</th><th>Fecha</th><th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Destino</th></tr>
+              </thead>
+              <tbody>
+                @for (r of fr; track r.warehouse_id + r.doc_code + r.folio + (r.doc_serie || '')) {
+                  <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Abrir documento ' + r.folio"
+                      (click)="openFolioResult(r)" (keydown.enter)="openFolioResult(r)" (keydown.space)="$event.preventDefault(); openFolioResult(r)">
+                    <td>{{ r.movement_label }}</td>
+                    <td class="dm-mono dm-link">{{ r.folio }}</td>
+                    <td>{{ r.warehouse_name || r.warehouse_code || r.source_branch }}</td>
+                    <td class="dm-mono">{{ r.doc_date | date:'yyyy-MM-dd' }}</td>
+                    <td class="dm-r dm-muted">{{ r.lineas | number }}</td>
+                    <td class="dm-r">{{ (r.qty || 0) | number:'1.0-2' }}</td>
+                    <td class="dm-r dm-strong">{{ money(r.amount || 0) }}</td>
+                    <td class="dm-muted">{{ r.dest_label || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <div class="dm-empty">Sin documentos con ese folio. Probá con o sin ceros a la izquierda.</div>
+          }
+        </div>
+      }
 
       @if (summary(); as s) {
         <app-metric-strip [items]="summaryMetrics(s)" ariaLabel="Resumen de movimientos del rango" />
@@ -708,6 +747,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-strip .dm-strong { color: var(--text-main); font-weight: 700; }
     .dm-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
     .dm-sel { min-width: 12rem; } .dm-sel-sm { min-width: 8rem; } .dm-date { min-width: 9rem; } .dm-search input { min-width: 12rem; }
+    .dm-folio-search { display: inline-flex; align-items: center; gap: .3rem; } .dm-folio-search .pi-hashtag { color: var(--text-muted); font-size: .8rem; } .dm-folio-search input { min-width: 9rem; }
+    .dm-folio-results { margin: .25rem 0 .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden; }
+    .dm-fr-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .75rem; background: var(--surface-hover-bg); border-bottom: 1px solid var(--border-color); font-size: .82rem; }
     .dm-table { font-size: .84rem; }
     .dm-day-row td { padding-top: .45rem; padding-bottom: .45rem; }
     .dm-r { text-align: right; font-variant-numeric: tabular-nums; }
@@ -844,6 +886,11 @@ export class AlmacenMovimientosComponent implements OnInit {
   expanded: Record<string, boolean> = {};
   dayDocs = signal<Record<string, FolioRow[]>>({});
   dayLoading = signal<Record<string, boolean>>({});
+
+  // DM.14 — buscador de folios. Un folio NO es único (mismo '0002122' = Sale2 + TrsfShip…) → lista de resultados.
+  folioQuery = '';
+  folioResults = signal<FolioSearchRow[] | null>(null);
+  folioSearching = signal(false);
 
   warehouseOpts = signal<{ label: string; value: string }[]>([]);
   docTypeOpts = signal<{ label: string; value: string }[]>([]);
@@ -1316,6 +1363,24 @@ export class AlmacenMovimientosComponent implements OnInit {
         error: () => { this.dayLoading.set({ ...this.dayLoading(), [key]: false }); },
       });
   }
+
+  /** DM.14 — busca un folio; si hay 1 solo match abre el documento, si hay varios muestra la lista. */
+  searchFolio(): void {
+    const f = (this.folioQuery || '').trim();
+    if (!f) { this.folioResults.set(null); return; }
+    this.folioSearching.set(true);
+    this.api.folioSearch(f).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.folioSearching.set(false);
+        const rows = res.rows || [];
+        if (rows.length === 1) { this.folioResults.set(null); this.openDocument(rows[0] as unknown as FolioRow); }
+        else this.folioResults.set(rows);
+      },
+      error: () => { this.folioSearching.set(false); this.folioResults.set([]); },
+    });
+  }
+  clearFolio(): void { this.folioResults.set(null); this.folioQuery = ''; }
+  openFolioResult(r: FolioSearchRow): void { this.folioResults.set(null); this.openDocument(r as unknown as FolioRow); }
 
   /** Abre el documento; si es traspaso, carga TAMBIÉN la contraparte para validar. */
   openDocument(l: FolioRow): void {
