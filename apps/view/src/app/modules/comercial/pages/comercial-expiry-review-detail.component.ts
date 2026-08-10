@@ -55,7 +55,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
           <div class="erd-grid">
             <label class="erd-field erd-col-2">
               <span class="erd-lbl">Producto</span>
-              <app-product-search (productSelected)="onProduct($event)"></app-product-search>
+              <app-product-search [brandIds]="promoterBrandIds()" (productSelected)="onProduct($event)"></app-product-search>
+              @if (promoterBrands().length) {
+                <small class="erd-scoped"><i class="pi pi-filter" aria-hidden="true"></i> Solo tus marcas: {{ promoterBrandNames() }}</small>
+              }
             </label>
             <label class="erd-field">
               <span class="erd-lbl">Código (si no aparece)</span>
@@ -190,6 +193,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
     .erd-cond[data-c="bueno"] { color: var(--good-fg, #1a7f37); }
     .erd-cond[data-c="regular"] { color: var(--warn-fg, #b25e00); }
     .erd-cond[data-c="malo"] { color: var(--bad-fg, #b42318); }
+    .erd-scoped { display: inline-flex; align-items: center; gap: .35rem; margin-top: .3rem; font-size: var(--fs-xs, .72rem); color: var(--action, var(--c-accent, #b25e00)); }
     .erd-loc { font-size: var(--fs-xs, .72rem); color: var(--c-text-2, var(--text-muted)); }
     .erd-fefo { font-size: var(--fs-xs, .72rem); color: var(--good-fg, #1a7f37); }
     .erd-line-obs { margin-top: .35rem; font-size: var(--fs-sm, .85rem); color: var(--c-text-2, var(--text-muted)); }
@@ -223,6 +227,11 @@ export class ComercialExpiryReviewDetailComponent {
   review = signal<ExpiryReviewDetail | null>(null);
   lines = signal<ExpiryReviewLine[]>([]);
 
+  // Promotor de marca propia: si tiene marcas asignadas, el buscador solo muestra sus SKUs.
+  promoterBrands = signal<{ id: string; nombre: string }[]>([]);
+  promoterBrandIds = computed(() => this.promoterBrands().map((b) => b.id));
+  promoterBrandNames = computed(() => this.promoterBrands().map((b) => b.nombre).join(', '));
+
   // form state
   productId = signal<string | null>(null);
   nameRaw = signal<string>('');
@@ -245,7 +254,12 @@ export class ComercialExpiryReviewDetailComponent {
   editable = computed(() => this.canCapture && this.review()?.status === 'draft');
   canAddLine = () => (!!this.productId() || !!this.codeRaw.trim()) && this.qty != null && this.qty >= 0;
 
-  constructor() { this.load(); }
+  constructor() {
+    this.load();
+    this.svc.myBrands()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.promoterBrands.set(r?.brands || []), error: () => {} });
+  }
 
   load() {
     this.svc.getExpiryReview(this.reviewId)

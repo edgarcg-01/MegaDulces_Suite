@@ -823,6 +823,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
       },
       {
+        // P2.6 — asignar marcas a promotores (scoping del Control de Caducidades)
+        path: 'promotores',
+        loadComponent: () => import('./modules/dashboard/admin-promoters/admin-promoters.component').then(m => m.AdminPromotersComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      {
         // La cartera de ventas vive en /comercial/cartera (dominio comercial).
         // Redirect para no romper enlaces viejos a /admin/cartera.
         path: 'cartera',

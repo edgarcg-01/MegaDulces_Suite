@@ -106,9 +106,15 @@ export class CommercialExpiryReviewsService {
     if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
 
+    const userId = this.tenantCtx.get()?.userId;
     return this.tk.run(async (trx) => {
       let q = trx('commercial.expiry_reviews as r')
         .leftJoin('commercial.warehouses as w', 'w.id', 'r.warehouse_id');
+      // Promotor (tiene marcas asignadas) → solo ve SUS hojas.
+      if (userId) {
+        const isPromoter = await trx('commercial.promoter_brands').where('user_id', userId).first();
+        if (isPromoter) q = q.where('r.created_by', userId);
+      }
       if (query.warehouse_id) q = q.where('r.warehouse_id', query.warehouse_id);
       if (query.status) q = q.where('r.status', query.status);
       if (query.from) q = q.where('r.review_date', '>=', query.from);

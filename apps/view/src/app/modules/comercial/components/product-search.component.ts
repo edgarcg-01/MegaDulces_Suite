@@ -61,20 +61,24 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
 })
 export class ProductSearchComponent {
   @Input() placeholder = 'Buscar producto por nombre o SKU…';
+  /** Scoping opcional a un set de marcas (promotor de marca propia → solo sus SKUs). */
+  @Input() set brandIds(v: string[] | null | undefined) { this._brandIds.set(v && v.length ? v : null); }
   @Output() productSelected = new EventEmitter<ProductHit | null>();
 
   private readonly svc = inject(ComercialService);
 
   private readonly query = signal<string>('');
+  private readonly _brandIds = signal<string[] | null>(null);
   selected: ProductHit | string | null = null;
 
   private readonly productsRes = rxResource({
     params: () => {
       const q = this.query();
-      return q.length >= 2 ? q : undefined; // undefined => resource idle, sin fetch
+      if (q.length < 2) return undefined; // undefined => resource idle, sin fetch
+      return { q, brandIds: this._brandIds() };
     },
     stream: ({ params }) =>
-      this.svc.listProducts({ search: params, pageSize: 12, active: true }).pipe(
+      this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: true }).pipe(
         map((r) => (r.data || []).map((p): ProductHit => ({
           id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
         }))),

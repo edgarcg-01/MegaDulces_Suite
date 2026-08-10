@@ -114,6 +114,24 @@ function check(name, cond, detail) {
   check('renglón 1 marcado fed_to_fefo con fefo_qty=10', l1?.fed_to_fefo === true && Number(l1?.fefo_qty) === 10, { l1 });
   check('renglón 2 (sin producto) NO alimentó FEFO', l2?.fed_to_fefo === false, { l2 });
 
+  console.log('\n── 6b. Promotor de marca propia (scoping) ──');
+  const myUserId = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()).sub;
+  const abrands = await req('GET', '/commercial/promoter-brands/brands', null, token);
+  const brand = (abrands.body || [])[0];
+  check('marcas asignables disponibles', Array.isArray(abrands.body) && abrands.body.length > 0, { n: (abrands.body || []).length });
+  if (brand?.id) {
+    const setb = await req('PUT', `/commercial/promoter-brands/${myUserId}`, { brand_ids: [brand.id] }, token);
+    check('asignar marca al usuario', Array.isArray(setb.body?.brand_ids) && setb.body.brand_ids.includes(brand.id), setb.body);
+    const mine = await req('GET', '/commercial/promoter-brands/mine', null, token);
+    check('/mine devuelve la marca asignada', (mine.body?.brand_ids || []).includes(brand.id), mine.body?.brand_ids);
+    const scoped = await req('GET', `/commercial/products?brand_ids=${brand.id}&pageSize=10`, null, token);
+    const rows = scoped.body?.data || [];
+    check('productos scopeados: todos son de la marca', rows.length === 0 || rows.every((p) => p.brand_id === brand.id), { n: rows.length });
+    // limpiar (no dejar a superoot como promotor)
+    const clr = await req('PUT', `/commercial/promoter-brands/${myUserId}`, { brand_ids: [] }, token);
+    check('limpieza: usuario deja de ser promotor', (clr.body?.brand_ids || []).length === 0);
+  }
+
   console.log('\n── 6. Reglas de estado ──');
   const resubmit = await req('POST', `/commercial/expiry-reviews/${reviewId}/submit`, {}, token);
   check('re-enviar hoja enviada → 409', resubmit.status === 409, { status: resubmit.status });

@@ -298,6 +298,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   private adminNavItems: NavItem[] = [
     { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_GESTIONAR },
+    { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.USUARIOS_GESTIONAR },
     { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_CONFIGURAR  },
     { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.USUARIOS_GESTIONAR },
   ];
