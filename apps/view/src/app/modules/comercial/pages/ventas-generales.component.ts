@@ -27,13 +27,16 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Ventas generales <app-context-help topic="ventas-generales" /></h1>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem;color:var(--text-main)">Ventas generales <app-context-help topic="ventas-generales" /></h1>
           <p class="surf-page-sub">Consultá la venta global de la red y desglosala como quieras — por canal, marca, categoría, sucursal, producto, cliente o su histórico. Venta real (no pedidos B2B), últimos 30 días.</p>
         </div>
         <div class="vg-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="rebuild()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <!-- Answer-first (DESIGN §15): los KPIs primero, los controles después. -->
+      @if (kpiBlock(); as k) { <app-sales-block [block]="k" /> }
 
       <!-- Preguntá lo que sea (Thot compone el tablero) -->
       <form class="vg-ask" (ngSubmit)="askAi()">
@@ -78,9 +81,9 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
         }
       </div>
 
-      <!-- Tablero: renderiza el spec (bloques auto-consultan datos deterministas) -->
+      <!-- Tablero: bloques de detalle (el KPI ya se pintó arriba) -->
       <div class="vg-dash">
-        @for (b of spec().blocks; track $index) {
+        @for (b of bodyBlocks(); track $index) {
           <div class="vg-cell" [style.grid-column]="'span ' + (b.span || 12)">
             <app-sales-block [block]="b" />
           </div>
@@ -100,7 +103,8 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-ai-err { display:flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--bad-fg); margin:.2rem 0 .4rem; }
     .vg-ai-note { display:flex; align-items:center; gap:.4rem; font-size:.84rem; color:var(--text-muted); margin:.2rem 0 .6rem; }
     .vg-ai-note .pi { color:var(--action); }
-    .vg-quick { display:flex; flex-wrap:wrap; gap:.4rem; margin:.4rem 0 .6rem; }
+    .vg-quick { display:flex; flex-wrap:nowrap; gap:.4rem; margin:.4rem 0 .6rem; overflow-x:auto; padding-bottom:.2rem; scrollbar-width:thin; }
+    .vg-chip { flex:0 0 auto; }
     .vg-chip { display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-muted); border-radius:var(--r-pill,999px); padding:.3rem .7rem; font-size:.78rem; cursor:pointer; transition:color 120ms, border-color 120ms, background 120ms; }
     .vg-chip:hover { color:var(--text-main); border-color:var(--action); }
     .vg-chip.on { background:var(--action); border-color:var(--action); color:var(--action-ink,#fff); font-weight:600; }
@@ -154,6 +158,9 @@ export class VentasGeneralesComponent implements OnInit {
     { label: 'Últimos 12 meses', value: '12m' },
   ];
   readonly metricOpts = computed(() => this.svc.metricsFor(this.dim()).map((m) => ({ label: METRIC_LABEL[m], value: m })));
+  // Answer-first: el KPI se pinta arriba de los controles; el resto de bloques, abajo.
+  readonly kpiBlock = computed(() => this.spec().blocks.find((b) => b.type === 'kpi') || null);
+  readonly bodyBlocks = computed(() => this.spec().blocks.filter((b) => b.type !== 'kpi'));
 
   readonly quickAsks: { label: string; dim: VgDimension; metric: VgMetric }[] = [
     { label: 'Ventas por canal', dim: 'canal', metric: 'ventas' },

@@ -1301,7 +1301,7 @@ export class CommercialAnalyticsService {
         raw = await base()
           .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
           .leftJoin('catalog.categories AS c', 'c.id', 'p.category_id')
-          .groupBy('c.id', 'c.nombre').select(trx.raw("COALESCE(c.nombre,'Sin categoría') AS label"), ...sums)
+          .groupBy('c.id', 'c.name').select(trx.raw("COALESCE(c.name,'Sin categoría') AS label"), ...sums)
           .orderByRaw('SUM(s.revenue) DESC').limit(limit);
       } else { // sucursal
         raw = await base()
@@ -1370,7 +1370,7 @@ export class CommercialAnalyticsService {
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .join('catalog.categories AS c', 'c.id', 'p.category_id')
         .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
-        .groupBy('c.id', 'c.nombre').select('c.id AS value', 'c.nombre AS label')
+        .groupBy('c.id', 'c.name').select('c.id AS value', 'c.name AS label')
         .orderByRaw('SUM(s.revenue) DESC').limit(300);
       return {
         channels: channels.map((r: any) => ({ value: r.value, label: r.value })),
