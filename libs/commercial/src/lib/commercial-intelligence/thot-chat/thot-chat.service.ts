@@ -64,6 +64,16 @@ const SV_TOOL = {
     properties: {
       title: { type: 'string', description: 'Título corto del tablero.' },
       narrative: { type: 'string', description: '1-2 frases en español que expliquen qué muestra el tablero. NO inventes cifras.' },
+      filters: {
+        type: 'object',
+        description: 'Alcance (WHERE) que recorta TODO el tablero. Usalo cuando la pregunta es sobre algo específico (un producto, una marca, una categoría, un canal). Vacío = toda la red.',
+        properties: {
+          sku: { type: 'string', description: 'Código/SKU exacto del producto si la pregunta lo menciona (ej. "79141").' },
+          brand: { type: 'string', description: 'Nombre de la marca si la pregunta es de una marca específica.' },
+          category: { type: 'string', description: 'Nombre de la categoría si la pregunta es de una categoría específica.' },
+          channel: { type: 'string', description: 'Canal de venta si la pregunta lo acota (ej. "mostrador", "credito", "ruta").' },
+        },
+      },
       blocks: {
         type: 'array',
         description: 'Bloques del tablero, en orden. Empezá con un kpi.',
@@ -102,7 +112,9 @@ const SV_SYSTEM = (today: string) =>
   `4. histórico / evolución / tendencia → un bloque series.\n` +
   `5. Si la pregunta es amplia ("centro de control", "todas mis ventas"), armá 3-5 bloques (kpi + varios breakdown/series, span 6).\n` +
   `6. Si es puntual ("ventas por canal"), kpi + 1 breakdown span 12.\n` +
-  `7. Poné títulos claros en español en cada bloque.`;
+  `7. Poné títulos claros en español en cada bloque.\n` +
+  `8. ALCANCE: si la pregunta es sobre algo específico, llená filters — producto por código/SKU (ej. "ventas del producto 79141" → filters.sku:"79141"), marca (filters.brand), categoría (filters.category) o canal (filters.channel). ` +
+  `Con filters.sku, el desglose útil es por canal o por tiempo (NO por producto). El filtro recorta TODO el tablero (KPIs incluidos), así que las cifras serán las de ese alcance, no las de la red.`;
 
 export interface ThotToolTrace {
   name: string;
@@ -221,33 +233,52 @@ export class ThotChatService {
   private sanitizeSpec(input: any): { title?: string; narrative?: string; blocks: any[] } {
     const raw = Array.isArray(input?.blocks) ? input.blocks : [];
     const clampSpan = (s: any) => ([4, 6, 12].includes(Number(s)) ? Number(s) : 12);
+    // Filtros de alcance del LLM (texto libre acotado). Se inyectan en CADA bloque para que
+    // el renderer determinista los pase al endpoint semántico y recorte todo el tablero.
+    const scope = this.sanitizeScope(input?.filters);
+    const withScope = (blk: any) => (scope ? { ...blk, filters: scope } : blk);
     const blocks: any[] = [];
     let hasKpi = false;
     for (const b of raw) {
       const type = ['kpi', 'breakdown', 'series'].includes(b?.type) ? b.type : null;
       if (!type) continue;
-      if (type === 'kpi') { if (!hasKpi) { blocks.push({ type: 'kpi', span: 12 }); hasKpi = true; } continue; }
+      if (type === 'kpi') { if (!hasKpi) { blocks.push(withScope({ type: 'kpi', span: 12 })); hasKpi = true; } continue; }
       let metric = SV_METRICS.includes(b?.metric) ? b.metric : 'ventas';
       const title = typeof b?.title === 'string' ? b.title.slice(0, 80) : undefined;
       if (type === 'breakdown') {
-        const dimension = SV_DIMS.includes(b?.dimension) && b.dimension !== 'tiempo' ? b.dimension : 'canal';
+        // Con filtro de un producto (sku), agrupar por producto no aporta → forzar canal.
+        let dimension = SV_DIMS.includes(b?.dimension) && b.dimension !== 'tiempo' ? b.dimension : 'canal';
+        if (scope?.sku && dimension === 'producto') dimension = 'canal';
         if (!SV_DIM_METRICS[dimension].includes(metric)) metric = 'ventas';
         const viz = SV_VIZ.includes(b?.viz) ? b.viz : 'bars-table';
         const limit = Math.min(100, Math.max(5, Number(b?.limit) || 20));
-        blocks.push({ type: 'breakdown', metric, dimension, viz, limit, span: clampSpan(b?.span), title });
+        blocks.push(withScope({ type: 'breakdown', metric, dimension, viz, limit, span: clampSpan(b?.span), title }));
       } else {
         if (!['ventas', 'unidades', 'tickets'].includes(metric)) metric = 'ventas';
         const range = ['30d', '90d', '12m'].includes(b?.range) ? b.range : '30d';
-        blocks.push({ type: 'series', metric, range, span: clampSpan(b?.span), title });
+        blocks.push(withScope({ type: 'series', metric, range, span: clampSpan(b?.span), title }));
       }
     }
     if (!blocks.length) return this.fallbackSpec('');
-    if (!hasKpi) blocks.unshift({ type: 'kpi', span: 12 });
+    if (!hasKpi) blocks.unshift(withScope({ type: 'kpi', span: 12 }));
     return {
       title: typeof input?.title === 'string' ? input.title.slice(0, 120) : undefined,
       narrative: typeof input?.narrative === 'string' ? input.narrative.slice(0, 600) : undefined,
       blocks: blocks.slice(0, 8),
     };
+  }
+
+  /** Sanea los filtros de alcance del LLM: solo strings acotados; null si no hay ninguno. */
+  private sanitizeScope(f: any): { sku?: string; brand?: string; category?: string; channel?: string } | null {
+    if (!f || typeof f !== 'object') return null;
+    const clean = (v: any) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : undefined);
+    const out: any = {};
+    const sku = clean(f.sku), brand = clean(f.brand), category = clean(f.category), channel = clean(f.channel);
+    if (sku) out.sku = sku;
+    if (brand) out.brand = brand;
+    if (category) out.category = category;
+    if (channel) out.channel = channel;
+    return Object.keys(out).length ? out : null;
   }
 
   /**

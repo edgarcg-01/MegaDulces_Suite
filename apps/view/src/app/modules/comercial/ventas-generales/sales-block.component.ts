@@ -173,7 +173,8 @@ export class SalesBlockComponent {
         this.svc.kpis().subscribe({ next: (k) => { this.kpis.set(k); this.loading.set(false); }, error: () => err('No se pudieron cargar los KPIs.') });
       }
     } else if (b.type === 'series') {
-      const filtered = !!(b.filters && (b.filters.channel || b.filters.warehouse_id || b.filters.brand_id || b.filters.category_id));
+      const f = b.filters;
+      const filtered = !!(f && (f.channel || f.warehouse_id || f.brand_id || f.category_id || f.sku || f.brand || f.category));
       const { from, to } = (b.from || b.to) ? { from: b.from, to: b.to } : this.rangeDates(b.range ?? '30d');
       if (filtered) {
         this.svc.query(b.metric ?? 'ventas', 'tiempo', { from, to, filters: b.filters, limit: 400 }).subscribe({

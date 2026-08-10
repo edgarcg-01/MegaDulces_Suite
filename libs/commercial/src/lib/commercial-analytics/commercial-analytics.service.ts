@@ -1235,6 +1235,7 @@ export class CommercialAnalyticsService {
   async salesQuery(p: {
     metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
     channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+    sku?: string; brand?: string; category?: string;
   }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const METRICS = ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'];
@@ -1250,10 +1251,26 @@ export class CommercialAnalyticsService {
     const warehouseId = typeof p?.warehouse_id === 'string' && p.warehouse_id ? p.warehouse_id : null;
     const brandId = typeof p?.brand_id === 'string' && p.brand_id ? p.brand_id : null;
     const categoryId = typeof p?.category_id === 'string' && p.category_id ? p.category_id : null;
+    // Filtros que Thot (VG.2) emite por TEXTO desde lenguaje natural: SKU exacto (ej. "79141"),
+    // o nombre de marca/categoría (se resuelven a id abajo). No calculan cifras, solo recortan.
+    const sku = typeof p?.sku === 'string' && p.sku.trim() ? p.sku.trim() : null;
+    const brandName = typeof p?.brand === 'string' && p.brand.trim() ? p.brand.trim() : null;
+    const categoryName = typeof p?.category === 'string' && p.category.trim() ? p.category.trim() : null;
 
     return this.tk.run(async (trx) => {
       const lo = from ?? this.since30d(trx);
       const hi = to ?? this.untilToday(trx);
+      // Resuelve marca/categoría por nombre → id (solo si no vino ya un id de la UI).
+      let brandIdEff = brandId;
+      let categoryIdEff = categoryId;
+      if (!brandIdEff && brandName) {
+        const b = await trx('catalog.brands').where('tenant_id', tenantId).whereRaw('nombre ILIKE ?', [brandName]).first('id');
+        brandIdEff = b?.id || null;
+      }
+      if (!categoryIdEff && categoryName) {
+        const c = await trx('catalog.categories').where('tenant_id', tenantId).whereRaw('name ILIKE ?', [categoryName]).first('id');
+        categoryIdEff = c?.id || null;
+      }
       const sums = [
         trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
         trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
@@ -1266,13 +1283,17 @@ export class CommercialAnalyticsService {
       const applyFilters = (qb: any) => {
         if (channel) qb.andWhere('s.channel', channel);
         if (warehouseId) qb.andWhere('s.warehouse_id', warehouseId);
-        if (brandId) qb.whereExists(function (this: any) {
+        if (brandIdEff) qb.whereExists(function (this: any) {
           this.select(trx.raw('1')).from('catalog.products AS pf')
-            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.brand_id', brandId);
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.brand_id', brandIdEff);
         });
-        if (categoryId) qb.whereExists(function (this: any) {
+        if (categoryIdEff) qb.whereExists(function (this: any) {
           this.select(trx.raw('1')).from('catalog.products AS pf')
-            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.category_id', categoryId);
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.category_id', categoryIdEff);
+        });
+        if (sku) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhereRaw('pf.sku = ?', [sku]);
         });
         return qb;
       };
