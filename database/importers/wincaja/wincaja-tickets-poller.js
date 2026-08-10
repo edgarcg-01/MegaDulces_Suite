@@ -138,6 +138,7 @@ async function fetchNewTickets(db, branch, wm) {
       total,
       forma_pago: null,
       cajero: h.cajero || null,
+      caja: h.caja != null ? String(h.caja).trim() : null,
       items,
     };
   });

@@ -56,7 +56,7 @@ async function readTickets(c, BRANCH) {
     // Misma consulta que el poller (live-tickets-poller.js) pero: schema kp, filtro por
     // `sucursal`, y rango de fecha fijo [FROM..TO] en vez de ventana deslizante.
     const { rows } = await c.query(
-      `SELECT h.c6 folio, rtrim(btrim(h.c63),'-') serie, to_char(h.c9::date,'YYYY-MM-DD') fecha, h.c62 hora,
+      `SELECT h.c6 folio, rtrim(btrim(h.c63),'-') serie, to_char(h.c9::date,'YYYY-MM-DD') fecha, h.c62 hora, h.c5 caja,
               coalesce(h.c16,0) total, h.c10 forma_pago, btrim(h.c67) cajero,
               d.c8 sku, d.c10 nombre, coalesce(d.c9,0) cant, coalesce(d.c13,0) importe, d.c7 linea
          FROM kp.kdm1 h
@@ -77,7 +77,8 @@ async function readTickets(c, BRANCH) {
           warehouse_code: BRANCH, warehouse_name: BRANCH_NAMES[BRANCH] || null,
           serie: r.serie, folio: r.folio,
           ticket_ts: `${r.fecha}T${r.hora.length === 4 ? '0' + r.hora : r.hora}:00-06:00`,
-          total: Number(r.total) || 0, forma_pago: r.forma_pago, cajero: r.cajero || null, items: [],
+          total: Number(r.total) || 0, forma_pago: r.forma_pago, cajero: r.cajero || null,
+          caja: r.caja != null ? String(r.caja).trim() : null, items: [],
         };
         byTicket.set(key, t);
       }
@@ -94,12 +95,12 @@ async function upsert(knex, tickets) {
     const rows = tickets.slice(i, i + CHUNK).map((t) => ({
       tenant_id: TENANT, warehouse_code: t.warehouse_code, warehouse_name: t.warehouse_name,
       serie: t.serie, folio: t.folio, ticket_ts: t.ticket_ts, total: t.total,
-      forma_pago: t.forma_pago || null, cajero: t.cajero || null, items: JSON.stringify(t.items),
+      forma_pago: t.forma_pago || null, cajero: t.cajero || null, caja: t.caja || null, items: JSON.stringify(t.items),
     }));
     await knex('analytics.store_live_tickets')
       .insert(rows)
       .onConflict(['tenant_id', 'warehouse_code', 'serie', 'folio'])
-      .merge(['warehouse_name', 'ticket_ts', 'total', 'forma_pago', 'cajero', 'items']);
+      .merge(['warehouse_name', 'ticket_ts', 'total', 'forma_pago', 'cajero', 'caja', 'items']);
     processed += rows.length;
   }
   return { processed };

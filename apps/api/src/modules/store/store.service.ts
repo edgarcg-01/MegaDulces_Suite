@@ -44,6 +44,7 @@ export class StoreService {
         total,
         forma_pago: t.forma_pago || null,
         cajero: t.cajero || null,
+        caja: t.caja || null,
         items: JSON.stringify(Array.isArray(t.items) ? t.items : []),
       };
       let ins: any[] = [];
@@ -60,6 +61,7 @@ export class StoreService {
             total: row.total,
             forma_pago: row.forma_pago,
             cajero: row.cajero,
+            caja: row.caja,
             items: row.items,
           })
           .returning(['id', this.knex.raw('(xmax = 0) AS is_new')]);
@@ -218,27 +220,35 @@ export class StoreService {
   }
 
   /**
-   * SM.10 — Cajas ABIERTAS ahora + quién está cobrando. Cruza `analytics.cash_sessions`
-   * (status=open, hoy) con la actividad en vivo por cajero (`store_live_tickets` de hoy,
-   * `cajero` = kdm1.c67). La sesión aporta caja + hora de apertura; el cajero ACTIVO lo
-   * dan los tickets (la sesión c7/c8 es ambigua). `cobrando` = ticket en los últimos 15 min.
+   * SM.10 — Cajas ABIERTAS ahora + quién está cobrando. Atribución POR CAJA:
+   *  - `analytics.cash_sessions` (status=open, hoy) da qué CAJA está abierta, la hora de
+   *    apertura y el cajero ASIGNADO (`cajero_code` = kdpv c8; NO el c7/opener, que suele
+   *    ser un supervisor que abre todas las cajas).
+   *  - `analytics.store_live_tickets` de hoy, agrupado por (sucursal, CAJA) (kdm1.c5),
+   *    da tickets/venta/último ticket de esa caja. Antes se cruzaba por cajero → el total
+   *    del supervisor se duplicaba en cada caja que abrió (bug ago-2026).
+   * `cobrando` = ticket en los últimos 15 min.
    */
   async openSessions(warehouseCode?: string): Promise<any> {
     const k = this.knex;
     const todayMX = `(now() AT TIME ZONE '${TZ}')::date`;
 
+    // Actividad por CAJA (una fila por caja): agregado + último cajero que cobró ahí.
     const actQ = k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
       .andWhereRaw(`(ticket_ts AT TIME ZONE '${TZ}')::date = ${todayMX}`)
-      .whereNotNull('cajero')
-      .groupBy('warehouse_code', 'cajero')
-      .select('warehouse_code', 'cajero',
-        k.raw('COUNT(*)::int AS tickets'), k.raw('ROUND(SUM(total)::numeric,2) AS venta'),
-        k.raw(`to_char(MAX(ticket_ts) AT TIME ZONE '${TZ}', 'HH24:MI') AS last_ticket`),
-        k.raw('MAX(ticket_ts) AS last_ts'));
+      .whereNotNull('caja')
+      .distinctOn('warehouse_code', 'caja')
+      .select('warehouse_code', 'caja',
+        k.raw('COUNT(*) OVER (PARTITION BY warehouse_code, caja)::int AS tickets'),
+        k.raw('ROUND(SUM(total) OVER (PARTITION BY warehouse_code, caja)::numeric,2) AS venta'),
+        k.raw(`to_char(MAX(ticket_ts) OVER (PARTITION BY warehouse_code, caja) AT TIME ZONE '${TZ}', 'HH24:MI') AS last_ticket`),
+        k.raw('MAX(ticket_ts) OVER (PARTITION BY warehouse_code, caja) AS last_ts'),
+        k.raw('cajero AS last_cajero'))
+      .orderBy([{ column: 'warehouse_code' }, { column: 'caja' }, { column: 'ticket_ts', order: 'desc' }]);
     if (warehouseCode) actQ.andWhere('warehouse_code', warehouseCode);
     const act = await actQ;
-    const actMap = new Map(act.map((a: any) => [`${a.warehouse_code}|${a.cajero}`, a]));
+    const actMap = new Map(act.map((a: any) => [`${a.warehouse_code}|${a.caja}`, a]));
 
     const sesQ = k('analytics.cash_sessions as s')
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
@@ -254,7 +264,7 @@ export class StoreService {
 
     const NOW = Date.now();
     const open_cajas = sesiones.map((s: any) => {
-      const a: any = actMap.get(`${s.warehouse_code}|${s.cajero_code}`);
+      const a: any = actMap.get(`${s.warehouse_code}|${s.caja}`);
       const lastMs = a?.last_ts ? new Date(a.last_ts).getTime() : null;
       const idleMin = lastMs != null ? Math.round((NOW - lastMs) / 60000) : null;
       return {
@@ -269,11 +279,11 @@ export class StoreService {
       .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets)
       .map((c: any, i: number) => ({ ...c, rank: i + 1 }));
 
-    // Cajeros con ventas hoy pero SIN sesión abierta ligada (handoff / caja no reportada).
-    const linked = new Set(sesiones.map((s: any) => `${s.warehouse_code}|${s.cajero_code}`));
-    const cajeros_sin_sesion = act
-      .filter((a: any) => !linked.has(`${a.warehouse_code}|${a.cajero}`))
-      .map((a: any) => ({ warehouse_code: a.warehouse_code, cajero: a.cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }))
+    // Cajas con venta hoy pero SIN sesión abierta (ya cerró la caja / handoff).
+    const linked = new Set(sesiones.map((s: any) => `${s.warehouse_code}|${s.caja}`));
+    const cajas_sin_sesion = act
+      .filter((a: any) => !linked.has(`${a.warehouse_code}|${a.caja}`))
+      .map((a: any) => ({ warehouse_code: a.warehouse_code, caja: a.caja, cajero: a.last_cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }))
       .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets);
 
     return {
@@ -281,7 +291,8 @@ export class StoreService {
       cajas_abiertas: open_cajas.length,
       cobrando_ahora: open_cajas.filter((c: any) => c.cobrando).length,
       open_cajas,
-      cajeros_sin_sesion,
+      // compat: el frontend consume `cajeros_sin_sesion`; ahora es por caja.
+      cajeros_sin_sesion: cajas_sin_sesion,
     };
   }
 }

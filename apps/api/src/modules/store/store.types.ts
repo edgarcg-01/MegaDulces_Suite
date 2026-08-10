@@ -16,6 +16,7 @@ export interface LiveTicket {
   total: number;
   forma_pago?: string;
   cajero?: string;   // SM.10 — cajero del ticket (kdm1.c67) para ligar actividad a la cajera
+  caja?: string;     // SM.10 — caja física del ticket (kdm1.c5 / maestro.caja) → atribución por caja
   items: LiveTicketItem[];
 }
 
