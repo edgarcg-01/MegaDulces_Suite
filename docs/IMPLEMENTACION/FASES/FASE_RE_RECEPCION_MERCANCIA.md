@@ -96,6 +96,7 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 
 ### RE.5 — Evidencia con roles + Devolución/NC
 - **Entregable:** roles tipados (remisión / factura sellada / vale firmado / póliza / NC) + **importar los `X-D-40`/`X-D-55` de Kepler ligados a la recepción** (monto + motivo `c24` + SKU) — el Excel adjuntaba el PDF a mano; aquí llega del ERP (1,286 vs 45). Adjunto manual queda como complemento. Cloudinary (adiós links Drive muertos).
+- **✅ Multi-foto con roles (2026-08-10):** el diálogo "Adjuntar" de `/compras/entradas` ahora acepta **varias fotos** (lo normal 3–4: remisión/factura + vale de recepción firmado + Aplica Orden Entrada + ticket de compra), no una sola. Cada foto lleva un **rol** editable (`RECEIPT_FILE_ROLES` = remision/factura/vale/orden_entrada/ticket/evidencia; `evidencia_1` back-compat) y se marca con **★** cuál se lee con OCR (la del total). Cada archivo sube a Cloudinary en paralelo (estado por foto + reintento); `saveAttach` usa `forkJoin` y adjunta **todas en UNA evidencia** (`finance.goods_receipt_proofs.files[]`, que ya era array). Sin migración (backend ya aceptaba `files[]`; solo se ampliaron los roles permitidos). Builds api+view OK. **Falta:** importar los X-D-40/55 del ERP (parte NC) + `role`/`credit_note_ref` en el schema (RE.2 dejó `discrepancy_*`). Requiere redeploy.
 
 ### RE.6 — Trazabilidad de cadena (timeline)
 - **Entregable:** OC→vale→orden entrada→aplicación→póliza→**pago (heurístico)** en el detalle.

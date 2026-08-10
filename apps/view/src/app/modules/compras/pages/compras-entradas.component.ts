@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin, of, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
@@ -18,6 +19,13 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea } from '../entradas.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+
+/** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
+interface AttachFile {
+  id: number; name: string; dataUri: string; kind: 'image' | 'pdf'; role: string;
+  uploaded: ProofFile | null; uploading: boolean; failed: boolean;
+  primary: boolean; // la que se lee con OCR (remisión/factura con el total)
+}
 
 /**
  * CC (extensión) — "Comprobantes de Orden de Entrada" (proyecto Compras). Lista las
@@ -113,46 +121,56 @@ import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../com
           </div>
 
           <div class="cb-f cb-file">
-            <span>Remisión o factura del proveedor (imagen o PDF) * <em class="cb-auto">se almacena y se lee sola al elegirla</em></span>
+            <span>Fotos de la recepción (remisión/factura, vale, orden de entrada, ticket…) * <em class="cb-auto">agregá 3–4; se almacenan solas y la marcada ★ se lee con OCR</em></span>
             <div class="cb-pick">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
-                <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
+                <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
               </label>
-              <label class="cb-pickbtn"><i class="pi pi-paperclip"></i> Elegir archivo
-                <input type="file" accept="image/*,.pdf" (change)="onFile($event)" hidden />
+              <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir archivos
+                <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden multiple />
               </label>
             </div>
-            @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
 
-          @if (fileName()) {
-            <div class="cb-preview">
-              @if (isImageFile()) {
-                <img [src]="fileData" alt="Previsualización de la remisión" />
-              } @else if (isPdfFile()) {
-                <div class="cb-preview-pdf"><i class="pi pi-file-pdf"></i><div class="cb-preview-pdf-txt"><strong>{{ fileName() }}</strong><span>PDF listo — se lee con OCR (los datos aparecen abajo)</span></div></div>
+          @if (attachFiles().length) {
+            <div class="cb-files">
+              @for (f of attachFiles(); track f.id) {
+                <div class="cb-file-card" [class.primary]="f.primary">
+                  <div class="cb-file-thumb">
+                    @if (f.kind === 'image') { <img [src]="f.dataUri" [alt]="f.name" /> }
+                    @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
+                  </div>
+                  <div class="cb-file-body">
+                    <div class="cb-file-name" [title]="f.name">{{ f.name }}</div>
+                    <div class="cb-file-controls">
+                      <select class="cb-role" [ngModel]="f.role" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Tipo de ' + f.name">
+                        @for (r of roleOpts; track r.value) { <option [value]="r.value">{{ r.label }}</option> }
+                      </select>
+                      <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Se lee con OCR' : 'Leer esta con OCR'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
+                      @if (f.uploading) { <span class="cb-file-stat" title="Almacenando…"><i class="pi pi-spin pi-spinner"></i></span> }
+                      @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada"><i class="pi pi-check-circle"></i></span> }
+                      @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
+                    </div>
+                  </div>
+                  <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
+                </div>
               }
             </div>
-          }
 
-          @if (fileName()) {
             <div class="cb-ocr-actions">
-              @if (uploading() || ocrLoading()) {
-                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> {{ (uploading() && ocrLoading()) ? 'Almacenando imagen y leyendo remisión…' : uploading() ? 'Almacenando imagen…' : 'Leyendo la remisión…' }}</span>
-              } @else {
-                @if (uploadedFile()) { <span class="cb-stored"><i class="pi pi-check-circle"></i> Imagen almacenada</span> }
-                @if (ocrRun()) {
-                  @if (matchState() === true) { <p-tag value="Cuadra con la entrada" severity="success" /> }
-                  @else if (matchState() === false) { <p-tag [value]="'Difiere ' + money(diff())" severity="danger" /> }
-                  @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — captura a mano.</span> }
-                  @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
-                }
-                <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer con OCR"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
+              @if (ocrLoading()) {
+                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo la foto marcada ★…</span>
+              } @else if (ocrRun()) {
+                @if (matchState() === true) { <p-tag value="Cuadra con la entrada" severity="success" /> }
+                @else if (matchState() === false) { <p-tag [value]="'Difiere ' + money(diff())" severity="danger" /> }
+                @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — captura a mano.</span> }
+                @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
+                <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer la foto marcada ★"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
               }
             </div>
           }
 
-          @if (fileName()) {
+          @if (attachFiles().length) {
             <div class="cb-fields-head">Datos de la remisión <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
             <div class="cb-grid">
               <label class="cb-f"><span>Total de la remisión</span><p-inputnumber [(ngModel)]="ocrForm.total" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
@@ -168,7 +186,7 @@ import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../com
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         </ng-template>
       }
     </p-dialog>
@@ -363,6 +381,24 @@ import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../com
     .cb-preview-pdf-txt { display: flex; flex-direction: column; gap: .1rem; }
     .cb-preview-pdf-txt strong { font-size: .9rem; color: var(--text-main); }
     .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
+    /* multi-archivo: set de 3–4 fotos de la recepción */
+    .cb-files { display: flex; flex-direction: column; gap: .5rem; }
+    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-file-card.primary { border-color: var(--action); box-shadow: inset 3px 0 0 var(--action); }
+    .cb-file-thumb { flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: #00000010; }
+    .cb-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .cb-file-thumb .pi-file-pdf { font-size: 1.4rem; color: var(--bad-fg); }
+    .cb-file-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+    .cb-file-name { font-size: .8rem; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-file-controls { display: flex; align-items: center; gap: .5rem; }
+    .cb-role { font-size: .76rem; padding: .2rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--card-bg); color: var(--text-main); max-width: 12rem; }
+    .cb-star { border: none; background: transparent; cursor: pointer; color: var(--text-faint); padding: .1rem .2rem; font-size: .95rem; }
+    .cb-star.on { color: var(--warn-soft-fg, #d19a00); }
+    .cb-file-stat { display: inline-flex; align-items: center; font-size: .85rem; color: var(--text-muted); }
+    .cb-file-stat.ok { color: var(--ok-fg); }
+    .cb-file-retry { border: none; background: transparent; cursor: pointer; color: var(--bad-fg); padding: .1rem .2rem; }
+    .cb-file-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
+    .cb-file-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -422,14 +458,21 @@ export class ComprasEntradasComponent {
   // attach dialog
   readonly showAttach = signal(false);
   readonly attachTarget = signal<EntradaRow | null>(null);
-  readonly fileName = signal<string>('');
   readonly ocrLoading = signal(false);
   readonly ocrRun = signal(false);
-  readonly uploading = signal(false);
-  readonly uploadedFile = signal<ProofFile | null>(null);
   readonly attachError = signal<string>('');
-  fileData: string | null = null;
+  readonly attachFiles = signal<AttachFile[]>([]);
+  readonly uploadingAny = computed(() => this.attachFiles().some((f) => f.uploading));
+  private fileSeq = 0;
   ocrForm: Partial<RemisionOcr> = {};
+  readonly roleOpts = [
+    { label: 'Remisión/Factura', value: 'remision' },
+    { label: 'Factura', value: 'factura' },
+    { label: 'Vale de recepción', value: 'vale' },
+    { label: 'Aplica orden entrada', value: 'orden_entrada' },
+    { label: 'Ticket de compra', value: 'ticket' },
+    { label: 'Otra evidencia', value: 'evidencia' },
+  ];
 
   // reject dialog
   readonly showReject = signal(false);
@@ -475,54 +518,85 @@ export class ComprasEntradasComponent {
 
   openAttach(c: EntradaRow) {
     this.attachTarget.set(c);
-    this.fileData = null;
-    this.fileName.set('');
+    this.attachFiles.set([]);
     this.ocrForm = {};
     this.ocrRun.set(false);
-    this.uploadedFile.set(null);
-    this.uploading.set(false);
+    this.ocrLoading.set(false);
     this.attachError.set('');
     this.showAttach.set(true);
   }
 
-  onFile(ev: Event) {
-    const file = (ev.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+  /** Multi-archivo: acumula todas las fotos elegidas/tomadas (lo normal son 3–4). */
+  onFiles(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const picked = input.files ? Array.from(input.files) : [];
+    input.value = ''; // permite volver a elegir el mismo archivo
+    for (const file of picked) this.addOne(file);
+  }
+
+  private addOne(file: File) {
     if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
     this.attachError.set('');
-    this.ocrRun.set(false);
-    this.ocrForm = {};
-    this.uploadedFile.set(null);
     const reader = new FileReader();
     reader.onload = () => {
-      this.fileData = String(reader.result || '');
-      this.fileName.set(file.name);
-      this.autoProcess();
+      const dataUri = String(reader.result || '');
+      const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
+      const hasRemision = this.attachFiles().some((f) => f.role === 'remision');
+      const noPrimary = !this.attachFiles().some((f) => f.primary);
+      const af: AttachFile = {
+        id: ++this.fileSeq, name: file.name, dataUri, kind,
+        role: hasRemision ? 'evidencia' : 'remision', // la 1ª = remisión (y ★ para OCR)
+        uploaded: null, uploading: false, failed: false, primary: noPrimary,
+      };
+      this.attachFiles.update((l) => l.concat(af));
+      this.uploadOne(af.id);
+      if (af.primary) this.runOcrFor(dataUri);
     };
     reader.readAsDataURL(file);
   }
 
-  private autoProcess() { this.storeImage(); this.runOcr(); }
-
-  private storeImage() {
-    if (!this.fileData) return;
-    this.uploading.set(true);
-    this.svc.uploadFile(this.fileData, 'remision').pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (f) => { this.uploadedFile.set(f); this.uploading.set(false); },
-        error: () => { this.uploading.set(false); this.attachError.set('No se pudo almacenar la imagen — se reintenta al Guardar.'); },
-      });
+  private patch(id: number, p: Partial<AttachFile>) {
+    this.attachFiles.update((l) => l.map((f) => (f.id === id ? { ...f, ...p } : f)));
   }
 
-  runOcr() {
-    if (!this.fileData) return;
+  private uploadOne(id: number) {
+    const af = this.attachFiles().find((f) => f.id === id);
+    if (!af) return;
+    this.patch(id, { uploading: true, failed: false });
+    this.svc.uploadFile(af.dataUri, af.role).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (up) => this.patch(id, { uploaded: up, uploading: false }),
+        error: () => this.patch(id, { uploading: false, failed: true }),
+      });
+  }
+  retryUpload(f: AttachFile) { this.uploadOne(f.id); }
+  setRole(f: AttachFile, role: string) { this.patch(f.id, { role }); }
+
+  setPrimary(f: AttachFile) {
+    this.attachFiles.update((l) => l.map((x) => ({ ...x, primary: x.id === f.id })));
+    this.runOcrFor(f.dataUri);
+  }
+
+  removeFile(f: AttachFile) {
+    const wasPrimary = f.primary;
+    this.attachFiles.update((l) => l.filter((x) => x.id !== f.id));
+    if (wasPrimary) {
+      const next = this.attachFiles()[0];
+      if (next) this.setPrimary(next);
+      else { this.ocrRun.set(false); this.ocrForm = {}; }
+    }
+  }
+
+  /** OCR sobre la foto marcada ★ (la remisión/factura con el total). */
+  private runOcrFor(dataUri: string) {
     this.ocrLoading.set(true);
-    this.svc.ocr(this.fileData).pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); },
-        error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
+        error: () => { this.ocrLoading.set(false); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
       });
   }
+  runOcr() { const p = this.attachFiles().find((f) => f.primary); if (p) this.runOcrFor(p.dataUri); }
 
   /** Cuadra si el total O el subtotal de la remisión ≈ el valor de la entrada. */
   matchState(): boolean | null {
@@ -544,25 +618,26 @@ export class ComprasEntradasComponent {
 
   saveAttach() {
     const t = this.attachTarget();
-    if (!t || !this.fileData) { this.attachError.set('Falta la remisión/factura.'); return; }
+    const files = this.attachFiles();
+    if (!t || !files.length) { this.attachError.set('Agregá al menos una foto.'); return; }
     this.attachError.set('');
     this.saving.set(true);
-    const already = this.uploadedFile();
-    if (already) { this.doAttach(t, already); return; }
-    this.svc.uploadFile(this.fileData, 'remision').pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (file: ProofFile) => { this.uploadedFile.set(file); this.doAttach(t, file); },
-        error: () => { this.saving.set(false); this.attachError.set('No se pudo almacenar la remisión. Reintenta.'); },
-      });
-  }
-
-  private doAttach(t: EntradaRow, file: ProofFile) {
-    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Remisión adjuntada', detail: res.monto_match ? 'El total cuadra ✓' : 'Guardado (revisa el total)' }); this.load(); },
-        error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
-      });
+    // Sube las que falten (o fallaron), conserva las ya almacenadas → UNA evidencia con TODAS las fotos.
+    const uploads = files.map((f) => f.uploaded
+      ? of({ f, up: f.uploaded })
+      : this.svc.uploadFile(f.dataUri, f.role).pipe(map((up) => ({ f, up }))));
+    forkJoin(uploads).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (results) => {
+        const proofFiles: ProofFile[] = results.map(({ f, up }) => ({ ...up, role: f.role, name: f.name }));
+        this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr: this.ocrRun() ? this.ocrForm : undefined })
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: `${proofFiles.length} foto(s) adjuntada(s)`, detail: res.monto_match ? 'El total cuadra ✓' : 'Guardado (revisa el total)' }); this.load(); },
+            error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
+          });
+      },
+      error: () => { this.saving.set(false); this.attachError.set('No se pudieron subir algunas fotos. Reintentá.'); },
+    });
   }
 
   doValidate(c: EntradaRow) {
@@ -624,8 +699,6 @@ export class ComprasEntradasComponent {
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= 1; }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
-  isImageFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:image'); }
-  isPdfFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:application/pdf'); }
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
   isImageUrl(f: ProofFile): boolean {
     const k = (f.kind || '').toLowerCase();
