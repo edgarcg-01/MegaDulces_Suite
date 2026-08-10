@@ -191,6 +191,45 @@ export class CommercialMovementsService {
   private entradas = `SUM(CASE WHEN m.signed_qty > 0 THEN m.qty ELSE 0 END)`;
   private salidas = `SUM(CASE WHEN m.signed_qty < 0 THEN m.qty ELSE 0 END)`;
 
+  /**
+   * DM.14 — Buscador de folios: dado un folio devuelve TODOS los documentos que lo llevan
+   * (folio×almacén×tipo×serie), porque en Kepler el folio NO es único entre doctypes/sucursales
+   * (ej. '0002122' = Sale2 + TrsfShip + …). Cada fila es "abrible" con document(). Tolera ceros a
+   * la izquierda: "2122" ⇒ '0002122'. Match por igualdad sobre candidatos (index-friendly, evita
+   * el regexp full-scan). Dedup con filter+indexOf, NO `[...new Set()]` (el bundle de la API
+   * downlevelea mal el spread de Set → ver [[feedback_webpack_set_spread_downlevel]]).
+   */
+  async folioSearch(folioRaw: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const folio = (folioRaw || '').trim();
+    if (!folio) return { folio: '', count: 0, rows: [] as any[] };
+    const stripped = folio.replace(/^0+/, '') || folio;
+    const list = [folio, stripped, stripped.padStart(5, '0'), stripped.padStart(6, '0'), stripped.padStart(7, '0'), stripped.padStart(8, '0')];
+    const cands = list.filter((v, i) => v && list.indexOf(v) === i);
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId)
+        .whereIn('m.folio', cands)
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .groupBy('m.folio', 'm.warehouse_id', 'm.source_branch', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'w.code', 'w.name')
+        .select(
+          'm.folio', 'm.warehouse_id', 'm.source_branch', 'm.doc_code', 'm.doc_serie',
+          'm.movement_label', 'm.movement_kind', 'w.code as warehouse_code', 'w.name as warehouse_name',
+        )
+        .select(
+          trx.raw(`MIN(m.doc_date) AS doc_date`),
+          trx.raw(`MAX(m.dest_code) AS dest_code`),
+          trx.raw(`MAX(m.dest_label) AS dest_label`),
+          trx.raw(`COUNT(*)::int AS lineas`),
+          trx.raw(`SUM(m.qty) AS qty`),
+          trx.raw(`SUM(m.amount) AS amount`),
+        )
+        .orderByRaw(`MIN(m.doc_date) DESC`)
+        .limit(100);
+      return { folio, count: rows.length, rows };
+    });
+  }
+
   /** KPIs de cabecera + desglose por tipo de documento. */
   async summary(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();

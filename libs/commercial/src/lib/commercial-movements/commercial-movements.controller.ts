@@ -52,6 +52,11 @@ export class CommercialMovementsController {
     return this.svc.document({ folio, warehouse_id, doc_code, doc_serie });
   }
 
+  @Get('folio-search')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.14 — Busca documentos por folio (tolera ceros: "2122"="0002122"). Devuelve los docs que lo llevan (folio×almacén×tipo×serie) para abrir el que corresponda: el folio NO es único entre doctypes/sucursales.' })
+  folioSearch(@Query('folio') folio: string) { return this.svc.folioSearch(folio); }
+
   @Post('audit')
   @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_GESTIONAR)
   @ApiOperation({ summary: 'DM.4 — marca/desmarca un documento como auditado. Body: { warehouse_id, doc_code, doc_serie?, folio, audited, note? }.' })

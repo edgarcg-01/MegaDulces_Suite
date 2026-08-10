@@ -74,6 +74,16 @@ export interface FolioRow {
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
+/** DM.14 — resultado del buscador de folios: un documento (folio×almacén×tipo) abrible con document(). */
+export interface FolioSearchRow {
+  folio: string; warehouse_id: string; source_branch: string;
+  warehouse_code: string | null; warehouse_name: string | null;
+  doc_code: string; doc_serie: string | null; movement_label: string; movement_kind: MovementKind;
+  doc_date: string; dest_code: string | null; dest_label: string | null;
+  lineas: number; qty: number; amount: number | null;
+}
+export interface FolioSearchResponse { folio: string; count: number; rows: FolioSearchRow[]; }
+
 /** DM.3 — validación salida↔recepción de traspasos. origin_wh/dest_wh traen el NOMBRE del almacén (fallback código). */
 export type TransferStatus = 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
 export interface TransferCheckRow {
@@ -256,6 +266,10 @@ export class AlmacenMovimientosService {
   }
   lines(f: MovementsFilters, extra: { product_id?: string; page?: number; pageSize?: number }): Observable<LinesResponse> {
     return this.http.get<LinesResponse>(`${this.base}/lines`, { params: this.params(f, extra) });
+  }
+  /** DM.14 — busca documentos por folio (tolera ceros a la izquierda). Un folio puede mapear a varios docs. */
+  folioSearch(folio: string): Observable<FolioSearchResponse> {
+    return this.http.get<FolioSearchResponse>(`${this.base}/folio-search`, { params: new HttpParams().set('folio', folio) });
   }
   document(folio: string, warehouse_id?: string, doc_code?: string, doc_serie?: string | null): Observable<DocumentResponse> {
     let p = new HttpParams().set('folio', folio);
