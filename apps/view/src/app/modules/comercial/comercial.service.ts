@@ -1269,6 +1269,7 @@ export class ComercialService {
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
+    if (opts.layout === 'plaza') params = params.set('layout', 'plaza');
     return params;
   }
 
@@ -1425,6 +1426,8 @@ export interface SellOutParams {
   search?: string;
   /** RS — filtro de promos: 'sin' (default) | 'solo' | 'todo'. */
   promo?: 'sin' | 'solo' | 'todo';
+  /** RS.13 — layout de columnas: 'plaza' = formato estándar (plaza × SUCURSAL/MAYOREO/RUTAS). */
+  layout?: 'plaza';
 }
 
 export interface SellOutWarehouseRow {

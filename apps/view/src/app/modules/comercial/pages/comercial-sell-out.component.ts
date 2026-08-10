@@ -81,6 +81,13 @@ const CHANNEL_OPTS = [
           <app-segmented [options]="reportModeOpts" [value]="reportMode()" (valueChange)="setReportMode($event)" ariaLabel="Modo del reporte" />
         </div>
 
+        @if (reportMode() === 'canal') {
+          <div class="so-field">
+            <label>Formato</label>
+            <app-segmented [options]="layoutOpts" [value]="layout()" (valueChange)="setLayout($event)" ariaLabel="Formato del reporte" />
+          </div>
+        }
+
         <div class="so-field">
           <label>Periodo</label>
           <app-segmented [options]="modeOpts" [value]="periodMode()" (valueChange)="setMode($event)" ariaLabel="Periodo" />
@@ -137,7 +144,7 @@ const CHANNEL_OPTS = [
           <app-product-search [includeInactive]="true" placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
 
-        @if (reportMode() === 'canal') {
+        @if (reportMode() === 'canal' && layout() !== 'plaza') {
           <div class="so-field">
             <label>Vista</label>
             <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
@@ -159,7 +166,7 @@ const CHANNEL_OPTS = [
           <app-segmented [options]="concentrarOpts" [value]="concentrar()" (valueChange)="setConcentrar($event)" ariaLabel="Concentrado por dimensión" />
         </div>
 
-        @if (reportMode() === 'canal') {
+        @if (reportMode() === 'canal' && layout() !== 'plaza') {
           <div class="so-field so-toggles">
             @if (view() !== 'month_columns') {
               <label class="so-toggle"><p-toggleswitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
@@ -608,6 +615,19 @@ export class ComercialSellOutComponent {
     { label: 'Por canal', value: 'canal' },
     { label: 'Por vendedor', value: 'vendedor' },
   ];
+  // RS.13 — formato de columnas: 'detalle' (dinámico) o 'plaza' (formato estándar plaza×tipo).
+  layout = signal<'detalle' | 'plaza'>('detalle');
+  readonly layoutOpts = [
+    { label: 'Detalle', value: 'detalle' },
+    { label: 'Por plaza', value: 'plaza' },
+  ];
+  setLayout(v: string) {
+    const l = v as 'detalle' | 'plaza';
+    this.layout.set(l);
+    // El formato estándar es en CAJAS, por producto, con TODOS los SKUs (incluye sin venta).
+    if (l === 'plaza') { this.measure.set('cajas'); this.includeZeros = true; this.view.set('product'); this.concentrar.set(''); }
+    this.generate();
+  }
   canalTree = signal<SellOutTreeGroup[]>([]);
   vendorTree = signal<SellOutTreeGroup[]>([]);
   activeTree = computed(() => (this.reportMode() === 'vendedor' ? this.vendorTree() : this.canalTree()));
@@ -704,6 +724,7 @@ export class ComercialSellOutComponent {
     this.concentrar.set('');
     this.view.set('product');
     this.reportMode.set('canal');
+    this.layout.set('detalle');
     this.measure.set('ambas');
     this.periodMode.set('month');
     this.selectedCells.set(new Set());
@@ -824,6 +845,7 @@ export class ComercialSellOutComponent {
       include_zeros: this.includeZeros,
       search: this.search() || undefined,
       promo: this.promo() !== 'sin' ? this.promo() : undefined,
+      layout: this.reportMode() === 'canal' && this.layout() === 'plaza' ? 'plaza' : undefined,
     };
   }
 
@@ -833,7 +855,7 @@ export class ComercialSellOutComponent {
       localStorage.setItem(ComercialSellOutComponent.FKEY, JSON.stringify({
         brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(),
         promo: this.promo(), concentrar: this.concentrar(), view: this.view(),
-        reportMode: this.reportMode(), search: this.search(),
+        reportMode: this.reportMode(), layout: this.layout(), search: this.search(),
         selectedCells: Array.from(this.selectedCells()),
         monthDate: this.iso(this.monthDate),
         rangeDates: this.rangeDates?.map((d) => this.iso(d)) ?? null,
@@ -855,6 +877,7 @@ export class ComercialSellOutComponent {
       if (['', 'ruta', 'canal', 'sucursal', 'empresa'].includes(s.concentrar)) this.concentrar.set(s.concentrar);
       if (s.view === 'product' || s.view === 'month_columns' || s.view === 'month_summary') this.view.set(s.view);
       if (s.reportMode === 'canal' || s.reportMode === 'vendedor') this.reportMode.set(s.reportMode);
+      if (s.layout === 'detalle' || s.layout === 'plaza') this.layout.set(s.layout);
       if (typeof s.search === 'string') this.search.set(s.search);
       if (Array.isArray(s.selectedCells)) this.selectedCells.set(new Set(s.selectedCells));
       // Parse LOCAL (no `new Date(iso)` que interpreta UTC → correría el mes en TZ MX).

@@ -567,9 +567,10 @@ export class CommercialAnalyticsController {
     @Query('view') view?: string,
     @Query('cells') cells?: string,
     @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
   ) {
     return this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout),
     );
   }
 
@@ -609,10 +610,12 @@ export class CommercialAnalyticsController {
     @Query('cells') cells?: string,
     @Query('mode') mode?: string,
     @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
   ) {
-    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo);
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
-    const buf = await this.exporter.buildXlsx(report);
+    // RS.13 — layout por plaza → export en formato estándar (cajas). Si no, matriz cajas+monto.
+    const buf = report.layout === 'plaza' ? await this.exporter.buildPlazaXlsx(report) : await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
@@ -634,8 +637,9 @@ export class CommercialAnalyticsController {
     @Query('cells') cells?: string,
     @Query('mode') mode?: string,
     @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
   ) {
-    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo);
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
     const buf = await this.exporter.buildPdf(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
@@ -836,6 +840,7 @@ export class CommercialAnalyticsController {
     view?: string,
     cells?: string,
     promo?: string,
+    layout?: string,
   ) {
     const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
     const parsedView = view === 'month_columns' || view === 'month_summary'
@@ -853,6 +858,7 @@ export class CommercialAnalyticsController {
       include_zeros: includeZeros === 'true',
       search: search?.trim() || undefined,
       promo: (promo === 'solo' || promo === 'todo') ? (promo as 'solo' | 'todo') : undefined,
+      layout: layout === 'plaza' ? ('plaza' as const) : undefined,
     };
   }
 
