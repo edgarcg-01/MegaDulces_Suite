@@ -156,6 +156,132 @@ export class RoutePromoService {
     return `${M[d.getMonth()]} ${d.getFullYear()}`;
   }
 
+  /**
+   * Motor GENERAL de incentivos para Thot (todos los canales, no solo ruta). El LLM (Thot)
+   * ya extrajo los parámetros del enunciado del usuario → aquí solo se calcula, determinista,
+   * sobre `wincaja.v_sales_lines` (detalle con vendedor + cliente + canal + sucursal). Agrupa por
+   * la dimensión pedida (vendedor/ruta/canal/sucursal). El LLM nunca hace la aritmética.
+   */
+  async evaluateIncentive(p: {
+    sku?: string; producto_texto?: string;
+    metric: PromoMetric; rate: number; min_qty?: number;
+    canal?: 'ruta' | 'mayoreo' | 'mostrador' | 'preventa' | 'todos';
+    dimension?: 'vendedor' | 'ruta' | 'canal' | 'sucursal';
+    from?: string; to?: string; year?: number;
+  }): Promise<any> {
+    this.tenantCtx.requireTenantId();
+    const metric: PromoMetric = (['clientes_distintos', 'piezas', 'tickets', 'monto'] as PromoMetric[]).includes(p.metric) ? p.metric : 'clientes_distintos';
+    const rate = Number(p.rate) || 0;
+    const minQty = Number(p.min_qty) > 0 ? Number(p.min_qty) : 1;
+    const canal = p.canal || 'todos';
+    let dimension = (['vendedor', 'ruta', 'canal', 'sucursal'] as const).includes(p.dimension as any) ? p.dimension! : 'vendedor';
+    const period = this.resolvePeriod(p);
+
+    // RD (ruta/reparto): fuente AUTORITATIVA = analytics.v_route_sales_lines (une rutas Kepler-push +
+    // Wincaja + vecinal). NO tiene vendedor → en RD la ruta ES el vendedor, así que la dimensión
+    // colapsa a ruta (coincide 1:1 con la tarjeta de /ventas-por-ruta). Otros canales: wincaja.v_sales_lines.
+    const routeUniverse = canal === 'ruta' || dimension === 'ruta';
+    if (routeUniverse) dimension = 'ruta';
+
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const baseOf = (r: any) => metric === 'clientes_distintos' ? Number(r.clientes) || 0
+      : metric === 'piezas' ? round(Number(r.piezas) || 0, 2)
+      : metric === 'tickets' ? Number(r.tickets) || 0
+      : round(Number(r.monto) || 0, 2);
+
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      await trx.raw(`SET LOCAL statement_timeout = '45s'`);
+
+      // Resolver producto → SKU.
+      let product: { sku: string; nombre: string } | null = null;
+      let candidates: { sku: string; nombre: string }[] | undefined;
+      if (p.sku) {
+        const row = await trx('catalog.products').where({ tenant_id: tenantId, sku: p.sku }).whereNull('deleted_at').select('sku', 'nombre').first();
+        product = row ? { sku: row.sku, nombre: row.nombre } : { sku: p.sku, nombre: p.producto_texto || p.sku };
+      } else if (p.producto_texto) {
+        const tokens = p.producto_texto.split(/\s+/).filter((t) => t.length >= 3).slice(0, 5);
+        let qb = trx('catalog.products').where('tenant_id', tenantId).whereNull('deleted_at');
+        for (const t of tokens) qb = qb.andWhereRaw('unaccent(nombre) ILIKE unaccent(?)', [`%${t}%`]);
+        const hits = await qb.select('sku', 'nombre').limit(8);
+        if (hits.length === 1) product = { sku: hits[0].sku, nombre: hits[0].nombre };
+        else if (hits.length > 1) candidates = hits.map((h: any) => ({ sku: h.sku, nombre: h.nombre }));
+      }
+      if (!product) {
+        return { ok: false, error: candidates?.length ? 'producto_ambiguo' : 'producto_no_encontrado', candidates, metric, dimension, period };
+      }
+
+      let rows: any[];
+      if (routeUniverse) {
+        // Idéntico al motor validado de /ventas-por-ruta (v_route_sales_lines), por ruta.
+        rows = (await trx.raw(
+          `WITH base AS (
+             SELECT b.source_branch AS dim0, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
+                    SUM(sl.qty) AS qty, SUM(sl.importe) AS importe, COUNT(DISTINCT sl.consecutivo) AS tickets
+             FROM analytics.v_route_sales_lines sl
+             JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
+             JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+             LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+             WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta' AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
+             GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
+           )
+           SELECT (wname||' · Ruta '||dim0) AS dim,
+             COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND qty >= ?) AS clientes,
+             COALESCE(SUM(qty),0) AS piezas, COALESCE(SUM(tickets),0) AS tickets, COALESCE(SUM(importe),0) AS monto
+           FROM base GROUP BY wname, dim0 ORDER BY dim`,
+          [tenantId, period.from, period.to, product.sku, minQty],
+        )).rows;
+      } else {
+        // Otros canales (mostrador/mayoreo/preventa): wincaja.v_sales_lines, dimensión libre.
+        const CHAN = `CASE vl.sale_channel WHEN 'ruta_venta' THEN 'Ruta' WHEN 'mayoreo_credito' THEN 'Mayoreo' WHEN 'preventa_vecinal' THEN 'Preventa' ELSE 'Mostrador' END`;
+        const DIM: Record<string, string> = {
+          vendedor: `COALESCE(NULLIF(btrim(vl.vendedor),''),'(sin vendedor)')`,
+          canal: CHAN,
+          sucursal: `COALESCE(w.name, initcap(pb.branch_name), vl.warehouse_code, vl.source_branch)`,
+        };
+        const dimExpr = DIM[dimension] || DIM['vendedor'];
+        const CHAN_MAP: Record<string, string> = { mayoreo: 'mayoreo_credito', mostrador: 'mostrador', preventa: 'preventa_vecinal' };
+        const chanWhere = canal !== 'todos' && CHAN_MAP[canal] ? ` AND vl.sale_channel='${CHAN_MAP[canal]}'` : '';
+        rows = (await trx.raw(
+          `WITH base AS (
+             SELECT ${dimExpr} AS dim, vl.cliente,
+                    SUM(vl.qty) AS qty, SUM(vl.importe) AS importe, COUNT(DISTINCT vl.consecutivo) AS tickets
+             FROM wincaja.v_sales_lines vl
+             LEFT JOIN wincaja.branches b  ON b.tenant_id=vl.tenant_id AND b.source_branch=vl.source_branch
+             LEFT JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=COALESCE(b.parent_branch, b.source_branch)
+             LEFT JOIN commercial.warehouses w ON w.tenant_id=vl.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+             WHERE vl.tenant_id=? AND vl.sku=? AND vl.business_date>=? AND vl.business_date<? AND vl.business_date<=CURRENT_DATE${chanWhere}
+             GROUP BY ${dimExpr}, vl.cliente
+           )
+           SELECT dim,
+             COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND qty >= ?) AS clientes,
+             COALESCE(SUM(qty),0) AS piezas, COALESCE(SUM(tickets),0) AS tickets, COALESCE(SUM(importe),0) AS monto
+           FROM base GROUP BY dim ORDER BY dim`,
+          [tenantId, product.sku, period.from, period.to, minQty],
+        )).rows;
+      }
+
+      const out = rows.map((r) => ({ label: r.dim, base: baseOf(r), payout: round(baseOf(r) * rate, 2) }))
+        .filter((r) => r.base > 0).sort((a, b) => b.payout - a.payout);
+
+      return {
+        ok: true,
+        producto: product,
+        periodo: period.label,
+        metrica: METRIC_LABEL[metric],
+        base_label: metric === 'clientes_distintos' ? `clientes (≥${minQty} pza)` : METRIC_LABEL[metric].toLowerCase(),
+        rate, dimension, canal,
+        fuente: routeUniverse ? 'rutas (RD)' : 'wincaja (mostrador/mayoreo/preventa)',
+        filas: out,
+        total_base: round(out.reduce((s, r) => s + r.base, 0), 2),
+        total_pago: round(out.reduce((s, r) => s + r.payout, 0), 2),
+        nota: out.length
+          ? `$${rate.toFixed(2)} × ${METRIC_LABEL[metric].toLowerCase()} por ${dimension}.`
+          : 'Sin ventas del producto en el periodo/canal.',
+      };
+    });
+  }
+
   /** Punto de entrada: enunciado (+ periodo) → regla + pago por ruta. */
   async evaluate(q: PromoQuery): Promise<PromoResult> {
     this.tenantCtx.requireTenantId();

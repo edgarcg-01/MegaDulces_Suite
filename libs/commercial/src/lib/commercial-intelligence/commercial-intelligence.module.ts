@@ -16,6 +16,7 @@ import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
 import { CommercialAnalyticsService } from '../commercial-analytics/commercial-analytics.service';
+import { RoutePromoService } from '../commercial-analytics/route-promo.service';
 import { ThotToolsService } from './thot-chat/thot-tools.service';
 import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
 import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
@@ -50,6 +51,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     CommercialCalibrationService,
     AutonomyService,
     CommercialAnalyticsService,
+    RoutePromoService,
     ThotToolsService,
     PortalThotToolsService,
     VendorThotToolsService,

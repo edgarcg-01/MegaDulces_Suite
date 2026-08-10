@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialAnalyticsService } from '../../commercial-analytics/commercial-analytics.service';
+import { RoutePromoService } from '../../commercial-analytics/route-promo.service';
 import { ThotService } from '../thot.service';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { buildThotSystemPrompt } from './thot-semantic';
@@ -54,6 +55,7 @@ export class ThotToolsService implements ThotToolProvider {
     private readonly thot: ThotService,
     private readonly tk: TenantKnexService,
     private readonly ctx: TenantContextService,
+    private readonly promo: RoutePromoService,
   ) {}
 
   /** Perfil admin: acceso completo al tenant (back-office). */
@@ -185,6 +187,31 @@ export class ThotToolsService implements ThotToolProvider {
         },
       },
       {
+        name: 'thot_incentivo',
+        description:
+          'Calcula el PAGO de una MECÁNICA DE INCENTIVO/PROMO al equipo de campo, sobre venta real. Úsala cuando el usuario describe una promo con reglas del tipo: "$X por cada venta/pieza/cliente del producto Y". Vos (el asistente) interpretás el enunciado y pasás los parámetros; esta tool hace SOLO la aritmética determinista sobre la venta real. Reglas de interpretación:\n' +
+          '• "clientes distintos a los que se vendió una o más piezas" / "por cliente que compre" → metric=clientes_distintos, min_qty=1 (cada cliente cuenta UNA vez sin importar piezas).\n' +
+          '• "por cada pieza/unidad vendida" → metric=piezas. "por ticket/venta" → metric=tickets. "% o $ sobre venta" → metric=monto.\n' +
+          '• RD / reparto / venta a bordo → canal=ruta. Mayoreo/crédito → canal=mayoreo. Mostrador → canal=mostrador. Preventa/vecinal → canal=preventa. Si no dice canal → canal=todos.\n' +
+          '• dimension = cómo desglosar el pago: por "vendedor" (default, es a quien se le paga), "ruta", "sucursal" o "canal" — elegila según lo que pida el enunciado.\n' +
+          'Resolvé el producto a SKU con thot_resolve_entity ANTES si el enunciado lo menciona por nombre; pasá ese sku. Devuelve el pago por dimensión + total.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            sku: { type: 'string', description: 'SKU exacto del producto de la promo (resolvelo antes con thot_resolve_entity si viene por nombre).' },
+            producto_texto: { type: 'string', description: 'Nombre del producto si no tenés el SKU (se resuelve por catálogo). Preferí sku.' },
+            metric: { type: 'string', enum: ['clientes_distintos', 'piezas', 'tickets', 'monto'], description: 'Qué se paga.' },
+            rate: { type: 'number', description: 'Monto en pesos por cada unidad de la métrica (ej $6.00 → 6).' },
+            min_qty: { type: 'number', description: 'Piezas mínimas por cliente para calificar (default 1). Solo aplica a clientes_distintos.' },
+            canal: { type: 'string', enum: ['ruta', 'mayoreo', 'mostrador', 'preventa', 'todos'], description: 'Canal al que aplica la promo. Default todos.' },
+            dimension: { type: 'string', enum: ['vendedor', 'ruta', 'canal', 'sucursal'], description: 'Cómo desglosar el pago. Default vendedor.' },
+            from: { type: 'string', description: 'Fecha inicio ISO (YYYY-MM-DD). Opcional (default: mes anterior).' },
+            to: { type: 'string', description: 'Fecha fin ISO (YYYY-MM-DD). Opcional.' },
+          },
+          required: ['metric', 'rate'],
+        },
+      },
+      {
         name: 'thot_reorder_policy',
         description:
           'Política de reabastecimiento por SKU: MÍNIMO, punto de reorden y MÁXIMO por almacén (en piezas) + existencia disponible actual + clase ABC/XYZ. Para "cuál es el máximo del SKU X", "punto de orden", "cuánto debo tener de Y". Pasá sku (exacto) o query (nombre); opcional filtrar por almacén.',
@@ -285,6 +312,12 @@ export class ThotToolsService implements ThotToolProvider {
           return await this.salesByRoute(args);
         case 'thot_reorder_policy':
           return await this.reorderPolicy(args);
+        case 'thot_incentivo':
+          return await this.promo.evaluateIncentive({
+            sku: args.sku, producto_texto: args.producto_texto,
+            metric: args.metric, rate: args.rate, min_qty: args.min_qty,
+            canal: args.canal, dimension: args.dimension, from: args.from, to: args.to,
+          });
         case 'thot_erp_customers':
           return await this.analytics.erpCustomers({ search: args.search, limit: args.limit });
         case 'thot_customer_products':
