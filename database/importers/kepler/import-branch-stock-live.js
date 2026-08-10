@@ -37,7 +37,6 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const FULL = process.argv.includes('--full');
-const BATCH = 1000;
 const SNAP_PATH = process.env.STOCK_SNAPSHOT_PATH || path.join(__dirname, '.stock-live-snapshot.json');
 const MAP = process.env.STOCK_BRANCH_MAP
   ? JSON.parse(process.env.STOCK_BRANCH_MAP)
@@ -127,29 +126,15 @@ function saveSnap(obj) {
     if (!changed.length) { console.log('  sin cambios — cero tráfico.'); return; }
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 
-    // ── 3. Subir SOLO el diff + merge server-side ──
-    await db.query('BEGIN');
-    await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`CREATE TEMP TABLE stg_stock (code text, product_id uuid, quantity numeric) ON COMMIT DROP`);
-    for (let i = 0; i < changed.length; i += BATCH) {
-      const chunk = changed.slice(i, i + BATCH);
-      const vals = [], params = [];
-      chunk.forEach((row, ri) => { vals.push(`($${ri*3+1},$${ri*3+2},$${ri*3+3})`); params.push(row[0], row[1], row[2]); });
-      await db.query(`INSERT INTO stg_stock (code, product_id, quantity) VALUES ${vals.join(',')}`, params);
-    }
-    // Cada (code, product_id) viene ya agregado y único desde JS → upsert directo.
-    // JOIN a products: un drop puede referir un product_id ya BORRADO del catálogo
-    // (venía del snapshot) → sin este filtro el INSERT viola fk_commercial_stock_product.
-    const up = await db.query(`
-      INSERT INTO commercial.stock (id, tenant_id, warehouse_id, product_id, quantity, updated_at)
-      SELECT gen_random_uuid(), $1, w.id, s.product_id, s.quantity, now()
-      FROM stg_stock s
-      JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.code=s.code
-      JOIN public.products p ON p.tenant_id=$1 AND p.id=s.product_id
-      ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
-        SET quantity=GREATEST(EXCLUDED.quantity, commercial.stock.reserved_quantity), updated_at=now()`, [M]);
-    await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de stock actualizadas (delta).`);
+    // ── 3. Aplicar SOLO el diff via SINK (una sola fuente de SQL: lib/apply-handlers) ──
+    //   FEEDS_SINK=pg (default): escribe con este Client por el proxy público (histórico).
+    //   FEEDS_SINK=http        : empuja el changeset a services/feeds-ingest (ingress gratis).
+    // Cada (code, product_id) viene ya agregado y único desde JS. Los drops (qty=0) que
+    // refieren un product_id borrado del catálogo los filtra el JOIN a products en el handler.
+    const sink = require('../lib/sink');
+    const rows = changed.map(([code, product_id, quantity]) => ({ code, product_id, quantity }));
+    const r = await sink.ship('stock-delta', { rows, tenantId: M, client: db });
+    console.log(`\n[APPLY·${r.mode}] ${r.rowCount} filas de stock actualizadas (delta)${r.ms != null ? ` · ${r.ms}ms` : ''}.`);
 
     // ── 4. Persistir snapshot: conservar sucursales no sincronizadas + refrescar
     //    las sincronizadas con su estado deseado (los drops quedan fuera → DB en 0).
