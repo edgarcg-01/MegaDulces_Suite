@@ -91,6 +91,10 @@ async function fetchNewTickets(db, branch, wm) {
        FROM wincaja.maestro_mov_almacen m
       WHERE m.tenant_id=$1 AND m.source_branch=$2 AND m.source_dataset='actual'
         AND m.tipo='V' AND COALESCE(m.cancelado,false)=false
+        -- Serie de documento T99 = TRASPASO a otra sucursal (tercero = ALMACEN destino),
+        -- NO es venta de mostrador/mayoreo → fuera del monitor live. T98/F70 SÍ son ventas
+        -- (mayoreo) y se quedan. (analytics.sales_daily ya excluye T99 por su filtro ALMAC%.)
+        AND upper(btrim(m.documento)) NOT LIKE 'T99%'
         AND ( m.fecha::date > $3::date
               OR ( m.fecha::date = $3::date
                    AND COALESCE(NULLIF(regexp_replace(m.consecutivo,'\\D','','g'),'')::bigint,0) > $4 ) )
