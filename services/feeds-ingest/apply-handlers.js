@@ -109,8 +109,8 @@ async function applyWincajaStock(client, tenantId, rows, meta) {
       `INSERT INTO commercial.stock AS s (tenant_id, warehouse_id, product_id, quantity, reserved_quantity, updated_at)
        SELECT $1, $2, product_id, qty, 0, now() FROM stg_wstk
        ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
-         SET quantity=GREATEST(EXCLUDED.quantity, commercial.stock.reserved_quantity), updated_at=now()
-       WHERE commercial.stock.quantity IS DISTINCT FROM GREATEST(EXCLUDED.quantity, commercial.stock.reserved_quantity)`,
+         SET quantity=GREATEST(EXCLUDED.quantity, s.reserved_quantity), updated_at=now()
+       WHERE s.quantity IS DISTINCT FROM GREATEST(EXCLUDED.quantity, s.reserved_quantity)`,
       [tenantId, whId],
     );
     await client.query('COMMIT');

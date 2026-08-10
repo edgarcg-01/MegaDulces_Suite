@@ -105,13 +105,14 @@ async function cycle(pgClient) {
       const snap = loadSnap(store.code);
       const changed = diff(desired, snap);
       if (!changed.length) continue;
-      total += changed.length;
       if (DRY) {
         console.log(`  [DRY] ${store.code} (${store.warehouse_code}): ${changed.length} SKUs cambiados de ${desired.size} vivos (ej. ${changed[0].sku}=${changed[0].existencia})`);
+        total += changed.length;
       } else {
         const r = await sink.ship('wincaja-stock', { rows: changed, tenantId: TENANT, meta: { warehouse_code: store.warehouse_code }, client: pgClient });
-        // snapshot = estado deseado completo (los drops quedan fuera → quedan en 0 en DB)
+        // snapshot solo tras push OK (sink lanza en error → no se guarda → reintentable)
         saveSnap(store.code, Object.fromEntries(desired));
+        total += changed.length;
         console.log(`  ${store.code} (${store.warehouse_code}): +${changed.length} → wincaja-stock (${r.mode}, filas ${r.rowCount}${r.ms != null ? `, ${r.ms}ms` : ''})`);
       }
     } catch (e) { console.warn(`  ⚠️ ${store.code}: ${e.message}`); }
