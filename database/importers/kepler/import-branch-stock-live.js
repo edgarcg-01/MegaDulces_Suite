@@ -32,6 +32,7 @@
 const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const hb = require('../lib/cron-heartbeat');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
@@ -62,6 +63,9 @@ function saveSnap(obj) {
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  // Heartbeat → analytics.cron_runs (Salud BD). end() en finally cubre todos los returns.
+  let hbStat = { status: 'ok', rows: 0 };
+  if (APPLY) await hb.begin('kepler_stock', 'Kepler stock vivo (multi-sucursal)');
   try {
     console.log(`\n=== Stock vivo multi-sucursal → commercial.stock (${FULL ? 'FULL' : 'INCREMENTAL'}, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
@@ -134,6 +138,7 @@ function saveSnap(obj) {
     const sink = require('../lib/sink');
     const rows = changed.map(([code, product_id, quantity]) => ({ code, product_id, quantity }));
     const r = await sink.ship('stock-delta', { rows, tenantId: M, client: db });
+    hbStat.rows = r.rowCount;
     console.log(`\n[APPLY·${r.mode}] ${r.rowCount} filas de stock actualizadas (delta)${r.ms != null ? ` · ${r.ms}ms` : ''}.`);
 
     // ── 4. Persistir snapshot: conservar sucursales no sincronizadas + refrescar
@@ -146,6 +151,10 @@ function saveSnap(obj) {
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    hbStat = { status: 'error', error: e.message };
     process.exitCode = 1;
-  } finally { await db.end(); }
+  } finally {
+    if (APPLY) await hb.end('kepler_stock', hbStat).catch(() => {});
+    await db.end();
+  }
 })();

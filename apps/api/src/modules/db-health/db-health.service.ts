@@ -188,6 +188,9 @@ interface CronCfg { key: string; label: string; cadence: string; warnH: number; 
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50 },
+  // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
+  { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 2 min',  warnH: 3,  critH: 12 },
+  { key: 'wincaja_live',        label: 'Wincaja live (existencia+ventas+movimientos)', cadence: 'cada 10 min', warnH: 3, critH: 12 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
   { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384 },
