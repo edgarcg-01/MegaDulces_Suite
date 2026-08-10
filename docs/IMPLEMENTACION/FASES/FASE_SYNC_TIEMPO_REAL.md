@@ -135,7 +135,7 @@ Resultado: el path de sincronización frecuente sale de la factura de egress. Se
 
 | Archivo | Rol |
 |---|---|
-| `database/importers/lib/apply-handlers.js` | Registro de handlers de apply por feed = ÚNICA fuente del SQL de escritura (hoy: `stock-delta`). Cada handler maneja su propia trx. |
+| `services/feeds-ingest/apply-handlers.js` | Registro de handlers de apply por feed = ÚNICA fuente del SQL de escritura (hoy: `stock-delta`). Vive junto al servicio; el modo `pg` on-prem lo reutiliza. |
 | `database/importers/lib/sink.js` | `ship(feed,{rows,tenantId,client})` — modo `pg` (apply in-proc con el Client del importer) o `http` (gzip+POST al servicio). Toggle `FEEDS_SINK`. |
 | `services/feeds-ingest/server.js` | Servicio Railway (Node plano): `POST /ingest/:feed` con `X-Ingest-Key`, gunzip JSONL, valida tenant UUID, aplica por `*.railway.internal`. Testeable (`setDbClientFactory`). |
 | `services/feeds-ingest/README.md` | Deploy Railway + activación del push on-prem. |

@@ -2,8 +2,8 @@
 
 Servicio de ingesta que vive **dentro de Railway** (Fase SYNC 1.1). Recibe changesets de los feeds
 on-prem por HTTPS (**ingress = gratis**) y los escribe por red interna `*.railway.internal`
-(**interno = gratis**), usando el mismo SQL de apply que los importers
-(`database/importers/lib/apply-handlers.js`). Aislado del API a propósito (el API sufre OOM).
+(**interno = gratis**), usando el mismo SQL de apply (`apply-handlers.js`, en esta misma carpeta;
+el modo `pg` on-prem lo reutiliza). Aislado del API a propósito (el API sufre OOM).
 
 Ver diseño completo: [`docs/IMPLEMENTACION/FASES/FASE_SYNC_TIEMPO_REAL.md`](../../docs/IMPLEMENTACION/FASES/FASE_SYNC_TIEMPO_REAL.md).
 
