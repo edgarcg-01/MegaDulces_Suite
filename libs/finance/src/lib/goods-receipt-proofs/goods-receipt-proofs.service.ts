@@ -11,7 +11,10 @@ import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
  * `analytics.erp_goods_receipts`. Flujo `recibido → validado | rechazado`.
  */
 
-export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'evidencia_1'] as const;
+// Set de evidencia de una recepción: lo normal son 3–4 fotos (remisión/factura del
+// proveedor + vale de recepción firmado + Aplica Orden Entrada de Kepler + ticket de compra).
+// `evidencia_1` se mantiene por compatibilidad con registros viejos.
+export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'vale', 'orden_entrada', 'ticket', 'evidencia', 'evidencia_1'] as const;
 export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
 const TOLERANCIA = 1.0; // pesos: cuadra si el total (o subtotal) de la remisión ≈ el valor Kepler
 
