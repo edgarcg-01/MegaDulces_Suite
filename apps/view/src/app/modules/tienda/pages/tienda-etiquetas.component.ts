@@ -470,6 +470,14 @@ export class TiendaEtiquetasComponent {
     return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0;
   }
 
+  /** Palabra de la unidad base (piece_price = c90) según Kepler unit_base: Paquete/Caja/Pieza. */
+  private baseWord(m: LabelModel): string {
+    const ub = (m.unit_base || '').toUpperCase();
+    if (ub === 'PAQ') return 'Paquete';
+    if (ub === 'CJA') return 'Caja';
+    return 'Pieza';
+  }
+
   /** Opciones de precio grande para el selector del ticket — solo las que tienen precio. */
   heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
     const opts: { value: HeroKey; label: string }[] = [];
@@ -484,7 +492,7 @@ export class TiendaEtiquetasComponent {
       } else if (g >= 1000) {
         opts.push({ value: 'kg', label: `1 kg ${fmt(piece)}` });
       } else {
-        opts.push({ value: 'pieza', label: `Pieza ${fmt(piece)}` });
+        opts.push({ value: 'pieza', label: `${this.baseWord(m)} ${fmt(piece)}` });
       }
     }
     if (this.n(m.pack_price) > 0) opts.push({ value: 'paquete', label: `Paquete ${fmt(this.n(m.pack_price))}` });

@@ -31,6 +31,7 @@ export interface LabelModel {
   pack_size: number | null;
   pack_price: number | null;
   wholesale_pack_price: number | null;
+  wholesale_pack_min_qty: number | null;
   box_size: number | null;
   box_price: number | null;
   unit_base: string | null;
@@ -134,7 +135,11 @@ export interface LabelModel {
             }
             @if (hasMayoreoPaq) {
               <div class="etq-tier">
-                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
+                @if (mayoreoPaqMin; as mn) {
+                  <div class="txt">Mayoreo desde <span class="etq-red">{{ mn }}</span> {{ mayoreoGroupWord }}:</div>
+                } @else {
+                  <div class="txt">Precio de mayoreo:</div>
+                }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
               </div>
             }
@@ -143,7 +148,7 @@ export interface LabelModel {
                 @if (isGranel) {
                   <div class="txt">Caja <span class="etq-red">{{ cajaWeight }}</span>:</div>
                 } @else {
-                  <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
+                  <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> {{ boxContentWord }}:</div>
                 }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
               </div>
@@ -175,24 +180,52 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   }
   get mayoreoMin(): number { return this.model?.wholesale_piece_min_qty || 3; }
 
+  // ── Unidad BASE de venta (piece_price == Kepler c90). `unit_base` dice QUÉ es esa fila:
+  //    PAQ → el producto se vende POR PAQUETE (c90 = precio del paquete), CJA → por caja, resto
+  //    → pieza. (Granel — KG/gramos — se resuelve por kg/porción aparte.) ~75% del catálogo es
+  //    base PAQ: antes imprimía "Precio por pieza" con el precio del paquete → bug de unidad.
+  get baseUnit(): 'paquete' | 'caja' | 'pieza' {
+    const ub = (this.model?.unit_base || '').toUpperCase();
+    if (ub === 'PAQ') return 'paquete';
+    if (ub === 'CJA') return 'caja';
+    return 'pieza';
+  }
+  /** El producto se vende agrupado (paquete/caja) como unidad base, no por pieza suelta. */
+  get baseIsGrouped(): boolean { return this.baseUnit !== 'pieza'; }
+  private plural(u: string): string { return u === 'pieza' ? 'pzas' : u === 'paquete' ? 'paquetes' : 'cajas'; }
+  /** Umbral del mayoreo por paquete (min_qty del tier elegido). null = sin umbral confiable. */
+  get mayoreoPaqMin(): number | null { const m = this.num(this.model?.wholesale_pack_min_qty); return m > 1 ? m : null; }
+  /** Palabra plural del tier de mayoreo agrupado: paquetes/cajas (o 'paquetes' en base pieza). */
+  get mayoreoGroupWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'paquetes'; }
+  /** Contenido de la caja: en base agrupada la caja trae N paquetes/cajas, no piezas. */
+  get boxContentWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'pzas'; }
+
   // ── F1: visibilidad data-driven — un tier solo se muestra si el multiselect lo
   //    pide Y hay dato real (precio > 0 y, donde aplica, tamaño > 0). Mata los $0.00 y (0 pzas).
   // ── F5: además, un mayoreo solo se muestra si CUADRA (es más barato que su precio base);
   //    un "mayoreo" ≥ menudeo es dato erróneo de Kepler → se oculta en vez de imprimir un precio absurdo.
   get hasMayoreoPza(): boolean {
+    // Base agrupada (paquete/caja) no tiene "pieza suelta" que mayorear → se oculta.
+    if (this.baseIsGrouped) return false;
     const w = this.num(this.model?.wholesale_piece_price);
     const base = this.num(this.model?.piece_price);
     return !!this.show.mayoreoPza && w > 0 && (base <= 0 || w < base);
   }
   get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
   get hasMayoreoPaq(): boolean {
-    // Sólo si el producto TIENE paquete REAL (precio y tamaño > 0, igual que hasPaquete) y el
-    // mayoreo es más barato. Sin paquete, un "mayoreo por paquete" queda huérfano (ej. SKU 70001,
-    // unidad = caja directa). F5.
+    // El comparativo depende de la unidad base (Kepler unit_base):
+    //  · base=paquete/caja → el "precio de paquete" ES el precio base (c90/piece_price); el
+    //    mayoreo (wholesale_pack_price) vive suelto porque el paquete no está en pack_size. F-unit.
+    //  · base=pieza → paquete REAL de piezas (pack_price + pack_size), igual que antes. F5.
     const w = this.num(this.model?.wholesale_pack_price);
+    if (!this.show.mayoreoPaq || w <= 0) return false;
+    if (this.baseIsGrouped) {
+      const base = this.num(this.model?.piece_price);
+      return base > 0 && w < base;
+    }
     const base = this.num(this.model?.pack_price);
     const size = this.num(this.model?.pack_size);
-    return !!this.show.mayoreoPaq && base > 0 && size > 0 && w > 0 && w < base;
+    return base > 0 && size > 0 && w < base;
   }
   get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
   // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
@@ -236,14 +269,15 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     if (this.hero === 'kg' && granel) return { word: 'kg', value: this.perKgPrice };
     if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece } : { word: 'pieza', value: piece };
+    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece } : { word: this.baseUnit, value: piece };
 
-    // Default: granel = por kg (se vende por kilo); normal = pieza; con fallback.
+    // Default: granel = por kg (se vende por kilo); normal = unidad base (pieza/paquete/caja
+    // según Kepler unit_base); con fallback. c90 es el precio de ESA unidad base.
     if (granel && (piece > 0 || this.perKgPrice > 0)) return { word: 'kg', value: this.perKgPrice };
-    if (piece > 0) return { word: 'pieza', value: piece };
+    if (piece > 0) return { word: this.baseUnit, value: piece };
     if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    return granel ? { word: 'kg', value: 0 } : { word: 'pieza', value: 0 };
+    return granel ? { word: 'kg', value: 0 } : { word: this.baseUnit, value: 0 };
   }
 
   /**
