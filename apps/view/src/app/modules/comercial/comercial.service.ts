@@ -78,6 +78,8 @@ export interface Warehouse {
   address?: string | null;
   is_default?: boolean;
   active?: boolean;
+  /** 'central' (sucursal/CEDIS físico) | 'truck' (camión de ruta del vendedor). */
+  kind?: string;
   created_at?: string;
 }
 
