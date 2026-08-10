@@ -9,6 +9,7 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { DatePickerModule } from 'primeng/datepicker';
+import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, ExpiryReview, Warehouse } from '../comercial.service';
@@ -26,7 +27,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-expiry-reviews',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, DatePickerModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, DatePickerModule, InputTextModule, ToastModule, PageTabsComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -82,6 +83,11 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
           <span class="er-lbl">Fecha de elaboración</span>
           <p-datepicker [(ngModel)]="newDate" dateFormat="yy-mm-dd" appendTo="body" styleClass="er-full"></p-datepicker>
         </label>
+        <label class="er-field">
+          <span class="er-lbl">Ubicación por defecto (opcional)</span>
+          <input pInputText [(ngModel)]="newLocation" placeholder="Ej. Anaquel 3 / Bodega / Exhibidor caja" class="er-full" />
+          <small class="er-hint">Se pre-llena en cada renglón; podés cambiarla por producto.</small>
+        </label>
       </div>
       <ng-template #footer>
         <button pButton [text]="true" severity="secondary" (click)="newOpen.set(false)">Cancelar</button>
@@ -98,6 +104,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
     .er-newform { display: flex; flex-direction: column; gap: 1rem; padding-top: .5rem; }
     .er-field { display: flex; flex-direction: column; gap: .35rem; }
     .er-lbl { font-size: var(--fs-sm, .85rem); color: var(--c-text-2, var(--text-muted)); }
+    .er-hint { font-size: var(--fs-xs, .72rem); color: var(--c-text-3, var(--text-muted)); }
     :host ::ng-deep .er-full, :host ::ng-deep .er-full input { width: 100%; }
   `],
 })
@@ -130,6 +137,7 @@ export class ComercialExpiryReviewsComponent {
   newOpen = signal(false);
   newWarehouse = '';
   newDate: Date = new Date();
+  newLocation = '';
   creating = signal(false);
 
   canCapture = () =>
@@ -152,7 +160,7 @@ export class ComercialExpiryReviewsComponent {
       });
   }
 
-  openNew() { this.newWarehouse = ''; this.newDate = new Date(); this.newOpen.set(true); }
+  openNew() { this.newWarehouse = ''; this.newDate = new Date(); this.newLocation = ''; this.newOpen.set(true); }
 
   private toYmd(d: Date): string {
     const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
@@ -162,7 +170,7 @@ export class ComercialExpiryReviewsComponent {
   create() {
     if (!this.newWarehouse) return;
     this.creating.set(true);
-    this.svc.createExpiryReview({ warehouse_id: this.newWarehouse, review_date: this.toYmd(this.newDate) })
+    this.svc.createExpiryReview({ warehouse_id: this.newWarehouse, review_date: this.toYmd(this.newDate), default_location: this.newLocation.trim() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate([r.id], { relativeTo: this.route }); },
