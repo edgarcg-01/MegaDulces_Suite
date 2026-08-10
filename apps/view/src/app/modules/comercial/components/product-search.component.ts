@@ -63,22 +63,26 @@ export class ProductSearchComponent {
   @Input() placeholder = 'Buscar producto por nombre o SKU…';
   /** Scoping opcional a un set de marcas (promotor de marca propia → solo sus SKUs). */
   @Input() set brandIds(v: string[] | null | undefined) { this._brandIds.set(v && v.length ? v : null); }
+  /** Incluir productos inactivos (activo=false) en el resultado. Default false (solo activos).
+   *  Sell-Out lo pone true: es histórico → un SKU descontinuado sigue teniendo ventas pasadas. */
+  @Input() set includeInactive(v: boolean | null | undefined) { this._includeInactive.set(!!v); }
   @Output() productSelected = new EventEmitter<ProductHit | null>();
 
   private readonly svc = inject(ComercialService);
 
   private readonly query = signal<string>('');
   private readonly _brandIds = signal<string[] | null>(null);
+  private readonly _includeInactive = signal<boolean>(false);
   selected: ProductHit | string | null = null;
 
   private readonly productsRes = rxResource({
     params: () => {
       const q = this.query();
       if (q.length < 2) return undefined; // undefined => resource idle, sin fetch
-      return { q, brandIds: this._brandIds() };
+      return { q, brandIds: this._brandIds(), includeInactive: this._includeInactive() };
     },
     stream: ({ params }) =>
-      this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: true }).pipe(
+      this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: params.includeInactive ? undefined : true }).pipe(
         map((r) => (r.data || []).map((p): ProductHit => ({
           id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
         }))),

@@ -134,7 +134,7 @@ const CHANNEL_OPTS = [
 
         <div class="so-field so-search-field">
           <label>Buscar SKU</label>
-          <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
+          <app-product-search [includeInactive]="true" placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
 
         @if (reportMode() === 'canal') {
@@ -723,9 +723,12 @@ export class ComercialSellOutComponent {
   }
   applyCells() { this.slicerOpen.set(false); this.generate(); }
 
-  /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera. */
+  /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera.
+   *  Al elegir un SKU específico ponemos Promos en "Todo" — el usuario pidió ESE producto, así que
+   *  no debe esconderlo el filtro default "Sin promos" si resulta ser un marcador de promo ($0.01). */
   onProductPick(hit: ProductHit | null): void {
     this.search.set(hit ? (hit.sku || hit.label) : '');
+    if (hit && this.promo() === 'sin') this.promo.set('todo');
     this.generate();
   }
 
