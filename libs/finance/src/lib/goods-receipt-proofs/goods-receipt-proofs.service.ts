@@ -114,6 +114,59 @@ export class GoodsReceiptProofsService {
     });
   }
 
+  /**
+   * FOTO-PRIMERO — dado el OCR de la **Aplica Orden Entrada** (folio + total), busca la(s)
+   * entrada(s) de Kepler que le corresponden, para enlazar sin elegir a mano. Match por
+   * FOLIO (tolerante a ceros: "8625"="0008625") ∪ por MONTO (±$2). Si `search` viene (pick
+   * manual), busca por proveedor/folio/OC. Prioriza las que aún NO tienen comprobante.
+   */
+  async matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(30, Math.max(1, Number(q.limit) || 15));
+    const folio = (q.folio || '').trim();
+    const total = q.total != null && isFinite(Number(q.total)) ? Number(q.total) : null;
+    const search = (q.search || '').trim();
+    if (!folio && total == null && !search) return { entradas: [] as any[] };
+    // candidatos de folio (igualdad tolerante a ceros; dedup filter+indexOf, NO Set-spread)
+    const cands: string[] = [];
+    if (folio) {
+      const stripped = folio.replace(/^0+/, '') || folio;
+      const forms = [folio, stripped, stripped.padStart(6, '0'), stripped.padStart(7, '0'), stripped.padStart(8, '0')];
+      for (const v of forms) if (v && cands.indexOf(v) < 0) cands.push(v);
+    }
+    return this.tk.run(async (trx) => {
+      const dep = trx('finance.goods_receipt_proofs')
+        .select('sucursal', 'folio').count('* as n')
+        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .groupBy('sucursal', 'folio').as('d');
+      const sel = () => trx('analytics.erp_goods_receipts as c')
+        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+        .where('c.tenant_id', tenantId)
+        .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
+          'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
+          trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
+          trx.raw('d.last_status AS deposit_status'));
+      const order = (qb: any) => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(limit);
+      let rows: any[] = [];
+      if (search) {
+        const b = sel();
+        applySmartSearch(b, search, { columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'], numeric: ['c.monto'] });
+        rows = await order(b);
+      } else {
+        // FOLIO primero (preciso, evita falsos positivos). Solo si NO hay match por folio, cae a MONTO (±$2).
+        if (cands.length) rows = await order(sel().whereIn('c.folio', cands));
+        if (!rows.length && total != null) rows = await order(sel().whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]));
+      }
+      const entradas = rows.map((r: any) => ({
+        ...r, monto: Number(r.monto), monto_match: false,
+        folio_match: cands.length ? cands.indexOf(String(r.folio).trim()) >= 0 : false,
+        total_match: total != null ? Math.abs(Number(r.monto) - total) <= 2 : false,
+      }));
+      return { entradas };
+    });
+  }
+
   /** Sube UN archivo (remisión/factura/evidencia) a Cloudinary. Imagen o PDF. */
   async uploadFile(dataUri: string, role = 'remision'): Promise<ReceiptFile> {
     const tenantId = this.tenantCtx.requireTenantId();

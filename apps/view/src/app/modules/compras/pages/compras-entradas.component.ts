@@ -56,6 +56,8 @@ interface AttachFile {
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio, OC, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
+        <div class="cb-field"><label>&nbsp;</label>
+          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Subí la foto y se enlaza sola a la entrada"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Adjuntar por foto</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -111,17 +113,44 @@ interface AttachFile {
     </div>
 
     <!-- Diálogo: adjuntar remisión + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar remisión / factura">
-      @if (attachTarget(); as t) {
-        <div class="cb-form">
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes por foto' : 'Adjuntar comprobantes de la entrada'">
+      <div class="cb-form">
+        @if (attachTarget(); as t) {
           <div class="cb-cobro">
             <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
             <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
             <div class="ta-r"><span class="cb-lbl">Valor de la entrada</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
+            @if (photoFirst()) { <button pButton type="button" size="small" text (click)="unlinkEntrada()" title="Cambiar la entrada enlazada"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Cambiar</span></button> }
           </div>
+        } @else {
+          <div class="cb-link">
+            @if (matching()) {
+              <span class="cb-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando la entrada…</span>
+            } @else if (matchCandidates() === null) {
+              <p class="cb-link-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> Subí primero la <strong>Aplica Orden Entrada</strong> (la ★): leo su folio y la enlazo sola. Si no, la buscás abajo.</p>
+            } @else {
+              <div class="cb-link-head">
+                @if (matchCandidates()!.length) { {{ matchCandidates()!.length }} entrada(s) posible(s) — elegí la correcta: }
+                @else { No la reconocí automáticamente — buscala por folio o proveedor: }
+              </div>
+              <div class="cb-link-search">
+                <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
+                <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
+              </div>
+              @for (e of matchCandidates()!; track e.sucursal + '/' + e.folio) {
+                <button type="button" class="cb-link-cand" (click)="pickEntrada(e)">
+                  <span class="mono">{{ e.sucursal }}/{{ e.folio }}</span>
+                  <span class="cb-link-prov">{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                  <span class="cb-link-monto">{{ money(e.monto) }}</span>
+                  @if (e.deposits > 0) { <span class="cb-link-has" title="Ya tiene comprobante">ya tiene</span> }
+                </button>
+              }
+            }
+          </div>
+        }
 
-          <div class="cb-f cb-file">
-            <span>Fotos de la recepción (remisión/factura, vale, orden de entrada, ticket…) * <em class="cb-auto">agregá 3–4; se almacenan solas y la marcada ★ se lee con OCR</em></span>
+        <div class="cb-f cb-file">
+          <span>Fotos de la recepción (1ª = Aplica Orden Entrada, luego remisión/factura, vale, ticket…) * <em class="cb-auto">la ★ se lee con OCR y enlaza; agregá 3–4</em></span>
             <div class="cb-pick">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
                 <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
@@ -186,9 +215,8 @@ interface AttachFile {
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || !attachTarget()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         </ng-template>
-      }
     </p-dialog>
 
     <!-- Diálogo: rechazo -->
@@ -399,6 +427,17 @@ interface AttachFile {
     .cb-file-retry { border: none; background: transparent; cursor: pointer; color: var(--bad-fg); padding: .1rem .2rem; }
     .cb-file-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .cb-file-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
+    /* foto-primero: enlace de la entrada por OCR / búsqueda manual */
+    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-link-hint { margin: 0; font-size: .82rem; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; }
+    .cb-link-head { font-size: .82rem; font-weight: 600; color: var(--text-main); }
+    .cb-link-search { display: flex; gap: .4rem; }
+    .cb-link-search input { flex: 1 1 auto; }
+    .cb-link-cand { display: flex; align-items: center; gap: .7rem; width: 100%; text-align: left; padding: .45rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--card-bg); cursor: pointer; font-size: .82rem; }
+    .cb-link-cand:hover { border-color: var(--action); }
+    .cb-link-prov { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
+    .cb-link-monto { font-family: var(--font-mono); color: var(--text-main); }
+    .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -458,6 +497,11 @@ export class ComprasEntradasComponent {
   // attach dialog
   readonly showAttach = signal(false);
   readonly attachTarget = signal<EntradaRow | null>(null);
+  // foto-primero (como Cobranza): sin entrada preseleccionada; se enlaza por OCR de la Aplica Orden Entrada.
+  readonly photoFirst = signal(false);
+  readonly matching = signal(false);
+  readonly matchCandidates = signal<EntradaRow[] | null>(null); // null = aún no buscado; [] = buscado, sin match
+  manualSearch = '';
   readonly ocrLoading = signal(false);
   readonly ocrRun = signal(false);
   readonly attachError = signal<string>('');
@@ -517,13 +561,29 @@ export class ComprasEntradasComponent {
   }
 
   openAttach(c: EntradaRow) {
+    this.photoFirst.set(false);
     this.attachTarget.set(c);
+    this.resetAttach();
+    this.showAttach.set(true);
+  }
+
+  /** Foto-primero: sin entrada; se enlaza por el OCR de la Aplica Orden Entrada (o manual). */
+  openAttachPhotoFirst() {
+    this.photoFirst.set(true);
+    this.attachTarget.set(null);
+    this.resetAttach();
+    this.showAttach.set(true);
+  }
+
+  private resetAttach() {
     this.attachFiles.set([]);
     this.ocrForm = {};
     this.ocrRun.set(false);
     this.ocrLoading.set(false);
+    this.matching.set(false);
+    this.matchCandidates.set(null);
+    this.manualSearch = '';
     this.attachError.set('');
-    this.showAttach.set(true);
   }
 
   /** Multi-archivo: acumula todas las fotos elegidas/tomadas (lo normal son 3–4). */
@@ -541,11 +601,14 @@ export class ComprasEntradasComponent {
     reader.onload = () => {
       const dataUri = String(reader.result || '');
       const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
-      const hasRemision = this.attachFiles().some((f) => f.role === 'remision');
-      const noPrimary = !this.attachFiles().some((f) => f.primary);
+      const files = this.attachFiles();
+      const isFirst = files.length === 0;
+      const hasRemision = files.some((f) => f.role === 'remision');
+      const noPrimary = !files.some((f) => f.primary);
       const af: AttachFile = {
         id: ++this.fileSeq, name: file.name, dataUri, kind,
-        role: hasRemision ? 'evidencia' : 'remision', // la 1ª = remisión (y ★ para OCR)
+        // la 1ª foto = Aplica Orden Entrada (★, se lee con OCR y ENLAZA); luego remisión; luego evidencia.
+        role: isFirst ? 'orden_entrada' : (hasRemision ? 'evidencia' : 'remision'),
         uploaded: null, uploading: false, failed: false, primary: noPrimary,
       };
       this.attachFiles.update((l) => l.concat(af));
@@ -592,11 +655,40 @@ export class ComprasEntradasComponent {
     this.ocrLoading.set(true);
     this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); },
+        next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); this.afterOcrMatch(); },
         error: () => { this.ocrLoading.set(false); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
       });
   }
   runOcr() { const p = this.attachFiles().find((f) => f.primary); if (p) this.runOcrFor(p.dataUri); }
+
+  /** Tras leer la Aplica Orden Entrada (★), enlaza la entrada por folio/total (solo foto-primero). */
+  private afterOcrMatch() {
+    if (!this.photoFirst() || this.attachTarget()) return;
+    this.matching.set(true);
+    this.svc.matchByOcr({ folio: this.ocrForm.folio || undefined, total: this.ocrForm.total ?? undefined, fecha: this.ocrForm.fecha || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.matching.set(false);
+          const e = res.entradas || [];
+          if (e.length === 1) { this.attachTarget.set(e[0]); this.matchCandidates.set(null); }
+          else this.matchCandidates.set(e); // 0 o varias → el usuario elige/busca
+        },
+        error: () => { this.matching.set(false); this.matchCandidates.set([]); },
+      });
+  }
+  runManualSearch() {
+    const s = (this.manualSearch || '').trim();
+    if (!s) return;
+    this.matching.set(true);
+    this.svc.matchByOcr({ search: s }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => { this.matching.set(false); this.matchCandidates.set(res.entradas || []); },
+        error: () => { this.matching.set(false); this.matchCandidates.set([]); },
+      });
+  }
+  pickEntrada(e: EntradaRow) { this.attachTarget.set(e); this.matchCandidates.set(null); }
+  unlinkEntrada() { this.attachTarget.set(null); if (this.ocrRun()) this.afterOcrMatch(); else this.matchCandidates.set(null); }
 
   /** Cuadra si el total O el subtotal de la remisión ≈ el valor de la entrada. */
   matchState(): boolean | null {

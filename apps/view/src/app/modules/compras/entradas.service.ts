@@ -118,6 +118,15 @@ export class EntradasService {
   ocr(file_base64: string): Observable<RemisionOcr> {
     return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64 });
   }
+  /** FOTO-PRIMERO: enlaza por OCR de la Aplica Orden Entrada (folio/total) o busca manual. */
+  matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string }): Observable<{ entradas: EntradaRow[] }> {
+    let p = new HttpParams();
+    if (q.folio) p = p.set('folio', q.folio);
+    if (q.total != null) p = p.set('total', String(q.total));
+    if (q.fecha) p = p.set('fecha', q.fecha);
+    if (q.search) p = p.set('search', q.search);
+    return this.http.get<{ entradas: EntradaRow[] }>(`${this.base}/match`, { params: p });
+  }
   /** Sube la remisión a Cloudinary y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'remision'): Observable<ProofFile> {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });

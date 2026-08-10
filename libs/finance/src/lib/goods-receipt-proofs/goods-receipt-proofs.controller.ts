@@ -33,6 +33,13 @@ export class GoodsReceiptProofsController {
     return this.svc.listReceipts(q);
   }
 
+  @Get('match')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'FOTO-PRIMERO: dado el OCR de la Aplica Orden Entrada (folio/total) o un texto, devuelve las entradas candidatas para enlazar la evidencia.' })
+  match(@Query('folio') folio?: string, @Query('total') total?: string, @Query('fecha') fecha?: string, @Query('search') search?: string) {
+    return this.svc.matchByOcr({ folio, total: total ? Number(total) : undefined, fecha, search });
+  }
+
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas.' })
