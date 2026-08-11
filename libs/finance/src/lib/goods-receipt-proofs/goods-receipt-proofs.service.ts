@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService, CloudinaryService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
 
@@ -18,7 +19,18 @@ export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'vale', 'orden_entrada
 export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
 const TOLERANCIA = 1.0; // pesos: cuadra si el total (o subtotal) de la remisión ≈ el valor Kepler
 
-export interface ReceiptFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ReceiptFile {
+  role: string; url: string; public_id?: string; kind?: string; name?: string;
+  // Por-archivo (RE.5.2): hash del contenido (anti-hoja-duplicada) + OCR propio (cada hoja se lee).
+  sha256?: string;
+  ocr_folio?: string | null;
+  ocr_total?: number | null;
+  ocr_fecha?: string | null;
+  ocr_rfc?: string | null;
+}
+
+/** Coincidencia de duplicado (misma hoja por hash, o folio ya subido). */
+export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
 
 export interface ListReceiptsQuery {
   estado?: 'pendiente' | 'con_comprobante' | 'validado' | string;
@@ -181,17 +193,69 @@ export class GoodsReceiptProofsService {
     }
   }
 
-  /** Corre OCR sobre la remisión/factura (imagen/PDF). Preview, no guarda. */
-  async runOcr(dataUri: string): Promise<RemisionFields & { ocr_status: string }> {
+  /**
+   * Corre OCR sobre CUALQUIER hoja (imagen/PDF) — ahora cada archivo se lee, no solo la ★.
+   * Además detecta DUPLICADOS: la misma hoja (hash de contenido) o un folio de remisión/factura
+   * ya subido antes. Preview, no guarda. `role` afina el dedup de folio (solo remisión/factura).
+   */
+  async runOcr(dataUri: string, role?: string): Promise<RemisionFields & { ocr_status: string; sha256: string; duplicate: DuplicateHit | null }> {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
+    const sha256 = createHash('sha256').update(base64).digest('hex');
+    let fields: RemisionFields;
+    let ocr_status: string;
     if (!process.env.ANTHROPIC_API_KEY) {
-      return { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null, ocr_status: 'sin_key' };
+      fields = { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null };
+      ocr_status = 'sin_key';
+    } else {
+      fields = await this.ocr.extractRemision(base64, mediaType);
+      const any = fields.total != null || fields.folio || fields.proveedor || fields.rfc;
+      ocr_status = any ? 'ok' : 'ilegible';
     }
-    const fields = await this.ocr.extractRemision(base64, mediaType);
-    const any = fields.total != null || fields.folio || fields.proveedor || fields.rfc;
-    return { ...fields, ocr_status: any ? 'ok' : 'ilegible' };
+    // El dedup por FOLIO aplica al documento del proveedor (remisión/factura); el de HASH, a cualquier hoja.
+    const checkFolio = !role || role === 'remision' || role === 'factura';
+    const duplicate = await this.findDuplicate({ sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc });
+    return { ...fields, ocr_status, sha256, duplicate };
+  }
+
+  /**
+   * ¿Esta hoja ya se subió? Por HASH de contenido (misma imagen/PDF) o por FOLIO de
+   * remisión/factura ya capturado. Devuelve la entrada donde ya vive, o null.
+   */
+  private async findDuplicate(q: { sha256?: string | null; folio?: string | null; rfc?: string | null }): Promise<DuplicateHit | null> {
+    const sha = (q.sha256 || '').trim();
+    const folio = (q.folio || '').trim().toLowerCase();
+    const rfc = (q.rfc || '').trim().toLowerCase();
+    const folioOk = folio.length >= 3 && /[^0]/.test(folio); // evita folios triviales ("1", "000")
+    if (!sha && !folioOk) return null;
+    return this.tk.run(async (trx) => {
+      if (sha) {
+        const hit = await trx.raw(
+          `SELECT sucursal, folio, proveedor_nombre
+             FROM finance.goods_receipt_proofs
+            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
+            ORDER BY created_at DESC LIMIT 1`, [sha]);
+        const r = hit.rows?.[0];
+        if (r) return { reason: 'file' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre };
+      }
+      if (folioOk) {
+        const hit = await trx.raw(
+          `SELECT sucursal, folio, proveedor_nombre
+             FROM finance.goods_receipt_proofs p
+            WHERE (
+                    lower(btrim(COALESCE(p.ocr_folio,''))) = ?
+                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e
+                             WHERE (e->>'role') IN ('remision','factura')
+                               AND lower(btrim(COALESCE(e->>'ocr_folio',''))) = ?)
+                  )
+              AND ( ? = '' OR lower(btrim(COALESCE(p.proveedor_rfc,''))) IN ('', ?) )
+            ORDER BY p.created_at DESC LIMIT 1`, [folio, folio, rfc, rfc]);
+        const r = hit.rows?.[0];
+        if (r) return { reason: 'folio' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre };
+      }
+      return null;
+    });
   }
 
   /** Crea el registro de evidencia ligado a la entrada Kepler. Calcula `monto_match`. */
@@ -202,6 +266,22 @@ export class GoodsReceiptProofsService {
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
     if (!sucursal || !folio) throw new BadRequestException('sucursal y folio de la entrada requeridos');
     if (!files.length) throw new BadRequestException('se requiere al menos la remisión/factura');
+
+    // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen o folio ya capturado).
+    for (const f of files) {
+      const dup = await this.findDuplicate({
+        sha256: f.sha256,
+        folio: f.role === 'remision' || f.role === 'factura' ? f.ocr_folio : null,
+        rfc: f.ocr_rfc,
+      });
+      if (dup) {
+        throw new BadRequestException(
+          dup.reason === 'file'
+            ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quitala.`
+            : `El folio ${f.ocr_folio} ya se subió (entrada ${dup.sucursal}/${dup.folio}${dup.proveedor ? ' · ' + dup.proveedor : ''}). Quitá esa hoja.`,
+        );
+      }
+    }
 
     return this.tk.run(async (trx) => {
       const entrada = await trx('analytics.erp_goods_receipts')
