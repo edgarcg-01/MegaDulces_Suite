@@ -17,14 +17,22 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit } from '../entradas.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
   id: number; name: string; dataUri: string; kind: 'image' | 'pdf'; role: string;
   uploaded: ProofFile | null; uploading: boolean; failed: boolean;
-  primary: boolean; // la que se lee con OCR (remisión/factura con el total)
+  primary: boolean; // la ★ = la que además ENLAZA la entrada (folio/total). Ahora TODAS se leen con OCR.
+  sha256?: string;           // hash de contenido (anti-hoja-duplicada)
+  ocrLoading?: boolean;      // OCR de ESTA hoja en curso
+  ocrDone?: boolean;
+  ocrFolio?: string | null;  // OCR por-archivo (cada hoja se lee)
+  ocrTotal?: number | null;
+  ocrFecha?: string | null;
+  ocrRfc?: string | null;
+  dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
 }
 
 /**
@@ -130,7 +138,7 @@ interface AttachFile {
           }
           @if (ordenFile(); as f) {
             <div class="cb-files">
-              <div class="cb-file-card primary">
+              <div class="cb-file-card primary" [class.dup]="!!f.dup">
                 <div class="cb-file-thumb">
                   @if (f.kind === 'image') { <img [src]="f.uploaded?.url || f.dataUri" [alt]="f.name" /> }
                   @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
@@ -143,6 +151,7 @@ interface AttachFile {
                     @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada — ya no vive en el teléfono"><i class="pi pi-check-circle"></i></span> }
                     @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                   </div>
+                  @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
                 </div>
                 <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
               </div>
@@ -217,7 +226,7 @@ interface AttachFile {
           @if (attachFiles().length) {
             <div class="cb-files">
               @for (f of attachFiles(); track f.id) {
-                <div class="cb-file-card" [class.primary]="f.primary">
+                <div class="cb-file-card" [class.primary]="f.primary" [class.dup]="!!f.dup">
                   <div class="cb-file-thumb">
                     @if (f.kind === 'image') { <img [src]="f.uploaded?.url || f.dataUri" [alt]="f.name" /> }
                     @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
@@ -228,11 +237,14 @@ interface AttachFile {
                       <select class="cb-role" [ngModel]="f.role" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Tipo de ' + f.name">
                         @for (r of roleOpts; track r.value) { <option [value]="r.value">{{ r.label }}</option> }
                       </select>
-                      <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Se lee con OCR' : 'Leer esta con OCR'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
+                      <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Enlaza la entrada' : 'Usar esta para enlazar'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
+                      @if (f.ocrLoading) { <span class="cb-file-stat" title="Leyendo con OCR…"><i class="pi pi-spin pi-spinner"></i></span> }
+                      @else if (f.ocrFolio && !f.dup) { <span class="cb-file-folio" title="Folio leído por OCR">#{{ f.ocrFolio }}</span> }
                       @if (f.uploading) { <span class="cb-file-stat" title="Almacenando…"><i class="pi pi-spin pi-spinner"></i></span> }
                       @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada — ya no vive en el teléfono"><i class="pi pi-check-circle"></i></span> }
                       @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                     </div>
+                    @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
                   </div>
                   <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
                 </div>
@@ -268,6 +280,7 @@ interface AttachFile {
               <label class="cb-f"><span>IVA</span><p-inputnumber [(ngModel)]="ocrForm.iva" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
             </div>
           }
+          @if (dupFiles().length) { <div class="cb-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupFiles().length }} hoja(s) duplicada(s) (misma imagen o folio ya subido) — quitala(s) para guardar.</div> }
           @if (attachFiles().length && missingRoles().length) { <div class="cb-missing"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Faltan para completar: {{ missingRoles().join(' · ') }}</div> }
         }
         @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
@@ -282,7 +295,7 @@ interface AttachFile {
           } @else {
             <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
           }
-          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || !attachTarget() || missingRoles().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || ocrBusy() || dupFiles().length > 0 || !attachTarget() || missingRoles().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         }
       </ng-template>
     </p-dialog>
@@ -529,6 +542,11 @@ interface AttachFile {
     .cb-role-fixed .pi { font-size: .8rem; }
     .cb-addmore { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding-top: .1rem; }
     .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
+    /* OCR por-archivo + duplicados */
+    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
+    .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
+    .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg, #fdecea); border: 1px solid var(--bad-border, #f5c2c0); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -581,9 +599,11 @@ export class ComprasEntradasComponent {
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
   readonly estadoSel = signal<string>('pendiente');
-  // Validación restringida: permiso especial COMPRAS_VALIDAR (o god-mode admin).
+  // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
+  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
-  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_VALIDAR] === true);
+  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }];
   search = '';
@@ -616,6 +636,9 @@ export class ComprasEntradasComponent {
     const files = this.attachFiles();
     return this.REQUIRED_ROLES.filter((r) => !files.some((f) => r.keys.indexOf(f.role) >= 0)).map((r) => r.label);
   });
+  // Hojas duplicadas (misma imagen/PDF, o folio de remisión ya subido) → bloquean Guardar.
+  readonly dupFiles = computed(() => this.attachFiles().filter((f) => f.dup));
+  readonly ocrBusy = computed(() => this.attachFiles().some((f) => f.ocrLoading));
   private fileSeq = 0;
   ocrForm: Partial<RemisionOcr> = {};
   readonly roleOpts = [
@@ -723,25 +746,43 @@ export class ComprasEntradasComponent {
     let dataUri: string;
     try { dataUri = await this.fileToDataUri(file); }
     catch { this.attachError.set(`No se pudo leer "${file.name}".`); return; }
+    // Anti-hoja-duplicada (misma sesión): hash del contenido; si ya está en la lista, no la agrega.
+    const hash = await this.sha256Hex(dataUri.replace(/^data:[^,]*,/, ''));
+    if (hash && this.attachFiles().some((f) => f.sha256 === hash)) {
+      this.attachError.set(`"${file.name}" ya está en la lista (misma hoja).`);
+      return;
+    }
     const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
     const id = ++this.fileSeq;
-    let primary = false;
-    // Rol/primary se deciden DENTRO del update (atómico) para no colisionar si
-    // se agregan varias fotos a la vez: 1ª = Aplica Orden Entrada (★, se lee y ENLAZA),
-    // luego remisión, luego evidencia.
+    // Rol/primary atómico (ver arriba): 1ª = Aplica Orden Entrada (★, se lee y ENLAZA), luego remisión, luego evidencia.
     this.attachFiles.update((l) => {
       const isFirst = l.length === 0;
       const hasRemision = l.some((f) => f.role === 'remision');
-      primary = !l.some((f) => f.primary);
+      const primary = !l.some((f) => f.primary);
       const af: AttachFile = {
         id, name: file.name, dataUri, kind,
         role: isFirst ? 'orden_entrada' : (hasRemision ? 'evidencia' : 'remision'),
         uploaded: null, uploading: false, failed: false, primary,
+        sha256: hash || undefined, ocrLoading: true,
       };
       return l.concat(af);
     });
     this.uploadOne(id);
-    if (primary) this.runOcrFor(dataUri);
+    this.runFileOcr(id); // TODAS las hojas se leen con OCR (la ★ además enlaza la entrada)
+  }
+
+  /** SHA-256 hex del contenido (para el anti-duplicado del lado cliente). */
+  private async sha256Hex(text: string): Promise<string> {
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch { return ''; } // sin secure context: el dedup por hash lo cubre el server
+  }
+
+  /** Suelta el base64 solo cuando la hoja ya se subió Y se leyó (no la ★). Así no se retiene en el teléfono. */
+  private maybeDropBase64(id: number) {
+    const f = this.attachFiles().find((x) => x.id === id);
+    if (f && f.uploaded && f.ocrDone && !f.primary && f.dataUri) this.patch(id, { dataUri: '' });
   }
 
   /** Imagen → JPEG reducido (lado mayor ≤1920px, ~0.82) como data URI; el PDF se lee
@@ -783,14 +824,7 @@ export class ComprasEntradasComponent {
     this.patch(id, { uploading: true, failed: false });
     this.svc.uploadFile(af.dataUri, af.role).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (up) => {
-          const cur = this.attachFiles().find((f) => f.id === id);
-          const p: Partial<AttachFile> = { uploaded: up, uploading: false };
-          // Suelta el base64 apenas se sube (la miniatura pasa a leerse de Cloudinary):
-          // así la foto NO se retiene en el dispositivo. La ★ conserva el suyo para poder releer.
-          if (cur && !cur.primary) p.dataUri = '';
-          this.patch(id, p);
-        },
+        next: (up) => { this.patch(id, { uploaded: up, uploading: false }); this.maybeDropBase64(id); },
         error: () => this.patch(id, { uploading: false, failed: true }),
       });
   }
@@ -799,10 +833,17 @@ export class ComprasEntradasComponent {
 
   setPrimary(f: AttachFile) {
     this.attachFiles.update((l) => l.map((x) => ({ ...x, primary: x.id === f.id })));
-    this.runOcrFor(f.dataUri);
+    const cur = this.attachFiles().find((x) => x.id === f.id);
+    if (cur?.dataUri) { this.runFileOcr(f.id); }
+    else {
+      // base64 ya soltado: reusa el OCR por-archivo ya leído para el cuadre/enlace.
+      this.ocrForm = { folio: f.ocrFolio ?? null, total: f.ocrTotal ?? null, fecha: f.ocrFecha ?? null, rfc: f.ocrRfc ?? null, ocr_status: f.ocrDone ? 'ok' : 'ilegible' };
+      this.ocrRun.set(true); this.afterOcrMatch();
+    }
   }
 
   removeFile(f: AttachFile) {
+    this.attachError.set('');
     const wasPrimary = f.primary;
     this.attachFiles.update((l) => l.filter((x) => x.id !== f.id));
     if (wasPrimary) {
@@ -812,17 +853,43 @@ export class ComprasEntradasComponent {
     }
   }
 
-  /** OCR sobre la foto marcada ★ (la Aplica Orden Entrada con el total). */
-  private runOcrFor(dataUri: string) {
-    if (!dataUri) return; // ya se soltó de memoria (solo la ★ conserva su base64)
-    this.ocrLoading.set(true);
-    this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef))
+  /** OCR de UNA hoja: guarda su folio/total propio + detecta duplicado (misma hoja o folio ya
+   *  subido). Si es la ★, además alimenta el cuadre y enlaza la entrada (foto-primero). */
+  private runFileOcr(id: number) {
+    const f = this.attachFiles().find((x) => x.id === id);
+    if (!f) return;
+    if (!f.dataUri) { this.patch(id, { ocrLoading: false, ocrDone: true }); return; }
+    this.patch(id, { ocrLoading: true });
+    if (f.primary) this.ocrLoading.set(true);
+    this.svc.ocr(f.dataUri, f.role).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); this.afterOcrMatch(); },
-        error: () => { this.ocrLoading.set(false); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
+        next: (r) => {
+          this.patch(id, {
+            ocrLoading: false, ocrDone: true,
+            ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
+            sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
+          });
+          if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
+          const cur = this.attachFiles().find((x) => x.id === id);
+          if (cur?.primary) { this.ocrForm = { ...r }; this.ocrRun.set(true); this.ocrLoading.set(false); this.afterOcrMatch(); }
+          this.maybeDropBase64(id);
+        },
+        error: () => {
+          this.patch(id, { ocrLoading: false, ocrDone: true });
+          const cur = this.attachFiles().find((x) => x.id === id);
+          if (cur?.primary) { this.ocrLoading.set(false); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); }
+        },
       });
   }
-  runOcr() { const p = this.attachFiles().find((f) => f.primary); if (p) this.runOcrFor(p.dataUri); }
+  private dupMsg(name: string, d: DuplicateHit): string {
+    const where = `entrada ${d.sucursal}/${d.folio}${d.proveedor ? ' · ' + d.proveedor : ''}`;
+    return d.reason === 'file' ? `"${name}" ya se había subido (${where}). Quitala.` : `El folio de "${name}" ya se subió (${where}). Quitala.`;
+  }
+  dupText(f: AttachFile): string {
+    const d = f.dup; if (!d) return '';
+    return (d.reason === 'file' ? 'Misma hoja ya subida' : 'Folio ya subido') + ` · ${d.sucursal}/${d.folio}`;
+  }
+  runOcr() { const p = this.attachFiles().find((f) => f.primary); if (p && p.dataUri) this.runFileOcr(p.id); }
 
   /** Tras leer la Aplica Orden Entrada (★), enlaza la entrada por folio/total (solo foto-primero). */
   private afterOcrMatch() {
@@ -875,6 +942,7 @@ export class ComprasEntradasComponent {
     const t = this.attachTarget();
     const files = this.attachFiles();
     if (!t || !files.length) { this.attachError.set('Agregá al menos una foto.'); return; }
+    if (this.dupFiles().length) { this.attachError.set('Hay hojas duplicadas (misma imagen o folio ya subido). Quitalas para guardar.'); return; }
     if (this.missingRoles().length) { this.attachError.set('Faltan documentos obligatorios: ' + this.missingRoles().join(', ') + '.'); return; }
     this.attachError.set('');
     this.saving.set(true);
@@ -884,7 +952,11 @@ export class ComprasEntradasComponent {
       : this.svc.uploadFile(f.dataUri, f.role).pipe(map((up) => ({ f, up }))));
     forkJoin(uploads).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (results) => {
-        const proofFiles: ProofFile[] = results.map(({ f, up }) => ({ ...up, role: f.role, name: f.name }));
+        const proofFiles: ProofFile[] = results.map(({ f, up }) => ({
+          ...up, role: f.role, name: f.name,
+          // Por-archivo: hash (anti-dup) + su OCR propio (cada hoja se lee).
+          sha256: f.sha256, ocr_folio: f.ocrFolio ?? null, ocr_total: f.ocrTotal ?? null, ocr_fecha: f.ocrFecha ?? null, ocr_rfc: f.ocrRfc ?? null,
+        }));
         this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr: this.ocrRun() ? this.ocrForm : undefined })
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({

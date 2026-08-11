@@ -213,11 +213,39 @@ export enum Permission {
   RECONCILIATION_GESTIONAR = 'RECONCILIATION_GESTIONAR',
 
   // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
-  COMPRAS_VER = 'COMPRAS_VER',
-  COMPRAS_GESTIONAR = 'COMPRAS_GESTIONAR',
-  // Permiso especial: validar/rechazar la evidencia (remisión) de las órdenes de
-  // entrada. Restringido — NO lo incluye GESTIONAR (que no todos puedan validar).
-  COMPRAS_VALIDAR = 'COMPRAS_VALIDAR',
+  // Permiso INDIVIDUAL por submódulo de /compras (VER lee · GESTIONAR escribe).
+  // Pedido = existencia crítica + sugerido + workbook + asistente Thot + settings.
+  COMPRAS_PEDIDO_VER = 'COMPRAS_PEDIDO_VER',
+  COMPRAS_PEDIDO_GESTIONAR = 'COMPRAS_PEDIDO_GESTIONAR',
+  // Red de abasto (DRP): topología CEDIS→sucursal.
+  COMPRAS_RED_VER = 'COMPRAS_RED_VER',
+  COMPRAS_RED_GESTIONAR = 'COMPRAS_RED_GESTIONAR',
+  // Requisiciones (HITL): crear/aprobar/rechazar/ordenar/recibir.
+  COMPRAS_REQUISICIONES_VER = 'COMPRAS_REQUISICIONES_VER',
+  COMPRAS_REQUISICIONES_GESTIONAR = 'COMPRAS_REQUISICIONES_GESTIONAR',
+  // Órdenes de compra (OC) + recepciones (OE).
+  COMPRAS_ORDENES_VER = 'COMPRAS_ORDENES_VER',
+  COMPRAS_ORDENES_GESTIONAR = 'COMPRAS_ORDENES_GESTIONAR',
+  // Órdenes de entrada (recepción de mercancía) + evidencia/OCR. VALIDAR = permiso
+  // especial restringido para validar/rechazar la remisión (NO lo incluye GESTIONAR).
+  COMPRAS_ENTRADAS_VER = 'COMPRAS_ENTRADAS_VER',
+  COMPRAS_ENTRADAS_GESTIONAR = 'COMPRAS_ENTRADAS_GESTIONAR',
+  COMPRAS_ENTRADAS_VALIDAR = 'COMPRAS_ENTRADAS_VALIDAR',
+  // Análisis (solo lectura).
+  COMPRAS_360_VER = 'COMPRAS_360_VER',
+  COMPRAS_COSTO_NETO_VER = 'COMPRAS_COSTO_NETO_VER',
+  // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
+  COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
+  COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',
+  // Hallazgos de reabastecimiento (bandeja + scanner).
+  COMPRAS_HALLAZGOS_VER = 'COMPRAS_HALLAZGOS_VER',
+  COMPRAS_HALLAZGOS_GESTIONAR = 'COMPRAS_HALLAZGOS_GESTIONAR',
+  // Proveedores (lead time + mínimo en cajas + parámetros de pedido).
+  COMPRAS_PROVEEDORES_VER = 'COMPRAS_PROVEEDORES_VER',
+  COMPRAS_PROVEEDORES_GESTIONAR = 'COMPRAS_PROVEEDORES_GESTIONAR',
+  // Categorías de compra (normalización/fusión).
+  COMPRAS_CATEGORIAS_VER = 'COMPRAS_CATEGORIAS_VER',
+  COMPRAS_CATEGORIAS_GESTIONAR = 'COMPRAS_CATEGORIAS_GESTIONAR',
 
   // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
   // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.

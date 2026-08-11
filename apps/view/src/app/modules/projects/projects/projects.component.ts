@@ -107,7 +107,12 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-shopping-bag',
       route: '/compras',
       status: 'Activo',
-      anyOf: [Permission.COMPRAS_VER],
+      anyOf: [
+        Permission.COMPRAS_PEDIDO_VER, Permission.COMPRAS_RED_VER, Permission.COMPRAS_REQUISICIONES_VER,
+        Permission.COMPRAS_ORDENES_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER,
+        Permission.COMPRAS_COSTO_NETO_VER, Permission.COMPRAS_DESCUENTOS_VER, Permission.COMPRAS_HALLAZGOS_VER,
+        Permission.COMPRAS_PROVEEDORES_VER, Permission.COMPRAS_CATEGORIAS_VER,
+      ],
     },
     {
       id: 'televenta',

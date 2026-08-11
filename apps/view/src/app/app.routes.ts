@@ -420,7 +420,7 @@ export const routes: Routes = [
         // Fusiona las 3 vistas previas: pedido(que-toca) + compra-sugerida + existencia-critica.
         path: 'pedido',
         loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)],
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)],
         canDeactivate: [unsavedChangesGuard]
       },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
@@ -429,51 +429,51 @@ export const routes: Routes = [
       {
         path: 'asistente',
         loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_GESTIONAR)]
       },
       {
         path: 'requisiciones',
         loadComponent: () => import('./modules/compras/pages/compras-requisiciones.component').then(m => m.ComprasRequisicionesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_REQUISICIONES_VER)]
       },
       {
         path: 'hallazgos',
         loadComponent: () => import('./modules/compras/pages/compras-hallazgos.component').then(m => m.ComprasHallazgosComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
         path: 'proveedores',
         loadComponent: () => import('./modules/compras/pages/compras-proveedores.component').then(m => m.ComprasProveedoresComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]
       },
       {
         path: 'red',
         loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]
       },
       {
         // CC ext — comprobantes de orden de entrada (remisión/factura + OCR sobre X-A-40).
         path: 'entradas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',
         loadComponent: () => import('./modules/compras/pages/compras-descuentos.component').then(m => m.ComprasDescuentosComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_DESCUENTOS_VER)]
       },
       {
         // CXP.3 — "Compras 360" (el Excel): recepción/factura + OC + ajuste + neto en un grid.
         path: 'compras-360',
         loadComponent: () => import('./modules/compras/pages/compras-compras360.component').then(m => m.ComprasCompras360Component),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_360_VER)]
       },
       {
         // CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo.
         path: 'costo-neto',
         loadComponent: () => import('./modules/compras/pages/compras-costo-neto.component').then(m => m.ComprasCostoNetoComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_NETO_VER)]
       },
       {
         // CXP.7 — "Cuadre y deuda por proveedor" SE MUDÓ a Finanzas (CxP/Tesorería). Redirects
@@ -490,22 +490,22 @@ export const routes: Routes = [
       {
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_CATEGORIAS_VER)]
       },
       {
         path: 'requisiciones/:id',
         loadComponent: () => import('./modules/compras/pages/compras-requisicion-detalle.component').then(m => m.ComprasRequisicionDetalleComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_REQUISICIONES_VER)]
       },
       {
         path: 'ordenes',
         loadComponent: () => import('./modules/compras/pages/compras-ordenes.component').then(m => m.ComprasOrdenesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ORDENES_VER)]
       },
       {
         path: 'ordenes/:id',
         loadComponent: () => import('./modules/compras/pages/compras-orden-detalle.component').then(m => m.ComprasOrdenDetalleComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ORDENES_VER)]
       },
     ]
   },

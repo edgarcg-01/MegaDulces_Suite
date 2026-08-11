@@ -192,7 +192,17 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-shopping-bag',
         route: '/compras',
         modules: [
-          { id: 'compras', label: 'Compras', route: '/compras', view: [Permission.COMPRAS_VER], manage: [Permission.COMPRAS_GESTIONAR, Permission.COMPRAS_VALIDAR] },
+          { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
+          { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
+          { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
+          { id: 'compras-ordenes', label: 'Órdenes de compra', route: '/compras/ordenes', view: [Permission.COMPRAS_ORDENES_VER], manage: [Permission.COMPRAS_ORDENES_GESTIONAR] },
+          { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
+          { id: 'compras-360', label: 'Compras 360', route: '/compras/compras-360', view: [Permission.COMPRAS_360_VER], manage: [] },
+          { id: 'compras-costo-neto', label: 'Costo neto', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
+          { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
+          { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
+          { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
+          { id: 'compras-categorias', label: 'Categorías', route: '/compras/categorias', view: [Permission.COMPRAS_CATEGORIAS_VER], manage: [Permission.COMPRAS_CATEGORIAS_GESTIONAR] },
         ],
       },
       {

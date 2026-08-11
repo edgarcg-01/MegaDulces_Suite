@@ -127,9 +127,28 @@ exports.seed = async function (knex) {
     // Supervisor de Movimientos (ADR-029) — cuadre caja/inventario
     RECONCILIATION_VER: true,
     RECONCILIATION_GESTIONAR: true,
-    // Compras / Reabastecimiento (Fase RA — ADR-030)
-    COMPRAS_VER: true,
-    COMPRAS_GESTIONAR: true,
+    // Compras / Reabastecimiento (Fase RA — ADR-030) — permiso individual por submódulo
+    COMPRAS_PEDIDO_VER: true,
+    COMPRAS_PEDIDO_GESTIONAR: true,
+    COMPRAS_RED_VER: true,
+    COMPRAS_RED_GESTIONAR: true,
+    COMPRAS_REQUISICIONES_VER: true,
+    COMPRAS_REQUISICIONES_GESTIONAR: true,
+    COMPRAS_ORDENES_VER: true,
+    COMPRAS_ORDENES_GESTIONAR: true,
+    COMPRAS_ENTRADAS_VER: true,
+    COMPRAS_ENTRADAS_GESTIONAR: true,
+    COMPRAS_ENTRADAS_VALIDAR: true,
+    COMPRAS_360_VER: true,
+    COMPRAS_COSTO_NETO_VER: true,
+    COMPRAS_DESCUENTOS_VER: true,
+    COMPRAS_DESCUENTOS_GESTIONAR: true,
+    COMPRAS_HALLAZGOS_VER: true,
+    COMPRAS_HALLAZGOS_GESTIONAR: true,
+    COMPRAS_PROVEEDORES_VER: true,
+    COMPRAS_PROVEEDORES_GESTIONAR: true,
+    COMPRAS_CATEGORIAS_VER: true,
+    COMPRAS_CATEGORIAS_GESTIONAR: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -176,9 +195,29 @@ exports.seed = async function (knex) {
       // Supervisor de Movimientos (ADR-029) — igual que backfill 20260707190000
       RECONCILIATION_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
       RECONCILIATION_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
-      // Compras / Reabastecimiento (Fase RA — ADR-030) — igual que backfill 20260708120100
-      COMPRAS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
-      COMPRAS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      // Compras / Reabastecimiento (Fase RA — ADR-030) — permiso individual por submódulo.
+      // VER deriva de INVENTORY_VER; GESTIONAR/VALIDAR de INVENTORY_SUPERVISAR.
+      COMPRAS_PEDIDO_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_PEDIDO_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_RED_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_RED_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_REQUISICIONES_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_REQUISICIONES_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_ORDENES_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_ORDENES_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_ENTRADAS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_ENTRADAS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_ENTRADAS_VALIDAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_360_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_COSTO_NETO_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_DESCUENTOS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_DESCUENTOS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_HALLAZGOS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_HALLAZGOS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_PROVEEDORES_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_PROVEEDORES_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      COMPRAS_CATEGORIAS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_CATEGORIAS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
       // Carga / Movimientos (features propias) — igual que backfill 20260717122000
       COMMERCIAL_CARGA_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
       COMMERCIAL_CARGA_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_FULFILL,

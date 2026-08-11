@@ -190,7 +190,7 @@ export class ComprasOrdenDetalleComponent implements OnInit {
   recvOpen = signal(false);
   recvLines = signal<RecvLine[]>([]);
   recvNotes = '';
-  canManage = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMPRAS_GESTIONAR];
+  canManage = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMPRAS_ORDENES_GESTIONAR];
   private id = '';
 
   ngOnInit(): void { this.id = this.route.snapshot.paramMap.get('id') || ''; this.load(); }
