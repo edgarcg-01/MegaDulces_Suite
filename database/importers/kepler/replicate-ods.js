@@ -70,26 +70,34 @@ function mapType(dt) {
 }
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 
-/** Descubre la PK de md.<table> desde la primera sucursal que responda (metadata, sub-segundo). */
+/** Descubre la PK de cada md.<table> con fallback por-tabla entre sucursales (una tabla que
+ * no vive en la suc 00 —p.ej. POS/pólizas— se busca en la siguiente que la tenga). */
 async function discoverBranchMeta(tables) {
+  const clients = [];
   for (const b of BRANCHES) {
     const c = new Client({ connectionString: b.url, ...CONN });
-    try { await c.connect(); } catch { continue; }
-    try {
-      const pk = {};
-      for (const t of tables) {
-        const r = await c.query(`
-          SELECT a.attname FROM pg_index i
-          JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
-          WHERE i.indrelid=('md.'||$1)::regclass AND i.indisprimary
-          ORDER BY array_position(i.indkey, a.attnum)`, [t]).catch(() => ({ rows: [] }));
-        pk[t] = r.rows.map((x) => x.attname);
-      }
-      console.log(`  PK descubierta desde sucursal ${b.code}`);
-      return pk;
-    } finally { await c.end(); }
+    try { await c.connect(); clients.push({ code: b.code, c }); } catch { /* suc caída — skip */ }
   }
-  throw new Error('ninguna sucursal respondió para descubrir PK (usa KP_ODS_PK si es necesario)');
+  if (!clients.length) throw new Error('ninguna sucursal conecta para descubrir PK');
+  console.log(`  sucursales conectadas para PK: ${clients.map((x) => x.code).join(', ')}`);
+  const pk = {};
+  const PK_SQL = `
+    SELECT a.attname FROM pg_index i
+    JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
+    WHERE i.indrelid=('md.'||$1)::regclass AND i.indisprimary
+    ORDER BY array_position(i.indkey, a.attnum)`;
+  try {
+    for (const t of tables) {
+      pk[t] = [];
+      for (const { c } of clients) {
+        const reg = await c.query(`SELECT to_regclass('md.'||$1) r`, [t]).then((r) => r.rows[0].r).catch(() => null);
+        if (!reg) continue;
+        const r = await c.query(PK_SQL, [t]).catch(() => ({ rows: [] }));
+        if (r.rows.length) { pk[t] = r.rows.map((x) => x.attname); break; }
+      }
+    }
+  } finally { for (const { c } of clients) await c.end().catch(() => {}); }
+  return pk;
 }
 
 async function ensureControl(src) {
