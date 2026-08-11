@@ -6,7 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TableModule } from 'primeng/table';
-import { ComercialService, RoutePromoResult } from '../comercial.service';
+import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial.service';
 
 /**
  * RR-PROMO — Agente AI de incentivos de ruta. Pegás el ENUNCIADO de la mecánica en lenguaje
@@ -34,14 +34,22 @@ import { ComercialService, RoutePromoResult } from '../comercial.service';
               placeholder='Ej: RD: $6.00 por cada venta de choyitas 14 gr./40 cód:97192, solo participan clientes distintos a los que se les vendió una o más piezas'></textarea>
             <div class="rp-controls">
               <div class="rp-field">
-                <label>Mes</label>
-                <p-datepicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true" appendTo="body" />
+                <label>Periodo <span class="rp-field-aux">override</span></label>
+                <p-datepicker [ngModel]="monthDate" (ngModelChange)="monthDate = $event; dateTouched.set(true)" view="month" dateFormat="MM yy" [showIcon]="true" appendTo="body" />
               </div>
               <button pButton size="small" [loading]="loading()" (click)="run()" [disabled]="!enunciado.trim()">
                 <span class="p-button-icon p-button-icon-left pi pi-calculator" aria-hidden="true"></span>
                 <span class="p-button-label">Calcular</span>
               </button>
             </div>
+            <p class="rp-datehint">
+              @if (dateTouched()) {
+                <i class="pi pi-lock" aria-hidden="true"></i> Forzando el mes elegido.
+                <button type="button" class="rp-link" (click)="dateTouched.set(false)">Usar la fecha del enunciado</button>
+              } @else {
+                <i class="pi pi-sparkles" aria-hidden="true"></i> La <b>vigencia se lee del enunciado</b> (ej "del 1 al 15 de agosto"). Elegí un mes solo si querés forzarla.
+              }
+            </p>
           </div>
 
           @if (res(); as r) {
@@ -51,7 +59,7 @@ import { ComercialService, RoutePromoResult } from '../comercial.service';
                 <span class="rp-chip"><b>{{ r.product?.nombre || r.rule.producto_texto || '—' }}</b>@if (r.product) { · {{ r.product.sku }} }</span>
                 <span class="rp-chip">\${{ r.rule.rate | number:'1.2-2' }} / {{ r.base_label.toLowerCase() }}</span>
                 <span class="rp-chip">{{ r.rule.canal === 'ruta' ? 'Ruta (RD)' : 'Todos los canales' }}</span>
-                <span class="rp-chip rp-chip-mut">{{ r.period.label }}</span>
+                <span class="rp-chip rp-chip-mut">@if (r.rule.date_from) { <i class="pi pi-sparkles" title="Detectado del enunciado" aria-hidden="true"></i> }{{ r.period.label }}</span>
               </div>
               @if (r.rule.supuestos) { <p class="rp-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ r.rule.supuestos }}</p> }
 
@@ -133,6 +141,12 @@ import { ComercialService, RoutePromoResult } from '../comercial.service';
     .rp-controls { display:flex; align-items:flex-end; gap:1rem; }
     .rp-field { display:flex; flex-direction:column; gap:.3rem; }
     .rp-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
+    .rp-field-aux { font-weight:500; text-transform:none; letter-spacing:0; color:var(--text-faint); font-size:.66rem; }
+    .rp-datehint { margin:0; font-size:.76rem; color:var(--text-muted); display:flex; align-items:baseline; gap:.35rem; flex-wrap:wrap; }
+    .rp-datehint .pi-sparkles { color:var(--action); }
+    .rp-datehint b { color:var(--text-main); font-weight:600; }
+    .rp-link { background:none; border:none; padding:0; color:var(--action); font-weight:600; font-size:.76rem; cursor:pointer; text-decoration:underline; }
+    .rp-chip .pi-sparkles { color:var(--action); font-size:.72rem; margin-right:.15rem; }
     .rp-rule { display:flex; flex-direction:column; gap:.5rem; }
     .rp-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .rp-chip { font-size:.78rem; padding:.2rem .55rem; border-radius:var(--r-sm); background:var(--layout-bg);
@@ -174,8 +188,10 @@ export class RoutePromoComponent {
   readonly err = signal<string | null>(null);
   enunciado = '';
   pickSku: string | null = null;
-  private lastBody: { enunciado: string; from: string; to: string; sku?: string } | null = null;
-  // Default = mes anterior cerrado (igual que sell-out).
+  private lastBody: RoutePromoBody | null = null;
+  // Fecha AUTO-inteligente: por default el periodo lo lee el AI del enunciado. El picker (mes anterior
+  // cerrado) es solo un OVERRIDE manual: se envía from/to únicamente si el usuario lo toca.
+  readonly dateTouched = signal(false);
   monthDate: Date = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
 
   private iso(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
@@ -183,16 +199,24 @@ export class RoutePromoComponent {
   run(sku?: string | null): void {
     const enunciado = this.enunciado.trim();
     if (!enunciado) return;
-    const d = this.monthDate;
-    const from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1));
-    const to = this.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
-    this.lastBody = { enunciado, from, to, sku: sku || undefined };
+    const body: RoutePromoBody = { enunciado, sku: sku || undefined };
+    // Solo forzamos el periodo si el usuario tocó el picker; si no, gana la vigencia que el AI lea del enunciado.
+    if (this.dateTouched()) {
+      const d = this.monthDate;
+      body.from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1));
+      body.to = this.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+    }
+    this.lastBody = body;
     this.loading.set(true);
     this.err.set(null);
-    this.svc.routePromo(this.lastBody)
+    this.svc.routePromo(body)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.res.set(r); this.pickSku = null; this.loading.set(false); },
+        next: (r) => {
+          this.res.set(r); this.pickSku = null; this.loading.set(false);
+          // Reusa la regla ya interpretada (incl. vigencia auto) en XLSX/PDF → mismo periodo, sin re-llamar al LLM.
+          this.lastBody = { ...body, rule: r.rule };
+        },
         error: (e) => { this.res.set(null); this.err.set(e?.error?.message || 'No se pudo calcular'); this.loading.set(false); },
       });
   }

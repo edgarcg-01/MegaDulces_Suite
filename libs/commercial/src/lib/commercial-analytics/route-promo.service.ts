@@ -25,6 +25,10 @@ export interface PromoRule {
   min_qty: number;
   descripcion: string;
   supuestos: string;
+  // Vigencia detectada por el AI en el enunciado (auto-inteligente). null si el enunciado no la menciona.
+  date_from?: string | null;   // YYYY-MM-DD (inclusive)
+  date_to?: string | null;     // YYYY-MM-DD (inclusive)
+  periodo_texto?: string | null;
 }
 
 export interface PromoRouteRow {
@@ -117,15 +121,22 @@ export class RoutePromoService {
           min_qty: { type: 'number', description: 'Piezas mínimas por cliente para calificar (ej "una o más piezas" → 1). Default 1.' },
           descripcion: { type: 'string', description: 'La regla reformulada, clara, en una línea.' },
           supuestos: { type: 'string', description: 'Ambigüedades o supuestos que tomaste; "" si ninguno.' },
+          date_from: { type: ['string', 'null'], description: 'Inicio de la VIGENCIA de la promo en YYYY-MM-DD, si el enunciado la menciona (ej "del 1 al 15 de agosto", "vigencia agosto", "primera quincena de septiembre", "esta semana"). Resolvé el año con la fecha de HOY que se te da. null si el enunciado NO menciona periodo.' },
+          date_to: { type: ['string', 'null'], description: 'Fin (INCLUSIVE) de la vigencia en YYYY-MM-DD. Mes completo ("agosto") → último día del mes. "primera quincena" → día 15; "segunda quincena" → fin de mes. null si no hay periodo.' },
+          periodo_texto: { type: ['string', 'null'], description: 'El periodo tal como se menciona, en texto corto para mostrar (ej "1–15 de agosto 2026", "Agosto 2026"). null si no aplica.' },
         },
         required: ['canal', 'metric', 'rate', 'min_qty', 'descripcion'],
       },
     };
+    const hoy = this.iso(new Date()); // contenedor en TZ MX
     const system =
       'Traduces mecánicas de incentivo a vendedores de RUTA (RD = reparto = venta a bordo) a parámetros ' +
       'estructurados. "clientes distintos a los que se les vendió una o más piezas" = métrica clientes_distintos ' +
       'con min_qty=1 (cada cliente cuenta UNA vez sin importar cuántas piezas compre). No inventes datos: si el ' +
-      'enunciado no lo dice, usa los defaults y anótalo en supuestos. Responde SOLO llamando la herramienta.';
+      'enunciado no lo dice, usa los defaults y anótalo en supuestos. ' +
+      `Hoy es ${hoy} (zona horaria de México). Si el enunciado indica una vigencia o periodo (fechas, mes, ` +
+      'quincena, "esta semana"), extraela en date_from/date_to (YYYY-MM-DD, resolviendo el año con la fecha de hoy); ' +
+      'si NO menciona periodo, dejá date_from/date_to en null. Responde SOLO llamando la herramienta.';
 
     const resp = await this.anthropic.messages({
       model: PROMO_MODEL,
@@ -138,6 +149,11 @@ export class RoutePromoService {
     const block = (resp?.content || []).find((b: any) => b.type === 'tool_use' && b.name === 'emitir_regla');
     if (!block?.input) throw new BadRequestException('No se pudo interpretar el enunciado');
     const r = block.input;
+    // Vigencia auto: válida solo si ambas fechas son ISO y from <= to; si no, null (cae al picker/default).
+    let df = DRX.test(String(r.date_from || '')) ? String(r.date_from) : null;
+    let dt = DRX.test(String(r.date_to || '')) ? String(r.date_to) : null;
+    if (df && dt && df > dt) { const tmp = df; df = dt; dt = tmp; } // por si vienen invertidas
+    if (!df || !dt) { df = null; dt = null; }
     return {
       canal: r.canal === 'todos' ? 'todos' : 'ruta',
       sku: r.sku ? String(r.sku).trim() : null,
@@ -147,13 +163,24 @@ export class RoutePromoService {
       min_qty: Number(r.min_qty) > 0 ? Number(r.min_qty) : 1,
       descripcion: String(r.descripcion || '').trim(),
       supuestos: String(r.supuestos || '').trim(),
+      date_from: df, date_to: dt,
+      periodo_texto: (df && r.periodo_texto) ? String(r.periodo_texto).trim() : null,
     };
   }
 
-  /** Resuelve el rango del periodo: from/to explícito · año completo · o mes anterior (default). */
-  private resolvePeriod(q: PromoQuery): { from: string; to: string; label: string } {
+  /**
+   * Resuelve el rango del periodo. Prioridad:
+   *   1) override MANUAL del usuario (q.from/q.to, ej picker tocado o test),
+   *   2) vigencia AUTO detectada por el AI en el enunciado (rule.date_from/to),
+   *   3) año completo, 4) mes anterior cerrado (default).
+   * El `to` interno es EXCLUSIVE (business_date < to).
+   */
+  private resolvePeriod(q: PromoQuery, rule?: Partial<PromoRule>): { from: string; to: string; label: string } {
     if (q.from && q.to && DRX.test(q.from) && DRX.test(q.to)) {
       return { from: q.from, to: this.nextDay(q.to), label: `${q.from} – ${q.to}` };
+    }
+    if (rule?.date_from && rule?.date_to && DRX.test(rule.date_from) && DRX.test(rule.date_to) && rule.date_from <= rule.date_to) {
+      return { from: rule.date_from, to: this.nextDay(rule.date_to), label: (rule.periodo_texto || '').trim() || `${rule.date_from} – ${rule.date_to}` };
     }
     if (q.year) {
       const y = Number(q.year);
@@ -315,11 +342,15 @@ export class RoutePromoService {
           min_qty: Number(q.rule.min_qty) > 0 ? Number(q.rule.min_qty) : 1,
           descripcion: q.rule.descripcion || '',
           supuestos: q.rule.supuestos || '',
+          // conserva la vigencia AUTO ya interpretada (evita re-llamar al LLM en recalcular/descargar)
+          date_from: DRX.test(String(q.rule.date_from || '')) ? String(q.rule.date_from) : null,
+          date_to: DRX.test(String(q.rule.date_to || '')) ? String(q.rule.date_to) : null,
+          periodo_texto: q.rule.periodo_texto ?? null,
         }
       : await this.parse(enunciado);
     if (q.sku) rule.sku = String(q.sku).trim();
 
-    const period = this.resolvePeriod(q);
+    const period = this.resolvePeriod(q, rule);
 
     return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
