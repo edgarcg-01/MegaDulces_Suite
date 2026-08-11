@@ -790,6 +790,27 @@ export class CommercialAnalyticsController {
     return this.routePromoSvc.evaluate(body || {});
   }
 
+  @Post('sales-by-route/promo.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'RR-PROMO — XLSX del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
+  async routePromoXlsx(@Res() res: Response, @Body() body: PromoQuery) {
+    const r = await this.routePromoSvc.evaluate(body || {});
+    const buf = await this.exporter.buildPromoXlsx(r);
+    this.sendFile(res, buf, this.exporter.promoFileName(r, 'xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Post('sales-by-route/promo.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'RR-PROMO — PDF del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
+  async routePromoPdf(@Res() res: Response, @Body() body: PromoQuery) {
+    const r = await this.routePromoSvc.evaluate(body || {});
+    const buf = await this.exporter.buildPromoPdf(r);
+    this.sendFile(res, buf, this.exporter.promoFileName(r, 'pdf'), 'application/pdf');
+  }
+
   @Get('sales-by-route.xlsx')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Descarga XLSX de Ventas por Ruta (mismos params que /sales-by-route).' })

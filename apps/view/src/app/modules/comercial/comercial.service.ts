@@ -1195,6 +1195,10 @@ export class ComercialService {
   routePromo(body: RoutePromoBody) {
     return this.http.post<RoutePromoResult>(`${this.base}/analytics/sales-by-route/promo`, body);
   }
+  /** RR-PROMO — Descarga el incentivo en XLSX/PDF (mismo body). */
+  routePromoDownload(body: RoutePromoBody, fmt: 'xlsx' | 'pdf') {
+    return this.http.post(`${this.base}/analytics/sales-by-route/promo.${fmt}`, body, { responseType: 'blob', observe: 'response' });
+  }
 
   /** RR — Conciliación de cierre de ruta (corte vendedor vs venta real). Histórico D+1. */
   routeClosureReconciliation(from?: string, to?: string) {
@@ -1575,7 +1579,8 @@ export interface PromoRule {
   descripcion: string;
   supuestos: string;
 }
-export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; base: number; payout: number; }
+export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; piezas: number; importe: number; base: number; payout: number; }
+export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; piezas: number; importe: number; }
 export interface RoutePromoResult {
   enunciado: string;
   rule: PromoRule;
@@ -1585,8 +1590,12 @@ export interface RoutePromoResult {
   metric_label: string;
   base_label: string;
   rows: PromoRouteRow[];
+  clientes_detalle: PromoClientRow[];
   total_base: number;
   total_payout: number;
+  total_clientes: number;
+  total_piezas: number;
+  total_importe: number;
   note: string;
   generated_at: string;
 }

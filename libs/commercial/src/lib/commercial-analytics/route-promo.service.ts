@@ -32,8 +32,22 @@ export interface PromoRouteRow {
   warehouse_name: string;
   route_no: string;
   label: string;
-  base: number;   // clientes / piezas / tickets / monto según la métrica
-  payout: number; // rate × base
+  clientes: number; // clientes distintos que califican (≥ min_qty)
+  piezas: number;   // piezas vendidas del SKU
+  importe: number;  // dinero de esas ventas
+  base: number;     // clientes / piezas / tickets / monto según la métrica
+  payout: number;   // rate × base
+}
+
+/** Detalle de un cliente que participó (para "cuáles fueron"). */
+export interface PromoClientRow {
+  warehouse_name: string;
+  route_no: string;
+  route_label: string;
+  cliente: string;
+  nombre: string;
+  piezas: number;
+  importe: number;
 }
 
 export interface PromoResult {
@@ -45,8 +59,12 @@ export interface PromoResult {
   metric_label: string;
   base_label: string;
   rows: PromoRouteRow[];
+  clientes_detalle: PromoClientRow[];
   total_base: number;
   total_payout: number;
+  total_clientes: number;
+  total_piezas: number;
+  total_importe: number;
   note: string;
   generated_at: string;
 }
@@ -326,7 +344,8 @@ export class RoutePromoService {
         return {
           enunciado, rule, product: null, candidates,
           period, metric_label: METRIC_LABEL[rule.metric], base_label: METRIC_LABEL[rule.metric],
-          rows: [], total_base: 0, total_payout: 0,
+          rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
+          total_clientes: 0, total_piezas: 0, total_importe: 0,
           note: candidates?.length
             ? 'El producto es ambiguo — elegí el SKU correcto y recalculá.'
             : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
@@ -378,20 +397,57 @@ export class RoutePromoService {
           return {
             warehouse_code: r.wcode, warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
             label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
+            clientes: Number(r.clientes) || 0,
+            piezas: round(Number(r.piezas) || 0, 2),
+            importe: round(Number(r.monto) || 0, 2),
             base, payout: round(base * rule.rate, 2),
           };
         })
         .filter((r) => r.base > 0)
         .sort((a, b) => b.payout - a.payout);
 
+      // 3) Detalle: QUÉ clientes participaron (los que califican ≥ min_qty), con piezas + importe.
+      //    Nombre resuelto best-effort desde wincaja.clientes (los códigos de ruta no siempre resuelven → código).
+      const det: any[] = (await trx.raw(
+        `WITH base AS (
+           SELECT b.source_branch AS route_no, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
+                  SUM(sl.qty) AS qty, SUM(sl.importe) AS importe
+           FROM analytics.v_route_sales_lines sl
+           JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
+           JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+           LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+           WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+             AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
+           GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
+         )
+         SELECT base.route_no, base.wname, base.cliente, base.qty, base.importe, cn.nombre
+         FROM base
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn
+           ON cn.cliente = base.cliente
+         WHERE base.cliente IS NOT NULL AND btrim(base.cliente)<>'' AND base.cliente<>'0001' AND base.qty >= ?
+         ORDER BY base.wname, base.route_no, base.importe DESC
+         LIMIT 5000`,
+        [tenantId, period.from, period.to, product.sku, tenantId, rule.min_qty],
+      )).rows;
+      const clientes_detalle: PromoClientRow[] = det.map((r) => ({
+        warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
+        route_label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
+        cliente: String(r.cliente), nombre: r.nombre || String(r.cliente),
+        piezas: round(Number(r.qty) || 0, 2), importe: round(Number(r.importe) || 0, 2),
+      }));
+
       const total_base = round(out.reduce((s, r) => s + r.base, 0), 2);
       const total_payout = round(out.reduce((s, r) => s + r.payout, 0), 2);
+      const total_clientes = out.reduce((s, r) => s + r.clientes, 0);
+      const total_piezas = round(out.reduce((s, r) => s + r.piezas, 0), 2);
+      const total_importe = round(out.reduce((s, r) => s + r.importe, 0), 2);
 
       return {
         enunciado, rule, product, period,
         metric_label: METRIC_LABEL[rule.metric],
         base_label: rule.metric === 'clientes_distintos' ? `Clientes (≥${rule.min_qty} pza)` : METRIC_LABEL[rule.metric],
-        rows: out, total_base, total_payout,
+        rows: out, clientes_detalle,
+        total_base, total_payout, total_clientes, total_piezas, total_importe,
         note: out.length
           ? `${out.length} ruta(s) con actividad · $${rule.rate.toFixed(2)} × ${METRIC_LABEL[rule.metric].toLowerCase()}.`
           : 'Sin ventas del producto en ruta para el periodo.',
