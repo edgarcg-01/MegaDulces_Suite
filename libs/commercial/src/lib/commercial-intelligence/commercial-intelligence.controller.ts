@@ -512,7 +512,7 @@ export class CommercialIntelligenceController {
 
   // ─── Compras: asistente conversacional de requisiciones (motor RA) ───
   @Post('compras/thot/chat')
-  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_GESTIONAR)
   @ApiOperation({ summary: 'Chat de compras: arma/ajusta requisiciones a proveedor conversando (motor RA). El comprador aprueba (HITL).' })
   async comprasThotChat(@Req() req: any, @Body() body: { history?: ThotChatTurn[]; message?: string; think?: boolean }) {
     const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];

@@ -507,38 +507,38 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
-  // requisición (HITL). Proyecto propio; nav gateado por COMPRAS_VER.
+  // requisición (HITL). Proyecto propio; cada submódulo gateado por su permiso COMPRAS_*.
   private comprasNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Planeación',
       items: [
-        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_VER },
-        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_GESTIONAR },
-        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_VER },
+        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
+        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
+        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
       ],
     },
     {
       title: 'Órdenes',
       items: [
-        { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_VER },
-        { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_VER },
-        { label: 'Órdenes de entrada', icon: 'pi pi-inbox',         route: '/compras/entradas',      permission: Permission.COMPRAS_VER },
+        { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
+        { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
+        { label: 'Órdenes de entrada', icon: 'pi pi-inbox',         route: '/compras/entradas',      permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {
       title: 'Análisis',
       items: [
-        { label: 'Compras 360',         icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_VER },
-        { label: 'Costo neto',          icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_VER },
-        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_VER },
-        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_VER },
+        { label: 'Compras 360',         icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_360_VER },
+        { label: 'Costo neto',          icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
+        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
       ],
     },
     {
       title: 'Catálogo',
       items: [
-        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_VER },
-        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_VER },
+        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
+        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
       ],
     },
   ];

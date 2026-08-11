@@ -20,7 +20,7 @@ export class GoodsReceiptProofsController {
   constructor(private readonly svc: GoodsReceiptProofsService) {}
 
   @Get()
-  @RequirePermissions(Permission.COMPRAS_VER)
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs.' })
   list(
     @Query('estado') estado?: string,
@@ -34,50 +34,50 @@ export class GoodsReceiptProofsController {
   }
 
   @Get('match')
-  @RequirePermissions(Permission.COMPRAS_VER)
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'FOTO-PRIMERO: dado el OCR de la Aplica Orden Entrada (folio/total) o un texto, devuelve las entradas candidatas para enlazar la evidencia.' })
   match(@Query('folio') folio?: string, @Query('total') total?: string, @Query('fecha') fecha?: string, @Query('search') search?: string) {
     return this.svc.matchByOcr({ folio, total: total ? Number(total) : undefined, fecha, search });
   }
 
   @Get(':sucursal/:folio')
-  @RequirePermissions(Permission.COMPRAS_VER)
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas.' })
   detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
     return this.svc.detail(sucursal, folio);
   }
 
   @Post('ocr')
-  @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'Corre OCR sobre la remisión/factura (imagen/PDF) y devuelve los campos (preview, no guarda).' })
-  ocr(@Body() body: { file_base64?: string }) {
-    return this.svc.runOcr(body?.file_base64 || '');
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: 'Corre OCR sobre una hoja (imagen/PDF), devuelve los campos + hash + si es duplicada (misma hoja o folio ya subido). Preview, no guarda.' })
+  ocr(@Body() body: { file_base64?: string; role?: string }) {
+    return this.svc.runOcr(body?.file_base64 || '', body?.role);
   }
 
   @Post('upload')
-  @RequirePermissions(Permission.COMPRAS_VER)
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
   @ApiOperation({ summary: 'Sube la remisión/factura (imagen/PDF) a Cloudinary y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'remision');
   }
 
   @Post('attach')
-  @RequirePermissions(Permission.COMPRAS_VER)
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
   @ApiOperation({ summary: 'Adjunta la evidencia a la entrada (con archivos ya subidos + OCR). Calcula el cuadre de monto.' })
   attach(@Body() body: AttachReceiptDto, @Req() req: AuthedRequest) {
     return this.svc.attach(body, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/validate')
-  @RequirePermissions(Permission.COMPRAS_VALIDAR)
-  @ApiOperation({ summary: 'Valida la evidencia de la entrada. Auditado. Permiso especial COMPRAS_VALIDAR.' })
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({ summary: 'Valida la evidencia de la entrada. Auditado. Permiso especial COMPRAS_ENTRADAS_VALIDAR.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/reject')
-  @RequirePermissions(Permission.COMPRAS_VALIDAR)
-  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado. Permiso especial COMPRAS_VALIDAR.' })
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado. Permiso especial COMPRAS_ENTRADAS_VALIDAR.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
   }
