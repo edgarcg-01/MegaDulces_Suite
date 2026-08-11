@@ -403,8 +403,10 @@ export class RoutePromoService {
             base, payout: round(base * rule.rate, 2),
           };
         })
-        .filter((r) => r.base > 0)
-        .sort((a, b) => b.payout - a.payout);
+        // Toda ruta con venta del producto (aunque el pago sea $0 por ser todo a público):
+        // así se ven las piezas e importe reales; el pago refleja solo los clientes que califican.
+        .filter((r) => r.piezas > 0 || r.base > 0)
+        .sort((a, b) => b.payout - a.payout || b.importe - a.importe);
 
       // 3) Detalle: QUÉ clientes participaron (los que califican ≥ min_qty), con piezas + importe.
       //    Nombre resuelto best-effort desde wincaja.clientes (los códigos de ruta no siempre resuelven → código).
