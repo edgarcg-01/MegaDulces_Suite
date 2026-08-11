@@ -320,11 +320,115 @@ async function applyErpGoodsReceipts(client, tenantId, rows) {
   }
 }
 
+/**
+ * feed 'raw-upsert' — CDC genérico Kepler → kepler_ods.<tabla> (SYNC.2).
+ *
+ * TABLA-AGNÓSTICO: replica cualquier tabla `md.*` de Kepler sin código por tabla. El replicador
+ * (replicate-ods.js) descubre columnas + PK del origen y los manda en `meta`; este handler:
+ *   1) auto-crea/auto-altera kepler_ods.<tabla> (DDL confinado a ese schema),
+ *   2) UPSERT SIN CHURN: ON CONFLICT (sucursal, PK…) DO UPDATE … WHERE IS DISTINCT FROM
+ *      → una fila que no cambió NO se reescribe (cero I/O, cero bloat).
+ *
+ * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal') }.
+ * rows: objetos { sucursal, <col>:val, … }. Los identificadores vienen por HTTP → se validan
+ *   contra whitelist estricta (solo tablas/columnas estilo Kepler). kepler_ods es single-tenant
+ *   (sin tenant_id/RLS); assertTenant solo protege el endpoint.
+ */
+const ODS_IDENT_RE = /^[a-z_][a-z0-9_]*$/i;
+const ODS_TYPES = new Set(['text', 'numeric', 'double precision', 'real', 'integer', 'bigint', 'smallint', 'boolean', 'date', 'timestamp', 'timestamptz']);
+const odsQid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
+function odsIdent(x) {
+  const s = String(x == null ? '' : x);
+  if (!ODS_IDENT_RE.test(s) || s.length > 63) throw new Error(`raw-upsert: identificador inválido '${s}'`);
+  return s;
+}
+function odsType(t) { return ODS_TYPES.has(String(t)) ? String(t) : 'text'; }
+
+async function applyRawUpsert(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  if (!meta || typeof meta !== 'object') throw new Error('raw-upsert: meta requerido');
+  const table = odsIdent(meta.table);
+  const cols = (Array.isArray(meta.columns) ? meta.columns : []).map((c) => ({ name: odsIdent(c && c.name), type: odsType(c && c.type) }));
+  if (!cols.length) throw new Error('raw-upsert: meta.columns vacío');
+  const colSet = new Set(cols.map((c) => c.name));
+  if (!colSet.has('sucursal')) throw new Error("raw-upsert: falta la columna 'sucursal'");
+  const pk = (Array.isArray(meta.pk) ? meta.pk : []).map(odsIdent);
+  if (!pk.length) throw new Error('raw-upsert: meta.pk vacío (requerido para UPSERT sin churn)');
+  for (const k of pk) if (!colSet.has(k)) throw new Error(`raw-upsert: PK '${k}' no está en columns`);
+
+  // Destino: PK compuesta (sucursal, PK-origen). No-clave = todo lo demás.
+  const conflict = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
+  const conflictSet = new Set(conflict);
+  const nonKey = cols.map((c) => c.name).filter((n) => !conflictSet.has(n));
+  const rel = `kepler_ods.${odsQid(table)}`;
+
+  await client.query('BEGIN');
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS kepler_ods`);
+
+    // Auto-create / auto-alter.
+    const exists = (await client.query(`SELECT to_regclass('kepler_ods.${table.replace(/'/g, "''")}') t`)).rows[0].t;
+    if (!exists) {
+      const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
+      await client.query(`CREATE TABLE ${rel} (${defs}, PRIMARY KEY (${conflict.map(odsQid).join(', ')}))`);
+      try { await client.query(`GRANT SELECT ON ${rel} TO app_runtime`); } catch { /* rol ausente en dev */ }
+    } else {
+      const have = new Set((await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema='kepler_ods' AND table_name=$1`, [table]
+      )).rows.map((r) => r.column_name));
+      for (const c of cols) {
+        if (!have.has(c.name)) await client.query(`ALTER TABLE ${rel} ADD COLUMN ${odsQid(c.name)} ${c.type}`);
+      }
+    }
+
+    let changed = 0;
+    if (Array.isArray(rows) && rows.length) {
+      const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
+      await client.query(`CREATE TEMP TABLE stg_raw (${defs}) ON COMMIT DROP`);
+      await copyIntoTemp(client, 'stg_raw', cols.map((c) => c.name), rows);
+
+      const colList = cols.map((c) => odsQid(c.name)).join(', ');
+      const onConf = conflict.map(odsQid).join(', ');
+      let sql;
+      if (!nonKey.length) {
+        // Tabla toda-PK (junction): nada que actualizar.
+        sql = `INSERT INTO ${rel} (${colList}) SELECT ${colList} FROM stg_raw ON CONFLICT (${onConf}) DO NOTHING`;
+      } else {
+        const setList = nonKey.map((n) => `${odsQid(n)}=EXCLUDED.${odsQid(n)}`).join(', ');
+        const tTuple = nonKey.map((n) => `t.${odsQid(n)}`).join(', ');
+        const eTuple = nonKey.map((n) => `EXCLUDED.${odsQid(n)}`).join(', ');
+        sql = `INSERT INTO ${rel} AS t (${colList}) SELECT ${colList} FROM stg_raw
+               ON CONFLICT (${onConf}) DO UPDATE SET ${setList}
+               WHERE (${tTuple}) IS DISTINCT FROM (${eTuple})`;
+      }
+      changed = (await client.query(sql)).rowCount;
+    }
+
+    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS kepler_ods._sync_status (
+        table_name text PRIMARY KEY, last_push_at timestamptz NOT NULL DEFAULT now(),
+        rows_last integer DEFAULT 0, rows_seen integer DEFAULT 0)`);
+    await client.query(
+      `INSERT INTO kepler_ods._sync_status (table_name, last_push_at, rows_last, rows_seen)
+       VALUES ($1, now(), $2, $3)
+       ON CONFLICT (table_name) DO UPDATE SET last_push_at=now(), rows_last=EXCLUDED.rows_last, rows_seen=EXCLUDED.rows_seen`,
+      [table, changed, Array.isArray(rows) ? rows.length : 0]);
+
+    await client.query('COMMIT');
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
 const HANDLERS = {
   'stock-delta': applyStockDelta,
   'wincaja-stock': applyWincajaStock,
   'wincaja-sales-bronze': applyWincajaSalesBronze,
   'erp-goods-receipts': applyErpGoodsReceipts,
+  'raw-upsert': applyRawUpsert,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyRawUpsert, UUID_RE };
