@@ -16,7 +16,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeLazyLoad, DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
-import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, AdjustmentForEntradaRow, PolizaForReceipt } from '../compras.service';
+import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt } from '../compras.service';
 
 /**
  * CXP.3 — "Compras 360": el Excel de recepciones en una interfaz. Una fila por orden
@@ -54,6 +54,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         <p-select [options]="proveedorOpts()" [ngModel]="proveedorCode()" (onChange)="onProveedor($event.value)" optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true" [filter]="true" [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="c3-sel c3-sel-wide" ariaLabel="Filtrar por proveedor" />
         <p-select [options]="ocOpts" [ngModel]="conOc()" (onChange)="onOc($event.value)" optionLabel="label" optionValue="value" placeholder="OC: todas" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por orden de compra" />
         <p-select [options]="ajusteOpts" [ngModel]="ajusteMode()" (onChange)="onAjuste($event.value)" optionLabel="label" optionValue="value" placeholder="Ajuste: todos" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por ajuste" />
+        <p-select [options]="compOpts" [ngModel]="comprobante()" (onChange)="onComprobante($event.value)" optionLabel="label" optionValue="value" placeholder="Comprobante: todos" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Filtrar por comprobante" />
         <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="c3-sel c3-sel-sm" ariaLabel="Rango de fecha rápido" />
         <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="c3-dp" ariaLabel="Desde" />
         <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="c3-dp" ariaLabel="Hasta" />
@@ -95,7 +96,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         <ng-template #header>
           <tr>
             <th class="c3-w-date">Fecha</th><th class="c3-w-suc">Suc.</th><th>Proveedor</th><th class="c3-w-oc">OC</th><th class="c3-w-oc">Folio</th>
-            <th class="ta-r c3-w-amt">Factura</th><th class="ta-r c3-w-amt">Ajuste</th><th class="ta-r c3-w-amt">Neto</th>
+            <th class="ta-r c3-w-amt">Factura</th><th class="ta-r c3-w-amt">Ajuste</th><th class="ta-r c3-w-amt">Neto</th><th class="c3-w-comp">Comprobante</th>
           </tr>
         </ng-template>
         <ng-template #body let-r>
@@ -112,10 +113,20 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             <td class="ta-r c3-num">{{ money(r.factura) }}</td>
             <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</td>
             <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
+            <td>
+              @if (r.deposits > 0) {
+                <span class="c3-comp">
+                  <p-tag [value]="compLabel(r.deposit_status)" [severity]="compSev(r.deposit_status)" />
+                  <i class="pi c3-comp-match" [class.ok]="r.monto_match" [class.bad]="!r.monto_match" [ngClass]="r.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'" [title]="r.monto_match ? 'El total del comprobante cuadra con la factura' : 'El total del comprobante NO cuadra'"></i>
+                </span>
+              } @else {
+                <span class="muted c3-comp-none"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin</span>
+              }
+            </td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="8">
+          <tr><td colspan="9">
             <div class="c3-empty-op">
               <i class="pi pi-inbox" aria-hidden="true"></i>
               <span class="c3-empty-op-title">Sin recepciones</span>
@@ -232,7 +243,12 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-neg { color:var(--bad-fg); }
     .c3-prov { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .muted { color:var(--text-faint); }
-    .c3-w-date { width:6rem; } .c3-w-suc { width:4rem; } .c3-w-oc { width:7rem; } .c3-w-amt { width:8rem; } .c3-w-doc { width:5rem; } .c3-w-match { width:6rem; }
+    .c3-w-date { width:6rem; } .c3-w-suc { width:4rem; } .c3-w-oc { width:7rem; } .c3-w-amt { width:8rem; } .c3-w-doc { width:5rem; } .c3-w-match { width:6rem; } .c3-w-comp { width:9rem; }
+    /* RE.9 — columna Comprobante (estado + cuadre OCR) */
+    .c3-comp { display:inline-flex; align-items:center; gap:.4rem; }
+    .c3-comp-match.ok { color:var(--ok-fg); } .c3-comp-match.bad { color:var(--bad-fg); }
+    .c3-comp-none { display:inline-flex; align-items:center; gap:.3rem; font-size:.8rem; }
+    .c3-comp-none .pi { font-size:.75rem; opacity:.7; }
     .c3-empty { padding:1.4rem; text-align:center; color:var(--text-faint); font-size:.85rem; }
     /* error de red (banner + reintento) — Empty ≠ error */
     .c3-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--bad-border, var(--border-color)); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
@@ -282,6 +298,7 @@ export class ComprasCompras360Component implements OnInit {
   readonly proveedorCode = signal<string>('');
   readonly conOc = signal<Compras360OcMode | ''>('');
   readonly ajusteMode = signal<Compras360AjusteMode | ''>('');
+  readonly comprobante = signal<Compras360CompMode | ''>('');
   readonly montoMin = signal<number | null>(null);
   readonly montoMax = signal<number | null>(null);
   readonly dateFrom = signal<Date | null>(null);
@@ -294,6 +311,7 @@ export class ComprasCompras360Component implements OnInit {
   readonly proveedorOpts = computed(() => (this.filters()?.proveedores || []).map((p) => ({ label: `${p.nombre || p.code} · ${p.n}`, value: p.code })));
   readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
   readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];
+  readonly compOpts = [{ label: 'Con comprobante', value: 'con' }, { label: 'Sin comprobante', value: 'sin' }, { label: 'Validado', value: 'validado' }, { label: 'Por validar', value: 'por_validar' }, { label: 'Rechazado', value: 'rechazado' }];
   readonly presetOpts = DATE_PRESET_OPTIONS;
   readonly page = signal(1);
   readonly pageSize = signal(50);
@@ -324,6 +342,7 @@ export class ComprasCompras360Component implements OnInit {
     const oc = q.get('oc'); this.conOc.set(oc === 'con' || oc === 'sin' ? oc : '');
     // ajuste: param nuevo 'aj'; back-compat del viejo 'adj=1' → con ajuste.
     const aj = q.get('aj'); this.ajusteMode.set(aj === 'con' || aj === 'sin' ? aj : (q.get('adj') === '1' ? 'con' : ''));
+    const cp = q.get('comp'); this.comprobante.set((['con', 'sin', 'validado', 'por_validar', 'rechazado'] as string[]).includes(cp || '') ? (cp as Compras360CompMode) : '');
     this.montoMin.set(this.toNum(q.get('mmin')));
     this.montoMax.set(this.toNum(q.get('mmax')));
     const p = parseInt(q.get('page') || '1', 10);
@@ -368,6 +387,7 @@ export class ComprasCompras360Component implements OnInit {
       date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()),
       ajuste: this.ajusteMode() || undefined,
       con_oc: this.conOc() || undefined,
+      comprobante: this.comprobante() || undefined,
       monto_min: this.montoMin() ?? undefined,
       monto_max: this.montoMax() ?? undefined,
       page: this.page(), pageSize: this.pageSize(), all,
@@ -386,6 +406,7 @@ export class ComprasCompras360Component implements OnInit {
         to: this.toIso(this.dateTo()) || null,
         oc: this.conOc() || null,
         aj: this.ajusteMode() || null,
+        comp: this.comprobante() || null,
         adj: null, // limpia el param legado
         mmin: this.montoMin() != null ? this.montoMin() : null,
         mmax: this.montoMax() != null ? this.montoMax() : null,
@@ -432,6 +453,7 @@ export class ComprasCompras360Component implements OnInit {
   onProveedor(v: string | null): void { this.proveedorCode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onOc(v: Compras360OcMode | null): void { this.conOc.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onAjuste(v: Compras360AjusteMode | null): void { this.ajusteMode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+  onComprobante(v: Compras360CompMode | null): void { this.comprobante.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
 
   /** Monto min/max con debounce (evita un request por dígito tecleado). */
   onMonto(which: 'min' | 'max', v: number | null): void {
@@ -441,12 +463,12 @@ export class ComprasCompras360Component implements OnInit {
   }
 
   hasFilters(): boolean {
-    return !!(this.search().trim() || this.sucursal() || this.proveedorCode() || this.dateFrom() || this.dateTo() || this.conOc() || this.ajusteMode() || this.montoMin() != null || this.montoMax() != null);
+    return !!(this.search().trim() || this.sucursal() || this.proveedorCode() || this.dateFrom() || this.dateTo() || this.conOc() || this.ajusteMode() || this.comprobante() || this.montoMin() != null || this.montoMax() != null);
   }
 
   clearFilters(): void {
     this.search.set(''); this.sucursal.set(''); this.proveedorCode.set(''); this.dateFrom.set(null); this.dateTo.set(null);
-    this.conOc.set(''); this.ajusteMode.set(''); this.montoMin.set(null); this.montoMax.set(null); this.preset.set('');
+    this.conOc.set(''); this.ajusteMode.set(''); this.comprobante.set(''); this.montoMin.set(null); this.montoMax.set(null); this.preset.set('');
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
@@ -477,9 +499,10 @@ export class ComprasCompras360Component implements OnInit {
     this.exporting.set(true);
     this.svc.compras360(this.query(true)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
-        const head = ['Fecha', 'Sucursal', 'Proveedor', 'Codigo', 'OC', 'Folio', 'Factura', 'Ajuste', 'Neto'];
+        const head = ['Fecha', 'Sucursal', 'Proveedor', 'Codigo', 'OC', 'Folio', 'Factura', 'Ajuste', 'Neto', 'Comprobante'];
         const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-        const lines = [head.join(',')].concat(d.rows.map((r) => [r.receipt_date?.slice(0, 10) || '', r.sucursal, r.proveedor_nombre || '', r.proveedor_code || '', r.oc_folio || '', r.folio, r.factura, r.ajuste, r.neto].map(esc).join(',')));
+        const comp = (r: Compras360Row) => r.deposits > 0 ? `${this.compLabel(r.deposit_status)}${r.monto_match ? ' (cuadra)' : ' (no cuadra)'}` : 'Sin comprobante';
+        const lines = [head.join(',')].concat(d.rows.map((r) => [r.receipt_date?.slice(0, 10) || '', r.sucursal, r.proveedor_nombre || '', r.proveedor_code || '', r.oc_folio || '', r.folio, r.factura, r.ajuste, r.neto, comp(r)].map(esc).join(',')));
         const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'compras-360.csv'; a.click(); URL.revokeObjectURL(a.href);
         this.exporting.set(false);
@@ -489,13 +512,19 @@ export class ComprasCompras360Component implements OnInit {
   }
 
   kpiItems(d: Compras360Response): MetricStripItem[] {
+    const cov = d.total > 0 ? Math.round((d.totals.con_comprobante / d.total) * 100) : 0;
     return [
       { label: 'Recepciones', value: d.total, format: 'number', tone: 'default' },
       { label: 'Factura total', value: d.totals.factura, format: 'currency-short', tone: 'default' },
       { label: 'Ajustes ligados', value: d.totals.ajuste, format: 'currency-short', tone: 'warn', sub: 'devoluciones + notas' },
       { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand', sub: 'factura − ajuste' },
+      { label: 'Con comprobante', value: d.totals.con_comprobante, format: 'number', tone: 'ok', sub: `${cov}% de ${d.total}` },
     ];
   }
+
+  /** RE.9 — etiqueta/severidad del estado del comprobante adjunto (último depósito). */
+  compLabel(s: string | null): string { return ({ recibido: 'Por validar', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || 'Adjunto'; }
+  compSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
 
   pzCargos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.cargos) || 0), 0); }
   pzAbonos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.abonos) || 0), 0); }

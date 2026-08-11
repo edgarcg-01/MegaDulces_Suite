@@ -1018,6 +1018,7 @@ export class ComprasService {
     if (q.date_to) p.set('date_to', q.date_to);
     if (q.ajuste) p.set('ajuste', q.ajuste);
     if (q.con_oc) p.set('con_oc', q.con_oc);
+    if (q.comprobante) p.set('comprobante', q.comprobante);
     if (q.monto_min != null) p.set('monto_min', String(q.monto_min));
     if (q.monto_max != null) p.set('monto_max', String(q.monto_max));
     if (q.page) p.set('page', String(q.page));
@@ -1119,7 +1120,8 @@ export interface LandedCostResponse { summary: { compras: number; descuento: num
 
 export type Compras360AjusteMode = 'con' | 'sin';
 export type Compras360OcMode = 'con' | 'sin';
-export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
-export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number }
-export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number }; rows: Compras360Row[] }
+export type Compras360CompMode = 'sin' | 'con' | 'validado' | 'por_validar' | 'rechazado';
+export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; comprobante?: Compras360CompMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
+export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
+export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
