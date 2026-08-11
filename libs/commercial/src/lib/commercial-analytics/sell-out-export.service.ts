@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
 import type { SellOutReport, SellOutColumn, SalidasReport, SalesByRouteReport, TransfersReport } from './commercial-analytics.service';
+import type { PromoResult } from './route-promo.service';
 
 const MONTH_LABEL: Record<string, string> = {
   '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
@@ -245,6 +246,96 @@ export class SellOutExportService {
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
+  }
+
+  // ─────────── RR-PROMO — Incentivo de ruta (XLSX + PDF) ───────────
+
+  promoFileName(r: PromoResult, ext: string): string {
+    const prod = (r.product?.nombre || r.product?.sku || 'PRODUCTO').replace(/[^\w\s-]/g, '').trim().slice(0, 40);
+    return `Incentivo ${prod} ${r.period.from}_${r.period.to}.${ext}`;
+  }
+
+  async buildPromoXlsx(r: PromoResult): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const MONEY = '$#,##0.00';
+    const NUM = '#,##0.##';
+    const head = (row: ExcelJS.Row) => row.eachCell((c) => {
+      c.font = { bold: true, size: 9 }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } }; c.border = this.thin();
+    });
+
+    // Hoja 1 — Resumen por ruta
+    const ws = wb.addWorksheet('Resumen', { views: [{ state: 'frozen', ySplit: 4 }] });
+    ws.mergeCells(1, 1, 1, 5);
+    ws.getCell(1, 1).value = `INCENTIVO — ${r.product?.nombre || ''}${r.product?.sku ? ' · ' + r.product.sku : ''}`;
+    ws.getCell(1, 1).font = { bold: true, size: 14 };
+    ws.mergeCells(2, 1, 2, 5);
+    ws.getCell(2, 1).value = `${r.rule.descripcion || r.metric_label} · ${r.period.label} · $${r.rule.rate.toFixed(2)} por ${r.base_label.toLowerCase()}`;
+    ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF52525B' } };
+    ws.addRow([]);
+    head(ws.addRow(['Ruta', 'Clientes', 'Piezas', 'Importe', 'Pago']));
+    for (const row of r.rows) {
+      const a = ws.addRow([row.label, row.clientes, row.piezas, row.importe, row.payout]);
+      a.getCell(3).numFmt = NUM; a.getCell(4).numFmt = MONEY; a.getCell(5).numFmt = MONEY; a.getCell(5).font = { bold: true };
+      a.eachCell((c) => (c.border = this.thin()));
+    }
+    const tot = ws.addRow(['TOTAL', r.total_clientes, r.total_piezas, r.total_importe, r.total_payout]);
+    tot.getCell(3).numFmt = NUM; tot.getCell(4).numFmt = MONEY; tot.getCell(5).numFmt = MONEY;
+    tot.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } }; c.border = this.thin(); });
+    ws.getColumn(1).width = 34; ws.getColumn(2).width = 11; ws.getColumn(3).width = 11; ws.getColumn(4).width = 15; ws.getColumn(5).width = 13;
+
+    // Hoja 2 — Clientes que participaron
+    const wc = wb.addWorksheet('Clientes', { views: [{ state: 'frozen', ySplit: 1 }] });
+    head(wc.addRow(['Ruta', 'Cliente', 'Nombre', 'Piezas', 'Importe']));
+    for (const c of r.clientes_detalle) {
+      const a = wc.addRow([c.route_label, c.cliente, c.nombre, c.piezas, c.importe]);
+      a.getCell(4).numFmt = NUM; a.getCell(5).numFmt = MONEY;
+      a.eachCell((cc) => (cc.border = this.thin()));
+    }
+    wc.getColumn(1).width = 32; wc.getColumn(2).width = 12; wc.getColumn(3).width = 40; wc.getColumn(4).width = 11; wc.getColumn(5).width = 15;
+    if (r.clientes_detalle.length) wc.autoFilter = `A1:E${1 + r.clientes_detalle.length}`;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
+  async buildPromoPdf(r: PromoResult): Promise<Buffer> {
+    const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
+    const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+    const num = (n: number) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
+    const sumRows = r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${x.clientes}</td><td class="n">${num(x.piezas)}</td><td class="n">${money(x.importe)}</td><td class="n b">${money(x.payout)}</td></tr>`).join('');
+    const cliRows = r.clientes_detalle.map((c) => `<tr><td>${esc(c.route_label)}</td><td>${esc(c.cliente)}</td><td class="d">${esc(c.nombre)}</td><td class="n">${num(c.piezas)}</td><td class="n">${money(c.importe)}</td></tr>`).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box} body{font-family:Helvetica,Arial,sans-serif;color:#09090b;margin:0;padding:22px 18px}
+      h1{font-size:15px;margin:0 0 2px} .sub{font-size:10px;color:#52525b;margin:0 0 14px}
+      h2{font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px}
+      table{border-collapse:collapse;width:100%;font-size:8px;margin-bottom:8px}
+      th,td{border:.5px solid #e4e4e7;padding:3px 5px;text-align:left} th{background:#f4f4f5;font-weight:700}
+      td.n{text-align:right;font-variant-numeric:tabular-nums} td.b,tr.tot td{font-weight:700} tr.tot td{background:#f4f4f5}
+      td.d{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    </style></head><body>
+      <h1>Incentivo — ${esc(r.product?.nombre || '')}${r.product?.sku ? ' · ' + esc(r.product.sku) : ''}</h1>
+      <p class="sub">${esc(r.rule.descripcion || r.metric_label)} · ${esc(r.period.label)} · $${r.rule.rate.toFixed(2)} por ${esc(r.base_label.toLowerCase())}</p>
+      <h2>Resumen por ruta</h2>
+      <table><thead><tr><th>Ruta</th><th>Clientes</th><th>Piezas</th><th>Importe</th><th>Pago</th></tr></thead>
+      <tbody>${sumRows}<tr class="tot"><td>TOTAL</td><td class="n">${r.total_clientes}</td><td class="n">${num(r.total_piezas)}</td><td class="n">${money(r.total_importe)}</td><td class="n">${money(r.total_payout)}</td></tr></tbody></table>
+      <h2>Clientes que participaron (${r.clientes_detalle.length})</h2>
+      <table><thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th>Piezas</th><th>Importe</th></tr></thead><tbody>${cliRows}</tbody></table>
+    </body></html>`;
+    const browser = await puppeteer.launch({
+      headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', right: '8mm', bottom: '10mm', left: '8mm' } });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close();
+    }
   }
 
   // ─────────── SAL — Salidas/Ventas por Producto (XLSX estilo Kepler) ───────────

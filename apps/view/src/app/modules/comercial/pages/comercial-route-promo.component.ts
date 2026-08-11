@@ -66,20 +66,46 @@ import { ComercialService, RoutePromoResult } from '../comercial.service';
             </div>
 
             @if (r.rows.length) {
-              <div class="rp-totals">
-                <div class="rp-kpi"><span class="k-lbl">Pago total</span><span class="k-val">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
-                <div class="rp-kpi"><span class="k-lbl">{{ r.base_label }}</span><span class="k-val">{{ r.total_base | number:'1.0-0' }}</span></div>
-                <div class="rp-kpi"><span class="k-lbl">Rutas</span><span class="k-val">{{ r.rows.length }}</span></div>
+              <div class="rp-topbar">
+                <div class="rp-totals">
+                  <div class="rp-kpi"><span class="k-lbl">Pago total</span><span class="k-val">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                  <div class="rp-kpi"><span class="k-lbl">Clientes</span><span class="k-val">{{ r.total_clientes | number }}</span></div>
+                  <div class="rp-kpi"><span class="k-lbl">Piezas</span><span class="k-val">{{ r.total_piezas | number:'1.0-2' }}</span></div>
+                  <div class="rp-kpi"><span class="k-lbl">Importe</span><span class="k-val">{{ r.total_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+                  <div class="rp-kpi"><span class="k-lbl">Rutas</span><span class="k-val">{{ r.rows.length }}</span></div>
+                </div>
+                <div class="rp-dl">
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()==='xlsx'" (click)="download('xlsx')"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()==='pdf'" (click)="download('pdf')"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
+                </div>
               </div>
+
               <table class="rp-tbl">
-                <thead><tr><th>Ruta</th><th class="n">{{ r.base_label }}</th><th class="n">Pago</th></tr></thead>
+                <thead><tr><th>Ruta</th><th class="n">Clientes</th><th class="n">Piezas</th><th class="n">Importe</th><th class="n">Pago</th></tr></thead>
                 <tbody>
                   @for (row of r.rows; track row.label) {
-                    <tr><td>{{ row.label }}</td><td class="n">{{ row.base | number:'1.0-2' }}</td><td class="n b">{{ row.payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                    <tr><td>{{ row.label }}</td><td class="n">{{ row.clientes | number }}</td><td class="n">{{ row.piezas | number:'1.0-2' }}</td><td class="n">{{ row.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td><td class="n b">{{ row.payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
                   }
                 </tbody>
-                <tfoot><tr><td>TOTAL</td><td class="n">{{ r.total_base | number:'1.0-2' }}</td><td class="n b">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr></tfoot>
+                <tfoot><tr><td>TOTAL</td><td class="n">{{ r.total_clientes | number }}</td><td class="n">{{ r.total_piezas | number:'1.0-2' }}</td><td class="n">{{ r.total_importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td><td class="n b">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr></tfoot>
               </table>
+
+              @if (r.clientes_detalle.length) {
+                <button type="button" class="rp-detog" (click)="showDetail.set(!showDetail())">
+                  <i class="pi" [class.pi-chevron-right]="!showDetail()" [class.pi-chevron-down]="showDetail()" aria-hidden="true"></i>
+                  Clientes que participaron ({{ r.clientes_detalle.length }})
+                </button>
+                @if (showDetail()) {
+                  <table class="rp-tbl rp-det">
+                    <thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th class="n">Piezas</th><th class="n">Importe</th></tr></thead>
+                    <tbody>
+                      @for (c of r.clientes_detalle; track $index) {
+                        <tr><td>{{ c.route_label }}</td><td class="mono">{{ c.cliente }}</td><td>{{ c.nombre }}</td><td class="n">{{ c.piezas | number:'1.0-2' }}</td><td class="n">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td></tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              }
             } @else {
               <p class="rp-empty">{{ r.note }}</p>
             }
@@ -116,7 +142,13 @@ import { ComercialService, RoutePromoResult } from '../comercial.service';
     .rp-amb { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; font-size:.82rem; padding:.6rem .7rem;
       background:var(--layout-bg); border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .rp-amb p-select { min-width:16rem; }
-    .rp-totals { display:flex; gap:1.5rem; padding:.4rem 0; }
+    .rp-topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; flex-wrap:wrap; padding:.4rem 0; }
+    .rp-dl { display:flex; gap:.5rem; }
+    .rp-detog { margin-top:.5rem; background:none; border:none; color:var(--action); font-size:.82rem; font-weight:600;
+      cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; padding:.3rem 0; }
+    .rp-det { margin-top:.4rem; }
+    .rp-tbl .mono { font-family:var(--font-mono); font-size:.76rem; }
+    .rp-totals { display:flex; gap:1.5rem; padding:.4rem 0; flex-wrap:wrap; }
     .rp-kpi { display:flex; flex-direction:column; gap:.15rem; }
     .rp-kpi .k-lbl { font-size:.7rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.03em; }
     .rp-kpi .k-val { font-size:1.35rem; font-weight:700; color:var(--text-main); line-height:1.1; }
@@ -136,10 +168,13 @@ export class RoutePromoComponent {
 
   readonly open = signal(false);
   readonly loading = signal(false);
+  readonly dl = signal<'' | 'xlsx' | 'pdf'>('');
+  readonly showDetail = signal(false);
   readonly res = signal<RoutePromoResult | null>(null);
   readonly err = signal<string | null>(null);
   enunciado = '';
   pickSku: string | null = null;
+  private lastBody: { enunciado: string; from: string; to: string; sku?: string } | null = null;
   // Default = mes anterior cerrado (igual que sell-out).
   monthDate: Date = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
 
@@ -151,13 +186,35 @@ export class RoutePromoComponent {
     const d = this.monthDate;
     const from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1));
     const to = this.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+    this.lastBody = { enunciado, from, to, sku: sku || undefined };
     this.loading.set(true);
     this.err.set(null);
-    this.svc.routePromo({ enunciado, from, to, sku: sku || undefined })
+    this.svc.routePromo(this.lastBody)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.res.set(r); this.pickSku = null; this.loading.set(false); },
         error: (e) => { this.res.set(null); this.err.set(e?.error?.message || 'No se pudo calcular'); this.loading.set(false); },
+      });
+  }
+
+  download(fmt: 'xlsx' | 'pdf'): void {
+    if (!this.lastBody || !this.res()?.rows.length) return;
+    this.dl.set(fmt);
+    this.svc.routePromoDownload(this.lastBody, fmt)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (resp) => {
+          this.dl.set('');
+          const cd = resp.headers.get('content-disposition') || '';
+          const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+          const plain = /filename="?([^";]+)"?/i.exec(cd);
+          const name = star ? decodeURIComponent(star[1]) : plain ? plain[1] : `incentivo.${fmt}`;
+          const url = URL.createObjectURL(resp.body!);
+          const a = document.createElement('a');
+          a.href = url; a.download = name; a.click();
+          URL.revokeObjectURL(url);
+        },
+        error: () => { this.dl.set(''); },
       });
   }
 }
