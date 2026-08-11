@@ -211,7 +211,7 @@ export class GoodsReceiptProofsService {
     let fields: RemisionFields;
     let ocr_status: string;
     if (!process.env.ANTHROPIC_API_KEY) {
-      fields = { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null };
+      fields = { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null, documents_present: [] };
       ocr_status = 'sin_key';
     } else {
       fields = await this.ocr.extractRemision(base64, mediaType);

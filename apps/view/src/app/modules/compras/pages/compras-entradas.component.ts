@@ -33,6 +33,7 @@ interface AttachFile {
   ocrTotal?: number | null;
   ocrFecha?: string | null;
   ocrRfc?: string | null;
+  ocrDocs?: string[];        // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
   dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
 }
 
@@ -284,7 +285,21 @@ interface AttachFile {
             </div>
           }
           @if (dupFiles().length) { <div class="cb-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupFiles().length }} hoja(s) duplicada(s) (misma imagen o folio ya subido) — quitala(s) para guardar.</div> }
-          @if (attachFiles().length && missingRoles().length) { <div class="cb-missing"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Faltan para completar: {{ missingRoles().join(' · ') }}</div> }
+          @if (attachFiles().length) {
+            <div class="cb-checklist">
+              <div class="cb-checklist-head">
+                <span>Documentos requeridos · <strong>{{ srcKind() === 'kepler' ? 'Kepler (CEDIS)' : 'Wincaja (sucursal)' }}</strong></span>
+                @if (!missingGroups().length) { <span class="cb-chk-ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Completo</span> }
+                @else { <span class="cb-chk-miss">{{ missingGroups().length }} faltante(s)</span> }
+              </div>
+              <ul class="cb-chk-list">
+                @for (c of checklist(); track c.label) {
+                  <li [class.ok]="c.ok"><i class="pi" [ngClass]="c.ok ? 'pi-check-circle' : 'pi-circle'" aria-hidden="true"></i> {{ c.label }}</li>
+                }
+              </ul>
+              <p class="cb-chk-hint">Los tipos se detectan leyendo cada hoja — si subiste todo en un solo PDF, cuenta igual.</p>
+            </div>
+          }
         }
         @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
       </div>
@@ -298,7 +313,7 @@ interface AttachFile {
           } @else {
             <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
           }
-          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || ocrBusy() || dupFiles().length > 0 || !attachTarget() || missingRoles().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || ocrBusy() || dupFiles().length > 0 || !attachTarget() || missingGroups().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         }
       </ng-template>
     </p-dialog>
@@ -553,6 +568,17 @@ interface AttachFile {
     .cb-link-monto { font-family: var(--font-mono); color: var(--text-main); }
     .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
     .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
+    /* RE (#4) — checklist de completitud por fuente (Kepler/Wincaja), packet-aware */
+    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .45rem; }
+    .cb-checklist-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; color: var(--text-main); }
+    .cb-chk-ok { display: inline-flex; align-items: center; gap: .3rem; color: var(--ok-fg); font-weight: 600; }
+    .cb-chk-miss { color: var(--warn-soft-fg, #b26a00); font-weight: 600; }
+    .cb-chk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
+    .cb-chk-list li { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; color: var(--text-muted); }
+    .cb-chk-list li.ok { color: var(--text-main); }
+    .cb-chk-list li.ok .pi { color: var(--ok-fg); }
+    .cb-chk-list li .pi-circle { color: var(--text-faint); }
+    .cb-chk-hint { margin: 0; font-size: .72rem; color: var(--text-faint); }
     /* wizard foto-primero: paso 1 (orden) → continuar → paso 2 (demás docs) */
     .cb-step-head { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); line-height: 1.35; }
     .cb-step-n { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--action); color: #fff; font-size: .74rem; font-weight: 700; }
@@ -671,15 +697,43 @@ export class ComprasEntradasComponent {
   // La ★ del paso 1 (la que se lee y enlaza). Habilita "Continuar".
   readonly ordenFile = computed(() => this.attachFiles().find((f) => f.role === 'orden_entrada') || null);
   // Set obligatorio de la recepción: Aplica Orden Entrada + Remisión/Factura + Vale (Ticket opcional).
-  readonly REQUIRED_ROLES: { keys: string[]; label: string }[] = [
-    { keys: ['orden_entrada'], label: 'Aplica Orden Entrada' },
-    { keys: ['remision', 'factura'], label: 'Remisión/Factura' },
-    { keys: ['vale'], label: 'Vale de recepción' },
-  ];
-  readonly missingRoles = computed(() => {
-    const files = this.attachFiles();
-    return this.REQUIRED_ROLES.filter((r) => !files.some((f) => r.keys.indexOf(f.role) >= 0)).map((r) => r.label);
+  // RE (#4) — completitud CONSCIENTE DE FUENTE + packet-aware. La fuente (Kepler CEDIS /
+  // Wincaja sucursal) define qué documentos exige la recepción; los tipos se detectan por OCR
+  // (documents_present) ∪ el rol asignado → si subís TODO en un solo PDF también cumple.
+  readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string }[]> = {
+    kepler: [
+      { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
+      { keys: ['factura', 'remision'], label: 'Factura / Remisión' },
+    ],
+    wincaja: [
+      { keys: ['ticket'], label: 'Ticket' },
+      { keys: ['orden_recepcion'], label: 'Orden de recepción' },
+      { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
+    ],
+  };
+  private readonly ROLE_TO_TYPE: Record<string, string> = {
+    orden_entrada: 'aplica_orden_entrada', remision: 'remision', factura: 'factura', vale: 'vale', ticket: 'ticket',
+  };
+  /** CEDIS (sucursal '00') recibe por Kepler; las sucursales por Wincaja. */
+  receptionSource(sucursal: string | null | undefined): 'kepler' | 'wincaja' {
+    return (sucursal || '') === '00' ? 'kepler' : 'wincaja';
+  }
+  readonly srcKind = computed<'kepler' | 'wincaja'>(() => this.receptionSource(this.attachTarget()?.sucursal));
+  /** Tipos de documento cubiertos: rol asignado + lo que el OCR detectó en cada hoja (packet-aware). */
+  readonly coveredTypes = computed(() => {
+    const s = new Set<string>();
+    for (const f of this.attachFiles()) {
+      const t = this.ROLE_TO_TYPE[f.role]; if (t) s.add(t);
+      for (const d of (f.ocrDocs || [])) s.add(d);
+    }
+    return s;
   });
+  readonly requiredGroups = computed(() => this.REQUIRED_BY_SOURCE[this.srcKind()]);
+  readonly checklist = computed(() => {
+    const cov = this.coveredTypes();
+    return this.requiredGroups().map((g) => ({ label: g.label, ok: g.keys.some((k) => cov.has(k)) }));
+  });
+  readonly missingGroups = computed(() => this.checklist().filter((c) => !c.ok));
   // Hojas duplicadas (misma imagen/PDF, o folio de remisión ya subido) → bloquean Guardar.
   readonly dupFiles = computed(() => this.attachFiles().filter((f) => f.dup));
   readonly ocrBusy = computed(() => this.attachFiles().some((f) => f.ocrLoading));
@@ -938,7 +992,7 @@ export class ComprasEntradasComponent {
           this.patch(id, {
             ocrLoading: false, ocrDone: true,
             ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
-            sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
+            ocrDocs: r.documents_present ?? [], sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
           });
           if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
           const cur = this.attachFiles().find((x) => x.id === id);
@@ -1014,7 +1068,7 @@ export class ComprasEntradasComponent {
     const files = this.attachFiles();
     if (!t || !files.length) { this.attachError.set('Agregá al menos una foto.'); return; }
     if (this.dupFiles().length) { this.attachError.set('Hay hojas duplicadas (misma imagen o folio ya subido). Quitalas para guardar.'); return; }
-    if (this.missingRoles().length) { this.attachError.set('Faltan documentos obligatorios: ' + this.missingRoles().join(', ') + '.'); return; }
+    if (this.missingGroups().length) { this.attachError.set('Faltan documentos: ' + this.missingGroups().map((g) => g.label).join(', ') + '.'); return; }
     this.attachError.set('');
     this.saving.set(true);
     // Sube las que falten (o fallaron), conserva las ya almacenadas → UNA evidencia con TODAS las fotos.
