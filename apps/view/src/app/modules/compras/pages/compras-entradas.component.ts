@@ -65,7 +65,7 @@ interface AttachFile {
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio, OC, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
-          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Subí la foto y se enlaza sola a la entrada"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Adjuntar por foto</span></button></div>
+          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Arrastrá o elegí el PDF de la orden y se enlaza solo a la entrada"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Adjuntar (PDF)</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -121,19 +121,21 @@ interface AttachFile {
     </div>
 
     <!-- Diálogo: adjuntar remisión + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes por foto' : 'Adjuntar comprobantes de la entrada'">
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes (PDF)' : 'Adjuntar comprobantes de la entrada'">
       <div class="cb-form">
         @if (photoFirst() && attachStep() === 1) {
           <!-- PASO 1 — solo la Aplica Orden Entrada: se lee con OCR y enlaza la recepción -->
           <div class="cb-step-head"><span class="cb-step-n">1</span><span>Subí la <strong>Aplica Orden Entrada</strong> — la leo y enlazo la recepción sola. El resto de documentos va en el paso 2.</span></div>
           @if (!ordenFile()) {
-            <div class="cb-pick">
-              <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
-                <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden />
+            <div class="cb-drop" [class.drag]="dragging()"
+                 (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+              <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
+              <div class="cb-drop-main">Arrastrá aquí el <strong>PDF de la Aplica Orden Entrada</strong></div>
+              <div class="cb-drop-or">o</div>
+              <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
+                <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden />
               </label>
-              <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir archivo
-                <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden />
-              </label>
+              <div class="cb-drop-hint">La leo con OCR y enlazo la entrada sola.</div>
             </div>
           }
           @if (ordenFile(); as f) {
@@ -212,14 +214,15 @@ interface AttachFile {
               <div class="ta-r"><span class="cb-lbl">Valor de la entrada</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
             </div>
           }
-          <div class="cb-step-head">@if (photoFirst()) { <span class="cb-step-n">2</span> }<span>Agregá <strong>remisión/factura</strong> y <strong>vale de recepción</strong> (ticket si hay) — una por una; cada foto se sube al momento.</span></div>
+          <div class="cb-step-head">@if (photoFirst()) { <span class="cb-step-n">2</span> }<span>Agregá <strong>remisión/factura</strong> y <strong>vale de recepción</strong> (ticket si hay) — una por una; cada PDF se sube al momento.</span></div>
           @if (!attachFiles().length) {
-            <div class="cb-pick">
-              <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
-                <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
-              </label>
-              <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir archivos
-                <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden multiple />
+            <div class="cb-drop" [class.drag]="dragging()"
+                 (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+              <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
+              <div class="cb-drop-main">Arrastrá aquí los <strong>PDF</strong> (remisión, vale, ticket…)</div>
+              <div class="cb-drop-or">o</div>
+              <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
+                <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden multiple />
               </label>
             </div>
           }
@@ -249,13 +252,12 @@ interface AttachFile {
                   <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
                 </div>
               }
-              <div class="cb-addmore">
-                <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar otra
-                  <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
+              <div class="cb-addmore" [class.drag]="dragging()"
+                   (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+                <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir más PDF
+                  <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden multiple />
                 </label>
-                <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir más
-                  <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden multiple />
-                </label>
+                <span class="cb-addmore-drop"><i class="pi pi-arrow-down" aria-hidden="true"></i> o arrastrá aquí</span>
                 <span class="cb-addmore-n">{{ attachFiles().length }} adjunta(s)</span>
               </div>
             </div>
@@ -540,8 +542,17 @@ interface AttachFile {
     .cb-cobro-ok { border: 1px solid var(--ok-fg, #2e7d32); }
     .cb-role-fixed { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; font-weight: 600; color: var(--action); }
     .cb-role-fixed .pi { font-size: .8rem; }
-    .cb-addmore { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding-top: .1rem; }
+    .cb-addmore { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding-top: .1rem; border-radius: var(--r-sm, .4rem); transition: outline-color .15s; }
+    .cb-addmore.drag { outline: 2px dashed var(--action); outline-offset: 3px; }
+    .cb-addmore-drop { font-size: .74rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
+    /* RE.7 — dropzone de arrastre del PDF (dispara el OCR solo) */
+    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; transition: border-color .15s, background .15s; }
+    .cb-drop.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
+    .cb-drop-ico { font-size: 2rem; color: var(--bad-fg); }
+    .cb-drop-main { font-size: .88rem; color: var(--text-main); }
+    .cb-drop-or { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+    .cb-drop-hint { font-size: .74rem; color: var(--text-muted); }
     /* OCR por-archivo + duplicados */
     .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
@@ -731,13 +742,28 @@ export class ComprasEntradasComponent {
     this.attachError.set('');
   }
 
-  /** Multi-archivo: acumula todas las fotos elegidas/tomadas (lo normal son 3–4).
+  /** Multi-archivo: acumula todas las hojas elegidas (lo normal son 3–4).
    *  Secuencial: garantiza que la 1ª elegida quede como ★ (Aplica Orden Entrada). */
   async onFiles(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const picked = input.files ? Array.from(input.files) : [];
     input.value = ''; // permite volver a elegir el mismo archivo
     for (const file of picked) await this.addOne(file);
+  }
+
+  // RE.7 — arrastrar el PDF y que corra el OCR solo (reusa el mismo pipeline que onFiles).
+  readonly dragging = signal(false);
+  onDragOver(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); if (!this.dragging()) this.dragging.set(true); }
+  onDragLeave(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false); }
+  async onDrop(ev: DragEvent) {
+    ev.preventDefault(); ev.stopPropagation();
+    this.dragging.set(false);
+    const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
+    const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+    if (!pdfs.length) { this.attachError.set('Solo se aceptan archivos PDF — arrastrá un PDF.'); return; }
+    const rejected = files.length - pdfs.length;
+    if (rejected > 0) this.attachError.set(`Se ignoraron ${rejected} archivo(s) que no son PDF.`);
+    for (const f of pdfs) await this.addOne(f); // 1º = ★ Aplica Orden Entrada → OCR + enlace automático
   }
 
   private async addOne(file: File) {
