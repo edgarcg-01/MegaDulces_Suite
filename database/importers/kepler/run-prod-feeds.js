@@ -52,6 +52,11 @@ const STEPS = {
     path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
     path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 refresca el fact tras cambiar existencia
   ],
+  // RECEIPTS (cada 1-2 min): detecta órdenes de entrada XA2001 nuevas en las sucursales Kepler
+  // y las empuja a Railway por feeds-ingest (ingress gratis). Ventana rodante vía RECEIPTS_DAYS.
+  receipts: [
+    path.join(K, 'import-goods-receipts.js'),
+  ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
