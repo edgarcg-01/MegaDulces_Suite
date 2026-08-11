@@ -109,10 +109,18 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
             <td [title]="r.sucursal">{{ sucNames().get(r.sucursal) || r.sucursal }}</td>
             <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
-            <td class="c3-mono muted">{{ r.oc_folio || '—' }}</td>
+            <td class="c3-mono">
+              @if (r.oc_folio) {
+                <button type="button" class="c3-oclink" (click)="$event.stopPropagation(); filterByOc(r.oc_folio)" [title]="'Ver todas las recepciones de la OC ' + r.oc_folio">{{ r.oc_folio }}</button>
+              } @else { <span class="muted">—</span> }
+            </td>
             <td class="c3-mono muted">{{ r.folio }}</td>
             <td class="ta-r c3-num">{{ money(r.factura) }}</td>
-            <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</td>
+            <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">
+              @if (r.ajuste !== 0) {
+                <span class="c3-adj-yes">−{{ money(r.ajuste) }}@if (r.n_ajuste > 1) { <span class="c3-adj-n" [title]="r.n_ajuste + ' ajustes ligados'">×{{ r.n_ajuste }}</span> }</span>
+              } @else { <span class="c3-adj-no" title="Sin devoluciones ni notas ligadas por folio (puede haber heurísticas — abrí el detalle)">sin</span> }
+            </td>
             <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
             <td>
               @if (r.deposits > 0) {
@@ -299,6 +307,12 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-neg { color:var(--bad-fg); }
     .c3-prov { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .muted { color:var(--text-faint); }
+    /* OC clickable + claridad de ajuste */
+    .c3-oclink { border:0; background:transparent; color:var(--action); cursor:pointer; padding:0; font:inherit; font-family:var(--font-mono); }
+    .c3-oclink:hover { text-decoration:underline; }
+    .c3-adj-yes { color:var(--bad-fg); }
+    .c3-adj-n { font-size:.72rem; color:var(--text-faint); margin-left:.25rem; }
+    .c3-adj-no { color:var(--text-faint); font-size:.78rem; }
     .c3-w-date { width:6rem; } .c3-w-suc { width:4rem; } .c3-w-oc { width:7rem; } .c3-w-amt { width:8rem; } .c3-w-doc { width:5rem; } .c3-w-match { width:6rem; } .c3-w-comp { width:9rem; }
     /* RE.9 — columna Comprobante (estado + cuadre OCR) */
     .c3-comp { display:inline-flex; align-items:center; gap:.4rem; }
@@ -539,6 +553,8 @@ export class ComprasCompras360Component implements OnInit {
   onOc(v: Compras360OcMode | null): void { this.conOc.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onAjuste(v: Compras360AjusteMode | null): void { this.ajusteMode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onComprobante(v: Compras360CompMode | null): void { this.comprobante.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
+  /** Clic en la OC: filtra la tabla a todas las recepciones de esa orden de compra. */
+  filterByOc(oc: string): void { if (!oc) return; this.search.set(oc); this.page.set(1); this.syncUrl(); this.reload(); }
 
   /** Monto min/max con debounce (evita un request por dígito tecleado). */
   onMonto(which: 'min' | 'max', v: number | null): void {
