@@ -391,7 +391,9 @@ interface AttachFile {
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
                   @if (isImageUrl(f)) {
-                    <a [href]="f.url" target="_blank" rel="noopener" class="cb-view-img"><img [src]="f.url" [alt]="f.name || 'remisión'" /></a>
+                    <button type="button" class="cb-view-filebtn" (click)="openImage(f.url, f.name)">
+                      <i class="pi pi-image" aria-hidden="true"></i> Ver imagen<span class="cb-filebtn-name">{{ f.name ? ' · ' + f.name : '' }}</span>
+                    </button>
                   } @else {
                     <a class="cb-view-pdf" [href]="f.url" target="_blank" rel="noopener"><i class="pi pi-file-pdf"></i> Abrir {{ f.name || 'remisión (PDF)' }} <i class="pi pi-external-link"></i></a>
                   }
@@ -415,6 +417,18 @@ interface AttachFile {
       <ng-template #footer>
         <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
         <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- Visor de imagen: se abre solo al pedirlo (no carga la imagen en el detalle) -->
+    <p-dialog [(visible)]="viewerOpen" [modal]="true" [dismissableMask]="true" [draggable]="false" [style]="{ width: '56rem', maxWidth: '94vw' }"
+              [header]="viewerName() || 'Imagen de la remisión'" [baseZIndex]="10000" appendTo="body">
+      @if (viewerUrl(); as url) {
+        <div class="cb-viewer"><img [src]="url" [alt]="viewerName() || 'remisión'" /></div>
+      }
+      <ng-template #footer>
+        <a pButton type="button" text [href]="viewerUrl()" target="_blank" rel="noopener"><span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span><span class="p-button-label">Abrir en pestaña</span></a>
+        <button pButton type="button" (click)="closeImage()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cerrar</span></button>
       </ng-template>
     </p-dialog>
   `,
@@ -538,8 +552,12 @@ interface AttachFile {
     .cb-view-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .cb-view-meta { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
     .cb-view-files { display: flex; flex-wrap: wrap; gap: .6rem; }
-    .cb-view-img { display: block; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); overflow: hidden; max-width: 100%; }
-    .cb-view-img img { display: block; max-height: 22rem; max-width: 100%; object-fit: contain; background: #00000008; }
+    .cb-view-filebtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); background: var(--card-bg); font-size: .85rem; cursor: pointer; transition: border-color .15s, color .15s; }
+    .cb-view-filebtn:hover { border-color: var(--action); }
+    .cb-filebtn-name { color: var(--text-muted); font-size: .78rem; }
+    /* visor modal de la imagen */
+    .cb-viewer { display: flex; align-items: center; justify-content: center; background: #00000010; border-radius: var(--r-md, .5rem); padding: .5rem; }
+    .cb-viewer img { display: block; max-width: 100%; max-height: 74vh; object-fit: contain; }
     .cb-view-pdf { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); text-decoration: none; font-size: .85rem; }
     .cb-view-pdf:hover { border-color: var(--action); }
     .cb-view-pdf .pi-file-pdf { color: var(--bad-fg); }
@@ -619,6 +637,13 @@ export class ComprasEntradasComponent {
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);
   readonly detailTarget = signal<EntradaRow | null>(null);
+
+  // Visor de imagen bajo demanda (no se carga la imagen inline en el detalle).
+  readonly viewerOpen = signal(false);
+  readonly viewerUrl = signal<string | null>(null);
+  readonly viewerName = signal<string>('');
+  openImage(url: string, name?: string): void { this.viewerName.set(name || ''); this.viewerUrl.set(url); this.viewerOpen.set(true); }
+  closeImage(): void { this.viewerOpen.set(false); }
 
   // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
