@@ -344,6 +344,12 @@ interface AttachFile {
           <div><span class="cb-lbl">OC / Vale</span><strong class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
         </div>
+        @if (d.cedis_twins?.length) {
+          <div class="cb-twin"><i class="pi pi-clone" aria-hidden="true"></i>
+            <span>Incluye la copia de <strong>CEDIS</strong> (misma recepción, otra póliza) — no requiere evidencia aparte:</span>
+            @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) { <span class="cb-twin-folio mono">{{ t.sucursal }}/{{ t.folio }}</span> }
+          </div>
+        }
         <p-table [value]="d.lineas" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="44vh"
                  [paginator]="d.lineas.length > 200" [rows]="200">
           <ng-template #header>
@@ -523,6 +529,10 @@ interface AttachFile {
     .cb-detail-total { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-color); font-size: .85rem; }
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
+    /* RE.12 — copia CEDIS (espejo) adjunta a la vista de la canónica */
+    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
+    .cb-twin .pi-clone { color: var(--action); }
+    .cb-twin-folio { color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .35rem; }
     /* columna Remisión clickable */
     .cb-comp-cell { cursor: pointer; }
     .cb-comp-cell:hover { background: var(--surface-hover, rgba(0,0,0,.03)); }

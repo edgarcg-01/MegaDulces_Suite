@@ -81,6 +81,7 @@ export class GoodsReceiptProofsService {
       const b = trx('analytics.erp_goods_receipts as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
+        .whereRaw('c.dup_of_folio IS NULL') // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
         .select(
           'c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
@@ -107,7 +108,8 @@ export class GoodsReceiptProofsService {
 
       const kpiBase = trx('analytics.erp_goods_receipts as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-        .where('c.tenant_id', tenantId);
+        .where('c.tenant_id', tenantId)
+        .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
       if (q.from) kpiBase.where('c.receipt_date', '>=', q.from);
       if (q.to) kpiBase.where('c.receipt_date', '<=', q.to);
       const [k] = await kpiBase.select(
@@ -156,6 +158,7 @@ export class GoodsReceiptProofsService {
       const sel = () => trx('analytics.erp_goods_receipts as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
+        .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
         .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
           trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
@@ -369,7 +372,13 @@ export class GoodsReceiptProofsService {
         const files = typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []);
         return { ...d, files: await this.storage.signFiles(files) };
       }));
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned };
+      // RE.12 — copia(s) CEDIS ('00') que son espejo de esta canónica: se muestran en su vista
+      // (misma recepción, otra póliza) para que no se pida evidencia por separado.
+      const twins = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
+        .select('sucursal', 'folio', 'receipt_date', 'oc_folio', 'vale_folio', trx.raw('monto::numeric AS monto'));
+      const cedis_twins = twins.map((t: any) => ({ ...t, monto: Number(t.monto) }));
+      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins };
     });
   }
 
