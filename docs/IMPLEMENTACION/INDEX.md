@@ -28,6 +28,11 @@
 |---|---|
 | [`/docs/PLAN_PLATAFORMA_B2B.md`](../PLAN_PLATAFORMA_B2B.md) | Visión B2B completa: 4 pilares + 9 fases + alineamiento yom.ai (29KB). |
 
+### Arquitectura de datos
+| Archivo | Función |
+|---|---|
+| [`ARQUITECTURA_DATOS.md`](ARQUITECTURA_DATOS.md) | **Vista de pájaro de TODAS las bases** (sucursales Kepler, Wincaja, KP_CONCENTRADA, prod) + flujo origen→app + pipe CDC al-minuto (`kepler_ods.*` por ctid) + qué es nuevo vs qué se quedó. Diagrama mermaid. |
+
 ### Detalle por fase
 | Archivo | Estado del plan | Duración |
 |---|---|---|
