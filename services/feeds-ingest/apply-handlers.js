@@ -245,10 +245,86 @@ async function applyWincajaSalesBronze(client, tenantId, rows, meta) {
   }
 }
 
+/** Inserta filas (objetos) en una tabla TEMP por lotes parametrizados. */
+async function copyIntoTemp(client, tempName, cols, rows) {
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const params = [];
+    const tuples = chunk.map((r) => {
+      const ph = cols.map((c) => { params.push(r[c] === undefined ? null : r[c]); return `$${params.length}`; });
+      return `(${ph.join(',')})`;
+    });
+    await client.query(`INSERT INTO ${tempName} (${cols.join(',')}) VALUES ${tuples.join(',')}`, params);
+  }
+}
+
+/**
+ * feed 'erp-goods-receipts' — órdenes de entrada Kepler (XA2001) → analytics.erp_goods_receipts (+ _lines).
+ * rows: cada fila lleva `k`: 'h' (cabecera) o 'l' (línea). El poller on-prem detecta XA2001 nuevos/cambiados
+ *   en las sucursales Kepler y los empuja. Ledger append-only (upsert por PK, SIN delete). Mismo SQL que
+ *   import-goods-receipts (una sola fuente de verdad de columnas/conflictos).
+ */
+const GR_COLS = ['sucursal', 'folio', 'doc_prefix', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'vale_folio', 'oc_folio', 'concepto', 'monto', 'source_branch'];
+const GRL_COLS = ['sucursal', 'folio', 'linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe'];
+
+async function applyErpGoodsReceipts(client, tenantId, rows) {
+  assertTenant(tenantId);
+  const headers = [], lines = [];
+  for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'h') headers.push(r); else if (r.k === 'l') lines.push(r); }
+  if (!headers.length && !lines.length) return 0;
+
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    let up = 0, upl = 0;
+
+    if (headers.length) {
+      await client.query(`CREATE TEMP TABLE stg_gr (sucursal text, folio text, doc_prefix text, receipt_date date, proveedor_code text, proveedor_nombre text, proveedor_rfc text, vale_folio text, oc_folio text, concepto text, monto numeric, source_branch text) ON COMMIT DROP`);
+      await copyIntoTemp(client, 'stg_gr', GR_COLS, headers);
+      up = (await client.query(
+        `INSERT INTO analytics.erp_goods_receipts AS t
+           (tenant_id, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, computed_at)
+         SELECT $1, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, now() FROM stg_gr
+         ON CONFLICT (tenant_id, sucursal, folio) DO UPDATE SET
+           doc_prefix=EXCLUDED.doc_prefix, receipt_date=EXCLUDED.receipt_date,
+           proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
+           proveedor_rfc=EXCLUDED.proveedor_rfc, vale_folio=EXCLUDED.vale_folio, oc_folio=EXCLUDED.oc_folio,
+           concepto=EXCLUDED.concepto, monto=EXCLUDED.monto, source_branch=EXCLUDED.source_branch, computed_at=now()
+         WHERE (t.receipt_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.vale_folio, t.oc_folio, t.concepto, t.monto)
+               IS DISTINCT FROM
+               (EXCLUDED.receipt_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.vale_folio, EXCLUDED.oc_folio, EXCLUDED.concepto, EXCLUDED.monto)`,
+        [tenantId])).rowCount;
+    }
+
+    if (lines.length) {
+      await client.query(`CREATE TEMP TABLE stg_grl (sucursal text, folio text, linea text, sku text, nombre text, cantidad numeric, unidad text, costo_unitario numeric, importe numeric) ON COMMIT DROP`);
+      await copyIntoTemp(client, 'stg_grl', GRL_COLS, lines);
+      upl = (await client.query(
+        `INSERT INTO analytics.erp_goods_receipt_lines AS t
+           (tenant_id, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, computed_at)
+         SELECT $1, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, now() FROM stg_grl
+         ON CONFLICT (tenant_id, sucursal, folio, linea) DO UPDATE SET
+           sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, cantidad=EXCLUDED.cantidad, unidad=EXCLUDED.unidad,
+           costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
+         WHERE (t.sku, t.nombre, t.cantidad, t.unidad, t.costo_unitario, t.importe)
+               IS DISTINCT FROM
+               (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.cantidad, EXCLUDED.unidad, EXCLUDED.costo_unitario, EXCLUDED.importe)`,
+        [tenantId])).rowCount;
+    }
+
+    await client.query('COMMIT');
+    return up + upl;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
 const HANDLERS = {
   'stock-delta': applyStockDelta,
   'wincaja-stock': applyWincajaStock,
   'wincaja-sales-bronze': applyWincajaSalesBronze,
+  'erp-goods-receipts': applyErpGoodsReceipts,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, UUID_RE };

@@ -44,7 +44,13 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const RESET = process.argv.includes('--reset'); // limpieza única al cambiar de doctype (XA4001→XA2001)
 const fromIx = process.argv.indexOf('--from');
-const FROM = fromIx > -1 ? process.argv[fromIx + 1] : null;
+let FROM = fromIx > -1 ? process.argv[fromIx + 1] : null;
+// Ventana rodante para el poller frecuente: RECEIPTS_DAYS=7 → escanea solo los últimos 7 días
+// (rápido) y el UPSERT idempotente sube los XA2001 nuevos/cambiados detectados en Kepler.
+if (!FROM && process.env.RECEIPTS_DAYS) {
+  const d = new Date(); d.setDate(d.getDate() - Math.max(1, Number(process.env.RECEIPTS_DAYS) || 7));
+  FROM = d.toISOString().slice(0, 10);
+}
 
 // Mapa de conexiones por sucursal (mismo patrón que import-branch-stock-live).
 // Override con env RECEIPTS_BRANCH_MAP (JSON [{code,url}]) o RECEIPTS_SRC (una sola).
@@ -168,6 +174,18 @@ async function readBranch(m) {
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); return; }
   if (!staged.length) { console.log('\n[APPLY] 0 entradas leídas (¿fuentes caídas?) — tabla intacta.'); return; }
+
+  // Ruta SINK http: detecta XA2001 en Kepler → los empuja a Railway por feeds-ingest (ingress
+  // gratis). Es el "webhook al subirse a Kepler" — el poller frecuente lo hace cerca de tiempo real.
+  // --reset (borrado one-time) NO aplica por http (el handler es append-only) → usa la ruta pg.
+  const sink = require('../lib/sink');
+  if (sink.sinkMode() === 'http' && !RESET) {
+    const hRows = staged.map((s) => ({ k: 'h', sucursal: s[0], folio: s[1], doc_prefix: s[2], receipt_date: s[3], proveedor_code: s[4], proveedor_nombre: s[5], proveedor_rfc: s[6], vale_folio: s[7], oc_folio: s[8], concepto: s[9], monto: s[10], source_branch: s[11] }));
+    const lRows = stagedLines.map((s) => ({ k: 'l', sucursal: s[0], folio: s[1], linea: s[2], sku: s[3], nombre: s[4], cantidad: s[5], unidad: s[6], costo_unitario: s[7], importe: s[8] }));
+    const r = await sink.ship('erp-goods-receipts', { rows: [...hRows, ...lRows], tenantId: M });
+    console.log(`\n[APPLY·http] ${r.rowCount} entradas+líneas (nuevas/cambiadas) de ${staged.length}/${stagedLines.length} en origen${r.ms != null ? ` · ${r.ms}ms` : ''}.`);
+    return;
+  }
 
   const db = new Client({ connectionString: DST });
   await db.connect();
