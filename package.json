@@ -55,6 +55,7 @@
     "@angular/router": "22.0.8",
     "@angular/service-worker": "22.0.8",
     "@aws-sdk/client-s3": "^3.1059.0",
+    "@aws-sdk/s3-request-presigner": "^3.1059.0",
     "@capacitor-community/background-geolocation": "1.2.26",
     "@capacitor/android": "^8.4.1",
     "@capacitor/app": "^8.1.0",
