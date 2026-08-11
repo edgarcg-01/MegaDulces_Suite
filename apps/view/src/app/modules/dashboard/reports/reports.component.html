@@ -507,7 +507,7 @@
                       <p class="text-xs text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
-                      <p-select [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs" placeholder="Seleccionar marca"></p-select>
+                      <p-select [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" optionLabel="label" optionValue="value" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs" placeholder="Seleccionar marca"></p-select>
                       <p-button [icon]="brandPdfLoading ? 'pi pi-spin pi-spinner' : 'pi pi-file-pdf'" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand || brandPdfLoading" pTooltip="Generar reporte profesional de Presencia de Marca (PDF)" ariaLabel="Generar reporte de presencia de marca"></p-button>
                       <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="openAllProductsDialog()" pTooltip="Ver todos los productos" ariaLabel="Ver todos los productos"></p-button>
                     </div>
