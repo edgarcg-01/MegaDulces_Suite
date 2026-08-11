@@ -27,6 +27,10 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
+// Ventana de OCs a escanear. Una OC "en tránsito" es RECIENTE (las viejas ya se recibieron);
+// sin esto el NOT EXISTS correlacionado escanea TODO el histórico de kdm1 → nested-loop → cuelga
+// (>10 min → el orquestador lo mata, código 124). 120 d cubre cualquier OC abierta razonable.
+const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
 
 const MAP = process.env.STOCK_BRANCH_MAP
   ? JSON.parse(process.env.STOCK_BRANCH_MAP)
@@ -52,6 +56,7 @@ const IN_TRANSIT_SQL = `
   JOIN md.kdm2 l
     ON l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
   WHERE oc.c1=$1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
+    AND oc.c9::date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
     AND NOT EXISTS (
       SELECT 1
       FROM md.kdm1 vale
@@ -87,7 +92,9 @@ const IN_TRANSIT_SQL = `
       if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal de la URL — skip`); continue; }
 
       let src;
-      try { src = new Client({ connectionString: m.url }); await src.connect(); }
+      // statement_timeout: si la query aún tardara, falla rápido (loggeado) en vez de dejar
+      // colgado al orquestador hasta su timeout de 10 min y morir con código 124.
+      try { src = new Client({ connectionString: m.url, connectionTimeoutMillis: 8000, statement_timeout: 240000 }); await src.connect(); }
       catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
 
       let matched = 0, unmatched = 0, ocs = 0;
