@@ -298,7 +298,8 @@ export class ReplenishmentExportService {
       const k = (r.supplier_name == null ? '' : String(r.supplier_name).trim()) || 'Sin proveedor';
       (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
     }
-    const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
+    // Array.from (NO spread [...]): webpack downlevela [...map.keys()] en el bundle del API → .sort revienta. Ver feedback_webpack_set_spread_downlevel.
+    const suppliers = Array.from(bySup.keys()).sort((a, b) => a.localeCompare(b, 'es'));
     if (!suppliers.length) { this.writePedidoSheet(wb, 'Pedido', order); }
     const used = new Set<string>();
     for (const sup of suppliers) {
@@ -511,7 +512,8 @@ export class ReplenishmentExportService {
       const k = nm || 'Sin proveedor';
       (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
     }
-    const names = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
+    // Array.from (NO spread [...]): webpack downlevela [...map.keys()] en el bundle del API → .sort revienta. Ver feedback_webpack_set_spread_downlevel.
+    const names = Array.from(bySup.keys()).sort((a, b) => a.localeCompare(b, 'es'));
     if (!names.length) return [{ name: 'Sin proveedor', rows: [] }];
     return names.map((n) => ({ name: n, rows: bySup.get(n)! }));
   }
