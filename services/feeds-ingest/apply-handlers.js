@@ -245,10 +245,13 @@ async function applyWincajaSalesBronze(client, tenantId, rows, meta) {
   }
 }
 
-/** Inserta filas (objetos) en una tabla TEMP por lotes parametrizados. */
-async function copyIntoTemp(client, tempName, cols, rows) {
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const chunk = rows.slice(i, i + BATCH);
+/** Inserta filas (objetos) en una tabla TEMP por lotes parametrizados.
+ * perInsert acota filas×columnas ≤ límite de bind params de Postgres (65535); con muchas
+ * columnas (p.ej. kdii=104) un batch fijo de 1000 se pasa → "bind message supplies N params". */
+async function copyIntoTemp(client, tempName, cols, rows, perInsert) {
+  const step = Math.max(1, perInsert || BATCH);
+  for (let i = 0; i < rows.length; i += step) {
+    const chunk = rows.slice(i, i + step);
     const params = [];
     const tuples = chunk.map((r) => {
       const ph = cols.map((c) => { params.push(r[c] === undefined ? null : r[c]); return `$${params.length}`; });
@@ -385,7 +388,8 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     if (Array.isArray(rows) && rows.length) {
       const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
       await client.query(`CREATE TEMP TABLE stg_raw (${defs}) ON COMMIT DROP`);
-      await copyIntoTemp(client, 'stg_raw', cols.map((c) => c.name), rows);
+      const perInsert = Math.max(1, Math.floor(60000 / cols.length)); // ≤65535 bind params
+      await copyIntoTemp(client, 'stg_raw', cols.map((c) => c.name), rows, perInsert);
 
       const colList = cols.map((c) => odsQid(c.name)).join(', ');
       const onConf = conflict.map(odsQid).join(', ');
