@@ -20,6 +20,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit } from '../entradas.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
@@ -68,6 +69,10 @@ interface AttachFile {
           <input pInputText [(ngModel)]="search" placeholder="Folio, OC, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" (click)="openAttachPhotoFirst()" title="Arrastrá o elegí el PDF de la orden y se enlaza solo a la entrada"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Adjuntar (PDF)</span></button></div>
+        @if (newCount() > 0) {
+          <div class="cb-field cb-field-pill"><label>&nbsp;</label>
+            <button pButton type="button" class="cb-newpill" (click)="applyNew()" [title]="newCount() + ' orden(es) de entrada nueva(s) en el ERP'"><span class="p-button-icon p-button-icon-left pi pi-arrow-down" aria-hidden="true"></span><span class="p-button-label">{{ newCount() }} nueva(s) — actualizar</span></button></div>
+        }
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -491,6 +496,9 @@ interface AttachFile {
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }
+    /* RE.10 — pill de órdenes nuevas (WS) */
+    .cb-newpill { background: var(--action); border-color: var(--action); color: #fff; }
+    .cb-newpill:hover { filter: brightness(1.06); }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     .cb-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cb-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
@@ -670,7 +678,10 @@ export class ComprasEntradasComponent {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  // RE.10 — órdenes de entrada nuevas detectadas por WS (pill "N nuevas — actualizar").
+  readonly newCount = signal(0);
 
   readonly report = signal<EntradasReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -793,7 +804,20 @@ export class ComprasEntradasComponent {
   readonly explainsLoading = signal(false);
   readonly explainsTotal = signal(0);
 
-  constructor() { this.load(); }
+  constructor() {
+    this.load();
+    // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
+    this.grSocket.connect();
+    this.grSocket.newReceipts$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      this.newCount.update((c) => c + e.count);
+      const first = e.sample?.[0];
+      this.toast.add({ severity: 'info', summary: `${e.count} orden(es) de entrada nueva(s)`, detail: first ? (first.proveedor || `${first.sucursal}/${first.folio}`) : 'Actualizá para verlas' });
+    });
+    this.destroyRef.onDestroy(() => this.grSocket.disconnect());
+  }
+
+  /** Aplica las nuevas: recarga la lista y limpia el contador del pill. */
+  applyNew(): void { this.newCount.set(0); this.load(); }
 
   kpiItems(r: EntradasReport): MetricStripItem[] {
     return [
