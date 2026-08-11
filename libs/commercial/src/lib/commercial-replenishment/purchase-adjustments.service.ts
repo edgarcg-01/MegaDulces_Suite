@@ -341,7 +341,7 @@ export class PurchaseAdjustmentsService {
    * en el detalle (`forEntrada`). El join a.entrada_folio=c.folio es 1:0..1 (no infla).
    * analytics.* sin RLS → filtro `tenant_id` explícito.
    */
-  async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean } = {}) {
+  async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, q.page || 1);
     const pageSize = q.all ? 5000 : Math.min(200, Math.max(1, q.pageSize || 50));
@@ -353,8 +353,18 @@ export class PurchaseAdjustmentsService {
         .select('entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
         .where('tenant_id', tenantId).whereNotNull('entrada_folio')
         .groupBy('entrada_folio').as('a');
+      // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
+      // satisfecho por tk.run). Agregado por (sucursal, folio): último estado + cuadre OCR.
+      const dep = trx('finance.goods_receipt_proofs')
+        .select('sucursal', 'folio').count('* as n')
+        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .select(trx.raw(`bool_or(monto_match) AS any_match`))
+        .groupBy('sucursal', 'folio').as('d');
       const base = () => {
-        const b = trx('analytics.erp_goods_receipts as c').leftJoin(adj, 'a.entrada_folio', 'c.folio').where('c.tenant_id', tenantId);
+        const b = trx('analytics.erp_goods_receipts as c')
+          .leftJoin(adj, 'a.entrada_folio', 'c.folio')
+          .leftJoin(dep, (j: any) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId);
         if (q.sucursal) b.where('c.sucursal', q.sucursal);
         if (q.proveedor_code) b.where('c.proveedor_code', q.proveedor_code);
         if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
@@ -363,6 +373,11 @@ export class PurchaseAdjustmentsService {
         if (q.monto_max != null && !Number.isNaN(q.monto_max)) b.where('c.monto', '<=', q.monto_max);
         if (q.con_oc === 'con') b.whereRaw("COALESCE(c.oc_folio,'') <> ''");
         else if (q.con_oc === 'sin') b.whereRaw("COALESCE(c.oc_folio,'') = ''");
+        if (q.comprobante === 'sin') b.whereRaw('d.n IS NULL');
+        else if (q.comprobante === 'con') b.whereRaw('d.n > 0');
+        else if (q.comprobante === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+        else if (q.comprobante === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
+        else if (q.comprobante === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
         if (q.search && q.search.trim()) {
           const s = `%${q.search.trim()}%`;
           b.where((w: any) => w.where('c.proveedor_nombre', 'ilike', s).orWhere('c.proveedor_code', 'ilike', s).orWhere('c.oc_folio', 'ilike', s).orWhere('c.folio', 'ilike', s).orWhere('c.vale_folio', 'ilike', s).orWhere('c.concepto', 'ilike', s));
@@ -372,19 +387,23 @@ export class PurchaseAdjustmentsService {
         return b;
       };
       const [{ count }]: any = await base().count({ count: '*' });
-      const [tot]: any = await base().sum({ factura: 'c.monto' }).select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'));
+      const [tot]: any = await base().sum({ factura: 'c.monto' })
+        .select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'), trx.raw('COUNT(d.n)::int AS con_comprobante'));
       const rows: any[] = await base()
         .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre', 'c.oc_folio', 'c.vale_folio',
           trx.raw('c.monto::numeric AS factura'),
           trx.raw('COALESCE(a.ajuste,0)::numeric AS ajuste'),
-          trx.raw('COALESCE(a.n_ajuste,0)::int AS n_ajuste'))
+          trx.raw('COALESCE(a.n_ajuste,0)::int AS n_ajuste'),
+          trx.raw('COALESCE(d.n,0)::int AS deposits'),
+          trx.raw('d.last_status AS deposit_status'),
+          trx.raw('COALESCE(d.any_match, false) AS monto_match'))
         .orderBy('c.receipt_date', 'desc').orderBy('c.monto', 'desc')
         .limit(pageSize).offset(q.all ? 0 : (page - 1) * pageSize);
       const factura = Number(tot?.factura) || 0, ajuste = Number(tot?.ajuste) || 0;
       return {
         total: Number(count), page, pageSize,
-        totals: { factura, ajuste, neto: factura - ajuste },
-        rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.factura) - Number(r.ajuste) })),
+        totals: { factura, ajuste, neto: factura - ajuste, con_comprobante: Number(tot?.con_comprobante) || 0 },
+        rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true })),
       };
     });
   }
