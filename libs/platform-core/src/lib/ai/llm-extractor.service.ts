@@ -44,6 +44,10 @@ export interface RemisionFields {
   subtotal: number | null;
   iva: number | null;
   total: number | null; // importe total de la remisión/factura
+  // RE (#4) — tipos de documento que aparecen en ESTE archivo (packet-aware): un PDF
+  // combinado puede traer varios. Valores: aplica_orden_entrada|factura|remision|ticket|
+  // orden_recepcion|vale|otro. Alimenta el checklist de completitud por fuente (Kepler/Wincaja).
+  documents_present: string[];
 }
 
 /**
@@ -204,7 +208,7 @@ export class LlmExtractorService implements OnModuleInit {
   ): Promise<RemisionFields> {
     const empty: RemisionFields = {
       folio: null, fecha: null, proveedor: null, rfc: null,
-      subtotal: null, iva: null, total: null,
+      subtotal: null, iva: null, total: null, documents_present: [],
     };
     if (!this.apiKey) {
       this.logger.warn('Remisión OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
@@ -968,7 +972,9 @@ export class LlmExtractorService implements OnModuleInit {
               'Extrae los datos de una REMISIÓN o FACTURA de proveedor de México (el documento con el que ' +
               'un proveedor entrega/factura mercancía). El EMISOR es el PROVEEDOR (quien vende); el receptor ' +
               'es Mega Dulces / De Los Altos (NO lo confundas con el proveedor). Usa null para lo que no se ' +
-              'distinga. NO inventes.',
+              'distinga. NO inventes. El archivo puede ser un PAQUETE con varios documentos escaneados juntos ' +
+              '(orden de entrada, factura, ticket de recepción…): lista TODOS los tipos en documents_present y ' +
+              'extrae los campos del documento fiscal principal (factura/remisión).',
             input_schema: {
               type: 'object',
               properties: {
@@ -979,8 +985,18 @@ export class LlmExtractorService implements OnModuleInit {
                 subtotal: { type: ['number', 'null'], description: 'Subtotal (antes de IVA) en pesos, sin símbolo ni comas. null si no se ve.' },
                 iva: { type: ['number', 'null'], description: 'IVA/impuestos en pesos, sin símbolo ni comas. null si no se ve.' },
                 total: { type: ['number', 'null'], description: 'TOTAL a pagar en pesos (el importe principal del documento), sin símbolo ni comas. null si no se ve.' },
+                documents_present: {
+                  type: 'array',
+                  items: { type: 'string', enum: ['aplica_orden_entrada', 'factura', 'remision', 'ticket', 'orden_recepcion', 'vale', 'otro'] },
+                  description: 'TODOS los tipos de documento que aparecen en este archivo (un PDF escaneado puede traer VARIOS documentos juntos): ' +
+                    '"aplica_orden_entrada" = documento interno "Aplica Orden Entrada"/orden de entrada de Kepler; ' +
+                    '"factura" = factura fiscal del proveedor (con folio fiscal/UUID/timbre SAT); ' +
+                    '"remision" = remisión o nota de entrega del proveedor SIN timbre fiscal; ' +
+                    '"ticket" = ticket de compra/recepción de Wincaja; "orden_recepcion" = orden de recepción de Wincaja; ' +
+                    '"vale" = vale de recepción interno; "otro" = cualquier otra hoja. Incluí cada tipo que veas. [] si no reconocés ninguno.',
+                },
               },
-              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total'],
+              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'documents_present'],
             },
           },
         ],
@@ -989,7 +1005,7 @@ export class LlmExtractorService implements OnModuleInit {
             role: 'user',
             content: [
               fileBlock,
-              { type: 'text', text: 'Esta es la remisión o factura con la que un proveedor entregó mercancía. Extrae sus datos con la herramienta extract_remision.' },
+              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Con extract_remision: lista en documents_present TODOS los tipos que veas, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal.' },
             ],
           },
         ],
@@ -1016,6 +1032,11 @@ export class LlmExtractorService implements OnModuleInit {
       const t = v.trim();
       return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
     };
+    const DOC_TYPES = new Set(['aplica_orden_entrada', 'factura', 'remision', 'ticket', 'orden_recepcion', 'vale', 'otro']);
+    // Array.from (NO spread de Set) → el bundle de la API downlevela [...new Set()] mal.
+    const docs = Array.isArray(inp.documents_present)
+      ? Array.from(new Set((inp.documents_present as unknown[]).filter((x): x is string => typeof x === 'string' && DOC_TYPES.has(x))))
+      : [];
     return {
       folio: str(inp.folio),
       fecha: this.parseTicketDate(inp.fecha),
@@ -1024,6 +1045,7 @@ export class LlmExtractorService implements OnModuleInit {
       subtotal: num(inp.subtotal),
       iva: num(inp.iva),
       total: num(inp.total),
+      documents_present: docs,
     };
   }
 

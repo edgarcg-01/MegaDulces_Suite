@@ -48,6 +48,7 @@ export interface RemisionOcr {
   ocr_status: string;
   sha256?: string;               // hash del contenido (anti-hoja-duplicada)
   duplicate?: DuplicateHit | null; // ya subida antes (misma hoja o folio)
+  documents_present?: string[];  // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
 }
 
 export interface ProofFile {
