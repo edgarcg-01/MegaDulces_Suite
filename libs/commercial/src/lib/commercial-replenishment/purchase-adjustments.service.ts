@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -52,6 +52,7 @@ export class PurchaseAdjustmentsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   /** Base con filtros comunes (tenant_id explícito + doctype/categoría/fecha/search). */
@@ -434,6 +435,40 @@ export class PurchaseAdjustmentsService {
         proveedores: provs.map((r) => ({ code: r.proveedor_code as string, nombre: (r.proveedor_nombre as string) || null, n: Number(r.n) || 0 })),
         monto_max: Number(mx?.m) || 0,
       };
+    });
+  }
+
+  /**
+   * RE.9 — evidencia (comprobante) adjunta a una orden de entrada, para el visor
+   * lado-a-lado en el detalle de Compras 360. Reusa `finance.goods_receipt_proofs`
+   * (RLS satisfecho por tk.run) con URL de lectura PREFIRMADA (bucket privado). Solo
+   * lectura, gateado por COMPRAS_360_VER (la propia pantalla) → sin acoplar el permiso
+   * de Entradas. Las líneas ya vienen del row; acá solo la evidencia + OCR.
+   */
+  async receiptEvidence(sucursal: string, folio: string) {
+    this.tenantCtx.requireTenantId();
+    if (!sucursal || !folio) return { deposits: [] as any[] };
+    return this.tk.run(async (trx) => {
+      const deposits = await trx('finance.goods_receipt_proofs')
+        .where({ sucursal, folio })
+        .orderBy('created_at', 'desc')
+        .select('id', 'files', 'ocr_folio', 'ocr_fecha', 'ocr_proveedor', 'ocr_rfc',
+          trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('ocr_iva::numeric AS ocr_iva'),
+          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match',
+          'discrepancy_kind', trx.raw('discrepancy_amount::numeric AS discrepancy_amount'), 'status',
+          'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
+      const depSigned = await Promise.all(deposits.map(async (d: any) => {
+        const files = typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []);
+        return {
+          ...d,
+          ocr_subtotal: d.ocr_subtotal != null ? Number(d.ocr_subtotal) : null,
+          ocr_iva: d.ocr_iva != null ? Number(d.ocr_iva) : null,
+          ocr_monto: d.ocr_monto != null ? Number(d.ocr_monto) : null,
+          discrepancy_amount: d.discrepancy_amount != null ? Number(d.discrepancy_amount) : null,
+          files: await this.storage.signFiles(files), // URL prefirmada (legacy Cloudinary http se deja tal cual)
+        };
+      }));
+      return { deposits: depSigned };
     });
   }
 

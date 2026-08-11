@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -16,7 +17,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeLazyLoad, DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
-import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt } from '../compras.service';
+import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt, ReceiptEvidenceDeposit, ReceiptEvidenceFile } from '../compras.service';
 
 /**
  * CXP.3 — "Compras 360": el Excel de recepciones en una interfaz. Una fila por orden
@@ -142,8 +143,9 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
       </p-table>
     </div>
 
-    <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [style]="{ width: '640px', maxWidth: '95vw' }" [header]="detailHeader()">
+    <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [maximizable]="true" [style]="{ width: '1040px', maxWidth: '97vw' }" [header]="detailHeader()">
       @if (detail(); as r) {
+        <div class="c3-review"><div class="c3-review-main">
         <div class="c3-dt">
           <div class="c3-dt-grid">
             <div><span class="c3-dt-l">Proveedor</span><span class="c3-dt-v">{{ r.proveedor_nombre || r.proveedor_code }}</span></div>
@@ -210,12 +212,66 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             <p class="c3-dt-note">Total ajustes ligados: <b>{{ money(explainsTotal()) }}</b>. Los match "proveedor+fecha" son heurísticos (Kepler no liga la nota a la entrada) — revisar.</p>
           }
 
+          <h4 class="c3-dt-h">Comprobante adjunto (documento vs OCR)</h4>
+          @if (evidenceLoading()) {
+            <p class="c3-empty">Cargando comprobante…</p>
+          } @else if (!evidence().length) {
+            <p class="c3-empty">Sin comprobante adjunto a esta orden de entrada.</p>
+          } @else {
+            @for (dep of evidence(); track dep.id) {
+              <div class="c3-dep">
+                <div class="c3-dep-head">
+                  <p-tag [value]="compLabel(dep.status)" [severity]="compSev(dep.status)" />
+                  @if (dep.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
+                  @else if (dep.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                  <span class="c3-dep-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
+                </div>
+                <div class="c3-dep-files">
+                  @for (f of dep.files; track f.url) {
+                    <button type="button" class="c3-filebtn" [class.on]="selectedDoc()?.url === f.url" (click)="selectDoc(f)" [title]="'Ver ' + (f.name || 'documento') + ' a la derecha'">
+                      <i class="pi" [ngClass]="isImageUrl(f) ? 'pi-image' : 'pi-file-pdf'" aria-hidden="true"></i>
+                      <span>{{ f.name || (isImageUrl(f) ? 'imagen' : 'PDF') }}</span>
+                    </button>
+                  }
+                  @if (!dep.files.length) { <span class="muted">Sin archivo.</span> }
+                </div>
+                <div class="c3-dep-ocr">
+                  <span><em>Folio</em> {{ dep.ocr_folio || '—' }}</span>
+                  <span><em>Fecha</em> {{ dep.ocr_fecha || '—' }}</span>
+                  <span><em>Proveedor</em> {{ dep.ocr_proveedor || '—' }}</span>
+                  <span><em>Total</em> {{ dep.ocr_monto != null ? money(dep.ocr_monto) : '—' }}</span>
+                  @if (dep.ocr_subtotal != null) { <span><em>Subtotal</em> {{ money(dep.ocr_subtotal) }}</span> }
+                  @if (dep.ocr_iva != null) { <span><em>IVA</em> {{ money(dep.ocr_iva) }}</span> }
+                </div>
+                @if (dep.status === 'rechazado' && dep.motivo_rechazo) { <div class="c3-dt-err">Rechazado: {{ dep.motivo_rechazo }}</div> }
+              </div>
+            }
+          }
+
           <div class="c3-dt-actions">
             <button pButton type="button" class="p-button-sm p-button-text" (click)="drillToDescuentos(r)">
               <span class="pi pi-arrow-up-right" aria-hidden="true"></span>&nbsp;Ver ajustes de este proveedor en Descuentos
             </button>
           </div>
         </div>
+        </div><!-- /.c3-review-main -->
+
+        <!-- Panel derecho: documento del comprobante para comparar contra la lectura OCR de la izquierda -->
+        <aside class="c3-review-doc">
+          @if (selectedDoc(); as doc) {
+            <div class="c3-doc-head">
+              <span class="c3-doc-name" [title]="doc.name"><i class="pi" [ngClass]="doc.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'" aria-hidden="true"></i> {{ doc.name }}</span>
+              <a pButton type="button" text size="small" [href]="doc.url" target="_blank" rel="noopener" title="Abrir en pestaña"><span class="p-button-icon pi pi-external-link" aria-hidden="true"></span></a>
+            </div>
+            <div class="c3-doc-frame">
+              @if (doc.kind === 'pdf') { <iframe [src]="doc.safeUrl" title="Comprobante de la orden de entrada"></iframe> }
+              @else { <img [src]="doc.url" [alt]="doc.name" /> }
+            </div>
+          } @else {
+            <div class="c3-doc-empty"><i class="pi pi-file" aria-hidden="true"></i><span>Elegí una hoja del comprobante para verla acá, junto a la lectura OCR.</span></div>
+          }
+        </aside>
+        </div><!-- /.c3-review -->
       }
     </p-dialog>
   `,
@@ -279,6 +335,30 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-pz-warn { color:var(--warn-fg); margin-left:.3rem; font-size:.72rem; }
     .c3-w-cuenta { width:8rem; } .c3-w-ca { width:3rem; }
     .c3-dt-actions { margin-top:1rem; padding-top:.7rem; border-top:1px solid var(--border-color); display:flex; justify-content:flex-end; }
+    /* RE.9b — comparación de dos paneles en el detalle (contenido/OCR izq + documento der) */
+    .c3-review { display:grid; grid-template-columns:1fr; gap:1.1rem; }
+    @media (min-width:60rem) { .c3-review { grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); align-items:start; } }
+    .c3-review-main { min-width:0; }
+    .c3-review-doc { min-width:0; }
+    @media (min-width:60rem) { .c3-review-doc { position:sticky; top:0; align-self:start; } }
+    .c3-doc-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.4rem; }
+    .c3-doc-name { display:inline-flex; align-items:center; gap:.4rem; min-width:0; font-size:.8rem; color:var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .c3-doc-name .pi-file-pdf { color:var(--bad-fg); }
+    .c3-doc-frame { border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; background:#00000010; height:64vh; min-height:24rem; display:flex; }
+    .c3-doc-frame iframe { width:100%; height:100%; border:0; background:#fff; }
+    .c3-doc-frame img { width:100%; height:100%; object-fit:contain; }
+    .c3-doc-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.6rem; height:64vh; min-height:24rem; border:1px dashed var(--border-color); border-radius:var(--r-md); color:var(--text-faint); text-align:center; padding:1rem; background:var(--card-bg); }
+    .c3-doc-empty .pi { font-size:1.9rem; opacity:.5; }
+    .c3-dep { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; display:flex; flex-direction:column; gap:.5rem; margin-bottom:.6rem; }
+    .c3-dep-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+    .c3-dep-meta { font-size:.72rem; color:var(--text-faint); margin-left:auto; }
+    .c3-dep-files { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .c3-filebtn { display:inline-flex; align-items:center; gap:.4rem; padding:.4rem .7rem; border:1px solid var(--border-color); border-radius:var(--r-sm,4px); color:var(--action); background:var(--card-bg); font-size:.8rem; cursor:pointer; max-width:16rem; overflow:hidden; }
+    .c3-filebtn span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .c3-filebtn:hover { border-color:var(--action); }
+    .c3-filebtn.on { border-color:var(--action); box-shadow:inset 0 0 0 1px var(--action); }
+    .c3-dep-ocr { display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; font-size:.76rem; color:var(--text-main); }
+    .c3-dep-ocr em { font-style:normal; color:var(--text-faint); margin-right:.3rem; }
     @media (max-width:560px) { .c3-dt-grid { grid-template-columns:repeat(2,1fr); } }
   `],
 })
@@ -287,6 +367,7 @@ export class ComprasCompras360Component implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly sanitizer = inject(DomSanitizer);
 
   readonly data = signal<Compras360Response | null>(null);
   readonly loading = signal(false);
@@ -326,7 +407,11 @@ export class ComprasCompras360Component implements OnInit {
   readonly explainsTotal = signal(0);
   readonly poliza = signal<PolizaForReceipt | null>(null);
   readonly polizaLoading = signal(false);
-  readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio}` : ''; });
+  readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio} — documento vs OCR` : ''; });
+  // RE.9b — evidencia (comprobante) + documento en el panel derecho para comparar vs OCR.
+  readonly evidence = signal<ReceiptEvidenceDeposit[]>([]);
+  readonly evidenceLoading = signal(false);
+  readonly selectedDoc = signal<{ url: string; safeUrl: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
 
   /** onLazyLoad de p-table → page/pageSize + recarga (helper compartido). */
   readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.reload());
@@ -485,8 +570,37 @@ export class ComprasCompras360Component implements OnInit {
       next: (pz) => { this.poliza.set(pz); this.polizaLoading.set(false); },
       error: () => { this.polizaLoading.set(false); this.poliza.set(null); },
     });
+    // RE.9b — evidencia (comprobante) + auto-selecciona el 1er documento en el panel derecho.
+    this.evidence.set([]); this.selectedDoc.set(null); this.evidenceLoading.set(true);
+    this.svc.receiptEvidence(r.sucursal, r.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.evidence.set(res.deposits || []);
+        this.evidenceLoading.set(false);
+        let first: ReceiptEvidenceFile | null = null;
+        for (const dep of res.deposits || []) { if (dep.files && dep.files.length) { first = dep.files[0]; break; } }
+        if (first) this.selectDoc(first);
+      },
+      error: () => { this.evidenceLoading.set(false); },
+    });
   }
-  closeDetail(): void { this.detail.set(null); this.poliza.set(null); }
+  closeDetail(): void { this.detail.set(null); this.poliza.set(null); this.evidence.set([]); this.selectedDoc.set(null); }
+
+  /** RE.9b — muestra el archivo en el panel derecho (iframe PDF / img) para comparar vs OCR. */
+  selectDoc(f: ReceiptEvidenceFile): void {
+    const isImg = this.isImageUrl(f);
+    this.selectedDoc.set({
+      url: f.url,
+      safeUrl: isImg ? null : this.sanitizer.bypassSecurityTrustResourceUrl(f.url),
+      kind: isImg ? 'image' : 'pdf',
+      name: f.name || (isImg ? 'imagen' : 'comprobante (PDF)'),
+    });
+  }
+  isImageUrl(f: ReceiptEvidenceFile): boolean {
+    const k = (f.kind || '').toLowerCase();
+    if (k === 'image' || /(jpe?g|png|webp|gif)/.test(k)) return true;
+    if (k === 'pdf' || k === 'raw') return false;
+    return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
+  }
 
   /** Q.4 — navega a Descuentos filtrando por el proveedor (su lugar de arreglo). */
   drillToDescuentos(r: Compras360Row): void {

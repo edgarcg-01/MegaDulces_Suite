@@ -1033,6 +1033,12 @@ export class ComprasService {
     return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters`);
   }
 
+  /** RE.9 — evidencia (comprobante + OCR, URL de lectura prefirmada) de una orden de entrada, para el visor de Compras 360. */
+  receiptEvidence(sucursal: string, folio: string): Observable<ReceiptEvidenceResponse> {
+    const p = new URLSearchParams(); p.set('sucursal', sucursal); p.set('folio', folio);
+    return this.http.get<ReceiptEvidenceResponse>(`${this.adjBase}/compras-360/evidence?${p.toString()}`);
+  }
+
   /** CXP.6 — póliza contable (Kepler) de una recepción/factura: ¿cuadra? + patas. */
   polizaForReceipt(q: { sucursal: string; folio: string; tipo_pol?: string }): Observable<PolizaForReceipt> {
     const p = new URLSearchParams();
@@ -1125,3 +1131,6 @@ export interface Compras360Query { search?: string; sucursal?: string; proveedor
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
 export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
+export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }
+export interface ReceiptEvidenceDeposit { id: string; files: ReceiptEvidenceFile[]; ocr_folio: string | null; ocr_fecha: string | null; ocr_proveedor: string | null; ocr_rfc: string | null; ocr_subtotal: number | null; ocr_iva: number | null; ocr_monto: number | null; ocr_status: string | null; monto_match: boolean | null; discrepancy_kind: string | null; discrepancy_amount: number | null; status: string; comentarios: string | null; validated_by: string | null; validated_at: string | null; motivo_rechazo: string | null; created_by: string | null; created_at: string }
+export interface ReceiptEvidenceResponse { deposits: ReceiptEvidenceDeposit[] }

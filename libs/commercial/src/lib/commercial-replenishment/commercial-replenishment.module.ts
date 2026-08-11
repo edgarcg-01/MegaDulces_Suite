@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ObjectStorageService } from '@megadulces/platform-core';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import { CommercialReplenishmentController } from './commercial-replenishment.controller';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
@@ -18,7 +19,7 @@ import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments
  */
 @Module({
   controllers: [CommercialReplenishmentController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController],
-  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService],
+  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}
