@@ -115,42 +115,96 @@ interface AttachFile {
     <!-- Diálogo: adjuntar remisión + OCR -->
     <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes por foto' : 'Adjuntar comprobantes de la entrada'">
       <div class="cb-form">
-        @if (attachTarget(); as t) {
-          <div class="cb-cobro">
-            <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
-            <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
-            <div class="ta-r"><span class="cb-lbl">Valor de la entrada</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
-            @if (photoFirst()) { <button pButton type="button" size="small" text (click)="unlinkEntrada()" title="Cambiar la entrada enlazada"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Cambiar</span></button> }
-          </div>
-        } @else {
-          <div class="cb-link">
-            @if (matching()) {
-              <span class="cb-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando la entrada…</span>
-            } @else if (matchCandidates() === null) {
-              <p class="cb-link-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> Subí primero la <strong>Aplica Orden Entrada</strong> (la ★): leo su folio y la enlazo sola. Si no, la buscás abajo.</p>
-            } @else {
-              <div class="cb-link-head">
-                @if (matchCandidates()!.length) { {{ matchCandidates()!.length }} entrada(s) posible(s) — elegí la correcta: }
-                @else { No la reconocí automáticamente — buscala por folio o proveedor: }
+        @if (photoFirst() && attachStep() === 1) {
+          <!-- PASO 1 — solo la Aplica Orden Entrada: se lee con OCR y enlaza la recepción -->
+          <div class="cb-step-head"><span class="cb-step-n">1</span><span>Subí la <strong>Aplica Orden Entrada</strong> — la leo y enlazo la recepción sola. El resto de documentos va en el paso 2.</span></div>
+          @if (!ordenFile()) {
+            <div class="cb-pick">
+              <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
+                <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden />
+              </label>
+              <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir archivo
+                <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden />
+              </label>
+            </div>
+          }
+          @if (ordenFile(); as f) {
+            <div class="cb-files">
+              <div class="cb-file-card primary">
+                <div class="cb-file-thumb">
+                  @if (f.kind === 'image') { <img [src]="f.uploaded?.url || f.dataUri" [alt]="f.name" /> }
+                  @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
+                </div>
+                <div class="cb-file-body">
+                  <div class="cb-file-name" [title]="f.name">{{ f.name }}</div>
+                  <div class="cb-file-controls">
+                    <span class="cb-role-fixed"><i class="pi pi-star-fill" aria-hidden="true"></i> Aplica Orden Entrada</span>
+                    @if (f.uploading) { <span class="cb-file-stat" title="Almacenando…"><i class="pi pi-spin pi-spinner"></i></span> }
+                    @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada — ya no vive en el teléfono"><i class="pi pi-check-circle"></i></span> }
+                    @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
+                  </div>
+                </div>
+                <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
               </div>
-              <div class="cb-link-search">
-                <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
-                <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
-              </div>
-              @for (e of matchCandidates()!; track e.sucursal + '/' + e.folio) {
-                <button type="button" class="cb-link-cand" (click)="pickEntrada(e)">
-                  <span class="mono">{{ e.sucursal }}/{{ e.folio }}</span>
-                  <span class="cb-link-prov">{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
-                  <span class="cb-link-monto">{{ money(e.monto) }}</span>
-                  @if (e.deposits > 0) { <span class="cb-link-has" title="Ya tiene comprobante">ya tiene</span> }
-                </button>
+            </div>
+            <div class="cb-ocr-actions">
+              @if (ocrLoading()) {
+                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo la orden…</span>
+              } @else if (ocrRun()) {
+                @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — enlazá la entrada abajo.</span> }
+                @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — enlazá la entrada abajo.</span> }
+                <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer la orden"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
               }
-            }
-          </div>
-        }
-
-        <div class="cb-f cb-file">
-          <span>Fotos de la recepción (1ª = Aplica Orden Entrada, luego remisión/factura, vale, ticket…) * <em class="cb-auto">la ★ se lee con OCR y enlaza; agregá 3–4</em></span>
+            </div>
+          }
+          @if (attachTarget(); as t) {
+            <div class="cb-cobro cb-cobro-ok">
+              <div><span class="cb-lbl">Entrada enlazada</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
+              <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
+              <div class="ta-r"><span class="cb-lbl">Valor</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
+              <button pButton type="button" size="small" text (click)="unlinkEntrada()" title="Cambiar la entrada enlazada"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Cambiar</span></button>
+            </div>
+          } @else {
+            <div class="cb-link">
+              @if (matching()) {
+                <span class="cb-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando la entrada…</span>
+              } @else if (matchCandidates() === null) {
+                <p class="cb-link-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> Subí la <strong>Aplica Orden Entrada</strong> arriba y la enlazo sola. Si no, buscala acá:</p>
+                <div class="cb-link-search">
+                  <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
+                  <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
+                </div>
+              } @else {
+                <div class="cb-link-head">
+                  @if (matchCandidates()!.length) { {{ matchCandidates()!.length }} entrada(s) posible(s) — elegí la correcta: }
+                  @else { No la reconocí automáticamente — buscala por folio o proveedor: }
+                </div>
+                <div class="cb-link-search">
+                  <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
+                  <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
+                </div>
+                @for (e of matchCandidates()!; track e.sucursal + '/' + e.folio) {
+                  <button type="button" class="cb-link-cand" (click)="pickEntrada(e)">
+                    <span class="mono">{{ e.sucursal }}/{{ e.folio }}</span>
+                    <span class="cb-link-prov">{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                    <span class="cb-link-monto">{{ money(e.monto) }}</span>
+                    @if (e.deposits > 0) { <span class="cb-link-has" title="Ya tiene comprobante">ya tiene</span> }
+                  </button>
+                }
+              }
+            </div>
+          }
+        } @else {
+          <!-- PASO 2 — entrada enlazada + demás documentos (remisión/factura, vale, ticket) -->
+          @if (attachTarget(); as t) {
+            <div class="cb-cobro">
+              <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
+              <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
+              <div class="ta-r"><span class="cb-lbl">Valor de la entrada</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
+            </div>
+          }
+          <div class="cb-step-head">@if (photoFirst()) { <span class="cb-step-n">2</span> }<span>Agregá <strong>remisión/factura</strong> y <strong>vale de recepción</strong> (ticket si hay) — una por una; cada foto se sube al momento.</span></div>
+          @if (!attachFiles().length) {
             <div class="cb-pick">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
                 <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
@@ -159,14 +213,13 @@ interface AttachFile {
                 <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden multiple />
               </label>
             </div>
-          </div>
-
+          }
           @if (attachFiles().length) {
             <div class="cb-files">
               @for (f of attachFiles(); track f.id) {
                 <div class="cb-file-card" [class.primary]="f.primary">
                   <div class="cb-file-thumb">
-                    @if (f.kind === 'image') { <img [src]="f.dataUri" [alt]="f.name" /> }
+                    @if (f.kind === 'image') { <img [src]="f.uploaded?.url || f.dataUri" [alt]="f.name" /> }
                     @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
                   </div>
                   <div class="cb-file-body">
@@ -177,33 +230,37 @@ interface AttachFile {
                       </select>
                       <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Se lee con OCR' : 'Leer esta con OCR'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
                       @if (f.uploading) { <span class="cb-file-stat" title="Almacenando…"><i class="pi pi-spin pi-spinner"></i></span> }
-                      @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada"><i class="pi pi-check-circle"></i></span> }
+                      @else if (f.uploaded) { <span class="cb-file-stat ok" title="Almacenada — ya no vive en el teléfono"><i class="pi pi-check-circle"></i></span> }
                       @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                     </div>
                   </div>
                   <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
                 </div>
               }
+              <div class="cb-addmore">
+                <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar otra
+                  <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden multiple />
+                </label>
+                <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir más
+                  <input type="file" accept="image/*,.pdf" (change)="onFiles($event)" hidden multiple />
+                </label>
+                <span class="cb-addmore-n">{{ attachFiles().length }} adjunta(s)</span>
+              </div>
             </div>
 
             <div class="cb-ocr-actions">
               @if (ocrLoading()) {
-                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo la foto marcada ★…</span>
+                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo la orden…</span>
               } @else if (ocrRun()) {
-                @if (matchState() === true) { <p-tag value="Cuadra con la entrada" severity="success" /> }
+                @if (matchState() === true) { <p-tag value="La remisión cuadra con la entrada" severity="success" /> }
                 @else if (matchState() === false) { <p-tag [value]="'Difiere ' + money(diff())" severity="danger" /> }
-                @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — captura a mano.</span> }
-                @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
-                <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer la foto marcada ★"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
               }
             </div>
-          }
 
-          @if (attachFiles().length) {
-            <div class="cb-fields-head">Datos de la remisión <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
+            <div class="cb-fields-head">Datos leídos de la orden <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
             <div class="cb-grid">
-              <label class="cb-f"><span>Total de la remisión</span><p-inputnumber [(ngModel)]="ocrForm.total" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>Folio remisión/factura</span><input pInputText [(ngModel)]="ocrForm.folio" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Total</span><p-inputnumber [(ngModel)]="ocrForm.total" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+              <label class="cb-f"><span>Folio</span><input pInputText [(ngModel)]="ocrForm.folio" [disabled]="ocrLoading()" /></label>
               <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
               <label class="cb-f"><span>Proveedor (emisor)</span><input pInputText [(ngModel)]="ocrForm.proveedor" [disabled]="ocrLoading()" /></label>
               <label class="cb-f"><span>RFC</span><input pInputText [(ngModel)]="ocrForm.rfc" [disabled]="ocrLoading()" /></label>
@@ -212,12 +269,22 @@ interface AttachFile {
             </div>
           }
           @if (attachFiles().length && missingRoles().length) { <div class="cb-missing"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Faltan para completar: {{ missingRoles().join(' · ') }}</div> }
-          @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
-        </div>
-        <ng-template #footer>
+        }
+        @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
+      </div>
+      <ng-template #footer>
+        @if (photoFirst() && attachStep() === 1) {
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" [disabled]="!attachTarget() || !ordenFile()" (click)="continuar()"><span class="p-button-label">Continuar</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></button>
+        } @else {
+          @if (photoFirst()) {
+            <button pButton type="button" text (click)="backToStep1()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Atrás</span></button>
+          } @else {
+            <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
+          }
           <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || !attachTarget() || missingRoles().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
-        </ng-template>
+        }
+      </ng-template>
     </p-dialog>
 
     <!-- Diálogo: rechazo -->
@@ -440,6 +507,14 @@ interface AttachFile {
     .cb-link-monto { font-family: var(--font-mono); color: var(--text-main); }
     .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
     .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
+    /* wizard foto-primero: paso 1 (orden) → continuar → paso 2 (demás docs) */
+    .cb-step-head { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); line-height: 1.35; }
+    .cb-step-n { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--action); color: #fff; font-size: .74rem; font-weight: 700; }
+    .cb-cobro-ok { border: 1px solid var(--ok-fg, #2e7d32); }
+    .cb-role-fixed { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; font-weight: 600; color: var(--action); }
+    .cb-role-fixed .pi { font-size: .8rem; }
+    .cb-addmore { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding-top: .1rem; }
+    .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -501,6 +576,8 @@ export class ComprasEntradasComponent {
   readonly attachTarget = signal<EntradaRow | null>(null);
   // foto-primero (como Cobranza): sin entrada preseleccionada; se enlaza por OCR de la Aplica Orden Entrada.
   readonly photoFirst = signal(false);
+  // Wizard foto-primero: 1 = solo la Aplica Orden Entrada (se lee y enlaza), 2 = demás documentos.
+  readonly attachStep = signal<1 | 2>(1);
   readonly matching = signal(false);
   readonly matchCandidates = signal<EntradaRow[] | null>(null); // null = aún no buscado; [] = buscado, sin match
   manualSearch = '';
@@ -509,6 +586,8 @@ export class ComprasEntradasComponent {
   readonly attachError = signal<string>('');
   readonly attachFiles = signal<AttachFile[]>([]);
   readonly uploadingAny = computed(() => this.attachFiles().some((f) => f.uploading));
+  // La ★ del paso 1 (la que se lee y enlaza). Habilita "Continuar".
+  readonly ordenFile = computed(() => this.attachFiles().find((f) => f.role === 'orden_entrada') || null);
   // Set obligatorio de la recepción: Aplica Orden Entrada + Remisión/Factura + Vale (Ticket opcional).
   readonly REQUIRED_ROLES: { keys: string[]; label: string }[] = [
     { keys: ['orden_entrada'], label: 'Aplica Orden Entrada' },
@@ -576,6 +655,7 @@ export class ComprasEntradasComponent {
     this.photoFirst.set(false);
     this.attachTarget.set(c);
     this.resetAttach();
+    this.attachStep.set(2); // ya hay entrada: directo a los documentos
     this.showAttach.set(true);
   }
 
@@ -584,8 +664,13 @@ export class ComprasEntradasComponent {
     this.photoFirst.set(true);
     this.attachTarget.set(null);
     this.resetAttach();
+    this.attachStep.set(1); // paso 1: solo la Aplica Orden Entrada
     this.showAttach.set(true);
   }
+
+  /** Paso 1 → 2: la orden ya está enlazada; ahora se suman remisión/vale/ticket. */
+  continuar() { if (this.attachTarget() && this.ordenFile()) this.attachStep.set(2); }
+  backToStep1() { this.attachStep.set(1); }
 
   private resetAttach() {
     this.attachFiles.set([]);
@@ -673,7 +758,14 @@ export class ComprasEntradasComponent {
     this.patch(id, { uploading: true, failed: false });
     this.svc.uploadFile(af.dataUri, af.role).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (up) => this.patch(id, { uploaded: up, uploading: false }),
+        next: (up) => {
+          const cur = this.attachFiles().find((f) => f.id === id);
+          const p: Partial<AttachFile> = { uploaded: up, uploading: false };
+          // Suelta el base64 apenas se sube (la miniatura pasa a leerse de Cloudinary):
+          // así la foto NO se retiene en el dispositivo. La ★ conserva el suyo para poder releer.
+          if (cur && !cur.primary) p.dataUri = '';
+          this.patch(id, p);
+        },
         error: () => this.patch(id, { uploading: false, failed: true }),
       });
   }
@@ -695,8 +787,9 @@ export class ComprasEntradasComponent {
     }
   }
 
-  /** OCR sobre la foto marcada ★ (la remisión/factura con el total). */
+  /** OCR sobre la foto marcada ★ (la Aplica Orden Entrada con el total). */
   private runOcrFor(dataUri: string) {
+    if (!dataUri) return; // ya se soltó de memoria (solo la ★ conserva su base64)
     this.ocrLoading.set(true);
     this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
