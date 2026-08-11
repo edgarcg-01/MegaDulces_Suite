@@ -131,6 +131,13 @@ export class PurchaseAdjustmentsController {
     });
   }
 
+  @Get('compras-360/evidence')
+  @RequirePermissions(Permission.COMPRAS_360_VER)
+  @ApiOperation({ summary: 'RE.9 — evidencia (comprobante + OCR) adjunta a una orden de entrada, con URL de lectura prefirmada, para el visor lado-a-lado del detalle de Compras 360. Read-only.' })
+  receiptEvidence(@Query('sucursal') sucursal: string, @Query('folio') folio: string) {
+    return this.svc.receiptEvidence(sucursal, folio);
+  }
+
   @Get('poliza-for-receipt')
   @RequirePermissions(Permission.COMPRAS_360_VER)
   @ApiOperation({ summary: 'CXP.6 — póliza contable (Kepler) de una recepción/factura: header (¿cuadra?) + patas (cuenta/cargo-abono/importe). Confirma el asiento en libros (102/201/gasto). Params: sucursal, folio, tipo_pol (default XA2001).' })
