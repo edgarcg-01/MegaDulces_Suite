@@ -735,11 +735,12 @@ export class ComprasEntradasComponent {
   private readonly ROLE_TO_TYPE: Record<string, string> = {
     orden_entrada: 'aplica_orden_entrada', remision: 'remision', factura: 'factura', vale: 'vale', ticket: 'ticket',
   };
-  /** CEDIS (sucursal '00') recibe por Kepler; las sucursales por Wincaja. */
-  receptionSource(sucursal: string | null | undefined): 'kepler' | 'wincaja' {
-    return (sucursal || '') === '00' ? 'kepler' : 'wincaja';
+  /** El origen (source_branch) define el set de docs: `wincaja_*` = Wincaja (ticket +
+   *  orden recepción + aplica OE); `md_*` / CEDIS = Kepler (aplica OE + factura). */
+  receptionSource(e: EntradaRow | null): 'kepler' | 'wincaja' {
+    return (e?.source_branch || '').toLowerCase().startsWith('wincaja') ? 'wincaja' : 'kepler';
   }
-  readonly srcKind = computed<'kepler' | 'wincaja'>(() => this.receptionSource(this.attachTarget()?.sucursal));
+  readonly srcKind = computed<'kepler' | 'wincaja'>(() => this.receptionSource(this.attachTarget()));
   /** Tipos de documento cubiertos: rol asignado + lo que el OCR detectó en cada hoja (packet-aware). */
   readonly coveredTypes = computed(() => {
     const s = new Set<string>();

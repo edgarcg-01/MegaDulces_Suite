@@ -21,6 +21,7 @@ export interface EntradaRow {
   proveedor_rfc: string | null;
   oc_folio: string | null;
   concepto: string | null;
+  source_branch: string | null; // md_* = Kepler, wincaja_* = Wincaja (define el set de docs requeridos)
   monto: number;
   deposits: number;
   deposit_id: string | null;
