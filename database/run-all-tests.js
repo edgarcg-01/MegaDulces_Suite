@@ -105,6 +105,8 @@ const TESTS = [
   { file: 'http-thot-directives-test.js', label: 'Thot T.2 empuje dirigido (directriz marca foco → suggest reason=estrategia)', needsApi: true },
   // SM Supervisor de Movimientos — cuadre caja+inventario (self-contained: inyecta+scan+triage+cleanup)
   { file: 'http-reconciliation-test.js', label: 'SM.1/SM.2 cuadre (caja descuadre crítico + merma + bandeja + feedback L2)', needsApi: true },
+  // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
+  { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
