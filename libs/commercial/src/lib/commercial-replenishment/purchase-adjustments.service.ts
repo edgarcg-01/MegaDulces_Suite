@@ -365,7 +365,8 @@ export class PurchaseAdjustmentsService {
         const b = trx('analytics.erp_goods_receipts as c')
           .leftJoin(adj, 'a.entrada_folio', 'c.folio')
           .leftJoin(dep, (j: any) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-          .where('c.tenant_id', tenantId);
+          .where('c.tenant_id', tenantId)
+          .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); la canónica (sucursal) manda
         if (q.sucursal) b.where('c.sucursal', q.sucursal);
         if (q.proveedor_code) b.where('c.proveedor_code', q.proveedor_code);
         if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);

@@ -99,6 +99,8 @@ export interface EntradaDetail {
   };
   lineas: EntradaLinea[];
   deposits: ReceiptDeposit[];
+  // RE.12 — copia(s) CEDIS ('00') espejo de esta canónica (misma recepción, otra póliza).
+  cedis_twins?: { sucursal: string; folio: string; receipt_date: string | null; oc_folio: string | null; vale_folio: string | null; monto: number }[];
 }
 
 export interface AttachReceipt {
