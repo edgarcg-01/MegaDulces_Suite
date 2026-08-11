@@ -1,0 +1,177 @@
+/* eslint-disable no-console */
+/**
+ * SYNC.2.5 — vía RÁPIDA CDC Kepler → prod kepler_ods (watermark por ctid, al-minuto).
+ *
+ * A diferencia de replicate-ods.js (lee KP_CONCENTRADA, tan fresco como el concentrate de 4h),
+ * ESTE lee las sucursales md.* DIRECTO y empuja al mismo handler 'raw-upsert' (UPSERT sin churn).
+ * Un solo salto branches→prod, sin depender del concentrate → verdaderamente al-minuto.
+ *
+ * Incremental BARATO por **ctid**: guarda el último ctid leído por (sucursal, tabla) y lee
+ * `WHERE ctid > last ORDER BY ctid` → en Postgres 16 es un **Tid Range Scan** (solo bloques
+ * nuevos, NO seq-scan de millones). Verificado: md.* = PG 16.4. Captura INSERTs y UPDATEs
+ * (un UPDATE crea una tupla nueva con ctid mayor → se re-lee → UPSERT prod la deja al día).
+ *
+ * Limitaciones (por diseño, aceptadas): (1) hard-DELETE en origen no se propaga (UPSERT no borra;
+ * raro en ERP). (2) VACUUM FULL reescribe ctids → correr `--full` (nightly) resincroniza
+ * (lee todo por ctid, UPSERT churn-free, resetea watermark). autovacuum normal NO mueve tuplas vivas.
+ *
+ * Watermark en `kp.ods_fast_control` (en KP_CONCENTRADA .245, on-prem — NO toca prod → cero egress).
+ *
+ * Env: KP_BRANCH_MAP (sucursales) · KP_ODS_TABLES (curadas) · CTRL_URL (default KP_CONCENTRADA)
+ *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY · CRON_TENANT_ID
+ *      ODS_READ_BATCH (5000) · ODS_SHIP_BATCH (5000)
+ * Flags: --apply (default dry-run) · --tables=kdii,kdil · --branch=00 · --full (ignora watermark)
+ *
+ *   node database/importers/kepler/replicate-ods-fast.js --tables=kdil            # dry-run
+ *   node database/importers/kepler/replicate-ods-fast.js --tables=kdil --apply    # aplica
+ */
+
+const { Client } = require('pg');
+const sink = require('../lib/sink');
+
+const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+const CTRL_URL = process.env.CTRL_URL || process.env.KP_DEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
+const APPLY = process.argv.includes('--apply');
+const FULL = process.argv.includes('--full');
+const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
+const ONLY = (process.argv.find((a) => a.startsWith('--tables=')) || '').split('=')[1];
+const TABLES = (ONLY || process.env.KP_ODS_TABLES || 'kdm1,kdm2,kdii,kdil,kdig,kdik,kdib,kdid,kdij,kdue,kduv')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+const READ_BATCH = Math.max(500, Number(process.env.ODS_READ_BATCH) || 5000);
+const SHIP_BATCH = Math.max(500, Number(process.env.ODS_SHIP_BATCH) || 5000);
+
+const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
+const BRANCHES = process.env.KP_BRANCH_MAP
+  ? JSON.parse(process.env.KP_BRANCH_MAP)
+  : [
+      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
+      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
+      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
+      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
+      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
+      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
+    ];
+
+function mapType(dt) {
+  switch (dt) {
+    case 'numeric': return 'numeric';
+    case 'double precision': return 'double precision';
+    case 'real': return 'real';
+    case 'integer': return 'integer';
+    case 'bigint': return 'bigint';
+    case 'smallint': return 'smallint';
+    case 'boolean': return 'boolean';
+    case 'date': return 'date';
+    case 'timestamp without time zone': return 'timestamp';
+    case 'timestamp with time zone': return 'timestamptz';
+    default: return 'text';
+  }
+}
+const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
+
+async function ensureControl(ctrl) {
+  await ctrl.query('CREATE SCHEMA IF NOT EXISTS kp');
+  await ctrl.query(`
+    CREATE TABLE IF NOT EXISTS kp.ods_fast_control (
+      sucursal    text NOT NULL,
+      table_name  text NOT NULL,
+      last_ctid   text NOT NULL DEFAULT '(0,0)',
+      rows_last   integer DEFAULT 0,
+      changed_last integer DEFAULT 0,
+      last_run_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (sucursal, table_name)
+    )`);
+}
+
+/** Columnas + PK de md.<table> en ESTA sucursal. */
+async function tableMeta(src, table) {
+  const cols = (await src.query(
+    `SELECT column_name, data_type FROM information_schema.columns
+      WHERE table_schema='md' AND table_name=$1 ORDER BY ordinal_position`, [table])).rows;
+  if (!cols.length) return null;
+  const pk = (await src.query(`
+    SELECT a.attname FROM pg_index i
+    JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
+    WHERE i.indrelid=('md.'||$1)::regclass AND i.indisprimary
+    ORDER BY array_position(i.indkey, a.attnum)`, [table])).rows.map((r) => r.attname);
+  return { cols, pk };
+}
+
+(async () => {
+  console.log(`\n=== replicate-ods-FAST — sucursales → kepler_ods (${APPLY ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}) ===`);
+  console.log(`  sink: ${sink.sinkMode()}  ·  tablas: ${TABLES.join(', ')}${ONLY_BRANCH ? ` · solo suc ${ONLY_BRANCH}` : ''}`);
+
+  const ctrl = new Client({ connectionString: CTRL_URL, ...CONN });
+  await ctrl.connect();
+  await ensureControl(ctrl);
+
+  const summary = [];
+  for (const b of BRANCHES) {
+    if (ONLY_BRANCH && b.code !== ONLY_BRANCH) continue;
+    const src = new Client({ connectionString: b.url, ...CONN });
+    try { await src.connect(); }
+    catch (e) { console.log(`\n⚠ suc ${b.code}: no conecta (${e.message.slice(0, 50)}) — skip`); continue; }
+    console.log(`\n── Sucursal ${b.code} ──`);
+    try {
+      for (const table of TABLES) {
+        try {
+          const meta0 = await tableMeta(src, table);
+          if (!meta0) { console.log(`  ✗ ${table}: no existe aquí — skip`); continue; }
+          if (!meta0.pk.length) { console.log(`  ✗ ${table}: sin PK — skip`); continue; }
+
+          const metaCols = [{ name: 'sucursal', type: 'text' }, ...meta0.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))];
+          const selList = meta0.cols.map((c) => qid(c.column_name)).join(', ');
+          const shipMeta = { table, pk: meta0.pk, columns: metaCols };
+
+          const wmRow = (await ctrl.query(`SELECT last_ctid FROM kp.ods_fast_control WHERE sucursal=$1 AND table_name=$2`, [b.code, table])).rows[0];
+          const wm = FULL ? '(0,0)' : (wmRow && wmRow.last_ctid) || '(0,0)';
+
+          if (!APPLY) {
+            const n = Number((await src.query(`SELECT count(*)::bigint n FROM md.${qid(table)} WHERE ctid > $1::tid`, [wm])).rows[0].n);
+            summary.push({ suc: b.code, tabla: table, pk: meta0.pk.join(','), desde_ctid: wm, candidatas: n });
+            continue;
+          }
+
+          // Lectura keyset por ctid (Tid Range Scan) + ship por lotes.
+          let lastCtid = wm, seen = 0, changed = 0, buf = [];
+          const flush = async () => {
+            if (!buf.length) return;
+            const r = await sink.ship('raw-upsert', { rows: buf, tenantId: TENANT, meta: shipMeta });
+            changed += Number(r.rowCount || 0); buf = [];
+          };
+          for (;;) {
+            const rows = (await src.query(
+              `SELECT ctid, ${selList} FROM md.${qid(table)} WHERE ctid > $1::tid ORDER BY ctid LIMIT ${READ_BATCH}`, [lastCtid])).rows;
+            if (!rows.length) break;
+            lastCtid = rows[rows.length - 1].ctid;
+            for (const row of rows) {
+              const o = { sucursal: b.code };
+              for (const c of meta0.cols) o[c.column_name] = row[c.column_name];
+              buf.push(o); seen++;
+              if (buf.length >= SHIP_BATCH) await flush();
+            }
+          }
+          await flush();
+
+          // Avanza watermark SOLO tras push OK.
+          await ctrl.query(
+            `INSERT INTO kp.ods_fast_control (sucursal, table_name, last_ctid, rows_last, changed_last, last_run_at)
+             VALUES ($1,$2,$3,$4,$5, now())
+             ON CONFLICT (sucursal, table_name) DO UPDATE SET last_ctid=EXCLUDED.last_ctid,
+               rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
+            [b.code, table, lastCtid, seen, changed]);
+          if (seen) console.log(`  ✓ ${table}: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
+          summary.push({ suc: b.code, tabla: table, leidas: seen, escritas: changed, ctid: lastCtid });
+        } catch (e) {
+          console.log(`  ✗ ${table}: ${e.message.slice(0, 90)}`);
+          summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) });
+        }
+      }
+    } finally { await src.end(); }
+  }
+
+  console.log('\n=== Resumen ===');
+  console.table(summary.slice(0, 200));
+  console.log(APPLY ? 'APPLY hecho.' : 'DRY-RUN — nada cambió. Corré con --apply.');
+  await ctrl.end();
+})().catch((e) => { console.error('\nERROR:', e.message); process.exit(1); });
