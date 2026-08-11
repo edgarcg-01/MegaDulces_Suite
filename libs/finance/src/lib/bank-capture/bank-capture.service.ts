@@ -3,6 +3,7 @@ import {
   TenantKnexService,
   TenantContextService,
   CloudinaryService,
+  ObjectStorageService,
   LlmExtractorService,
   normalizeMxPhone,
 } from '@megadulces/platform-core';
@@ -34,6 +35,7 @@ export class BankCaptureService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
@@ -68,18 +70,19 @@ export class BankCaptureService {
     const mediaType = this.coerceMediaType(input.mime);
     let errorDetail: string | null = null;
 
-    // 1) Cloudinary (data URI con prefijo; detecta PDF vs imagen). Defensivo: si no
-    //    sube, guardamos la captura igual (con el error) — no se pierde la evidencia.
+    // 1) Railway Bucket (WhatsApp manda imagen o PDF → putFile acepta ambos). Defensivo:
+    //    si no sube, guardamos la captura igual (con el error) — no se pierde la evidencia.
+    //    url = key (placeholder); la lectura la firma (signFiles).
     let files: Array<{ url: string; public_id: string; kind: string }> = [];
     try {
-      const up = await this.cloudinary.uploadDocumentBase64(
+      const up = await this.storage.putFile(
         `data:${mediaType};base64,${input.fileBase64}`,
         `finance/${this.TENANT}/bank-captures`,
       );
-      files = [{ url: up.url, public_id: up.public_id, kind: up.kind }];
+      files = [{ url: up.key, public_id: up.key, kind: up.kind }];
     } catch (e: any) {
-      this.logger.error(`Cloudinary falló: ${e?.message}`);
-      errorDetail = 'No se pudo subir la imagen (almacenamiento). Reenviar.';
+      this.logger.error(`Storage falló: ${e?.message}`);
+      errorDetail = 'No se pudo subir el archivo (almacenamiento). Reenviar.';
     }
 
     // 2) OCR de la ficha. Nunca lanza (el extractor degrada), pero lo blindamos igual.
@@ -189,6 +192,8 @@ export class BankCaptureService {
           's.full_name as sender_name',
           trx.raw(`COALESCE(a.bank || ' ' || a.account_label, NULL) as cuenta`),
         );
+      // URL de lectura prefirmada (bucket privado); legacy Cloudinary queda igual.
+      for (const r of rows) r.files = await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []));
       const kpiRows = await trx('finance.bank_capture_inbox')
         .groupBy('status')
         .select('status')

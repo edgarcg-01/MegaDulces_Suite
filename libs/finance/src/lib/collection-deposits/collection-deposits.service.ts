@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-core';
 
 /**
@@ -55,6 +55,7 @@ export class CollectionDepositsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
   ) {}
 
@@ -202,9 +203,10 @@ export class CollectionDepositsService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!DEPOSIT_FILE_ROLES.includes(role as DepositFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.cloudinary.uploadDocumentBase64(dataUri, `finance/${tenantId}/collection-deposits`);
-      return { role, url: f.url, public_id: f.public_id, kind: f.kind };
+      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/collection-deposits`); // solo PDF → Railway Bucket
+      return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
+      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
       this.logger.error(`fallo subiendo ficha (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
@@ -303,6 +305,8 @@ export class CollectionDepositsService {
         .select('id', 'files', trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_fecha', 'ocr_banco', 'ocr_cuenta_dest',
           'ocr_referencia', 'ocr_ordenante', 'ocr_metodo', 'ocr_status', 'monto_match', 'cuenta_propia', 'ref_norm', 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
+      // URL de lectura prefirmada (bucket privado); legacy Cloudinary queda igual.
+      for (const d of deposits) d.files = await this.storage.signFiles(typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []));
 
       // Referencia duplicada: ¿algún ref_norm de estas fichas aparece en OTRO cobro (viva)?
       // Dedup SIN `[...new Set()]`: webpack lo downlevela a `[Set]` en el bundle de

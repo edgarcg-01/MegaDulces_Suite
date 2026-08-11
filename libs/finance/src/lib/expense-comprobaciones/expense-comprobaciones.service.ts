@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService } from '@megadulces/platform-core';
 
 /**
  * GX.8 — Comprobación de Gastos (2ª etapa). Captura de la comprobación de un gasto,
@@ -54,6 +54,7 @@ export class ExpenseComprobacionesService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   /**
@@ -87,9 +88,10 @@ export class ExpenseComprobacionesService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!COMPROBACION_FILE_ROLES.includes(role as ComprobacionFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.cloudinary.uploadDocumentBase64(dataUri, `finance/${tenantId}/expense-comprobaciones`);
-      return { role, url: f.url, public_id: f.public_id, kind: f.kind };
+      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/expense-comprobaciones`); // solo PDF → Railway Bucket
+      return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
+      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
       this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
@@ -158,7 +160,10 @@ export class ExpenseComprobacionesService {
         b.where((w) => w.whereILike('proveedor', s).orWhereILike('folio_gasto', s)
           .orWhereILike('folio_comprobacion', s).orWhereILike('solicitante', s));
       }
-      const rows = (await b).map((r: any) => ({ ...r, importe: Number(r.importe), files: r.files || [] }));
+      const rows = await Promise.all((await b).map(async (r: any) => ({
+        ...r, importe: Number(r.importe),
+        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
+      })));
 
       const agg = await trx('finance.expense_comprobaciones').groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
       const by = Object.fromEntries(agg.map((r: any) => [r.status, Number(r.n)]));
@@ -219,7 +224,10 @@ export class ExpenseComprobacionesService {
           .orWhereILike('g.solicitud_folio', s).orWhereRaw('g.importe::text ILIKE ?', [s]));
       }
 
-      const rows = (await b).map((r: any) => ({ ...r, importe: Number(r.importe), files: r.files || [] }));
+      const rows = await Promise.all((await b).map(async (r: any) => ({
+        ...r, importe: Number(r.importe),
+        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
+      })));
 
       const kpiBase = trx('analytics.expense_documents as g')
         .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')

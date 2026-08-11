@@ -9,6 +9,7 @@ import {
   TenantKnexService,
   TenantContextService,
   CloudinaryService,
+  ObjectStorageService,
 } from '@megadulces/platform-core';
 
 /**
@@ -69,6 +70,7 @@ export class CommercialExpiryReviewsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   // ───── encabezado ─────
@@ -179,6 +181,8 @@ export class CommercialExpiryReviewsService {
           'l.created_at',
         )
         .orderBy('l.created_at', 'asc');
+      // URL de lectura prefirmada (bucket privado); legacy Cloudinary queda igual.
+      for (const l of lines) l.files = await this.storage.signFiles(typeof l.files === 'string' ? JSON.parse(l.files || '[]') : (l.files || []));
 
       return { ...header, lines };
     });
@@ -255,13 +259,14 @@ export class CommercialExpiryReviewsService {
     });
   }
 
-  // ───── foto de evidencia (base64 → Cloudinary, patrón Pattern A) ─────
+  // ───── foto de evidencia (base64 → Railway Bucket; acepta imagen o PDF) ─────
 
   async uploadFile(dataUri: string, role = 'evidencia'): Promise<ReviewFile> {
     if (!dataUri) throw new BadRequestException('file_base64 requerido');
     const tenantId = this.tenantCtx.requireTenantId();
-    const f = await this.cloudinary.uploadDocumentBase64(dataUri, `commercial/${tenantId}/expiry-reviews`);
-    return { role, url: f.url, public_id: f.public_id, kind: f.kind };
+    // Caducidad = fotos de producto → putFile (imagen o PDF). url = key; la lectura la firma.
+    const f = await this.storage.putFile(dataUri, `commercial/${tenantId}/expiry-reviews`);
+    return { role, url: f.key, public_id: f.key, kind: f.kind };
   }
 
   // ───── submit → alimenta FEFO ─────

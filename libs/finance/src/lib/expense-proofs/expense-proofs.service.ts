@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService } from '@megadulces/platform-core';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -45,6 +45,7 @@ export class ExpenseProofsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   /**
@@ -99,9 +100,10 @@ export class ExpenseProofsService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!PROOF_FILE_ROLES.includes(role as ProofFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.cloudinary.uploadDocumentBase64(dataUri, `finance/${tenantId}/expense-proofs`);
-      return { role, url: f.url, public_id: f.public_id, kind: f.kind };
+      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/expense-proofs`); // solo PDF → Railway Bucket
+      return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
+      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
       this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
@@ -163,7 +165,10 @@ export class ExpenseProofsService {
         const s = `%${q.search.trim()}%`;
         b.where((w) => w.whereILike('proveedor', s).orWhereILike('folio_solicitud', s).orWhereILike('solicitante', s));
       }
-      const rows = (await b).map((r: any) => ({ ...r, importe: Number(r.importe), files: r.files || [] }));
+      const rows = await Promise.all((await b).map(async (r: any) => ({
+        ...r, importe: Number(r.importe),
+        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
+      })));
 
       const agg = await trx('finance.expense_proofs').groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
       const by = Object.fromEntries(agg.map((r: any) => [r.status, Number(r.n)]));

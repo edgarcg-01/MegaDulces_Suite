@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { TenantKnexService, TenantContextService, CloudinaryService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
 
 /**
@@ -56,6 +56,7 @@ export class GoodsReceiptProofsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
+    private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
   ) {}
 
@@ -185,9 +186,13 @@ export class GoodsReceiptProofsService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!RECEIPT_FILE_ROLES.includes(role as ReceiptFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.cloudinary.uploadDocumentBase64(dataUri, `finance/${tenantId}/goods-receipts`);
-      return { role, url: f.url, public_id: f.public_id, kind: f.kind };
+      // Solo PDF → Railway Bucket (privado). Se guarda la KEY en public_id; la URL de lectura
+      // es prefirmada al mostrar (signFiles), no permanente.
+      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/goods-receipts`);
+      // url = key (placeholder truthy para no romper filtros `f.url`); la lectura la firma (signFiles).
+      return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
+      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado" → mensaje directo al usuario
       this.logger.error(`fallo subiendo remisión (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
@@ -359,7 +364,12 @@ export class GoodsReceiptProofsService {
           trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match',
           'discrepancy_kind', trx.raw('discrepancy_amount::numeric AS discrepancy_amount'), 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits };
+      // URL de lectura prefirmada (bucket privado). Legacy Cloudinary (url http) se deja como está.
+      const depSigned = await Promise.all(deposits.map(async (d: any) => {
+        const files = typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []);
+        return { ...d, files: await this.storage.signFiles(files) };
+      }));
+      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned };
     });
   }
 
