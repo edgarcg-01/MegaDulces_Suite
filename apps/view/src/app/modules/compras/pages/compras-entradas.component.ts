@@ -876,7 +876,7 @@ export class ComprasEntradasComponent {
   }
 
   private async addOne(file: File) {
-    if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
+    if (file.size > 20 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 20 MB.`); return; }
     this.attachError.set('');
     let dataUri: string;
     try { dataUri = await this.fileToDataUri(file); }
@@ -922,7 +922,7 @@ export class ComprasEntradasComponent {
 
   /** Imagen → JPEG reducido (lado mayor ≤1920px, ~0.82) como data URI; el PDF se lee
    *  tal cual. Recorta el payload de fotos de cámara (evita 413) y acelera el OCR.
-   *  Si la reducción falla, cae a leer el original (el backend acepta hasta 16mb). */
+   *  Si la reducción falla, cae a leer el original (el backend acepta hasta 32mb). */
   private async fileToDataUri(file: File): Promise<string> {
     const readRaw = () => new Promise<string>((res, rej) => {
       const r = new FileReader();

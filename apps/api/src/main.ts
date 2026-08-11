@@ -146,10 +146,11 @@ async function bootstrap() {
   // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
   // montado antes del global para que gane (express salta el segundo si ya parseó).
   app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
-  // Evidencia por foto (RE.5 recepción, CC cobranza, CC pagos): la remisión/ficha/
-  // comprobante llega como base64 (foto de cámara, hasta 10MB → ~13MB). Mismo motivo
-  // que expenses/proofs; sin esto el global 2mb tira 413 en /ocr, /upload y /attach.
-  app.use('/api/finance/goods-receipts', json({ limit: '16mb' }));
+  // Evidencia por foto/PDF (RE.5 recepción, CC cobranza, CC pagos): la remisión/ficha/
+  // comprobante llega como base64. Sin esto el global 2mb tira 413 en /ocr, /upload y /attach.
+  // Recepción (goods-receipts) admite el PDF COMBINADO (orden+factura+remisión escaneados
+  // juntos) hasta 20MB → ~27MB en base64 → 32mb. (nginx client_max_body_size=32m aparte.)
+  app.use('/api/finance/goods-receipts', json({ limit: '32mb' }));
   app.use('/api/finance/collections', json({ limit: '16mb' }));
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
