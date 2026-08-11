@@ -1578,6 +1578,9 @@ export interface PromoRule {
   min_qty: number;
   descripcion: string;
   supuestos: string;
+  date_from?: string | null;   // vigencia detectada por el AI (auto-inteligente)
+  date_to?: string | null;
+  periodo_texto?: string | null;
 }
 export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; piezas: number; importe: number; base: number; payout: number; }
 export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; piezas: number; importe: number; }
