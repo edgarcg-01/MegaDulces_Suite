@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
@@ -315,11 +316,12 @@ interface AttachFile {
       </ng-template>
     </p-dialog>
 
-    <!-- Diálogo: detalle por línea (auditoría) -->
-    <p-dialog [(visible)]="showDetail" [modal]="true" [style]="{ width: '48rem' }" [draggable]="false" header="Detalle de la orden de entrada">
+    <!-- Diálogo: detalle por línea (auditoría) + comparación documento vs OCR (RE.8) -->
+    <p-dialog [(visible)]="showDetail" [modal]="true" [style]="{ width: '72rem', maxWidth: '96vw' }" [draggable]="false" [maximizable]="true" header="Detalle de la orden de entrada — documento vs OCR">
       @if (detailLoading()) {
         <div class="cb-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando detalle…</div>
       } @else if (detailData(); as d) {
+        <div class="cb-review"><div class="cb-review-main">
         <div class="cb-cobro">
           <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ d.entrada.sucursal }}/{{ d.entrada.folio }}</strong></div>
           <div><span class="cb-lbl">Proveedor</span><strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong><div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
@@ -405,13 +407,10 @@ interface AttachFile {
               </div>
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
-                  @if (isImageUrl(f)) {
-                    <button type="button" class="cb-view-filebtn" (click)="openImage(f.url, f.name)">
-                      <i class="pi pi-image" aria-hidden="true"></i> Ver imagen<span class="cb-filebtn-name">{{ f.name ? ' · ' + f.name : '' }}</span>
-                    </button>
-                  } @else {
-                    <a class="cb-view-pdf" [href]="f.url" target="_blank" rel="noopener"><i class="pi pi-file-pdf"></i> Abrir {{ f.name || 'remisión (PDF)' }} <i class="pi pi-external-link"></i></a>
-                  }
+                  <button type="button" class="cb-view-filebtn" [class.on]="selectedDoc()?.url === f.url" (click)="selectDoc(f)" [title]="'Ver ' + (f.name || 'documento') + ' a la derecha'">
+                    <i class="pi" [ngClass]="isImageUrl(f) ? 'pi-image' : 'pi-file-pdf'" aria-hidden="true"></i>
+                    <span class="cb-filebtn-name">{{ f.name || (isImageUrl(f) ? 'imagen' : 'remisión (PDF)') }}</span>
+                  </button>
                 }
                 @if (!dep.files.length) { <span class="muted">Sin archivo.</span> }
               </div>
@@ -428,6 +427,24 @@ interface AttachFile {
             </div>
           }
         </div>
+        </div><!-- /.cb-review-main -->
+
+        <!-- Panel derecho: documento (PDF/imagen) para comparar contra la lectura OCR de la izquierda -->
+        <aside class="cb-review-doc">
+          @if (selectedDoc(); as doc) {
+            <div class="cb-doc-head">
+              <span class="cb-doc-name" [title]="doc.name"><i class="pi" [ngClass]="doc.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'" aria-hidden="true"></i> {{ doc.name }}</span>
+              <a pButton type="button" text size="small" [href]="doc.url" target="_blank" rel="noopener" title="Abrir en pestaña"><span class="p-button-icon pi pi-external-link" aria-hidden="true"></span></a>
+            </div>
+            <div class="cb-doc-frame">
+              @if (doc.kind === 'pdf') { <iframe [src]="doc.safeUrl" title="Documento de la orden de entrada"></iframe> }
+              @else { <img [src]="doc.url" [alt]="doc.name" /> }
+            </div>
+          } @else {
+            <div class="cb-doc-empty"><i class="pi pi-file" aria-hidden="true"></i><span>Elegí una hoja abajo para verla acá, junto a la lectura OCR.</span></div>
+          }
+        </aside>
+        </div><!-- /.cb-review -->
       }
       <ng-template #footer>
         <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
@@ -593,6 +610,21 @@ interface AttachFile {
     .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
     .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
     .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
+    /* RE.8 — comparación de dos paneles: contenido/OCR (izq) + documento (der) */
+    .cb-review { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
+    @media (min-width: 62rem) { .cb-review { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; } }
+    .cb-review-main { min-width: 0; }
+    .cb-review-doc { min-width: 0; }
+    @media (min-width: 62rem) { .cb-review-doc { position: sticky; top: 0; align-self: start; } }
+    .cb-doc-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .4rem; }
+    .cb-doc-name { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; font-size: .8rem; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-doc-name .pi-file-pdf { color: var(--bad-fg); }
+    .cb-doc-frame { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: #00000010; height: 64vh; min-height: 24rem; display: flex; }
+    .cb-doc-frame iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+    .cb-doc-frame img { width: 100%; height: 100%; object-fit: contain; }
+    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-doc-empty .pi { font-size: 1.9rem; opacity: .5; }
+    .cb-view-filebtn.on { border-color: var(--action); color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
   `],
 })
 export class ComprasEntradasComponent {
@@ -601,6 +633,7 @@ export class ComprasEntradasComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<EntradasReport | null>(null);
@@ -678,6 +711,18 @@ export class ComprasEntradasComponent {
   readonly viewerName = signal<string>('');
   openImage(url: string, name?: string): void { this.viewerName.set(name || ''); this.viewerUrl.set(url); this.viewerOpen.set(true); }
   closeImage(): void { this.viewerOpen.set(false); }
+
+  // RE.8 — documento mostrado en el panel derecho del detalle (comparación vs OCR).
+  readonly selectedDoc = signal<{ url: string; safeUrl: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
+  selectDoc(f: ProofFile): void {
+    const isImg = this.isImageUrl(f);
+    this.selectedDoc.set({
+      url: f.url,
+      safeUrl: isImg ? null : this.sanitizer.bypassSecurityTrustResourceUrl(f.url), // iframe requiere SafeResourceUrl
+      kind: isImg ? 'image' : 'pdf',
+      name: f.name || (isImg ? 'imagen' : 'remisión (PDF)'),
+    });
+  }
 
   // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
@@ -1016,12 +1061,20 @@ export class ComprasEntradasComponent {
   openDetail(c: EntradaRow) {
     this.detailTarget.set(c);
     this.detailData.set(null);
+    this.selectedDoc.set(null);
     this.detailLoading.set(true);
     this.showDetail.set(true);
     this.loadExplains(c);
     this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (d) => { this.detailData.set(d); this.detailLoading.set(false); },
+        next: (d) => {
+          this.detailData.set(d);
+          this.detailLoading.set(false);
+          // Muestra el 1er documento en el panel derecho para comparar contra el OCR.
+          let first: ProofFile | null = null;
+          for (const dep of d.deposits || []) { if (dep.files && dep.files.length) { first = dep.files[0]; break; } }
+          if (first) this.selectDoc(first);
+        },
         error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
   }
