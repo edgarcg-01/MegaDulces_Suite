@@ -17,21 +17,23 @@ import { randomUUID } from 'crypto';
 export class ObjectStorageService {
   private readonly logger = new Logger(ObjectStorageService.name);
   private _client: S3Client | null = null;
-  private readonly bucket = process.env.S3_BUCKET || '';
+  private get bucket(): string { return process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || ''; }
+  // Acepta los nombres S3_* (canónicos del proyecto) o los estándar AWS_* — así un typo
+  // tipo `Access_Key_ID` se detecta claro (no matchea) en vez de fallar en silencio.
+  private get endpoint(): string { return process.env.S3_ENDPOINT || process.env.AWS_ENDPOINT_URL_S3 || ''; }
+  private get accessKeyId(): string { return process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || ''; }
+  private get secretAccessKey(): string { return process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || ''; }
 
   isConfigured(): boolean {
-    return !!(process.env.S3_ENDPOINT && this.bucket && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY);
+    return !!(this.endpoint && this.bucket && this.accessKeyId && this.secretAccessKey);
   }
 
   private client(): S3Client {
     if (this._client) return this._client;
     this._client = new S3Client({
-      region: process.env.S3_REGION || 'auto',
-      endpoint: process.env.S3_ENDPOINT,
-      credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
-      },
+      region: process.env.S3_REGION || process.env.AWS_REGION || 'auto',
+      endpoint: this.endpoint,
+      credentials: { accessKeyId: this.accessKeyId, secretAccessKey: this.secretAccessKey },
       forcePathStyle: true, // S3-compatible (Tigris/MinIO/R2)
     });
     return this._client;
