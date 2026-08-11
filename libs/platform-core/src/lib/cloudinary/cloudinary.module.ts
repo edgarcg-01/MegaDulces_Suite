@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryService } from './cloudinary.service';
+import { ObjectStorageService } from '../storage/object-storage.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
@@ -19,7 +20,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       },
     },
     CloudinaryService,
+    // Object storage S3 (Railway Bucket) para comprobantes PDF — reemplaza Cloudinary.
+    // Se provee acá para que los 7 flujos que ya importan CloudinaryModule lo reciban sin re-wirear.
+    ObjectStorageService,
   ],
-  exports: [CloudinaryService, 'CLOUDINARY'],
+  exports: [CloudinaryService, ObjectStorageService, 'CLOUDINARY'],
 })
 export class CloudinaryModule {}
