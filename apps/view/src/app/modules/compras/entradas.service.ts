@@ -33,6 +33,9 @@ export interface EntradasReport {
   rows: EntradaRow[];
 }
 
+/** Un archivo ya subido a una entrada (o su duplicado) — para reportar dónde ya vive. */
+export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
+
 /** Campos que devuelve el OCR de la remisión/factura (preview antes de guardar). */
 export interface RemisionOcr {
   folio: string | null;
@@ -43,9 +46,14 @@ export interface RemisionOcr {
   iva: number | null;
   total: number | null;
   ocr_status: string;
+  sha256?: string;               // hash del contenido (anti-hoja-duplicada)
+  duplicate?: DuplicateHit | null; // ya subida antes (misma hoja o folio)
 }
 
-export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ProofFile {
+  role: string; url: string; public_id?: string; kind?: string; name?: string;
+  sha256?: string; ocr_folio?: string | null; ocr_total?: number | null; ocr_fecha?: string | null; ocr_rfc?: string | null;
+}
 
 /** Línea de detalle de una orden de entrada (kdm2) para auditar renglón por renglón. */
 export interface EntradaLinea {
@@ -114,9 +122,10 @@ export class EntradasService {
   detail(sucursal: string, folio: string): Observable<EntradaDetail> {
     return this.http.get<EntradaDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
   }
-  /** Corre OCR sobre la remisión (data URI, imagen/PDF) — preview, no guarda. */
-  ocr(file_base64: string): Observable<RemisionOcr> {
-    return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64 });
+  /** Corre OCR sobre una hoja (data URI, imagen/PDF) — preview, no guarda. Devuelve
+   *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */
+  ocr(file_base64: string, role?: string): Observable<RemisionOcr> {
+    return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64, role });
   }
   /** FOTO-PRIMERO: enlaza por OCR de la Aplica Orden Entrada (folio/total) o busca manual. */
   matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string }): Observable<{ entradas: EntradaRow[] }> {
