@@ -127,6 +127,26 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
   '/almacen/inventory',
 );
 
+/** Landing de `/compras`: manda a la primera vista accesible del rol (no fijo a Pedido).
+ * Un rol con permisos granulares que NO incluya COMPRAS_PEDIDO_VER (p.ej. solo Entradas)
+ * antes caía en /compras → /compras/pedido → rebote al home. Ahora aterriza en su submódulo. */
+export const comprasHomeGuard: CanActivateFn = landingRedirectGuard(
+  [
+    { perm: Permission.COMPRAS_PEDIDO_VER, url: '/compras/pedido' },
+    { perm: Permission.COMPRAS_REQUISICIONES_VER, url: '/compras/requisiciones' },
+    { perm: Permission.COMPRAS_ORDENES_VER, url: '/compras/ordenes' },
+    { perm: Permission.COMPRAS_ENTRADAS_VER, url: '/compras/entradas' },
+    { perm: Permission.COMPRAS_RED_VER, url: '/compras/red' },
+    { perm: Permission.COMPRAS_HALLAZGOS_VER, url: '/compras/hallazgos' },
+    { perm: Permission.COMPRAS_360_VER, url: '/compras/compras-360' },
+    { perm: Permission.COMPRAS_COSTO_NETO_VER, url: '/compras/costo-neto' },
+    { perm: Permission.COMPRAS_DESCUENTOS_VER, url: '/compras/descuentos' },
+    { perm: Permission.COMPRAS_PROVEEDORES_VER, url: '/compras/proveedores' },
+    { perm: Permission.COMPRAS_CATEGORIAS_VER, url: '/compras/categorias' },
+  ],
+  '/compras/pedido',
+);
+
 /** Landing de `/logistica`. */
 export const logisticaHomeGuard: CanActivateFn = landingRedirectGuard(
   [

@@ -3,7 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -414,7 +414,13 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'pedido', pathMatch: 'full' },
+      // Landing dinámico: aterriza en la primera vista accesible del rol (no fijo a Pedido).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [comprasHomeGuard],
+        loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
+      },
       {
         // RA-PRO.17 — Pedido UNIFICADO (demand-driven + requisición + export + stock muerto).
         // Fusiona las 3 vistas previas: pedido(que-toca) + compra-sugerida + existencia-critica.
