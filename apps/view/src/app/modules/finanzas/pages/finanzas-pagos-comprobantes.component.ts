@@ -136,13 +136,14 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
 
           <div class="cb-f cb-file">
             <span>Comprobante de pago (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
-            <div class="cb-pick">
+            <div class="cb-pick cb-droppable" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
                 <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
               </label>
               <label class="cb-pickbtn"><i class="pi pi-paperclip"></i> Elegir archivo
                 <input type="file" accept="image/*,.pdf" (change)="onFile($event)" hidden />
               </label>
+              <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastrá el archivo aquí</span>
             </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
@@ -409,7 +410,11 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
     .cb-f { display: flex; flex-direction: column; gap: .3rem; }
     .cb-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .cb-pick { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .cb-pick { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    /* PC.1 — arrastrar el comprobante */
+    .cb-droppable { padding: .6rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); transition: border-color .15s, background .15s; }
+    .cb-droppable.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
+    .cb-drop-hint { font-size: .76rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-pickbtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); font-size: .85rem; color: var(--text-main); cursor: pointer; background: var(--card-bg); transition: border-color .15s, color .15s; }
     .cb-pickbtn:hover { border-color: var(--action); color: var(--action); }
     .cb-pickbtn i { font-size: .95rem; }
@@ -655,13 +660,18 @@ export class FinanzasPagosComprobantesComponent {
     this.capMatching.set(false);
   }
 
-  /** Con el comprobante leído, busca el pago por monto + fecha + concepto (factura). */
+  /** Con el comprobante leído, busca el pago por monto + fecha + concepto (factura).
+   *  OCR-primero SIN fricción: si hay UNA sola candidata, la enlaza sola (no buscar folio). */
   runCapMatch() {
     if (this.ocrForm.monto == null) { this.capMatches.set([]); return; }
     this.capMatching.set(true);
     this.svc.matchPago(this.ocrForm.monto, this.ocrForm.fecha, this.ocrForm.concepto).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.capMatches.set(r.pagos); this.capMatching.set(false); },
+        next: (r) => {
+          this.capMatching.set(false);
+          if ((r.pagos?.length || 0) === 1) { this.capMatches.set([]); this.pickPago(r.pagos[0]); this.toast.add({ severity: 'success', summary: 'Pago encontrado', detail: `${r.pagos[0].doc_prefix} ${r.pagos[0].sucursal}/${r.pagos[0].folio}` }); }
+          else this.capMatches.set(r.pagos);
+        },
         error: () => { this.capMatching.set(false); this.capMatches.set([]); },
       });
   }
@@ -677,20 +687,62 @@ export class FinanzasPagosComprobantesComponent {
   pickPago(c: PagoCandidate | PagoRow) { this.attachTarget.set(c as PagoRow); }
 
   onFile(ev: Event) {
-    const file = (ev.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // permite reelegir el mismo archivo
+    if (file) this.handleFile(file);
+  }
+
+  // PC.1 — arrastrar el comprobante (foto o PDF) → mismo pipeline que elegir.
+  readonly dragging = signal(false);
+  onDragOver(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); if (!this.dragging()) this.dragging.set(true); }
+  onDragLeave(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false); }
+  onDrop(ev: DragEvent) {
+    ev.preventDefault(); ev.stopPropagation();
+    this.dragging.set(false);
+    const file = ev.dataTransfer?.files?.[0];
+    if (file) this.handleFile(file);
+  }
+
+  private async handleFile(file: File) {
     if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
     this.attachError.set('');
     this.ocrRun.set(false);
     this.ocrForm = {};
     this.uploadedFile.set(null);
-    const reader = new FileReader();
-    reader.onload = () => {
-      this.fileData = String(reader.result || '');
-      this.fileName.set(file.name);
-      this.autoProcess();
-    };
-    reader.readAsDataURL(file);
+    let dataUri: string;
+    try { dataUri = await this.fileToDataUri(file); }
+    catch { this.attachError.set(`No se pudo leer "${file.name}".`); return; }
+    this.fileData = dataUri;
+    this.fileName.set(file.name);
+    this.autoProcess();
+  }
+
+  /** Imagen → JPEG reducido (≤1920px) para acelerar OCR/subida; el PDF se lee tal cual. */
+  private async fileToDataUri(file: File): Promise<string> {
+    const readRaw = () => new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result || ''));
+      r.onerror = () => rej(r.error || new Error('read'));
+      r.readAsDataURL(file);
+    });
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    if (isPdf) return readRaw();
+    try {
+      const bmp = await createImageBitmap(file);
+      const maxDim = 1920, quality = 0.82;
+      const ratio = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const w = Math.round(bmp.width * ratio), h = Math.round(bmp.height * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('sin contexto 2D');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+      return readRaw();
+    }
   }
 
   private autoProcess() { this.storeImage(); this.runOcr(); }
