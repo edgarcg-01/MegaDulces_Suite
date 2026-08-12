@@ -162,6 +162,28 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
             <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
         </div>
 
+        @if (readGasto(); as o) {
+          <details class="cp-read" open>
+            <summary>Más datos leídos del documento Kepler</summary>
+            <div class="cp-read-grid">
+              @if (o.sucursal) { <div><em>Sucursal</em> {{ o.sucursal }}</div> }
+              @if (o.moneda) { <div><em>Moneda</em> {{ o.moneda }}</div> }
+              @if (o.fecha_pago) { <div><em>Fecha de pago</em> {{ o.fecha_pago }}</div> }
+              @if (o.autoriza) { <div><em>Autoriza</em> {{ o.autoriza }}</div> }
+              @if (o.cuenta) { <div><em>Cuenta</em> {{ o.cuenta }}</div> }
+              @if (o.concepto) { <div><em>Concepto</em> {{ o.concepto }}</div> }
+              @if (o.proyecto) { <div><em>Proyecto</em> {{ o.proyecto }}</div> }
+              @if (o.poliza) { <div><em>Póliza</em> {{ o.poliza }}</div> }
+              @if (o.a_nombre_de) { <div class="cp-read-wide"><em>A nombre de</em> {{ o.a_nombre_de }}</div> }
+              @if (o.descripcion) { <div class="cp-read-wide"><em>Descripción</em> {{ o.descripcion }}</div> }
+              @if (o.subtotal != null) { <div><em>Subtotal</em> {{ money(o.subtotal) }}</div> }
+              @if (o.iva != null) { <div><em>IVA</em> {{ money(o.iva) }}</div> }
+              @if (o.ieps != null && o.ieps > 0) { <div><em>IEPS</em> {{ money(o.ieps) }}</div> }
+              @if (o.anticipos != null && o.anticipos > 0) { <div><em>Anticipos</em> {{ money(o.anticipos) }}</div> }
+            </div>
+          </details>
+        }
+
         <div class="cp-files-head">Foto(s) del gasto <em class="cp-hint">evidencia — opcional</em></div>
         @for (slot of evidenciaSlots; track slot.role) {
           <label class="cp-f cp-file">
@@ -238,6 +260,13 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-ok { color: var(--ok-fg); }
     .cp-linkbtn { margin-left: auto; border: none; background: transparent; color: var(--action); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
     .cp-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
+    /* datos extra leídos (read-only) */
+    .cp-read { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .5rem .75rem; background: var(--surface-sunken, var(--card-bg)); }
+    .cp-read > summary { font-size: .8rem; font-weight: 600; color: var(--text-main); cursor: pointer; }
+    .cp-read-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .3rem .9rem; margin-top: .5rem; font-size: .8rem; color: var(--text-main); }
+    .cp-read-grid > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-read-grid em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
+    .cp-read-wide { grid-column: 1 / -1; white-space: normal !important; }
     .cp-f input[type=file] { font-size: .82rem; }
     .cp-files-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .4rem; border-top: 1px solid var(--border-color); padding-top: .7rem; }
     .cp-file { gap: .2rem; }
@@ -257,6 +286,7 @@ export class FinanzasComprobacionGastosComponent {
   private readonly cdr = inject(ChangeDetectorRef);
   // OCR del documento "Gastos" de Kepler → auto-rellena el form.
   readonly ocrLoading = signal(false);
+  readonly readGasto = signal<KeplerGastosOcr | null>(null); // datos completos leídos (panel read-only)
 
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobacion', label: 'Comprobación de gasto', required: true, accept: 'application/pdf,image/*' },
@@ -349,6 +379,7 @@ export class FinanzasComprobacionGastosComponent {
     this.fechaComprobacion = new Date();
     this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.gastoSel = null;
     this.sucursalDerivada.set('');
+    this.readGasto.set(null);
     this.formError.set('');
     this.showForm.set(true);
   }
@@ -386,6 +417,7 @@ export class FinanzasComprobacionGastosComponent {
   clearComprobacion() {
     delete this.fileData['comprobacion']; delete this.uploaded['comprobacion'];
     this.fileNames.update((m) => { const n = { ...m }; delete n['comprobacion']; return n; });
+    this.readGasto.set(null);
   }
 
   private handleFile(file: File, role: string) {
@@ -413,6 +445,7 @@ export class FinanzasComprobacionGastosComponent {
         if (o.ocr_status === 'sin_key') { this.toast.add({ severity: 'info', summary: 'OCR no disponible', detail: 'Captura los datos a mano.' }); return; }
         if (o.ocr_status === 'ilegible') { this.toast.add({ severity: 'warn', summary: 'No se pudo leer', detail: 'Captura los datos a mano.' }); return; }
         this.applyGastoOcr(o);
+        this.readGasto.set(o);
         this.cdr.markForCheck();
       },
       error: () => { this.ocrLoading.set(false); },
