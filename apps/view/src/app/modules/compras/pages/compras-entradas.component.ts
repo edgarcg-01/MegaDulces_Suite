@@ -245,7 +245,7 @@ interface AttachFile {
                     <div class="cb-file-name" [title]="f.name">{{ f.name }}</div>
                     <div class="cb-file-controls">
                       <select class="cb-role" [ngModel]="f.role" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Tipo de ' + f.name">
-                        @for (r of roleOpts; track r.value) { <option [value]="r.value">{{ r.label }}</option> }
+                        @for (r of roleOpts(); track r.value) { <option [value]="r.value">{{ r.label }}</option> }
                       </select>
                       <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Enlaza la entrada' : 'Usar esta para enlazar'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
                       @if (f.ocrLoading) { <span class="cb-file-stat" title="Leyendo con OCR…"><i class="pi pi-spin pi-spinner"></i></span> }
@@ -733,7 +733,8 @@ export class ComprasEntradasComponent {
     ],
   };
   private readonly ROLE_TO_TYPE: Record<string, string> = {
-    orden_entrada: 'aplica_orden_entrada', remision: 'remision', factura: 'factura', vale: 'vale', ticket: 'ticket',
+    orden_entrada: 'aplica_orden_entrada', remision: 'remision', factura: 'factura',
+    vale: 'vale', ticket: 'ticket', orden_recepcion: 'orden_recepcion',
   };
   /** El origen (source_branch) define el set de docs. CEDIS (md_00) y las plazas `wincaja_*`
    *  reciben por WINCAJA (ticket + orden recepción + aplica OE); las sucursales Kepler
@@ -763,14 +764,24 @@ export class ComprasEntradasComponent {
   readonly ocrBusy = computed(() => this.attachFiles().some((f) => f.ocrLoading));
   private fileSeq = 0;
   ocrForm: Partial<RemisionOcr> = {};
-  readonly roleOpts = [
+  // Opciones del <select> de rol POR FUENTE — deben cubrir TODO tipo del checklist
+  // (si no, un requerido queda imposible de marcar a mano y Guardar se traba).
+  // Wincaja pide ticket + orden_recepcion + aplica_orden_entrada; Kepler, aplica_orden_entrada + factura/remisión.
+  private readonly ROLE_OPTS_KEPLER = [
+    { label: 'Aplica orden entrada', value: 'orden_entrada' },
     { label: 'Remisión/Factura', value: 'remision' },
     { label: 'Factura', value: 'factura' },
     { label: 'Vale de recepción', value: 'vale' },
-    { label: 'Aplica orden entrada', value: 'orden_entrada' },
-    { label: 'Ticket de compra', value: 'ticket' },
     { label: 'Otra evidencia', value: 'evidencia' },
   ];
+  private readonly ROLE_OPTS_WINCAJA = [
+    { label: 'Ticket de compra', value: 'ticket' },
+    { label: 'Orden de recepción', value: 'orden_recepcion' },
+    { label: 'Aplica orden entrada', value: 'orden_entrada' },
+    { label: 'Remisión/Factura', value: 'remision' },
+    { label: 'Otra evidencia', value: 'evidencia' },
+  ];
+  readonly roleOpts = computed(() => this.srcKind() === 'wincaja' ? this.ROLE_OPTS_WINCAJA : this.ROLE_OPTS_KEPLER);
 
   // reject dialog
   readonly showReject = signal(false);
