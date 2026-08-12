@@ -65,6 +65,7 @@ export class CommercialReplenishmentController {
     @Query('warehouse_id') warehouse_id?: string,
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('brand_id') brand_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
@@ -73,7 +74,7 @@ export class CommercialReplenishmentController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('transfer-suggestion')
@@ -82,13 +83,14 @@ export class CommercialReplenishmentController {
   transferSuggestion(
     @Query('warehouse_id') warehouse_id?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('brand_id') brand_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.transferPlan({ warehouse_id, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.transferPlan({ warehouse_id, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('overstock')
@@ -97,13 +99,14 @@ export class CommercialReplenishmentController {
   overstock(
     @Query('warehouse_id') warehouse_id?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('brand_id') brand_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('over_days') over_days?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.overstockList({ warehouse_id, supplier_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.overstockList({ warehouse_id, supplier_id, brand_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('workbook')
@@ -111,6 +114,7 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'RA-PRO.32 — Réplica del workbook del comprador: una fila por SKU con UXC, costo/caja y, por cada COLUMNA (sucursal o una sola General de red), su venta 30d/existencia/pedido en cajas + $Pedido/Valor Venta/Valor Existencia. Columnas dinámicas por almacén (sin hardcode). Filtros: supplier_id, category_id, search, coverage_days(=30), scope(needed), warehouse_ids(CSV, una/varias), group(general=agregado de red).' })
   workbook(
     @Query('supplier_id') supplier_id?: string,
+    @Query('brand_id') brand_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
@@ -122,7 +126,7 @@ export class CommercialReplenishmentController {
     @Query('iad') iad?: string,
     @Query('only_overstock') only_overstock?: string,
   ) {
-    return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1' });
+    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1' });
   }
 
   @Get('workbook.xlsx')
@@ -131,6 +135,7 @@ export class CommercialReplenishmentController {
   async workbookXlsx(
     @Res() res: Response,
     @Query('supplier_id') supplier_id?: string,
+    @Query('brand_id') brand_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
@@ -144,7 +149,7 @@ export class CommercialReplenishmentController {
     // Mismos filtros que la tabla en pantalla (incluye group=desglosar/englobar + iad + sobrestock)
     // → el Excel refleja EXACTO lo que ve el comprador, sin paginar.
     const data = await this.svc.workbook({
-      supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined,
+      supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined,
       scope, warehouse_ids, group,
       iad: iad === 'accel' || iad === 'decel' ? iad : undefined,
       only_overstock: only_overstock === 'true' || only_overstock === '1',
@@ -154,7 +159,7 @@ export class CommercialReplenishmentController {
     // Los traspasos son CEDIS→sucursal (cross-warehouse) → no se acotan por warehouse_ids ni por
     // iad/scope/sobrestock (refinamientos del pedido de compra); es la red completa en scope.
     const transfers = await this.svc.transferPlan({
-      supplier_id, category_id, search,
+      supplier_id, brand_id, category_id, search,
       coverage_days: coverage_days ? Number(coverage_days) : undefined,
       export: true,
     });

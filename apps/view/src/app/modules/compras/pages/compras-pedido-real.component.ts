@@ -87,6 +87,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <p-select [options]="brandOpts()" [(ngModel)]="fBrand" (onChange)="loadWorkbook()"
+                    optionLabel="label" optionValue="value" placeholder="Todas las marcas" [showClear]="true"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
           <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                     [filter]="true" filterBy="label" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
@@ -688,6 +692,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   cOver = signal(true);
 
   fSupplier: string | null = null;
+  fBrand: string | null = null;                                       // filtro de marca (igual que /comercial/salidas)
   fWarehouse: string | null = null;
   fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
   categoryOpts = signal<{ label: string; value: string }[]>([]);
@@ -712,6 +717,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   private readonly filters = signal<ReplenishmentFilters | null>(null);
   supplierOpts = computed(() => (this.filters()?.suppliers ?? []).map((s) => ({ label: s.name, value: s.id })));
+  brandOpts = computed(() => (this.filters()?.brands ?? []).map((b) => ({ label: b.name, value: b.id })));
   warehouseOpts = computed(() => (this.filters()?.warehouses ?? []).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
   private readonly whName = computed(() => {
     const m = new Map<string, string>();
@@ -738,7 +744,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private saveFilters(): void {
     try {
       localStorage.setItem(this.FKEY, JSON.stringify({
-        mode: this.mode(), fSupplier: this.fSupplier, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
+        mode: this.mode(), fSupplier: this.fSupplier, fBrand: this.fBrand, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
         search: this.search, coverage: this.coverage, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
         wbGroup: this.wbGroup(), wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
       }));
@@ -753,6 +759,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       if (s.mode === 'muerto') this.mode.set('muerto');
       else if (s.mode === 'pedido' || s.mode === 'consolidado' || s.mode === 'excel') this.mode.set('pedido');
       if ('fSupplier' in s) this.fSupplier = s.fSupplier;
+      if ('fBrand' in s) this.fBrand = s.fBrand;
       if ('fCategory' in s) this.fCategory = s.fCategory;
       if ('fWarehouse' in s) this.fWarehouse = s.fWarehouse;
       if (typeof s.search === 'string') this.search = s.search;
@@ -798,7 +805,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (reloadEnrichment) this.detailReady.set(false);
     const iad = this.fIad();
     this.api.workbook({
-      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
+      supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
       iad: iad === 'all' ? undefined : iad,
@@ -823,12 +830,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private fetchConsolidated(ignoreWarehouse: boolean) {
     const wh = ignoreWarehouse ? undefined : (this.fWarehouse || undefined);
     const sup = this.fSupplier || undefined, s = this.search.trim() || undefined, cat = this.fCategory || undefined;
+    const brand = this.fBrand || undefined;
     return forkJoin({
-      buy: this.api.purchaseSuggestion({ supplier_id: sup, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
+      buy: this.api.purchaseSuggestion({ supplier_id: sup, brand_id: brand, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
         .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
-      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, category_id: cat, search: s, coverage_days: this.coverage, pageSize: 1000 })
+      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, coverage_days: this.coverage, pageSize: 1000 })
         .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
-      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, category_id: cat, search: s, over_days: 90, pageSize: 1000 })
+      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, over_days: 90, pageSize: 1000 })
         .pipe(catchError(() => of(null as OverstockResponse | null))),
     });
   }
@@ -1081,7 +1089,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private currentWbQuery() {
     const iad = this.fIad();
     return {
-      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
+      supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
       iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
