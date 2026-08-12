@@ -36,6 +36,18 @@ export interface DepositSlipFields {
  * (para adjuntar a una orden de entrada de Kepler). Todos null si no se ven o el
  * documento es ilegible.
  */
+/**
+ * RE.pkt.1 — Un documento detectado dentro del paquete, ANCLADO A EVIDENCIA:
+ * qué tipo, en qué página del PDF, y una prueba corta (folio/título) para que el
+ * capturista pueda auditar que el OCR "sí lo vio" (no es caja negra). `page` = 1-based;
+ * null si es imagen suelta o no se distingue.
+ */
+export interface DocPresence {
+  type: string;              // aplica_orden_entrada|factura|remision|ticket|orden_recepcion|vale|otro
+  page: number | null;       // página 1-based donde aparece (null si imagen suelta)
+  evidence: string | null;   // prueba corta: folio, título o texto que lo identifica
+}
+
 export interface RemisionFields {
   folio: string | null; // número de remisión/factura del proveedor
   fecha: string | null; // ISO YYYY-MM-DD
@@ -44,10 +56,10 @@ export interface RemisionFields {
   subtotal: number | null;
   iva: number | null;
   total: number | null; // importe total de la remisión/factura
-  // RE (#4) — tipos de documento que aparecen en ESTE archivo (packet-aware): un PDF
-  // combinado puede traer varios. Valores: aplica_orden_entrada|factura|remision|ticket|
-  // orden_recepcion|vale|otro. Alimenta el checklist de completitud por fuente (Kepler/Wincaja).
-  documents_present: string[];
+  // RE (#4/pkt.1) — documentos que aparecen en ESTE archivo (packet-aware, con evidencia):
+  // un PDF combinado puede traer varios. Alimenta el checklist de completitud por fuente
+  // (Kepler/Wincaja) y muestra la página+prueba de cada uno para que sea verificable.
+  documents_present: DocPresence[];
 }
 
 /** Campos del documento "Gastos" de Kepler (XA1001) — auto-rellena la comprobación de gasto. */
@@ -1035,13 +1047,22 @@ export class LlmExtractorService implements OnModuleInit {
                 total: { type: ['number', 'null'], description: 'TOTAL a pagar en pesos (el importe principal del documento), sin símbolo ni comas. null si no se ve.' },
                 documents_present: {
                   type: 'array',
-                  items: { type: 'string', enum: ['aplica_orden_entrada', 'factura', 'remision', 'ticket', 'orden_recepcion', 'vale', 'otro'] },
-                  description: 'TODOS los tipos de documento que aparecen en este archivo (un PDF escaneado puede traer VARIOS documentos juntos): ' +
-                    '"aplica_orden_entrada" = documento interno "Aplica Orden Entrada"/orden de entrada de Kepler; ' +
+                  description: 'TODOS los documentos que aparecen en este archivo (un PDF escaneado puede traer VARIOS documentos juntos, uno por página o varios por página). ' +
+                    'Para CADA documento reconocido devolvé un objeto {type, page, evidence}. ' +
+                    'Tipos: "aplica_orden_entrada" = documento interno "Aplica Orden Entrada"/orden de entrada de Kepler; ' +
                     '"factura" = factura fiscal del proveedor (con folio fiscal/UUID/timbre SAT); ' +
                     '"remision" = remisión o nota de entrega del proveedor SIN timbre fiscal; ' +
                     '"ticket" = ticket de compra/recepción de Wincaja; "orden_recepcion" = orden de recepción de Wincaja; ' +
-                    '"vale" = vale de recepción interno; "otro" = cualquier otra hoja. Incluí cada tipo que veas. [] si no reconocés ninguno.',
+                    '"vale" = vale de recepción interno; "otro" = cualquier otra hoja. [] si no reconocés ninguno. NO inventes documentos que no ves.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      type: { type: 'string', enum: ['aplica_orden_entrada', 'factura', 'remision', 'ticket', 'orden_recepcion', 'vale', 'otro'] },
+                      page: { type: ['integer', 'null'], description: 'Número de página (1-based) donde aparece el documento. null si es una imagen suelta o no se distingue la página.' },
+                      evidence: { type: ['string', 'null'], description: 'Prueba CORTA que identifica el documento: su folio, título impreso o una línea distintiva (ej. "Ticket #8842", "APLICA ORDEN ENTRADA XA2001-000123"). Copiar tal cual, máx ~60 caracteres. null si no hay.' },
+                    },
+                    required: ['type', 'page', 'evidence'],
+                  },
                 },
               },
               required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'documents_present'],
@@ -1053,7 +1074,7 @@ export class LlmExtractorService implements OnModuleInit {
             role: 'user',
             content: [
               fileBlock,
-              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Con extract_remision: lista en documents_present TODOS los tipos que veas, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal.' },
+              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Revisá TODAS las páginas. Con extract_remision: en documents_present listá CADA documento que veas con {type, page (1-based), evidence (su folio/título)}, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal.' },
             ],
           },
         ],
@@ -1081,10 +1102,23 @@ export class LlmExtractorService implements OnModuleInit {
       return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
     };
     const DOC_TYPES = new Set(['aplica_orden_entrada', 'factura', 'remision', 'ticket', 'orden_recepcion', 'vale', 'otro']);
-    // Array.from (NO spread de Set) → el bundle de la API downlevela [...new Set()] mal.
-    const docs = Array.isArray(inp.documents_present)
-      ? Array.from(new Set((inp.documents_present as unknown[]).filter((x): x is string => typeof x === 'string' && DOC_TYPES.has(x))))
-      : [];
+    const intOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null);
+    // RE.pkt.1 — cada doc con evidencia. Tolera el formato viejo (array de strings) por si un
+    // cliente/caché lo manda así. Dedup por (type,page) con filter+indexOf — NO Set-spread
+    // (el bundle de la API downlevela `[...new Set()]` mal; ver feedback_webpack_set_spread_downlevel).
+    const raw = Array.isArray(inp.documents_present) ? (inp.documents_present as unknown[]) : [];
+    const docs: DocPresence[] = raw
+      .map((d): DocPresence | null => {
+        if (typeof d === 'string') return DOC_TYPES.has(d) ? { type: d, page: null, evidence: null } : null;
+        if (d && typeof d === 'object') {
+          const o = d as Record<string, unknown>;
+          const type = typeof o.type === 'string' && DOC_TYPES.has(o.type) ? o.type : null;
+          return type ? { type, page: intOrNull(o.page), evidence: str(o.evidence)?.slice(0, 60) ?? null } : null;
+        }
+        return null;
+      })
+      .filter((d): d is DocPresence => d !== null)
+      .filter((d, i, arr) => arr.findIndex((x) => x.type === d.type && x.page === d.page) === i);
     return {
       folio: str(inp.folio),
       fecha: this.parseTicketDate(inp.fecha),

@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence } from '../entradas.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 
@@ -35,6 +35,7 @@ interface AttachFile {
   ocrFecha?: string | null;
   ocrRfc?: string | null;
   ocrDocs?: string[];        // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
+  ocrDocsDetail?: DocPresence[]; // RE.pkt.1 — cada doc detectado con página + evidencia (auditable)
   dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
 }
 
@@ -299,10 +300,28 @@ interface AttachFile {
               </div>
               <ul class="cb-chk-list">
                 @for (c of checklist(); track c.label) {
-                  <li [class.ok]="c.ok"><i class="pi" [ngClass]="c.ok ? 'pi-check-circle' : 'pi-circle'" aria-hidden="true"></i> {{ c.label }}</li>
+                  <li [class.ok]="c.ok"><i class="pi" [ngClass]="c.ok ? 'pi-check-circle' : 'pi-circle'" aria-hidden="true"></i>
+                    <span class="cb-chk-lbl">{{ c.label }}</span>
+                    @if (c.ok && c.via === 'auto') {
+                      <span class="cb-chk-via" title="Detectado por el lector">detectado{{ c.page ? ' · pág. ' + c.page : '' }}</span>
+                      @if (c.evidence) { <span class="cb-chk-ev" [title]="c.evidence">{{ c.evidence }}</span> }
+                    } @else if (c.ok && c.via === 'manual') {
+                      <span class="cb-chk-via cb-chk-via-manual" title="Asignado a mano">manual</span>
+                    }
+                  </li>
                 }
               </ul>
-              <p class="cb-chk-hint">Los tipos se detectan leyendo cada hoja — si subiste todo en un solo PDF, cuenta igual.</p>
+              @if (detectedDocs().length) {
+                <div class="cb-detected">
+                  <span class="cb-detected-h"><i class="pi pi-file-check" aria-hidden="true"></i> Detectado en el archivo</span>
+                  <ul>
+                    @for (d of detectedDocs(); track d.type + '|' + d.page) {
+                      <li><strong>{{ d.label }}</strong>@if (d.page) { <span class="cb-detected-pg">pág. {{ d.page }}</span> }@if (d.evidence) { <span class="cb-detected-ev">{{ d.evidence }}</span> }</li>
+                    }
+                  </ul>
+                </div>
+              }
+              <p class="cb-chk-hint">Los tipos se detectan leyendo cada hoja — si subiste todo en un solo PDF, cuenta igual (mostramos la página y la prueba de cada uno).</p>
             </div>
           }
         }
@@ -596,6 +615,16 @@ interface AttachFile {
     .cb-chk-list li.ok { color: var(--text-main); }
     .cb-chk-list li.ok .pi { color: var(--ok-fg); }
     .cb-chk-list li .pi-circle { color: var(--text-faint); }
+    /* RE.pkt.1 — cómo se cumplió cada requerido (auto=OCR con página / manual) + evidencia */
+    .cb-chk-via { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); border-radius: var(--r-sm, .25rem); padding: .05rem .3rem; }
+    .cb-chk-via-manual { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
+    .cb-chk-ev { font-size: .72rem; color: var(--text-faint); font-family: var(--font-mono, ui-monospace, monospace); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-detected { border-top: 1px dashed var(--border-color); padding-top: .45rem; display: flex; flex-direction: column; gap: .25rem; }
+    .cb-detected-h { font-size: .72rem; font-weight: 600; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
+    .cb-detected ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; }
+    .cb-detected li { font-size: .78rem; color: var(--text-main); display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+    .cb-detected-pg { font-size: .68rem; color: var(--text-muted); background: var(--surface-raised, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .25rem); padding: 0 .3rem; }
+    .cb-detected-ev { font-size: .72rem; color: var(--text-faint); font-family: var(--font-mono, ui-monospace, monospace); }
     .cb-chk-hint { margin: 0; font-size: .72rem; color: var(--text-faint); }
     /* wizard foto-primero: paso 1 (orden) → continuar → paso 2 (demás docs) */
     .cb-step-head { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); line-height: 1.35; }
@@ -754,11 +783,45 @@ export class ComprasEntradasComponent {
     return s;
   });
   readonly requiredGroups = computed(() => this.REQUIRED_BY_SOURCE[this.srcKind()]);
+  // Etiqueta legible por tipo de documento (para el resumen "Detectado en el PDF" y el checklist).
+  private readonly DOC_LABEL: Record<string, string> = {
+    aplica_orden_entrada: 'Aplica Orden Entrada', factura: 'Factura', remision: 'Remisión',
+    ticket: 'Ticket', orden_recepcion: 'Orden de recepción', vale: 'Vale', otro: 'Otra hoja',
+  };
+  /** RE.pkt.1 — checklist auditable: cada requerido dice CÓMO se cumplió (auto=OCR con página+
+   *  evidencia, o manual=rol asignado) para que no sea caja negra. */
   readonly checklist = computed(() => {
     const cov = this.coveredTypes();
-    return this.requiredGroups().map((g) => ({ label: g.label, ok: g.keys.some((k) => cov.has(k)) }));
+    const files = this.attachFiles();
+    const ocrByType = new Map<string, DocPresence>();
+    for (const f of files) for (const d of (f.ocrDocsDetail || [])) if (!ocrByType.has(d.type)) ocrByType.set(d.type, d);
+    const manualTypes = new Set<string>();
+    for (const f of files) { const t = this.ROLE_TO_TYPE[f.role]; if (t) manualTypes.add(t); }
+    return this.requiredGroups().map((g) => {
+      const auto = g.keys.map((k) => ocrByType.get(k)).find((d): d is DocPresence => !!d) || null;
+      const manual = g.keys.some((k) => manualTypes.has(k));
+      return {
+        label: g.label,
+        ok: g.keys.some((k) => cov.has(k)),
+        via: (auto ? 'auto' : manual ? 'manual' : null) as 'auto' | 'manual' | null,
+        page: auto?.page ?? null,
+        evidence: auto?.evidence ?? null,
+      };
+    });
   });
   readonly missingGroups = computed(() => this.checklist().filter((c) => !c.ok));
+  /** RE.pkt.1 — todos los documentos que el OCR detectó en el/los archivo(s), con página+prueba;
+   *  dedup por (tipo,página). Es el "recibo" de que un PDF combinado trae todo lo requerido. */
+  readonly detectedDocs = computed(() => {
+    const seen = new Set<string>();
+    const out: { type: string; label: string; page: number | null; evidence: string | null }[] = [];
+    for (const f of this.attachFiles()) for (const d of (f.ocrDocsDetail || [])) {
+      const key = `${d.type}|${d.page}`;
+      if (seen.has(key)) continue; seen.add(key);
+      out.push({ type: d.type, label: this.DOC_LABEL[d.type] || d.type, page: d.page, evidence: d.evidence });
+    }
+    return out.sort((a, b) => (a.page ?? 99) - (b.page ?? 99));
+  });
   // Hojas duplicadas (misma imagen/PDF, o folio de remisión ya subido) → bloquean Guardar.
   readonly dupFiles = computed(() => this.attachFiles().filter((f) => f.dup));
   readonly ocrBusy = computed(() => this.attachFiles().some((f) => f.ocrLoading));
@@ -1041,7 +1104,8 @@ export class ComprasEntradasComponent {
           this.patch(id, {
             ocrLoading: false, ocrDone: true,
             ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
-            ocrDocs: r.documents_present ?? [], sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
+            ocrDocs: (r.documents_present ?? []).map((d) => d.type), ocrDocsDetail: r.documents_present ?? [],
+            sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
           });
           if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
           const cur = this.attachFiles().find((x) => x.id === id);
