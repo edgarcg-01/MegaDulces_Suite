@@ -1949,6 +1949,148 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.30 — Cheques en tránsito. Kepler registra el cheque como SALIDA inmediata (no tiene
+   * fecha de cobro/clearing), pero el banco solo lo muestra cuando se cobra. Un cheque emitido
+   * en el mes M y cobrado en M+1 explica parte del "Kepler registra más salida que el banco".
+   * Este método toma los cheques Kepler del periodo (X-D-25 / metodo 'Che') y busca si YA
+   * cobraron en el banco (mismo banco, monto ±$1, fecha ≥ emisión, este periodo o posteriores):
+   *   • cobrado    → hay retiro del banco que lo liquidó (con lag de días).
+   *   • en tránsito → aún sin cobrar → es el gap de timing (no descuadre).
+   */
+  async chequesEnTransito(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const cents = (x: any) => Math.round((Number(x) || 0) * 100);
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    return this.tk.run(async (trx) => {
+      const cheques = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).where('signo', '<', 0)
+        .andWhere((q: any) => q.whereILike('doc_tipo', 'X-D-25%').orWhere('metodo', 'Che'))
+        .select('doc_tipo', 'folio', 'account_label', 'banco_nombre', 'importe', 'fecha_valor', 'beneficiario')
+        .orderBy('importe', 'desc');
+      if (!cheques.length) return { period, total: { cheques_n: 0, en_transito_n: 0, en_transito_monto: 0, cobrado_n: 0, cobrado_monto: 0 }, cheques: [] };
+
+      // Retiros del banco de las mismas cuentas, del periodo EN ADELANTE (el cheque puede cobrar después).
+      const labels = [...new Set(cheques.map((c: any) => c.account_label))];
+      const bankOut = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
+        .whereIn('ba.account_label', labels as any).andWhere('bm.movement_date', '>=', ini)
+        .select('bm.movement_date', 'bm.amount_out', 'ba.account_label');
+      const idx = new Map<string, Date[]>();
+      for (const b of bankOut as any[]) { const k = `${b.account_label}|${cents(b.amount_out)}`; (idx.get(k) || idx.set(k, []).get(k))!.push(new Date(b.movement_date)); }
+
+      const used = new Set<string>();
+      const rows = (cheques as any[]).map((c) => {
+        const k = `${c.account_label}|${cents(c.importe)}`;
+        const dates = idx.get(k) || [];
+        const chDate = new Date(c.fecha_valor);
+        let cashed: Date | null = null, ui = -1;
+        for (let i = 0; i < dates.length; i++) {
+          if (used.has(`${k}|${i}`)) continue;
+          if (dates[i].getTime() >= chDate.getTime() && (!cashed || dates[i] < cashed)) { cashed = dates[i]; ui = i; }
+        }
+        if (cashed) used.add(`${k}|${ui}`);
+        return {
+          doc_tipo: c.doc_tipo, folio: c.folio, account_label: c.account_label, banco_nombre: c.banco_nombre,
+          importe: n(c.importe), fecha: c.fecha_valor, beneficiario: c.beneficiario,
+          cobrado: !!cashed, fecha_cobro: cashed ? cashed.toISOString().slice(0, 10) : null,
+          lag_dias: cashed ? Math.round((cashed.getTime() - chDate.getTime()) / 86400000) : null,
+        };
+      });
+      const transito = rows.filter((r) => !r.cobrado), cobr = rows.filter((r) => r.cobrado);
+      const sum = (a: any[]) => Math.round(a.reduce((s, r) => s + r.importe, 0) * 100) / 100;
+      return {
+        period,
+        total: { cheques_n: rows.length, en_transito_n: transito.length, en_transito_monto: sum(transito), cobrado_n: cobr.length, cobrado_monto: sum(cobr) },
+        cheques: rows,
+      };
+    });
+  }
+
+  /**
+   * CB.33 — Drill 3 vías a nivel MOVIMIENTO por cuenta. Para una cuenta + periodo enfrenta las
+   * tres fuentes movimiento a movimiento (por dirección + monto exacto): el estado de cuenta
+   * (Excel), la tesorería Kepler (kdm1) y las pólizas ContPAQi. Cada movimiento del banco marca
+   * si Kepler y/o ContPAQi lo tienen; y se listan los huérfanos de Kepler y de ContPAQi (lo que
+   * una fuente registró y el banco no movió). Es el "¿dónde está la diferencia?" de las 3 vías.
+   */
+  async threeWayDetail(period?: string, accountLabel?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    if (!accountLabel) throw new BadRequestException('account_label requerido');
+    const cents = (x: any) => Math.round((Number(x) || 0) * 100);
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    return this.tk.run(async (trx) => {
+      const acct = await trx('finance.bank_accounts').where('account_label', accountLabel)
+        .first('id', 'bank', 'account_label', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
+      if (!acct) throw new BadRequestException(`cuenta ${accountLabel} no encontrada`);
+
+      const excel = (await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).andWhere('bm.bank_account_id', acct.id).whereNull('bm.deleted_at')
+        .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
+        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'bm.raw_code')
+        .orderBy('bm.movement_date')).map((b: any) => ({
+          id: b.id, fecha: b.movement_date, concepto: b.concept, codigo: b.raw_code,
+          dir: n(b.amount_out) > 0 ? 'out' : 'in', importe: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in),
+        }));
+
+      const kepler = (await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).where('account_label', accountLabel)
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).whereRaw('signo <> 0')
+        .select('doc_tipo', 'folio', 'importe', 'signo', 'fecha_valor', 'beneficiario', 'metodo'))
+        .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, fecha: p.fecha_valor, concepto: p.beneficiario, metodo: p.metodo,
+          dir: Number(p.signo) > 0 ? 'in' : 'out', importe: n(p.importe), used: false }));
+
+      const contpaqi = acct.contpaqi_cuenta ? (await trx('analytics.contpaqi_bank_movements')
+        .where({ tenant_id: tenantId, anio_mes: period, cuenta: acct.contpaqi_cuenta })
+        .select('id_movimiento', 'fecha', 'flujo', 'importe', 'poliza_tipo', 'poliza_folio', 'concepto'))
+        .map((c: any) => ({ id: c.id_movimiento, fecha: c.fecha, poliza: `${c.poliza_tipo || ''} ${c.poliza_folio || ''}`.trim(), concepto: c.concepto,
+          dir: c.flujo === 'deposito' ? 'in' : 'out', importe: n(c.importe), used: false })) : [];
+
+      const buildIdx = (arr: any[]) => {
+        const m = new Map<string, any[]>();
+        for (const x of arr) { const k = `${x.dir}|${cents(x.importe)}`; (m.get(k) || m.set(k, []).get(k))!.push(x); }
+        return m;
+      };
+      const kIdx = buildIdx(kepler), cIdx = buildIdx(contpaqi);
+      const take = (idx: Map<string, any[]>, dir: string, imp: number) => {
+        const arr = idx.get(`${dir}|${cents(imp)}`); if (!arr) return null;
+        const f = arr.find((x) => !x.used); if (f) { f.used = true; return f; } return null;
+      };
+
+      const excelRows = excel.map((e: any) => {
+        const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
+        return { ...e, kepler: !!k, contpaqi: !!c, kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null };
+      });
+      const keplerOnly = kepler.filter((x) => !x.used).map((x) => ({ doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo }));
+      const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
+
+      const sum = (a: any[]) => r2(a.reduce((s, r) => s + r.importe, 0));
+      return {
+        period,
+        account: { bank: acct.bank, account_label: acct.account_label, contpaqi_cuenta: acct.contpaqi_cuenta, contpaqi_nombre: acct.contpaqi_cuenta_nombre, linked_cpq: !!acct.contpaqi_cuenta },
+        excel: excelRows,
+        kepler_only: keplerOnly,
+        contpaqi_only: contpaqiOnly,
+        totals: {
+          excel_n: excel.length, excel_monto: sum(excel),
+          excel_en_kepler: excelRows.filter((r) => r.kepler).length, excel_en_contpaqi: excelRows.filter((r) => r.contpaqi).length,
+          kepler_only_n: keplerOnly.length, kepler_only_monto: sum(keplerOnly),
+          contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
+        },
+      };
+    });
+  }
+
+  /**
    * CB.11 — Verifica el PARSEO contra la hoja CONCENTRADO (finance.bank_concentrado_ref):
    * agrega bank_movements por cuenta × tipo-M y compara contra la referencia humana
    * (la verdad que contabilidad ya cuadró). Δ≠0 en cualquier tipo = error de captura

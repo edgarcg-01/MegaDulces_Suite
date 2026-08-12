@@ -220,6 +220,34 @@ export interface ThreeWay {
   kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
 }
 
+/** CB.30 — Cheques en tránsito (gap de timing banco↔Kepler). */
+export interface ChequeTransito {
+  doc_tipo: string; folio: string; account_label: string; banco_nombre: string | null;
+  importe: number; fecha: string; beneficiario: string | null;
+  cobrado: boolean; fecha_cobro: string | null; lag_dias: number | null;
+}
+export interface ChequesTransito {
+  period: string;
+  total: { cheques_n: number; en_transito_n: number; en_transito_monto: number; cobrado_n: number; cobrado_monto: number };
+  cheques: ChequeTransito[];
+}
+
+/** CB.33 — Drill 3 vías por cuenta a nivel movimiento. */
+export interface ThreeWayDetailExcel {
+  id: string; fecha: string; concepto: string | null; codigo: string | null;
+  dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean;
+  kepler_doc: string | null; contpaqi_poliza: string | null;
+}
+export interface ThreeWayDetail {
+  period: string;
+  account: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_nombre: string | null; linked_cpq: boolean };
+  excel: ThreeWayDetailExcel[];
+  kepler_only: { doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null }[];
+  contpaqi_only: { poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
+  totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
+    kepler_only_n: number; kepler_only_monto: number; contpaqi_only_n: number; contpaqi_only_monto: number };
+}
+
 /** CB.23 — Sync del workbook maestro (Google Sheet vía export público). */
 export interface SheetSyncConfig {
   id: string; sheet_id: string; period: string; active: boolean;
@@ -320,6 +348,12 @@ export class BankService {
   // ── CB.24 — Cuadre 3 vías ──
   threeWay(period: string): Observable<ThreeWay> {
     return this.http.get<ThreeWay>(`${this.base}/three-way?period=${encodeURIComponent(period)}`);
+  }
+  threeWayDetail(period: string, accountLabel: string): Observable<ThreeWayDetail> {
+    return this.http.get<ThreeWayDetail>(`${this.base}/three-way-detail?period=${encodeURIComponent(period)}&account_label=${encodeURIComponent(accountLabel)}`);
+  }
+  chequesTransito(period: string): Observable<ChequesTransito> {
+    return this.http.get<ChequesTransito>(`${this.base}/cheques-transito?period=${encodeURIComponent(period)}`);
   }
 
   // ── CB.23 — Sync del workbook maestro (Google Sheet) ──
