@@ -40,8 +40,8 @@ Leyenda de estado: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING �
 - 🧪 **INFRA.2.1** `nestjs-pino`: logs JSON (toggle `LOG_JSON=true`, default OFF). Mixin inyecta `trace_id`/`span_id` del span OTel → enlaza log↔trace. Redacta authorization/cookie/ingest-key. **Logs shippeados a Loki por OTLP** (`pino-opentelemetry-transport` en prod+OTEL). Build verde.
 - 🧪 **INFRA.2.2** OpenTelemetry SDK (`apps/api/src/otel.ts`, import-first, inerte sin `OTEL_EXPORTER_OTLP_ENDPOINT`). Auto-instrumenta HTTP/Express/pg/socket.io. Build verde.
 - 🔨 **INFRA.2.3** Stack LGTM **en Railway**, 1 servicio (`grafana/otel-lgtm` vía `ops/observability/railway/Dockerfile` + `railway.observability.json`). El API/worker le hablan por **red privada** (`<svc>.railway.internal:4318`) → sin Cloudflare Tunnel. **Tu acción**: crear el servicio + `GF_SECURITY_ADMIN_PASSWORD` + Volume + exponer `:3000` + setear `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_SERVICE_NAME`/`LOG_JSON` en API+worker. Alternativa self-host `.249` (`grafana-stack.yml`) queda como fallback.
-- ⬜ **INFRA.2.4** Métricas clave: RAM/heap, latencia p50/p95 por ruta, jobs de cola, duración de crons (`analytics.cron_runs`).
-- ⬜ **INFRA.2.5** Dashboard "salud del proceso" + alerta de RAM > umbral (precursor del OOM).
+- 🧪 **INFRA.2.4** Métricas: el API exporta por OTLP (metricReader + host-metrics en `otel.ts`) → RSS/CPU/memoria del proceso + HTTP req/s + latencia. Build verde. (Jobs de cola + `analytics.cron_runs` = diferido a INFRA.2.5).
+- 🔨 **INFRA.2.5** Dashboard **"Trade — Salud del proceso (OOM)"** provisionado en la imagen (`ops/observability/railway/grafana/`, carpeta *Trade*): RAM/RSS + memoria sistema + CPU + HTTP req/s + p95, por `service_name`. Aparece solo al levantar. Falta: alerta de RAM > umbral + panel de backlog de cola (necesita datasource Postgres).
 
 ### INFRA.3 — Worker-tier con pg-boss (núcleo) · **sin cuentas externas**
 - 🧪 **INFRA.3.1** `libs/platform-core/queue`: `QueueService` (pg-boss v12 sobre `DATABASE_URL_NEW`, schema `pgboss`, self-migra). Toggle `ENABLE_WORKER_QUEUE`, null-safe/inerte por default, produce en cualquier proceso, consume/agenda solo en worker. Build verde.

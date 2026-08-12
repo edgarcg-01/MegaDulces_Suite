@@ -65,8 +65,11 @@ Con eso: **traces** (auto-instrumentación http/pg/socket.io) + **logs** (pino s
 
 `ops/observability/grafana-stack.yml` (5 servicios separados) + `docker compose up -d`. Requiere exponer `:4318` por Cloudflare Tunnel para que Railway lo alcance. Quedó como fallback; el camino primario es Railway (arriba).
 
+### Dashboard provisionado (aparece solo)
+
+Al levantar el servicio, Grafana carga el dashboard **"Trade — Salud del proceso (OOM)"** (carpeta *Trade*), horneado en la imagen: RAM del proceso (RSS = señal del OOM), memoria del sistema, CPU, HTTP req/s y latencia p95, por `service_name` (trade-api / trade-worker). Requiere que el API exporte métricas → ya cableado en `apps/api/src/otel.ts` (metricReader OTLP + host-metrics). Si un panel dice *No data*, el nombre exacto de la métrica difiere por versión → ajustá la query (el propio panel lo explica).
+
 ### Qué ver primero (para el OOM)
 
-- **Prometheus**: `process_resident_memory_bytes`, heap de Node, latencia p95 por ruta.
+- **RAM del proceso** (`process_memory_usage_bytes`): la curva que sube hasta el ECONNRESET/502. Armá una alerta de umbral = el precursor del OOM.
 - **Loki**: filtrá por `level=error` y por `trace_id` (cada log lleva el trace_id del span activo → click salta a Tempo).
-- Armá una alerta de RAM > umbral = el precursor del ECONNRESET/502.

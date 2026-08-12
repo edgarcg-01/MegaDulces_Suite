@@ -28,20 +28,34 @@ if (endpoint) {
   const {
     OTLPTraceExporter,
   } = require('@opentelemetry/exporter-trace-otlp-http');
+  const {
+    OTLPMetricExporter,
+  } = require('@opentelemetry/exporter-metrics-otlp-http');
+  const {
+    PeriodicExportingMetricReader,
+  } = require('@opentelemetry/sdk-metrics');
+  const { HostMetrics } = require('@opentelemetry/host-metrics');
   const { resourceFromAttributes } = require('@opentelemetry/resources');
   const {
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_VERSION,
   } = require('@opentelemetry/semantic-conventions');
 
+  const base = endpoint.replace(/\/$/, '');
+  const serviceName = process.env.OTEL_SERVICE_NAME || 'trade-api';
+
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'trade-api',
+      [ATTR_SERVICE_NAME]: serviceName,
       [ATTR_SERVICE_VERSION]:
         process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 8) || 'dev',
     }),
-    traceExporter: new OTLPTraceExporter({
-      url: `${endpoint.replace(/\/$/, '')}/v1/traces`,
+    traceExporter: new OTLPTraceExporter({ url: `${base}/v1/traces` }),
+    // Métricas: el reader empuja cada 30s por OTLP. Sin esto NO hay métricas
+    // (RAM/heap/latencia) para el dashboard — es la señal clave del OOM.
+    metricReader: new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({ url: `${base}/v1/metrics` }),
+      exportIntervalMillis: Number(process.env.OTEL_METRIC_INTERVAL_MS) || 30_000,
     }),
     instrumentations: [
       getNodeAutoInstrumentations({
@@ -52,6 +66,14 @@ if (endpoint) {
   });
 
   sdk.start();
+
+  // Métricas de host/proceso (RSS, CPU, memoria) — la señal directa del OOM.
+  // Usa el MeterProvider global que dejó sdk.start(). Best-effort.
+  try {
+    new HostMetrics({ name: serviceName }).start();
+  } catch {
+    /* si falla, seguimos con traces + métricas de instrumentación */
+  }
 
   const shutdown = () =>
     sdk
