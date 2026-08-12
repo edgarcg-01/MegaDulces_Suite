@@ -146,6 +146,8 @@ async function bootstrap() {
   // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
   // montado antes del global para que gane (express salta el segundo si ya parseó).
   app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
+  // Comprobación de gastos (GX.8): OCR + upload del documento "Gastos" de Kepler (foto/PDF) como base64.
+  app.use('/api/finance/expenses/comprobaciones', json({ limit: '16mb' }));
   // Evidencia por foto/PDF (RE.5 recepción, CC cobranza, CC pagos): la remisión/ficha/
   // comprobante llega como base64. Sin esto el global 2mb tira 413 en /ocr, /upload y /attach.
   // Recepción (goods-receipts) admite el PDF COMBINADO (orden+factura+remisión escaneados
