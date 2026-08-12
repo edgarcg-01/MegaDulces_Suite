@@ -45,11 +45,29 @@ function cellVal(row: ExcelJS.Row, i?: number): any {
   const v = row.getCell(i).value as any;
   return v && typeof v === 'object' && v.result !== undefined ? v.result : v;
 }
+// Meses en español (abreviado o completo) → número. Banorte teclea "05/Ago./2026".
+const ES_MONTH: Record<string, string> = {
+  ENE: '01', FEB: '02', MAR: '03', ABR: '04', MAY: '05', JUN: '06',
+  JUL: '07', AGO: '08', SEP: '09', SET: '09', OCT: '10', NOV: '11', DIC: '12',
+};
 function excelDate(v: any): string | null {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const s = String(v ?? '').trim();
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // dd/mm/yyyy
-  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+  let iso: string | null = null;
+  if (v instanceof Date && !isNaN(v.getTime())) iso = v.toISOString().slice(0, 10);
+  else {
+    const s = String(v ?? '').trim();
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // dd/mm/yyyy
+    if (m) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    else {
+      // CB.23.1 — dd/Mmm./yyyy con mes en español (p.ej. "05/Ago./2026", cuentas Banorte).
+      // El parser viejo solo aceptaba dd/mm/yyyy numérico → perdía silenciosamente estas filas.
+      m = s.match(/^(\d{1,2})\/([A-Za-z]{3,})\.?\/(\d{4})$/);
+      if (m) { const mm = ES_MONTH[m[2].slice(0, 3).toUpperCase()]; if (mm) iso = `${m[3]}-${mm}-${m[1].padStart(2, '0')}`; }
+    }
+  }
+  if (!iso) return null;
+  // Guard contra fechas basura capturadas en el Sheet (visto: año 0206 en vez de 2026).
+  const yr = Number(iso.slice(0, 4));
+  return yr >= 2000 && yr <= 2100 ? iso : null;
 }
 
 /**
@@ -290,7 +308,7 @@ export class FinanceBankService {
       const bankRows = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).andWhere('bm.bank_account_id', accountId)
+        .where('st.period', period).andWhere('bm.bank_account_id', accountId).whereNull('bm.deleted_at')
         .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept',
           'bm.raw_type', 'bm.raw_code', 'mc.name as category_name')
         .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }]);
@@ -383,7 +401,7 @@ export class FinanceBankService {
       const excelRows = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
-        .where('st.period', period).andWhere('ba.kind', 'factoraje')
+        .where('st.period', period).andWhere('ba.kind', 'factoraje').whereNull('bm.deleted_at')
         .select('bm.concept', 'bm.amount_in', 'bm.amount_out');
       const byProv = new Map<string, { proveedor: string; excel_in: number; excel_out: number; movs: number }>();
       for (const r of excelRows as any[]) {
@@ -488,6 +506,7 @@ export class FinanceBankService {
           .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
           .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
           .leftJoin('finance.bank_statements as st', 'st.id', 'bm.statement_id');
+        b.whereNull('bm.deleted_at'); // CB.23.3 — oculta filas barridas del Sheet
         if (q.period) b.where('st.period', q.period);
         if (q.account_id) b.where('bm.bank_account_id', q.account_id);
         if (q.category_id) b.where('bm.category_id', q.category_id);
@@ -541,7 +560,7 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
-        .where('bm.id', id)
+        .where('bm.id', id).whereNull('bm.deleted_at')
         .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.concept',
           'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'bm.amount_in', 'bm.amount_out', 'bm.recon_status',
           'mc.name as category_name', 'mc.group_key', 'mc.kepler_account',
@@ -617,7 +636,7 @@ export class FinanceBankService {
 
         const bankRows = await trx('finance.bank_movements as bm')
           .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-          .where('st.period', period).where('bm.amount_out', '>', 0)
+          .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
           .whereILike('bm.concept', `%${strongest}%`)
           .select('bm.concept', 'bm.amount_out');
         const bankMatch = (bankRows as any[]).filter((r) => matchCp(r.concept));
@@ -659,7 +678,7 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
-        .where('st.period', period)
+        .where('st.period', period).whereNull('bm.deleted_at')
         // CB.21 — CAJA GENERAL no es fiscal → fuera del comparador contra el 102 (que es fiscal).
         .whereNot('ba.kind', 'cash')
         .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'ba.id as account_id', 'bm.concept',
@@ -708,7 +727,7 @@ export class FinanceBankService {
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period)
+        .where('st.period', period).whereNull('bm.deleted_at')
         // Agrupa por la columna cruda (nullable); el COALESCE del SELECT deriva de
         // ella y Postgres lo acepta. NO agrupar por el COALESCE con binding: el
         // literal del SELECT y el $ del GROUP BY no matchean → 42803 (visto en prod).
@@ -937,7 +956,7 @@ export class FinanceBankService {
 
       const q = trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('bm.classified_by', 'rule');
+        .where('bm.classified_by', 'rule').whereNull('bm.deleted_at');
       if (period) q.where('st.period', period);
       const movs = await q.select('bm.id', 'bm.raw_type', 'bm.raw_code', 'bm.concept', 'bm.category_id');
 
@@ -974,7 +993,7 @@ export class FinanceBankService {
       const bank = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).where('bm.amount_out', '>', 0).where('bm.recon_status', 'unmatched')
+        .where('st.period', period).where('bm.amount_out', '>', 0).where('bm.recon_status', 'unmatched').whereNull('bm.deleted_at')
         .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept', 'bm.raw_code', 'bm.raw_type',
           'mc.name as category_name', 'mc.group_key', 'mc.kepler_account')
         .orderBy('bm.amount_out', 'desc');
@@ -1039,7 +1058,7 @@ export class FinanceBankService {
       // no un lado faltante — los TI/TE reales netean exacto a 0).
       const tr = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).whereIn('bm.raw_type', ['TI', 'TE'])
+        .where('st.period', period).whereIn('bm.raw_type', ['TI', 'TE']).whereNull('bm.deleted_at')
         .select(trx.raw('SUM(bm.amount_in)::numeric AS entra'), trx.raw('SUM(bm.amount_out)::numeric AS sale'))
         .first();
       const traspasos = { entra: n((tr as any)?.entra), sale: n((tr as any)?.sale), delta: Math.round((n((tr as any)?.entra) - n((tr as any)?.sale)) * 100) / 100 };
@@ -1077,17 +1096,17 @@ export class FinanceBankService {
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period)
+        .where('st.period', period).whereNull('bm.deleted_at')
         .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'))
         .first();
       const sc = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).whereNull('bm.category_id')
+        .where('st.period', period).whereNull('bm.category_id').whereNull('bm.deleted_at')
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')).first();
       // Los grupos que más pesan del sin_clasificar (código + concepto) → qué regla agregar.
       const scb = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).whereNull('bm.category_id')
+        .where('st.period', period).whereNull('bm.category_id').whereNull('bm.deleted_at')
         .groupByRaw(`COALESCE(NULLIF(bm.raw_code,''),'—'), LEFT(UPPER(COALESCE(bm.concept,'')), 28)`)
         .select(trx.raw(`COALESCE(NULLIF(bm.raw_code,''),'—') AS code`),
           trx.raw(`LEFT(UPPER(COALESCE(bm.concept,'')), 28) AS concepto`),
@@ -1103,7 +1122,7 @@ export class FinanceBankService {
       // en realidad no se ha pareado). Avisamos que corra "Conciliar" primero.
       const mc = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).where('bm.recon_status', 'matched')
+        .where('st.period', period).where('bm.recon_status', 'matched').whereNull('bm.deleted_at')
         .count({ n: '*' }).first();
       // ¿Hay pólizas del 102 de Kepler cargadas para el periodo? (feed analytics.bank_postings,
       // sin RLS → tenant explícito). Sin ellas el matching NO puede correr en absoluto.
@@ -1179,7 +1198,7 @@ export class FinanceBankService {
           // Saldo: recorrer el estado de cuenta y ubicar dónde el saldo salta más que el neto.
           if (it._statementId) {
             const movs = await trx('finance.bank_movements')
-              .where({ statement_id: it._statementId }).whereNotNull('running_balance')
+              .where({ statement_id: it._statementId }).whereNotNull('running_balance').whereNull('deleted_at')
               .select('movement_date', 'concept', 'amount_in', 'amount_out', 'running_balance')
               .orderBy([{ column: 'movement_date' }, { column: 'id' }]);
             let cum = n(it._opening), prevRes = 0; const breaks: any[] = [];
@@ -1199,7 +1218,7 @@ export class FinanceBankService {
               .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
               .join('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
               .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
-              .where('st.period', period).where('bm.amount_out', '>', 0)
+              .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
               .whereRaw(`(regexp_split_to_array(mc.kepler_account, '[-/]'))[1] = ?`, [it._mayor])
               .select('bm.movement_date', 'bm.concept', 'bm.amount_out', 'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
               .orderBy('bm.amount_out', 'desc').limit(6);
@@ -1275,7 +1294,7 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).where('bm.recon_status', 'unmatched').where('bm.amount_out', '>=', RETIRO_MIN)
+        .where('st.period', period).where('bm.recon_status', 'unmatched').where('bm.amount_out', '>=', RETIRO_MIN).whereNull('bm.deleted_at')
         .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') NOT IN ('traspaso','ingreso','devolucion')`)
         .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept',
           'mc.name as category_name', 'ba.bank', 'ba.account_label')
@@ -1363,7 +1382,7 @@ export class FinanceBankService {
       const bankMovs = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).where('bm.amount_out', '>', 0)
+        .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
         .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') NOT IN ('traspaso','factoraje')`)
         .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept')
         .orderBy('bm.movement_date');
@@ -1572,7 +1591,7 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period)
+        .where('st.period', period).whereNull('bm.deleted_at')
         .groupBy('ba.kind', 'mc.group_key', 'mc.kepler_account', 'mc.name', 'mc.code')
         .select('ba.kind', trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
           'mc.kepler_account', 'mc.name', 'mc.code',
@@ -1642,6 +1661,59 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.24 — Cuadre 3 vías: Workbook (estado de cuenta) ↔ Kepler 102 ↔ ContPAQi (libros).
+   *
+   * Nivel 1 (control-total): 2 filas Ingresos/Egresos × 3 fuentes + deltas por par +
+   * semáforo. AQUÍ es donde "cuadran las 3". Nivel 2 (por cuenta): Workbook vs ContPAQi
+   * (ambas por cuenta). El 102 de Kepler NO se desglosa por banco (es un bulto en el
+   * feed), así que Kepler solo aparece en el control-total. Reusa contpaqiCompare
+   * (Workbook + ContPAQi, mismo universo kind='bank') + el total del 102 de bank_postings.
+   */
+  async threeWay(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const TOL = 1000; // ±$1,000 se considera cuadrado (misma tolerancia que el resto del módulo)
+
+    const cpq = await this.contpaqiCompare(period); // Workbook(excel) + ContPAQi + filas por cuenta
+
+    // Kepler: el 102 (bancos) del periodo — cargo 'C' = ingreso, abono 'A' = egreso.
+    const kep = await this.tk.run(async (trx) => {
+      const row: any = await trx('analytics.bank_postings')
+        .where({ tenant_id: tenantId, anio_mes: period })
+        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='C'),0) AS ingresos`))
+        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='A'),0) AS egresos`))
+        .count('* as movs').first();
+      return { in: r2(n(row?.ingresos)), out: r2(n(row?.egresos)), movs: Number(row?.movs) || 0 };
+    });
+
+    const mkRow = (label: string, w: number, k: number, c: number) => ({
+      label, workbook: r2(w), kepler: r2(k), contpaqi: r2(c),
+      delta_wk: r2(w - k), delta_wc: r2(w - c), delta_kc: r2(k - c),
+      cuadra: Math.abs(w - k) < TOL && Math.abs(w - c) < TOL && Math.abs(k - c) < TOL,
+    });
+    const total = {
+      ingresos: mkRow('Ingresos', cpq.totals.excel_in, kep.in, cpq.totals.contpaqi_in),
+      egresos: mkRow('Egresos', cpq.totals.excel_out, kep.out, cpq.totals.contpaqi_out),
+    };
+
+    const por_cuenta = cpq.rows.map((r: any) => ({
+      bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
+      wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
+      delta_in: r.delta_in, delta_out: r.delta_out,
+      cuadra: Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL,
+    })).sort((a: any, b: any) => (Math.abs(b.delta_in) + Math.abs(b.delta_out)) - (Math.abs(a.delta_in) + Math.abs(a.delta_out)));
+
+    return {
+      period, tolerance: TOL,
+      cuadra: total.ingresos.cuadra && total.egresos.cuadra,
+      total, por_cuenta,
+      kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: false,
+      nota: 'El 102 de Kepler no se desglosa por banco (es un bulto), así que Kepler solo aparece en el control-total. El detalle por cuenta es Workbook ↔ ContPAQi. Diferencias esperadas por timing (devengado vs pagado) y alcance; el semáforo usa ±$1,000.',
+    };
+  }
+
+  /**
    * CB.11 — Verifica el PARSEO contra la hoja CONCENTRADO (finance.bank_concentrado_ref):
    * agrega bank_movements por cuenta × tipo-M y compara contra la referencia humana
    * (la verdad que contabilidad ya cuadró). Δ≠0 en cualquier tipo = error de captura
@@ -1665,7 +1737,7 @@ export class FinanceBankService {
       const mv = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
-        .where('st.period', period)
+        .where('st.period', period).whereNull('bm.deleted_at')
         .groupBy('ba.bank', 'ba.account_label', 'ba.alias', 'bm.raw_type')
         .select('ba.account_label as lbl', 'ba.bank', 'ba.alias', trx.raw('UPPER(bm.raw_type) as rt'),
           trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric as monto'));
@@ -1730,17 +1802,32 @@ export class FinanceBankService {
    * (UPSERT por client_uuid, no DELETE). Devuelve resumen por cuenta + grupos.
    */
   async importWorkbook(fileBase64: string, period: string, sourceFile?: string, actor?: string) {
-    const tenantId = this.tenantCtx.requireTenantId();
     if (!fileBase64) throw new BadRequestException('archivo requerido');
-    if (!/^\d{4}-\d{2}$/.test(period || '')) throw new BadRequestException('periodo inválido (YYYY-MM)');
     const b64 = fileBase64.includes(',') ? fileBase64.split(',').pop()! : fileBase64;
-    const buf = Buffer.from(b64, 'base64');
+    return this.importFromBuffer(Buffer.from(b64, 'base64'), period, sourceFile, actor, 'upload');
+  }
+
+  /**
+   * CB.23 — Núcleo del import (buffer). Lo reusan el upload web (base64) y el sync
+   * del Google Sheet (SheetSyncService baja el .xlsx de la URL de export). `syncSource`
+   * marca el origen; cuando es 'sheet' corre el barrido soft-delete (marca deleted_at
+   * las filas que ya NO aparecen en el pull, acotado a periodo × cuentas del archivo).
+   */
+  async importFromBuffer(buf: Buffer, period: string, sourceFile?: string, actor?: string, syncSource: 'upload' | 'sheet' = 'upload') {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!buf?.length) throw new BadRequestException('archivo vacío');
+    if (!/^\d{4}-\d{2}$/.test(period || '')) throw new BadRequestException('periodo inválido (YYYY-MM)');
 
     const wb = new ExcelJS.Workbook();
     try { await wb.xlsx.load(buf as any); } catch { throw new BadRequestException('no se pudo leer el Excel'); }
-    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|CONCENTRADO|FilterDatabase/i.test(s.name));
+    // CB.23.1 — omite hojas resumen/consolidadas: MOVIMIENTOS GENERAL (unión de todas las
+    // cuentas → duplicaría todo), RESUMEN DE SALDOS, POR IDENTIFICAR, y las históricas.
+    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|FilterDatabase/i.test(s.name));
 
     return this.tk.run(async (trx) => {
+      // t0 = reloj del servidor al inicio; el barrido marca borrado lo no tocado en este pull
+      // (cada upsert bumpea updated_at ≥ t0; lo que quedó < t0 es lo que desapareció del Sheet).
+      const t0 = (await trx.select(trx.raw('now() as now')).first() as any)?.now;
       const catMap = new Map<string, { id: string; group: string }>(
         (await trx('finance.movement_categories').select('id', 'code', 'group_key'))
           .map((r: any) => [r.code, { id: r.id, group: r.group_key }]));
@@ -1754,24 +1841,32 @@ export class FinanceBankService {
       const perAccount: any[] = [];
       const byGroup: Record<string, { in: number; out: number; n: number }> = {};
       let grandIn = 0, grandOut = 0, grandUncat = 0, grandRows = 0;
+      const processedAcctIds = new Set<string>();
 
       for (const ws of sheets) {
         let hRow = 0; const col: Record<string, number> = {};
         for (let r = 1; r <= Math.min(8, ws.rowCount); r++) {
           const u = (ws.getRow(r).values as any[]).map((v) => normKey(v));
-          if (u.some((v) => v === 'FECHA')) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
+          const hasFecha = u.some((v) => v === 'FECHA');
+          // CB.23.1 — CAJA GENERAL no rotula FECHA (la fecha va en la col antes de M);
+          // detectamos su header por CTA/CUENTA + una columna de importe.
+          const hasCajaHdr = u.some((v) => v === 'CTA' || v === 'CUENTA') &&
+            u.some((v) => v === 'EGRESO' || v === 'INGRESO' || v === 'RETIRO' || v === 'DEPOSITO');
+          if (hasFecha || hasCajaHdr) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
         }
         const acct = acctMap.get(normKey(ws.name));
         // Alias de columnas: hojas de banco (C/PROVEEDOR/RETIRO/DEPOSITO/SALDO) y
         // CAJA GENERAL (CTA/DESCRIPCION/EGRESO/INGRESO, sin SALDO — trae ARQUEO/DIF).
+        // Sin header FECHA (CAJA GENERAL) la fecha es la columna justo antes de M.
         const ci = {
-          fecha: col['FECHA'], m: col['M'], s: col['S'],
+          fecha: col['FECHA'] || (col['M'] ? col['M'] - 1 : 0), m: col['M'], s: col['S'],
           c: col['C'] || col['CTA'], prov: col['PROVEEDOR'] || col['DESCRIPCION'],
           ret: col['RETIRO'] || col['EGRESO'], dep: col['DEPOSITO'] || col['INGRESO'],
           saldo: col['SALDO'], folio: col['#'] || col['FOLIO'],
         };
         if (!hRow || !ci.fecha || (!ci.ret && !ci.dep)) { perAccount.push({ sheet: ws.name, note: 'layout no estándar — omitido' }); continue; }
         if (!acct) { perAccount.push({ sheet: ws.name, note: 'cuenta no registrada — omitido' }); continue; }
+        processedAcctIds.add(acct.id);
 
         const rows: any[] = []; const seen = new Map<string, number>();
         let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null;
@@ -1797,7 +1892,7 @@ export class FinanceBankService {
           const occ = (seen.get(contentKey) || 0) + 1; seen.set(contentKey, occ);
           const clientUuid = crypto.createHash('sha1').update(`${contentKey}|${occ}`).digest('hex');
           rows.push({ tenant_id: tenantId, bank_account_id: acct.id, movement_date: date, category_id: catId,
-            classified_by: 'rule',
+            classified_by: 'rule', sync_source: syncSource, deleted_at: null,
             raw_type: M || null, raw_code: C || null, sucursal: S || null, concept: concept || null,
             amount_in: amtIn, amount_out: amtOut, running_balance: bal, client_uuid: clientUuid, source_file: sourceFile || null });
         }
@@ -1817,16 +1912,31 @@ export class FinanceBankService {
             .onConflict(['tenant_id', 'client_uuid'])
             // No pisa category_id/classified_by en re-import: preserva la reclasificación
             // manual y la clasificación previa. Para re-aplicar reglas → reclassifyAll().
+            // `deleted_at`→null revive una fila que volvió a aparecer en el Sheet tras un
+            // barrido; `sync_source` refleja que ahora la fuente es el Sheet.
             .merge(['statement_id', 'bank_account_id', 'movement_date', 'raw_type', 'raw_code',
-              'sucursal', 'concept', 'amount_in', 'amount_out', 'running_balance', 'source_file', 'updated_at']);
+              'sucursal', 'concept', 'amount_in', 'amount_out', 'running_balance', 'source_file',
+              'sync_source', 'deleted_at', 'updated_at']);
         }
 
         grandIn += tin; grandOut += tout; grandUncat += uncat; grandRows += rows.length;
         perAccount.push({ sheet: ws.name, movs: rows.length, deposits: Math.round(tin), withdrawals: Math.round(tout), sin_clasificar: uncat });
       }
 
-      this.logger.log(`import banco periodo ${period}: ${grandRows} movs, ${grandUncat} sin_clasificar, por ${actor || '?'}`);
-      return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat };
+      // CB.23.3 — Barrido soft-delete (solo sync del Sheet): marca deleted_at las filas
+      // 'sheet' del periodo × cuentas presentes en ESTE pull que ya no fueron tocadas
+      // (updated_at < t0 = desaparecieron del Sheet). Nunca toca filas 'upload' (manuales).
+      let swept = 0;
+      if (syncSource === 'sheet' && processedAcctIds.size && t0) {
+        swept = await trx('finance.bank_movements as bm')
+          .whereIn('bm.statement_id', trx('finance.bank_statements').where({ period })
+            .whereIn('bank_account_id', [...processedAcctIds]).select('id'))
+          .where('bm.sync_source', 'sheet').whereNull('bm.deleted_at').where('bm.updated_at', '<', t0)
+          .update({ deleted_at: trx.fn.now(), recon_status: 'ignored', updated_at: trx.fn.now() });
+      }
+
+      this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, por ${actor || '?'}`);
+      return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept };
     });
   }
 }

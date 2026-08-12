@@ -196,6 +196,33 @@ export interface MovementsQuery {
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
 }
 
+/** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
+export interface ThreeWayRow {
+  label: string; workbook: number; kepler: number; contpaqi: number;
+  delta_wk: number; delta_wc: number; delta_kc: number; cuadra: boolean;
+}
+export interface ThreeWayAccount {
+  bank: string; account_label: string; alias: string | null; linked: boolean;
+  wb_in: number; wb_out: number; cp_in: number; cp_out: number; delta_in: number; delta_out: number; cuadra: boolean;
+}
+export interface ThreeWay {
+  period: string; tolerance: number; cuadra: boolean;
+  total: { ingresos: ThreeWayRow; egresos: ThreeWayRow };
+  por_cuenta: ThreeWayAccount[];
+  kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
+}
+
+/** CB.23 — Sync del workbook maestro (Google Sheet vía export público). */
+export interface SheetSyncConfig {
+  id: string; sheet_id: string; period: string; active: boolean;
+  last_hash: string | null; last_synced_at: string | null; last_rows: number | null;
+  last_changed: number | null; last_error: string | null;
+}
+export interface SheetSyncRunResult {
+  skipped: boolean; reason?: string; period: string;
+  total?: number; swept?: number; sin_clasificar?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BankService {
   private readonly http = inject(HttpClient);
@@ -281,6 +308,22 @@ export class BankService {
   updateRule(id: string, body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.patch<ClassifyRule>(`${this.base}/rules/${id}`, body); }
   deleteRule(id: string): Observable<unknown> { return this.http.delete(`${this.base}/rules/${id}`); }
   reclassifyAll(period?: string): Observable<ReclassifyResult> { return this.http.post<ReclassifyResult>(`${this.base}/reclassify`, { period }); }
+
+  // ── CB.24 — Cuadre 3 vías ──
+  threeWay(period: string): Observable<ThreeWay> {
+    return this.http.get<ThreeWay>(`${this.base}/three-way?period=${encodeURIComponent(period)}`);
+  }
+
+  // ── CB.23 — Sync del workbook maestro (Google Sheet) ──
+  sheetSyncConfig(): Observable<SheetSyncConfig | null> {
+    return this.http.get<SheetSyncConfig | null>(`${this.base}/sheet-sync/config`);
+  }
+  sheetSyncUpdate(body: { sheet_id?: string; period?: string; active?: boolean }): Observable<SheetSyncConfig> {
+    return this.http.patch<SheetSyncConfig>(`${this.base}/sheet-sync/config`, body);
+  }
+  sheetSyncRun(): Observable<SheetSyncRunResult> {
+    return this.http.post<SheetSyncRunResult>(`${this.base}/sheet-sync/run`, {});
+  }
 }
 
 export interface ImportResult {
