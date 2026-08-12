@@ -65,7 +65,7 @@ export class ExpenseComprobacionesService {
     const m = /^data:([^;,]+)[;,]/.exec(dataUri || '');
     const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
     const base64 = dataUri.replace(/^data:[^,]*,/, '');
-    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, departamento: null, importe: null, fecha: null, poliza: null, sucursal: null, descripcion: null, comentarios: null };
+    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, a_nombre_de: null, autoriza: null, departamento: null, proyecto: null, cuenta: null, concepto: null, descripcion: null, moneda: null, fecha: null, fecha_pago: null, poliza: null, sucursal: null, comentarios: null, subtotal: null, iva: null, ieps: null, otro_impuesto: null, importe: null, anticipos: null };
     if (!process.env.ANTHROPIC_API_KEY) return { ...empty, ocr_status: 'sin_key' };
     const f = await this.ocr.extractKeplerGastos(base64, mediaType as any);
     const any = f.folio || f.importe != null || f.solicitante || f.proveedor;

@@ -56,14 +56,26 @@ export interface KeplerGastosFields {
   folio: string | null;          // parte numérica del folio ("0006569")
   solicitante: string | null;    // campo "Solicita"
   proveedor_code: string | null; // código del proveedor ("GG015")
-  proveedor: string | null;      // razón social / "A nombre de"
+  proveedor: string | null;      // razón social del proveedor
+  a_nombre_de: string | null;    // campo "A nombre de"
+  autoriza: string | null;       // campo "Autoriza"
   departamento: string | null;   // código de departamento ("1-02-30-73")
-  importe: number | null;        // IMPORTE (total del gasto)
-  fecha: string | null;          // ISO YYYY-MM-DD
+  proyecto: string | null;       // código de proyecto ("2-73-26-02")
+  cuenta: string | null;         // cuenta contable del renglón ("602-005")
+  concepto: string | null;       // código de concepto del renglón ("290")
+  descripcion: string | null;    // descripción del gasto
+  moneda: string | null;         // "PESOS", etc.
+  fecha: string | null;          // ISO YYYY-MM-DD (campo "Fecha")
+  fecha_pago: string | null;     // ISO YYYY-MM-DD (campo "Fecha de pago")
   poliza: string | null;         // póliza contable ("D 21369")
   sucursal: string | null;       // "CEDIS", etc.
-  descripcion: string | null;    // descripción del gasto
   comentarios: string | null;    // comentarios
+  subtotal: number | null;       // SUB TOTAL
+  iva: number | null;            // IVA
+  ieps: number | null;           // IEPS
+  otro_impuesto: number | null;  // OTRO IMPUESTO
+  importe: number | null;        // IMPORTE (total del gasto)
+  anticipos: number | null;      // ANTICIPOS
 }
 
 /**
@@ -248,7 +260,7 @@ export class LlmExtractorService implements OnModuleInit {
     fileBase64: string,
     mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
   ): Promise<KeplerGastosFields> {
-    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, departamento: null, importe: null, fecha: null, poliza: null, sucursal: null, descripcion: null, comentarios: null };
+    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, a_nombre_de: null, autoriza: null, departamento: null, proyecto: null, cuenta: null, concepto: null, descripcion: null, moneda: null, fecha: null, fecha_pago: null, poliza: null, sucursal: null, comentarios: null, subtotal: null, iva: null, ieps: null, otro_impuesto: null, importe: null, anticipos: null };
     if (!this.apiKey) { this.logger.warn('Gastos OCR sin ANTHROPIC_API_KEY — devuelvo vacío'); return empty; }
     if (!fileBase64) return empty;
     try {
@@ -1109,16 +1121,28 @@ export class LlmExtractorService implements OnModuleInit {
                 folio: { type: ['string', 'null'], description: 'Solo la parte numérica del folio (después del guion; de "XA1001-0006569" → "0006569"). null si no se ve.' },
                 solicitante: { type: ['string', 'null'], description: 'Texto del campo "Solicita" (quién solicitó el gasto). null si no se ve.' },
                 proveedor_code: { type: ['string', 'null'], description: 'Código del campo "Proveedor" (ej. "GG015"). null si no se ve.' },
-                proveedor: { type: ['string', 'null'], description: 'Razón social o el texto de "A nombre de". null si no se ve.' },
+                proveedor: { type: ['string', 'null'], description: 'Razón social del proveedor (junto al código, si aparece). null si no se ve.' },
+                a_nombre_de: { type: ['string', 'null'], description: 'Texto del campo "A nombre de". null si no se ve.' },
+                autoriza: { type: ['string', 'null'], description: 'Texto del campo "Autoriza" (ej. "FINANZAS"). null si no se ve.' },
                 departamento: { type: ['string', 'null'], description: 'Código de la columna "Departamento" (ej. "1-02-30-73"). NO uses el "Proyecto". null si no se ve.' },
-                importe: { type: ['number', 'null'], description: 'IMPORTE total del gasto en pesos, sin símbolo ni comas (ej. 1000). null si no se ve.' },
+                proyecto: { type: ['string', 'null'], description: 'Código de la columna "Proyecto" (ej. "2-73-26-02"). null si no se ve.' },
+                cuenta: { type: ['string', 'null'], description: 'Cuenta contable del renglón, columna "Cuenta" (ej. "602-005"). null si no se ve.' },
+                concepto: { type: ['string', 'null'], description: 'Código de la columna "Concepto" del renglón (ej. "290"). null si no se ve.' },
+                descripcion: { type: ['string', 'null'], description: 'Descripción del gasto (columna "Descripción"). null si no se ve.' },
+                moneda: { type: ['string', 'null'], description: 'Campo "Moneda" (ej. "PESOS"). null si no se ve.' },
                 fecha: { type: ['string', 'null'], description: 'Campo "Fecha" en ISO YYYY-MM-DD (el doc usa dd-mm-aaaa: "03-08-2026" → "2026-08-03"). null si no se ve.' },
+                fecha_pago: { type: ['string', 'null'], description: 'Campo "Fecha de pago" en ISO YYYY-MM-DD. null si no se ve.' },
                 poliza: { type: ['string', 'null'], description: 'Póliza contable (ej. "D 21369"). null si no se ve.' },
                 sucursal: { type: ['string', 'null'], description: 'Campo "Sucursal" (ej. "CEDIS"). null si no se ve.' },
-                descripcion: { type: ['string', 'null'], description: 'Descripción del gasto (columna "Descripción"). null si no se ve.' },
                 comentarios: { type: ['string', 'null'], description: 'Texto del campo "Comentarios". null si no se ve.' },
+                subtotal: { type: ['number', 'null'], description: 'SUB TOTAL en pesos, sin símbolo ni comas. null si no se ve.' },
+                iva: { type: ['number', 'null'], description: 'IVA en pesos, sin símbolo ni comas. null si no se ve.' },
+                ieps: { type: ['number', 'null'], description: 'IEPS en pesos, sin símbolo ni comas. null si no se ve.' },
+                otro_impuesto: { type: ['number', 'null'], description: 'OTRO IMPUESTO en pesos, sin símbolo ni comas. null si no se ve.' },
+                importe: { type: ['number', 'null'], description: 'IMPORTE total del gasto en pesos, sin símbolo ni comas (ej. 1000). null si no se ve.' },
+                anticipos: { type: ['number', 'null'], description: 'ANTICIPOS en pesos, sin símbolo ni comas. null si no se ve.' },
               },
-              required: ['documento', 'folio', 'solicitante', 'proveedor_code', 'proveedor', 'departamento', 'importe', 'fecha', 'poliza', 'sucursal', 'descripcion', 'comentarios'],
+              required: ['documento', 'folio', 'solicitante', 'proveedor_code', 'proveedor', 'a_nombre_de', 'autoriza', 'departamento', 'proyecto', 'cuenta', 'concepto', 'descripcion', 'moneda', 'fecha', 'fecha_pago', 'poliza', 'sucursal', 'comentarios', 'subtotal', 'iva', 'ieps', 'otro_impuesto', 'importe', 'anticipos'],
             },
           },
         ],
@@ -1142,13 +1166,25 @@ export class LlmExtractorService implements OnModuleInit {
       solicitante: str(inp.solicitante),
       proveedor_code: str(inp.proveedor_code),
       proveedor: str(inp.proveedor),
+      a_nombre_de: str(inp.a_nombre_de),
+      autoriza: str(inp.autoriza),
       departamento: str(inp.departamento),
-      importe: num(inp.importe),
+      proyecto: str(inp.proyecto),
+      cuenta: str(inp.cuenta),
+      concepto: str(inp.concepto),
+      descripcion: str(inp.descripcion),
+      moneda: str(inp.moneda),
       fecha: this.parseTicketDate(inp.fecha),
+      fecha_pago: this.parseTicketDate(inp.fecha_pago),
       poliza: str(inp.poliza),
       sucursal: str(inp.sucursal),
-      descripcion: str(inp.descripcion),
       comentarios: str(inp.comentarios),
+      subtotal: num(inp.subtotal),
+      iva: num(inp.iva),
+      ieps: num(inp.ieps),
+      otro_impuesto: num(inp.otro_impuesto),
+      importe: num(inp.importe),
+      anticipos: num(inp.anticipos),
     };
   }
 

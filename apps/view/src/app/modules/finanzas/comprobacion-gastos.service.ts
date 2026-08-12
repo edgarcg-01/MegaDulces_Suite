@@ -90,9 +90,13 @@ export interface CreateComprobacion {
 /** OCR del documento "Gastos" de Kepler (XA1001) → auto-rellena la captura. */
 export interface KeplerGastosOcr {
   documento: string | null; folio: string | null; solicitante: string | null;
-  proveedor_code: string | null; proveedor: string | null; departamento: string | null;
-  importe: number | null; fecha: string | null; poliza: string | null;
-  sucursal: string | null; descripcion: string | null; comentarios: string | null;
+  proveedor_code: string | null; proveedor: string | null; a_nombre_de: string | null;
+  autoriza: string | null; departamento: string | null; proyecto: string | null;
+  cuenta: string | null; concepto: string | null; descripcion: string | null;
+  moneda: string | null; fecha: string | null; fecha_pago: string | null;
+  poliza: string | null; sucursal: string | null; comentarios: string | null;
+  subtotal: number | null; iva: number | null; ieps: number | null;
+  otro_impuesto: number | null; importe: number | null; anticipos: number | null;
   ocr_status: string;
 }
 
