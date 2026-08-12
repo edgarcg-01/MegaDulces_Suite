@@ -49,7 +49,15 @@ export interface RemisionOcr {
   ocr_status: string;
   sha256?: string;               // hash del contenido (anti-hoja-duplicada)
   duplicate?: DuplicateHit | null; // ya subida antes (misma hoja o folio)
-  documents_present?: string[];  // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
+  // RE (#4/pkt.1) — documentos detectados en el archivo, anclados a evidencia (página + prueba).
+  documents_present?: DocPresence[];
+}
+
+/** RE.pkt.1 — un documento detectado dentro del paquete, con su página y prueba. */
+export interface DocPresence {
+  type: string;              // aplica_orden_entrada|factura|remision|ticket|orden_recepcion|vale|otro
+  page: number | null;       // página 1-based (null si imagen suelta)
+  evidence: string | null;   // folio/título/línea distintiva que lo identifica
 }
 
 export interface ProofFile {
