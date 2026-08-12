@@ -85,15 +85,16 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
         <div class="pr-filters">
           <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
-                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
           <p-select [options]="brandOpts()" [(ngModel)]="fBrand" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todas las marcas" [showClear]="true"
-                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
           <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
-                    optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
-                    [filter]="true" filterBy="label" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
+                    optionLabel="label" optionValue="value" [showClear]="true" [disabled]="catsDenied()"
+                    [placeholder]="catsDenied() ? 'Categorías: sin permiso (COMPRAS_CATEGORIAS_VER)' : 'Todas las categorías'"
+                    [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
           <button type="button" class="pr-colbtn" [class.pr-colbtn-on]="wbGroup()==='branch'" (click)="toggleGroup()"
                   [attr.aria-pressed]="wbGroup()==='branch'"
                   [title]="wbGroup()==='branch' ? 'Englobar las columnas de venta en una sola (red)' : 'Desglosar las columnas de venta por sucursal'">
@@ -104,7 +105,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
                            optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                            [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                           styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiselect>
+                           appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiselect>
           }
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
@@ -696,6 +697,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   fWarehouse: string | null = null;
   fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
   categoryOpts = signal<{ label: string; value: string }[]>([]);
+  /** 403 en /categories (requiere COMPRAS_CATEGORIAS_VER) → el select se explica en vez de verse vacío. */
+  readonly catsDenied = signal(false);
   search = '';
   coverage = 30;
 
@@ -727,9 +730,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   nameOf(code: string): string { return this.whName().get(code) || (code === '—' ? 'Sin almacén / red' : ''); }
 
   ngOnInit(): void {
-    this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (f) => this.filters.set(f), error: () => {} });
+    // Lookups de los filtros. NUNCA tragar el error (DESIGN §Ing.UI 6): si esto falla en
+    // silencio, los selects quedan vacíos y la pantalla se ve "sin menús" sin decir por qué.
+    this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f) => this.filters.set(f),
+      error: (e) => this.toast.add({
+        severity: 'error', summary: 'Filtros no disponibles', life: 8000,
+        detail: e?.status === 403
+          ? 'Tu rol no tiene permiso para leer proveedores/marcas/sucursales.'
+          : (e?.error?.message || 'No se pudieron cargar proveedor / marca / sucursal.'),
+      }),
+    });
+    // Categorías van por su propio endpoint, gateado con COMPRAS_CATEGORIAS_VER (permiso
+    // distinto al de esta ruta) → un rol con solo COMPRAS_PEDIDO_VER recibe 403 acá.
     this.api.listCategories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (cs) => this.categoryOpts.set(cs.map((c) => ({ label: c.name, value: c.id }))), error: () => {},
+      next: (cs) => this.categoryOpts.set(cs.map((c) => ({ label: c.name, value: c.id }))),
+      error: (e) => this.catsDenied.set(e?.status === 403),
     });
     this.restoreFilters();
     if (this.mode() === 'muerto') this.loadDead();
