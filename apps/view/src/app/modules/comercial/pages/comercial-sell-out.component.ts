@@ -10,6 +10,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
+import { PaginatorModule, PaginatorState } from 'primeng/paginator';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
@@ -44,7 +45,7 @@ const CHANNEL_OPTS = [
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, CheckboxModule,
-    DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule,
+    DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule, PaginatorModule,
     PageTabsComponent, SegmentedComponent, ProductSearchComponent, MetricStripComponent,
   ],
   providers: [MessageService],
@@ -278,7 +279,7 @@ const CHANNEL_OPTS = [
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
               <h3 class="text-sm font-bold text-content-main">{{ matrixTitle(r) }}</h3>
-              <span class="so-matrix-count">{{ r.rows.length }} {{ rowNoun(r) }} · {{ r.columns.length }} columnas</span>
+              <span class="so-matrix-count">{{ r.rows.length | number }} {{ rowNoun(r) }} · {{ r.columns.length }} columnas@if (totalRows() > pageSize()) { <span class="so-matrix-page">· viendo {{ pageLabel() }}</span> }</span>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
@@ -304,7 +305,7 @@ const CHANNEL_OPTS = [
                 </tr>
               </thead>
               <tbody>
-                @for (row of r.rows; track row.product_id) {
+                @for (row of pagedRows(); track row.product_id) {
                   <tr [class.so-drill]="r.row_dim === 'brand'"
                       (click)="r.row_dim === 'brand' && drillBrand(row)"
                       [attr.title]="r.row_dim === 'brand' ? 'Ver productos de ' + row.nombre : null">
@@ -339,6 +340,13 @@ const CHANNEL_OPTS = [
               </tfoot>
             </table>
           </div>
+          @if (totalRows() > pageSize()) {
+            <p-paginator [first]="page() * pageSize()" [rows]="pageSize()" [totalRecords]="totalRows()"
+                         [rowsPerPageOptions]="[50, 100, 200]" (onPageChange)="onPage($event)"
+                         styleClass="so-pager"
+                         currentPageReportTemplate="{first} – {last} de {totalRecords}"
+                         [showCurrentPageReport]="true" />
+          }
           </div>
         } @else if (!concentrar()) {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
@@ -422,7 +430,12 @@ const CHANNEL_OPTS = [
     .so-matrix-card { padding:1.25rem; }
     .so-matrix-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap; }
     .so-matrix-tools { display:flex; align-items:center; gap:1rem; }
-    .so-matrix-count { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
+    .so-matrix-count { font-size:var(--fs-xs); color:var(--text-muted); }
+    /* Cuántas filas se están viendo del total — la matriz pagina, el TOTAL del pie no. */
+    .so-matrix-page { color:var(--text-faint); font-variant-numeric:tabular-nums; margin-left:.25rem; }
+    /* Paginación abajo de la tabla (Jakob: tabla = Excel). Hairline superior, sin caja. */
+    :host ::ng-deep .so-pager { border-top:1px solid var(--border-color); margin-top:.5rem; padding-top:.25rem; background:transparent; }
+    :host ::ng-deep .so-pager .p-paginator { background:transparent; padding:.25rem 0; font-size:var(--fs-xs); }
     /* Buscador de producto: el input neutraliza el outline global (input:focus !important). */
     .so-search { display:inline-flex; align-items:center; gap:.4rem; height:32px; width:240px; max-width:100%;
       background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); padding:0 .5rem;
@@ -530,6 +543,32 @@ export class ComercialSellOutComponent {
   loading = signal(false);
   dl = signal<'' | 'xlsx' | 'pdf'>('');
   report = signal<SellOutReport | null>(null);
+
+  // ── Paginación de la matriz (DESIGN §datos densos 7) ─────────────────────────
+  // La matriz pintaba TODAS las filas: con una empresa grande son miles de <tr> ×
+  // (columnas × 2 subcolumnas) → el DOM explota y el scroll se arrastra. El reporte
+  // llega completo en un payload, así que la página se corta en cliente: el TOTAL del
+  // pie NO se toca (viene de r.column_totals / r.grand_total, calculados en el server
+  // sobre TODO el periodo) y el export XLSX sigue exportando el set completo.
+  readonly page = signal(0);
+  readonly pageSize = signal(50);
+  readonly totalRows = computed(() => this.report()?.rows.length ?? 0);
+  readonly pagedRows = computed(() => {
+    const rows = this.report()?.rows ?? [];
+    const from = this.page() * this.pageSize();
+    return rows.slice(from, from + this.pageSize());
+  });
+  /** Lectura en llano de qué se está viendo (§Q.2), no sólo el total crudo. */
+  readonly pageLabel = computed(() => {
+    const total = this.totalRows();
+    if (!total) return '';
+    const from = this.page() * this.pageSize();
+    return `${(from + 1).toLocaleString('es-MX')}–${Math.min(from + this.pageSize(), total).toLocaleString('es-MX')} de ${total.toLocaleString('es-MX')}`;
+  });
+  onPage(e: PaginatorState) {
+    this.page.set(e.page ?? 0);
+    this.pageSize.set(e.rows ?? 50);
+  }
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     const r = this.report();
     if (!r) return [];
@@ -913,7 +952,7 @@ export class ComercialSellOutComponent {
     req
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.page.set(0); this.meta.set(this.buildMeta()); this.loading.set(false); },
         // Al fallar: limpiar el reporte previo. Si no, quedaba el del periodo anterior en
         // pantalla y parecía que "ignoraba" el filtro (ej. elegir julio → seguía viéndose junio).
         error: (e) => {
