@@ -207,10 +207,16 @@ export interface ThreeWayAccount {
   kep_in: number; kep_out: number; kep_has: boolean;
   delta_in: number; delta_out: number; delta_wk_in: number; delta_wk_out: number; cuadra: boolean;
 }
+export interface ThreeWaySource { movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean; }
+export interface ThreeWayCoverage {
+  is_current_month: boolean;
+  workbook: ThreeWaySource; kepler: ThreeWaySource; contpaqi: ThreeWaySource;
+}
 export interface ThreeWay {
   period: string; tolerance: number; cuadra: boolean;
   total: { ingresos: ThreeWayRow; egresos: ThreeWayRow };
   por_cuenta: ThreeWayAccount[];
+  coverage: ThreeWayCoverage;
   kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
 }
 

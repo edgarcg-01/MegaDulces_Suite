@@ -1908,14 +1908,43 @@ export class FinanceBankService {
       };
     }).sort((a: any, b: any) => (Math.abs(b.delta_in) + Math.abs(b.delta_out)) - (Math.abs(a.delta_in) + Math.abs(a.delta_out)));
 
+    // CB.32 — Cobertura/frescura por fuente: distingue "captura pendiente" de "descuadre real".
+    // Cada fuente captura a su ritmo (banco al día > Kepler operativo > ContPAQi fiscal). En el
+    // mes en curso una fuente rezagada NO es descuadre; el semáforo no debe leerse como error.
+    const curYm = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit' })
+      .format(new Date()).slice(0, 7);
+    const cov = await this.tk.run(async (trx) => {
+      const wb: any = await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.deleted_at')
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(bm.movement_date) AS last')).first();
+      const kp: any = await trx('analytics.kepler_bank_movements').where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_captura) AS last')).first();
+      const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) AS last')).first();
+      return { wb, kp, cq };
+    });
+    const cw = n(cov.wb?.movs), ck = n(cov.kp?.movs), cc = n(cov.cq?.movs);
+    const maxc = Math.max(cw, ck, cc, 1);
+    const src = (movs: number, last: any) => ({ movs, pct: Math.round((movs / maxc) * 100), last: last || null, stale: movs > 0 && movs < 0.3 * maxc });
+    const coverage = {
+      is_current_month: period === curYm,
+      workbook: src(cw, cov.wb?.last),
+      kepler: { ...src(ck, cov.kp?.last), sin_datos: ck === 0 },
+      contpaqi: { ...src(cc, cov.cq?.last), sin_datos: cc === 0 },
+    };
+    const anyStale = coverage.kepler.stale || coverage.contpaqi.stale || coverage.kepler.sin_datos || coverage.contpaqi.sin_datos;
+
     return {
       period, tolerance: TOL,
       cuadra: total.ingresos.cuadra && total.egresos.cuadra,
-      total, por_cuenta,
+      total, por_cuenta, coverage,
       kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: kepHasData,
-      nota: kepHasData
-        ? 'Kepler ahora se desglosa por banco desde el módulo de tesorería (kdm1), no del 102 contable (que estaba lumped). Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo que la empresa capturó (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
-        : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo, así que Kepler se muestra solo en el control-total (102 contable). El detalle por cuenta es Workbook ↔ ContPAQi.',
+      nota: anyStale
+        ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día. El banco (Workbook) es el que va al día.'
+        : (kepHasData
+          ? 'Kepler se desglosa por banco desde tesorería (kdm1), no del 102 contable. Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo capturado (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
+          : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo; Kepler va solo en el control-total (102 contable).'),
     };
   }
 
