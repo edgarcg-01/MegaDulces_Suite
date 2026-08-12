@@ -105,6 +105,13 @@ const STEPS = {
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
     path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
+    // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
+    path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
+    path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
+    path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
+    path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
+    path.join(K, 'import-kepler-accounts.js'),   // dim cuentas contables → finance.kepler_accounts
+    path.join(K, 'import-replenishment-cadence.js'), // cadencia de reabasto → commercial.replenishment_channel
     // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
     // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
     path.join(SCRIPTS, 'thot-build-features.js'),     // intelligence.product_affinity (lift market-basket) + zone_demand
@@ -126,6 +133,14 @@ const STEPS = {
   logistics: [
     path.join(K, 'import-logistics-dims.js'),
     path.join(K, 'import-erp-shipments.js'),
+  ],
+  // CONTPAQi (cada ~2h): SoR contable/fiscal (SQL Server .35\COMPAC). Pólizas + balanza +
+  // bancos + proveedores. Lee READ-ONLY, UPSERT churn-free. Requiere CONTPAQI_SQL_* (defaults ok).
+  contpaqi: [
+    path.join(DIR, 'contpaqi', 'import-contpaqi-polizas.js'),        // → analytics.gl_poliza_* (source=contpaqi)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-ledger.js'),         // → analytics.contpaqi_ledger_monthly (balanza)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-bank-movements.js'), // → analytics.contpaqi_bank_movements
+    path.join(DIR, 'contpaqi', 'import-contpaqi-suppliers.js'),      // → analytics.contpaqi_suppliers (× EFOS)
   ],
   // FINANCE — feeds contables solos (re-run manual). Mismo set que corre en nightly.
   // Todos idempotentes por UPSERT (no DELETE) para no cargar la red de Railway.
