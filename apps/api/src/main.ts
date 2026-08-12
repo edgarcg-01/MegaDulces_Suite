@@ -241,4 +241,36 @@ async function bootstrap() {
   console.log(`WebSocket gateway available at /reports namespace`);
 }
 
-bootstrap().catch(console.error);
+/**
+ * Worker-tier (INFRA.3, ADR-043). Mismo binario, distinto modo: con WORKER=true
+ * arrancamos un contexto SIN servidor HTTP/WS (createApplicationContext). Los
+ * `@Cron` de ScheduleModule siguen disparando en el contexto, y QueueService
+ * registra sus consumidores (isWorker()=true). Así el trabajo pesado
+ * (crons/IA/refresh) sale del proceso web → deja de competir por RAM con el
+ * tráfico HTTP (causa del OOM) y el API se puede escalar horizontal sin duplicar
+ * los crons. Deploy: 2º servicio Railway con el mismo Dockerfile + WORKER=true.
+ */
+async function bootstrapWorker(): Promise<void> {
+  const { NestFactory } = await import('@nestjs/core');
+  const logger = new Logger('Worker');
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    bufferLogs: process.env.LOG_JSON === 'true',
+    logger:
+      process.env.LOG_LEVEL === 'debug'
+        ? ['error', 'warn', 'log', 'debug', 'verbose']
+        : ['error', 'warn', 'log'],
+  });
+  if (process.env.LOG_JSON === 'true') {
+    const { Logger: PinoLogger } = await import('nestjs-pino');
+    app.useLogger(app.get(PinoLogger));
+    app.flushLogs();
+  }
+  app.enableShutdownHooks();
+  logger.log('Worker-tier arriba (sin HTTP/WS): crons + cola pg-boss activos.');
+}
+
+if (process.env.WORKER === 'true') {
+  bootstrapWorker().catch(console.error);
+} else {
+  bootstrap().catch(console.error);
+}

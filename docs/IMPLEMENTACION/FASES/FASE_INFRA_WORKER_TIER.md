@@ -36,20 +36,20 @@ Leyenda de estado: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING �
 - ⬜ **INFRA.1.4** Rotar todos los creds expuestos (DBs prod, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `MAGNI_*`, JWT secret, ContPAQi RO).
 - ⬜ **INFRA.1.5** `gitleaks` ya corre en CI — verificar `.gitleaks.toml` cubre los patrones nuevos.
 
-### INFRA.2 — Observabilidad (pino + OTel + Grafana)
-- ⬜ **INFRA.2.1** `nestjs-pino`: logs JSON estructurados (reemplaza `Logger` en boot + request-context; mantener niveles). Correlación por request-id.
-- ⬜ **INFRA.2.2** OpenTelemetry SDK en el API + worker: traces HTTP + DB (knex) + llamadas Anthropic/Voyage. Exportador OTLP.
-- ⬜ **INFRA.2.3** Stack de colección: levantar `ops/observability/` (Grafana + Loki + Prometheus) en `.249` **o** Grafana Cloud free — **PAUSA si cloud: cuenta de Edgar**.
-- ⬜ **INFRA.2.4** Métricas clave: RAM/heap del proceso, latencia p50/p95 por ruta, jobs de cola (backlog/duración/fallos), duración de crons vía `analytics.cron_runs` (ya existe heartbeat).
+### INFRA.2 — Observabilidad (pino + OTel + Grafana) · Decisión: **self-host .249**
+- 🧪 **INFRA.2.1** `nestjs-pino`: logs JSON (toggle `LOG_JSON=true`, default OFF). Mixin inyecta `trace_id`/`span_id` del span OTel → enlaza log↔trace. Redacta authorization/cookie/ingest-key. Build verde. (`app.module.ts` + `main.ts`)
+- 🧪 **INFRA.2.2** OpenTelemetry SDK (`apps/api/src/otel.ts`, import-first, inerte sin `OTEL_EXPORTER_OTLP_ENDPOINT`). Auto-instrumenta HTTP/Express/pg/socket.io. Build verde.
+- 🔨 **INFRA.2.3** Stack LGTM self-host en `.249`: `ops/observability/grafana-stack.yml` (Grafana+Loki+Tempo+Prometheus+otel-collector) + configs provisionadas. **Tu acción**: `docker compose up` + exponer `:4318` por Cloudflare Tunnel (resuelve LAN→nube) + setear envs en Railway.
+- ⬜ **INFRA.2.4** Métricas clave: RAM/heap, latencia p50/p95 por ruta, jobs de cola, duración de crons (`analytics.cron_runs`).
 - ⬜ **INFRA.2.5** Dashboard "salud del proceso" + alerta de RAM > umbral (precursor del OOM).
 
-### INFRA.3 — Worker-tier con pg-boss (núcleo)
-- ⬜ **INFRA.3.1** `libs/platform-core/queue`: wrapper de `pg-boss` sobre el Postgres nuevo (schema `pgboss.*`). Provider + toggle `ENABLE_WORKER_QUEUE`. Null-safe si falta (como `feeds-ingest`).
-- ⬜ **INFRA.3.2** Modo de arranque `WORKER=true`: mismo `main.ts`/AppModule, pero **no** levanta HTTP/WS — solo registra los handlers de cola + los `@Cron` migrados. `ScheduleModule` solo activo en el worker (el API deja de correr crons).
-- ⬜ **INFRA.3.3** Migrar **1 cron pesado de prueba**: `EmbeddingSyncService` (cada 15 min, batch Voyage) → job pg-boss. Validar que corre en el worker y NO en el API.
-- ⬜ **INFRA.3.4** 2º servicio Railway `worker` (mismo Dockerfile, `WORKER=true`, sin `PORT`/nginx). Verificar 1 sola ejecución del cron.
-- ⬜ **INFRA.3.5** Migrar el resto de crons por dominio detrás del toggle (ráfaga nocturna 2-4 AM primero). API multi-instancia deja de duplicar.
-- ⬜ **INFRA.3.6** Encolar la IA pesada del request-path (`vision/scan`, ReAct deep) → job + respuesta 202 + status por WS/SSE. Límite de concurrencia hacia Anthropic (`p-limit`/semáforo) en el worker.
+### INFRA.3 — Worker-tier con pg-boss (núcleo) · **sin cuentas externas**
+- 🧪 **INFRA.3.1** `libs/platform-core/queue`: `QueueService` (pg-boss v12 sobre `DATABASE_URL_NEW`, schema `pgboss`, self-migra). Toggle `ENABLE_WORKER_QUEUE`, null-safe/inerte por default, produce en cualquier proceso, consume/agenda solo en worker. Build verde.
+- 🧪 **INFRA.3.2** Modo `WORKER=true`: `bootstrapWorker()` en `main.ts` usa `createApplicationContext` (sin HTTP/WS; los `@Cron` disparan igual). Mismo binario. Build verde.
+- 🧪 **INFRA.3.3** Migrado **1 cron de prueba**: `EmbeddingSyncService.tick()` (cada 15 min) con `shouldRunInProcessCron()` — patrón de 1 línea para el resto. Con worker-tier ON el API lo saltea.
+- 🔨 **INFRA.3.4** 2º servicio Railway `worker`: `railway.worker.json` (mismo Dockerfile, `startCommand=node dist/apps/api/main.js`, sin healthcheck/preDeploy). **Tu acción**: crear el servicio + env `WORKER=true`+`ENABLE_WORKER_QUEUE=true` + verificar 1 sola ejecución del cron. **⚠️ falta verificación en runtime** (no automatizable desde CLI; correr `WORKER=true ENABLE_WORKER_QUEUE=true node dist/apps/api/main.js` local primero).
+- ⬜ **INFRA.3.5** Migrar el resto de crons por dominio con el mismo `shouldRunInProcessCron()` (ráfaga nocturna 2-4 AM primero). API multi-instancia deja de duplicar.
+- ⬜ **INFRA.3.6** Encolar la IA pesada del request-path (`vision/scan`, ReAct deep) → `send()` + respuesta 202 + status por WS/SSE. Límite de concurrencia hacia Anthropic (`p-limit`/semáforo) en el worker.
 
 ### INFRA.4 — Media → Cloudflare R2
 - ⬜ **INFRA.4.1** Bucket R2 + credenciales — **PAUSA: cuenta R2 de Edgar**.

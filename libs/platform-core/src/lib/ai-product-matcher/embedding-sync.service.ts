@@ -9,6 +9,7 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
 import { KNEX_VECTOR_DB } from '../database/vector-database.module';
 import { EmbeddingsService } from '../ai/embeddings.service';
+import { shouldRunInProcessCron } from '../queue/scheduler-owner';
 
 /**
  * Fase K v2 — Sync del corpus del RAG hacia la DB vector dedicada.
@@ -79,6 +80,10 @@ export class EmbeddingSyncService implements OnModuleInit {
 
   @Cron('0 */15 * * * *')
   async tick(): Promise<void> {
+    // INFRA.3 (ADR-043): con el worker-tier activo, este cron corre SOLO en el
+    // proceso worker (el API lo saltea → sale del path web + no se duplica al
+    // escalar). Sin el toggle, corre in-process como siempre.
+    if (!shouldRunInProcessCron()) return;
     if (!this.hasKey || !this.vectorDb) return;
     if (this.isRunning) {
       this.logger.warn('tick(): run anterior aún en curso, skip.');
