@@ -34,34 +34,36 @@ Abrí `http://localhost:8000`, creá la cuenta + organización + proyecto, y us�
 
 ## Métricas + logs + traces — stack LGTM (INFRA.2, ADR-043)
 
-Grafana + Loki (logs) + Tempo (traces) + Prometheus (métricas) + OTel Collector (ingest), self-host en `.249`. Es lo que deja de debuggear el OOM a ciegas.
+Grafana + Loki (logs) + Tempo (traces) + Prometheus (métricas) + OTel Collector, en **un solo servicio** (`grafana/otel-lgtm`). Es lo que deja de debuggear el OOM a ciegas.
 
-```bash
-# Opcional: password admin de Grafana (default 'admin')
-export GRAFANA_ADMIN_PASSWORD=<algo>
-docker compose -f ops/observability/grafana-stack.yml up -d
+### ✅ Camino elegido: en **Railway** (decisión Edgar)
+
+Ventaja: el API y el worker le hablan por la **red privada de Railway** → tráfico interno gratis, **sin Cloudflare Tunnel**. Solo Grafana se expone público para verlo.
+
+**Deploy (dashboard Railway):**
+1. Nuevo servicio en el MISMO proyecto → source = este repo → `Config Path = railway.observability.json` (usa `ops/observability/railway/Dockerfile`, imagen `grafana/otel-lgtm`).
+2. Variables del servicio: `GF_SECURITY_ADMIN_PASSWORD=<algo fuerte>` (usuario `admin`).
+3. **Volume** para persistir: montá un Railway Volume en el dir de datos de la imagen (Grafana/Prometheus/Loki/Tempo) — sin él, cada redeploy borra el histórico. Para un tablero de diagnóstico, efímero también sirve al arranque.
+4. **Networking → Public**: exponé el puerto **3000** (Grafana UI). Dejá `4317`/`4318` SIN dominio público (solo red privada).
+5. Copiá el hostname interno del servicio: `<nombre>.railway.internal`.
+
+**En los servicios API y worker (Railway), seteá:**
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=http://<nombre>.railway.internal:4318
+OTEL_SERVICE_NAME=trade-api          # trade-worker en el worker-tier
+LOG_JSON=true                        # logs JSON pino → OTLP → Loki
+LOG_LEVEL=info
 ```
 
-- Grafana: `http://localhost:3300` (datasources Loki/Tempo/Prometheus ya provisionados).
-- El collector recibe OTLP en `:4318` (http) / `:4317` (grpc).
+Con eso: **traces** (auto-instrumentación http/pg/socket.io) + **logs** (pino shippea por OTLP a Loki, con `trace_id` para saltar log↔trace) + **métricas** aterrizan en Grafana. Sin `OTEL_EXPORTER_OTLP_ENDPOINT` el API es inerte; sin `LOG_JSON=true` los logs siguen en formato Nest clásico → opt-in, prod no cambia hasta prenderlos.
 
-### El punto LAN→nube (igual que GlitchTip)
+> **Nota:** `grafana/otel-lgtm` es el arranque pragmático (Grafana lo marca para dev/test: storage local, sin HA). Para 1 API sobra. Si crece → partir en servicios separados o Grafana Cloud.
+>
+> **Feeds/worker on-prem** (corren en `.249`): pueden apuntar a este mismo servicio por su **dominio público** de Railway (`https://<obs>.railway.app`, OTLP `:4318` si lo exponés) o quedarse solo con logs de stdout.
 
-Prod corre en **Railway (nube)** y NO alcanza `.249`. Como OTLP es **push** (sale del API), solo hay que exponer el **endpoint del collector** hacia afuera. Usá tu `cloudflared` (ya tenés `cloudflared-config.yml`):
+### Alternativa: self-host en `.249`
 
-1. En `cloudflared-config.yml` agregá un ingress: `otel.<tu-dominio>` → `http://localhost:4318`.
-2. Protegé esa ruta con **Cloudflare Access** + un token de servicio para el API (no dejarla abierta).
-3. En Railway (API y worker) seteá:
-   ```
-   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.<tu-dominio>
-   OTEL_SERVICE_NAME=trade-api          # trade-worker en el worker-tier
-   LOG_JSON=true                        # logs JSON pino (feed a Loki)
-   LOG_LEVEL=info
-   ```
-
-Sin `OTEL_EXPORTER_OTLP_ENDPOINT` el API no emite traces (inerte). Sin `LOG_JSON=true` los logs siguen en el formato clásico de Nest. Ambos son opt-in → prod no cambia hasta que los prendas.
-
-> **Feeds/worker on-prem** (corren en `.249`, misma LAN): apuntá `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` directo, sin túnel.
+`ops/observability/grafana-stack.yml` (5 servicios separados) + `docker compose up -d`. Requiere exponer `:4318` por Cloudflare Tunnel para que Railway lo alcance. Quedó como fallback; el camino primario es Railway (arriba).
 
 ### Qué ver primero (para el OOM)
 

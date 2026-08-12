@@ -36,10 +36,10 @@ Leyenda de estado: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING �
 - ⬜ **INFRA.1.4** Rotar todos los creds expuestos (DBs prod, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `MAGNI_*`, JWT secret, ContPAQi RO).
 - ⬜ **INFRA.1.5** `gitleaks` ya corre en CI — verificar `.gitleaks.toml` cubre los patrones nuevos.
 
-### INFRA.2 — Observabilidad (pino + OTel + Grafana) · Decisión: **self-host .249**
-- 🧪 **INFRA.2.1** `nestjs-pino`: logs JSON (toggle `LOG_JSON=true`, default OFF). Mixin inyecta `trace_id`/`span_id` del span OTel → enlaza log↔trace. Redacta authorization/cookie/ingest-key. Build verde. (`app.module.ts` + `main.ts`)
+### INFRA.2 — Observabilidad (pino + OTel + Grafana) · Decisión: **en Railway** (revisada 2026-08-12)
+- 🧪 **INFRA.2.1** `nestjs-pino`: logs JSON (toggle `LOG_JSON=true`, default OFF). Mixin inyecta `trace_id`/`span_id` del span OTel → enlaza log↔trace. Redacta authorization/cookie/ingest-key. **Logs shippeados a Loki por OTLP** (`pino-opentelemetry-transport` en prod+OTEL). Build verde.
 - 🧪 **INFRA.2.2** OpenTelemetry SDK (`apps/api/src/otel.ts`, import-first, inerte sin `OTEL_EXPORTER_OTLP_ENDPOINT`). Auto-instrumenta HTTP/Express/pg/socket.io. Build verde.
-- 🔨 **INFRA.2.3** Stack LGTM self-host en `.249`: `ops/observability/grafana-stack.yml` (Grafana+Loki+Tempo+Prometheus+otel-collector) + configs provisionadas. **Tu acción**: `docker compose up` + exponer `:4318` por Cloudflare Tunnel (resuelve LAN→nube) + setear envs en Railway.
+- 🔨 **INFRA.2.3** Stack LGTM **en Railway**, 1 servicio (`grafana/otel-lgtm` vía `ops/observability/railway/Dockerfile` + `railway.observability.json`). El API/worker le hablan por **red privada** (`<svc>.railway.internal:4318`) → sin Cloudflare Tunnel. **Tu acción**: crear el servicio + `GF_SECURITY_ADMIN_PASSWORD` + Volume + exponer `:3000` + setear `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_SERVICE_NAME`/`LOG_JSON` en API+worker. Alternativa self-host `.249` (`grafana-stack.yml`) queda como fallback.
 - ⬜ **INFRA.2.4** Métricas clave: RAM/heap, latencia p50/p95 por ruta, jobs de cola, duración de crons (`analytics.cron_runs`).
 - ⬜ **INFRA.2.5** Dashboard "salud del proceso" + alerta de RAM > umbral (precursor del OOM).
 

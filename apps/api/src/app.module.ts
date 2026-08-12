@@ -265,14 +265,23 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
                   return {};
                 }
               },
-              // pino-pretty SOLO en dev; en prod salida JSON cruda para Loki.
+              // dev → pino-pretty legible. prod + OTEL → shipping de logs por
+              // OTLP al collector (Loki los recibe). prod sin OTEL → JSON crudo
+              // a stdout (Railway lo captura en su visor). El transport de OTLP
+              // reusa OTEL_EXPORTER_OTLP_ENDPOINT + OTEL_SERVICE_NAME.
               transport:
                 process.env.NODE_ENV !== 'production'
-                  ? {
-                      target: 'pino-pretty',
-                      options: { singleLine: true },
-                    }
-                  : undefined,
+                  ? { target: 'pino-pretty', options: { singleLine: true } }
+                  : process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+                    ? {
+                        target: 'pino-opentelemetry-transport',
+                        options: {
+                          logRecordProcessorOptions: {
+                            exporterOptions: { protocol: 'http/protobuf' },
+                          },
+                        },
+                      }
+                    : undefined,
             },
           }),
         ]
