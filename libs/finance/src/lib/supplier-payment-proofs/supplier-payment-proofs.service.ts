@@ -12,7 +12,9 @@ import { LlmExtractorService, SupplierPaymentFields } from '@megadulces/platform
  * espejo `analytics.erp_supplier_payments`. Flujo `recibido → validado | rechazado`.
  */
 
-export const PAYMENT_FILE_ROLES = ['comprobante', 'evidencia_1', 'evidencia_2'] as const;
+// `comprobante` = PDF del pago (SPEI/cheque, lo lee el OCR y liga el pago).
+// `gasto` = foto(s) de lo comprado (factura/ticket/mercancía) — se valida su total vs el pago.
+export const PAYMENT_FILE_ROLES = ['comprobante', 'gasto', 'evidencia_1', 'evidencia_2'] as const;
 export type PaymentFileRole = (typeof PAYMENT_FILE_ROLES)[number];
 const TOLERANCIA = 1.0; // pesos: |ocr_monto - pago_monto| <= 1 → cuadra (redondeo)
 const BANK_TOL = 1.0;   // pesos: |monto comprobante - cargo banco| para casar el movimiento
@@ -25,7 +27,7 @@ const normRef = (s: unknown): string | null => {
   return d || null;
 };
 
-export interface PaymentFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface PaymentFile { role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null; }
 
 export interface ListPaymentsQuery {
   estado?: 'pendiente' | 'con_comprobante' | 'validado' | string;
@@ -151,29 +153,38 @@ export class SupplierPaymentProofsService {
     });
   }
 
-  /** Sube UN archivo (comprobante/evidencia) al bucket. IMAGEN o PDF: el comprobante de
-   *  pago suele ser una FOTO/captura del SPEI o del cheque, no un PDF escaneado. */
+  /** Sube UN archivo al bucket. El `comprobante` de pago es **PDF** (SPEI/cheque);
+   *  la(s) `gasto`/`evidencia` son FOTOS del gasto (imagen o PDF). */
   async uploadFile(dataUri: string, role = 'comprobante'): Promise<PaymentFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!PAYMENT_FILE_ROLES.includes(role as PaymentFileRole)) throw new BadRequestException(`role inválido: ${role}`);
+    const folder = `finance/${tenantId}/supplier-payments`;
     try {
-      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/supplier-payments`); // imagen o PDF → Railway Bucket
+      const f = role === 'comprobante'
+        ? await this.storage.putPdf(dataUri, folder)   // comprobante = solo PDF
+        : await this.storage.putFile(dataUri, folder);  // foto del gasto = imagen o PDF
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "no configurado" (faltan env S3_*)
-      this.logger.error(`fallo subiendo comprobante (${role}): ${e?.message || e}`);
+      if (e?.status === 400) throw e; // "Solo PDF" (comprobante) / "no configurado"
+      this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
   }
 
-  /** Corre OCR sobre el comprobante de pago a proveedor (imagen/PDF). Preview, no guarda. */
-  async runOcr(dataUri: string): Promise<SupplierPaymentFields & { ocr_status: string }> {
+  /** Corre OCR. `comprobante` (PDF SPEI/cheque) → campos de pago (liga el pago).
+   *  `gasto` (foto de factura/ticket) → se extrae el TOTAL (mapeado a `monto`) para
+   *  validar Σ gastos ≈ pago. Preview, no guarda. */
+  async runOcr(dataUri: string, role?: string): Promise<SupplierPaymentFields & { ocr_status: string }> {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return { monto: null, fecha: null, concepto: null, cuenta_origen: null, cuenta_destino: null, beneficiario: null, clave_rastreo: null, banco_destino: null, metodo: null, ocr_status: 'sin_key' };
+    const empty: SupplierPaymentFields & { ocr_status: string } = { monto: null, fecha: null, concepto: null, cuenta_origen: null, cuenta_destino: null, beneficiario: null, clave_rastreo: null, banco_destino: null, metodo: null, ocr_status: 'sin_key' };
+    if (!process.env.ANTHROPIC_API_KEY) return empty;
+    if (role === 'gasto') {
+      const r = await this.ocr.extractRemision(base64, mediaType); // factura/ticket del gasto
+      const any = r.total != null || !!r.folio || !!r.proveedor;
+      return { ...empty, monto: r.total, fecha: r.fecha, concepto: r.folio, beneficiario: r.proveedor, ocr_status: any ? 'ok' : 'ilegible' };
     }
     const fields = await this.ocr.extractSupplierPayment(base64, mediaType);
     const any = fields.monto != null || fields.fecha || fields.concepto || fields.clave_rastreo;
