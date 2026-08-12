@@ -35,6 +35,7 @@ import { DailyAssignmentsModule } from '@megadulces/trade';
 import { CronModule } from './modules/cron/cron.module';
 import { DataModule } from '@megadulces/trade';
 import { ScheduleModule } from '@nestjs/schedule';
+import { LoggerModule } from 'nestjs-pino';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WebSocketModule } from '@megadulces/trade';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
@@ -233,6 +234,48 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // Sentry: captura excepciones no manejadas (registra SentryGlobalFilter).
     // Inerte si Sentry.init no corrió (sin SENTRY_DSN). Debe ir arriba.
     SentryModule.forRoot(),
+    // INFRA.2 (ADR-043): logs JSON estructurados (feed a Loki) — opt-in por
+    // LOG_JSON=true. Default OFF = logger clásico de Nest, sin cambio de conducta.
+    // El mixin inyecta trace_id/span_id del span OTel activo → Grafana enlaza
+    // log↔trace (ver derivedFields en ops/observability/grafana-datasources.yml).
+    ...(process.env.LOG_JSON === 'true'
+      ? [
+          LoggerModule.forRoot({
+            pinoHttp: {
+              level:
+                process.env.LOG_LEVEL === 'debug' ? 'debug' : 'info',
+              autoLogging: true,
+              redact: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.headers["x-store-ingest-key"]',
+              ],
+              mixin() {
+                try {
+                  // @opentelemetry/api llega transitivo con el SDK; si no está
+                  // o no hay span activo, no agregamos nada.
+                  // eslint-disable-next-line @typescript-eslint/no-var-requires
+                  const { trace } = require('@opentelemetry/api');
+                  const ctx = trace.getActiveSpan()?.spanContext();
+                  return ctx
+                    ? { trace_id: ctx.traceId, span_id: ctx.spanId }
+                    : {};
+                } catch {
+                  return {};
+                }
+              },
+              // pino-pretty SOLO en dev; en prod salida JSON cruda para Loki.
+              transport:
+                process.env.NODE_ENV !== 'production'
+                  ? {
+                      target: 'pino-pretty',
+                      options: { singleLine: true },
+                    }
+                  : undefined,
+            },
+          }),
+        ]
+      : []),
     ConfigModule.forRoot({
       isGlobal: true,
     }),

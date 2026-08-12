@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Observabilidad LGTM self-host (INFRA.2, ADR-043) — corre en .249
+#
+#   docker compose -f ops/observability/grafana-stack.yml up -d
+#
+# Arquitectura (push-based, para que el API en RAILWAY pueda mandar señal a .249):
+#
+#   API/worker (Railway)  ──OTLP──►  otel-collector (:4318 http / :4317 grpc)
+#        │                                │
+#        │  el API sale a internet        ├─ logs    ─► Loki       (:3100)
+#        │  y empuja OTLP; el collector    ├─ traces  ─► Tempo      (:3200)
+#        │  se expone por Cloudflare       └─ metrics ─► Prometheus (:9090, scrape)
+#        │  Tunnel detrás de Access                        │
+#        ▼                                                 ▼
+#   Grafana (:3300) ◄────────────── lee Loki + Tempo + Prometheus
+#
+# ⚠️ LAN→nube: Railway NO alcanza .249 directo. Exponer SOLO el endpoint OTLP del
+#    collector (:4318) por tu cloudflared, detrás de Cloudflare Access con un
+#    token de servicio para el API. Ver README. Nunca exponer Grafana/Loki/Tempo.
+#
+# Puertos elegidos para NO chocar: uptime-kuma(3001), glitchtip(8000), jenkins(8080),
+# infisical(8222), pgvector-md(5433). Grafana en 3300, Loki 3100, Tempo 3200.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP  ← este es el que se expone por Cloudflare Tunnel
+    depends_on: [loki, tempo]
+
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      TZ: America/Mexico_City
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3300:3000"
+    depends_on: [loki, tempo, prometheus]
+
+volumes:
+  loki-data:
+  tempo-data:
+  prometheus-data:
+  grafana-data:
