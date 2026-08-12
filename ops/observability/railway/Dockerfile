@@ -20,6 +20,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM grafana/otel-lgtm:latest
 
+# Dashboard provisionado: aparece solo al arrancar Grafana (carpeta "Trade").
+# Convive con el provisioning propio de otel-lgtm (datasources + sus dashboards).
+# Rutas de COPY relativas a la RAÍZ del repo (el build context de Railway).
+#   - provider yaml → /etc/grafana/provisioning/dashboards/trade.yaml
+#   - dashboard json → /etc/grafana/provisioning/dashboards/trade/
+COPY ops/observability/railway/grafana/dashboards-provider.yaml /etc/grafana/provisioning/dashboards/trade.yaml
+COPY ops/observability/railway/grafana/trade-overview.json      /etc/grafana/provisioning/dashboards/trade/trade-overview.json
+
 # Grafana escucha en 3000 (UI). El OTLP entra por 4317/4318 (solo red privada).
 EXPOSE 3000 4317 4318
 
