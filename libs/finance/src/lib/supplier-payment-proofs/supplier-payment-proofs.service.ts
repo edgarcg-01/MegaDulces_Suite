@@ -151,16 +151,17 @@ export class SupplierPaymentProofsService {
     });
   }
 
-  /** Sube UN archivo (comprobante/evidencia) a Cloudinary. Imagen o PDF. */
+  /** Sube UN archivo (comprobante/evidencia) al bucket. IMAGEN o PDF: el comprobante de
+   *  pago suele ser una FOTO/captura del SPEI o del cheque, no un PDF escaneado. */
   async uploadFile(dataUri: string, role = 'comprobante'): Promise<PaymentFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!PAYMENT_FILE_ROLES.includes(role as PaymentFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/supplier-payments`); // solo PDF → Railway Bucket
+      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/supplier-payments`); // imagen o PDF → Railway Bucket
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
+      if (e?.status === 400) throw e; // "no configurado" (faltan env S3_*)
       this.logger.error(`fallo subiendo comprobante (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
