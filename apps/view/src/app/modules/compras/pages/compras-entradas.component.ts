@@ -32,6 +32,7 @@ interface AttachFile {
   ocrDone?: boolean;
   ocrFolio?: string | null;  // OCR por-archivo (cada hoja se lee)
   ocrTotal?: number | null;
+  ocrSubtotal?: number | null; // RE.pkt.2 — para que el cuadre use el total/subtotal de la hoja FISCAL
   ocrFecha?: string | null;
   ocrRfc?: string | null;
   ocrDocs?: string[];        // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
@@ -1103,7 +1104,7 @@ export class ComprasEntradasComponent {
         next: (r) => {
           this.patch(id, {
             ocrLoading: false, ocrDone: true,
-            ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
+            ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrSubtotal: r.subtotal ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
             ocrDocs: (r.documents_present ?? []).map((d) => d.type), ocrDocsDetail: r.documents_present ?? [],
             sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
           });
@@ -1195,7 +1196,17 @@ export class ComprasEntradasComponent {
           // Por-archivo: hash (anti-dup) + su OCR propio (cada hoja se lee).
           sha256: f.sha256, ocr_folio: f.ocrFolio ?? null, ocr_total: f.ocrTotal ?? null, ocr_fecha: f.ocrFecha ?? null, ocr_rfc: f.ocrRfc ?? null,
         }));
-        this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr: this.ocrRun() ? this.ocrForm : undefined })
+        // RE.pkt.2 — el CUADRE (monto_match) debe usar el total de la FACTURA/REMISIÓN, sin importar
+        // cuál hoja es la ★. Elegimos la hoja fiscal por tipo DETECTADO (o rol). Si la fiscal es la ★,
+        // usamos el form (respeta ediciones del capturista); si viene APARTE, usamos su OCR propio.
+        // Fallback: el form (PDF combinado, o captura manual sin hoja fiscal distinguible).
+        const isFiscal = (f: AttachFile) => (f.ocrDocs || []).some((d) => d === 'factura' || d === 'remision') || f.role === 'factura' || f.role === 'remision';
+        const fiscalFile = files.find((f) => f.primary && isFiscal(f)) || files.find(isFiscal) || null;
+        const ocr: Partial<RemisionOcr> | undefined =
+          fiscalFile && !fiscalFile.primary
+            ? { folio: fiscalFile.ocrFolio ?? null, total: fiscalFile.ocrTotal ?? null, subtotal: fiscalFile.ocrSubtotal ?? null, fecha: fiscalFile.ocrFecha ?? null, rfc: fiscalFile.ocrRfc ?? null, ocr_status: 'ok' }
+            : (this.ocrRun() ? this.ocrForm : undefined);
+        this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr })
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: `${proofFiles.length} foto(s) adjuntada(s)`, detail: res.monto_match ? 'El total cuadra ✓' : 'Guardado (revisa el total)' }); this.load(); },
