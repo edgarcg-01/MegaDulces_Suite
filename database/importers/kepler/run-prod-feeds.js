@@ -134,13 +134,16 @@ const STEPS = {
     path.join(K, 'import-logistics-dims.js'),
     path.join(K, 'import-erp-shipments.js'),
   ],
-  // CONTPAQi (cada ~2h): SoR contable/fiscal (SQL Server .35\COMPAC). Pólizas + balanza +
-  // bancos + proveedores. Lee READ-ONLY, UPSERT churn-free. Requiere CONTPAQI_SQL_* (defaults ok).
+  // CONTPAQi (cada 1 min): pólizas + bancos INCREMENTALES por firma RowVersion — cada corrida
+  // lee solo las firmas (ligero) y trae/UPSERTea solo el delta (insert+update). No machaca el SoR.
   contpaqi: [
-    path.join(DIR, 'contpaqi', 'import-contpaqi-polizas.js'),        // → analytics.gl_poliza_* (source=contpaqi)
-    path.join(DIR, 'contpaqi', 'import-contpaqi-ledger.js'),         // → analytics.contpaqi_ledger_monthly (balanza)
-    path.join(DIR, 'contpaqi', 'import-contpaqi-bank-movements.js'), // → analytics.contpaqi_bank_movements
-    path.join(DIR, 'contpaqi', 'import-contpaqi-suppliers.js'),      // → analytics.contpaqi_suppliers (× EFOS)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-polizas.js'),        // → analytics.gl_poliza_* (incremental)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-bank-movements.js'), // → analytics.contpaqi_bank_movements (incremental)
+  ],
+  // CONTPAQi lento (cada ~2h): balanza + proveedores (full, cambian poco). Requiere CONTPAQI_SQL_*.
+  'contpaqi-slow': [
+    path.join(DIR, 'contpaqi', 'import-contpaqi-ledger.js'),    // → analytics.contpaqi_ledger_monthly (balanza)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-suppliers.js'), // → analytics.contpaqi_suppliers (× EFOS)
   ],
   // FINANCE — feeds contables solos (re-run manual). Mismo set que corre en nightly.
   // Todos idempotentes por UPSERT (no DELETE) para no cargar la red de Railway.
