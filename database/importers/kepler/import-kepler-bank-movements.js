@@ -91,8 +91,10 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
       tenant_id uuid NOT NULL, sucursal text NOT NULL, doc_tipo text NOT NULL, folio text NOT NULL, clave_banco text NOT NULL,
       cuenta_contable text, banco_nombre text, tipo_cuenta text, flujo text NOT NULL, importe numeric NOT NULL, signo smallint,
       fecha_valor date, fecha_captura date, concepto text, metodo text, beneficiario text, es_traspaso boolean DEFAULT false,
-      contra_clave text, pierna text, computed_at timestamptz DEFAULT now(),
+      contra_clave text, pierna text, account_label text, computed_at timestamptz DEFAULT now(),
       PRIMARY KEY (tenant_id, sucursal, doc_tipo, folio, clave_banco))`);
+  // account_label = crosswalk clave_banco → finance.bank_accounts (para el cuadre por cuenta).
+  await db.query(`ALTER TABLE analytics.kepler_bank_movements ADD COLUMN IF NOT EXISTS account_label text`);
   const COLS = ['tenant_id', 'sucursal', 'doc_tipo', 'folio', 'clave_banco', 'cuenta_contable', 'banco_nombre', 'tipo_cuenta', 'flujo', 'importe', 'signo', 'fecha_valor', 'fecha_captura', 'concepto', 'metodo', 'beneficiario', 'es_traspaso', 'contra_clave', 'pierna'];
   const PK = ['tenant_id', 'sucursal', 'doc_tipo', 'folio', 'clave_banco'];
   const nonpk = COLS.filter((c) => !PK.includes(c));
@@ -108,6 +110,22 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
       chunk.flat());
     changed += r.rowCount;
   }
+  // Backfill del crosswalk clave_banco → account_label (idempotente, churn-free).
+  //   1) exacto (label = número de cuenta) · 2) caja '0011'→'CG' · 3) sufijo (Kepler 5854→854, 6506→506)
+  const bf = await db.query(`
+    UPDATE analytics.kepler_bank_movements k SET account_label = sub.label
+      FROM (
+        SELECT d.tenant_id, d.clave_banco,
+          COALESCE(
+            (SELECT ba.account_label FROM finance.bank_accounts ba WHERE ba.tenant_id=d.tenant_id AND ba.account_label=d.clave_banco LIMIT 1),
+            CASE WHEN d.clave_banco='0011' THEN 'CG' END,
+            (SELECT ba.account_label FROM finance.bank_accounts ba WHERE ba.tenant_id=d.tenant_id AND length(ba.account_label)>=3
+               AND d.clave_banco LIKE '%'||ba.account_label AND d.clave_banco<>ba.account_label ORDER BY length(ba.account_label) DESC LIMIT 1)
+          ) AS label
+        FROM (SELECT DISTINCT tenant_id, clave_banco FROM analytics.kepler_bank_movements) d
+      ) sub
+     WHERE k.tenant_id=sub.tenant_id AND k.clave_banco=sub.clave_banco
+       AND sub.label IS NOT NULL AND k.account_label IS DISTINCT FROM sub.label`);
   await db.end();
-  console.log(`\n[APPLY] ${out.length} filas · ${changed} escritas (nuevas/cambiadas, churn-free).`);
+  console.log(`\n[APPLY] ${out.length} filas · ${changed} escritas · account_label backfill: ${bf.rowCount}.`);
 })().catch((e) => { console.error('\nERROR:', e.message); process.exit(1); });
