@@ -67,6 +67,7 @@ const STEPS = {
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
     path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
+    path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
   ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),

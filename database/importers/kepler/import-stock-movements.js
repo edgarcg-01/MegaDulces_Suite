@@ -27,7 +27,13 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
-const daysArg = (() => { const i = process.argv.indexOf('--days'); return i > -1 ? Number(process.argv[i + 1]) : 120; })();
+// Ventana: --days N > STOCK_MOVEMENTS_DAYS (modo intradía, rodante corta) > 120 (nightly, backfill/correcciones).
+const daysArg = (() => {
+  const i = process.argv.indexOf('--days');
+  if (i > -1) return Number(process.argv[i + 1]);
+  const env = Number(process.env.STOCK_MOVEMENTS_DAYS);
+  return Number.isFinite(env) && env > 0 ? env : 120;
+})();
 
 // Mismo map que import-in-transit / stock: código de almacén = nº sucursal Kepler (00–05).
 // En prod lo sobreescribe STOCK_BRANCH_MAP (runner on-prem con los hosts reales).
@@ -137,6 +143,15 @@ async function loadDoctypeMap(src, schema) {
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  // Guard anti-pile-up: el merge + auto-ligado toman lock de la tabla; dos corridas a la vez
+  // (nightly + intraday, o un catch-up manual) se serializan y, si se matan a medias, dejan
+  // backends huérfanos que bloquean. pg_try_advisory_lock NO espera: si ya hay una, esta sale.
+  const LOCK_KEY = 4823710; // clave fija de 'import-stock-movements'
+  if (APPLY && !(await db.query('SELECT pg_try_advisory_lock($1) ok', [LOCK_KEY])).rows[0].ok) {
+    console.log('⏭  otra instancia de import-stock-movements ya corre — skip (evita apilamiento).');
+    await db.end();
+    return;
+  }
   try {
     console.log(`\n=== Diario de movimientos Kepler → analytics.stock_movements (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ${daysArg}d) ===\n`);
 
@@ -298,11 +313,18 @@ async function loadDoctypeMap(src, schema) {
     // recibe los envíos de cada dest_code (pareo folio+serie+ventana 15d, mismo criterio que
     // transfers-check). Env-agnóstico (no adivina por código ni nombre) y solo usa la platform
     // DB. Respeta la curación humana (WHERE warehouse_id IS NULL) y excluye rutas. Idempotente.
-    const linked = await db.query(`
+    // DM.11d auto-ligado (ship↔rcv) es MANTENIMIENTO: descubrir el almacén de dest_codes nuevos.
+    // NO hace falta cada corrida y su LATERAL escanea la tabla (~9 min, re-intenta ~310 dest_codes
+    // viejos sin contraparte —CEDIS/rutas— que nunca ligan → apilaba corridas). Se SALTA en
+    // intradía/catch-up (SKIP_AUTOLINK=1 / --no-autolink) y en el nightly se ACOTA a la ventana
+    // (ship.doc_date >= cutoff) para no re-escanear 3.5M filas ni re-intentar lo inligable.
+    const skipAutolink = process.env.SKIP_AUTOLINK === '1' || process.argv.includes('--no-autolink');
+    const linked = skipAutolink ? { rowCount: 0 } : await db.query(`
       WITH ship AS (
         SELECT folio, doc_serie, warehouse_id, doc_date, dest_code
         FROM analytics.stock_movements
         WHERE tenant_id=$1 AND doc_code='TrsfShip' AND dest_code IS NOT NULL
+          AND doc_date >= $2
           AND dest_code !~* '^\\s*(R\\.[DV]|R[DV]|RUTA)'
       ), pair AS (
         SELECT s.dest_code, r.warehouse_id AS rcv_wh, count(*)::int n
@@ -323,7 +345,7 @@ async function loadDoctypeMap(src, schema) {
         SET warehouse_id=b.rcv_wh, updated_at=now()
       FROM best b
       JOIN commercial.warehouses w ON w.id=b.rcv_wh AND w.tenant_id=$1 AND w.code NOT ILIKE 'RUTA%'
-      WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL`, [M]);
+      WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL`, [M, cutoff]);
     if (linked.rowCount) console.log(`[DM.11d] auto-ligados ${linked.rowCount} dest_code → almacén por recepción.`);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas (${summary.length} almacenes). Días sin cambio: intactos.`);
