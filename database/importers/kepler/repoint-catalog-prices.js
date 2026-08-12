@@ -26,13 +26,16 @@ const BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_li
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
+// --sync: Kepler es la AUTORIDAD del precio de venta → ACTUALIZA los existentes a c90 fresco
+// (churn-free), no solo rellena faltantes. Sin --sync = comportamiento histórico (solo faltantes).
+const SYNC = process.argv.includes('--sync');
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
   try {
-    console.log(`\n=== RELLENO de precio base (KP_CONCENTRADA c90 → BASE-MXN, solo faltantes) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    console.log(`\n=== Precio base KP_CONCENTRADA c90 → BASE-MXN (${SYNC ? 'SYNC: actualiza todos' : 'solo faltantes'}) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     try { await src.connect(); }
     catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
 
@@ -56,24 +59,42 @@ const APPLY = process.argv.includes('--apply');
       await dst.query(`INSERT INTO stg_price (sku, precio) VALUES ${vals.join(',')}`, params);
     }
 
-    // candidatos: producto activo, con sku en KP, SIN precio en NINGUNA lista.
+    // candidatos: producto activo con sku en KP. Gap-fill (default): SOLO sin precio en ninguna
+    // lista. Sync (--sync): TODOS (actualiza el precio existente de BASE-MXN a c90 fresco).
+    const gapOnly = SYNC ? '' : `AND NOT EXISTS (SELECT 1 FROM commercial.product_prices pp WHERE pp.tenant_id=$1 AND pp.product_id=p.id)`;
     const FROM = `
       FROM catalog.products p
       JOIN stg_price s ON s.sku = p.sku
-      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM commercial.product_prices pp WHERE pp.tenant_id=$1 AND pp.product_id=p.id)`;
-    const willCount = Number((await dst.query(`SELECT count(*)::int n ${FROM}`, [M])).rows[0].n);
-    console.log(`  a rellenar (sin precio en ninguna lista, con c90): ${willCount} productos → BASE-MXN`);
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL ${gapOnly}`;
+
+    if (SYNC) {
+      const chg = Number((await dst.query(`
+        SELECT count(*)::int n
+          FROM catalog.products p JOIN stg_price s ON s.sku=p.sku
+          LEFT JOIN commercial.product_prices pp
+            ON pp.tenant_id=$1 AND pp.price_list_id='${BASE_LIST}' AND pp.product_id=p.id
+         WHERE p.tenant_id=$1 AND p.deleted_at IS NULL
+           AND (pp.price IS NULL OR pp.price IS DISTINCT FROM s.precio)`, [M])).rows[0].n);
+      console.log(`  a sincronizar (falta o precio ≠ c90): ${chg} productos → BASE-MXN`);
+    } else {
+      const willCount = Number((await dst.query(`SELECT count(*)::int n ${FROM}`, [M])).rows[0].n);
+      console.log(`  a rellenar (sin precio en ninguna lista, con c90): ${willCount} productos → BASE-MXN`);
+    }
 
     if (!APPLY) { await dst.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
+    // Gap-fill NO pisa (DO NOTHING). Sync ACTUALIZA solo si el precio cambió (churn-free).
+    const onConflict = SYNC
+      ? `ON CONFLICT (tenant_id, price_list_id, product_id) DO UPDATE SET price=EXCLUDED.price, updated_at=now()
+         WHERE commercial.product_prices.price IS DISTINCT FROM EXCLUDED.price`
+      : `ON CONFLICT (tenant_id, price_list_id, product_id) DO NOTHING`;
     const res = await dst.query(`
       INSERT INTO commercial.product_prices (id, tenant_id, price_list_id, product_id, price, tax_rate, min_qty, created_at, updated_at)
       SELECT gen_random_uuid(), $1, '${BASE_LIST}', p.id, s.precio, COALESCE(p.iva_rate, 0), 1, now(), now()
       ${FROM}
-      ON CONFLICT (tenant_id, price_list_id, product_id) DO NOTHING`, [M]);
+      ${onConflict}`, [M]);
     await dst.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${res.rowCount} precios base insertados (ON CONFLICT DO NOTHING, sin pisar).`);
+    console.log(`\n[APPLY] COMMIT — ${res.rowCount} precios base ${SYNC ? 'sincronizados (insert+update churn-free)' : 'insertados (sin pisar)'}.`);
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
