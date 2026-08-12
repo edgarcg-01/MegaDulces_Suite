@@ -11,7 +11,8 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
-import { MessageService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -51,12 +52,13 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in">
       <p-toast />
+      <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Órdenes de entrada — comprobantes</h1>
@@ -130,7 +132,7 @@ interface AttachFile {
     </div>
 
     <!-- Diálogo: adjuntar remisión + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes (PDF)' : 'Adjuntar comprobantes de la entrada'">
+    <p-dialog [visible]="showAttach()" (visibleChange)="onAttachVisible($event)" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes (PDF)' : 'Adjuntar comprobantes de la entrada'">
       <div class="cb-form">
         @if (photoFirst() && attachStep() === 1) {
           <!-- PASO 1 — solo la Aplica Orden Entrada: se lee con OCR y enlaza la recepción -->
@@ -330,13 +332,13 @@ interface AttachFile {
       </div>
       <ng-template #footer>
         @if (photoFirst() && attachStep() === 1) {
-          <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" text (click)="closeAttach()"><span class="p-button-label">Cancelar</span></button>
           <button pButton type="button" [disabled]="!attachTarget() || !ordenFile()" (click)="continuar()"><span class="p-button-label">Continuar</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></button>
         } @else {
           @if (photoFirst()) {
             <button pButton type="button" text (click)="backToStep1()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Atrás</span></button>
           } @else {
-            <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
+            <button pButton type="button" text (click)="closeAttach()"><span class="p-button-label">Cancelar</span></button>
           }
           <button pButton type="button" [loading]="saving()" [disabled]="!attachFiles().length || uploadingAny() || ocrBusy() || dupFiles().length > 0 || !attachTarget() || missingGroups().length > 0" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar {{ attachFiles().length > 1 ? attachFiles().length + ' fotos' : 'comprobante' }}</span></button>
         }
@@ -344,14 +346,14 @@ interface AttachFile {
     </p-dialog>
 
     <!-- Diálogo: rechazo -->
-    <p-dialog [(visible)]="showReject" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar remisión">
+    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar remisión">
       <div class="cb-form">
         <p class="muted">Entrada <strong>{{ rejectTarget()?.folio }}</strong> · {{ rejectTarget()?.proveedor_nombre }}</p>
         <label class="cb-f"><span>Motivo del rechazo *</span>
           <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. remisión ilegible, total no cuadra, no corresponde…"></textarea></label>
       </div>
       <ng-template #footer>
-        <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" text (click)="closeReject()"><span class="p-button-label">Cancelar</span></button>
         <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
@@ -707,6 +709,7 @@ export class ComprasEntradasComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly destroyRef = inject(DestroyRef);
@@ -918,6 +921,50 @@ export class ComprasEntradasComponent {
         error: () => { this.error.set('No se pudieron cargar las entradas.'); this.loading.set(false); },
       });
   }
+
+  // ── Descarte de captura (DESIGN §Leyes 8) ────────────────────────────────────
+  // Un modal de captura ACTIVA nunca descarta en silencio: ni por el botón Cancelar,
+  // ni por la ✕, ni por Escape. La fricción es PROPORCIONAL — si no hay nada
+  // capturado, cierra directo (preguntar de gratis también es mal diseño).
+
+  /** Hay trabajo real que se perdería: hojas subidas, OCR corrido, tipos asignados a mano. */
+  readonly attachDirty = computed(() => this.attachFiles().length > 0);
+  /** Motivo tecleado que se perdería. */
+  private rejectDirty(): boolean { return !!this.rejectMotivo.trim(); }
+
+  private askDiscard(detail: string, onDiscard: () => void) {
+    this.confirm.confirm({
+      header: '¿Descartar la captura?',
+      message: detail,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, descartar',
+      rejectLabel: 'Seguir capturando',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: onDiscard,
+    });
+  }
+
+  /** Cancelar / ✕ / Escape del diálogo de adjuntar. */
+  closeAttach() {
+    if (!this.attachDirty()) { this.showAttach.set(false); return; }
+    const n = this.attachFiles().length;
+    this.askDiscard(
+      `Se perderán ${n === 1 ? 'la hoja adjunta' : 'las ' + n + ' hojas adjuntas'} y su lectura de OCR. Los archivos ya subidos no quedan ligados a ninguna entrada.`,
+      () => this.showAttach.set(false),
+    );
+  }
+
+  /** Cancelar / ✕ / Escape del diálogo de rechazo. */
+  closeReject() {
+    if (!this.rejectDirty()) { this.showReject.set(false); return; }
+    this.askDiscard('Se perderá el motivo del rechazo que escribiste.', () => this.showReject.set(false));
+  }
+
+  /** PrimeNG no trae un evento cancelable de cierre → interceptamos el cambio de
+   *  visibilidad: si el cierre viene de la ✕ o de Escape con captura sucia, lo
+   *  revertimos y pedimos confirmación. */
+  onAttachVisible(v: boolean) { if (v) this.showAttach.set(true); else if (this.attachDirty()) this.closeAttach(); else this.showAttach.set(false); }
+  onRejectVisible(v: boolean) { if (v) this.showReject.set(true); else if (this.rejectDirty()) this.closeReject(); else this.showReject.set(false); }
 
   openAttach(c: EntradaRow) {
     this.photoFirst.set(false);
@@ -1209,7 +1256,7 @@ export class ComprasEntradasComponent {
         this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr })
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
-            next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: `${proofFiles.length} foto(s) adjuntada(s)`, detail: res.monto_match ? 'El total cuadra ✓' : 'Guardado (revisa el total)' }); this.load(); },
+            next: (res) => { this.saving.set(false); this.resetAttach(); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: `${proofFiles.length} foto(s) adjuntada(s)`, detail: res.monto_match ? 'El total cuadra ✓' : 'Guardado (revisa el total)' }); this.load(); },
             error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
           });
       },
@@ -1233,7 +1280,7 @@ export class ComprasEntradasComponent {
     if (!c?.deposit_id) return;
     this.saving.set(true);
     this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   openDetail(c: EntradaRow) {
