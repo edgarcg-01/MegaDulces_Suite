@@ -84,7 +84,7 @@ const SUGGESTIONS = [
   `,
   styles: [`
     .pa { display: flex; flex-direction: column; height: calc(100vh - 9rem); max-width: 760px; margin: 0 auto; padding: 1rem; }
-    .pa-head h1 { font-family: var(--font-display, 'Fraunces', serif); font-size: 1.9rem; margin: 0 0 .2rem; }
+    .pa-head h1 { font-family: var(--font-display); font-size: 1.9rem; margin: 0 0 .2rem; }
     .pa-head p { color: var(--c-text-2, #6b6b6b); margin: 0 0 1rem; }
     .pa-thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: .9rem; padding-bottom: 1rem; }
     .pa-empty { margin-top: 1rem; }

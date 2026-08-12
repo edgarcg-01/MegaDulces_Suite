@@ -63,7 +63,7 @@
 .font-headline,
 .font-body,
 .font-label {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
 }
 
 /* Animations */

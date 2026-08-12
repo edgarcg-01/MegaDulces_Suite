@@ -1,11 +1,12 @@
 @import 'primeicons/primeicons.css';
 @import 'leaflet/dist/leaflet.css';
 /*
- * Design system tokens — fuente única de verdad para colores, surfaces,
- * text, charts, avatares y aliases legacy. Light + dark mode viven ahí.
- * Cualquier color nuevo se agrega en tokens.css, NO en este archivo.
+ * Design system tokens — FUENTE ÚNICA para las 3 apps (view/portal/vendor):
+ * colores, surfaces, texto, tipografía, motion, densidad, charts, aliases.
+ * Light + dark viven ahí. Cualquier token nuevo se agrega en ese archivo,
+ * NO acá — redeclararlo acá lo pisa en silencio (pasó con --ease-standard).
  */
-@import './styles/tokens.css';
+@import '../../../libs/design-tokens/tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -157,81 +158,9 @@ button, [role="button"], [role="tab"] {
   }
 }
 
-/*
- * Motion curves estandarizadas. Reemplaza los cubic-bezier hardcoded
- * repartidos por la app. Convención Material 3 + adaptado.
- *
- *   --ease-standard:    movimiento general (sidebar slide, hover lift)
- *   --ease-decelerate:  entrada en pantalla (fade in, scale up de modal)
- *   --ease-accelerate:  salida de pantalla (close modal, dismiss toast)
- *   --ease-spring:      energía iOS-style (liquid tabs, swipe-back)
- *   --ease-emphasized:  Material 3 emphasized — destaca acción importante
- */
-:root {
-  --ease-standard:    cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1);
-  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring:      cubic-bezier(0.34, 1.4, 0.5, 1);
-  --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
-
-  /* ─────────────────────────────────────────────────────────────
-   * TYPE SCALE — escala estricta major-third (1.25 ratio).
-   * Solo estos tamaños se usan en /comercial y /portal.
-   * Cualquier font-size que NO sea uno de estos es un bug.
-   * ───────────────────────────────────────────────────────────── */
-  --fs-display: 2.5rem;   /* 40px — headline metric ONE per view */
-  --fs-h1:      1.875rem; /* 30px — page hero title */
-  --fs-h2:      1.25rem;  /* 20px — page standard title */
-  --fs-h3:      1rem;     /* 16px — panel title (cuando es necesario) */
-  --fs-body:    0.875rem; /* 14px — body default */
-  --fs-sm:      0.8125rem;/* 13px — cell body / table cell */
-  --fs-xs:      0.75rem;  /* 12px — small text / sub */
-  --fs-micro:   0.6875rem;/* 11px — uppercase label / chip */
-  --fs-nano:    0.625rem; /* 10px — micro label (último recurso) */
-
-  /* ─────────────────────────────────────────────────────────────
-   * WEIGHT — solo 4 pesos. No mezclar.
-   * ───────────────────────────────────────────────────────────── */
-  --fw-regular: 400;
-  --fw-medium:  500;
-  --fw-bold:    700;
-  --fw-black:   800;  /* solo en headline metric */
-
-  /* ─────────────────────────────────────────────────────────────
-   * COLOR ROLES — disciplina 3 capas + 1 acento + semánticos.
-   * Alias unificados sobre los tokens existentes del proyecto
-   * (--text-main, --brand-*, --ok-fg, etc.). Usar SIEMPRE estos
-   * aliases en nuevo código; reemplazan a:
-   *  - text-color-secondary (PrimeNG)
-   *  - text-color-primary (PrimeNG)
-   *  - primary-color (PrimeNG, azul leak)
-   *  - text-faint (legado)
-   * ───────────────────────────────────────────────────────────── */
-  --c-text-1: var(--text-main);                     /* fuerte: negro casi puro */
-  --c-text-2: var(--text-color-secondary, #6b7280); /* secundario: gris medio */
-  --c-text-3: var(--text-faint, #9ca3af);           /* muted: gris claro */
-
-  --c-surface-0: var(--layout-bg, #fafafa);         /* fondo de página */
-  --c-surface-1: var(--card-bg, #fff);              /* fondo de celda/panel */
-  --c-surface-2: var(--neutral-100, #f4f4f5);       /* hover, subtle bg */
-
-  --c-divider:   var(--border-color, #e4e4e7);      /* hairline 1px */
-
-  /* ÚNICO acento de marca — uso restricto:
-   *   1. Headline metric (1 por vista)
-   *   2. Active tab/chip
-   *   3. Hover row left-stripe
-   *   4. Focus ring
-   * Nunca en backgrounds amplios ni text body. */
-  --c-accent:    var(--brand-500, #F8B400);
-  --c-accent-fg: var(--brand-700, #B7860E);
-
-  /* SEMÁNTICOS — solo en pills, deltas, status dots, chart bars. */
-  --c-ok:    var(--ok-fg,   #16A34A);
-  --c-warn:  var(--warn-fg, #F59E0B);
-  --c-bad:   var(--bad-fg,  #DC2626);
-  --c-info:  var(--info-fg, #2563EB);
-}
+/* Motion curves, type scale (--fs-*), pesos (--fw-*) y roles de color (--c-*)
+ * viven ahora en libs/design-tokens/tokens.css (consolidación 2026-08-12).
+ * Estaban duplicados acá en las 3 apps y pisaban al token canónico. */
 
 /*
  * ROOT LAYOUT — sólo geometría base. Los tokens viven en tokens.css.

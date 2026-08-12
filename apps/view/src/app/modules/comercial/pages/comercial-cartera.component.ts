@@ -151,7 +151,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
     .ca-panel-head { display:flex; align-items:center; gap:.5rem; padding:.75rem 1rem; font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); }
     .ca-panel-head i { color:var(--c-text-3); }
     .ca-spacer { flex:1; }
-    .ca-route-badge { font-family:'Geist Mono','JetBrains Mono',monospace; background:var(--c-surface-2); padding:.1rem .5rem; border-radius:6px; font-size:var(--fs-xs); }
+    .ca-route-badge { font-family:var(--font-mono); background:var(--c-surface-2); padding:.1rem .5rem; border-radius:6px; font-size:var(--fs-xs); }
     .ca-route-link { background:transparent; border:none; cursor:pointer; color:var(--c-text-1); font-weight:var(--fw-medium); display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .35rem; border-radius:6px; }
     .ca-route-link:hover { background:var(--c-surface-2); }
     .ca-route-link i { color:var(--c-text-3); font-size:var(--fs-xs); }
