@@ -117,13 +117,29 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     <!-- Diálogo: nueva comprobación -->
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva comprobación de gasto">
       <div class="cp-form">
-        <div class="cp-ocr-banner"><i class="pi pi-bolt" aria-hidden="true"></i> Subí el <strong>documento "Gastos" de Kepler</strong> en <em>Comprobación de gasto</em> (abajo) y auto-relleno folio, solicitante, proveedor, importe, departamento y fecha.</div>
-        <label class="cp-f"><span>Gasto (Kepler XA1001) *</span>
-          <p-autocomplete [(ngModel)]="gastoSel" [suggestions]="gastoSug()" (completeMethod)="searchGasto($event)"
-            field="label" [forceSelection]="false" [minQueryLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
-            styleClass="w-full" (onSelect)="onGastoSelect($event)" [delay]="250" />
-          <small class="cp-hint">Elige el gasto para auto-rellenar proveedor e importe. También puedes teclear el folio abajo.</small></label>
+        <!-- 1) Subir la comprobación de gastos (documento de Kepler XA1001) — el OCR auto-rellena todo -->
+        <div class="cp-f">
+          <span>Comprobación de gastos (documento de Kepler) *</span>
+          @if (!fileNames()['comprobacion']) {
+            <div class="cp-drop" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDropComprobacion($event)">
+              <i class="pi pi-file-pdf cp-drop-ico" aria-hidden="true"></i>
+              <div class="cp-drop-main">Arrastrá el <strong>documento "Gastos"</strong> (PDF o foto)</div>
+              <div class="cp-drop-or">o</div>
+              <label class="cp-pickbtn"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
+                <input type="file" accept="application/pdf,image/*" (change)="onFile($event, 'comprobacion')" hidden />
+              </label>
+              <div class="cp-drop-hint">Lo leo y auto-relleno folio, proveedor, importe, departamento y fecha.</div>
+            </div>
+          } @else {
+            <div class="cp-file-done">
+              <i class="pi pi-check-circle cp-ok" aria-hidden="true"></i> <span class="cp-file-nm">{{ fileNames()['comprobacion'] }}</span>
+              @if (ocrLoading()) { <span class="cp-proc"><i class="pi pi-spin pi-spinner"></i> leyendo…</span> }
+              <button type="button" class="cp-linkbtn" (click)="clearComprobacion()">cambiar</button>
+            </div>
+          }
+        </div>
 
+        <div class="cp-files-head">Datos del gasto <em class="cp-hint">revisá y completá lo que falte</em></div>
         <div class="cp-row">
           <label class="cp-f"><span>Nombre del solicitante *</span>
             <input pInputText [(ngModel)]="form.solicitante" /></label>
@@ -146,12 +162,11 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
             <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
         </div>
 
-        <div class="cp-files-head">Comprobación</div>
-        @for (slot of fileSlots; track slot.role) {
+        <div class="cp-files-head">Foto(s) del gasto <em class="cp-hint">evidencia — opcional</em></div>
+        @for (slot of evidenciaSlots; track slot.role) {
           <label class="cp-f cp-file">
-            <span>{{ slot.label }} @if (slot.required) { <b class="cp-req">*</b> }@if (slot.role === 'comprobacion') { <em class="cp-hint">— el doc de Kepler se lee y auto-rellena</em> }</span>
+            <span>{{ slot.label }}</span>
             <input type="file" [accept]="slot.accept" (change)="onFile($event, slot.role)" />
-            @if (slot.role === 'comprobacion' && ocrLoading()) { <span class="cp-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo el documento de Kepler…</span> }
             @if (fileNames()[slot.role]) { <span class="cp-filepick"><i class="pi pi-paperclip"></i> {{ fileNames()[slot.role] }}</span> }
           </label>
         }
@@ -209,9 +224,19 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cp-req { color: var(--bad-fg); }
     .cp-hint { font-size: .72rem; color: var(--text-muted); }
-    /* OCR-primero del documento Kepler */
-    .cp-ocr-banner { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-left: 3px solid var(--action); border-radius: var(--r-md, .5rem); padding: .55rem .75rem; line-height: 1.35; }
-    .cp-ocr-banner .pi-bolt { color: var(--action); }
+    /* OCR-primero: dropzone del documento Kepler */
+    .cp-drop { display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: 1.3rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; transition: border-color .15s, background .15s; }
+    .cp-drop.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
+    .cp-drop-ico { font-size: 1.9rem; color: var(--bad-fg); }
+    .cp-drop-main { font-size: .88rem; color: var(--text-main); }
+    .cp-drop-or { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+    .cp-drop-hint { font-size: .74rem; color: var(--text-muted); }
+    .cp-pickbtn { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); font-size: .85rem; color: var(--text-main); cursor: pointer; background: var(--card-bg); }
+    .cp-pickbtn:hover { border-color: var(--action); color: var(--action); }
+    .cp-file-done { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: var(--text-main); padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cp-file-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-ok { color: var(--ok-fg); }
+    .cp-linkbtn { margin-left: auto; border: none; background: transparent; color: var(--action); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
     .cp-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .cp-f input[type=file] { font-size: .82rem; }
     .cp-files-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .4rem; border-top: 1px solid var(--border-color); padding-top: .7rem; }
@@ -234,10 +259,12 @@ export class FinanzasComprobacionGastosComponent {
   readonly ocrLoading = signal(false);
 
   readonly fileSlots: FileSlot[] = [
-    { role: 'comprobacion', label: 'Comprobación de gasto', required: true, accept: '.pdf,image/*' },
-    { role: 'evidencia_1', label: 'Evidencia adicional 1', required: false, accept: 'image/*,.pdf' },
-    { role: 'evidencia_2', label: 'Evidencia adicional 2', required: false, accept: 'image/*,.pdf' },
+    { role: 'comprobacion', label: 'Comprobación de gasto', required: true, accept: 'application/pdf,image/*' },
+    { role: 'evidencia_1', label: 'Foto 1', required: false, accept: 'image/*,.pdf' },
+    { role: 'evidencia_2', label: 'Foto 2', required: false, accept: 'image/*,.pdf' },
   ];
+  // Las fotos de evidencia (todo menos la comprobación, que sube arriba con OCR).
+  readonly evidenciaSlots = this.fileSlots.filter((s) => s.role !== 'comprobacion');
 
   readonly report = signal<GastosReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -341,8 +368,27 @@ export class FinanzasComprobacionGastosComponent {
   }
 
   onFile(ev: Event, role: string) {
-    const file = (ev.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) this.handleFile(file, role);
+  }
+
+  // Arrastrar la comprobación (doc Kepler) → OCR auto-rellena.
+  readonly dragging = signal(false);
+  onDragOver(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); if (!this.dragging()) this.dragging.set(true); }
+  onDragLeave(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false); }
+  onDropComprobacion(ev: DragEvent) {
+    ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false);
+    const file = ev.dataTransfer?.files?.[0];
+    if (file) this.handleFile(file, 'comprobacion');
+  }
+  clearComprobacion() {
+    delete this.fileData['comprobacion']; delete this.uploaded['comprobacion'];
+    this.fileNames.update((m) => { const n = { ...m }; delete n['comprobacion']; return n; });
+  }
+
+  private handleFile(file: File, role: string) {
     if (file.size > 10 * 1024 * 1024) { this.formError.set(`"${file.name}" supera 10 MB.`); return; }
     this.formError.set('');
     const reader = new FileReader();
@@ -353,6 +399,7 @@ export class FinanzasComprobacionGastosComponent {
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
       // OCR-primero: al subir el documento "Gastos" de Kepler, auto-rellena el form.
       if (role === 'comprobacion') this.runGastoOcr(dataUri);
+      this.cdr.markForCheck();
     };
     reader.readAsDataURL(file);
   }
