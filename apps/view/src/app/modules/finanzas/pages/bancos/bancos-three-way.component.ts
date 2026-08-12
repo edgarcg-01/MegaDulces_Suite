@@ -29,6 +29,29 @@ import { cuadra, money0 } from './bancos-shared';
         </div>
       </div>
 
+      <!-- CB.32 — Cobertura/frescura por fuente: captura pendiente ≠ descuadre -->
+      <div class="tw-cov" [class.warn]="anyStale(d)">
+        <div class="tw-cov-head">
+          <span><i class="pi pi-database"></i> Cobertura del periodo</span>
+          @if (d.coverage.is_current_month) { <span class="tw-tag muted-tag">mes en curso</span> }
+        </div>
+        <div class="tw-cov-sources">
+          @for (s of covSources(d); track s.key) {
+            <div class="tw-cov-src" [class.stale]="s.stale || s.sin_datos">
+              <div class="tw-cov-lbl">{{ s.label }}
+                @if (s.sin_datos) { <span class="tw-tag warn-tag">sin datos</span> }
+                @else if (s.stale) { <span class="tw-tag warn-tag">captura pendiente</span> }
+              </div>
+              <div class="tw-cov-bar"><div class="tw-cov-fill" [style.width.%]="s.pct"></div></div>
+              <div class="tw-cov-meta muted">{{ s.movs }} movs · {{ s.pct }}%<span *ngIf="s.last"> · al {{ s.last | date:'dd/MM' }}</span></div>
+            </div>
+          }
+        </div>
+        @if (anyStale(d)) {
+          <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día. El banco (Workbook) va al día.</p>
+        }
+      </div>
+
       <!-- Nivel 1 — control-total: aquí cuadran las 3 -->
       <div class="card-premium card-flat tw-card">
         <h3 class="fb-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.0-0' }})</span></h3>
@@ -155,6 +178,19 @@ import { cuadra, money0 } from './bancos-shared';
     :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2, #6366f1) 6%, transparent); }
     .fb-in-ico { color: var(--ok-fg); font-size: .8rem; }
     .fb-out-ico { color: var(--text-faint); font-size: .8rem; }
+    .warn-tag { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-fg); }
+    /* CB.32 — barra de cobertura/frescura */
+    .tw-cov { border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; border-left-color: var(--ok-fg); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
+    .tw-cov.warn { border-left-color: var(--warn-fg); }
+    .tw-cov-head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-2); }
+    .tw-cov-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--sp-3); }
+    .tw-cov-src { display: flex; flex-direction: column; gap: 3px; }
+    .tw-cov-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: var(--sp-2); }
+    .tw-cov-bar { height: 5px; border-radius: var(--r-pill); background: var(--hover-bg); overflow: hidden; }
+    .tw-cov-fill { height: 100%; background: var(--ok-fg); border-radius: var(--r-pill); }
+    .tw-cov-src.stale .tw-cov-fill { background: var(--warn-fg); }
+    .tw-cov-meta { font-size: var(--fs-2xs, .7rem); font-variant-numeric: tabular-nums; }
+    .tw-cov-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
   `],
 })
 export class BancosThreeWayComponent {
@@ -175,5 +211,19 @@ export class BancosThreeWayComponent {
   }
   private maxDelta(r: ThreeWayRow): number {
     return Math.max(Math.abs(r.delta_wk), Math.abs(r.delta_wc), Math.abs(r.delta_kc));
+  }
+
+  // CB.32 — cobertura por fuente (para la barra de frescura).
+  covSources(d: ThreeWay) {
+    const c = d.coverage;
+    return [
+      { key: 'wb', label: 'Workbook (banco)', ...c.workbook },
+      { key: 'kep', label: 'Kepler (tesorería)', ...c.kepler },
+      { key: 'cpq', label: 'ContPAQi (libros)', ...c.contpaqi },
+    ];
+  }
+  anyStale(d: ThreeWay): boolean {
+    const c = d.coverage;
+    return !!(c.kepler.stale || c.contpaqi.stale || c.kepler.sin_datos || c.contpaqi.sin_datos);
   }
 }
