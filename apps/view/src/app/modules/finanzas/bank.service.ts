@@ -203,7 +203,9 @@ export interface ThreeWayRow {
 }
 export interface ThreeWayAccount {
   bank: string; account_label: string; alias: string | null; linked: boolean;
-  wb_in: number; wb_out: number; cp_in: number; cp_out: number; delta_in: number; delta_out: number; cuadra: boolean;
+  wb_in: number; wb_out: number; cp_in: number; cp_out: number;
+  kep_in: number; kep_out: number; kep_has: boolean;
+  delta_in: number; delta_out: number; delta_wk_in: number; delta_wk_out: number; cuadra: boolean;
 }
 export interface ThreeWay {
   period: string; tolerance: number; cuadra: boolean;

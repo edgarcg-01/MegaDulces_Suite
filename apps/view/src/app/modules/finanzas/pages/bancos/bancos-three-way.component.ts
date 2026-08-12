@@ -70,40 +70,47 @@ import { cuadra, money0 } from './bancos-shared';
         </p>
       </div>
 
-      <!-- Nivel 2 — por cuenta (Workbook ↔ ContPAQi) -->
+      <!-- Nivel 2 — por cuenta: las 3 fuentes (Kepler desde tesorería kdm1) -->
       <div class="card-premium card-flat fb-tablewrap">
-        <h3 class="fb-card-title fb-pnl-title">Por cuenta <span class="muted">— Workbook ↔ ContPAQi (Kepler 102 no se desglosa por banco)</span></h3>
-        <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="46vh">
-          <ng-template #header>
-            <tr>
-              <th title="Banco y número de cuenta">Cuenta</th>
-              <th class="ta-r" title="Depósitos según tu estado de cuenta (Workbook)">Dep. Workbook</th>
-              <th class="ta-r" title="Depósitos en los libros de ContPAQi">Dep. ContPAQi</th>
-              <th class="ta-r" title="Diferencia de depósitos (Workbook − ContPAQi)">Δ dep.</th>
-              <th class="ta-r" title="Retiros según tu estado de cuenta (Workbook)">Ret. Workbook</th>
-              <th class="ta-r" title="Retiros en los libros de ContPAQi">Ret. ContPAQi</th>
-              <th class="ta-r" title="Diferencia de retiros (Workbook − ContPAQi)">Δ ret.</th>
-              <th class="ta-c" title="✓ cuadra · ⚠ no cuadra · sin enlazar">Estado</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-r>
-            <tr>
-              <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span></td>
-              <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-c">
-                @if (!r.linked) { <span class="tw-tag muted-tag" title="Cuenta no enlazada a ContPAQi">sin enlazar</span> }
-                @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
-                @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage><tr><td colspan="8"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas para {{ d.period }}.</p></div></td></tr></ng-template>
-        </p-table>
+        <h3 class="fb-card-title fb-pnl-title">Por cuenta
+          <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por banco (Kepler desde tesorería)' : 'Workbook ↔ ContPAQi (Kepler aún sin datos del periodo)' }}</span></h3>
+        <div class="tw-wrap">
+          <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="46vh">
+            <ng-template #header>
+              <tr>
+                <th rowspan="2" title="Banco y número de cuenta">Cuenta</th>
+                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos</th>
+                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
+                <th rowspan="2" class="ta-c" title="✓ cuadra Workbook↔ContPAQi · ⚠ no cuadra · sin enlazar">Estado</th>
+              </tr>
+              <tr>
+                <th class="ta-r" title="Estado de cuenta (Workbook)">WB</th>
+                <th class="ta-r tw-kep" title="Kepler tesorería (kdm1, por banco)">Kepler</th>
+                <th class="ta-r" title="Libros ContPAQi">CPQ</th>
+                <th class="ta-r" title="Estado de cuenta (Workbook)">WB</th>
+                <th class="ta-r tw-kep" title="Kepler tesorería (kdm1, por banco)">Kepler</th>
+                <th class="ta-r" title="Libros ContPAQi">CPQ</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span></td>
+                <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</td>
+                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_out)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</td>
+                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-c">
+                  @if (!r.linked) { <span class="tw-tag muted-tag" title="Cuenta no enlazada a ContPAQi">sin enlazar</span> }
+                  @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra Workbook↔ContPAQi"></i> }
+                  @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="8"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas para {{ d.period }}.</p></div></td></tr></ng-template>
+          </p-table>
+        </div>
       </div>
     } @else {
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de cuadre para {{ period() }}.</p></div>
@@ -142,6 +149,12 @@ import { cuadra, money0 } from './bancos-shared';
     table.tw-tbl tbody tr:last-child td, table.tw-tbl tbody tr:last-child th { border-bottom: none; }
     .tw-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
     .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
+    /* Cabecera agrupada Depósitos/Retiros + resalte de la columna Kepler (la fuente nueva) */
+    .tw-grp { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; border-bottom: 1px solid var(--border-color); }
+    .tw-grp i { margin-right: 4px; }
+    :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2, #6366f1) 6%, transparent); }
+    .fb-in-ico { color: var(--ok-fg); font-size: .8rem; }
+    .fb-out-ico { color: var(--text-faint); font-size: .8rem; }
   `],
 })
 export class BancosThreeWayComponent {

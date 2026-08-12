@@ -1677,15 +1677,42 @@ export class FinanceBankService {
 
     const cpq = await this.contpaqiCompare(period); // Workbook(excel) + ContPAQi + filas por cuenta
 
-    // Kepler: el 102 (bancos) del periodo — cargo 'C' = ingreso, abono 'A' = egreso.
-    const kep = await this.tk.run(async (trx) => {
-      const row: any = await trx('analytics.bank_postings')
-        .where({ tenant_id: tenantId, anio_mes: period })
-        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='C'),0) AS ingresos`))
-        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='A'),0) AS egresos`))
-        .count('* as movs').first();
-      return { in: r2(n(row?.ingresos)), out: r2(n(row?.egresos)), movs: Number(row?.movs) || 0 };
-    });
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+
+    // CB.26/28 — Kepler POR CUENTA desde el feed de tesorería (kdm1⋈kdb1). El 102
+    // contable estaba lumped; la tesorería sí desglosa por banco (c45). deposito=signo>0
+    // (entrada/traspaso-destino), retiro=signo<0 (salida/traspaso-origen). account_label
+    // = crosswalk a finance.bank_accounts (excluye puente/caja-chica sin cuenta nuestra).
+    const kepRows = await this.tk.run(async (trx) =>
+      trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
+        .groupBy('account_label')
+        .select('account_label',
+          trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS dep`),
+          trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS ret`),
+          trx.raw(`COUNT(*)::int AS movs`)));
+    const kmap = new Map<string, { in: number; out: number; movs: number }>(
+      (kepRows as any[]).map((r) => [r.account_label, { in: r2(n(r.dep)), out: r2(n(r.ret)), movs: Number(r.movs) || 0 }]));
+    const kepHasData = (kepRows as any[]).length > 0;
+
+    // Total Kepler: suma del feed de tesorería si hay datos; si no, fallback al 102 de bank_postings.
+    let kep: { in: number; out: number; movs: number };
+    if (kepHasData) {
+      const agg = [...kmap.values()].reduce((s, v) => ({ in: s.in + v.in, out: s.out + v.out, movs: s.movs + v.movs }), { in: 0, out: 0, movs: 0 });
+      kep = { in: r2(agg.in), out: r2(agg.out), movs: agg.movs };
+    } else {
+      kep = await this.tk.run(async (trx) => {
+        const row: any = await trx('analytics.bank_postings')
+          .where({ tenant_id: tenantId, anio_mes: period })
+          .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='C'),0) AS ingresos`))
+          .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE cargo_abono='A'),0) AS egresos`))
+          .count('* as movs').first();
+        return { in: r2(n(row?.ingresos)), out: r2(n(row?.egresos)), movs: Number(row?.movs) || 0 };
+      });
+    }
 
     const mkRow = (label: string, w: number, k: number, c: number) => ({
       label, workbook: r2(w), kepler: r2(k), contpaqi: r2(c),
@@ -1697,19 +1724,27 @@ export class FinanceBankService {
       egresos: mkRow('Egresos', cpq.totals.excel_out, kep.out, cpq.totals.contpaqi_out),
     };
 
-    const por_cuenta = cpq.rows.map((r: any) => ({
-      bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
-      wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
-      delta_in: r.delta_in, delta_out: r.delta_out,
-      cuadra: Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL,
-    })).sort((a: any, b: any) => (Math.abs(b.delta_in) + Math.abs(b.delta_out)) - (Math.abs(a.delta_in) + Math.abs(a.delta_out)));
+    const por_cuenta = cpq.rows.map((r: any) => {
+      const k = kmap.get(r.account_label);
+      const kin = k ? k.in : 0, kout = k ? k.out : 0;
+      return {
+        bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
+        wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
+        kep_in: kin, kep_out: kout, kep_has: !!k,
+        delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi
+        delta_wk_in: r2(r.excel_in - kin), delta_wk_out: r2(r.excel_out - kout), // Workbook − Kepler
+        cuadra: Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL,
+      };
+    }).sort((a: any, b: any) => (Math.abs(b.delta_in) + Math.abs(b.delta_out)) - (Math.abs(a.delta_in) + Math.abs(a.delta_out)));
 
     return {
       period, tolerance: TOL,
       cuadra: total.ingresos.cuadra && total.egresos.cuadra,
       total, por_cuenta,
-      kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: false,
-      nota: 'El 102 de Kepler no se desglosa por banco (es un bulto), así que Kepler solo aparece en el control-total. El detalle por cuenta es Workbook ↔ ContPAQi. Diferencias esperadas por timing (devengado vs pagado) y alcance; el semáforo usa ±$1,000.',
+      kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: kepHasData,
+      nota: kepHasData
+        ? 'Kepler ahora se desglosa por banco desde el módulo de tesorería (kdm1), no del 102 contable (que estaba lumped). Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo que la empresa capturó (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
+        : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo, así que Kepler se muestra solo en el control-total (102 contable). El detalle por cuenta es Workbook ↔ ContPAQi.',
     };
   }
 
