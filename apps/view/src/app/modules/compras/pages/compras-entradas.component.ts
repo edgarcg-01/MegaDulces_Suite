@@ -724,7 +724,7 @@ export class ComprasEntradasComponent {
   readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string }[]> = {
     kepler: [
       { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
-      { keys: ['factura', 'remision'], label: 'Factura / Remisión' },
+      { keys: ['factura', 'remision'], label: 'Factura' },
     ],
     wincaja: [
       { keys: ['ticket'], label: 'Ticket' },
@@ -769,9 +769,7 @@ export class ComprasEntradasComponent {
   // Wincaja pide ticket + orden_recepcion + aplica_orden_entrada; Kepler, aplica_orden_entrada + factura/remisión.
   private readonly ROLE_OPTS_KEPLER = [
     { label: 'Aplica orden entrada', value: 'orden_entrada' },
-    { label: 'Remisión/Factura', value: 'remision' },
     { label: 'Factura', value: 'factura' },
-    { label: 'Vale de recepción', value: 'vale' },
     { label: 'Otra evidencia', value: 'evidencia' },
   ];
   private readonly ROLE_OPTS_WINCAJA = [
@@ -927,14 +925,17 @@ export class ComprasEntradasComponent {
     }
     const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
     const id = ++this.fileSeq;
-    // Rol/primary atómico (ver arriba): 1ª = Aplica Orden Entrada (★, se lee y ENLAZA), luego remisión, luego evidencia.
+    // Rol/primary atómico: 1ª = Aplica Orden Entrada (★, se lee y ENLAZA). El default del resto sigue
+    // el orden de docs de la FUENTE (Kepler: factura · Wincaja: ticket → orden recepción) → cae en una
+    // opción válida del <select> de esa fuente (si no, el select quedaba en blanco). OCR + override afinan.
+    const roleSeq = this.srcKind() === 'wincaja'
+      ? ['orden_entrada', 'ticket', 'orden_recepcion']
+      : ['orden_entrada', 'factura'];
     this.attachFiles.update((l) => {
-      const isFirst = l.length === 0;
-      const hasRemision = l.some((f) => f.role === 'remision');
       const primary = !l.some((f) => f.primary);
       const af: AttachFile = {
         id, name: file.name, dataUri, kind,
-        role: isFirst ? 'orden_entrada' : (hasRemision ? 'evidencia' : 'remision'),
+        role: roleSeq[l.length] || 'evidencia',
         uploaded: null, uploading: false, failed: false, primary,
         sha256: hash || undefined, ocrLoading: true,
       };
