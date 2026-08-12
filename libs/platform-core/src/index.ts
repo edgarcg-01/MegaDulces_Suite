@@ -10,6 +10,11 @@ export * from './lib/database/vector-database.module';
 export * from './lib/database/neo4j.module';
 export * from './lib/database/kepler-database.module';
 
+// ── queue (worker-tier, pg-boss) ──
+export * from './lib/queue/queue.module';
+export * from './lib/queue/queue.service';
+export * from './lib/queue/scheduler-owner';
+
 // ── tenant ──
 export * from './lib/tenant/tenant.module';
 export * from './lib/tenant/tenant-context.service';

@@ -40,6 +40,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WebSocketModule } from '@megadulces/trade';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
 import { NewDatabaseModule } from '@megadulces/platform-core';
+import { QueueModule } from '@megadulces/platform-core';
 import { TenantModule } from '@megadulces/platform-core';
 import { TenantContextInterceptor } from '@megadulces/platform-core';
 import { JwtAuthGuard } from '@megadulces/platform-core';
@@ -342,6 +343,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     DataModule,
     WebSocketModule,
     ScheduleModule.forRoot(),
+    // INFRA.3 (ADR-043): cola de jobs pg-boss (worker-tier). Inerte sin
+    // ENABLE_WORKER_QUEUE=true → app corre legacy (crons in-process).
+    QueueModule,
     // Consolidación de ventas Kepler (polling inteligente sobre kepler_consolidado).
     // Null-safe: inerte si DATABASE_URL_KEPLER_CONSOLIDADO no está seteado.
     KeplerConsolidadoModule,
