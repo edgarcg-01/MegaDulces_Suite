@@ -24,7 +24,11 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const SRC = process.env.COLLECTIONS_SRC || 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00';
 const APPLY = process.argv.includes('--apply');
 const fromIx = process.argv.indexOf('--from');
-const FROM = fromIx > -1 ? process.argv[fromIx + 1] : null;
+// Ventana rodante para la corrida agendada (COLLECTIONS_DAYS=120 → últimos N días, rápido,
+// UPSERT churn-free). Sin la env ni --from = todo el histórico.
+const COLLECTIONS_DAYS = Number(process.env.COLLECTIONS_DAYS) || 0;
+const FROM = fromIx > -1 ? process.argv[fromIx + 1]
+  : (COLLECTIONS_DAYS > 0 ? new Date(Date.now() - COLLECTIONS_DAYS * 864e5).toISOString().slice(0, 10) : null);
 const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
 
 /** Clasifica la cuenta del cobro por el código Kepler (c10). Heurístico. */
