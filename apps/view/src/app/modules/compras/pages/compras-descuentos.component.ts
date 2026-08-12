@@ -58,8 +58,8 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
         <app-metric-strip [items]="ajustesMetrics()" ariaLabel="Resumen de ajustes por grupo" />
 
         <div class="dx-filters">
-          <p-select [options]="grupoOpts" [(ngModel)]="fGrupo" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Todos los grupos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por grupo"></p-select>
-          <p-select [options]="doctypeOpts" [(ngModel)]="fDoctype" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Ambos documentos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por tipo de documento"></p-select>
+          <p-select [options]="grupoOpts" [(ngModel)]="fGrupo" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Todos los grupos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por grupo" appendTo="body"></p-select>
+          <p-select [options]="doctypeOpts" [(ngModel)]="fDoctype" (onChange)="onFilter()" optionLabel="label" optionValue="value" placeholder="Ambos documentos" [showClear]="true" styleClass="dx-sel" ariaLabel="Filtrar por tipo de documento" appendTo="body"></p-select>
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)" placeholder="Proveedor o motivo…" class="dx-search" aria-label="Buscar por proveedor o motivo" />
           <span class="dx-count">{{ total() | number }} ajuste(s)</span>
         </div>

@@ -48,7 +48,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
-        <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cn-sel" ariaLabel="Rango de fecha rápido" />
+        <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cn-sel" ariaLabel="Rango de fecha rápido" appendTo="body" />
         <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="cn-dp" ariaLabel="Desde" />
         <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cn-dp" ariaLabel="Hasta" />
         <label class="cn-chk"><p-checkbox [ngModel]="soloRelevantes()" (ngModelChange)="onToggleRelevantes($event)" [binary]="true" inputId="cn-rel" /> <span>Solo ≥ $100k</span></label>

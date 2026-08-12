@@ -28,7 +28,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <div class="rq-filters">
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="rq-sel"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="rq-sel" appendTo="body"></p-select>
       </div>
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm rq-table"
