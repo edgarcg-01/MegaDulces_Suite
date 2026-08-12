@@ -66,6 +66,7 @@ const STEPS = {
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
+    path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
   ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
