@@ -1108,6 +1108,34 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-043 — **Endurecimiento de infra + worker-tier** (Fase INFRA): activar/separar, no re-arquitecturar
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-12
+
+**Contexto:** Todo corre en **un solo proceso NestJS** (REST + 6 gateways WS + ~40 `@Cron` + IA de minutos + refresh de MVs) desplegado como **1 servicio Railway**. Esto ya causó **OOM → ECONNRESET/502**, clava el API a 1 instancia (con N instancias los 40 crons se dispararían N veces), pone el trabajo LLM/visión en el request-path sin límite de concurrencia, y el `nightly` es un tren de ~55 importers en serie. Además: secretos en `.env` (incidente de creds expuestos pendiente de rotar), observabilidad = solo Sentry (errores), media por Cloudinary con egress caro (~200GB/mes). El proyecto NO necesita microservicios por dominio (los `libs/*` ya dan modularidad); necesita **activar tecnología ya presente** (Redis/BullMQ dormidos, `@aws-sdk/client-s3` instalado, `ops/observability/` diseñado) y **separar procesos** que comparten código+DB.
+
+**Decisión:** Adoptar el patrón **monolito modular + worker-tier + broker de colas**, sin romper el dominio en servicios de red. Se aplica el top-5 en orden: (1) **secretos → bóveda** (Infisical/Doppler), (2) **observabilidad** (nestjs-pino JSON + OpenTelemetry + Grafana/Loki/Prometheus), (3) **worker-tier con `pg-boss`** (cola sobre el propio Postgres, cero Redis nuevo; proceso `WORKER=true` con el mismo código Nx y toggle estilo `ENABLE_MULTITENANT`), (4) **media → Cloudflare R2** (S3-compatible, egress $0), (5) **CI extendido** (`nx affected` + `run-all-tests` en el gate). Cada pieza entra por toggle, default OFF, prod intacto hasta validar.
+
+**Alternativas consideradas:**
+- **Microservicios por bounded-context** (finance/commercial/logistics como servicios separados): rechazado — a 1 dev el costo de red + despliegues + consistencia distribuida no se paga; los `libs/*` ya aíslan.
+- **Redis + BullMQ como cola** (en vez de pg-boss): diferido — ya está instalado pero exige un servicio Redis nuevo; `pg-boss` reusa el Postgres existente y encaja con "NO Redis hasta Fase F". Se reactiva Redis cuando el volumen (WhatsApp Fase F, Socket.IO multi-instancia) lo justifique.
+- **Kubernetes / Kafka / RabbitMQ / gRPC / Terraform**: rechazado — sobre-ingeniería para la escala actual; Railway + config-as-code (`railway.json`) + pg-boss cubren todo.
+- **Fastify en vez de Express**: evaluado, diferido — gana RAM/throughput pero la migración (multer, adapter socket.io) es no trivial; se revisita si el OOM persiste tras el worker-tier.
+
+**Consecuencias:**
+- ✅ Desbloquea escalar el API horizontal (crons salen del proceso web) y aísla IA/ETL/MV del tráfico → ataca el OOM de raíz.
+- ✅ Reusa lo ya presente (pg-boss sobre Postgres, aws-sdk, ops/observability); mínima tecnología nueva de operar.
+- ✅ Cierra el incidente de secretos y da visibilidad (traces/métricas) para diagnosticar caídas.
+- ⚠️ Introduce un 2º proceso desplegable (worker) y un gestor de secretos externo → más superficie operativa para 1 dev; mitigado con toggles y default OFF.
+- ⚠️ pg-boss carga trabajo de cola sobre el mismo Postgres (aceptable a este volumen; migrable a Redis después).
+- 🔄 Reversible: cada toggle apaga su pieza; el worker es el mismo binario del API.
+
+Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). Hereda ADR-016 (motor decide / LLM fuera del camino) y complementa ADR-035 (`feeds-ingest`, el primer worker aislado).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.
