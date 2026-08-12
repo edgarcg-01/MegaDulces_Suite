@@ -57,6 +57,7 @@ export interface PurchaseSuggestionQuery {
   warehouse_id?: string;
   warehouse_ids?: string;   // CSV
   supplier_id?: string;
+  brand_id?: string;
   category_id?: string;
   search?: string;
   coverage_days?: number;   // horizonte de cobertura (default 30 ≈ ciclo mensual real)
@@ -71,6 +72,7 @@ export interface PurchaseSuggestionQuery {
 export interface TransferSuggestionQuery {
   warehouse_id?: string;    // filtro por sucursal DESTINO
   supplier_id?: string;
+  brand_id?: string;
   category_id?: string;
   search?: string;
   coverage_days?: number;   // horizonte del déficit de la sucursal (default 30)
@@ -83,6 +85,7 @@ export interface TransferSuggestionQuery {
 export interface OverstockQuery {
   warehouse_id?: string;
   supplier_id?: string;
+  brand_id?: string;
   category_id?: string;
   search?: string;
   over_days?: number;       // umbral de sobrestock: stock que excede N días de cobertura (default 90)
@@ -96,6 +99,7 @@ export interface OverstockQuery {
 // topología source_warehouse_id → funciona igual en local y prod).
 export interface WorkbookQuery {
   supplier_id?: string;
+  brand_id?: string;
   category_id?: string;
   search?: string;
   coverage_days?: number;
@@ -618,6 +622,7 @@ export class CommercialReplenishmentService {
         planWh = ` AND warehouse_id IN (${inList})`;
       }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       // RA-PRO.23 — no listar los SKUs ALIAS (in-and-out); su demanda/existencia/velocidad
@@ -773,6 +778,7 @@ export class CommercialReplenishmentService {
       const filters = ['pr.tenant_id = :t', 'pr.activo = true',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
@@ -968,6 +974,9 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('bd.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('bd.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(bd.sku ILIKE :s OR bd.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      // Marca: el fact (replenishment_plan) no trae brand_id → acotamos el universo por product_id.
+      let brandScope = '';
+      if (q.brand_id && UUID_RX.test(q.brand_id)) { brandScope = ' AND rp.product_id IN (SELECT id FROM catalog.products WHERE tenant_id = :t AND brand_id = :bid)'; binds.bid = q.brand_id; }
       const where = filters.join(' AND ');
 
       // RA-PRO.31 — LEE del fact precomputado. déficit sucursal = demanda(pieza)/suf×cov − existencia
@@ -981,7 +990,7 @@ export class CommercialReplenishmentService {
           FROM analytics.replenishment_plan rp
           LEFT JOIN analytics.replenishment_plan cs
                  ON cs.tenant_id = rp.tenant_id AND cs.warehouse_id = rp.source_warehouse_id AND cs.product_id = rp.product_id
-         WHERE rp.tenant_id = :t AND rp.source_warehouse_id IS NOT NULL
+         WHERE rp.tenant_id = :t AND rp.source_warehouse_id IS NOT NULL${brandScope}
       ),
       bd AS (
         SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, deficit_pz,
@@ -1051,6 +1060,9 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('ov.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('ov.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(ov.sku ILIKE :s OR ov.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      // Marca: el fact (replenishment_plan) no trae brand_id → acotamos el universo por product_id.
+      let brandScope = '';
+      if (q.brand_id && UUID_RX.test(q.brand_id)) { brandScope = ' AND rp.product_id IN (SELECT id FROM catalog.products WHERE tenant_id = :t AND brand_id = :bid)'; binds.bid = q.brand_id; }
       const where = filters.join(' AND ');
 
       // RA-PRO.31 — LEE del fact precomputado (analytics.replenishment_plan) en vez de recomputar
@@ -1064,7 +1076,7 @@ export class CommercialReplenishmentService {
                rp.eff_daily / rp.suf AS eff_daily, rp.stock_pz,
                GREATEST(0, rp.stock_pz - rp.eff_daily / rp.suf * :over) AS surplus_pz
           FROM analytics.replenishment_plan rp
-         WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0
+         WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0${brandScope}
       )`;
       const from = `
         FROM ov
@@ -1281,6 +1293,12 @@ export class CommercialReplenishmentService {
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
         .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
+      // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
+      const brands = await trx('commercial.reorder_policy as rp')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
+        .join('catalog.brands as b', (j) => j.on('b.tenant_id', 'pr.tenant_id').andOn('b.id', 'pr.brand_id'))
+        .where('rp.tenant_id', tenantId)
+        .distinct('b.id as id', 'b.name as name').orderBy('b.name');
       // RA-PRO.12 — categorías de compra (sourcing, ej. Guadalajara/Arandas): las que tienen
       // productos activos con política. n_suppliers/n_products alimentan la etiqueta del selector.
       // Depuración del selector (RA-PRO.12): la categoría de Kepler = campo libre de Wincaja
@@ -1301,7 +1319,7 @@ export class CommercialReplenishmentService {
         .countDistinct('pr.supplier_id as n_suppliers')
         .countDistinct('pr.id as n_products')
         .orderBy('c.name');
-      return { warehouses, suppliers, categories };
+      return { warehouses, suppliers, brands, categories };
     });
   }
 

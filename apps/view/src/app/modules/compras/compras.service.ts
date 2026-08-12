@@ -93,7 +93,7 @@ export interface PurchaseSuggestionResponse {
   rows: PurchaseSuggestionRow[];
 }
 export interface PurchaseSuggestionQuery {
-  warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; category_id?: string;
+  warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; brand_id?: string; category_id?: string;
   search?: string; coverage_days?: number; bucket?: string; scope?: string; page?: number; pageSize?: number;
 }
 
@@ -112,7 +112,7 @@ export interface TransferSuggestionResponse {
   rows: TransferSuggestionRow[];
 }
 export interface TransferSuggestionQuery {
-  warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
+  warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
 }
 
 // RA-PRO.19 — sobrestock / capital inmovilizado
@@ -129,7 +129,7 @@ export interface OverstockResponse {
   rows: OverstockRow[];
 }
 export interface OverstockQuery {
-  warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
+  warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
 }
 
 // RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
@@ -163,7 +163,7 @@ export interface WorkbookResponse {
   rows: WorkbookRow[];
 }
 export interface WorkbookQuery {
-  supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
+  supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
   warehouse_ids?: string[]; group?: 'branch' | 'general'; page?: number; pageSize?: number;
   iad?: 'accel' | 'decel'; only_overstock?: boolean;   // RA-PRO.36.2 filtros server-side
 }
@@ -234,6 +234,7 @@ export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boo
 export interface ReplenishmentFilters {
   warehouses: { id: string; code: string; name: string }[];
   suppliers: { id: string; name: string; min_order_boxes: number | null }[];
+  brands?: { id: string; name: string }[];
   categories?: ReplenishmentCategory[]; // RA-PRO.12 — categorías de compra (sourcing)
 }
 export interface CriticalStockQuery {
@@ -647,6 +648,7 @@ export class ComprasService {
     if (q.scope) p.set('scope', q.scope);
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<PurchaseSuggestionResponse>(`${this.base}/purchase-suggestion${qs ? '?' + qs : ''}`);
   }
@@ -665,6 +667,7 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.iad) p.set('iad', q.iad);
     if (q.only_overstock) p.set('only_overstock', 'true');
+    if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);
   }
@@ -692,6 +695,7 @@ export class ComprasService {
     if (q.iad) p.set('iad', q.iad);
     if (q.only_overstock) p.set('only_overstock', 'true');
     if (flat) p.set('flat', 'true');
+    if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get(`${this.base}/workbook.xlsx${qs ? '?' + qs : ''}`, { responseType: 'blob', observe: 'response' });
   }
@@ -706,6 +710,7 @@ export class ComprasService {
     if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<TransferSuggestionResponse>(`${this.base}/transfer-suggestion${qs ? '?' + qs : ''}`);
   }
@@ -720,6 +725,7 @@ export class ComprasService {
     if (q.over_days) p.set('over_days', String(q.over_days));
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<OverstockResponse>(`${this.base}/overstock${qs ? '?' + qs : ''}`);
   }
