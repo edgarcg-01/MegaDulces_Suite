@@ -80,3 +80,35 @@ Los pasos 100% código de cada sprint avanzan aunque su pausa esté pendiente; l
 - pg-boss sobre el mismo Postgres suma carga de cola (aceptable al volumen; migrable a Redis en Fase F).
 - Separar crons al worker exige que ninguna dependencia entre crons asuma estado in-process compartido con el API (revisar EventEmitter → mover a cola donde cruce procesos).
 - Migración de secretos: riesgo de downtime si un cred se rota mal; hacer por par (nuevo activo antes de revocar viejo).
+
+---
+
+## Apéndice INFRA.1 — Auditoría de secretos (2026-08-12)
+
+**Estado del `.env`:** ✅ NO trackeado por git, ✅ en `.gitignore`. 47 llaves. Drift corregido: 15 llaves que estaban en `.env` sin documentar se agregaron a `.env.example` como placeholders.
+
+**Postura de gitleaks (ya en CI):** `.gitleaks.toml` extiende default + regla propia para connection strings con password. **Allowlist deliberado** de creds LAN/dev (`superoot`/`postgres`/`kepler123` sobre `localhost`/`127.0.0.1`/`192.168.*`) — no son secretos de prod. Los creds de prod (`*.proxy.rlwy.net` con password real) SÍ se marcan. Postura correcta.
+
+**Reencuadre del "incidente":** los ~456 matches de `kepler123`/`superoot` en ~40 scripts importer son **creds RO de LAN embebidos como fallback** (`process.env.X || 'postgresql://platform_ro:...@192.168.x'`) + topología LAN. Riesgo bajo mientras el repo sea privado, pero: exponen IPs internas + password RO si el repo se filtra. Los secretos **de prod** (los que importan) viven solo en `.env` (local) y en Railway env vars.
+
+### Inventario de SECRETOS reales (viven en `.env` / Railway) — a mover a bóveda + rotar
+| Secreto | Uso | Rotable sin downtime |
+|---|---|---|
+| `DATABASE_URL` (legacy prod), `DATABASE_URL_NEW`, `_NEW_RUNTIME`, `APP_RUNTIME_PASSWORD` | Postgres prod | Sí, por par (crear rol/pass nuevo → cambiar env → revocar viejo) |
+| `JWT_SECRET` | Firma de tokens | ⚠️ rotarlo invalida sesiones activas → re-login masivo (coordinar) |
+| `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `GROQ_API_KEY` | LLM / embeddings / STT | Sí (regenerar en el dashboard del proveedor) |
+| `CLOUDINARY_API_SECRET` / `CLOUDINARY_URL` | Media actual | Sí (hasta migrar a R2, INFRA.4) |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Storage R2/S3 | Sí |
+| `MAGNI_USER` / `MAGNI_PASS` | GPS flota (compartido) | Sí — rotar el compartido (ADR-034 ya lo pide) |
+| `STORE_INGEST_KEY` | Auth M2M poller↔ingest | Sí, por par (cambiar en ambos lados) |
+| `DENUE_TOKEN`, `MAPBOX_TOKEN` | INEGI / Mapbox | Sí |
+| `SW_TOKEN` / `SW_USER`+`SW_PASSWORD` | PAC timbrado CFDI | Sí (regenerar en SW) |
+| WhatsApp: `WHATSAPP_ACCESS_TOKEN` / `_APP_SECRET` / `_VERIFY_TOKEN` | Bot Meta | Sí (Meta app) |
+
+### ⚠️ PAUSA para Edgar (bloquea el resto de INFRA.1)
+1. **Elegir bóveda**: Infisical self-host en `.249` (Docker, sin costo, alinea con Jenkins) **vs** Doppler cloud (0-config, free tier 1 dev). Recomendación: **Infisical self-host** (ya tienes `.249` + Docker; los secretos no salen de tu infra).
+2. **Rotar** los secretos de la tabla de arriba (empezar por los de proveedor externo — API keys — que son sin-downtime; dejar `JWT_SECRET` para una ventana coordinada).
+3. Cargar los secretos en la bóveda e **inyectarlos al env de Railway/worker** (Infisical/Doppler tienen integración nativa con Railway).
+
+### Diferido (post-bóveda, code-only pero coordinado)
+- **Codemod de fallbacks**: reemplazar los `|| 'postgresql://...'` hardcodeados de los ~40 importers por un helper compartido `database/importers/lib/branch-db.js` que lea la topología+creds de env. NO hacer antes de garantizar que el runner on-prem tiene el env seteado (rompería los feeds). Es la deuda que cierra el hardcodeo de LAN.
