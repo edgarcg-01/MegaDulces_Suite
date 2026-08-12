@@ -40,7 +40,11 @@ const SRC = process.env.PAYMENTS_SRC || 'postgresql://platform_ro:kepler123@192.
 const APPLY = process.argv.includes('--apply');
 const RESET = process.argv.includes('--reset');
 const fromIx = process.argv.indexOf('--from');
-const FROM = fromIx > -1 ? process.argv[fromIx + 1] : null;
+// Ventana rodante para la corrida agendada: PAYMENTS_DAYS=120 → solo los últimos N días
+// (rápido, UPSERT churn-free; el histórico viejo no cambia). Sin la env ni --from = todo.
+const PAYMENTS_DAYS = Number(process.env.PAYMENTS_DAYS) || 0;
+const rollingFrom = () => { const d = new Date(); d.setDate(d.getDate() - PAYMENTS_DAYS); return d.toISOString().slice(0, 10); };
+const FROM = fromIx > -1 ? process.argv[fromIx + 1] : (PAYMENTS_DAYS > 0 ? rollingFrom() : null);
 const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
 
 /** Parseo defensivo de importe (un row basura no debe abortar todo el import). */
