@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -31,6 +31,7 @@ import { BancosMovimientosComponent } from './bancos/bancos-movimientos.componen
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
 import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.component';
 import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
+import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 
 /**
@@ -41,7 +42,7 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent, BancosCapturasComponent],
+  imports: [FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -61,6 +62,7 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
                       appendTo="body" styleClass="fb-sel sel-liquid" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
           </label>
           <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()" title="Baja el workbook maestro del Google Sheet (export público) y lo procesa"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir estado de cuenta</span></button>
         </div>
       </header>
@@ -75,6 +77,13 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
         <button type="button" class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"
                 (click)="view.set('conciliacion')" title="Ver la conciliación contra Kepler">
           <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></button>
+        @if (sheetCfg(); as sc) {
+          <span class="fb-status-chip" [class.warn]="!!sc.last_error"
+                [title]="sc.last_error || 'Sync del workbook maestro (Google Sheet)'">
+            <i class="pi pi-cloud"></i> Sheet <b class="mono">{{ sc.active ? 'auto' : 'manual' }}</b>
+            @if (sc.last_synced_at) { · <span class="mono">{{ sc.last_synced_at | date:'dd/MM HH:mm' }}</span> }
+          </span>
+        }
         <app-freshness-pill [since]="lastImported()" />
       </div>
 
@@ -160,6 +169,17 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
           <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
+        }
+      }
+
+      <!-- ── CUADRE 3 VÍAS: Workbook ↔ Kepler 102 ↔ ContPAQi ── -->
+      @if (view() === 'cuadre') {
+        @if (twError()) {
+          <app-load-state [error]="twError()" (retry)="loadThreeWay()"></app-load-state>
+        } @else if (twLoading()) {
+          <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4]; track i) { <div class="fb-skel-row"></div> }</div>
+        } @else {
+          <bancos-three-way [data]="threeWay()" [period]="period()" />
         }
       }
 
@@ -417,6 +437,13 @@ export class FinanzasBancosComponent implements OnInit {
   readonly cpqLinking = signal(false);
   readonly cpqAccounts = signal<ContpaqiBankAccount[]>([]);
   readonly factorajeCompare = signal<FactorajeCompare | null>(null);
+  // CB.24 — cuadre 3 vías (lazy: se carga al abrir la pestaña).
+  readonly threeWay = signal<ThreeWay | null>(null);
+  readonly twLoading = signal(false);
+  readonly twError = signal<string | null>(null);
+  // CB.23 — estado del sync del workbook maestro (Google Sheet).
+  readonly sheetCfg = signal<SheetSyncConfig | null>(null);
+  readonly syncingSheet = signal(false);
 
   // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
@@ -489,6 +516,7 @@ export class FinanzasBancosComponent implements OnInit {
         this.period.set(ps[0] || '');
         this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs));
         this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as));
+        this.api.sheetSyncConfig().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => this.sheetCfg.set(c), error: () => { /* sync opcional */ } });
         if (this.period()) this.loadPeriod();
         else this.loading.set(false);
       },
@@ -503,6 +531,39 @@ export class FinanzasBancosComponent implements OnInit {
     this.view.set(v);
     if (v === 'comparador' && !this.sideBySide() && !this.sbsLoading()) this.loadSideBySide();
     if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
+    if (v === 'cuadre' && !this.threeWay() && !this.twLoading()) this.loadThreeWay();
+  }
+
+  /** CB.24 — carga el cuadre 3 vías del periodo (lazy). */
+  loadThreeWay(): void {
+    const p = this.period();
+    if (!p) return;
+    this.twLoading.set(true);
+    this.twError.set(null);
+    this.api.threeWay(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.threeWay.set(d); this.twLoading.set(false); },
+      error: () => { this.twError.set('No se pudo cargar el cuadre 3 vías.'); this.twLoading.set(false); },
+    });
+  }
+
+  /** CB.23 — sincroniza AHORA el workbook maestro del Google Sheet y recarga el periodo. */
+  runSheetSync(): void {
+    if (this.syncingSheet()) return;
+    this.syncingSheet.set(true);
+    this.api.sheetSyncRun().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.syncingSheet.set(false);
+        if (r.skipped) {
+          this.toast.add({ severity: 'info', summary: 'Sin cambios', detail: 'El Sheet no cambió desde la última sincronización.', life: 3000 });
+        } else {
+          this.toast.add({ severity: 'success', summary: `Sincronizado ${r.period}`, detail: `${r.total ?? 0} movimientos · ${r.swept ?? 0} borrados · ${r.sin_clasificar ?? 0} sin clasificar`, life: 4500 });
+        }
+        this.api.sheetSyncConfig().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => this.sheetCfg.set(c));
+        this.threeWay.set(null);
+        this.loadPeriod();
+      },
+      error: (e) => { this.syncingSheet.set(false); this.fail(e?.error?.message || 'No se pudo sincronizar del Sheet.'); },
+    });
   }
 
   /** CP.2 — carga la comparación banco vs libros ContPAQi del periodo (lazy). */
@@ -570,8 +631,11 @@ export class FinanzasBancosComponent implements OnInit {
     this.contpaqiCompare.set(null);
     this.factorajeCompare.set(null);
     this.cpqError.set(null);
+    this.threeWay.set(null);
+    this.twError.set(null);
     const p = this.period();
     if (this.view() === 'contpaqi') this.loadContpaqi();
+    if (this.view() === 'cuadre') this.loadThreeWay();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => { this.concentrado.set(c); this.loading.set(false); },
       error: () => { this.concError.set('No se pudo cargar el concentrado del periodo.'); this.loading.set(false); },

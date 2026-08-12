@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { FinanceBankService, ListMovementsQuery } from './finance-bank.service';
+import { SheetSyncService } from './sheet-sync.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -15,7 +16,10 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 @UseGuards(RolesGuard)
 @Controller('finance/bank')
 export class FinanceBankController {
-  constructor(private readonly svc: FinanceBankService) {}
+  constructor(
+    private readonly svc: FinanceBankService,
+    private readonly sheetSync: SheetSyncService,
+  ) {}
 
   @Get('accounts')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
@@ -209,4 +213,28 @@ export class FinanceBankController {
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Re-aplica las reglas a movimientos ya importados (respeta manual).' })
   reclassifyAll(@Body() body: { period?: string }) { return this.svc.reclassifyAll(body?.period); }
+
+  // ── CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi) ──
+
+  @Get('three-way')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Cuadre 3 vías: control-total Workbook/Kepler/ContPAQi + por cuenta (Workbook↔ContPAQi).' })
+  threeWay(@Query('period') period?: string) { return this.svc.threeWay(period); }
+
+  // ── CB.23 — Sync del workbook maestro (Google Sheet vía export público) ──
+
+  @Get('sheet-sync/config')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Config + estado del sync del workbook maestro (Sheet id, periodo, activo, última corrida).' })
+  sheetSyncConfig() { return this.sheetSync.config(); }
+
+  @Patch('sheet-sync/config')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Edita la config del sync (sheet_id / period / active).' })
+  sheetSyncUpdate(@Body() body: { sheet_id?: string; period?: string; active?: boolean }) { return this.sheetSync.updateConfig(body); }
+
+  @Post('sheet-sync/run')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Sincroniza AHORA el workbook maestro (baja el .xlsx del Sheet y lo procesa; force ignora el hash).' })
+  sheetSyncRun() { return this.sheetSync.syncCurrent({ force: true }); }
 }
