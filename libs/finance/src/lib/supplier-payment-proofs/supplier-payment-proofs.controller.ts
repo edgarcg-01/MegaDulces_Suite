@@ -44,8 +44,8 @@ export class SupplierPaymentProofsController {
   @Post('ocr')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Corre OCR sobre el comprobante (imagen/PDF) y devuelve los campos (preview, no guarda).' })
-  ocr(@Body() body: { file_base64?: string }) {
-    return this.svc.runOcr(body?.file_base64 || '');
+  ocr(@Body() body: { file_base64?: string; role?: string }) {
+    return this.svc.runOcr(body?.file_base64 || '', body?.role);
   }
 
   @Post('match-pago')
