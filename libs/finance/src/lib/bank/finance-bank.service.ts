@@ -524,7 +524,11 @@ export class FinanceBankService {
       // parea 1:1, así que a lo más hay un match por movimiento). Esto distingue la
       // "regla contable" (mc.kepler_account) del cruce verificado (rm.kepler_doc_folio).
       const rows = await base()
-        .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
+        // CB.27 — un movimiento puede tener N matches (pase agrupado 1:N); DISTINCT ON deja
+        // uno representativo (el de mayor monto) para no duplicar filas del grid.
+        .leftJoin(trx.raw(`(SELECT DISTINCT ON (bank_movement_id) bank_movement_id, kepler_doc_tipo, kepler_doc_folio
+             FROM finance.bank_recon_matches ORDER BY bank_movement_id, kepler_amount DESC NULLS LAST) as rm`),
+          'rm.bank_movement_id', 'bm.id')
         .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.bank_account_id',
           'bm.category_id', 'mc.code as category_code', 'mc.name as category_name', 'mc.group_key',
           'mc.kepler_account', 'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'bm.concept',
@@ -1363,15 +1367,182 @@ export class FinanceBankService {
   }
 
   /**
-   * CB.4.1 — Matching por-transacción: retiros del banco (pagos) ↔ abonos del 102
-   * de Kepler (`analytics.bank_postings`), por monto exacto + fecha ±7d (greedy,
-   * el candidato de fecha más cercana). Escribe finance.bank_recon_matches y marca
-   * bank_movements.recon_status. Solo lado pago (los depósitos/cobranza quedan a
-   * control-total en CB.4: Kepler los agrega por plaza, no casan 1:1).
+   * CB.27 — Matching v2 por banco contra el feed de tesorería (analytics.kepler_bank_movements).
+   * Escala per-cuenta (account_label): casa cada movimiento del banco (retiro Y depósito) contra
+   * el documento Kepler de LA MISMA cuenta, misma dirección, por monto+fecha. Muy superior al 102
+   * lumped: menos candidatos por banco → exacto confiable, y ahora TAMBIÉN casa depósitos/cobranza
+   * (pase agrupado 1 depósito = N cobros). Escribe finance.bank_recon_matches + recon_status.
+   */
+  async runMatchTreasury(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const cents = (x: number) => Math.round((Number(x) || 0) * 100);
+    const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+
+    const subsetSum = (arr: number[], target: number, maxN: number): number[] | null => {
+      let out: number[] | null = null;
+      const dfs = (start: number, rem: number, picked: number[]): void => {
+        if (out) return;
+        if (rem === 0 && picked.length >= 2) { out = picked.slice(); return; }
+        if (picked.length === maxN || rem < 0) return;
+        for (let i = start; i < arr.length; i++) { if (arr[i] > rem) continue; picked.push(i); dfs(i + 1, rem - arr[i], picked); picked.pop(); if (out) return; }
+      };
+      dfs(0, target, []);
+      return out;
+    };
+
+    const result = await this.tk.run(async (trx) => {
+      // Lado banco: movimientos del periodo (retiros Y depósitos) con account_label. Excluye
+      // factoraje (no vive en tesorería). dir 'out'=retiro / 'in'=depósito.
+      const bankMovs = (await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).whereNull('bm.deleted_at')
+        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'factoraje'`)
+        .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
+        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'ba.account_label'))
+        .map((b: any) => ({ id: b.id, date: b.movement_date, concept: b.concept, label: b.account_label,
+          dir: n(b.amount_out) > 0 ? 'out' : 'in', amount: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in) }));
+
+      // Lado Kepler tesorería: por cuenta + dirección (signo>0=entra, signo<0=sale).
+      const kep = (await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).whereRaw('signo <> 0')
+        .select('doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'beneficiario'))
+        .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, clave: p.clave_banco, label: p.account_label,
+          importe: n(p.importe), fecha: p.fecha_valor, benef: p.beneficiario, dir: Number(p.signo) > 0 ? 'in' : 'out', used: false }));
+
+      // Índice (cuenta|dir) → { byAmt: Map<cents, kep[]>, all: kep[] }
+      const pool = new Map<string, { byAmt: Map<number, any[]>; all: any[] }>();
+      for (const p of kep) {
+        const key = `${p.label}|${p.dir}`;
+        let e = pool.get(key); if (!e) { e = { byAmt: new Map(), all: [] }; pool.set(key, e); }
+        e.all.push(p); const c = cents(p.importe); (e.byAmt.get(c) || e.byAmt.set(c, []).get(c))!.push(p);
+      }
+      const AMT_TOL = 100;
+      const candsInTol = (byAmt: Map<number, any[]>, target: number) => {
+        const out: any[] = [];
+        for (let d = -AMT_TOL; d <= AMT_TOL; d++) { const arr = byAmt.get(target + d); if (arr) for (const p of arr) if (!p.used) out.push(p); }
+        return out;
+      };
+
+      const matches: any[] = []; const matchedSet = new Set<string>();
+      const emit = (mv: any, p: any, conf: number, by: string) => {
+        p.used = true; matchedSet.add(mv.id);
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo, kepler_doc_folio: p.folio,
+          kepler_cuenta: p.clave, kepler_amount: p.importe, match_type: 'inferred', match_confidence: conf, matched_by: by });
+      };
+
+      // Pase 1: monto exacto (o ±$1) + fecha ±7d, greedy, por (cuenta,dirección).
+      for (const mv of bankMovs) {
+        const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+        const tc = cents(mv.amount);
+        let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+        const exact = cands.length > 0;
+        if (!exact) cands = candsInTol(e.byAmt, tc);
+        if (!cands.length) continue;
+        let best: any = null, bestD = 8;
+        for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
+        if (best) emit(mv, best, exact ? (bestD === 0 ? 0.95 : 0.8) : 0.7, exact ? 'motor-tes' : 'motor-tes-tol');
+      }
+      // Pase 2: materiales ≥$5k sin casar, exacto/±$1 SIN tope de fecha.
+      let p2 = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id) || mv.amount < 5000) continue;
+        const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+        const tc = cents(mv.amount);
+        let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+        if (!cands.length) cands = candsInTol(e.byAmt, tc);
+        if (!cands.length) continue;
+        let best: any = null, bestD = Infinity;
+        for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 999; if (d < bestD) { best = p; bestD = d; } }
+        if (best) { emit(mv, best, 0.6, 'motor-tes-2p'); p2++; }
+      }
+      // Pase 3: por NOMBRE (beneficiario) + monto ±max($5,0.5%), misma cuenta+dir.
+      let p3 = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id) || mv.amount < 3000) continue;
+        const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+        const tok = nameTokens(mv.concept); if (!tok.size) continue;
+        const tol = Math.max(5, mv.amount * 0.005);
+        let best: any = null, bestScore = 0, bestD = Infinity;
+        for (const p of e.all) {
+          if (p.used || Math.abs(p.importe - mv.amount) > tol) continue;
+          const sc = nameScore(tok, nameTokens(p.benef)); if (sc < 0.5) continue;
+          const d = p.fecha ? days(mv.date, p.fecha) : 999;
+          if (sc > bestScore || (sc === bestScore && d < bestD)) { best = p; bestScore = sc; bestD = d; }
+        }
+        if (best) { emit(mv, best, 0.6, 'motor-tes-name'); p3++; }
+      }
+      // Pase 4 (agrupado): 1 movimiento del banco = N docs Kepler de la MISMA cuenta+dir
+      // (cobranza: un depósito = varias UA05; SUA en exhibiciones). Suma exacta ≤5, ventana ±10d.
+      let p4 = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id) || mv.amount < 5000) continue;
+        const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+        const cands = e.all.filter((p) => !p.used && (p.fecha ? days(mv.date, p.fecha) <= 10 : false))
+          .sort((a, b) => b.importe - a.importe).slice(0, 30);
+        if (cands.length < 2) continue;
+        const idx = subsetSum(cands.map((p) => cents(p.importe)), cents(mv.amount), 5);
+        if (!idx) continue;
+        p4++;
+        for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
+      }
+
+      // Persistir.
+      const periodMovIds = bankMovs.map((m: any) => m.id);
+      if (periodMovIds.length) {
+        await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
+        for (let i = 0; i < matches.length; i += 500) await trx('finance.bank_recon_matches').insert(matches.slice(i, i + 500));
+        await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
+        const matchedIds = [...matchedSet];
+        for (let i = 0; i < matchedIds.length; i += 500) await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+      }
+
+      const matchedBank = matchedSet.size;
+      const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
+      const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
+      const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado)`);
+      return {
+        period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
+        second_pass: p2, name_pass: p3, group_pass: p4,
+        matched_deposits: inMovs.filter((m) => matchedSet.has(m.id)).length, deposits: inMovs.length,
+        matched_withdrawals: outMovs.filter((m) => matchedSet.has(m.id)).length, withdrawals: outMovs.length,
+        unmatched_bank: bankMovs.length - matchedBank, kepler_postings: kep.length,
+        unmatched_kepler: kep.filter((p) => !p.used).length,
+        matched_amount: Math.round(matchedAmt * 100) / 100, bank_amount: Math.round(bankTotal * 100) / 100,
+        match_rate: bankMovs.length ? Math.round((matchedBank / bankMovs.length) * 100) : 0,
+      };
+    });
+
+    try { await this.syncFindings(period); } catch (e: any) { this.logger.warn(`syncFindings tras match-tesoreria falló: ${e?.message || e}`); }
+    return result;
+  }
+
+  /**
+   * CB.4.1 — Matching por-transacción (LEGACY, fallback si no hay feed de tesorería): retiros
+   * del banco (pagos) ↔ abonos del 102 de Kepler (`analytics.bank_postings`), por monto exacto
+   * + fecha ±7d. Solo lado pago (los depósitos/cobranza quedan a control-total: Kepler agrega
+   * por plaza, no casan 1:1). CB.27 lo reemplaza con el matching por banco cuando hay tesorería.
    */
   async runMatch(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    // CB.27 — si el feed de tesorería (kdm1, por banco) tiene el periodo, usar el matching
+    // v2 acotado POR CUENTA (mejor que el 102 lumped: casa por banco + ambas direcciones).
+    const [ty, tm] = period.split('-').map(Number);
+    const tIni = `${period}-01`;
+    const tFin = tm >= 12 ? `${ty + 1}-01-01` : `${ty}-${String(tm + 1).padStart(2, '0')}-01`;
+    const hasTreasury = await this.tk.run((trx) => trx('analytics.kepler_bank_movements')
+      .where('tenant_id', tenantId).whereNotNull('account_label')
+      .andWhere('fecha_valor', '>=', tIni).andWhere('fecha_valor', '<', tFin).first('doc_tipo'));
+    if (hasTreasury) return this.runMatchTreasury(period);
+
     const cents = (x: number) => Math.round((Number(x) || 0) * 100);
     const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
 
