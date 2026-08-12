@@ -249,6 +249,6 @@ Antes de cualquier decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo s
 - **Storefront** (`/portal/*`): Fraunces editorial + Hanken Grotesk + Geist Mono. Decoración intencional, ilustraciones SVG, density comfortable.
 - **Operations** (`/dashboard/*`, `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/televenta/*`): **NO Fraunces**, NO ilustraciones. Page-head = Hanken Bold. Tabla densa + master-detail como primary organism. Density compact++. Tesis "esto es serio".
 
-Comparten: paleta Stone, sunset acción (`--action`), IA ember (mata morado `#8b5cf6` y azul `#2563EB`), dark espresso (mata `#000` puro), escala de radios. Tokens en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). No desviarse sin aprobación. En QA, marcar código que no respete `DESIGN.md`.
+Comparten: paleta Stone, sunset acción (`--action`), IA ember (mata morado `#8b5cf6` y azul `#2563EB`), dark **zinc `#111111` en Operations / espresso `#16130F` en Storefront** (mata `#000` puro), escala de radios. Tokens en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) — **archivo único para las 3 apps**. No desviarse sin aprobación. En QA, marcar código que no respete `DESIGN.md`.
 
 Migración Operations (tokens.css): **pendiente de aprobación del diff** — plan documentado en sección "Plan de migración Operations" de `DESIGN.md`.

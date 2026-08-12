@@ -2,7 +2,8 @@
 
 > Fuente de verdad de UI para toda la app.
 > Dirección **"Mercado"**, creada por `/design-consultation` (2026-06-04, extendida 2026-06-08).
-> Los tokens viven en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). Este archivo manda sobre cualquier valor hardcodeado.
+> Los tokens viven en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) — **un solo archivo para las 3 apps** (`view` · `portal` · `vendor`). Este archivo manda sobre cualquier valor hardcodeado.
+> *(Consolidado 2026-08-12: antes estaba triplicado en `apps/*/src/styles/tokens.css` + un segundo bloque dentro de cada `styles.css`. Ya había divergido — portal servía Inter/JetBrains en `:root` y `--ease-standard` tenía dos valores. Ver Decisions Log.)*
 > **Fundamentos (el *por qué* + estado del arte, con citas):** [`docs/DESIGN_FOUNDATIONS.md`](docs/DESIGN_FOUNDATIONS.md) — color perceptual (OKLCH/APCA), tokens DTCG, tipografía óptica, densidad, WCAG 2.2, motion. Este archivo es operativo; ése es la base teórica.
 > **Benchmark CRM/Inventario (cómo lo hacen Linear/Attio/Carbon/Polaris/Stripe, con números):** [`docs/DESIGN_BENCHMARK_CRM_INVENTORY.md`](docs/DESIGN_BENCHMARK_CRM_INVENTORY.md). Las reglas canónicas de datos densos de aquí abajo salen de ahí.
 
@@ -21,7 +22,7 @@
 
 ## ✈️ Checklist pre-vuelo (LEER ANTES DE TOCAR FRONTEND)
 
-> **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](apps/view/src/styles/tokens.css). No es opcional.
+> **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](libs/design-tokens/tokens.css). No es opcional.
 > Cada punto enlaza a su detalle binding abajo. Si algo aquí choca con el requerimiento, se expone el conflicto y decide Edgar — no se resuelve en silencio.
 
 **1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) (`/portal/*`, editorial, Poppins, comfortable) o [Operations](#mercado--operations--surface-interno) (`/dashboard` · `/comercial` · `/logistica` · `/admin` · `/vendor` · `/televenta`; denso, sin Fraunces/Poppins display, quiet-luxury). Las reglas cambian por surface.
@@ -38,7 +39,7 @@
 
 **7. Datos densos** (Operations): [elevación = borde 1px *o* sombra, nunca ambas](#reglas-canónicas-de-datos-densos-crm--inventario--binding); fila tokenizada (`--row-h-*`); optimistic UI sin spinner; skeleton-filas; header sticky + 1ª columna congelada; side-peek para detalle; inline-edit 1 campo; **nada de zebra**.
 
-**7b. Cards — cero `p-card` plana / stat-card suelta.** Toda card se construye con un arquetipo del **repertorio** ([`FASE_J16_CARD_REPERTOIRE.md`](docs/IMPLEMENTACION/FASES/FASE_J16_CARD_REPERTOIRE.md)): KPIs → `MetricCard` (`shared/components/cards/`), y para entidad/alerta/checklist/insight/donut/mini-table/timeline los componentes del mismo dir. Base compartida (hairline + stripe 3px + spotlight), cifras Geist mono con **count-up**, [dinamismo = dato, no decoración](#motion-de-kpi-cards-binding) (`DESIGN_MOTION_KPI_CARDS.md`), **variedad por tipo de dato** (nunca 4 cards idénticas), 0 hex. Evolución en diseño (cards vivas: odómetro/flash, bullet/heat-strip, drill): [`FASE_J17_CARD_SYSTEM_2.0.md`](docs/IMPLEMENTACION/FASES/FASE_J17_CARD_SYSTEM_2.0.md).
+**7b. Cards — cero `p-card` plana / stat-card suelta.** Toda card se construye con un arquetipo del **repertorio** ([`FASE_J16_CARD_REPERTOIRE.md`](docs/IMPLEMENTACION/FASES/FASE_J16_CARD_REPERTOIRE.md)): KPIs → [`MetricCard`](apps/view/src/app/shared/components/metric-card/) y los demás arquetipos en `apps/view/src/app/shared/components/` (ver [inventario](#inventario-de-componentes-compartidos)). Base compartida (hairline + stripe 3px + spotlight), cifras Geist mono con **count-up**, [dinamismo = dato, no decoración](#motion-de-kpi-cards-binding) (`DESIGN_MOTION_KPI_CARDS.md`), **variedad por tipo de dato** (nunca 4 cards idénticas), 0 hex. Evolución en diseño (cards vivas: odómetro/flash, bullet/heat-strip, drill): [`FASE_J17_CARD_SYSTEM_2.0.md`](docs/IMPLEMENTACION/FASES/FASE_J17_CARD_SYSTEM_2.0.md).
 >
 > **ADR-033 (2026-07-17) — arquetipo `MetricStrip` "sin caja" para KPI headers.** Para los **encabezados de KPIs de página** (el número+etiqueta que antes vivía en decenas de cajitas `.kpi`/`rk-card` ad-hoc) el arquetipo canónico ahora es [`MetricStrip`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts) (`shared/components/metric-strip/`): **cero bg/borde/radio por métrica**, separación por hairline 1px, cifras Geist mono tabular con count-up on-view, color solo en la cifra vía token semántico (`ok/warn/bad/brand`, flipa en dark), delta multimodal, modo texto refinado (nombres/fechas), y modos `strip · spark · ring · bullet · composition` por forma del dato. `prefers-reduced-motion` respetado; móvil colapsa a grid 2×2. `MetricCard` (cajita rica con stripe/spotlight) se conserva para **dashboards con micro-viz propia** (home, /dashboard/reports, routes-analysis, stores-tab): esos NO se aplanan — ahí la caja + gauge/sparkline codifican dato. Regla: **header de KPIs de una pantalla → `MetricStrip`; tile rico individual con su viz → `MetricCard`.** Barrido de adopción 2026-07-17 (28 pantallas view migradas).
 
@@ -64,7 +65,7 @@
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
 
-Implementado 2026-06-24 en [`tokens.css`](apps/view/src/styles/tokens.css). Regla: **un componente nuevo referencia un rol/token, nunca inventa un hex.**
+Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla: **un componente nuevo referencia un rol/token, nunca inventa un hex.**
 
 - **Tier 1 — Primitivas** (valor crudo, sin significado): rampa `--stone-50..950`, `--brand-*`, paleta cruda. No usar directo en componentes.
 - **Tier 2 — Semánticos/rol** (qué significa): `--action`/`--action-hover/press`, `--ok/warn/bad/info-*`, superficies (`--card-bg`, `--border-color`, `--text-1/2/3`), y la **capa de interacción por alpha-overlay**: `--overlay-hover` / `--overlay-active` / `--overlay-selected`, derivados de **`--ink-rgb`** (la tinta del overlay; **se voltea por modo** — light=stone-950, dark=stone-50 — así una sola definición sirve en ambos temas).
@@ -82,9 +83,33 @@ Implementado 2026-06-24 en [`tokens.css`](apps/view/src/styles/tokens.css). Regl
 | **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
 | **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
 
-Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, dark espresso, escala de radios, tokens semánticos. Lo que **Operations** descarta: Fraunces, ilustraciones, momentos editoriales, densidad comfortable.
+Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, escala de radios, tokens semánticos. **El dark NO se comparte**: Operations usa zinc neutro `#111111` ("esto es serio"), Storefront usa espresso cálido `#16130F` (scopeado a `.portal-shell`/`.pl-wrap`). Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
 
 La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, menos drama.
+
+---
+
+## Inventario de componentes compartidos
+
+> **Antes de construir una pieza de UI, buscá acá.** Todo vive en [`apps/view/src/app/shared/components/`](apps/view/src/app/shared/components/) (excepto `context-help`, en `shared/context-help/`). Adopción medida 2026-08-12. Re-estilar a mano lo que ya existe es el antipatrón #1 de Atomic Design y está flagueado en review.
+
+| Componente | Selector | Cuándo se usa | Adopción |
+|---|---|---|---|
+| **MetricStrip** | `app-metric-strip` | **Header de KPIs de una pantalla** (ADR-033): sin caja, hairline entre métricas, cifra mono con count-up. Modos `strip · spark · ring · bullet · composition` según la forma del dato | 50 |
+| **MetricCard** | `app-metric-card` | **Tile rico individual** con su propia micro-viz (gauge/sparkline). Dashboards, no headers de página | 16 |
+| **PageTabs** | `app-page-tabs` | Barra de tabs de un apartado, con gate por `permission` por tab | 46 |
+| **TabShell** | `app-tab-shell` | Shell con tabs **ruteadas** (lee `data.tabs` de la ruta padre + `<router-outlet>`) | 0 |
+| **ContextHelp** | `app-context-help` | Regla P: cajón de ayuda de negocio desde el **diccionario versionado**. Obligatorio donde hay jerga o reglas estrictas | 31 |
+| **FreshnessPill** | `app-freshness-pill` | §9 datos añejos: "actualizado hace N min", pasa a warn tras `staleAfterSec`. Obligatorio en dato volátil | 15 |
+| **LoadState** | `app-load-state` | §2 matriz de estados: separa `loading` / `empty` / `error` (mata el bug `error === empty`). Proyecta el contenido real | 12 |
+| **SidePeek** | `app-side-peek` | §datos densos 8: drawer de detalle 480–560px sin perder la lista | 6 |
+| **Segmented** | `app-segmented` | Segmented control canónico (radiogroup accesible). Reemplazó 3 implementaciones ad-hoc | 10 |
+| **Map** / **MapLegend** | `app-map` · `app-map-legend` | Mapa Leaflet tokenizado + su leyenda | 11 / 4 |
+| **MiniBars** | `app-mini-bars` | Micro-chart de columnas para cards. SVG/CSS puro, 0 KB de librería | 1 |
+| **Customer360Panel** | `app-customer-360-panel` | Drill-down compartido de cliente | 2 |
+| **OfflineStatus** | `app-offline-status` | §PWA 5: estado de red visible en app instalable | 1 |
+
+**Huecos conocidos** (no existe componente compartido — hoy se resuelve a mano en cada pantalla): formulario/campo, tabla (se usa `p-table` + clases `surf-table--*` de `styles.css`), empty-state genérico, badge/pill, stepper, search-bar. Extraerlos es backlog abierto.
 
 ---
 
@@ -219,9 +244,8 @@ Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la cal
 ---
 
 ## Spacing
-- **Base:** 4px.
-- **Densidad:** **compact** en tool mode (catálogo, carrito, pedidos, listas), **comfortable** en storefront (home, promos, login).
-- **Escala:** 2xs(2) xs(4) sm(8) md(16) lg(24) xl(32) 2xl(48) 3xl(64).
+- **Base:** 4px. **Escala única: `--sp-1`(4) `--sp-2`(8) `--sp-3`(12) `--sp-4`(16) `--sp-5`(20) `--sp-6`(24) `--sp-8`(32) `--sp-10`(40) `--sp-12`(48).** Es el único origen de paddings/gaps/margins de layout. Excepciones legítimas: 1px (hairlines) y micro-nudges <4px en chips/badges. *(La escala `2xs(2)…3xl(64)` que figuraba acá nunca existió como token y contradecía la base de 4px — retirada.)*
+- **Densidad:** **compact** en tool mode (catálogo, carrito, pedidos, listas), **comfortable** en storefront (home, promos, login). La altura de fila la parametriza `--row-h-*` y **la decide el puntero**, no el surface.
 
 ## Layout
 - **Enfoque:** híbrido — utilitario en tool mode, editorial en storefront.
@@ -235,11 +259,16 @@ Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la cal
 - **Border radius (tokens en `tokens.css`):** `--r-sm` 8px · `--r-md` 12px (controles/botones) · `--r-lg` 16px (tarjetas) · `--r-xl` 20px (tarjetas grandes) · `--r-2xl` 24px (hero) · `--r-pill` 999px. Usar siempre el token, no el valor hardcodeado.
 
 ## Motion
+
+> **Única fuente de duraciones y curvas del sistema.** Si otra sección cita un número
+> de motion, cita a ésta. Tokens en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css).
+
 - **Enfoque:** intencional, rápido. No decorativo.
-- **Easing:** `--ease-standard: cubic-bezier(0.2, 0, 0, 1)`.
-- **Duración:** micro 50-120ms · short 150-250ms · medium 250-400ms.
+- **Duración — techo duro 350ms** (`--dur-max`). Escala: `--dur-micro` 120ms (press, tint de hover) · `--dur-short` 150ms (micro-transiciones) · `--dur-standard` 250ms (drawer, side-peek, bulk-bar) · `--dur-max` 350ms (máximo absoluto, nada lo supera). *(Corrige el rango "250-400ms" que figuraba acá y contradecía el techo binding de §datos densos 11 y §Motion KPI 7.)*
+- **Easing:** `--ease-standard: cubic-bezier(0.4, 0, 0.2, 1)` para movimiento general · `--ease-emphasized: cubic-bezier(0.2, 0, 0, 1)` para acción destacada · `--ease-decelerate` entrada · `--ease-accelerate` salida · `--ease-drawer` bottom-sheets · `--ease-spring` sólo en gestos drag-to-dismiss. *(`--ease-standard` estaba declarado con dos valores distintos en dos archivos; ganaba `0.4,0,0.2,1`. Se conservó el valor efectivo al consolidar — la curva `0.2,0,0,1` que este doc documentaba vive como `--ease-emphasized`.)*
+- **Sólo `transform` + `opacity`.** Nunca `width/height/margin/padding/box-shadow`.
 - **Mobile:** usar `HapticService` en acciones (add to cart, confirmar).
-- **Siempre** respetar `@media (prefers-reduced-motion: reduce)` (ya hecho en el portal).
+- **Siempre** respetar `@media (prefers-reduced-motion: reduce)`.
 
 ---
 
@@ -346,28 +375,37 @@ Un supervisor que entra una vez recuerda: **velocidad y densidad** — está usa
 
 | Dimensión | Operations | Storefront |
 |---|---|---|
-| Display font | NO Fraunces. Page-head = Hanken Bold + tracking tight | Fraunces |
+| Display font | **Ninguna.** Page-head = Hanken Bold + tracking tight | **Poppins** (`--font-display`) |
 | Body font | Hanken Grotesk 13/14/16 | Hanken Grotesk 14/15/16 |
 | Data font | Geist Mono + `tabular-nums` obligatorio | Geist Mono |
 | Neutrales | Stone cálido (igual que portal) | Stone |
 | Acción | `--action` sunset (igual que portal) | Sunset |
-| IA | Ember `--ember-grad` (mata `--ai-accent` azul actual) | Ember |
-| Dark | Espresso `#16130F` (mata `#000` puro actual) | Espresso |
+| IA | Ember `--ember-grad` | Ember |
+| Dark | **Zinc neutro `#111111`** | **Espresso `#16130F`** (scopeado al shell del portal) |
 | Density | **compact++** (más denso que tool-mode portal) | compact / comfortable |
 | Primary organism | **Tabla densa + master-detail**. Cards solo para KPIs minimal | Card grid |
 | Decoración | nula (sin ilustraciones SVG dulces — son del storefront) | intencional |
 | Motion | minimal-functional | intencional |
 
-### Type scale Operations
-| Token (sugerido) | Value | Uso |
+### Type scale (única, ambos surfaces)
+
+> **Los tokens reales son `--fs-*` + `--fw-*`**, en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css).
+> ⛔ **No existe ni debe crearse un namespace `--text-<rol>` para tamaños**: `--text-*` ya significa **color de texto** (`--text-main/muted/faint`). Colisionar los prefijos fue el error de la versión anterior de esta tabla (mandaba `--text-page-head/data/label`, que nunca se declararon → 0 usos en código y `font-size` crudo en su lugar).
+> Alias de color sin ambigüedad para código nuevo: `--fg-1` / `--fg-2` / `--fg-3`.
+
+| Token | Value | Uso |
 |---|---|---|
-| `--text-page-head` | 18px / 700 / -0.01em | h1 de cada apartado (`Rutas`, `Pedidos`, etc.) |
-| `--text-section-head` | 14px / 600 | h2 dentro de cards (`Visitas y tiempos`) |
-| `--text-body` | 14px / 400 | filas de tabla, párrafos |
-| `--text-data` | 14px / 500 (mono, `tabular-nums`) | cifras, SKU, folios, horas |
-| `--text-data-lg` | 18px / 600 (mono, `tabular-nums`) | KPI value |
-| `--text-meta` | 12px / 400 / muted | hint, helper, hora secundaria |
-| `--text-label` | 11px / 500 / `uppercase 0.06em` / muted | column header, KPI label |
+| `--fs-display` | 40px | headline metric — **una por vista** |
+| `--fs-h1` | 30px | page hero title (Storefront) |
+| `--fs-h2` | 20px | page-head de apartado (`Rutas`, `Pedidos`) — con `--fw-bold` + tracking tight |
+| `--fs-h3` | 16px | título de panel / section-head dentro de card |
+| `--fs-body` | 14px | body, párrafos |
+| `--fs-sm` | 13px | **base de celda de tabla** (densidad Operations) |
+| `--fs-xs` | 12px | metadatos, hint, helper, hora secundaria |
+| `--fs-micro` | 11px | column header y KPI label (`uppercase 0.06em` + muted) |
+| `--fs-nano` | 10px | micro label — último recurso |
+
+Pesos: `--fw-regular` 400 · `--fw-medium` 500 · `--fw-bold` 700 · `--fw-black` 800 (sólo headline metric). Cifras/SKU/folio: `--font-mono` + `tabular-nums` **obligatorio**.
 
 ### Color semántico de Trade (estado de visita / ejecución)
 - **visitada / fulfilled**: `--ok-soft-bg/fg` (verde)
@@ -395,7 +433,8 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 
 > Destiladas del benchmark de líderes. Aplican a toda surface Operations con tablas, registros o stock. Fuente y números: [`docs/DESIGN_BENCHMARK_CRM_INVENTORY.md`](docs/DESIGN_BENCHMARK_CRM_INVENTORY.md).
 
-1. **Elevación = una de dos, nunca ambas.** Superficies **in-page** (cards, filas, paneles, KPIs) = **borde 1px hairline `--border-color`, sin sombra**. **Overlays** (menú, popover, modal, ⌘K, toast, drawer) = **sombra + borde**. Prohibido card con sombra dentro de la página. (Attio/Linear)
+1. **Elevación = una de dos, nunca ambas.** Superficies **in-page** (cards, filas, paneles, KPIs) = **borde 1px hairline `--border-color`, sin sombra**. **Overlays** (menú, popover, modal, ⌘K, toast, drawer) = **sombra (`--shadow-float`) + borde**. Prohibido card con sombra difusa dentro de la página. (Attio/Linear)
+   - **Aclaración (resuelve el choque con el repertorio de cards):** el *spotlight* y el *hover lift* de `MetricCard` **no son elevación en reposo** — son respuesta al puntero, no jerarquía. En reposo la card es hairline pura; el spotlight aparece **sólo bajo el cursor** y el lift es `translateY(-1px)` transitorio. Un `box-shadow` permanente en una card in-page sigue prohibido.
 2. **Densidad de fila tokenizada.** Tabla Operations default **40px (`--row-h-md`)**; toggle a **32px (`--row-h-sm`)** para power users; **48px (`--row-h-lg`)** solo si la fila lleva avatar + 2 líneas. Nunca dos densidades en un mismo card. (Carbon)
 3. **Optimistic UI en toda mutación de 1 registro** (cambiar estado, asignar, editar inline, ajustar qty): mutar estado local sync → reconciliar con server → rollback visible en error. **Sin spinner** en estas acciones. (Linear)
 4. **Carga:** skeleton-shell a nivel ruta + **filas skeleton** a nivel data (shimmer, nunca spinner de bloque). Spinner solo <300ms inline. (Stripe/Linear)
@@ -404,8 +443,8 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 7. **Paginar** data transaccional/auditable (pedidos, facturas, ledger de stock) — server pagination 25–50 filas; **infinite virtualizado** solo en listas exploratorias o >200 filas visibles.
 8. **Detalle = side-peek drawer** (~480–560px, slide desde derecha, ~250ms) para ver/editar manteniendo la lista; **full page** solo para create/edit multi-sección complejo. (Attio)
 9. **Inline edit** para cambios de 1 campo (Enter commit / Esc cancel / Tab→derecha). Modal solo para confirmaciones destructivas o create con muchos requeridos.
-10. **Escala tipográfica de tabla** (ya en tokens Operations): header `--text-label` 11–12px/600 muted +0.02–0.06em · valor `--text-data` 13–14px/450 · meta `--text-meta` 12px muted · lh 1.25–1.35. `tabular-nums` **obligatorio** en toda celda numérica/dinero/qty/fecha (Geist Mono **y** números inline en Hanken).
-11. **Motion con techo duro:** 150ms micro · 250ms standard · **350ms máx**, ease-out. Animar **solo `transform`+`opacity`**; jamás `width/height/margin/padding` en tablas (reflow). No animar filas/celdas al cargar data.
+10. **Escala tipográfica de tabla:** header `--fs-micro` (11px) `--fw-medium` muted +0.02–0.06em · valor `--fs-sm` (13px) · meta `--fs-xs` (12px) muted · lh 1.25–1.35. `tabular-nums` **obligatorio** en toda celda numérica/dinero/qty/fecha (Geist Mono **y** números inline en Hanken).
+11. **Motion con techo duro:** `--dur-short` micro · `--dur-standard` · **`--dur-max` 350ms tope**, ease-out. Animar **solo `transform`+`opacity`**; jamás `width/height/margin/padding` en tablas (reflow). No animar filas/celdas al cargar data. → [§Motion](#motion) es la única fuente de estos números.
 12. **Command palette ⌘K / Ctrl+K** cuando una surface tenga 20+ destinos/acciones: navegar **+ actuar** (cambiar estado, asignar, crear), fuzzy, solo-teclado, modal 560–640px con sombra.
 13. **A11y piso:** anillo de foco **2px ≥3:1 contraste** (`--action-ring`) en todo interactivo; **icon-button hit area ≥24px** (44px objetivo mobile); focus no obstruido por headers sticky.
 
@@ -454,7 +493,7 @@ Costo bajo: casi todo es swap de tokens en `tokens.css`.
 7. Cargar Hanken + Geist Mono en `index.html` sin scope (ya están cargados — verificar).
 8. Pin tokenizado en [`MapComponent`](apps/view/src/app/shared/components/map/map.component.ts): `var(--brand, #f97316)` → `var(--action)`. Aplica también a [`routes-analysis`](apps/view/src/app/modules/dashboard/routes-analysis/routes-analysis.component.ts) que tiene el mismo fallback inline.
 9. `--focus-ring` → `--action-ring` globalmente.
-10. NUNCA Fraunces fuera de `.portal-shell` ni `.pl-wrap` — regla explícita.
+10. Fraunces quedó **retirada del sistema** (decisión 2026-06-24, ejecutada 2026-08-12: fuera de `--font-display` y de los `<link>` de las 3 apps). El display es **Poppins** y sigue siendo **storefront-only**.
 
 QA tras migrar:
 - Contraste AA en `--action` sobre `--card-bg` light + dark.
@@ -467,7 +506,7 @@ QA tras migrar:
 - Cards con íconos en círculos de color como decoración (AI slop #3).
 - 3-column feature grid (AI slop #2) — aquí no aplica porque es tool, pero alguien podría caer en eso para un dashboard de KPIs.
 - `#000` puro en dark mode.
-- `--ai-accent: #8b5cf6` morado o `#2563EB` azul.
+- Morado `#8b5cf6` o azul `#2563EB` **como acento de IA o como color de acción**. *(El azul `#2563EB` sí es legítimo como `--info-*` — información, no acción ni IA. Lo prohibido es el rol, no el hex.)*
 - Hex inline en color de pin Leaflet u otros componentes compartidos.
 - Centered everything en empties.
 - Empty state "No items found." sin contexto ni CTA.
@@ -630,7 +669,7 @@ Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: 
 
 **Q.4 — Redirección desde el dato.** Todo número/estado que **evidencia algo** es **navegable a su lugar de arreglo con el filtro ya puesto** (chip de estado, fila, Δ, ítem de checklist → vista+filtro exactos). El usuario no vuelve a buscar lo que el sistema ya sabe señalar. Refuerza estado-en-URL (§Ing.UI 9).
 
-**Q.5 — Tres niveles de jerarquía explícitos.** Cada pantalla declara **primario / secundario / terciario** y lo expresa por **escala de tipo por rol** (`--text-page-head/section-head/body/data/label`) + **contraste de texto**, nunca por color ni por más cajas (refuerza §Ing.UI 1). `tabular-nums` innegociable para que las columnas de cifras se lean como columnas.
+**Q.5 — Tres niveles de jerarquía explícitos.** Cada pantalla declara **primario / secundario / terciario** y lo expresa por **escala de tipo** (`--fs-*` + `--fw-*`) + **contraste de texto** (`--fg-1/2/3`), nunca por color ni por más cajas (refuerza §Ing.UI 1). `tabular-nums` innegociable para que las columnas de cifras se lean como columnas.
 
 **Q.6 — Color de grupo al servicio del entendimiento.** Cuando el color codifica categoría/grupo en un grid de muchos valores (patrón banco/Excel), es **determinista** (mismo grupo→mismo color siempre), **sutil** (tinte/borde, no fill saturado), **dark-safe** (paleta `--chart-*`, sin morado), con **leyenda visible** y **nunca único portador** (siempre + etiqueta/categoría). Es la excepción data-viz de la directiva quiet-luxury, no licencia para decorar.
 
@@ -702,6 +741,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-08-12 | **Tokens consolidados en un archivo único** [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) para las 3 apps + **6 contradicciones del doc resueltas** + **inventario de componentes** agregado | Auditoría del DS contra el código. La "fuente única" eran **3 copias** de `tokens.css` (una por app) **más** un segundo bloque de tokens duplicado dentro de cada `styles.css`, y ya habían divergido: `apps/portal` servía **Inter + JetBrains Mono** en `:root` (retiradas en 2026-06-04, sólo se salvaba por el override de `.portal-shell`) y **`--ease-standard` estaba declarado dos veces con curvas distintas** — ganaba la de `styles.css`, así que la curva documentada acá no era la que corría. Resueltas además: motion 400↔350ms (→ **350ms**, §Motion es la única fuente) · dark Operations zinc↔espresso (→ **zinc `#111111`**; espresso queda scopeado al portal) · dos escalas de spacing (→ **`--sp-*`**) · Fraunces "retirada" vs. autorizada en portal (→ **retirada de verdad**: fuera de `--font-display` y de los `<link>` de las 3 apps; display = Poppins, storefront-only) · elevación hairline vs. spotlight de cards (→ el spotlight/lift es **respuesta al puntero, no elevación en reposo**) · `#2563EB` antipatrón vs. `--info-fg` (→ **se prohíbe el rol, no el hex**). Y la **escala tipográfica**: el doc mandaba `--text-page-head/data/label`, que **nunca existieron** (0 declaraciones, 1 uso) y además colisionaban con `--text-*` = *color*; la escala real `--fs-*`/`--fw-*` (481 usos) quedó documentada y movida al archivo canónico, con alias `--fg-1/2/3` para color. Efecto colateral medible: el payload de fuentes de `view` y `vendor` baja de **5 familias a 2** (Inter/Fraunces/JetBrains ya no se descargan). Builds view+portal+vendor verdes. |
 | 2026-07-22 | **Jerarquía visual + comprensión en interfaces de MUCHOS valores BINDING (§Q + pre-vuelo 15)** (answer-first · explicar el número en llano · señalar la fila exacta de la diferencia · redirección desde el dato · jerarquía por tipo+contraste no por color · color-grupo determinista+leyenda+no único portador · abouts P) | El DS garantizaba tokens/estados/a11y pero no que una pantalla con muchas cifras se **entienda**: qué es primario, qué significa cada número, dónde está el problema, cómo arreglarlo. Faltaba como regla → dependía de que el usuario lo pidiera a los golpes. Destilado con Edgar sobre el rediseño de `/finanzas/bancos` (color-por-grupo, renglón que salta, lecturas en llano, chips navegables). |
 | 2026-07-20 | **Arquitectura de layouts por sector + ayuda contextual BINDING** (O.1 Fiscal = master-detail permanente sin modal para docs extensos · O.2 Almacén/Compras = full-width grid + totales congelados + sidebar colapsable + offline/frescura · O.3 Mostrador/POS = keyboard-first + total/cobro dominantes + feed al tope; P = `<app-context-help>` desde diccionario de negocio versionado) | "El layout sigue a la operación, no al componente": cada sector tiene plantilla estructural inmutable. Reconcilia con datos densos (mostrador NO pagina / bandeja auditable SÍ; fiscal split permanente vs side-peek ligero). Genera backlog: viewer fiscal master-detail, focus-mode de sidebar, componente+diccionario ContextHelp. |
 | 2026-07-20 | **Leyes de interacción + arquitectura resiliente BINDING** (Tesler, Miller/chunking, Jakob, proximidad numérica, Von Restorff/destructivo, Poka-yoke, keyboard-first + estado sucio/`CanDeactivate`, datos añejos/frescura/scroll anclado, fallos parciales en lote, idempotencia visual anti doble-clic) | Cierra los puntos ciegos de la IA como dev de frontend: diseña la fachada y omite la plomería (retención de captura, concurrencia, respuesta parcial de bulk, doble-submit financiero). El DS visual no garantizaba interacciones resilientes. Destilado de la revisión con Edgar; huecos de cumplimiento asociados (309 `error:()=>` vacíos, focus-visible ~22%) quedan como barrido aparte. |
