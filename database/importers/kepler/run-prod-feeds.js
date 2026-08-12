@@ -57,6 +57,16 @@ const STEPS = {
   receipts: [
     path.join(K, 'import-goods-receipts.js'),
   ],
+  // INTRADAY (cada ~30-60 min): feeds TRANSACCIONALES que cambian a diario y ANTES estaban
+  // huérfanos (no en ningún modo → se quedaban viejos). UPSERT churn-free; ventanas rodantes
+  // donde aplica (PAYMENTS_DAYS/…). Los agenda \Kepler\Intraday + los vigila el FeedGuardian.
+  intraday: [
+    path.join(K, 'import-supplier-payments.js'),  // CxP → analytics.erp_supplier_payments (/finanzas/pagos-comprobantes)
+    path.join(K, 'import-collections.js'),         // cobranza → analytics.erp_collections (fichas de depósito)
+    path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
+    path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
+    path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
+  ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
