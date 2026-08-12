@@ -70,9 +70,16 @@ export class ExpenseComprobacionesController {
 
   @Post('upload')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Sube un archivo (comprobación/evidencia) a Cloudinary y devuelve su referencia.' })
+  @ApiOperation({ summary: 'Sube un archivo (comprobación/evidencia) al bucket y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'comprobacion');
+  }
+
+  @Post('ocr')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'OCR del documento "Gastos" de Kepler (XA1001, imagen/PDF) → campos para auto-rellenar la comprobación. Preview.' })
+  ocr(@Body() body: { file_base64?: string }) {
+    return this.svc.runOcr(body?.file_base64 || '');
   }
 
   @Post()

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole } from '../comprobacion-gastos.service';
+import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, KeplerGastosOcr } from '../comprobacion-gastos.service';
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
 
@@ -117,6 +117,7 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     <!-- Diálogo: nueva comprobación -->
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva comprobación de gasto">
       <div class="cp-form">
+        <div class="cp-ocr-banner"><i class="pi pi-bolt" aria-hidden="true"></i> Subí el <strong>documento "Gastos" de Kepler</strong> en <em>Comprobación de gasto</em> (abajo) y auto-relleno folio, solicitante, proveedor, importe, departamento y fecha.</div>
         <label class="cp-f"><span>Gasto (Kepler XA1001) *</span>
           <p-autocomplete [(ngModel)]="gastoSel" [suggestions]="gastoSug()" (completeMethod)="searchGasto($event)"
             field="label" [forceSelection]="false" [minQueryLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
@@ -148,8 +149,9 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
         <div class="cp-files-head">Comprobación</div>
         @for (slot of fileSlots; track slot.role) {
           <label class="cp-f cp-file">
-            <span>{{ slot.label }} @if (slot.required) { <b class="cp-req">*</b> }</span>
+            <span>{{ slot.label }} @if (slot.required) { <b class="cp-req">*</b> }@if (slot.role === 'comprobacion') { <em class="cp-hint">— el doc de Kepler se lee y auto-rellena</em> }</span>
             <input type="file" [accept]="slot.accept" (change)="onFile($event, slot.role)" />
+            @if (slot.role === 'comprobacion' && ocrLoading()) { <span class="cp-proc"><i class="pi pi-spin pi-spinner"></i> Leyendo el documento de Kepler…</span> }
             @if (fileNames()[slot.role]) { <span class="cp-filepick"><i class="pi pi-paperclip"></i> {{ fileNames()[slot.role] }}</span> }
           </label>
         }
@@ -207,6 +209,10 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cp-req { color: var(--bad-fg); }
     .cp-hint { font-size: .72rem; color: var(--text-muted); }
+    /* OCR-primero del documento Kepler */
+    .cp-ocr-banner { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-left: 3px solid var(--action); border-radius: var(--r-md, .5rem); padding: .55rem .75rem; line-height: 1.35; }
+    .cp-ocr-banner .pi-bolt { color: var(--action); }
+    .cp-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .cp-f input[type=file] { font-size: .82rem; }
     .cp-files-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .4rem; border-top: 1px solid var(--border-color); padding-top: .7rem; }
     .cp-file { gap: .2rem; }
@@ -223,6 +229,9 @@ export class FinanzasComprobacionGastosComponent {
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
+  // OCR del documento "Gastos" de Kepler → auto-rellena el form.
+  readonly ocrLoading = signal(false);
 
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobacion', label: 'Comprobación de gasto', required: true, accept: '.pdf,image/*' },
@@ -338,11 +347,69 @@ export class FinanzasComprobacionGastosComponent {
     this.formError.set('');
     const reader = new FileReader();
     reader.onload = () => {
-      this.fileData[role] = String(reader.result || '');
+      const dataUri = String(reader.result || '');
+      this.fileData[role] = dataUri;
       delete this.uploaded[role];
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
+      // OCR-primero: al subir el documento "Gastos" de Kepler, auto-rellena el form.
+      if (role === 'comprobacion') this.runGastoOcr(dataUri);
     };
     reader.readAsDataURL(file);
+  }
+
+  /** Lee el documento "Gastos" de Kepler (XA1001) y auto-rellena la captura. */
+  private runGastoOcr(dataUri: string) {
+    this.ocrLoading.set(true);
+    this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (o) => {
+        this.ocrLoading.set(false);
+        if (o.ocr_status === 'sin_key') { this.toast.add({ severity: 'info', summary: 'OCR no disponible', detail: 'Captura los datos a mano.' }); return; }
+        if (o.ocr_status === 'ilegible') { this.toast.add({ severity: 'warn', summary: 'No se pudo leer', detail: 'Captura los datos a mano.' }); return; }
+        this.applyGastoOcr(o);
+        this.cdr.markForCheck();
+      },
+      error: () => { this.ocrLoading.set(false); },
+    });
+  }
+
+  private applyGastoOcr(o: KeplerGastosOcr) {
+    const f = this.form;
+    if (o.folio) f.folio_gasto = o.folio;
+    if (o.solicitante) f.solicitante = o.solicitante;
+    if (o.proveedor) f.proveedor = o.proveedor; else if (o.proveedor_code) f.proveedor = o.proveedor_code;
+    if (o.importe != null) f.importe = o.importe;
+    if (!f.comentarios && (o.comentarios || o.descripcion)) f.comentarios = o.comentarios || o.descripcion || '';
+    if (o.fecha) { const d = this.parseIso(o.fecha); if (d) this.fechaComprobacion = d; }
+    // Departamento: casa el código con el catálogo (tolerante a espacios).
+    if (o.departamento) {
+      const norm = (s: string) => s.replace(/\s/g, '');
+      const dep = this.departamentos().find((x) => x.code === o.departamento || norm(x.code) === norm(o.departamento!));
+      if (dep) { f.departamento_code = dep.code; this.sucursalDerivada.set(dep.sucursal || ''); }
+    }
+    // Auto-match el gasto Kepler por folio (completa proveedor/importe/sucursal si faltan).
+    if (o.folio) this.autoMatchGasto(o.folio);
+    this.toast.add({ severity: 'success', summary: 'Datos leídos del gasto Kepler', detail: `${o.folio || ''} · ${o.proveedor || o.proveedor_code || ''}`.trim() });
+  }
+
+  private parseIso(s: string): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  }
+
+  /** Confirma el gasto en el espejo Kepler por folio y completa lo que falte. */
+  private autoMatchGasto(folio: string) {
+    this.svc.searchGastos(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => {
+        const g = (rows || []).find((r) => r.folio_gasto === folio) || (rows || [])[0];
+        if (!g) return;
+        this.form.folio_gasto = g.folio_gasto;
+        if (g.proveedor && !this.form.proveedor) this.form.proveedor = g.proveedor;
+        if (g.importe && !this.form.importe) this.form.importe = g.importe;
+        if (g.sucursal && !this.form.sucursal) this.form.sucursal = g.sucursal;
+        this.cdr.markForCheck();
+      },
+      error: () => { /* el OCR ya rellenó lo básico */ },
+    });
   }
 
   private fmtDate(d?: Date | null): string | undefined {

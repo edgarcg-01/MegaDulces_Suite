@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-core';
 import { ExpenseComprobacionesService } from './expense-comprobaciones.service';
 import { ExpenseComprobacionesController } from './expense-comprobaciones.controller';
 
@@ -9,7 +9,7 @@ import { ExpenseComprobacionesController } from './expense-comprobaciones.contro
  * Lee los gastos del espejo `analytics.expense_documents`; NO escribe a Kepler.
  */
 @Module({
-  imports: [CloudinaryModule],
+  imports: [CloudinaryModule, AiProductMatcherModule],
   controllers: [ExpenseComprobacionesController],
   providers: [ExpenseComprobacionesService],
   exports: [ExpenseComprobacionesService],

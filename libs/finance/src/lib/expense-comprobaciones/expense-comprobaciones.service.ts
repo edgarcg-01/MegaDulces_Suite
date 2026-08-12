@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields } from '@megadulces/platform-core';
 
 /**
  * GX.8 — Comprobación de Gastos (2ª etapa). Captura de la comprobación de un gasto,
@@ -55,7 +55,22 @@ export class ExpenseComprobacionesService {
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
+    private readonly ocr: LlmExtractorService,
   ) {}
+
+  /** OCR del documento "Gastos" de Kepler (XA1001, imagen/PDF) → auto-rellena la captura. Preview. */
+  async runOcr(dataUri: string): Promise<KeplerGastosFields & { ocr_status: string }> {
+    this.tenantCtx.requireTenantId();
+    if (!dataUri) throw new BadRequestException('archivo requerido');
+    const m = /^data:([^;,]+)[;,]/.exec(dataUri || '');
+    const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
+    const base64 = dataUri.replace(/^data:[^,]*,/, '');
+    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, departamento: null, importe: null, fecha: null, poliza: null, sucursal: null, descripcion: null, comentarios: null };
+    if (!process.env.ANTHROPIC_API_KEY) return { ...empty, ocr_status: 'sin_key' };
+    const f = await this.ocr.extractKeplerGastos(base64, mediaType as any);
+    const any = f.folio || f.importe != null || f.solicitante || f.proveedor;
+    return { ...f, ocr_status: any ? 'ok' : 'ilegible' };
+  }
 
   /**
    * Autocomplete del "Folio del Gasto": busca gastos de Kepler (XA1001) en el espejo
@@ -88,10 +103,10 @@ export class ExpenseComprobacionesService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!COMPROBACION_FILE_ROLES.includes(role as ComprobacionFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/expense-comprobaciones`); // solo PDF → Railway Bucket
+      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/expense-comprobaciones`); // imagen o PDF (el doc Kepler suele fotografiarse)
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
+      if (e?.status === 400) throw e; // "no configurado" (faltan env S3_*)
       this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }

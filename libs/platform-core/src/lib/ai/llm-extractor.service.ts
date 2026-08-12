@@ -50,6 +50,22 @@ export interface RemisionFields {
   documents_present: string[];
 }
 
+/** Campos del documento "Gastos" de Kepler (XA1001) — auto-rellena la comprobación de gasto. */
+export interface KeplerGastosFields {
+  documento: string | null;      // folio completo "XA1001-0006569"
+  folio: string | null;          // parte numérica del folio ("0006569")
+  solicitante: string | null;    // campo "Solicita"
+  proveedor_code: string | null; // código del proveedor ("GG015")
+  proveedor: string | null;      // razón social / "A nombre de"
+  departamento: string | null;   // código de departamento ("1-02-30-73")
+  importe: number | null;        // IMPORTE (total del gasto)
+  fecha: string | null;          // ISO YYYY-MM-DD
+  poliza: string | null;         // póliza contable ("D 21369")
+  sucursal: string | null;       // "CEDIS", etc.
+  descripcion: string | null;    // descripción del gasto
+  comentarios: string | null;    // comentarios
+}
+
 /**
  * Fase CC ext — Campos de un COMPROBANTE DE PAGO A PROVEEDOR (transferencia SPEI
  * saliente / cheque / anticipo). Semántica INVERSA al depósito: la empresa ORDENA
@@ -219,6 +235,26 @@ export class LlmExtractorService implements OnModuleInit {
       return await this.callClaudeVisionRemision(fileBase64, mediaType);
     } catch (e: any) {
       this.logger.warn(`Claude remisión extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  /**
+   * Comprobación de gastos (GX.8) — Extrae los campos del documento "Gastos" de Kepler
+   * (XA1001) para AUTO-RELLENAR la captura (folio, solicitante, proveedor, departamento,
+   * importe, fecha, póliza). El doc es muy estructurado. Imagen o PDF. null si ilegible.
+   */
+  async extractKeplerGastos(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<KeplerGastosFields> {
+    const empty: KeplerGastosFields = { documento: null, folio: null, solicitante: null, proveedor_code: null, proveedor: null, departamento: null, importe: null, fecha: null, poliza: null, sucursal: null, descripcion: null, comentarios: null };
+    if (!this.apiKey) { this.logger.warn('Gastos OCR sin ANTHROPIC_API_KEY — devuelvo vacío'); return empty; }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionGastos(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude gastos extract failed: ${e.message}`);
       return empty;
     }
   }
@@ -1046,6 +1082,73 @@ export class LlmExtractorService implements OnModuleInit {
       iva: num(inp.iva),
       total: num(inp.total),
       documents_present: docs,
+    };
+  }
+
+  private async callClaudeVisionGastos(fileBase64: string, mediaType: string): Promise<KeplerGastosFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 700,
+        toolChoice: { type: 'tool', name: 'extract_gastos' },
+        tools: [
+          {
+            name: 'extract_gastos',
+            description:
+              'Extrae los datos del documento "Gastos" de Kepler (ERP mexicano; encabezado "Gastos" con "Documento XA1001-NNNN"). ' +
+              'Es un GASTO INTERNO (caja chica / viáticos / servicios), NO una factura de proveedor externo. Copiá los valores tal cual. ' +
+              'Usa null para lo que no se distinga. NO inventes.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                documento: { type: ['string', 'null'], description: 'Folio completo del campo "Documento" (ej. "XA1001-0006569"). Copiar tal cual. null si no se ve.' },
+                folio: { type: ['string', 'null'], description: 'Solo la parte numérica del folio (después del guion; de "XA1001-0006569" → "0006569"). null si no se ve.' },
+                solicitante: { type: ['string', 'null'], description: 'Texto del campo "Solicita" (quién solicitó el gasto). null si no se ve.' },
+                proveedor_code: { type: ['string', 'null'], description: 'Código del campo "Proveedor" (ej. "GG015"). null si no se ve.' },
+                proveedor: { type: ['string', 'null'], description: 'Razón social o el texto de "A nombre de". null si no se ve.' },
+                departamento: { type: ['string', 'null'], description: 'Código de la columna "Departamento" (ej. "1-02-30-73"). NO uses el "Proyecto". null si no se ve.' },
+                importe: { type: ['number', 'null'], description: 'IMPORTE total del gasto en pesos, sin símbolo ni comas (ej. 1000). null si no se ve.' },
+                fecha: { type: ['string', 'null'], description: 'Campo "Fecha" en ISO YYYY-MM-DD (el doc usa dd-mm-aaaa: "03-08-2026" → "2026-08-03"). null si no se ve.' },
+                poliza: { type: ['string', 'null'], description: 'Póliza contable (ej. "D 21369"). null si no se ve.' },
+                sucursal: { type: ['string', 'null'], description: 'Campo "Sucursal" (ej. "CEDIS"). null si no se ve.' },
+                descripcion: { type: ['string', 'null'], description: 'Descripción del gasto (columna "Descripción"). null si no se ve.' },
+                comentarios: { type: ['string', 'null'], description: 'Texto del campo "Comentarios". null si no se ve.' },
+              },
+              required: ['documento', 'folio', 'solicitante', 'proveedor_code', 'proveedor', 'departamento', 'importe', 'fecha', 'poliza', 'sucursal', 'descripcion', 'comentarios'],
+            },
+          },
+        ],
+        messages: [
+          { role: 'user', content: [fileBlock, { type: 'text', text: 'Este es el documento "Gastos" (XA1001) de Kepler que ampara un gasto ejercido. Extrae sus datos con extract_gastos para auto-rellenar la comprobación.' }] },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<{ type: 'text'; text: string } | { type: 'tool_use'; name: string; input: Record<string, unknown> }>;
+    };
+    const toolUse = json.content.find((c): c is Extract<typeof c, { type: 'tool_use' }> => c.type === 'tool_use' && c.name === 'extract_gastos');
+    if (!toolUse) throw new Error('Claude gastos no devolvió tool_use');
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => { if (typeof v !== 'string') return null; const t = v.trim(); return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null; };
+    return {
+      documento: str(inp.documento),
+      folio: str(inp.folio),
+      solicitante: str(inp.solicitante),
+      proveedor_code: str(inp.proveedor_code),
+      proveedor: str(inp.proveedor),
+      departamento: str(inp.departamento),
+      importe: num(inp.importe),
+      fecha: this.parseTicketDate(inp.fecha),
+      poliza: str(inp.poliza),
+      sucursal: str(inp.sucursal),
+      descripcion: str(inp.descripcion),
+      comentarios: str(inp.comentarios),
     };
   }
 

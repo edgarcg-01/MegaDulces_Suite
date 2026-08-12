@@ -87,6 +87,15 @@ export interface CreateComprobacion {
   files?: ProofFile[];
 }
 
+/** OCR del documento "Gastos" de Kepler (XA1001) → auto-rellena la captura. */
+export interface KeplerGastosOcr {
+  documento: string | null; folio: string | null; solicitante: string | null;
+  proveedor_code: string | null; proveedor: string | null; departamento: string | null;
+  importe: number | null; fecha: string | null; poliza: string | null;
+  sucursal: string | null; descripcion: string | null; comentarios: string | null;
+  ocr_status: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprobacionGastosService {
   private readonly http = inject(HttpClient);
@@ -110,6 +119,10 @@ export class ComprobacionGastosService {
   }
   uploadFile(file_base64: string, role: ComprobacionFileRole): Observable<ProofFile> {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });
+  }
+  /** OCR del documento "Gastos" de Kepler (XA1001) → campos para auto-rellenar. */
+  ocr(file_base64: string): Observable<KeplerGastosOcr> {
+    return this.http.post<KeplerGastosOcr>(`${this.base}/ocr`, { file_base64 });
   }
   create(body: CreateComprobacion): Observable<{ id: string; folio_gasto: string; folio_solicitud: string | null; status: string }> {
     return this.http.post<{ id: string; folio_gasto: string; folio_solicitud: string | null; status: string }>(this.base, body);
