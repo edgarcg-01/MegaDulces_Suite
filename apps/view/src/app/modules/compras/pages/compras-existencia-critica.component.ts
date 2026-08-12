@@ -85,7 +85,7 @@ interface DraftLine {
           <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                          optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiselect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel" appendTo="body"></p-multiselect>
           <div class="ec-atajos">
             <span class="ec-atajos-lbl">Atajos:</span>
             <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
@@ -95,21 +95,21 @@ interface DraftLine {
           </div>
         </div>
         <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel" appendTo="body"></p-select>
         <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel" appendTo="body"></p-select>
         <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar categoría (Guadalajara, Arandas…)" [resetFilterOnHide]="true"
-                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" ariaLabel="Filtrar por categoría de compra"></p-select>
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" ariaLabel="Filtrar por categoría de compra" appendTo="body"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
-                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide"></p-select>
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" appendTo="body"></p-select>
         <p-select [options]="abcOpts" [(ngModel)]="fAbc" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
         <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
         <p-iconfield styleClass="ec-search">
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="onSearchChange($event)" (keyup.enter)="reload()"

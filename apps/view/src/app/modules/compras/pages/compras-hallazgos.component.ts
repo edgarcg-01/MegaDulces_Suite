@@ -37,8 +37,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       </header>
 
       <div class="hz-filters">
-        <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="hz-sel"></p-select>
-        <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="reload()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" styleClass="hz-sel"></p-select>
+        <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="hz-sel" appendTo="body"></p-select>
+        <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="reload()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" styleClass="hz-sel" appendTo="body"></p-select>
         <span class="hz-count">{{ total() | number }} hallazgo(s)</span>
       </div>
 

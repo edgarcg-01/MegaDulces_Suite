@@ -53,7 +53,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             </td>
             <td>
               <p-select [options]="sourceOptsFor(n)" [(ngModel)]="n.source_warehouse_id" (onChange)="save(n)"
-                        optionLabel="label" optionValue="value" placeholder="Proveedores (es CEDIS)" [showClear]="true" styleClass="cr-sel"></p-select>
+                        optionLabel="label" optionValue="value" placeholder="Proveedores (es CEDIS)" [showClear]="true" styleClass="cr-sel" appendTo="body"></p-select>
             </td>
             <td class="cr-r">
               @if (n.supply_cadence_days != null) {

@@ -64,7 +64,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
         <div class="qt-abasto">
           <div class="qt-abasto-head">
             <span class="qt-abasto-title">Punto de abasto <span class="qt-muted">· del filtro ({{ a.total_policies | number }} SKU)</span></span>
-            <p-select [options]="abastoUnidadOpts" [ngModel]="abastoUnidad()" (ngModelChange)="abastoUnidad.set($event)" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" ariaLabel="Unidad del punto de abasto"></p-select>
+            <p-select [options]="abastoUnidadOpts" [ngModel]="abastoUnidad()" (ngModelChange)="abastoUnidad.set($event)" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" ariaLabel="Unidad del punto de abasto" appendTo="body"></p-select>
           </div>
           <div class="qt-abasto-cards">
             <div class="qt-ab-card qt-ab-min"><span class="qt-ab-k">Mínimo</span><span class="qt-ab-v">{{ abastoFmt(a.min_valor, a.min_cajas) }}</span></div>
@@ -79,7 +79,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
         <div class="qt-wh">
           <p-multiselect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
                          optionLabel="label" optionValue="id" placeholder="Todos los almacenes" [showClear]="true"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiselect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel" appendTo="body"></p-multiselect>
           <div class="qt-atajos">
             <span class="qt-atajos-lbl">Atajos:</span>
             <button type="button" class="qt-atajo" [class.on]="!fWh.length" (click)="clearWh()">Todos</button>
@@ -89,20 +89,20 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           </div>
         </div>
         <p-select [options]="viaOpts" [(ngModel)]="fVia" (onChange)="reload()" optionLabel="label" optionValue="value"
-                  placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm"></p-select>
-        <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
+                  placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm" appendTo="body"></p-select>
+        <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" appendTo="body"></p-select>
         <p-select [options]="basisOpts" [ngModel]="fBasis()" (ngModelChange)="fBasis.set($event); reload()" optionLabel="label" optionValue="value"
-                  placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom"></p-select>
+                  placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom" appendTo="body"></p-select>
         <p-select [options]="unitOpts" [ngModel]="orderUnit()" (ngModelChange)="orderUnit.set($event)" optionLabel="label" optionValue="value"
-                  styleClass="qt-sel-sm" ariaLabel="Unidad de captura del pedido" pTooltip="Capturar el pedido en cajas o en piezas (equivalen por el factor de la caja)" tooltipPosition="bottom"></p-select>
+                  styleClass="qt-sel-sm" ariaLabel="Unidad de captura del pedido" pTooltip="Capturar el pedido en cajas o en piezas (equivalen por el factor de la caja)" tooltipPosition="bottom" appendTo="body"></p-select>
         <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar por código o nombre (996, Guadalajara, Arandas…)" [resetFilterOnHide]="true"
-                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por categoría de compra"></p-select>
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por categoría de compra" appendTo="body"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
-                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por proveedor" appendTo="body"></p-select>
         <span class="qt-count">{{ total() | number }} par(es) activo(s)</span>
       </div>
 

@@ -32,7 +32,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <div class="oc-filters">
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="oc-sel"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="oc-sel" appendTo="body"></p-select>
       </div>
 
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"

@@ -92,8 +92,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
           <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
-                    optionLabel="label" optionValue="value" [showClear]="true" [disabled]="catsDenied()"
-                    [placeholder]="catsDenied() ? 'Categorías: sin permiso (COMPRAS_CATEGORIAS_VER)' : 'Todas las categorías'"
+                    optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                     [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
           <button type="button" class="pr-colbtn" [class.pr-colbtn-on]="wbGroup()==='branch'" (click)="toggleGroup()"
                   [attr.aria-pressed]="wbGroup()==='branch'"
@@ -696,9 +695,6 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   fBrand: string | null = null;                                       // filtro de marca (igual que /comercial/salidas)
   fWarehouse: string | null = null;
   fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
-  categoryOpts = signal<{ label: string; value: string }[]>([]);
-  /** 403 en /categories (requiere COMPRAS_CATEGORIAS_VER) → el select se explica en vez de verse vacío. */
-  readonly catsDenied = signal(false);
   search = '';
   coverage = 30;
 
@@ -721,6 +717,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly filters = signal<ReplenishmentFilters | null>(null);
   supplierOpts = computed(() => (this.filters()?.suppliers ?? []).map((s) => ({ label: s.name, value: s.id })));
   brandOpts = computed(() => (this.filters()?.brands ?? []).map((b) => ({ label: b.name, value: b.id })));
+  // Categorías salen del MISMO payload de /filters (que ya las trae) en vez de un GET aparte a
+  // /categories: ese endpoint exige COMPRAS_CATEGORIAS_VER — permiso que esta ruta NO pide — así
+  // que un rol con solo COMPRAS_PEDIDO_VER recibía 403 y el filtro quedaba vacío para siempre.
+  categoryOpts = computed(() => (this.filters()?.categories ?? []).map((c) => ({ label: c.name, value: c.id })));
   warehouseOpts = computed(() => (this.filters()?.warehouses ?? []).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
   private readonly whName = computed(() => {
     const m = new Map<string, string>();
@@ -740,12 +740,6 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           ? 'Tu rol no tiene permiso para leer proveedores/marcas/sucursales.'
           : (e?.error?.message || 'No se pudieron cargar proveedor / marca / sucursal.'),
       }),
-    });
-    // Categorías van por su propio endpoint, gateado con COMPRAS_CATEGORIAS_VER (permiso
-    // distinto al de esta ruta) → un rol con solo COMPRAS_PEDIDO_VER recibe 403 acá.
-    this.api.listCategories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (cs) => this.categoryOpts.set(cs.map((c) => ({ label: c.name, value: c.id }))),
-      error: (e) => this.catsDenied.set(e?.status === 403),
     });
     this.restoreFilters();
     if (this.mode() === 'muerto') this.loadDead();

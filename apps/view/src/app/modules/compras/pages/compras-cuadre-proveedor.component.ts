@@ -55,7 +55,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
         @if (entryMode() === 'kepler') {
-          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cq-sel" ariaLabel="Rango de fecha rápido" />
+          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cq-sel" ariaLabel="Rango de fecha rápido" appendTo="body" />
           <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="cq-dp" ariaLabel="Desde" />
           <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cq-dp" ariaLabel="Hasta" />
         } @else {
