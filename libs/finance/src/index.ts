@@ -26,3 +26,5 @@ export * from './lib/polizas/finance-polizas.module';
 export * from './lib/polizas/polizas.service';
 export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
+export * from './lib/caja/finance-caja-general.module';
+export * from './lib/caja/caja-general.service';
