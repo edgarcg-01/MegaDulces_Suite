@@ -218,8 +218,18 @@ export class FinanceBankController {
 
   @Get('three-way')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
-  @ApiOperation({ summary: 'Cuadre 3 vías: control-total Workbook/Kepler/ContPAQi + por cuenta (Workbook↔ContPAQi).' })
+  @ApiOperation({ summary: 'Cuadre 3 vías: control-total Workbook/Kepler/ContPAQi + por cuenta + cobertura.' })
   threeWay(@Query('period') period?: string) { return this.svc.threeWay(period); }
+
+  @Get('three-way-detail')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CB.33 — Drill 3 vías por cuenta a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi) + huérfanos.' })
+  threeWayDetail(@Query('period') period?: string, @Query('account_label') accountLabel?: string) { return this.svc.threeWayDetail(period, accountLabel); }
+
+  @Get('cheques-transito')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CB.30 — Cheques Kepler del periodo: cobrados vs en tránsito (gap de timing banco↔Kepler).' })
+  chequesTransito(@Query('period') period?: string) { return this.svc.chequesEnTransito(period); }
 
   // ── CB.23 — Sync del workbook maestro (Google Sheet vía export público) ──
 

@@ -1,7 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
-import { ThreeWay, ThreeWayRow } from '../../bank.service';
+import { DialogModule } from 'primeng/dialog';
+import { ButtonModule } from 'primeng/button';
+import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
 import { cuadra, money0 } from './bancos-shared';
 
 /**
@@ -16,7 +19,7 @@ import { cuadra, money0 } from './bancos-shared';
 @Component({
   selector: 'bancos-three-way',
   standalone: true,
-  imports: [CommonModule, TableModule],
+  imports: [CommonModule, TableModule, DialogModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (data(); as d) {
@@ -116,8 +119,8 @@ import { cuadra, money0 } from './bancos-shared';
               </tr>
             </ng-template>
             <ng-template #body let-r>
-              <tr>
-                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span></td>
+              <tr class="tw-clickable" (click)="openDrill(d.period, r)" title="Ver detalle a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi)">
+                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span> <i class="pi pi-search-plus tw-drill-ico"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -135,9 +138,91 @@ import { cuadra, money0 } from './bancos-shared';
           </p-table>
         </div>
       </div>
+      <!-- CB.30 — Cheques en tránsito: el gap de timing banco↔Kepler -->
+      @if (cheques(); as ch) {
+        @if (ch.total.cheques_n > 0) {
+          <div class="card-premium card-flat tw-card">
+            <h3 class="fb-card-title fb-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
+            <div class="tw-chq-kpis">
+              <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
+              <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
+            </div>
+            <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
+            @if (ch.total.en_transito_n > 0) {
+              <div class="tw-wrap">
+                <table class="tw-tbl tw-chq-tbl">
+                  <thead><tr><th>Cuenta</th><th>Doc</th><th>Beneficiario</th><th class="ta-r">Importe</th><th>Emitido</th></tr></thead>
+                  <tbody>
+                    @for (q of transito(ch); track q.folio) {
+                      <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
+                        <td class="tw-concept">{{ q.beneficiario || '—' }}</td>
+                        <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="mono muted">{{ q.fecha | date:'dd/MM' }}</td></tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        }
+      }
     } @else {
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de cuadre para {{ period() }}.</p></div>
     }
+
+    <!-- CB.33 — Drill por cuenta a nivel movimiento -->
+    <p-dialog [visible]="drillOpen()" (visibleChange)="drillOpen.set($event)" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '64rem', maxWidth: '96vw' }" [draggable]="false" [header]="drillTitle()">
+      @if (drillLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando movimientos…</p></div> }
+      @else if (drillErr()) { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ drillErr() }}</p></div> }
+      @else if (drill(); as dd) {
+        <p class="dlg-lead">Cada movimiento del <b>banco</b> (Excel) marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).</p>
+        <div class="tw-drill-kpis">
+          <span><b>{{ dd.totals.excel_n }}</b> movs banco</span>
+          <span class="ok"><b>{{ dd.totals.excel_en_kepler }}</b> en Kepler</span>
+          <span class="ok"><b>{{ dd.totals.excel_en_contpaqi }}</b> en ContPAQi</span>
+          @if (dd.totals.kepler_only_n) { <span class="warn"><b>{{ dd.totals.kepler_only_n }}</b> solo Kepler ({{ dd.totals.kepler_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+          @if (dd.totals.contpaqi_only_n) { <span class="warn"><b>{{ dd.totals.contpaqi_only_n }}</b> solo ContPAQi ({{ dd.totals.contpaqi_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+        </div>
+        <div class="tw-wrap">
+          <table class="tw-tbl tw-drill-tbl">
+            <thead><tr><th>Fecha</th><th class="ta-c">Dir</th><th class="ta-r">Importe</th><th>Concepto</th><th class="ta-c">Kepler</th><th class="ta-c">ContPAQi</th></tr></thead>
+            <tbody>
+              @for (e of dd.excel; track e.id) {
+                <tr>
+                  <td class="mono muted nowrap">{{ e.fecha | date:'dd/MM' }}</td>
+                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left fb-in-ico' : 'pi pi-arrow-up-right fb-out-ico'"></i></td>
+                  <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="tw-concept">{{ e.concepto || '—' }}</td>
+                  <td class="ta-c">@if (e.kepler) { <i class="pi pi-check ok" [title]="e.kepler_doc || ''"></i> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-c">@if (e.contpaqi) { <i class="pi pi-check ok" [title]="e.contpaqi_poliza || ''"></i> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (dd.kepler_only.length || dd.contpaqi_only.length) {
+          <div class="tw-orphans">
+            @if (dd.kepler_only.length) {
+              <div class="tw-orphan">
+                <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
+                <table class="tw-tbl"><tbody>
+                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ k.fecha | date:'dd/MM' }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
+                </tbody></table>
+              </div>
+            }
+            @if (dd.contpaqi_only.length) {
+              <div class="tw-orphan">
+                <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
+                <table class="tw-tbl"><tbody>
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ c.fecha | date:'dd/MM' }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                </tbody></table>
+              </div>
+            }
+          </div>
+        }
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -191,11 +276,73 @@ import { cuadra, money0 } from './bancos-shared';
     .tw-cov-src.stale .tw-cov-fill { background: var(--warn-fg); }
     .tw-cov-meta { font-size: var(--fs-2xs, .7rem); font-variant-numeric: tabular-nums; }
     .tw-cov-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
+    /* CB.33 — filas clicables (drill) */
+    .tw-clickable { cursor: pointer; }
+    .tw-clickable:hover { background: var(--hover-bg); }
+    .tw-drill-ico { font-size: .7rem; color: var(--text-faint); margin-left: 4px; opacity: 0; transition: opacity 120ms ease; }
+    .tw-clickable:hover .tw-drill-ico { opacity: 1; }
+    .warn { color: var(--warn-fg); }
+    .tw-faint { color: var(--text-faint); font-size: .7rem; }
+    .nowrap { white-space: nowrap; }
+    .tw-concept { color: var(--text-muted); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* CB.30 — cheques en tránsito */
+    .tw-chq-kpis { display: flex; gap: var(--sp-4); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); }
+    .tw-chq-kpi { display: flex; flex-direction: column; gap: 1px; }
+    .tw-chq-v { font-size: var(--fs-lg, 1.125rem); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tw-chq-kpi.bad .tw-chq-v { color: var(--warn-fg); }
+    .tw-chq-kpi.ok .tw-chq-v { color: var(--ok-fg); }
+    .tw-chq-l { font-size: var(--fs-xs); color: var(--text-muted); }
+    .tw-chq-tbl th, .tw-chq-tbl td { padding: var(--sp-1) var(--sp-3); }
+    /* CB.33 — dialog drill */
+    .dlg-lead { font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; margin: 0 0 var(--sp-3); }
+    .tw-drill-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: var(--sp-3); }
+    .tw-drill-kpis b { color: var(--text-main); }
+    .tw-drill-tbl th, .tw-drill-tbl td { padding: var(--sp-1) var(--sp-3); }
+    .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
+    @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
+    .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+    .tw-orphan h4 { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); background: var(--surface-ground); }
+    .tw-orphan table td { padding: 3px var(--sp-3); border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); }
   `],
 })
 export class BancosThreeWayComponent {
   readonly data = input.required<ThreeWay | null>();
   readonly period = input<string>('');
+
+  private readonly api = inject(BankService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  // CB.30 — cheques en tránsito (se traen al cambiar el periodo).
+  readonly cheques = signal<ChequesTransito | null>(null);
+  // CB.33 — drill por cuenta a nivel movimiento.
+  readonly drillOpen = signal(false);
+  readonly drillLoading = signal(false);
+  readonly drillErr = signal<string | null>(null);
+  readonly drill = signal<ThreeWayDetail | null>(null);
+  private drillAcct = '';
+
+  constructor() {
+    effect(() => {
+      const d = this.data();
+      this.cheques.set(null);
+      if (d?.period) {
+        this.api.chequesTransito(d.period).pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({ next: (c) => this.cheques.set(c), error: () => this.cheques.set(null) });
+      }
+    });
+  }
+
+  transito(ch: ChequesTransito) { return ch.cheques.filter((q) => !q.cobrado).slice(0, 50); }
+
+  drillTitle(): string { return this.drillAcct ? `Detalle 3 vías — ${this.drillAcct}` : 'Detalle'; }
+  openDrill(period: string, r: ThreeWayAccount): void {
+    this.drillAcct = `${r.bank} ${r.account_label}`;
+    this.drill.set(null); this.drillErr.set(null); this.drillOpen.set(true); this.drillLoading.set(true);
+    this.api.threeWayDetail(period, r.account_label).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (dd) => { this.drill.set(dd); this.drillLoading.set(false); },
+      error: () => { this.drillErr.set('No se pudo cargar el detalle de la cuenta.'); this.drillLoading.set(false); },
+    });
+  }
 
   cuad = cuadra;
 
