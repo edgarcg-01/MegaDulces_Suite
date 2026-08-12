@@ -50,7 +50,7 @@ export interface DepositOcr {
   ocr_status: string;
 }
 
-export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null; }
 
 /** Un cargo del estado de cuenta (finance.bank_movements, amount_out). */
 export interface BankMovementMatch {
@@ -153,9 +153,9 @@ export class PagosComprobantesService {
     if (doc_prefix) params = params.set('doc_prefix', doc_prefix);
     return this.http.get<PagoDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`, { params });
   }
-  /** Corre OCR sobre el comprobante (data URI, imagen/PDF) — preview, no guarda. */
-  ocr(file_base64: string): Observable<DepositOcr> {
-    return this.http.post<DepositOcr>(`${this.base}/ocr`, { file_base64 });
+  /** Corre OCR — `comprobante` (PDF pago) o `gasto` (foto factura → total). Preview. */
+  ocr(file_base64: string, role?: string): Observable<DepositOcr> {
+    return this.http.post<DepositOcr>(`${this.base}/ocr`, { file_base64, role });
   }
   /** Ficha-first: busca el pago por monto + fecha + concepto (folio de factura). */
   matchPago(monto: number | null | undefined, fecha: string | null | undefined, concepto: string | null | undefined): Observable<{ pagos: PagoCandidate[] }> {

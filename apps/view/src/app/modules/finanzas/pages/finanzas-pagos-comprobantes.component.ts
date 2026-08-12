@@ -21,6 +21,13 @@ import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
 
+/** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
+interface GastoFile {
+  id: number; name: string; dataUri: string; kind: 'image' | 'pdf';
+  uploaded: ProofFile | null; uploading: boolean; failed: boolean;
+  ocrMonto: number | null; ocrLoading: boolean;
+}
+
 /**
  * CC (extensión) — "Comprobantes de Pago a Proveedor". Lista los pagos de Kepler
  * (documento XD2501) y le adjunta a cada uno el COMPROBANTE DE TRANSFERENCIA
@@ -135,15 +142,12 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
           }
 
           <div class="cb-f cb-file">
-            <span>Comprobante de pago (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
+            <span>Comprobante de pago (PDF) * <em class="cb-auto">SPEI/cheque — se lee y liga el pago solo</em></span>
             <div class="cb-pick cb-droppable" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
-              <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
-                <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
+              <label class="cb-pickbtn"><i class="pi pi-file-pdf"></i> Elegir PDF
+                <input type="file" accept="application/pdf" (change)="onFile($event)" hidden />
               </label>
-              <label class="cb-pickbtn"><i class="pi pi-paperclip"></i> Elegir archivo
-                <input type="file" accept="image/*,.pdf" (change)="onFile($event)" hidden />
-              </label>
-              <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastrá el archivo aquí</span>
+              <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastrá el PDF aquí</span>
             </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
@@ -232,12 +236,51 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
               <label class="cb-f"><span>Banco destino</span><input pInputText [(ngModel)]="ocrForm.banco_destino" [disabled]="ocrLoading()" /></label>
             </div>
           }
+
+          <!-- PC.2 — foto(s) del gasto (evidencia de lo comprado); Σ se valida contra el pago -->
+          @if (attachTarget()) {
+            <div class="cb-gasto">
+              <div class="cb-gasto-head">
+                <span>Foto(s) del gasto <em class="cb-auto">factura/ticket/mercancía — el total se valida vs el pago</em></span>
+                @if (gastoMatch() === true) { <p-tag value="Cuadra con el pago" severity="success" /> }
+                @else if (gastoMatch() === false) { <p-tag [value]="'Difiere ' + money(gastoDiff())" severity="danger" /> }
+              </div>
+              <div class="cb-pick cb-droppable" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onGastoDrop($event)">
+                <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
+                  <input type="file" accept="image/*" capture="environment" (change)="onGastoFiles($event)" hidden multiple />
+                </label>
+                <label class="cb-pickbtn"><i class="pi pi-images"></i> Elegir fotos
+                  <input type="file" accept="image/*,.pdf" (change)="onGastoFiles($event)" hidden multiple />
+                </label>
+                <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastrá aquí</span>
+              </div>
+              @for (g of gastoFiles(); track g.id) {
+                <div class="cb-gasto-item">
+                  <div class="cb-gasto-thumb">@if (g.kind === 'image') { <img [src]="g.dataUri" [alt]="g.name" /> } @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }</div>
+                  <div class="cb-gasto-body">
+                    <div class="cb-gasto-name" [title]="g.name">{{ g.name }}</div>
+                    <div class="cb-gasto-meta">
+                      @if (g.ocrLoading) { <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> leyendo total…</span> }
+                      @else { <span>Total <strong>{{ g.ocrMonto != null ? money(g.ocrMonto) : '—' }}</strong></span> }
+                      @if (g.uploading) { <i class="pi pi-spin pi-spinner" title="subiendo"></i> }
+                      @else if (g.uploaded) { <i class="pi pi-check-circle cb-gasto-ok" title="almacenada"></i> }
+                      @else if (g.failed) { <i class="pi pi-exclamation-triangle cb-gasto-bad" title="falló la subida"></i> }
+                    </div>
+                  </div>
+                  <button type="button" class="cb-gasto-x" (click)="removeGasto(g.id)" [attr.aria-label]="'Quitar ' + g.name"><i class="pi pi-times" aria-hidden="true"></i></button>
+                </div>
+              }
+              @if (gastoFiles().length) {
+                <div class="cb-gasto-total">Σ gastos <strong>{{ money(gastoTotal()) }}</strong> · Pago <strong>{{ money(attachTarget()!.monto) }}</strong></div>
+              }
+            </div>
+          }
           @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
           @if (attachTarget()) {
-            <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+            <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading() || gastoBusy()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
           }
         </ng-template>
       }
@@ -415,6 +458,22 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
     .cb-droppable { padding: .6rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); transition: border-color .15s, background .15s; }
     .cb-droppable.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
     .cb-drop-hint { font-size: .76rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
+    /* PC.2 — foto(s) del gasto */
+    .cb-gasto { display: flex; flex-direction: column; gap: .5rem; border-top: 1px solid var(--border-color); padding-top: .8rem; margin-top: .3rem; }
+    .cb-gasto-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; font-size: .82rem; font-weight: 600; color: var(--text-main); }
+    .cb-gasto-item { display: flex; align-items: center; gap: .7rem; padding: .45rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-gasto-thumb { flex: 0 0 auto; width: 2.8rem; height: 2.8rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: #00000010; }
+    .cb-gasto-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .cb-gasto-thumb .pi-file-pdf { font-size: 1.3rem; color: var(--bad-fg); }
+    .cb-gasto-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+    .cb-gasto-name { font-size: .8rem; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-gasto-meta { display: flex; align-items: center; gap: .5rem; font-size: .78rem; color: var(--text-muted); }
+    .cb-gasto-meta strong { font-family: var(--font-mono); color: var(--text-main); }
+    .cb-gasto-ok { color: var(--ok-fg); } .cb-gasto-bad { color: var(--bad-fg); }
+    .cb-gasto-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
+    .cb-gasto-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
+    .cb-gasto-total { display: flex; justify-content: flex-end; gap: 1rem; font-size: .82rem; color: var(--text-muted); }
+    .cb-gasto-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-pickbtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); font-size: .85rem; color: var(--text-main); cursor: pointer; background: var(--card-bg); transition: border-color .15s, color .15s; }
     .cb-pickbtn:hover { border-color: var(--action); color: var(--action); }
     .cb-pickbtn i { font-size: .95rem; }
@@ -553,6 +612,17 @@ export class FinanzasPagosComprobantesComponent {
   readonly capMatches = signal<PagoCandidate[]>([]);
   capManualSearch = '';
   readonly capManualResults = signal<PagoCandidate[]>([]);
+  // PC.2 — foto(s) del gasto (evidencia de lo comprado); se valida Σ gastos ≈ monto del pago.
+  readonly gastoFiles = signal<GastoFile[]>([]);
+  private gastoSeq = 0;
+  readonly gastoTotal = computed(() => this.gastoFiles().reduce((s, g) => s + (Number(g.ocrMonto) || 0), 0));
+  readonly gastoBusy = computed(() => this.gastoFiles().some((g) => g.ocrLoading || g.uploading));
+  readonly gastoMatch = computed(() => {
+    const t = this.attachTarget(); const gf = this.gastoFiles();
+    if (!t || !gf.length || gf.some((g) => g.ocrMonto == null)) return null;
+    return Math.abs(this.gastoTotal() - t.monto) <= 1;
+  });
+  gastoDiff(): number { const t = this.attachTarget(); return t ? Math.abs(this.gastoTotal() - t.monto) : 0; }
 
   // reject dialog
   readonly showReject = signal(false);
@@ -649,6 +719,7 @@ export class FinanzasPagosComprobantesComponent {
   private resetAttach() {
     this.fileData = null;
     this.fileName.set('');
+    this.gastoFiles.set([]);
     this.ocrForm = {};
     this.ocrRun.set(false);
     this.uploadedFile.set(null);
@@ -706,6 +777,7 @@ export class FinanzasPagosComprobantesComponent {
 
   private async handleFile(file: File) {
     if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
+    if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { this.attachError.set('El comprobante de pago debe ser PDF — la foto del gasto va abajo.'); return; }
     this.attachError.set('');
     this.ocrRun.set(false);
     this.ocrForm = {};
@@ -778,6 +850,39 @@ export class FinanzasPagosComprobantesComponent {
   }
   diff(): number { const t = this.attachTarget(); return t && this.ocrForm.monto != null ? Math.abs(Number(this.ocrForm.monto) - t.monto) : 0; }
 
+  // PC.2 — foto(s) del gasto: sube (role=gasto → imagen) + OCR del total para validar Σ ≈ pago.
+  onGastoFiles(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const files = input.files ? Array.from(input.files) : [];
+    input.value = '';
+    for (const f of files) this.addGasto(f);
+  }
+  onGastoDrop(ev: DragEvent) {
+    ev.preventDefault(); ev.stopPropagation();
+    this.dragging.set(false);
+    const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
+    for (const f of files) this.addGasto(f);
+  }
+  private async addGasto(file: File) {
+    if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
+    this.attachError.set('');
+    let dataUri: string;
+    try { dataUri = await this.fileToDataUri(file); } catch { this.attachError.set(`No se pudo leer "${file.name}".`); return; }
+    const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
+    const id = ++this.gastoSeq;
+    this.gastoFiles.update((l) => l.concat({ id, name: file.name, dataUri, kind, uploaded: null, uploading: true, failed: false, ocrMonto: null, ocrLoading: true }));
+    this.svc.uploadFile(dataUri, 'gasto').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (up) => this.patchGasto(id, { uploaded: up, uploading: false }),
+      error: () => this.patchGasto(id, { uploading: false, failed: true }),
+    });
+    this.svc.ocr(dataUri, 'gasto').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.patchGasto(id, { ocrMonto: r.monto ?? null, ocrLoading: false }),
+      error: () => this.patchGasto(id, { ocrLoading: false }),
+    });
+  }
+  private patchGasto(id: number, p: Partial<GastoFile>) { this.gastoFiles.update((l) => l.map((g) => (g.id === id ? { ...g, ...p } : g))); }
+  removeGasto(id: number) { this.gastoFiles.update((l) => l.filter((g) => g.id !== id)); }
+
   saveAttach() {
     const t = this.attachTarget();
     if (!t || !this.fileData) { this.attachError.set('Falta el comprobante.'); return; }
@@ -793,7 +898,9 @@ export class FinanzasPagosComprobantesComponent {
   }
 
   private doAttach(t: PagoRow, file: ProofFile) {
-    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
+    // PC.2 — el comprobante (PDF) + las fotos del gasto ya subidas van en la misma evidencia.
+    const gastos: ProofFile[] = this.gastoFiles().filter((g) => g.uploaded).map((g) => ({ ...(g.uploaded as ProofFile), role: 'gasto', name: g.name, ocr_monto: g.ocrMonto }));
+    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [file, ...gastos], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
