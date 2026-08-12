@@ -1,3 +1,6 @@
+// OTel: DEBE ir PRIMERO de todo (instrumenta al cargar). Inerte sin
+// OTEL_EXPORTER_OTLP_ENDPOINT. Ver apps/api/src/otel.ts (INFRA.2, ADR-043).
+import './otel';
 // Sentry: DEBE ir primero (instrumenta al cargar). Inerte sin SENTRY_DSN.
 import './instrument';
 import * as dotenv from 'dotenv';
@@ -99,6 +102,9 @@ class ReportsIoAdapter extends IoAdapter {
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
+    // Con LOG_JSON=true, bufferLogs deja que nestjs-pino tome el control (los logs
+    // de boot se retienen hasta useLogger). Sin el toggle, comportamiento clásico.
+    bufferLogs: process.env.LOG_JSON === 'true',
     // Log level: default PROD-quiet (sin debug/verbose) para no saturar el límite de
     // Railway (500 logs/s → tira mensajes reales) ni la factura de logging. El trace
     // per-request del TenantContextInterceptor y otros debug quedan disponibles con
@@ -107,6 +113,15 @@ async function bootstrap() {
       ? ['error', 'warn', 'log', 'debug', 'verbose']
       : ['error', 'warn', 'log'],
   });
+
+  // INFRA.2: logs JSON estructurados vía pino (feed a Loki). Opt-in por LOG_JSON;
+  // default OFF = logger clásico de Nest intacto. app.get(Logger) requiere el
+  // LoggerModule de nestjs-pino, que AppModule sólo registra con el mismo toggle.
+  if (process.env.LOG_JSON === 'true') {
+    const { Logger: PinoLogger } = await import('nestjs-pino');
+    app.useLogger(app.get(PinoLogger));
+    app.flushLogs();
+  }
 
   // Detrás de nginx (mismo container) y del edge de Railway: confiar en el
   // primer proxy para que `req.ip` use X-Forwarded-For en vez de 127.0.0.1.
