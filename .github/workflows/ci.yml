@@ -69,3 +69,42 @@ jobs:
           # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
           # precargado (Angular v18 + esbuild en Node 20 lo necesita).
           NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"
+
+  # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
+  # Blast radius acotado: NO revienta por deuda de lint pre-existente en código
+  # ajeno al PR/push. La regression suite (database/run-all-tests.js) NO va acá —
+  # necesita API arriba + multi-DB sembrada; queda como gate local/manual.
+  verify:
+    name: Lint & test (affected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # nx affected necesita el historial para el diff base↔head.
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Derivar SHAs base/head para affected
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      - name: Lint (affected)
+        run: npx nx affected -t lint --parallel=3
+        env:
+          NX_DAEMON: 'false'
+
+      - name: Test (affected)
+        run: npx nx affected -t test --parallel=3 --passWithNoTests
+        env:
+          NX_DAEMON: 'false'

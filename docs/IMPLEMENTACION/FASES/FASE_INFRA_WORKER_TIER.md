@@ -51,15 +51,15 @@ Leyenda de estado: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING �
 - ⬜ **INFRA.3.5** Migrar el resto de crons por dominio con el mismo `shouldRunInProcessCron()` (ráfaga nocturna 2-4 AM primero). API multi-instancia deja de duplicar.
 - ⬜ **INFRA.3.6** Encolar la IA pesada del request-path (`vision/scan`, ReAct deep) → `send()` + respuesta 202 + status por WS/SSE. Límite de concurrencia hacia Anthropic (`p-limit`/semáforo) en el worker.
 
-### INFRA.4 — Media → Cloudflare R2
-- ⬜ **INFRA.4.1** Bucket R2 + credenciales — **PAUSA: cuenta R2 de Edgar**.
-- ⬜ **INFRA.4.2** Adapter de storage sobre `@aws-sdk/client-s3` (ya instalado); puerto `MEDIA_STORAGE_PORT` con impl Cloudinary (actual) y R2 (nueva), toggle.
-- ⬜ **INFRA.4.3** Migrar subidas nuevas a R2; back-migración de assets existentes diferida.
+### INFRA.4 — Media → Cloudflare R2 · **adapter ya existe**
+- ✅ **INFRA.4.2** Adapter `ObjectStorageService` (`libs/platform-core/src/lib/storage/object-storage.service.ts`) YA construido: S3-compatible (`forcePathStyle`+`region:'auto'`+`endpoint` = R2), `isConfigured()`-gated, URLs prefirmadas, ya reemplaza Cloudinary en comprobantes financieros. R2 = flip de config (`S3_ENDPOINT`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET`).
+- ⬜ **INFRA.4.1** Bucket R2 + credenciales — **PAUSA: cuenta R2 de Edgar** (endpoint `https://<accountid>.r2.cloudflarestorage.com`, region `auto`).
+- ⬜ **INFRA.4.3** (opcional) Migrar a R2 el resto de media aún en Cloudinary (fotos de captures/visión). Diferido — no es del path crítico del OOM.
 
 ### INFRA.5 — CI extendido
-- ⬜ **INFRA.5.1** `ci.yml`: agregar job `nx affected -t lint,test` además del build actual.
-- ⬜ **INFRA.5.2** Correr `node database/run-all-tests.js` (regression) en CI contra una DB efímera (service Postgres en Actions) o marcarla como job manual si necesita data.
-- ⬜ **INFRA.5.3** Pin `engines.node` en `package.json` (Node 20) + plan Node 22 LTS.
+- ✅ **INFRA.5.1** `ci.yml`: job `verify` con `nx affected -t lint test` (+ `nx-set-shas`). Blast radius acotado a lo tocado (no revienta por deuda de lint ajena).
+- 🔵 **INFRA.5.2** Regression `run-all-tests.js`: se deja como gate local/manual (necesita API arriba + multi-DB sembrada; no encaja en el gate de Actions sin infra pesada).
+- ✅ **INFRA.5.3** `engines.node` pineado (`>=20 <21`) en `package.json`. Plan Node 22 LTS diferido.
 
 ---
 
