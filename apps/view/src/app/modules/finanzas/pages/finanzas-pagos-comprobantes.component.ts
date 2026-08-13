@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, OnDestroy, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -20,6 +20,7 @@ import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
+import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
 interface GastoFile {
@@ -55,6 +56,7 @@ interface GastoFile {
       <div class="cb-cap-bar">
         <button pButton type="button" (click)="openCapture()" title="Sube el comprobante y buscamos el pago solo"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Capturar comprobante</span></button>
         <span class="cb-cap-hint">Sube el comprobante primero — el sistema busca el pago por ti.</span>
+        @if (live()) { <span class="cb-live" title="Cambios de otros usuarios se reflejan al momento"><span class="cb-live-dot"></span> En vivo</span> }
       </div>
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
@@ -524,6 +526,10 @@ interface GastoFile {
     .cb-alert-note i { font-size: .8rem; }
     .cb-cap-bar { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .cb-cap-hint { font-size: .8rem; color: var(--text-muted); }
+    .cb-live { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; font-size: .74rem; color: var(--ok-fg); font-weight: 600; }
+    .cb-live-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok-fg); animation: cb-pulse 1.8s ease-in-out infinite; }
+    @keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+    @media (prefers-reduced-motion: reduce) { .cb-live-dot { animation: none; } }
     .cb-cap-banner { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); border: 1px solid color-mix(in srgb, var(--action) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
     .cb-match { display: flex; flex-direction: column; gap: .6rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-match-row2 { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; }
@@ -564,13 +570,22 @@ interface GastoFile {
     .cb-adj-link { color: var(--action); margin-left: .3rem; font-size: .75rem; }
   `],
 })
-export class FinanzasPagosComprobantesComponent {
+export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(PagosComprobantesService);
+  private readonly socket = inject(PagosComprobantesSocketService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+
+  /** WS en vivo: refresca la tabla cuando otro usuario adjunta/valida/rechaza/concilia. */
+  readonly live = this.socket.connected;
+  private wsTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly WS_VERB: Record<PaymentProofEvent['action'], string> = {
+    attached: 'adjuntó un comprobante', validated: 'validó un pago', rejected: 'rechazó un comprobante',
+    bank_matched: 'concilió un pago con el banco', bank_unmatched: 'deshizo una conciliación',
+  };
 
   readonly report = signal<PagosReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -635,6 +650,26 @@ export class FinanzasPagosComprobantesComponent {
   readonly viewTarget = signal<PagoRow | null>(null);
 
   constructor() { this.load(); }
+
+  ngOnInit(): void {
+    this.socket.connect();
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onWsChange(ev));
+  }
+  ngOnDestroy(): void {
+    if (this.wsTimer) clearTimeout(this.wsTimer);
+    this.socket.disconnect();
+  }
+
+  /** Cambio de otro usuario → aviso sutil (si no fui yo) + refresco debounced de la tabla. */
+  private onWsChange(ev: PaymentProofEvent): void {
+    const me: any = this.auth.user();
+    const mine = !!ev.actor && (ev.actor === me?.full_name || ev.actor === me?.username);
+    if (!mine) {
+      this.toast.add({ severity: 'info', summary: 'En vivo', detail: `${ev.actor || 'Alguien'} ${this.WS_VERB[ev.action] || 'actualizó un comprobante'} · ${ev.folio}`, life: 3500 });
+    }
+    if (this.wsTimer) clearTimeout(this.wsTimer);
+    this.wsTimer = setTimeout(() => this.load(), 400); // coalesce ráfagas
+  }
 
   kpiItems(r: PagosReport): MetricStripItem[] {
     const items: MetricStripItem[] = [

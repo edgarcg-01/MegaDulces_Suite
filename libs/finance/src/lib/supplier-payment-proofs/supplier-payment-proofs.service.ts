@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, SupplierPaymentFields } from '@megadulces/platform-core';
+import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 
 /**
  * Fase CC (extensión) — Comprobantes de PAGO A PROVEEDOR. Adjunta el comprobante
@@ -58,7 +59,19 @@ export class SupplierPaymentProofsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    @Optional() private readonly gateway?: PagosComprobantesGateway,
   ) {}
+
+  /** Empuja un cambio de comprobante a la room del tenant (best-effort; nunca bloquea). */
+  private emit(action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched',
+    ev: { sucursal: string; doc_prefix: string | null; folio: string; status?: string | null; proveedor?: string | null; monto?: number | null; actor?: string | null }): void {
+    try {
+      this.gateway?.emitChange(this.tenantCtx.requireTenantId(), {
+        action, sucursal: ev.sucursal, doc_prefix: ev.doc_prefix ?? null, folio: ev.folio,
+        status: ev.status ?? null, proveedor: ev.proveedor ?? null, monto: ev.monto ?? null, actor: ev.actor ?? null,
+      });
+    } catch (e: any) { this.logger.warn(`WS emit ${action} falló: ${e?.message || e}`); }
+  }
 
   /**
    * Lista los pagos a proveedor de Kepler (espejo `analytics.erp_supplier_payments`)
@@ -88,8 +101,19 @@ export class SupplierPaymentProofsService {
         .groupBy('sucursal', 'doc_prefix', 'folio')
         .as('d');
 
+      // Pagos con un CARGO del banco ya confirmado (bank_recon_matches). El estado de
+      // cuenta es la fuente de verdad de que el dinero salió de una cuenta PROPIA →
+      // suprime el falso "cuenta ajena" cuando el OCR leyó mal la cuenta de origen.
+      const bank = trx('finance.bank_recon_matches')
+        .where('tenant_id', tenantId).whereNotNull('kepler_doc_folio')
+        .select('kepler_sucursal', 'kepler_doc_tipo', 'kepler_doc_folio')
+        .groupBy('kepler_sucursal', 'kepler_doc_tipo', 'kepler_doc_folio')
+        .as('bk');
+      const joinBank = (j: any) => { j.on('c.sucursal', 'bk.kepler_sucursal').andOn('c.doc_prefix', 'bk.kepler_doc_tipo').andOn('c.folio', 'bk.kepler_doc_folio'); };
+
       const b = trx('analytics.erp_supplier_payments as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
+        .leftJoin(bank, joinBank)
         .where('c.tenant_id', tenantId)
         .select(
           'c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code', 'c.proveedor_nombre',
@@ -98,7 +122,8 @@ export class SupplierPaymentProofsService {
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
-          trx.raw('COALESCE(d.cuenta_ajena, false) AS cuenta_ajena'),
+          // efectivo: ajena SOLO si el OCR no reconoce la cuenta Y no hay cargo bancario confirmado
+          trx.raw('(COALESCE(d.cuenta_ajena, false) AND bk.kepler_doc_folio IS NULL) AS cuenta_ajena'),
           trx.raw('d.refs AS refs'),
         )
         .orderBy('c.pago_date', 'desc')
@@ -113,7 +138,7 @@ export class SupplierPaymentProofsService {
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
       // solo alertas de control: cuenta de origen ajena O clave de rastreo repetida
       if (q.alertas === true || q.alertas === 'true') {
-        b.whereRaw('(COALESCE(d.cuenta_ajena, false) = true OR d.refs && ?::text[])', [dupRefs]);
+        b.whereRaw('((COALESCE(d.cuenta_ajena, false) AND bk.kepler_doc_folio IS NULL) OR d.refs && ?::text[])', [dupRefs]);
       }
       applySmartSearch(b, q.search, {
         columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio'],
@@ -130,6 +155,7 @@ export class SupplierPaymentProofsService {
 
       const kpiBase = trx('analytics.erp_supplier_payments as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
+        .leftJoin(bank, joinBank)
         .where('c.tenant_id', tenantId);
       if (q.from) kpiBase.where('c.pago_date', '>=', q.from);
       if (q.to) kpiBase.where('c.pago_date', '<=', q.to);
@@ -139,7 +165,7 @@ export class SupplierPaymentProofsService {
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
-        trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena)::int AS cuentas_ajenas'),
+        trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena AND bk.kepler_doc_folio IS NULL)::int AS cuentas_ajenas'),
       );
 
       return {
@@ -201,7 +227,8 @@ export class SupplierPaymentProofsService {
     if (!sucursal || !folio) throw new BadRequestException('sucursal y folio del pago requeridos');
     if (!files.length) throw new BadRequestException('se requiere al menos el comprobante');
 
-    return this.tk.run(async (trx) => {
+    let ev: { sucursal: string; doc_prefix: string | null; folio: string; status: string; proveedor: string | null; monto: number; actor: string | null } | null = null;
+    const out = await this.tk.run(async (trx) => {
       const pagoQ = trx('analytics.erp_supplier_payments')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio });
       if (docPrefix) pagoQ.where('doc_prefix', docPrefix); // desambigua transferencia vs cheque (folio compartido)
@@ -257,8 +284,11 @@ export class SupplierPaymentProofsService {
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
       this.logger.log(`comprobante adjunto a pago ${sucursal}/${folio} (match=${montoMatch}, cuenta_propia=${cuentaPropia}, ref_dup=${refOtros.length}) por ${actor || '?'}`);
+      ev = { sucursal, doc_prefix: pago.doc_prefix || docPrefix || null, folio, status: 'recibido', proveedor: pago.proveedor_nombre || null, monto: pagoMonto, actor: actor || null };
       return { ...row, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros };
     });
+    if (ev) this.emit('attached', ev);
+    return out;
   }
 
   /** Detalle: el pago + sus comprobantes adjuntos (con flags de control + three-way). */
@@ -311,8 +341,13 @@ export class SupplierPaymentProofsService {
           monto: d.ocr_monto != null ? Number(d.ocr_monto) : Number(pago.monto),
           fecha: d.ocr_fecha || pago.pago_date,
         });
+        // Cargo confirmado en el banco ⇒ el dinero salió de una cuenta PROPIA (el estado
+        // de cuenta manda). Suprime el falso "cuenta ajena" que dejó un OCR que leyó mal
+        // la cuenta de origen (p.ej. 5712 → 7712); la caja verde del banco lo explica.
+        const cuentaPropiaEff = (conciliado && d.cuenta_propia === false) ? null : d.cuenta_propia;
         enriched.push({
-          ...d, ref_duplicada: otros.length > 0, ref_otros: otros,
+          ...d, cuenta_propia: cuentaPropiaEff,
+          ref_duplicada: otros.length > 0, ref_otros: otros,
           banco: { conciliado, estado: cand.estado, matched, candidatos: cand.movimientos },
         });
       }
@@ -408,25 +443,29 @@ export class SupplierPaymentProofsService {
   /** El revisor valida la evidencia. Auditado. */
   async validate(id: string, actor?: string) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya validada');
-      return row;
+        .returning(['id', 'status', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'pago_monto']);
+      if (!r) throw new BadRequestException('evidencia no encontrada o ya validada');
+      return r;
     });
+    this.emit('validated', { sucursal: row.sucursal, doc_prefix: row.doc_prefix, folio: row.folio, status: row.status, proveedor: row.proveedor_nombre, monto: Number(row.pago_monto) || null, actor: actor || null });
+    return { id: row.id, status: row.status };
   }
 
   /** Rechaza (con motivo). Auditado. */
   async reject(id: string, actor?: string, motivo?: string) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'validado'])
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'validado'])
         .update({ status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
-      return row;
+        .returning(['id', 'status', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'pago_monto']);
+      if (!r) throw new BadRequestException('evidencia no encontrada o ya rechazada');
+      return r;
     });
+    this.emit('rejected', { sucursal: row.sucursal, doc_prefix: row.doc_prefix, folio: row.folio, status: row.status, proveedor: row.proveedor_nombre, monto: Number(row.pago_monto) || null, actor: actor || null });
+    return { id: row.id, status: row.status };
   }
 
   /**
@@ -486,7 +525,8 @@ export class SupplierPaymentProofsService {
   async confirmBank(proofId: string, bankMovementId: string, actor?: string) {
     this.tenantCtx.requireTenantId();
     if (!bankMovementId) throw new BadRequestException('bank_movement_id requerido');
-    return this.tk.run(async (trx) => {
+    let ev: { sucursal: string; doc_prefix: string | null; folio: string; monto: number; actor: string | null } | null = null;
+    const out = await this.tk.run(async (trx) => {
       const p = await trx('finance.supplier_payment_proofs').where({ id: proofId })
         .first('sucursal', 'doc_prefix', 'folio', trx.raw('pago_monto::numeric AS pago_monto'));
       if (!p) throw new BadRequestException('comprobante no encontrado');
@@ -506,22 +546,29 @@ export class SupplierPaymentProofsService {
         .merge({ kepler_amount: pagoMonto, match_type: matchType, matched_by: actor || null });
       await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'matched', updated_at: trx.fn.now() });
       this.logger.log(`pago ${p.doc_prefix} ${p.sucursal}/${p.folio} conciliado con cargo ${bankMovementId} (${matchType}) por ${actor || '?'}`);
+      ev = { sucursal: p.sucursal, doc_prefix: p.doc_prefix, folio: p.folio, monto: pagoMonto, actor: actor || null };
       return { ok: true, pago: `${p.doc_prefix} ${p.sucursal}/${p.folio}`, bank_movement_id: bankMovementId, match_type: matchType };
     });
+    if (ev) this.emit('bank_matched', ev);
+    return out;
   }
 
   /** Deshace la conciliación pago↔cargo. */
   async unlinkBank(proofId: string, bankMovementId: string) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    let ev: { sucursal: string; doc_prefix: string | null; folio: string } | null = null;
+    const out = await this.tk.run(async (trx) => {
       const p = await trx('finance.supplier_payment_proofs').where({ id: proofId }).first('sucursal', 'doc_prefix', 'folio');
       if (!p) throw new BadRequestException('comprobante no encontrado');
       await trx('finance.bank_recon_matches')
         .where({ kepler_doc_tipo: p.doc_prefix, kepler_doc_folio: p.folio, kepler_sucursal: p.sucursal, bank_movement_id: bankMovementId }).del();
       const [rest] = await trx('finance.bank_recon_matches').where({ bank_movement_id: bankMovementId }).count('* as n');
       if (Number(rest.n) === 0) await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'pending', updated_at: trx.fn.now() });
+      ev = { sucursal: p.sucursal, doc_prefix: p.doc_prefix, folio: p.folio };
       return { ok: true };
     });
+    if (ev) this.emit('bank_unmatched', { ...(ev as { sucursal: string; doc_prefix: string | null; folio: string }) });
+    return out;
   }
 
   /** ID de la cuenta de banco propia cuyo `account_label` es sufijo de la cuenta de origen. */
