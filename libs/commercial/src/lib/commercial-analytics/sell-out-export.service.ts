@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
-import type { SellOutReport, SellOutColumn, SalidasReport, SalesByRouteReport, TransfersReport } from './commercial-analytics.service';
+import type { SellOutReport, SellOutColumn, SellOutCell, SalidasReport, SalesByRouteReport, TransfersReport } from './commercial-analytics.service';
 import type { PromoResult } from './route-promo.service';
+
+/** RS — medida elegida en pantalla; decide las subcolumnas del export. */
+export type SellOutMeasure = 'cajas' | 'monto' | 'ambas';
 
 const MONTH_LABEL: Record<string, string> = {
   '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
@@ -39,9 +42,22 @@ export class SellOutExportService {
     return `SELL OUT ${brand} ${report.period.from}_${report.period.to}.${ext}`;
   }
 
+  // ─────────── Medida (cajas / monto / ambas) ───────────
+
+  /**
+   * RS — la "Medida" elegida en pantalla decide QUÉ subcolumnas lleva el export.
+   * Antes el XLSX la ignoraba: la matriz sacaba siempre CAJAS+MONTO y el formato
+   * por plaza siempre CAJAS, así que "Ambas" + "Por plaza" salía sin monto.
+   */
+  private subs(measure: SellOutMeasure): { label: string; pick: (c?: SellOutCell) => number; fmt: string }[] {
+    const cajas = { label: 'CAJAS', pick: (c?: SellOutCell) => c?.cajas ?? 0, fmt: '#,##0.00' };
+    const monto = { label: 'MONTO', pick: (c?: SellOutCell) => c?.monto ?? 0, fmt: '$#,##0.00' };
+    return measure === 'cajas' ? [cajas] : measure === 'monto' ? [monto] : [cajas, monto];
+  }
+
   // ─────────── XLSX ───────────
 
-  async buildXlsx(report: SellOutReport): Promise<Buffer> {
+  async buildXlsx(report: SellOutReport, measure: SellOutMeasure = 'ambas'): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
@@ -50,8 +66,10 @@ export class SellOutExportService {
     });
 
     const cols = report.columns;
-    // 3 fijas (código, desc, uxc) + 2 por columna + 2 total
-    const totalCols = 3 + cols.length * 2 + 2;
+    const subs = this.subs(measure);
+    const N = subs.length; // subcolumnas por plaza/sucursal (1 si es una sola medida, 2 si "ambas")
+    // 3 fijas (código, desc, uxc) + N por columna + N del TOTAL
+    const totalCols = 3 + cols.length * N + N;
 
     // Fila 1 — título
     ws.mergeCells(1, 1, 1, totalCols);
@@ -73,18 +91,20 @@ export class SellOutExportService {
     ws.getCell(2, 2).value = report.row_dim === 'month' ? 'MES' : report.row_dim === 'brand' ? 'EMPRESA' : 'DESCRIPCIÓN';
     ws.getCell(2, 3).value = 'UXC';
 
-    cols.forEach((c, i) => {
-      const cajasCol = 4 + i * 2;
-      ws.mergeCells(2, cajasCol, 2, cajasCol + 1);
-      ws.getCell(2, cajasCol).value = this.colLabel(c);
-      r3.getCell(cajasCol).value = 'CAJAS';
-      r3.getCell(cajasCol + 1).value = 'MONTO';
-    });
-    const totCajasCol = 4 + cols.length * 2;
-    ws.mergeCells(2, totCajasCol, 2, totCajasCol + 1);
-    ws.getCell(2, totCajasCol).value = 'TOTAL';
-    r3.getCell(totCajasCol).value = 'CAJAS';
-    r3.getCell(totCajasCol + 1).value = 'MONTO';
+    // Cabecera de grupo: con 2 subcolumnas se mergea horizontal (fila 2) y la 3 lleva
+    // CAJAS/MONTO; con 1 sola medida no hay subtítulo → se mergea vertical 2-3.
+    const groupHead = (col: number, label: string) => {
+      if (N > 1) {
+        ws.mergeCells(2, col, 2, col + N - 1);
+        subs.forEach((s, k) => (r3.getCell(col + k).value = s.label));
+      } else {
+        ws.mergeCells(2, col, 3, col);
+      }
+      ws.getCell(2, col).value = label;
+    };
+    cols.forEach((c, i) => groupHead(4 + i * N, this.colLabel(c)));
+    const totCol = 4 + cols.length * N;
+    groupHead(totCol, 'TOTAL');
 
     [r2, r3].forEach((row) => {
       row.eachCell((cell) => {
@@ -96,9 +116,6 @@ export class SellOutExportService {
     });
     r2.height = 30;
 
-    const CAJAS_FMT = '#,##0.00';
-    const MONEY_FMT = '$#,##0.00';
-
     // Filas de datos
     let rowIdx = 4;
     for (const prod of report.rows) {
@@ -108,18 +125,18 @@ export class SellOutExportService {
       row.getCell(3).value = prod.uxc ?? '';
       cols.forEach((c, i) => {
         const cell = prod.cells[c.key];
-        const cajasCol = 4 + i * 2;
-        row.getCell(cajasCol).value = cell ? cell.cajas : 0;
-        row.getCell(cajasCol + 1).value = cell ? cell.monto : 0;
-        row.getCell(cajasCol).numFmt = CAJAS_FMT;
-        row.getCell(cajasCol + 1).numFmt = MONEY_FMT;
+        subs.forEach((s, k) => {
+          const cc = row.getCell(4 + i * N + k);
+          cc.value = s.pick(cell);
+          cc.numFmt = s.fmt;
+        });
       });
-      row.getCell(totCajasCol).value = prod.total.cajas;
-      row.getCell(totCajasCol + 1).value = prod.total.monto;
-      row.getCell(totCajasCol).numFmt = CAJAS_FMT;
-      row.getCell(totCajasCol + 1).numFmt = MONEY_FMT;
-      row.getCell(totCajasCol).font = { bold: true };
-      row.getCell(totCajasCol + 1).font = { bold: true };
+      subs.forEach((s, k) => {
+        const cc = row.getCell(totCol + k);
+        cc.value = s.pick(prod.total);
+        cc.numFmt = s.fmt;
+        cc.font = { bold: true };
+      });
       row.eachCell((cell) => (cell.border = this.thin()));
     }
 
@@ -128,17 +145,18 @@ export class SellOutExportService {
     ws.mergeCells(rowIdx, 1, rowIdx, 3);
     totRow.getCell(1).value = 'TOTAL';
     cols.forEach((c, i) => {
-      const t = report.column_totals[c.key] ?? { cajas: 0, monto: 0 };
-      const cajasCol = 4 + i * 2;
-      totRow.getCell(cajasCol).value = t.cajas;
-      totRow.getCell(cajasCol + 1).value = t.monto;
-      totRow.getCell(cajasCol).numFmt = CAJAS_FMT;
-      totRow.getCell(cajasCol + 1).numFmt = MONEY_FMT;
+      const t = report.column_totals[c.key];
+      subs.forEach((s, k) => {
+        const cc = totRow.getCell(4 + i * N + k);
+        cc.value = s.pick(t);
+        cc.numFmt = s.fmt;
+      });
     });
-    totRow.getCell(totCajasCol).value = report.grand_total.cajas;
-    totRow.getCell(totCajasCol + 1).value = report.grand_total.monto;
-    totRow.getCell(totCajasCol).numFmt = CAJAS_FMT;
-    totRow.getCell(totCajasCol + 1).numFmt = MONEY_FMT;
+    subs.forEach((s, k) => {
+      const cc = totRow.getCell(totCol + k);
+      cc.value = s.pick(report.grand_total);
+      cc.numFmt = s.fmt;
+    });
     totRow.eachCell((cell) => {
       cell.font = { bold: true };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
@@ -168,16 +186,19 @@ export class SellOutExportService {
   }
 
   /**
-   * XLSX del formato estándar por plaza: 1 columna por plaza (SUCURSAL/MAYOREO/RUTAS) + TOTAL,
-   * valores en CAJAS (como el reporte manual). Sin columnas de monto.
+   * XLSX del formato estándar por plaza: 1 grupo por plaza (SUCURSAL/MAYOREO/RUTAS) + TOTAL.
+   * La MEDIDA elegida manda: 'cajas' (como el reporte manual, default histórico), 'monto',
+   * o 'ambas' → dos subcolumnas CAJAS|MONTO por plaza.
    */
-  async buildPlazaXlsx(report: SellOutReport): Promise<Buffer> {
+  async buildPlazaXlsx(report: SellOutReport, measure: SellOutMeasure = 'cajas'): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
     const ws = wb.addWorksheet('Sell Out', { views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }] });
     const cols = report.columns;
-    const totalCols = 3 + cols.length + 1; // código, descripción, uxc + 1/columna + TOTAL
+    const subs = this.subs(measure);
+    const N = subs.length;
+    const totalCols = 3 + cols.length * N + N; // código, descripción, uxc + N/plaza + N del TOTAL
 
     // Fila 1 — título "SELL OUT  <MES AÑO>  <MARCA>"
     ws.mergeCells(1, 1, 1, totalCols);
@@ -192,10 +213,19 @@ export class SellOutExportService {
     ws.getCell(2, 1).value = 'CÓDIGO';
     ws.getCell(2, 2).value = 'DESCRIPCIÓN';
     ws.getCell(2, 3).value = 'UXC';
-    cols.forEach((c, i) => { const col = 4 + i; ws.mergeCells(2, col, 3, col); ws.getCell(2, col).value = c.branch_name; });
-    const totCol = 4 + cols.length;
-    ws.mergeCells(2, totCol, 3, totCol);
-    ws.getCell(2, totCol).value = 'TOTAL';
+    const r3 = ws.getRow(3);
+    const groupHead = (col: number, label: string) => {
+      if (N > 1) {
+        ws.mergeCells(2, col, 2, col + N - 1);
+        subs.forEach((s, k) => (r3.getCell(col + k).value = s.label));
+      } else {
+        ws.mergeCells(2, col, 3, col);
+      }
+      ws.getCell(2, col).value = label;
+    };
+    cols.forEach((c, i) => groupHead(4 + i * N, c.branch_name));
+    const totCol = 4 + cols.length * N;
+    groupHead(totCol, 'TOTAL');
     [2, 3].forEach((rn) => ws.getRow(rn).eachCell((cell) => {
       cell.font = { bold: true, size: 9 };
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
@@ -204,7 +234,6 @@ export class SellOutExportService {
     }));
     ws.getRow(2).height = 34;
 
-    const CAJAS_FMT = '#,##0.00';
     let rowIdx = 4;
     for (const prod of report.rows) {
       const row = ws.getRow(rowIdx++);
@@ -213,12 +242,16 @@ export class SellOutExportService {
       row.getCell(3).value = prod.uxc ?? '';
       cols.forEach((c, i) => {
         const cell = prod.cells[c.key];
-        const cc = row.getCell(4 + i);
-        cc.value = cell ? cell.cajas : 0;
-        cc.numFmt = CAJAS_FMT;
+        subs.forEach((s, k) => {
+          const cc = row.getCell(4 + i * N + k);
+          cc.value = s.pick(cell);
+          cc.numFmt = s.fmt;
+        });
       });
-      const tc = row.getCell(totCol);
-      tc.value = prod.total.cajas; tc.numFmt = CAJAS_FMT; tc.font = { bold: true };
+      subs.forEach((s, k) => {
+        const tc = row.getCell(totCol + k);
+        tc.value = s.pick(prod.total); tc.numFmt = s.fmt; tc.font = { bold: true };
+      });
       row.eachCell((cell) => (cell.border = this.thin()));
     }
 
@@ -227,12 +260,16 @@ export class SellOutExportService {
     ws.mergeCells(rowIdx, 1, rowIdx, 3);
     totRow.getCell(1).value = 'TOTAL';
     cols.forEach((c, i) => {
-      const t = report.column_totals[c.key] ?? { cajas: 0, monto: 0 };
-      const cc = totRow.getCell(4 + i);
-      cc.value = t.cajas; cc.numFmt = CAJAS_FMT;
+      const t = report.column_totals[c.key];
+      subs.forEach((s, k) => {
+        const cc = totRow.getCell(4 + i * N + k);
+        cc.value = s.pick(t); cc.numFmt = s.fmt;
+      });
     });
-    const gc = totRow.getCell(totCol);
-    gc.value = report.grand_total.cajas; gc.numFmt = CAJAS_FMT;
+    subs.forEach((s, k) => {
+      const gc = totRow.getCell(totCol + k);
+      gc.value = s.pick(report.grand_total); gc.numFmt = s.fmt;
+    });
     totRow.eachCell((cell) => {
       cell.font = { bold: true };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };

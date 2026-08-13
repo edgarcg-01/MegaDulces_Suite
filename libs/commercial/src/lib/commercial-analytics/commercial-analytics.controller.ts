@@ -613,11 +613,17 @@ export class CommercialAnalyticsController {
     @Query('mode') mode?: string,
     @Query('promo') promo?: string,
     @Query('layout') layout?: string,
+    @Query('measure') measure?: string,
   ) {
     const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
-    // RS.13 — layout por plaza → export en formato estándar (cajas). Si no, matriz cajas+monto.
-    const buf = report.layout === 'plaza' ? await this.exporter.buildPlazaXlsx(report) : await this.exporter.buildXlsx(report);
+    // RS — la Medida elegida en pantalla manda sobre las subcolumnas del XLSX. Si el
+    // param no viene (llamada vieja/externa) se conservan los defaults históricos:
+    // plaza = sólo CAJAS (formato del reporte manual), matriz = CAJAS+MONTO.
+    const m = measure === 'cajas' || measure === 'monto' || measure === 'ambas' ? measure : undefined;
+    const buf = report.layout === 'plaza'
+      ? await this.exporter.buildPlazaXlsx(report, m ?? 'cajas')
+      : await this.exporter.buildXlsx(report, m ?? 'ambas');
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
