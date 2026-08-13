@@ -242,7 +242,7 @@ export class CajaGeneralService {
       kep.forEach((r: any) => { const g = get(canon(r.banco_nombre), canon(r.banco_nombre)); g.kep += Number(r.monto); g.kep_n += Number(r.n); });
       cpq.forEach((r: any) => { const bank = cpqCuentaBank.get(String(r.cuenta)); if (!bank) return; const g = get(bank, bank); g.cpq += Number(r.monto); g.cpq_n += Number(r.n); });
 
-      const por_banco = [...M.values()].map((g) => ({
+      const por_banco = Array.from(M.values()).map((g) => ({
         banco: g.banco, caja: g.caja, caja_n: g.caja_n, wb: g.wb, wb_n: g.wb_n, kep: g.kep, kep_n: g.kep_n, cpq: g.cpq, cpq_n: g.cpq_n,
         delta_caja_wb: g.caja - g.wb, delta_caja_kep: g.caja - g.kep, delta_wb_kep: g.wb - g.kep, delta_caja_cpq: g.caja - g.cpq, delta_wb_cpq: g.wb - g.cpq,
         cuadra_caja_wb: g.wb > 0 && Math.abs(g.caja - g.wb) <= CUADRE_EPS,

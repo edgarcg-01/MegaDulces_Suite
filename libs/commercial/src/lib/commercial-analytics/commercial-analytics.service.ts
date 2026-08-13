@@ -1900,8 +1900,8 @@ export class CommercialAnalyticsService {
       const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
       // Guard defensivo: `[...node.children.values()]` explota si algún nodo llega sin
       // Map children. Fallback a [] en cada nivel.
-      const vals = (m: any): any[] => (m instanceof Map ? [...m.values()] : []);
-      const tree = [...fam.values()]
+      const vals = (m: any): any[] => (m instanceof Map ? Array.from(m.values()) : []);
+      const tree = Array.from(fam.values())
         .sort((a, b) => b.total - a.total)
         .map((F) => ({
           key: F.key, label: F.label, level: 'familia', total: F.total, movs: F.movs, share_pct: share(F.total),
@@ -3910,7 +3910,7 @@ export class CommercialAnalyticsService {
       }
 
       // 4) Universo de llaves: cortes ∪ ventas de rutas de vendedor.
-      const keys = new Set<string>([...corteMap.keys()]);
+      const keys = new Set<string>(corteMap.keys());
       for (const [k, v] of salesMap) if (vendorRoutes.has(v.route_no)) keys.add(k);
 
       const incidencias: RouteClosureIncidencia[] = [];

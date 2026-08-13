@@ -427,7 +427,7 @@ export class FinanceBankService {
       const movByCuenta = new Map<string, any>((periodMov as any[]).map((m) => [m.cuenta, m]));
       const costoRich = (periodMov as any[]).filter((m) => String(m.cuenta).startsWith('50')).map((m) => ({ ...m, tokens: nameTokens(m.cuenta_nombre) }));
 
-      const rows = [...byProv.values()].map((p) => {
+      const rows = Array.from(byProv.values()).map((p) => {
         const tk = nameTokens(p.proveedor);
         let cxp: any = null, cxpScore = 0;
         for (const c of cxpRich) { const sc = nameScore(tk, c.tokens); if (sc >= 0.6 && sc > cxpScore) { cxpScore = sc; cxp = c; } }
@@ -585,7 +585,7 @@ export class FinanceBankService {
       };
 
       const tok = nameTokens(m.concept);
-      const strongest = tok.size ? [...tok].sort((a, b) => b.length - a.length)[0] : null;
+      const strongest = tok.size ? Array.from(tok).sort((a, b) => b.length - a.length)[0] : null;
       // Match por SOLAPAMIENTO de tokens como substring (no set-equality): exige ≥2
       // tokens del movimiento presentes en la contraparte (o ≥1 si solo hay 1 token
       // significativo). Cacha "Tlmk"⊂"TLMKT" y plaza (Morelia) juntos → incluye "TLMKT
@@ -757,7 +757,7 @@ export class FinanceBankService {
         g.deposits += dep; g.withdrawals += wd; g.movs += mv;
         groupTotals[r.group_key] = g;
       }
-      const accounts = [...byAccount.values()].sort((a, b) =>
+      const accounts = Array.from(byAccount.values()).sort((a, b) =>
         a.kind.localeCompare(b.kind) || a.bank.localeCompare(b.bank) || a.account_label.localeCompare(b.account_label));
       const grand = {
         deposits: accounts.reduce((s, a) => s + a.deposits, 0),
@@ -1383,7 +1383,10 @@ export class FinanceBankService {
       if (prev) { prev.kepler_amount = Number(prev.kepler_amount || 0) + Number(r.kepler_amount || 0); }
       else m.set(k, { ...r });
     }
-    return [...m.values()];
+    // Array.from, NO spread: webpack baja `[...map.values()]` a `[map.values()]` (un
+    // iterador, no los elementos) → insert([iterador]) → "default values" → RLS. Ver
+    // feedback_webpack_set_spread_downlevel.
+    return Array.from(m.values());
   }
 
   /**
@@ -1527,7 +1530,7 @@ export class FinanceBankService {
           if (chunk.length) await trx('finance.bank_recon_matches').insert(chunk);
         }
         await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
-        const matchedIds = [...matchedSet];
+        const matchedIds = Array.from(matchedSet);
         for (let i = 0; i < matchedIds.length; i += 500) await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
       }
 
@@ -1908,7 +1911,7 @@ export class FinanceBankService {
     // Total Kepler: suma del feed de tesorería si hay datos; si no, fallback al 102 de bank_postings.
     let kep: { in: number; out: number; movs: number };
     if (kepHasData) {
-      const agg = [...kmap.values()].reduce((s, v) => ({ in: s.in + v.in, out: s.out + v.out, movs: s.movs + v.movs }), { in: 0, out: 0, movs: 0 });
+      const agg = Array.from(kmap.values()).reduce((s, v) => ({ in: s.in + v.in, out: s.out + v.out, movs: s.movs + v.movs }), { in: 0, out: 0, movs: 0 });
       kep = { in: r2(agg.in), out: r2(agg.out), movs: agg.movs };
     } else {
       kep = await this.tk.run(async (trx) => {
@@ -2343,7 +2346,7 @@ export class FinanceBankService {
       if (syncSource === 'sheet' && processedAcctIds.size && t0) {
         swept = await trx('finance.bank_movements as bm')
           .whereIn('bm.statement_id', trx('finance.bank_statements').where({ period })
-            .whereIn('bank_account_id', [...processedAcctIds]).select('id'))
+            .whereIn('bank_account_id', Array.from(processedAcctIds)).select('id'))
           .where('bm.sync_source', 'sheet').whereNull('bm.deleted_at').where('bm.updated_at', '<', t0)
           .update({ deleted_at: trx.fn.now(), recon_status: 'ignored', updated_at: trx.fn.now() });
       }
