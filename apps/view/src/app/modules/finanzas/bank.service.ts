@@ -143,7 +143,6 @@ export interface SideKeplerRow {
   doc_tipo: string; folio: string; fecha: string | null; cargo_abono: string;
   importe: number; contraparte: string | null; forma: string | null; bank_movement_id: string | null; match_key: string;
 }
-export interface SideBySide { period: string; excel: SideExcelRow[]; kepler: SideKeplerRow[]; }
 
 /** CP.2 (Fase CP) — Comparación banco (Excel) vs LIBROS de ContPAQi por cuenta. */
 export interface ContpaqiCompareRow {
@@ -290,9 +289,6 @@ export class BankService {
 
   movementFlow(id: string): Observable<MovementFlow> {
     return this.http.get<MovementFlow>(`${this.base}/movements/${id}/flow`);
-  }
-  sideBySide(period: string): Observable<SideBySide> {
-    return this.http.get<SideBySide>(`${this.base}/side-by-side?period=${encodeURIComponent(period)}`);
   }
 
   // ── CP.2 (Fase CP) — comparación vs LIBROS ContPAQi ──

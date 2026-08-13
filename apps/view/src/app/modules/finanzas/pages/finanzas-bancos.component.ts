@@ -19,7 +19,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -30,7 +30,6 @@ import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
-import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.component';
 import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
@@ -43,7 +42,7 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -147,20 +146,6 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
         }
       }
 
-      <!-- ── COMPARADOR Excel ↔ Kepler: dos tablas enlazadas + desglose ── -->
-      @if (view() === 'comparador') {
-        @if (sbsError()) {
-          <app-load-state [error]="sbsError()" (retry)="loadSideBySide()"></app-load-state>
-        } @else if (sbsLoading()) {
-          <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
-        } @else {
-          @if (sideBySide(); as sbs) {
-            <bancos-side-by-side [data]="sbs" [period]="period()" />
-          } @else {
-            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
-          }
-        }
-      }
 
       <!-- ── vs ContPAQi: banco (Excel) contra los LIBROS reales de contabilidad ── -->
       @if (view() === 'contpaqi') {
@@ -427,10 +412,6 @@ export class FinanzasBancosComponent implements OnInit {
   readonly syncing = signal(false);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
-  // CB.16 — comparador Excel ↔ Kepler (lazy: se carga al abrir la pestaña).
-  readonly sideBySide = signal<SideBySide | null>(null);
-  readonly sbsLoading = signal(false);
-  readonly sbsError = signal<string | null>(null);
   // CP.2 — comparación vs LIBROS ContPAQi (lazy: se carga al abrir la pestaña).
   readonly contpaqiCompare = signal<ContpaqiCompare | null>(null);
   readonly cpqLoading = signal(false);
@@ -530,7 +511,6 @@ export class FinanzasBancosComponent implements OnInit {
   /** Cambio de vista; carga perezosa del comparador (payload grande) al abrirlo. */
   goView(v: View): void {
     this.view.set(v);
-    if (v === 'comparador' && !this.sideBySide() && !this.sbsLoading()) this.loadSideBySide();
     if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
     if (v === 'cuadre' && !this.threeWay() && !this.twLoading()) this.loadThreeWay();
   }
@@ -609,17 +589,6 @@ export class FinanzasBancosComponent implements OnInit {
       error: () => { this.cpqLinking.set(false); this.fail('No se pudieron enlazar las cuentas con ContPAQi.'); },
     });
   }
-  loadSideBySide(): void {
-    const p = this.period();
-    if (!p) return;
-    this.sbsLoading.set(true);
-    this.sbsError.set(null);
-    this.api.sideBySide(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.sideBySide.set(s); this.sbsLoading.set(false); },
-      error: () => { this.sbsError.set('No se pudo cargar el comparador Excel ↔ Kepler.'); this.sbsLoading.set(false); },
-    });
-  }
-
   private loadPeriod(): void {
     this.loading.set(true);
     this.matchResult.set(null);
@@ -627,8 +596,6 @@ export class FinanzasBancosComponent implements OnInit {
     this.concError.set(null);
     this.reconError.set(null);
     this.diagError.set(null);
-    this.sideBySide.set(null);
-    this.sbsError.set(null);
     this.contpaqiCompare.set(null);
     this.factorajeCompare.set(null);
     this.cpqError.set(null);
@@ -646,8 +613,6 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
     this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => { this.diagnostico.set(null); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); } });
     this.reloadMovements();
-    // Comparador es la vista principal → cargar su data (grande) si es la vista activa.
-    if (this.view() === 'comparador') this.loadSideBySide();
   }
 
   reloadMovements(): void {
