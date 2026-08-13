@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'comparador' | 'contpaqi' | 'cuadre' | 'cuentas' | 'capturas' | 'admin';
+export type BankView = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'cuentas' | 'capturas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -15,10 +15,10 @@ export const MONTHS_ES: Record<string, string> = {
 
 /**
  * Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane.
- * OPT.1 (2026-08-13): `comparador` (Excel↔Kepler) y `contpaqi` (vs ContPAQi) OCULTOS del
- * nav — su comparación es un subconjunto del Cuadre 3 vías (que ya tiene ContPAQi + drill
- * a movimiento). El código/ruta siguen vivos (reversible; alcanzables por URL) hasta
- * confirmar que el Cuadre cubre el uso real y reubicar `factoraje-compare` (OPT.2).
+ * Consolidación 2026-08-13: la comparación de fuentes vive SOLO en `cuadre` (3-4 vías +
+ * drill a movimiento). `comparador` (Excel↔Kepler) fue ELIMINADO (cubierto por el drill
+ * del Cuadre). `contpaqi` se reencauza a **Factoraje** — su único valor propio (compras
+ * factoradas por proveedor vs ContPAQi); su comparación banco↔ContPAQi ya está en Cuadre.
  */
 export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
@@ -26,6 +26,7 @@ export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
   { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
+  { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
   { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp' },
 ];
