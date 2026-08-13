@@ -18,6 +18,10 @@ import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
 export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'vale', 'orden_entrada', 'orden_recepcion', 'ticket', 'evidencia', 'evidencia_1'] as const;
 export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
 const TOLERANCIA = 1.0; // pesos: cuadra si el total (o subtotal) de la remisión ≈ el valor Kepler
+// RE — el proceso de recepción arranca en AGOSTO 2026: las entradas de Kepler anteriores son
+// histórico que nunca tendrá comprobante y no debe listarse/contarse ni enlazarse. Piso duro
+// sobre receipt_date (mover esta fecha si cambia el arranque del sistema).
+const RECEPTION_START = '2026-08-01';
 
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -82,6 +86,7 @@ export class GoodsReceiptProofsService {
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
         .whereRaw('c.dup_of_folio IS NULL') // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
+        .where('c.receipt_date', '>=', RECEPTION_START) // arranque agosto 2026
         .select(
           'c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
@@ -110,6 +115,7 @@ export class GoodsReceiptProofsService {
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
         .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
+      kpiBase.where('c.receipt_date', '>=', RECEPTION_START); // arranque agosto 2026
       if (q.from) kpiBase.where('c.receipt_date', '>=', q.from);
       if (q.to) kpiBase.where('c.receipt_date', '<=', q.to);
       const [k] = await kpiBase.select(
@@ -159,6 +165,7 @@ export class GoodsReceiptProofsService {
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
         .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
+        .where('c.receipt_date', '>=', RECEPTION_START) // arranque agosto 2026 (no enlazar a histórico)
         .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
           trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
