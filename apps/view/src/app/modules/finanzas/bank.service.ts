@@ -46,6 +46,7 @@ export interface Concentrado {
 export interface ReconCash {
   bank_in: number; kepler_102_cargos: number; delta_in: number;
   bank_out: number; kepler_102_abonos: number; delta_out: number;
+  kepler_source?: 'tesoreria' | 'contable';
 }
 export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
 export interface ReconFactoraje { compra: number; pago: number; total: number; }
