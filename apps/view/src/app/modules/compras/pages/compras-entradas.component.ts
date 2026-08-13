@@ -303,8 +303,9 @@ interface AttachFile {
               </div>
               <ul class="cb-chk-list">
                 @for (c of checklist(); track c.label) {
-                  <li [class.ok]="c.ok"><i class="pi" [ngClass]="c.ok ? 'pi-check-circle' : 'pi-circle'" aria-hidden="true"></i>
+                  <li [class.ok]="c.ok" [class.opt]="c.optional"><i class="pi" [ngClass]="c.ok ? 'pi-check-circle' : (c.optional ? 'pi-minus-circle' : 'pi-circle')" aria-hidden="true"></i>
                     <span class="cb-chk-lbl">{{ c.label }}</span>
+                    @if (c.optional && !c.ok) { <span class="cb-chk-opt">opcional</span> }
                     @if (c.ok && c.via === 'auto') {
                       <span class="cb-chk-via" title="Detectado por el lector">detectado{{ c.page ? ' · pág. ' + c.page : '' }}</span>
                       @if (c.evidence) { <span class="cb-chk-ev" [title]="c.evidence">{{ c.evidence }}</span> }
@@ -621,6 +622,9 @@ interface AttachFile {
     /* RE.pkt.1 — cómo se cumplió cada requerido (auto=OCR con página / manual) + evidencia */
     .cb-chk-via { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); border-radius: var(--r-sm, .25rem); padding: .05rem .3rem; }
     .cb-chk-via-manual { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
+    .cb-chk-list li.opt { color: var(--text-faint); }
+    .cb-chk-list li.opt .pi-minus-circle { color: var(--text-faint); }
+    .cb-chk-opt { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 10%, transparent); border-radius: var(--r-sm, .25rem); padding: .05rem .3rem; }
     .cb-chk-ev { font-size: .72rem; color: var(--text-faint); font-family: var(--font-mono, ui-monospace, monospace); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-detected { border-top: 1px dashed var(--border-color); padding-top: .45rem; display: flex; flex-direction: column; gap: .25rem; }
     .cb-detected-h { font-size: .72rem; font-weight: 600; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
@@ -754,13 +758,13 @@ export class ComprasEntradasComponent {
   // RE (#4) — completitud CONSCIENTE DE FUENTE + packet-aware. La fuente (Kepler CEDIS /
   // Wincaja sucursal) define qué documentos exige la recepción; los tipos se detectan por OCR
   // (documents_present) ∪ el rol asignado → si subís TODO en un solo PDF también cumple.
-  readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string }[]> = {
+  readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string; optional?: boolean }[]> = {
     kepler: [
       { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
       { keys: ['factura', 'remision'], label: 'Factura' },
     ],
     wincaja: [
-      { keys: ['ticket'], label: 'Ticket' },
+      { keys: ['ticket'], label: 'Ticket', optional: true }, // el ticket de compra es OPCIONAL: no bloquea Guardar
       { keys: ['orden_recepcion'], label: 'Orden de recepción' },
       { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
     ],
@@ -807,13 +811,15 @@ export class ComprasEntradasComponent {
       return {
         label: g.label,
         ok: g.keys.some((k) => cov.has(k)),
+        optional: !!g.optional,
         via: (auto ? 'auto' : manual ? 'manual' : null) as 'auto' | 'manual' | null,
         page: auto?.page ?? null,
         evidence: auto?.evidence ?? null,
       };
     });
   });
-  readonly missingGroups = computed(() => this.checklist().filter((c) => !c.ok));
+  // Solo los REQUERIDOS faltantes bloquean Guardar; los opcionales (ej. ticket de compra) no.
+  readonly missingGroups = computed(() => this.checklist().filter((c) => !c.ok && !c.optional));
   /** RE.pkt.1 — todos los documentos que el OCR detectó en el/los archivo(s), con página+prueba;
    *  dedup por (tipo,página). Es el "recibo" de que un PDF combinado trae todo lo requerido. */
   readonly detectedDocs = computed(() => {
