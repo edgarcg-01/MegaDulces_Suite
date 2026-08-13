@@ -45,7 +45,7 @@ export class BankCaptureController {
 
   @Post('senders')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  createSender(@Body() body: { phone: string; full_name: string; sucursal?: string; default_bank_account_id?: string }, @Req() req: AuthedRequest) {
+  createSender(@Body() body: { phone: string; full_name: string; sucursal?: string; default_bank_account_id?: string; customer_code?: string; rfc?: string }, @Req() req: AuthedRequest) {
     return this.svc.createSender({ ...body, created_by: this.actor(req) });
   }
 

@@ -24,6 +24,8 @@ export interface BankCapture {
   bank_movement_id: string | null;
   notified_at: string | null;
   error_detail: string | null;
+  customer_code: string | null;
+  rfc: string | null;
   created_at: string;
 }
 

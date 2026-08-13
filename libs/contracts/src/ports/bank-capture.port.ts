@@ -17,6 +17,9 @@ export interface BankCaptureSender {
   full_name: string;
   sucursal: string | null;
   default_bank_account_id: string | null;
+  /** CBW.6 — cobranza dura: clave del cliente en Kepler (ej C1002) + RFC. El depósito se atribuye a este cliente. */
+  customer_code: string | null;
+  rfc: string | null;
 }
 
 /** Resultado de procesar una captura: el texto de respuesta al remitente + id de la fila. */

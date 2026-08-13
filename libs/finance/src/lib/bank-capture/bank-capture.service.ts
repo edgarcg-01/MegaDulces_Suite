@@ -46,13 +46,15 @@ export class BankCaptureService {
     return this.tk.run(async (trx) => {
       const row = await trx('finance.bank_capture_senders')
         .where({ phone: canonical, active: true })
-        .first('id', 'full_name', 'sucursal', 'default_bank_account_id');
+        .first('id', 'full_name', 'sucursal', 'default_bank_account_id', 'customer_code', 'rfc');
       if (!row) return null;
       return {
         id: row.id,
         full_name: row.full_name,
         sucursal: row.sucursal ?? null,
         default_bank_account_id: row.default_bank_account_id ?? null,
+        customer_code: row.customer_code ?? null,
+        rfc: row.rfc ?? null,
       };
     });
   }
@@ -133,6 +135,9 @@ export class BankCaptureService {
             ocr_status: ocrStatus,
             bank_account_id: bankAccountId,
             sucursal: input.sender.sucursal,
+            // CBW.6 — cobranza dura: el depósito queda atribuido al cliente que lo mandó.
+            customer_code: input.sender.customer_code,
+            rfc: input.sender.rfc,
             concept,
             amount_in: amountIn,
             amount_out: 0,
@@ -189,6 +194,7 @@ export class BankCaptureService {
           'i.id', 'i.status', 'i.from_phone', 'i.sucursal', 'i.concept',
           'i.amount_in', 'i.amount_out', 'i.movement_date', 'i.ocr_banco', 'i.ocr_cuenta_dest',
           'i.ocr_referencia', 'i.ocr_status', 'i.files', 'i.bank_movement_id', 'i.notified_at', 'i.error_detail', 'i.created_at',
+          'i.customer_code', 'i.rfc',
           's.full_name as sender_name',
           trx.raw(`COALESCE(a.bank || ' ' || a.account_label, NULL) as cuenta`),
         );
@@ -395,11 +401,11 @@ export class BankCaptureService {
       trx('finance.bank_capture_senders as s')
         .leftJoin('finance.bank_accounts as a', 'a.id', 's.default_bank_account_id')
         .orderBy('s.full_name', 'asc')
-        .select('s.id', 's.phone', 's.full_name', 's.sucursal', 's.default_bank_account_id', 's.active', trx.raw(`a.bank || ' ' || a.account_label as cuenta`)),
+        .select('s.id', 's.phone', 's.full_name', 's.sucursal', 's.default_bank_account_id', 's.customer_code', 's.rfc', 's.active', trx.raw(`a.bank || ' ' || a.account_label as cuenta`)),
     );
   }
 
-  async createSender(dto: { phone: string; full_name: string; sucursal?: string; default_bank_account_id?: string; created_by?: string }): Promise<any> {
+  async createSender(dto: { phone: string; full_name: string; sucursal?: string; default_bank_account_id?: string; customer_code?: string; rfc?: string; created_by?: string }): Promise<any> {
     const phone = normalizeMxPhone(dto.phone) || dto.phone;
     return this.tk.run(async (trx) => {
       const [row] = await trx('finance.bank_capture_senders')
@@ -409,17 +415,19 @@ export class BankCaptureService {
           full_name: dto.full_name,
           sucursal: dto.sucursal ?? null,
           default_bank_account_id: dto.default_bank_account_id ?? null,
+          customer_code: dto.customer_code ?? null,
+          rfc: dto.rfc ?? null,
           created_by: dto.created_by ?? null,
         })
         .onConflict(['tenant_id', 'phone'])
-        .merge({ full_name: dto.full_name, sucursal: dto.sucursal ?? null, default_bank_account_id: dto.default_bank_account_id ?? null, active: true, updated_at: trx.fn.now() })
+        .merge({ full_name: dto.full_name, sucursal: dto.sucursal ?? null, default_bank_account_id: dto.default_bank_account_id ?? null, customer_code: dto.customer_code ?? null, rfc: dto.rfc ?? null, active: true, updated_at: trx.fn.now() })
         .returning('*');
       return row;
     });
   }
 
   async updateSender(id: string, patch: Record<string, any>): Promise<any> {
-    const allowed = ['full_name', 'sucursal', 'default_bank_account_id', 'active'];
+    const allowed = ['full_name', 'sucursal', 'default_bank_account_id', 'customer_code', 'rfc', 'active'];
     return this.tk.run(async (trx) => {
       const upd: Record<string, any> = { updated_at: trx.fn.now() };
       for (const k of allowed) if (k in patch) upd[k] = patch[k];
