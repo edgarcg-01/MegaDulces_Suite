@@ -174,19 +174,39 @@ export class CajaGeneralService {
   }
 
   /**
-   * Conciliación depósitos de caja ↔ ingresos del banco (CB) por banco/mes.
-   * Universos NO idénticos (caja = lo que Finanzas registró depositar; CB = estado de
-   * cuenta real) → el delta es informativo. Cuadre por TOTALES con ±$1,000.
+   * Conciliación 3 vías por banco: Caja ↔ Workbook (estado de cuenta/CB) ↔ Kepler
+   * (tesorería). Alineadas por NOMBRE de banco canónico (caja no trae nº de cuenta;
+   * el denominador común de las tres es el banco). Universos NO idénticos → el delta
+   * es informativo (el banco/Kepler reciben también transferencias de clientes,
+   * cobranza, etc.; caja es solo el depósito de tiendas). Cuadre TOTALES ±$1,000.
+   *   · Caja     = analytics.caja_depositos (total_deposito_real).
+   *   · Workbook = finance.bank_movements.amount_in (Google Sheet cargado por CB.23).
+   *   · Kepler   = analytics.kepler_bank_movements entrada (signo>0, sin traspasos).
    */
   async conciliacion(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const [from, to] = this.range(q);
     const inst = this.inst(q);
+    // Nombre de banco → clave canónica común a las 3 fuentes.
+    const canon = (s: string): string => {
+      const u = String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      if (/BAJIO|BBAJIO/.test(u)) return 'BAJIO';
+      if (/BBVA|BANCOMER/.test(u)) return 'BBVA';
+      if (/BANORTE/.test(u)) return 'BANORTE';
+      if (/SANTANDER/.test(u)) return 'SANTANDER';
+      if (/BANAMEX|CITI/.test(u)) return 'BANAMEX';
+      if (/AZTECA/.test(u)) return 'AZTECA';
+      if (/INBURSA/.test(u)) return 'INBURSA';
+      if (/HSBC/.test(u)) return 'HSBC';
+      if (/SCOTIA/.test(u)) return 'SCOTIABANK';
+      if (/BANREGIO|REGIO/.test(u)) return 'BANREGIO';
+      if (/CAJA/.test(u)) return 'CAJA';
+      return (u.replace(/\s+/g, ' ').trim().split(' ')[0]) || 'OTRO';
+    };
     return this.tk.run(async (trx) => {
       const caja = await trx('analytics.caja_depositos')
         .where({ tenant_id: tenantId, source_instance: inst }).whereBetween('deposito_date', [from, to]).where('eliminado', false)
-        .groupBy('banco_name').select('banco_name')
-        .count({ n: '*' }).sum({ real: 'total_deposito_real' });
+        .groupBy('banco_name').select('banco_name').count({ n: '*' }).sum({ real: 'total_deposito_real' });
       let cb: any[] = [];
       try {
         cb = await trx('finance.bank_movements as bm')
@@ -194,28 +214,35 @@ export class CajaGeneralService {
           .where('bm.tenant_id', tenantId).where('bm.amount_in', '>', 0).whereBetween('bm.movement_date', [from, to])
           .groupBy('ba.bank').select('ba.bank').count({ n: '*' }).sum({ monto: 'bm.amount_in' });
       } catch { cb = []; }
-      const cbByBank = new Map(cb.map((r: any) => [String(r.bank || '').toUpperCase(), { n: Number(r.n), monto: Number(r.monto) }]));
-      const norm = (s: string) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim();
-      // match laxo por nombre de banco (BBVA/Banorte/Bajío/Santander…)
-      const pick = (name: string) => {
-        const n = norm(name);
-        for (const [k, v] of cbByBank) { if (k.includes(n.split(' ')[0]) || n.includes(k.split(' ')[0])) return v; }
-        return null;
-      };
-      const por_banco = caja.map((r: any) => {
-        const cajaReal = Number(r.real); const m = pick(r.banco_name);
-        const cbMonto = m ? m.monto : 0; const delta = cajaReal - cbMonto;
-        return {
-          banco: r.banco_name, caja_n: Number(r.n), caja_real: cajaReal,
-          cb_n: m ? m.n : 0, cb_in: cbMonto, delta, cuadra: Math.abs(delta) <= CUADRE_EPS, cb_disponible: !!m,
-        };
-      }).sort((a, b) => b.caja_real - a.caja_real);
-      const cbTotal = cb.reduce((s: number, r: any) => s + Number(r.monto), 0);
-      const cajaTotal = caja.reduce((s: number, r: any) => s + Number(r.real), 0);
+      let kep: any[] = [];
+      try {
+        kep = await trx('analytics.kepler_bank_movements')
+          .where('tenant_id', tenantId).where('signo', '>', 0).where('es_traspaso', false).whereBetween('fecha_valor', [from, to])
+          .groupBy('banco_nombre').select('banco_nombre').count({ n: '*' }).sum({ monto: 'importe' });
+      } catch { kep = []; }
+
+      // Acumula las 3 fuentes por clave canónica.
+      const M = new Map<string, { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number }>();
+      const get = (k: string, label: string) => { if (!M.has(k)) M.set(k, { banco: label, caja: 0, caja_n: 0, wb: 0, wb_n: 0, kep: 0, kep_n: 0 }); return M.get(k)!; };
+      caja.forEach((r: any) => { const g = get(canon(r.banco_name), canon(r.banco_name)); g.caja += Number(r.real); g.caja_n += Number(r.n); });
+      cb.forEach((r: any) => { const g = get(canon(r.bank), canon(r.bank)); g.wb += Number(r.monto); g.wb_n += Number(r.n); });
+      kep.forEach((r: any) => { const g = get(canon(r.banco_nombre), canon(r.banco_nombre)); g.kep += Number(r.monto); g.kep_n += Number(r.n); });
+
+      const por_banco = [...M.values()].map((g) => ({
+        banco: g.banco, caja: g.caja, caja_n: g.caja_n, wb: g.wb, wb_n: g.wb_n, kep: g.kep, kep_n: g.kep_n,
+        delta_caja_wb: g.caja - g.wb, delta_caja_kep: g.caja - g.kep, delta_wb_kep: g.wb - g.kep,
+        cuadra_caja_wb: g.wb > 0 && Math.abs(g.caja - g.wb) <= CUADRE_EPS,
+        cuadra_wb_kep: g.wb > 0 && g.kep > 0 && Math.abs(g.wb - g.kep) <= CUADRE_EPS,
+      })).sort((a, b) => Math.max(b.caja, b.wb, b.kep) - Math.max(a.caja, a.wb, a.kep));
+
+      const sum = (arr: any[], k: string) => arr.reduce((s: number, r: any) => s + Number(r[k] || 0), 0);
       return {
         period: { from, to, instance: inst },
-        totals: { caja_real: cajaTotal, cb_in: cbTotal, delta: cajaTotal - cbTotal, cb_disponible: cb.length > 0 },
-        por_banco, match_eps: MATCH_EPS, cuadre_eps: CUADRE_EPS,
+        totals: {
+          caja: sum(caja, 'real'), wb: sum(cb, 'monto'), kep: sum(kep, 'monto'),
+          wb_disponible: cb.length > 0, kep_disponible: kep.length > 0,
+        },
+        por_banco, cuadre_eps: CUADRE_EPS,
       };
     });
   }
