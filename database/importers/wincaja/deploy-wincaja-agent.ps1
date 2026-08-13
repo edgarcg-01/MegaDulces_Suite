@@ -24,7 +24,7 @@ param(
   [string]$Mdb = '',
   [string]$WarehouseCode = '',
   [string]$WarehouseName = '',
-  [string]$IngestUrl = 'https://trademarketing-production-5084.up.railway.app/api/store/live/ingest',
+  [string]$IngestUrl = 'https://megadulces.up.railway.app/api/store/live/ingest',
   [int]$Seconds = 45,
   [string]$Dir = 'C:\WincajaAgent'
 )
