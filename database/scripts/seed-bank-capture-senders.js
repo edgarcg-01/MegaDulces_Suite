@@ -11,7 +11,7 @@
  *   customer_code, full_name, phone, tel2, rfc, sucursal, cuenta
  *   - phone / tel2: cualquier forma → se normaliza a 52XXXXXXXXXX. tel2 crea una
  *     2ª fila para el MISMO cliente (puede mandar desde cualquiera de sus números).
- *   - customer_code: clave Kepler (C1002, 10001…). Excluye TI*/ONLINE (sucursales internas).
+ *   - customer_code: clave Kepler (C1002, 10001…). Excluye TI* y ONLINE (sucursales internas).
  *   - rfc: opcional; si falta, se ENRIQUECE desde analytics.erp_customers por customer_code.
  *   - cuenta: "BANCO LABEL" o tail 4 (opcional; el OCR resuelve la cuenta del depósito).
  *
