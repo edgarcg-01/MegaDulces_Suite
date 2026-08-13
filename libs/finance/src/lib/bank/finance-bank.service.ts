@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
+import { CajaGeneralService } from '../caja/caja-general.service';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -124,6 +125,9 @@ export class FinanceBankService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
+    // CB.34 — Caja General para acreditar depósitos de tienda + cobranza en la conciliación
+    // de INGRESOS (los depósitos que no viven en Kepler tesorería pero sí explica Caja/cobros).
+    @Optional() private readonly caja?: CajaGeneralService,
   ) {}
 
   /** Cuentas de banco/caja/factoraje. */
@@ -1794,8 +1798,9 @@ export class FinanceBankService {
   async reconciliation(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const r2out = (v: number) => Math.round(v * 100) / 100;
 
-    return this.tk.run(async (trx) => {
+    const out: any = await this.tk.run(async (trx) => {
       // Lado banco: por categoría (grupo + cuenta Kepler) + kind de la cuenta.
       const bank = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
@@ -1894,6 +1899,24 @@ export class FinanceBankService {
       return { period, cash, accounts, cobranza, factoraje, caja,
         sin_clasificar: (bank as any[]).filter((r) => r.kind !== 'cash' && r.group_key === 'sin_clasificar').reduce((s, r) => s + n(r.deposits) + n(r.withdrawals), 0) };
     });
+
+    // CB.34 — Descompone los DEPÓSITOS del banco por su fuente real. Kepler tesorería no
+    // carga los depósitos de tienda ni la cobranza (UA0501) → sin esto el "sin conciliar"
+    // de ingresos incluye plata que Caja/cobros SÍ explican (verificado: ~$5M/mes de $7.3M
+    // de depósitos huérfanos son cobranza+caja, no residual real). Reusa la MISMA lógica que
+    // la tarjeta "Referencia de Caja". No toca el matcher persistente (bank_recon_matches).
+    if (this.caja) {
+      try {
+        const cd: any = await this.caja.conciliacionDetalle({ month: period });
+        const t = cd?.totals || {};
+        const viaCaja = n(t.matched), viaCobranza = n(t.cobranza), residual = n(t.residual);
+        out.cash.ingresos = {
+          via_caja: r2out(viaCaja), via_cobranza: r2out(viaCobranza), residual: r2out(residual),
+          explicado: r2out(viaCaja + viaCobranza), total: r2out(viaCaja + viaCobranza + residual),
+        };
+      } catch (e: any) { this.logger.warn(`ingresos-detalle en reconciliation falló: ${e?.message || e}`); }
+    }
+    return out;
   }
 
   /**

@@ -74,6 +74,15 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
           <p class="fb-plain fb-fac-note"><i class="pi pi-info-circle"></i> <b>Caja general {{ rc.caja.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> es efectivo <b>no fiscal</b> — no pasa por el 102, por eso queda fuera del cuadre (igual que en el CONCENTRADO de contabilidad). Se sigue viendo en Movimientos y Concentrado.</p>
         }
         <p class="fb-plain">{{ cajaRead(rc) }}</p>
+        @if (rc.cash.ingresos; as ing) {
+          <p class="fb-plain fb-ingresos-note"><i class="pi pi-info-circle"></i>
+            De los <b>{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> de depósitos,
+            <b class="ok">{{ ing.explicado | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> ya están explicados
+            (depósito de tienda <b>{{ ing.via_caja | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> +
+            cobranza de cliente <b>{{ ing.via_cobranza | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>);
+            el residual sin fuente es <b [class.bad]="ing.residual > 1000">{{ ing.residual | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>.
+            Por eso el Δ contra Kepler es <b>memo</b>: los depósitos no viven todos en tesorería (tienda y cobranza entran por Caja / UA0501, no por el 102).</p>
+        }
         @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
       </div>
 
