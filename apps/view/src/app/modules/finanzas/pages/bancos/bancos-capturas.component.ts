@@ -33,9 +33,22 @@ import { money0, dmy } from './bancos-shared';
         <span class="bc-kpi-n mono">{{ money(kpis().total_monto) }}</span><span class="bc-kpi-l">Monto (conf.+valid.)</span></div>
     </div>
 
-    <p class="bc-note">Depósitos recibidos por WhatsApp de los encargados de plaza. Al validar, el depósito se agrega al libro (Movimientos) automáticamente.
+    <p class="bc-note">Depósitos recibidos por WhatsApp o subidos por web. Al validar, el depósito se agrega al libro (Movimientos) automáticamente.
       @if (errorCount() > 0) { <span class="bc-note-warn"><i class="pi pi-exclamation-triangle"></i> {{ errorCount() }} con problema — revisar.</span> }
     </p>
+
+    <div class="bc-upload">
+      <label class="bc-up-file" [class.has]="!!upB64()">
+        <i class="pi" [class.pi-upload]="!upB64()" [class.pi-check]="!!upB64()"></i>
+        <span>{{ upName() || 'Elegir foto o PDF de la ficha…' }}</span>
+        <input type="file" accept="image/*,application/pdf" (change)="onFile($event)" hidden />
+      </label>
+      <input class="bc-up-suc" type="text" [ngModel]="upSucursal()" (ngModelChange)="upSucursal.set($event)" placeholder="Sucursal (opcional)" aria-label="Sucursal" />
+      <button pButton type="button" class="p-button-sm" [disabled]="!upB64() || uploading()" [loading]="uploading()" (click)="doUpload()">
+        <span class="p-button-icon p-button-icon-left pi pi-cloud-upload" aria-hidden="true"></span><span class="p-button-label">Subir ficha</span>
+      </button>
+      <span class="bc-up-hint muted">Se lee con OCR y entra a la bandeja para validar. No necesita WhatsApp.</span>
+    </div>
 
     @if (loading()) {
       <div class="bc-skel" aria-busy="true">@for (i of [1,2,3,4,5]; track i) { <div class="bc-skel-row"></div> }</div>
@@ -98,6 +111,11 @@ import { money0, dmy } from './bancos-shared';
     .bc-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); }
     .bc-note-warn { color: var(--warn-fg); margin-left: var(--sp-2); }
     .bc-note-warn i { font-size: 0.7rem; margin-right: 2px; }
+    .bc-upload { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
+    .bc-up-file { display: inline-flex; align-items: center; gap: 6px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; font-size: var(--fs-sm); color: var(--text-main); background: var(--surface, var(--card-bg)); }
+    .bc-up-file:hover { border-color: var(--action); } .bc-up-file.has { border-color: var(--ok-fg); color: var(--ok-fg); }
+    .bc-up-suc { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface, var(--card-bg)); color: var(--text-main); font-size: var(--fs-sm); min-width: 10rem; }
+    .bc-up-hint { font-size: var(--fs-xs); flex-basis: 100%; }
     .bc-tablewrap { padding: 0; overflow: hidden; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .muted { color: var(--text-muted); } .ta-r { text-align: right; }
@@ -134,6 +152,13 @@ export class BancosCapturasComponent implements OnInit {
   readonly loading = signal(true);
   readonly fStatus = signal('');
 
+  // CBW.8 — subida web de la ficha (sin WhatsApp).
+  readonly upB64 = signal<string | null>(null);
+  readonly upMime = signal('image/jpeg');
+  readonly upName = signal('');
+  readonly upSucursal = signal('');
+  readonly uploading = signal(false);
+
   readonly total = computed(() => {
     const k = this.kpis();
     return k.pendiente_confirmacion + k.confirmado + k.validado + k.rechazado + k.descartado;
@@ -153,6 +178,35 @@ export class BancosCapturasComponent implements OnInit {
       next: (p) => { this.rows.set(p.rows); this.kpis.set(p.kpis); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las capturas.', life: 3500 }); },
     });
+  }
+
+  onFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) { this.toast.add({ severity: 'warn', summary: 'Archivo grande', detail: 'Máx 12 MB.', life: 3000 }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = String(reader.result || '');
+      const b64 = res.includes(',') ? res.slice(res.indexOf(',') + 1) : res;
+      this.upB64.set(b64); this.upMime.set(file.type || 'image/jpeg'); this.upName.set(file.name);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  doUpload(): void {
+    const b64 = this.upB64(); if (!b64) return;
+    this.uploading.set(true);
+    this.api.upload({ file_base64: b64, mime: this.upMime(), sucursal: this.upSucursal() || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => {
+          this.uploading.set(false);
+          this.toast.add({ severity: 'success', summary: 'Ficha subida', detail: 'Se leyó con OCR y entró a la bandeja para validar.', life: 3000 });
+          this.upB64.set(null); this.upName.set(''); this.upSucursal.set('');
+          this.load();
+        },
+        error: (e) => { this.uploading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo subir', detail: e?.error?.message || 'Reintenta.', life: 4000 }); },
+      });
   }
 
   fileUrl(r: BankCapture): string | null {

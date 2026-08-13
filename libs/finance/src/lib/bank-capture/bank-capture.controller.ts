@@ -55,6 +55,16 @@ export class BankCaptureController {
     return this.svc.updateSender(id, body);
   }
 
+  @Post('upload')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Sube una ficha de depósito por WEB → OCR → bandeja (sin WhatsApp/BSP).' })
+  upload(@Body() body: { file_base64: string; mime?: string; sender_id?: string; sucursal?: string; bank_account_id?: string; caption?: string }) {
+    return this.svc.captureWeb({
+      fileBase64: body.file_base64, mime: body.mime ?? 'image/jpeg',
+      sender_id: body.sender_id, sucursal: body.sucursal, bank_account_id: body.bank_account_id, caption: body.caption,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   detail(@Param('id') id: string) {
