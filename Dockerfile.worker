@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────────────
+# Trade Marketing — Dockerfile del WORKER-TIER (INFRA.3, ADR-043)
+#
+# Corre el MISMO código del API pero en modo worker (WORKER=true → bootstrapWorker
+# en main.ts: crons + cola pg-boss, SIN HTTP/WS/nginx). Por eso:
+#   - Compila SOLO `api` (no el bundle Angular de `view`) → build más rápido/liviano.
+#   - NO trae nginx (el worker no sirve nada).
+#   - NO usa `--mount=type=cache,id=s/<service-id>-...` — esos ids están clavados
+#     al service del API (69f64078) y Railway los rechaza en OTRO servicio
+#     ("missing the cacheKey prefix from its id"). Sin cache mounts = válido en
+#     cualquier servicio (a costa de re-descargar deps en cada build).
+#   - Incluye chromium (puppeteer) + fonts por si algún cron genera PDF/imagen.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: deps completas (para compilar) ─────────────────────────────────
+FROM node:20-bookworm-slim AS deps
+WORKDIR /app
+ENV NPM_CONFIG_LOGLEVEL=warn \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    CI=true \
+    PUPPETEER_SKIP_DOWNLOAD=true
+COPY package*.json .npmrc ./
+RUN npm ci --prefer-offline
+
+# ── Stage 2: compilar SOLO la api (SWC, sin Angular) ────────────────────────
+FROM node:20-bookworm-slim AS builder
+WORKDIR /app
+ENV NX_DAEMON=false CI=true
+COPY --from=deps /app/node_modules ./node_modules
+COPY nx.json package.json package-lock.json tsconfig*.json .npmrc ./
+COPY apps ./apps
+COPY libs ./libs
+COPY database ./database
+RUN NODE_OPTIONS="--max-old-space-size=4096" \
+    npx nx build api --configuration=production
+
+# ── Stage 3: deps solo de producción ────────────────────────────────────────
+FROM node:20-bookworm-slim AS prod-deps
+WORKDIR /app
+ENV NPM_CONFIG_LOGLEVEL=warn \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    CI=true
+COPY package*.json .npmrc ./
+RUN npm ci --omit=dev --ignore-scripts --prefer-offline
+
+# ── Stage 4: imagen final ────────────────────────────────────────────────────
+FROM node:20-slim AS runner
+WORKDIR /app
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        chromium \
+        fonts-liberation \
+        fonts-noto-color-emoji \
+        tzdata && \
+    ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production \
+    TZ=America/Mexico_City \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_SKIP_DOWNLOAD=true
+
+# El heap se capa por env NODE_OPTIONS (seteado en el servicio Railway).
+COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
+COPY --from=builder  --chown=node:node /app/database     ./database
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+
+STOPSIGNAL SIGTERM
+USER node
+# Modo worker: WORKER=true (env del servicio) → bootstrapWorker() en main.ts.
+CMD ["node", "dist/apps/api/main.js"]
