@@ -48,7 +48,7 @@ Leyenda de estado: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING �
 - 🧪 **INFRA.3.2** Modo `WORKER=true`: `bootstrapWorker()` en `main.ts` usa `createApplicationContext` (sin HTTP/WS; los `@Cron` disparan igual). Mismo binario. Build verde.
 - 🧪 **INFRA.3.3** Migrado **1 cron de prueba**: `EmbeddingSyncService.tick()` (cada 15 min) con `shouldRunInProcessCron()` — patrón de 1 línea para el resto. Con worker-tier ON el API lo saltea.
 - 🔨 **INFRA.3.4** 2º servicio Railway `worker`: `railway.worker.json` (mismo Dockerfile, `startCommand=node dist/apps/api/main.js`, sin healthcheck/preDeploy). **Tu acción**: crear el servicio + env `WORKER=true`+`ENABLE_WORKER_QUEUE=true` + verificar 1 sola ejecución del cron. **⚠️ falta verificación en runtime** (no automatizable desde CLI; correr `WORKER=true ENABLE_WORKER_QUEUE=true node dist/apps/api/main.js` local primero).
-- ⬜ **INFRA.3.5** Migrar el resto de crons por dominio con el mismo `shouldRunInProcessCron()` (ráfaga nocturna 2-4 AM primero). API multi-instancia deja de duplicar.
+- 🧪 **INFRA.3.5** Gate **CENTRAL** en vez de 40 ediciones: `SchedulerOwnershipService` (`apps/api/src/`, `OnApplicationBootstrap`) detiene TODOS los cron jobs + intervals del `SchedulerRegistry` cuando `!shouldRunInProcessCron()` (worker-tier ON y no es el worker). Elimina el doble-run. Build verde. Rollout seguro: worker sano primero, luego `ENABLE_WORKER_QUEUE=true` en el API.
 - ⬜ **INFRA.3.6** Encolar la IA pesada del request-path (`vision/scan`, ReAct deep) → `send()` + respuesta 202 + status por WS/SSE. Límite de concurrencia hacia Anthropic (`p-limit`/semáforo) en el worker.
 
 ### INFRA.4 — Media → object storage · ✅ **usa el bucket propio de Railway (Tigris, S3-compatible)**
