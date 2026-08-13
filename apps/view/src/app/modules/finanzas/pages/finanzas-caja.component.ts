@@ -26,8 +26,8 @@ interface DepRow { deposito_id: string; almacen: string; banco_name: string | nu
 interface DepResp { rows: DepRow[]; totals: { n: number; total: number; total_real: number; comision: number }; by_bank: { banco: string; n: number; total_real: number }[] }
 interface ArqRow { mov_id: string; source_caja: string; folio: string | null; tipo: string | null; arqueo_date: string; capturo: string | null; total_efectivo: number; total_cheques: number; total_tarjeta: number; mov_total: number; revisado: boolean; cancelado: boolean; observaciones: string | null }
 interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: number }[] }
-interface ConcRow { banco: string; caja_n: number; caja_real: number; cb_n: number; cb_in: number; delta: number; cuadra: boolean; cb_disponible: boolean }
-interface Conc { period: { from: string; to: string; instance: string }; totals: { caja_real: number; cb_in: number; delta: number; cb_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
+interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; delta_caja_wb: number; delta_caja_kep: number; delta_wb_kep: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean }
+interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; wb_disponible: boolean; kep_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
 interface Facets { meses: string[]; bancos: string[]; empresas: string[]; cajas: string[] }
 const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: 'Morralla', cheques: 'Cheques', tarjeta: 'Tarjeta', caja_chica: 'Caja chica', sobregiro: 'Sobregiro' };
 
@@ -168,22 +168,38 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       @if (view()==='conciliacion') {
         @if (loading() && !conc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
         @else if (conc(); as d) {
-          <app-metric-strip [items]="concKpis(d)" ariaLabel="Conciliación caja vs banco" />
+          <app-metric-strip [items]="concKpis(d)" ariaLabel="Conciliación 3 vías caja/workbook/kepler" />
           <p-table [value]="d.por_banco" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
-            <ng-template #header><tr><th>Banco</th><th class="ta-r">Depósitos caja</th><th class="ta-c cg-w-d">#</th><th class="ta-r">Ingresos banco (CB)</th><th class="ta-c cg-w-d">#</th><th class="ta-r">Delta</th><th class="cg-w-e">Cuadre</th></tr></ng-template>
+            <ng-template #header>
+              <tr>
+                <th rowspan="2">Banco</th>
+                <th class="ta-r" colspan="2">Caja</th>
+                <th class="ta-r" colspan="2">Workbook (banco)</th>
+                <th class="ta-r" colspan="2">Kepler</th>
+                <th class="ta-r" rowspan="2">Δ caja–wb</th>
+                <th class="cg-w-e" rowspan="2">Cuadre</th>
+              </tr>
+              <tr>
+                <th class="ta-r cg-sub">Depositado</th><th class="ta-c cg-w-d cg-sub">#</th>
+                <th class="ta-r cg-sub">Ingresos</th><th class="ta-c cg-w-d cg-sub">#</th>
+                <th class="ta-r cg-sub">Entradas</th><th class="ta-c cg-w-d cg-sub">#</th>
+              </tr>
+            </ng-template>
             <ng-template #body let-r>
               <tr>
                 <td class="cg-mono">{{ r.banco || '—' }}</td>
-                <td class="ta-r num strong">{{ money(r.caja_real) }}</td>
-                <td class="ta-c muted">{{ r.caja_n }}</td>
-                <td class="ta-r num muted">{{ r.cb_disponible ? money(r.cb_in) : '—' }}</td>
-                <td class="ta-c muted">{{ r.cb_disponible ? r.cb_n : '' }}</td>
-                <td class="ta-r num" [class.warn]="!r.cuadra && r.cb_disponible">{{ r.cb_disponible ? money(r.delta) : '—' }}</td>
-                <td>@if (!r.cb_disponible) { <span class="muted">s/CB</span> } @else if (r.cuadra) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> } @else { <p-tag value="revisar" severity="warn" styleClass="cg-tag" /> }</td>
+                <td class="ta-r num strong">{{ r.caja ? money(r.caja) : '—' }}</td>
+                <td class="ta-c muted">{{ r.caja_n || '' }}</td>
+                <td class="ta-r num muted">{{ r.wb ? money(r.wb) : '—' }}</td>
+                <td class="ta-c muted">{{ r.wb_n || '' }}</td>
+                <td class="ta-r num muted">{{ r.kep ? money(r.kep) : '—' }}</td>
+                <td class="ta-c muted">{{ r.kep_n || '' }}</td>
+                <td class="ta-r num" [class.warn]="!r.cuadra_caja_wb && r.wb">{{ r.wb ? money(r.delta_caja_wb) : '—' }}</td>
+                <td>@if (!r.wb) { <span class="muted">s/wb</span> } @else if (r.cuadra_caja_wb) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> } @else { <p-tag value="revisar" severity="warn" styleClass="cg-tag" /> }</td>
               </tr>
             </ng-template>
           </p-table>
-          <p class="cg-note">Los <b>depósitos de caja</b> (lo que Finanzas registró depositar) vs los <b>ingresos del estado de cuenta</b> (CB, donde haya periodo cargado). Los universos <b>no son idénticos</b> —el banco recibe también transferencias de clientes, cobranza, etc.— así que el <b>delta es informativo</b>, no un descuadre estricto. Cuadre por totales con tolerancia ±{{ money(d.cuadre_eps) }}. "s/CB" = ese banco no tiene estado de cuenta cargado en Bancos.</p>
+          <p class="cg-note">3 vías por banco: <b>Caja</b> (lo que Finanzas registró depositar) · <b>Workbook</b> (ingresos del estado de cuenta, cargado del Excel/Sheet en Bancos) · <b>Kepler</b> (entradas de tesorería del ERP). Los tres universos <b>no son idénticos</b> —banco y Kepler reciben también transferencias de clientes, cobranza, etc.— así que los <b>deltas son informativos</b>, no un descuadre estricto. Cuadre por totales ±{{ money(d.cuadre_eps) }}. "s/wb" = ese banco no tiene estado de cuenta cargado. @if (!d.totals.wb_disponible) { <b>Sin workbook cargado en el periodo.</b> } @if (!d.totals.kep_disponible) { <b>Sin feed Kepler en el periodo.</b> }</p>
         }
       }
     </div>
@@ -210,6 +226,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-bd-k { flex:1; } .cg-bd-v { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
+    .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .strong { font-weight:700; } .muted { color:var(--text-faint); } .warn { color:var(--warn-fg); font-weight:700; }
     .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -310,9 +327,10 @@ export class FinanzasCajaComponent implements OnInit {
   }
   concKpis(d: Conc): MetricStripItem[] {
     return [
-      { label: 'Depósitos caja', value: d.totals.caja_real, format: 'currency-short', tone: 'default' },
-      { label: 'Ingresos banco (CB)', value: d.totals.cb_in, format: 'currency-short', tone: d.totals.cb_disponible ? 'default' : 'muted' as any },
-      { label: 'Delta', value: d.totals.delta, format: 'currency-short', tone: 'default' },
+      { label: 'Caja', value: d.totals.caja, format: 'currency-short', tone: 'default' },
+      { label: 'Workbook (banco)', value: d.totals.wb, format: 'currency-short', tone: d.totals.wb_disponible ? 'default' : ('muted' as any), sub: d.totals.wb_disponible ? undefined : 'sin cargar' },
+      { label: 'Kepler', value: d.totals.kep, format: 'currency-short', tone: d.totals.kep_disponible ? 'default' : ('muted' as any), sub: d.totals.kep_disponible ? undefined : 'sin feed' },
+      { label: 'Δ caja–workbook', value: d.totals.caja - d.totals.wb, format: 'currency-short', tone: 'default' },
     ];
   }
   tLabel(t: string): string { return TENDER_LABEL[t] || t; }
