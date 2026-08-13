@@ -24,6 +24,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, ValidatePhotoResult } from '../comprobacion-gastos.service';
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
+/** Gasto de Kepler seleccionado (read-only) — la fuente de verdad. */
+interface SelGasto { folio_gasto: string; proveedor: string | null; importe: number; sucursal: string | null; area: string | null; fecha: string | null; solicitud_folio: string | null; }
 
 /**
  * GX.8 — "Comprobación de Gastos" (2ª etapa del ciclo). Se elige el gasto de Kepler
@@ -118,36 +120,34 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     <!-- Diálogo: comprobar gasto (datos de Kepler + foto validada por vision) -->
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Comprobar gasto">
       <div class="cp-form">
-        <!-- 1) Identificar el gasto de Kepler (por folio) — auto-rellena proveedor/importe/sucursal -->
-        <label class="cp-f"><span>Buscar gasto de Kepler (folio · proveedor · importe)</span>
-          <p-autocomplete [(ngModel)]="gastoSel" [suggestions]="gastoSug()" (completeMethod)="searchGasto($event)"
-            (onSelect)="onGastoSelect($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-            placeholder="Ej. 6569, nombre del proveedor…" appendTo="body" styleClass="w-full" /></label>
+        <!-- 1) El gasto YA está en Kepler: se muestra read-only (o se busca si es alta libre) -->
+        @if (!selectedGasto()) {
+          <label class="cp-f"><span>Buscar gasto de Kepler (folio · proveedor · importe)</span>
+            <p-autocomplete [(ngModel)]="gastoSel" [suggestions]="gastoSug()" (completeMethod)="searchGasto($event)"
+              (onSelect)="onGastoSelect($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
+              placeholder="Ej. 6569, nombre del proveedor…" appendTo="body" styleClass="w-full" /></label>
+        } @else {
+          <div class="cp-gasto-card">
+            <div class="cp-gc-head">
+              <div>
+                <div class="cp-gc-folio">Gasto <span class="mono">{{ selectedGasto()!.folio_gasto }}</span></div>
+                <div class="cp-gc-prov">{{ selectedGasto()!.proveedor || '—' }}</div>
+              </div>
+              <div class="cp-gc-importe">{{ moneyFull(selectedGasto()!.importe) }}</div>
+            </div>
+            <div class="cp-gc-meta">
+              @if (selectedGasto()!.sucursal) { <span><i class="pi pi-map-marker"></i> {{ selectedGasto()!.sucursal }}</span> }
+              @if (selectedGasto()!.area) { <span><i class="pi pi-sitemap"></i> {{ selectedGasto()!.area }}</span> }
+              @if (selectedGasto()!.fecha) { <span><i class="pi pi-calendar"></i> {{ selectedGasto()!.fecha | date:'dd/MM/yy' }}</span> }
+              @if (selectedGasto()!.solicitud_folio) { <span class="muted">sol {{ selectedGasto()!.solicitud_folio }}</span> }
+            </div>
+            <button type="button" class="cp-linkbtn cp-gc-change" (click)="changeGasto()">cambiar gasto</button>
+          </div>
+        }
 
-        <div class="cp-row">
-          <label class="cp-f"><span>Nombre del solicitante *</span>
-            <input pInputText [(ngModel)]="form.solicitante" /></label>
-          <label class="cp-f"><span>Folio del gasto (Kepler) *</span>
-            <input pInputText [(ngModel)]="form.folio_gasto" maxlength="12" placeholder="0000" (blur)="onFolioBlur()" /></label>
-        </div>
-        <label class="cp-f"><span>Departamento *</span>
-          <p-select [options]="departamentos()" [(ngModel)]="form.departamento_code" optionLabel="nombre" optionValue="code" [filter]="true" placeholder="Selecciona departamento" appendTo="body" styleClass="w-full" (onChange)="onDeptoChange()" /></label>
-        @if (sucursalDerivada()) { <div class="cp-suc"><i class="pi pi-map-marker"></i> Sucursal: <strong>{{ sucursalDerivada() }}</strong></div> }
-        <div class="cp-row">
-          <label class="cp-f"><span>Nombre proveedor *</span>
-            <input pInputText [(ngModel)]="form.proveedor" /></label>
-          <label class="cp-f"><span>Fecha de la comprobación</span>
-            <p-datepicker [(ngModel)]="fechaComprobacion" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" styleClass="w-full" /></label>
-        </div>
-        <div class="cp-row">
-          <label class="cp-f"><span>Folio de la comprobación (últimos 4)</span>
-            <input pInputText [(ngModel)]="form.folio_comprobacion" maxlength="12" placeholder="0000" /></label>
-          <label class="cp-f"><span>Importe del gasto (Kepler) *</span>
-            <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" (onInput)="onImporteChange()" /></label>
-        </div>
-
-        <!-- 2) Foto/evidencia del gasto → Claude Vision valida el monto contra Kepler -->
-        <div class="cp-files-head">Foto del gasto * <em class="cp-hint">Claude Vision valida el monto contra Kepler</em></div>
+        <!-- 2) Adjuntar la foto del comprobante → Claude Vision valida el monto contra Kepler -->
+        @if (selectedGasto()) {
+        <div class="cp-files-head">Foto del comprobante * <em class="cp-hint">Claude Vision valida el monto contra Kepler</em></div>
         @if (!fileNames()['comprobacion']) {
           <div class="cp-drop" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDropPhoto($event)">
             <i class="pi pi-camera cp-drop-ico" aria-hidden="true"></i>
@@ -188,6 +188,7 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
 
         <label class="cp-f"><span>Comentarios</span>
           <textarea pInputText [(ngModel)]="form.comentarios" rows="2"></textarea></label>
+        }
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
       <ng-template #footer>
@@ -253,6 +254,17 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-ok { color: var(--ok-fg); }
     .cp-linkbtn { margin-left: auto; border: none; background: transparent; color: var(--action); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
     .cp-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
+    /* Tarjeta read-only del gasto de Kepler */
+    .cp-gasto-card { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .8rem .9rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .5rem; position: relative; }
+    .cp-gc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+    .cp-gc-folio { font-size: .82rem; color: var(--text-muted); }
+    .cp-gc-folio .mono { font-family: var(--font-mono); color: var(--text-main); font-size: .9em; }
+    .cp-gc-prov { font-size: 1rem; font-weight: 600; color: var(--text-main); margin-top: .15rem; }
+    .cp-gc-importe { font-size: 1.25rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .cp-gc-meta { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .8rem; color: var(--text-muted); }
+    .cp-gc-meta span { display: inline-flex; align-items: center; gap: .3rem; }
+    .cp-gc-meta i { font-size: .8rem; opacity: .8; }
+    .cp-gc-change { align-self: flex-start; }
     /* Resultado de la validación por vision de la foto */
     .cp-val { display: flex; align-items: flex-start; gap: .5rem; font-size: .82rem; padding: .55rem .7rem; border-radius: var(--r-md, .5rem); border: 1px solid var(--border-color); margin-top: .1rem; }
     .cp-val i { margin-top: .1rem; }
@@ -285,6 +297,8 @@ export class FinanzasComprobacionGastosComponent {
   // Claude Vision lee la FOTO del gasto y valida el monto contra el importe Kepler.
   readonly photoLoading = signal(false);
   readonly photoResult = signal<ValidatePhotoResult | null>(null);
+  // Gasto de Kepler seleccionado (read-only) — todo se deriva de él.
+  readonly selectedGasto = signal<SelGasto | null>(null);
 
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobacion', label: 'Foto del gasto', required: true, accept: 'image/*,application/pdf' },
@@ -367,35 +381,42 @@ export class FinanzasComprobacionGastosComponent {
   onGastoSelect(ev: { value: GastoSug & { label: string } } | (GastoSug & { label: string })) {
     const g = (ev as { value: GastoSug & { label: string } }).value ?? (ev as GastoSug & { label: string });
     if (!g || typeof g === 'string') return;
+    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio });
+  }
+
+  /** Fija el gasto de Kepler (fuente de verdad) y prepara la validación de la foto. */
+  private setGasto(g: SelGasto) {
+    this.selectedGasto.set(g);
     this.form.folio_gasto = g.folio_gasto;
-    this.form.proveedor = g.proveedor || this.form.proveedor || '';
-    if (g.importe) this.form.importe = g.importe;
-    if (g.sucursal && !this.form.sucursal) this.form.sucursal = g.sucursal;
+    this.form.sucursal = g.sucursal || undefined;
+    this.form.importe = g.importe;
+    this.gastoSel = null;
     this.revalidatePhoto();
+  }
+
+  /** Vuelve a elegir otro gasto (limpia la foto ya cargada). */
+  changeGasto() {
+    this.selectedGasto.set(null);
+    this.clearPhoto();
+    this.form.folio_gasto = '';
+    this.form.importe = 0;
+    this.gastoSel = null;
   }
 
   openNew() {
     this.form = { solicitante: this.auth.user()?.username || '' };
     this.fechaComprobacion = new Date();
     this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.gastoSel = null;
-    this.sucursalDerivada.set('');
+    this.selectedGasto.set(null);
     this.photoResult.set(null);
     this.formError.set('');
     this.showForm.set(true);
   }
 
-  /** Abre el form pre-rellenado con el gasto de la fila (folio/proveedor/importe/sucursal). */
+  /** Abre el diálogo con el gasto de la fila ya seleccionado (read-only) + foto. */
   openComprobar(g: GastoRow) {
     this.openNew();
-    this.form.folio_gasto = g.folio_gasto;
-    this.form.proveedor = g.proveedor || '';
-    if (g.importe) this.form.importe = g.importe;
-    if (g.sucursal) this.form.sucursal = g.sucursal;
-  }
-
-  onDeptoChange() {
-    const dep = this.departamentos().find((d) => d.code === this.form.departamento_code);
-    this.sucursalDerivada.set(dep?.sucursal || '');
+    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio });
   }
 
   onFile(ev: Event, role: string) {
@@ -485,16 +506,9 @@ export class FinanzasComprobacionGastosComponent {
   }
 
   submit() {
-    const f = this.form;
-    const dep = this.departamentos().find((d) => d.code === f.departamento_code);
-    f.departamento = dep?.nombre || '';
-    f.sucursal = dep?.sucursal || f.sucursal || undefined;
-    if (!f.solicitante?.trim() || !f.departamento_code || !f.folio_gasto?.trim() || !f.proveedor?.trim()) {
-      this.formError.set('Completa los campos obligatorios (*).'); return;
-    }
-    if (!(Number(f.importe) > 0)) { this.formError.set('Falta el importe del gasto (Kepler) para validar la foto.'); return; }
+    if (!this.selectedGasto()) { this.formError.set('Elegí el gasto de Kepler.'); return; }
     for (const slot of this.fileSlots) {
-      if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) { this.formError.set(`Falta: ${this.fileLabel(slot.role)}.`); return; }
+      if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) { this.formError.set('Adjuntá la foto del comprobante.'); return; }
     }
     if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
@@ -528,9 +542,12 @@ export class FinanzasComprobacionGastosComponent {
   private createComprobacion(present: string[]) {
     const files = present.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     const pr = this.photoResult();
+    const g = this.selectedGasto();
+    // El backend deriva proveedor/importe/sucursal/área/solicitante del gasto Kepler.
     this.svc.create({
-      ...this.form,
-      fecha_comprobacion: this.fmtDate(this.fechaComprobacion),
+      folio_gasto: g?.folio_gasto,
+      sucursal: g?.sucursal || undefined,
+      comentarios: this.form.comentarios,
       files,
       // Validación por vision de la foto (el backend decide validada vs revisión):
       monto_ocr: pr?.total ?? null,
@@ -567,4 +584,5 @@ export class FinanzasComprobacionGastosComponent {
   statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s || ''] || (s || '—'); }
   statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }

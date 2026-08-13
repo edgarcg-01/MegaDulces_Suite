@@ -173,48 +173,55 @@ export class ExpenseComprobacionesService {
     }
   }
 
-  /** Alta de la comprobación (con los archivos ya subidos vía uploadFile). */
+  /**
+   * Alta de la comprobación. El gasto YA está en Kepler: se identifica por folio (+
+   * sucursal si viene) y TODOS sus datos (proveedor/importe/sucursal/área/solicitante/
+   * solicitud) se derivan del espejo `analytics.expense_documents` — la captura solo
+   * aporta la FOTO del comprobante (+ comentarios). La foto se valida por vision.
+   */
   async create(dto: CreateComprobacionDto, actor?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     const req = (v?: string) => (v || '').trim();
-    const solicitante = req(dto.solicitante) || actor || '';
-    const departamento = req(dto.departamento);
     const folioGasto = req(dto.folio_gasto);
-    const proveedor = req(dto.proveedor);
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
-    if (!solicitante) throw new BadRequestException('solicitante requerido');
-    if (!departamento) throw new BadRequestException('departamento requerido');
     if (!folioGasto) throw new BadRequestException('folio del gasto requerido');
-    if (!proveedor) throw new BadRequestException('proveedor requerido');
     const roles = new Set(files.map((f) => f.role));
     for (const r of REQUIRED_ROLES) {
-      if (!roles.has(r)) throw new BadRequestException(`falta el archivo obligatorio: ${r}`);
+      if (!roles.has(r)) throw new BadRequestException(`falta la foto del comprobante`);
     }
 
-    // Validación por vision: cuadra → validada (por Claude Vision); si no → revisión.
-    const importe = Number(dto.importe) || 0;
-    const legible = dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null);
-    const { match, usado, diff } = this.montoCuadra(importe, dto.monto_ocr ?? null, dto.subtotal_ocr ?? null);
-    const cuadra = legible && match;
-    const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-    const status = cuadra ? 'validada' : 'revision';
-    const revisionNota = cuadra ? null
-      : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
-        : `Monto no cuadra: foto ${fmt(usado)} vs gasto ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
-
     return this.tk.run(async (trx) => {
-      // Resuelve la solicitud (XA1501) del gasto para el seguimiento cruzado (best-effort).
+      // El gasto de Kepler es la fuente de verdad (proveedor/importe/sucursal/área/etc).
       const gasto = await trx('analytics.expense_documents')
         .where({ tenant_id: tenantId, doc_tipo: 'XA1001', doc_folio: folioGasto })
-        .first('solicitud_folio');
+        .modify((q: any) => { const s = req(dto.sucursal); if (s) q.andWhere('sucursal', s); })
+        .first('sucursal', 'beneficiario', trx.raw('importe::numeric AS importe'), 'area', 'usuario', 'solicitud_folio');
+      if (!gasto) throw new BadRequestException(`gasto ${folioGasto} no encontrado en Kepler`);
+
+      const proveedor = gasto.beneficiario || req(dto.proveedor) || '—';
+      const importe = Number(gasto.importe) || 0;
+      const sucursal = gasto.sucursal || req(dto.sucursal) || null;
+      const departamento = gasto.area || req(dto.departamento) || 'General';
+      const solicitante = gasto.usuario || req(dto.solicitante) || actor || 'sistema';
+
+      // Validación por vision: cuadra → validada (por Claude Vision); si no → revisión.
+      const legible = dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null);
+      const { match, usado, diff } = this.montoCuadra(importe, dto.monto_ocr ?? null, dto.subtotal_ocr ?? null);
+      const cuadra = legible && match;
+      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      const status = cuadra ? 'validada' : 'revision';
+      const revisionNota = cuadra ? null
+        : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
+          : `Monto no cuadra: foto ${fmt(usado)} vs gasto ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+
       const [row] = await trx('finance.expense_comprobaciones')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
-          solicitante, departamento, departamento_code: req(dto.departamento_code) || null,
-          sucursal: req(dto.sucursal) || null,
+          solicitante, departamento, departamento_code: null,
+          sucursal,
           folio_gasto: folioGasto,
-          folio_solicitud: (gasto && gasto.solicitud_folio) || null,
-          fecha_comprobacion: dto.fecha_comprobacion || null,
+          folio_solicitud: gasto.solicitud_folio || null,
+          fecha_comprobacion: dto.fecha_comprobacion || trx.raw('CURRENT_DATE'),
           folio_comprobacion: req(dto.folio_comprobacion) || null,
           proveedor, importe,
           files: JSON.stringify(files),
