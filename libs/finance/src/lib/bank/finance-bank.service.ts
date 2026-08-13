@@ -1375,6 +1375,9 @@ export class FinanceBankService {
   private collapseMatches(matches: any[]): any[] {
     const m = new Map<string, any>();
     for (const r of matches) {
+      // Descarta filas inválidas (sin tenant/movimiento) — nunca deben llegar al insert:
+      // una fila sin tenant_id genera "default values" → viola RLS.
+      if (!r || !r.tenant_id || !r.bank_movement_id) continue;
       const k = `${r.bank_movement_id}|${r.kepler_doc_tipo ?? ''}|${r.kepler_doc_folio ?? ''}`;
       const prev = m.get(k);
       if (prev) { prev.kepler_amount = Number(prev.kepler_amount || 0) + Number(r.kepler_amount || 0); }
