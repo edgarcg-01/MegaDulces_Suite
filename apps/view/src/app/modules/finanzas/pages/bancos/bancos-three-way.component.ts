@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
@@ -19,7 +20,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
 @Component({
   selector: 'bancos-three-way',
   standalone: true,
-  imports: [CommonModule, TableModule, DialogModule, ButtonModule],
+  imports: [CommonModule, FormsModule, TableModule, DialogModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (data(); as d) {
@@ -184,20 +185,35 @@ import { cuadra, money0, dmShort } from './bancos-shared';
           @if (dd.totals.kepler_only_n) { <span class="warn"><b>{{ dd.totals.kepler_only_n }}</b> solo Kepler ({{ dd.totals.kepler_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
           @if (dd.totals.contpaqi_only_n) { <span class="warn"><b>{{ dd.totals.contpaqi_only_n }}</b> solo ContPAQi ({{ dd.totals.contpaqi_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
         </div>
+        <div class="tw-drill-filters">
+          <div class="tw-fg" role="group" aria-label="Dirección">
+            <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
+            <button type="button" [class.on]="dfDir()==='in'" (click)="dfDir.set('in')">Depósitos</button>
+            <button type="button" [class.on]="dfDir()==='out'" (click)="dfDir.set('out')">Retiros</button>
+          </div>
+          <div class="tw-fg" role="group" aria-label="Estado">
+            <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
+            <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">En las 3</button>
+            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Falta en alguna</button>
+          </div>
+          <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
+          <span class="muted tw-fcount">{{ drillRows().length }} de {{ dd.excel.length }}</span>
+        </div>
         <div class="tw-wrap">
           <table class="tw-tbl tw-drill-tbl">
-            <thead><tr><th>Fecha</th><th class="ta-c">Dir</th><th class="ta-r">Importe</th><th>Concepto</th><th class="ta-c">Kepler</th><th class="ta-c">ContPAQi</th></tr></thead>
+            <thead><tr><th>Fecha</th><th class="ta-c">Dir</th><th class="ta-r">Workbook</th><th class="ta-r">Kepler</th><th class="ta-r">ContPAQi</th><th>Concepto</th></tr></thead>
             <tbody>
-              @for (e of dd.excel; track e.id) {
+              @for (e of drillRows(); track e.id) {
                 <tr>
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left fb-in-ico' : 'pi pi-arrow-up-right fb-out-ico'"></i></td>
                   <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">@if (e.kepler) { <span [title]="e.kepler_doc || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.contpaqi) { <span [title]="e.contpaqi_poliza || ''" [class.tw-cent]="e.contpaqi_importe !== e.importe">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
-                  <td class="ta-c">@if (e.kepler) { <i class="pi pi-check ok" [title]="e.kepler_doc || ''"></i> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
-                  <td class="ta-c">@if (e.contpaqi) { <i class="pi pi-check ok" [title]="e.contpaqi_poliza || ''"></i> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                 </tr>
               }
+              @if (!drillRows().length) { <tr><td colspan="6" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -298,6 +314,17 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     .tw-drill-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: var(--sp-3); }
     .tw-drill-kpis b { color: var(--text-main); }
     .tw-drill-tbl th, .tw-drill-tbl td { padding: var(--sp-1) var(--sp-3); }
+    /* CB.37 — filtros del detalle */
+    .tw-drill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    .tw-fg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+    .tw-fg button { background: var(--card-bg); border: none; border-right: 1px solid var(--border-color); padding: 3px var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; }
+    .tw-fg button:last-child { border-right: none; }
+    .tw-fg button:hover { color: var(--text-main); }
+    .tw-fg button.on { background: color-mix(in srgb, var(--action) 10%, transparent); color: var(--action); font-weight: 600; }
+    .tw-fsearch { padding: 3px var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-xs); min-width: 12rem; }
+    .tw-fcount { font-size: var(--fs-xs); margin-left: auto; }
+    .tw-cent { color: var(--warn-fg); } /* monto de la fuente ≠ workbook (centavos/tolerancia) */
+    .tw-empty { padding: var(--sp-4); }
     .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
     @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
     .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
@@ -320,6 +347,21 @@ export class BancosThreeWayComponent {
   readonly drillErr = signal<string | null>(null);
   readonly drill = signal<ThreeWayDetail | null>(null);
   private drillAcct = '';
+  // CB.37 — filtros del detalle 3 vías.
+  readonly dfDir = signal<'' | 'in' | 'out'>('');
+  readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
+  readonly dfSearch = signal('');
+  readonly drillRows = computed(() => {
+    const dd = this.drill(); if (!dd) return [];
+    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase();
+    return dd.excel.filter((e) => {
+      if (dir && e.dir !== dir) return false;
+      if (est === 'casado' && !(e.kepler && e.contpaqi)) return false;
+      if (est === 'descuadre' && e.kepler && e.contpaqi) return false;
+      if (q && !`${e.concepto || ''} ${e.importe}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
 
   constructor() {
     effect(() => {
@@ -337,6 +379,7 @@ export class BancosThreeWayComponent {
   drillTitle(): string { return this.drillAcct ? `Detalle 3 vías — ${this.drillAcct}` : 'Detalle'; }
   openDrill(period: string, r: ThreeWayAccount): void {
     this.drillAcct = `${r.bank} ${r.account_label}`;
+    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set('');
     this.drill.set(null); this.drillErr.set(null); this.drillOpen.set(true); this.drillLoading.set(true);
     this.api.threeWayDetail(period, r.account_label).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (dd) => { this.drill.set(dd); this.drillLoading.set(false); },
