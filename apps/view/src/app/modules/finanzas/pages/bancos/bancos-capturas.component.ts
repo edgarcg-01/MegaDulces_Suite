@@ -55,6 +55,7 @@ import { money0, dmy } from './bancos-shared';
               <td class="mono muted">{{ dmy(r.created_at) }}</td>
               <td>
                 <span class="bc-strong">{{ r.sender_name || r.from_phone }}</span>
+                @if (r.customer_code || r.rfc) { <div class="bc-cust muted">{{ r.customer_code }}@if (r.rfc) { · {{ r.rfc }} }</div> }
                 @if (r.error_detail) { <div class="bc-err-msg"><i class="pi pi-exclamation-triangle"></i> {{ r.error_detail }}</div> }
               </td>
               <td class="mono">{{ r.sucursal || '—' }}</td>
@@ -102,6 +103,7 @@ import { money0, dmy } from './bancos-shared';
     .muted { color: var(--text-muted); } .ta-r { text-align: right; }
     .ok { color: var(--ok-fg); } .bc-strong { font-weight: 600; color: var(--text-main); }
     .bc-bank { font-size: var(--fs-sm); } .bc-acct { font-size: var(--fs-xs); }
+    .bc-cust { font-size: var(--fs-xs); font-family: var(--font-mono); margin-top: 1px; }
     .bc-ref { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bc-rej { opacity: 0.5; }
     .bc-err > td { background: color-mix(in srgb, var(--warn-fg) 6%, transparent); }

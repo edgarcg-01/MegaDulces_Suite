@@ -1,29 +1,24 @@
 /* eslint-disable no-console */
 /**
- * Fase CBW (ADR-042) — Seed/importer de remitentes autorizados de captura bancaria
+ * Fase CBW.6 (ADR-042) — Seed/importer de remitentes autorizados de captura bancaria
  * por WhatsApp (allowlist `finance.bank_capture_senders`).
  *
- * "Prepara todo, la lista al final": este script YA está listo. Cuando tengas la
- * lista de remitentes, la pones en un archivo (CSV o JSON) o inline en SENDERS[] y
- * corres el script. Idempotente (UPSERT por (tenant, phone)); re-correrlo actualiza.
+ * Los remitentes son los CLIENTES de telemarketing (grupo Kepler 1M001, ~80) que
+ * pagan por depósito y mandan su ficha. Cobranza dura: cada remitente lleva su
+ * clave Kepler (`customer_code`) + RFC → el depósito se atribuye al cliente.
  *
- * FORMATO (CSV con encabezado; separador , o ;):
- *   phone,full_name,sucursal,cuenta
- *   4431234567,Jose Mendez,30,BBVA 5712
- *   +52 443 987 6543,Maria Lopez,73,1604
- *   ...
- *   - phone: cualquier forma (10 díg / +52 / 521…) → se normaliza a 52XXXXXXXXXX.
- *   - full_name: nombre de la persona (se usa para atribuir el depósito).
- *   - sucursal: código S de su plaza (30/73/10…). Opcional.
- *   - cuenta: "BANCO LABEL" (ej "BBVA 5712") o solo el label/tail ("5712"). Opcional
- *             (si el OCR lee la cuenta, se resuelve sola; esto es el fallback).
+ * FORMATO (CSV con encabezado; separador , o ;). Columnas reconocidas:
+ *   customer_code, full_name, phone, tel2, rfc, sucursal, cuenta
+ *   - phone / tel2: cualquier forma → se normaliza a 52XXXXXXXXXX. tel2 crea una
+ *     2ª fila para el MISMO cliente (puede mandar desde cualquiera de sus números).
+ *   - customer_code: clave Kepler (C1002, 10001…). Excluye TI*/ONLINE (sucursales internas).
+ *   - rfc: opcional; si falta, se ENRIQUECE desde analytics.erp_customers por customer_code.
+ *   - cuenta: "BANCO LABEL" o tail 4 (opcional; el OCR resuelve la cuenta del depósito).
  *
  * USO:
- *   Dry-run (default, NO escribe):   node database/scripts/seed-bank-capture-senders.js --file senders.csv
- *   Aplicar:                         node database/scripts/seed-bank-capture-senders.js --file senders.csv --apply
- *   Contra prod:  DATABASE_URL_NEW="postgresql://…railway" node database/scripts/seed-bank-capture-senders.js --file senders.csv --apply
- *
- * Sin --file usa el arreglo inline SENDERS[] (vacío por ahora → imprime el formato y sale).
+ *   Dry-run (default):   node database/scripts/seed-bank-capture-senders.js --file clientes.csv
+ *   Aplicar:             node database/scripts/seed-bank-capture-senders.js --file clientes.csv --apply
+ *   Contra prod:  DATABASE_URL_NEW="postgresql://…railway" node … --file clientes.csv --apply
  */
 const fs = require('fs');
 try { require('dotenv').config(); } catch (e) { /* opcional */ }
@@ -32,11 +27,8 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const APPLY = process.argv.includes('--apply');
 const fileArg = (() => { const i = process.argv.indexOf('--file'); return i >= 0 ? process.argv[i + 1] : null; })();
 
-// ── Lista inline (opcional). Llénala aquí O usa --file. ─────────────────────────
-/** @type {{phone:string, full_name:string, sucursal?:string, cuenta?:string}[]} */
-const SENDERS = [
-  // { phone: '4431234567', full_name: 'Jose Mendez', sucursal: '30', cuenta: 'BBVA 5712' },
-];
+/** @type {{customer_code?:string, phone:string, tel2?:string, full_name:string, rfc?:string, sucursal?:string, cuenta?:string}[]} */
+const SENDERS = [];
 
 // Réplica EXACTA de normalizeMxPhone (libs/platform-core/.../mx-phone.ts) — 52XXXXXXXXXX.
 function normalizeMxPhone(input) {
@@ -52,19 +44,21 @@ function parseCsv(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   if (!lines.length) return [];
   const delim = lines[0].includes(';') ? ';' : ',';
-  const headers = lines[0].split(delim).map((h) => h.trim().toLowerCase());
-  const idx = (name) => headers.indexOf(name);
-  const iPhone = idx('phone'), iName = idx('full_name'), iSuc = idx('sucursal'), iCta = idx('cuenta');
-  if (iPhone < 0 || iName < 0) throw new Error('El CSV necesita al menos las columnas: phone, full_name');
+  const H = lines[0].split(delim).map((h) => h.trim().toLowerCase());
+  const at = (c, name) => { const i = H.indexOf(name); return i >= 0 ? (c[i] || '').trim() : ''; };
+  if (H.indexOf('phone') < 0 || H.indexOf('full_name') < 0) throw new Error('El CSV necesita al menos: phone, full_name');
   return lines.slice(1).map((l) => {
     const c = l.split(delim);
     return {
-      phone: (c[iPhone] || '').trim(),
-      full_name: (c[iName] || '').trim(),
-      sucursal: iSuc >= 0 ? (c[iSuc] || '').trim() : '',
-      cuenta: iCta >= 0 ? (c[iCta] || '').trim() : '',
+      customer_code: at(c, 'customer_code') || at(c, 'clave'),
+      full_name: at(c, 'full_name') || at(c, 'nombre'),
+      phone: at(c, 'phone') || at(c, 'tel1'),
+      tel2: at(c, 'tel2'),
+      rfc: at(c, 'rfc'),
+      sucursal: at(c, 'sucursal'),
+      cuenta: at(c, 'cuenta'),
     };
-  }).filter((r) => r.phone && r.full_name);
+  }).filter((r) => r.full_name);
 }
 
 function loadSenders() {
@@ -79,59 +73,72 @@ function loadSenders() {
 /** Resuelve default_bank_account_id desde "BANCO LABEL" o el tail de 4 dígitos. */
 async function resolveAccount(knex, cuenta) {
   const s = String(cuenta || '').trim();
-  if (!s) return { id: null, note: 'sin cuenta (fallback: OCR / a mano)' };
-  // "BBVA 5712" → banco + label
+  if (!s) return { id: null, note: '' };
   const m = s.match(/^([A-Za-zÁÉÍÓÚñÑ ]+?)\s+([\w-]+)$/);
   if (m) {
-    const bank = m[1].trim().toUpperCase();
-    const label = m[2].trim();
-    const row = await knex('finance.bank_accounts')
-      .where({ tenant_id: MEGA, active: true }).whereRaw('upper(bank) = ?', [bank]).andWhere('account_label', label).first('id', 'bank', 'account_label');
+    const row = await knex('finance.bank_accounts').where({ tenant_id: MEGA, active: true })
+      .whereRaw('upper(bank) = ?', [m[1].trim().toUpperCase()]).andWhere('account_label', m[2].trim()).first('id', 'bank', 'account_label');
     if (row) return { id: row.id, note: `${row.bank} ${row.account_label}` };
   }
-  // solo label / tail 4 dígitos
   const digits = s.replace(/\D/g, '');
   const label = digits.length >= 4 ? digits.slice(-4) : s;
-  const row = await knex('finance.bank_accounts')
-    .where({ tenant_id: MEGA, active: true }).andWhere('account_label', label).first('id', 'bank', 'account_label');
-  if (row) return { id: row.id, note: `${row.bank} ${row.account_label}` };
-  return { id: null, note: `⚠️ cuenta "${s}" NO encontrada → queda sin cuenta` };
+  const row = await knex('finance.bank_accounts').where({ tenant_id: MEGA, active: true }).andWhere('account_label', label).first('id', 'bank', 'account_label');
+  return row ? { id: row.id, note: `${row.bank} ${row.account_label}` } : { id: null, note: `⚠️ cuenta "${s}" no encontrada` };
 }
 
 (async () => {
   const list = loadSenders();
   if (!list.length) {
-    console.log('Sin remitentes que cargar. Llena --file <csv|json> o el arreglo SENDERS[] inline.');
-    console.log('Formato CSV:\n  phone,full_name,sucursal,cuenta\n  4431234567,Jose Mendez,30,BBVA 5712');
+    console.log('Sin remitentes. Usa --file <csv|json>. Formato:\n  customer_code,full_name,phone,tel2,rfc\n  C1002,ELIZABETH RUIZ MIRAMONTES,3521018330,,');
     process.exit(0);
   }
+  // Expandir tel2 → 2ª entrada del mismo cliente; excluir sucursales internas (TI*, ONLINE).
+  const rows = [];
+  let skippedInternal = 0;
+  for (const s of list) {
+    const code = String(s.customer_code || '').trim().toUpperCase();
+    if (/^TI\d|^ONLINE/.test(code)) { skippedInternal++; continue; } // sucursal interna / e-commerce
+    for (const p of [s.phone, s.tel2]) {
+      const phone = normalizeMxPhone(p);
+      if (phone) rows.push({ ...s, phone });
+    }
+  }
+
   const knex = require('knex')({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW } });
   const target = (process.env.DATABASE_URL_NEW || '').includes('rlwy.net') ? 'PROD (Railway)' : 'local';
-  console.log(`\n${APPLY ? '🟢 APLICANDO' : '🔎 DRY-RUN (no escribe)'} · destino: ${target} · ${list.length} remitentes\n`);
+  console.log(`\n${APPLY ? '🟢 APLICANDO' : '🔎 DRY-RUN (no escribe)'} · destino: ${target} · ${rows.length} teléfonos (${list.length} filas, ${skippedInternal} internos excluidos)\n`);
 
-  let ok = 0, warn = 0;
+  let ok = 0, conCuenta = 0, conRfc = 0;
   try {
     await knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${MEGA}'`);
-      for (const s of list) {
-        const phone = normalizeMxPhone(s.phone);
-        if (!phone) { console.log(`  ✗ "${s.phone}" (${s.full_name}) — teléfono inválido, saltado`); warn++; continue; }
+      // Cache de RFC por clave desde el espejo de Kepler (analytics.erp_customers).
+      const rfcByCode = new Map();
+      const codes = [...new Set(rows.map((r) => (r.customer_code || '').trim()).filter(Boolean))];
+      if (codes.length) {
+        try {
+          const ec = await trx('analytics.erp_customers').where({ tenant_id: MEGA }).whereIn('erp_code', codes).select('erp_code', 'rfc');
+          for (const e of ec) if (e.rfc) rfcByCode.set(String(e.erp_code), e.rfc);
+        } catch (e) { console.log(`  (aviso) no pude enriquecer RFC de erp_customers: ${e.message}`); }
+      }
+      for (const s of rows) {
+        const rfc = (s.rfc || '').trim() || rfcByCode.get((s.customer_code || '').trim()) || null;
         const acct = await resolveAccount(trx, s.cuenta);
-        if (!acct.id) warn++; else ok++;
-        console.log(`  ${acct.id ? '✓' : '·'} ${phone}  ${s.full_name.padEnd(24)} suc=${(s.sucursal || '—').padEnd(4)} cuenta=${acct.note}`);
+        if (acct.id) conCuenta++; if (rfc) conRfc++; ok++;
+        console.log(`  ✓ ${s.phone}  ${String(s.full_name).slice(0, 30).padEnd(30)} ${(s.customer_code || '—').padEnd(7)} rfc=${(rfc || '—').padEnd(14)} ${acct.note}`);
         if (APPLY) {
           await trx('finance.bank_capture_senders')
-            .insert({ tenant_id: MEGA, phone, full_name: s.full_name, sucursal: s.sucursal || null, default_bank_account_id: acct.id, active: true, created_by: 'seed' })
+            .insert({ tenant_id: MEGA, phone: s.phone, full_name: s.full_name, sucursal: s.sucursal || null, default_bank_account_id: acct.id, customer_code: s.customer_code || null, rfc, active: true, created_by: 'seed' })
             .onConflict(['tenant_id', 'phone'])
-            .merge({ full_name: s.full_name, sucursal: s.sucursal || null, default_bank_account_id: acct.id, active: true, updated_at: trx.fn.now() });
+            .merge({ full_name: s.full_name, sucursal: s.sucursal || null, default_bank_account_id: acct.id, customer_code: s.customer_code || null, rfc, active: true, updated_at: trx.fn.now() });
         }
       }
-      if (!APPLY) throw new Error('__DRYRUN__'); // rollback en dry-run
+      if (!APPLY) throw new Error('__DRYRUN__');
     });
   } catch (e) {
     if (e.message !== '__DRYRUN__') { console.error('\nError:', e.message); await knex.destroy(); process.exit(1); }
   }
-  console.log(`\n${APPLY ? 'Aplicado' : 'Dry-run'}: ${ok} con cuenta resuelta, ${warn} sin cuenta/advertencia.`);
+  console.log(`\n${APPLY ? 'Aplicado' : 'Dry-run'}: ${ok} remitentes · ${conRfc} con RFC · ${conCuenta} con cuenta default.`);
   if (!APPLY) console.log('→ Corre otra vez con --apply para escribir.');
   await knex.destroy();
   process.exit(0);

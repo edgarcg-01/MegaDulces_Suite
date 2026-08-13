@@ -39,15 +39,16 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
 
       // ── 2. resolveSender (allowlist) ─────────────────────────────────────
       const [sender] = await trx('finance.bank_capture_senders').insert({
-        tenant_id: T, phone, full_name: 'Jose Mendez', sucursal: '30',
-        default_bank_account_id: acct.id, active: true, created_by: 'smoke',
-      }).returning(['id', 'full_name', 'sucursal', 'default_bank_account_id']);
+        tenant_id: T, phone, full_name: 'Elizabeth Ruiz', sucursal: '30',
+        default_bank_account_id: acct.id, customer_code: 'C1002', rfc: 'RUME800101ABC', active: true, created_by: 'smoke',
+      }).returning(['id', 'full_name', 'customer_code', 'rfc', 'default_bank_account_id']);
       ok(!!sender.id, 'sender insertado (allowlist)');
+      ok(sender.customer_code === 'C1002' && sender.rfc === 'RUME800101ABC', 'CBW.6: remitente lleva clave Kepler + RFC (cobranza dura)');
 
       const resolved = await trx('finance.bank_capture_senders')
         .where({ tenant_id: T, phone, active: true })
         .first('id', 'full_name', 'sucursal', 'default_bank_account_id');
-      ok(resolved && resolved.full_name === 'Jose Mendez', 'resolveSender: teléfono activo → identidad (nombre/sucursal/cuenta)');
+      ok(resolved && resolved.full_name === 'Elizabeth Ruiz', 'resolveSender: teléfono activo → identidad (nombre/sucursal/cuenta)');
 
       const none = await trx('finance.bank_capture_senders')
         .where({ tenant_id: T, phone: '5210000000000', active: true }).first('id');
@@ -67,7 +68,7 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
       ok(matchAcct && matchAcct.id === acct.id, 'resolveAccount: cuenta_dest OCR casa el bank_account por label');
 
       // ── 4. capture() → staging ───────────────────────────────────────────
-      const concept = ['Jose Mendez', 'Tienda La Piedad'].filter(Boolean).join(' — ');
+      const concept = ['Elizabeth Ruiz', 'Tienda La Piedad'].filter(Boolean).join(' — ');
       const [cap] = await trx('finance.bank_capture_inbox').insert({
         tenant_id: T, source: 'whatsapp', from_phone: phone, sender_id: sender.id,
         wa_message_id: 'wamid.SMOKE-CBW-1',
@@ -77,12 +78,14 @@ function last4(cuentaDest) { const d = (cuentaDest || '').replace(/\D/g, ''); re
         ocr_ordenante: 'Tienda La Piedad', ocr_metodo: 'transferencia_spei',
         ocr_raw: JSON.stringify({ monto: 3940.04 }), ocr_status: 'ok',
         bank_account_id: matchAcct.id, sucursal: '30', concept,
+        customer_code: sender.customer_code, rfc: sender.rfc,
         amount_in: 3940.04, amount_out: 0, movement_date: '2026-01-02',
         status: 'confirmado',
-      }).returning(['id', 'status', 'amount_in', 'concept', 'bank_account_id', 'bank_movement_id']);
+      }).returning(['id', 'status', 'amount_in', 'concept', 'bank_account_id', 'bank_movement_id', 'customer_code', 'rfc']);
       ok(cap.status === 'confirmado', 'CBW.5: la foto entra directa a la bandeja como "por validar" (sin SÍ/NO)');
+      ok(cap.customer_code === 'C1002' && cap.rfc === 'RUME800101ABC', 'CBW.6: la captura queda atribuida al cliente (clave Kepler + RFC)');
       ok(Number(cap.amount_in) === 3940.04, 'capture: monto OCR → amount_in (el cargo)');
-      ok(cap.concept.startsWith('Jose Mendez'), 'capture: concept = nombre del remitente + ordenante');
+      ok(cap.concept.startsWith('Elizabeth Ruiz'), 'capture: concept = nombre del remitente + ordenante');
       ok(cap.bank_account_id === acct.id, 'capture: cuenta resuelta guardada');
       ok(cap.bank_movement_id === null, 'ADR-042: NO se liga a bank_movements en la captura (staging puro)');
 
