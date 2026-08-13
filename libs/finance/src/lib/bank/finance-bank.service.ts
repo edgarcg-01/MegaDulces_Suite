@@ -1517,9 +1517,11 @@ export class FinanceBankService {
       const periodMovIds = bankMovs.map((m: any) => m.id);
       if (periodMovIds.length) {
         await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
+        // collapseMatches + el .del() previo garantizan unicidad → insert simple (sin
+        // onConflict, que en esta knex genera "default values" → fila NULL → RLS).
         for (let i = 0; i < uniqMatches.length; i += 500) {
-          await trx('finance.bank_recon_matches').insert(uniqMatches.slice(i, i + 500))
-            .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio']).ignore();
+          const chunk = uniqMatches.slice(i, i + 500);
+          if (chunk.length) await trx('finance.bank_recon_matches').insert(chunk);
         }
         await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
         const matchedIds = [...matchedSet];
@@ -1743,9 +1745,11 @@ export class FinanceBankService {
       const periodMovIds = bankMovs.map((m: any) => m.id);
       if (periodMovIds.length) {
         await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
+        // collapseMatches + el .del() previo garantizan unicidad → insert simple (sin
+        // onConflict, que en esta knex genera "default values" → fila NULL → RLS).
         for (let i = 0; i < uniqMatches.length; i += 500) {
-          await trx('finance.bank_recon_matches').insert(uniqMatches.slice(i, i + 500))
-            .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio']).ignore();
+          const chunk = uniqMatches.slice(i, i + 500);
+          if (chunk.length) await trx('finance.bank_recon_matches').insert(chunk);
         }
         await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
         for (let i = 0; i < matchedIds.length; i += 500) {
