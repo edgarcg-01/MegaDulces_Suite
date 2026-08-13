@@ -1367,6 +1367,23 @@ export class FinanceBankService {
   }
 
   /**
+   * Colapsa las filas de match por la llave única (bank_movement_id, kepler_doc_tipo,
+   * kepler_doc_folio) sumando kepler_amount. El pase agrupado (1 pago = N líneas del
+   * 102) puede emitir varias líneas del MISMO folio → sin colapsar, duplican la llave
+   * única de finance.bank_recon_matches → duplicate key → 500. Aquí quedan en una fila.
+   */
+  private collapseMatches(matches: any[]): any[] {
+    const m = new Map<string, any>();
+    for (const r of matches) {
+      const k = `${r.bank_movement_id}|${r.kepler_doc_tipo ?? ''}|${r.kepler_doc_folio ?? ''}`;
+      const prev = m.get(k);
+      if (prev) { prev.kepler_amount = Number(prev.kepler_amount || 0) + Number(r.kepler_amount || 0); }
+      else m.set(k, { ...r });
+    }
+    return [...m.values()];
+  }
+
+  /**
    * CB.27 — Matching v2 por banco contra el feed de tesorería (analytics.kepler_bank_movements).
    * Escala per-cuenta (account_label): casa cada movimiento del banco (retiro Y depósito) contra
    * el documento Kepler de LA MISMA cuenta, misma dirección, por monto+fecha. Muy superior al 102
@@ -1493,11 +1510,17 @@ export class FinanceBankService {
         for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
       }
 
-      // Persistir.
+      // Persistir. Colapsa por (bank_movement_id, doc_tipo, folio): el pase agrupado
+      // suma varias LÍNEAS del mismo folio Kepler → si no, dos filas con la misma llave
+      // única → duplicate key → 500. Aquí se unen sumando el importe.
+      const uniqMatches = this.collapseMatches(matches);
       const periodMovIds = bankMovs.map((m: any) => m.id);
       if (periodMovIds.length) {
         await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
-        for (let i = 0; i < matches.length; i += 500) await trx('finance.bank_recon_matches').insert(matches.slice(i, i + 500));
+        for (let i = 0; i < uniqMatches.length; i += 500) {
+          await trx('finance.bank_recon_matches').insert(uniqMatches.slice(i, i + 500))
+            .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio']).ignore();
+        }
         await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
         const matchedIds = [...matchedSet];
         for (let i = 0; i < matchedIds.length; i += 500) await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
@@ -1714,10 +1737,16 @@ export class FinanceBankService {
       }
 
       // Persistir: limpiar matches previos del periodo + reinsertar; marcar recon_status.
+      // Colapsa por (bank_movement_id, doc_tipo, folio) — el pase agrupado suma varias
+      // líneas del mismo folio → evita duplicate key en la única.
+      const uniqMatches = this.collapseMatches(matches);
       const periodMovIds = bankMovs.map((m: any) => m.id);
       if (periodMovIds.length) {
         await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
-        for (let i = 0; i < matches.length; i += 500) await trx('finance.bank_recon_matches').insert(matches.slice(i, i + 500));
+        for (let i = 0; i < uniqMatches.length; i += 500) {
+          await trx('finance.bank_recon_matches').insert(uniqMatches.slice(i, i + 500))
+            .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio']).ignore();
+        }
         await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
         for (let i = 0; i < matchedIds.length; i += 500) {
           await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
