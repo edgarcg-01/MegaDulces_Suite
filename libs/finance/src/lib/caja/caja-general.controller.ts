@@ -1,7 +1,9 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CajaGeneralService, CajaQuery } from './caja-general.service';
+
+interface AuthedRequest { user?: { username?: string } }
 
 /**
  * Fase CG.3 — Caja General (Tesorería). Read-only sobre analytics.caja_*.
@@ -59,5 +61,19 @@ export class CajaGeneralController {
   @ApiOperation({ summary: 'Facetas para filtros: meses, bancos, empresas, cajas.' })
   facets() {
     return this.svc.facets();
+  }
+
+  @Get('crosswalk')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Enlace de cuentas Caja→banco: estado actual + sugerencia vía Kepler (match depósitos monto+fecha) + alternativas.' })
+  crosswalk() {
+    return this.svc.crosswalk();
+  }
+
+  @Post('crosswalk')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma/edita el enlace de una cuenta de Caja a su account_label (CB/Kepler). label vacío = desenlazar.' })
+  crosswalkSet(@Body() body: { banco_code: string; account_label?: string | null; matches?: number }, @Req() req: AuthedRequest) {
+    return this.svc.crosswalkSet(body.banco_code, body.account_label ?? null, Number(body.matches) || 0, req.user?.username);
   }
 }

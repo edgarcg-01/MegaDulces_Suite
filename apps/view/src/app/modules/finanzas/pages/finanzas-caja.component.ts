@@ -14,7 +14,7 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
-type View = 'resumen' | 'depositos' | 'arqueos' | 'conciliacion';
+type View = 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface Overview {
   period: { from: string; to: string; instance: string };
   venta_total: number; dias: number; sucursales: number; vendido: number; depositado: number; descuadre: number;
@@ -29,6 +29,7 @@ interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: n
 interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; delta_caja_wb: number; delta_caja_kep: number; delta_wb_kep: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean }
 interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; wb_disponible: boolean; kep_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
 interface Facets { meses: string[]; bancos: string[]; empresas: string[]; cajas: string[] }
+interface XwRow { banco_code: string; banco_name: string; canon_bank: string; deposits: number; monto: number; current_label: string | null; confirmed_by: string | null; suggested_label: string | null; suggested_matches: number; alternatives: { label: string; n: number }[]; cb_options: string[] }
 const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: 'Morralla', cheques: 'Cheques', tarjeta: 'Tarjeta', caja_chica: 'Caja chica', sobregiro: 'Sobregiro' };
 
 /**
@@ -202,6 +203,40 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <p class="cg-note">3 vías por banco: <b>Caja</b> (lo que Finanzas registró depositar) · <b>Workbook</b> (ingresos del estado de cuenta, cargado del Excel/Sheet en Bancos) · <b>Kepler</b> (entradas de tesorería del ERP). Los tres universos <b>no son idénticos</b> —banco y Kepler reciben también transferencias de clientes, cobranza, etc.— así que los <b>deltas son informativos</b>, no un descuadre estricto. Cuadre por totales ±{{ money(d.cuadre_eps) }}. "s/wb" = ese banco no tiene estado de cuenta cargado. @if (!d.totals.wb_disponible) { <b>Sin workbook cargado en el periodo.</b> } @if (!d.totals.kep_disponible) { <b>Sin feed Kepler en el periodo.</b> }</p>
         }
       }
+
+      <!-- ===== ENLACE DE CUENTAS ===== -->
+      @if (view()==='enlace') {
+        @if (loading() && !xw()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @else if (xw(); as rows) {
+          <p class="cg-note" style="margin:.2rem 0 .8rem">Mapea cada <b>cuenta interna de Caja</b> a su <b>cuenta de banco real</b> (account_label, la llave que comparten Bancos y Kepler). La sugerencia se deriva <b>vía Kepler</b> (match de depósitos por monto+fecha, mismo banco) — es dispersa, por eso se <b>confirma a mano</b>. Confirmar habilita la conciliación exacta por cuenta (en vez de por nombre de banco).</p>
+          <p-table [value]="rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
+            <ng-template #header><tr><th>Cuenta Caja</th><th>Banco</th><th class="ta-r">Depósitos</th><th class="ta-c cg-w-d">#</th><th>Sugerencia (Kepler)</th><th class="cg-w-sel">Cuenta banco</th><th class="cg-w-e"></th></tr></ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="cg-mono">{{ r.banco_name || '—' }} <span class="muted">#{{ r.banco_code }}</span></td>
+                <td class="muted">{{ r.canon_bank }}</td>
+                <td class="ta-r num strong">{{ money(r.monto) }}</td>
+                <td class="ta-c muted">{{ r.deposits }}</td>
+                <td>
+                  @if (r.suggested_label) {
+                    <span class="cg-mono">{{ r.suggested_label }}</span>
+                    <p-tag [value]="r.suggested_matches + ' match'" [severity]="r.suggested_matches>=5?'success':'warn'" styleClass="cg-tag" />
+                    @for (a of r.alternatives; track a.label) { <span class="cg-alt">{{ a.label }}·{{ a.n }}</span> }
+                  } @else { <span class="muted">sin sugerencia</span> }
+                </td>
+                <td>
+                  <p-select [options]="r.cb_options" [ngModel]="pick()[r.banco_code]" (onChange)="setPick(r.banco_code, $event.value)" placeholder="—" [showClear]="true" styleClass="cg-sel" [ariaLabel]="'Cuenta banco para ' + r.banco_name" />
+                </td>
+                <td>
+                  <button pButton type="button" class="p-button-sm p-button-outlined" (click)="saveXw(r)" [disabled]="(pick()[r.banco_code]||'') === (r.current_label||'')" title="Guardar enlace"><span class="pi pi-check" aria-hidden="true"></span></button>
+                  @if (r.confirmed_by) { <span class="cg-ok" [title]="'Confirmado por ' + r.confirmed_by"><i class="pi pi-lock" aria-hidden="true"></i></span> }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin cuentas de Caja con depósitos.</span></div></td></tr></ng-template>
+          </p-table>
+        }
+      }
     </div>
   `,
   styles: [`
@@ -232,7 +267,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-cancel { opacity:.5; text-decoration:line-through; }
     .cg-w-d { width:3.5rem; } .cg-w-p { width:4rem; } .cg-w-u { width:5rem; } .cg-w-date { width:6rem; } .cg-w-suc { width:3.4rem; }
-    .cg-w-met { width:7rem; } .cg-w-com { width:6rem; } .cg-w-fol { width:6rem; } .cg-w-e { width:6rem; }
+    .cg-w-met { width:7rem; } .cg-w-com { width:6rem; } .cg-w-fol { width:6rem; } .cg-w-e { width:6rem; } .cg-w-sel { width:10rem; }
+    .cg-alt { font-family:var(--font-mono); font-size:.68rem; color:var(--text-faint); margin-left:.4rem; }
+    .cg-ok { color:var(--ok-fg); margin-left:.4rem; }
     :host ::ng-deep .cg-tag { font-size:.64rem; }
     .cg-note { margin-top:.6rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     .cg-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
@@ -252,6 +289,7 @@ export class FinanzasCajaComponent implements OnInit {
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
     { key: 'conciliacion', label: 'Conciliación', icon: 'pi-sync' },
+    { key: 'enlace', label: 'Enlace de cuentas', icon: 'pi-link' },
   ];
   readonly tipoOpts = ['Arqueo', 'Retiro', 'Corte', 'Deposito', 'Fondo Caja'];
   readonly skel = Array.from({ length: 8 });
@@ -270,6 +308,8 @@ export class FinanzasCajaComponent implements OnInit {
   readonly dep = signal<DepResp | null>(null);
   readonly arq = signal<ArqResp | null>(null);
   readonly conc = signal<Conc | null>(null);
+  readonly xw = signal<XwRow[] | null>(null);
+  readonly pick = signal<Record<string, string>>({});
   private searchTimer: any;
 
   ngOnInit(): void {
@@ -305,10 +345,21 @@ export class FinanzasCajaComponent implements OnInit {
       this.http.get<DepResp>(`${this.base}/depositos${this.qs({ banco: this.banco(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.dep.set(d); done(); }, error: fail });
     } else if (v === 'arqueos') {
       this.http.get<ArqResp>(`${this.base}/arqueos${this.qs({ tipo: this.tipo(), almacen: this.caja() })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.arq.set(d); done(); }, error: fail });
-    } else {
+    } else if (v === 'conciliacion') {
       this.http.get<Conc>(`${this.base}/conciliacion${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.conc.set(d); done(); }, error: fail });
+    } else {
+      this.http.get<XwRow[]>(`${this.base}/crosswalk`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.xw.set(d); const p: Record<string, string> = {}; d.forEach((r) => { p[r.banco_code] = r.current_label || r.suggested_label || ''; }); this.pick.set(p); done(); }, error: fail });
     }
   }
+
+  saveXw(r: XwRow): void {
+    const label = this.pick()[r.banco_code] || null;
+    const matches = label && label === r.suggested_label ? r.suggested_matches : 0;
+    this.http.post(`${this.base}/crosswalk`, { banco_code: r.banco_code, account_label: label, matches }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => this.reload(), error: () => this.err.set('No se pudo guardar el enlace.') });
+  }
+  setPick(code: string, label: string): void { this.pick.set({ ...this.pick(), [code]: label }); }
 
   ovKpis(d: Overview): MetricStripItem[] {
     return [

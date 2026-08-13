@@ -247,6 +247,94 @@ export class CajaGeneralService {
     });
   }
 
+  /** Nombre de banco → clave canónica común a Caja / CB / Kepler. */
+  private canonBank(s: string): string {
+    const u = String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (/BAJIO|BBAJIO/.test(u)) return 'BAJIO';
+    if (/BBVA|BANCOMER/.test(u)) return 'BBVA';
+    if (/BANORTE/.test(u)) return 'BANORTE';
+    if (/SANTANDER/.test(u)) return 'SANTANDER';
+    if (/BANAMEX|CITI/.test(u)) return 'BANAMEX';
+    if (/AZTECA/.test(u)) return 'AZTECA';
+    if (/INBURSA/.test(u)) return 'INBURSA';
+    if (/HSBC/.test(u)) return 'HSBC';
+    if (/CAJA/.test(u)) return 'CAJA';
+    return u.replace(/\s+/g, ' ').trim().split(' ')[0] || 'OTRO';
+  }
+
+  /**
+   * CG.7 — Enlace de cuentas: sugiere el `account_label` (cuenta CB/Kepler) para cada
+   * cuenta interna de Caja (`banco_cuenta`), DERIVADO vía Kepler (match de depósitos por
+   * monto+fecha, restringido al mismo banco canónico). El match es disperso → sugerencia
+   * + confirmación manual. Devuelve estado actual (finance.caja_bank_crosswalk) + sugerencia.
+   */
+  async crosswalk() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const inst = 'SI';
+    return this.tk.run(async (trx) => {
+      // CB accounts → banco canónico + labels por banco
+      const ba = await trx('finance.bank_accounts').where('tenant_id', tenantId).select('bank', 'account_label');
+      const labelBank: Record<string, string> = {};
+      const bankLabels: Record<string, string[]> = {};
+      for (const r of ba) { const cb = this.canonBank(r.bank); labelBank[String(r.account_label)] = cb; (bankLabels[cb] = bankLabels[cb] || []).push(String(r.account_label)); }
+
+      // cuentas de Caja (banco_cuenta que aparecen en depósitos) + volumen + label ya confirmado
+      const accounts = await trx('analytics.caja_depositos as d')
+        .leftJoin('finance.caja_bank_crosswalk as x', function () {
+          this.on('x.tenant_id', 'd.tenant_id').andOn('x.source_instance', trx.raw('?', [inst])).andOn('x.banco_code', 'd.banco_cuenta');
+        })
+        .where({ 'd.tenant_id': tenantId, 'd.source_instance': inst }).whereNotNull('d.banco_cuenta')
+        .groupBy('d.banco_cuenta', 'x.account_label', 'x.confirmed_by', 'x.confirmed_at')
+        .select('d.banco_cuenta as code', trx.raw('max(d.banco_name) as banco_name'),
+          'x.account_label as current_label', 'x.confirmed_by', 'x.confirmed_at',
+          trx.raw('count(*)::int as deposits'), trx.raw('coalesce(sum(d.total_deposito_real),0)::numeric as monto'));
+
+      // match Kepler por monto+fecha (candidatos por cuenta)
+      const m = await trx.raw(
+        `with cj as (select banco_cuenta, deposito_date, round(total_deposito_real)::bigint amt
+                       from analytics.caja_depositos
+                      where tenant_id=? and source_instance=? and eliminado=false and total_deposito_real>100 and banco_cuenta is not null),
+              kp as (select account_label, fecha_valor, round(importe)::bigint amt
+                       from analytics.kepler_bank_movements
+                      where tenant_id=? and signo>0 and es_traspaso=false)
+         select cj.banco_cuenta as code, kp.account_label as label, count(*)::int as n
+           from cj join kp on cj.amt=kp.amt and kp.fecha_valor between cj.deposito_date-7 and cj.deposito_date+7
+          group by cj.banco_cuenta, kp.account_label`, [tenantId, inst, tenantId]);
+      const mrows = (m.rows || m) as any[];
+      const byCode: Record<string, { label: string; n: number }[]> = {};
+      for (const r of mrows) { (byCode[String(r.code)] = byCode[String(r.code)] || []).push({ label: String(r.label), n: Number(r.n) }); }
+
+      return accounts.map((a: any) => {
+        const cb = this.canonBank(a.banco_name);
+        const cands = (byCode[String(a.code)] || []).filter((x) => labelBank[x.label] === cb).sort((x, y) => y.n - x.n);
+        const sug = cands[0] || null;
+        return {
+          banco_code: a.code, banco_name: a.banco_name, canon_bank: cb,
+          deposits: Number(a.deposits), monto: Number(a.monto),
+          current_label: a.current_label || null, confirmed_by: a.confirmed_by || null, confirmed_at: a.confirmed_at || null,
+          suggested_label: sug?.label || null, suggested_matches: sug?.n || 0,
+          alternatives: cands.slice(1, 4), cb_options: bankLabels[cb] || [],
+        };
+      }).sort((x: any, y: any) => y.monto - x.monto);
+    });
+  }
+
+  /** CG.7 — Persiste el enlace confirmado (UPSERT por banco_code). label null = desenlazar. */
+  async crosswalkSet(bancoCode: string, label: string | null, matches: number, username?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx('finance.caja_bank_crosswalk')
+        .insert({
+          tenant_id: tenantId, source_instance: 'SI', banco_code: String(bancoCode),
+          account_label: label || null, match_count: matches || 0, source: 'manual',
+          confirmed_by: username || null, confirmed_at: trx.fn.now(), updated_at: trx.fn.now(),
+        })
+        .onConflict(['tenant_id', 'source_instance', 'banco_code'])
+        .merge(['account_label', 'match_count', 'source', 'confirmed_by', 'confirmed_at', 'updated_at']);
+      return { banco_code: bancoCode, account_label: label || null };
+    });
+  }
+
   /** Facetas para filtros. */
   async facets() {
     const tenantId = this.tenantCtx.requireTenantId();
