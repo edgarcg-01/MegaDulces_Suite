@@ -10,6 +10,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, SideBySide, SideExcelRow, SideKeplerRow, MovementFlow } from '../../bank.service';
+import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { dmy, dmShort, groupLabel, money0 } from './bancos-shared';
 
 /** Un renglón del comparador: Excel y/o Kepler alineados por match_key. */
@@ -28,9 +29,10 @@ interface Pair {
 @Component({
   selector: 'bancos-side-by-side',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ButtonModule, SelectModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule],
+  imports: [CommonModule, FormsModule, TableModule, ButtonModule, SelectModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule, CajaIngresoRefComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <caja-ingreso-ref [period]="period()" />
     <div class="fb-sbs-bar">
       <p-select [options]="cuentaOpts()" optionLabel="label" optionValue="value" [filter]="true"
                 [ngModel]="fCuenta()" (ngModelChange)="fCuenta.set($event); resetSel()"
@@ -335,6 +337,7 @@ export class BancosSideBySideComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly data = input.required<SideBySide>();
+  readonly period = input<string>('');
 
   readonly fEstado = signal<'all' | 'matched' | 'unmatched'>('all');
   readonly fLado = signal<'all' | 'egreso' | 'ingreso'>('all');

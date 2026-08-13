@@ -1,18 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Output, effect, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
-import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
-import { environment } from '../../../../../environments/environment';
+import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
-
-/** Referencia: descomposición del ingreso desde Caja General (CG.9). */
-interface CajaIngresoRef { totals: { matched: number; caja_only: number; cobranza: number; residual: number } }
 
 /**
  * CB.14 — Vista CONCILIACIÓN (matching por-transacción + caja vs 102 + diferencias).
@@ -22,7 +16,7 @@ interface CajaIngresoRef { totals: { matched: number; caja_only: number; cobranz
 @Component({
   selector: 'bancos-conciliacion',
   standalone: true,
-  imports: [CommonModule, RouterLink, ButtonModule, TableModule, DialogModule, ContextHelpComponent],
+  imports: [CommonModule, ButtonModule, TableModule, DialogModule, ContextHelpComponent, CajaIngresoRefComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (reconciliation(); as rc) {
@@ -83,19 +77,8 @@ interface CajaIngresoRef { totals: { matched: number; caja_only: number; cobranz
         @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
       </div>
 
-      @if (cajaIngreso(); as ci) {
-        <!-- Referencia (CG.9) — el "memo" de ingresos, descompuesto en Caja General. -->
-        <div class="card-premium card-flat fb-caja-ref">
-          <h3 class="fb-card-title">Ingresos — de dónde vienen <span class="muted">— referencia de Caja General (el "memo" de arriba, descompuesto)</span></h3>
-          <div class="fb-caja-grid">
-            <div class="fb-caja-cell"><span class="fb-caja-l">Depósito de tienda</span><span class="fb-caja-v ok">{{ ci.totals.matched | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="fb-caja-s">Caja → banco</span></div>
-            <div class="fb-caja-cell"><span class="fb-caja-l">Caja sin banco</span><span class="fb-caja-v" [class.warn]="ci.totals.caja_only > 0">{{ ci.totals.caja_only | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="fb-caja-s">fuga/rezago</span></div>
-            <div class="fb-caja-cell"><span class="fb-caja-l">Cobranza de cliente</span><span class="fb-caja-v">{{ ci.totals.cobranza | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="fb-caja-s">cobros Kepler</span></div>
-            <div class="fb-caja-cell"><span class="fb-caja-l">Residual</span><span class="fb-caja-v">{{ ci.totals.residual | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="fb-caja-s">directo/financiero</span></div>
-          </div>
-          <p class="fb-plain">El ingreso del banco ya no es un memo opaco: se explica como <b>depósito de tienda</b> (Caja) + <b>cobranza de cliente</b> + un <b>residual</b> honesto (transferencias directas, financiero). <a routerLink="/finanzas/caja" class="fb-caja-link">Ver detalle en Caja General → Conciliación <i class="pi pi-arrow-right"></i></a></p>
-        </div>
-      }
+      <!-- Referencia (CG.9) — el "memo" de ingresos, descompuesto en Caja General. -->
+      <caja-ingreso-ref [period]="period()" />
 
       <div class="card-premium card-flat fb-match">
         <div class="fb-match-head">
@@ -175,14 +158,6 @@ interface CajaIngresoRef { totals: { matched: number; caja_only: number; cobranz
     .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
     .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fb-plain { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
-    .fb-caja-ref { margin-bottom: var(--sp-3); border-left: 3px solid var(--action); }
-    .fb-caja-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--sp-3); }
-    .fb-caja-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .fb-caja-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
-    .fb-caja-v { font-size: var(--fs-lg, 1.125rem); font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .fb-caja-s { font-size: var(--fs-xs); color: var(--text-faint); }
-    .fb-caja-link { color: var(--action); font-weight: 600; text-decoration: none; white-space: nowrap; }
-    .fb-caja-link:hover { text-decoration: underline; }
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
     .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
@@ -234,20 +209,6 @@ export class BancosConciliacionComponent {
   readonly period = input<string>('');
   @Output() runMatch = new EventEmitter<void>();
   @Output() syncFindings = new EventEmitter<void>();
-
-  private readonly http = inject(HttpClient);
-  private readonly destroyRef = inject(DestroyRef);
-  /** Referencia a la descomposición de ingresos de Caja General (CG.9), por periodo. */
-  readonly cajaIngreso = signal<CajaIngresoRef | null>(null);
-  constructor() {
-    effect(() => {
-      const p = this.period();
-      if (!p || !/^\d{4}-\d{2}$/.test(p)) { this.cajaIngreso.set(null); return; }
-      this.http.get<CajaIngresoRef>(`${environment.apiUrl}/finance/caja/conciliacion-detalle?month=${p}`)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: (d) => this.cajaIngreso.set(d), error: () => this.cajaIngreso.set(null) });
-    });
-  }
 
   cuadra = cuadra;
   pct(mr: { matched_amount: number; bank_amount: number }): number { return amtPct(mr); }
