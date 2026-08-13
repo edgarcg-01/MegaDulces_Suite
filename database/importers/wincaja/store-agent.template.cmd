@@ -18,7 +18,7 @@ set "PS32=C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
 set "AGENT=%~dp0wincaja-store-agent.ps1"
 
 REM ===== CONFIG POR TIENDA (rellenar) =========================================
-set "STORE_INGEST_URL=https://trademarketing-production-5084.up.railway.app/api/store/live/ingest"
+set "STORE_INGEST_URL=https://megadulces.up.railway.app/api/store/live/ingest"
 set "STORE_INGEST_KEY=<PEGAR_LA_KEY_DEL_API>"
 set "MDB=D:\Datos\WinCaja\30 MORELIA ABASTOS.mdb"
 set "WHCODE=MD-30"
