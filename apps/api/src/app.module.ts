@@ -10,6 +10,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 // ServeStaticModule + join removidos — nginx sirve el SPA, NestJS solo /api/*.
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { SchedulerOwnershipService } from './scheduler-ownership.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from '@megadulces/platform-core';
 import { VectorDatabaseModule } from '@megadulces/platform-core';
@@ -369,6 +370,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
   controllers: [AppController],
   providers: [
     AppService,
+    // INFRA.3.5 (ADR-043): gate central del worker-tier. Detiene los crons en el
+    // API cuando ENABLE_WORKER_QUEUE=true y este proceso no es el worker.
+    SchedulerOwnershipService,
     // ThrottlerGuard como APP_GUARD global aplica los límites a todos los
     // endpoints. Endpoints específicos pueden usar @Throttle o @SkipThrottle.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
