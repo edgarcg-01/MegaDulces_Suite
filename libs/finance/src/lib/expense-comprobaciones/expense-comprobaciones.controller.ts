@@ -82,6 +82,13 @@ export class ExpenseComprobacionesController {
     return this.svc.runOcr(body?.file_base64 || '');
   }
 
+  @Post('validate-photo')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Valida la FOTO/EVIDENCIA del gasto con Claude Vision contra el importe del gasto Kepler. Preview (cuadra/en revisión).' })
+  validatePhoto(@Body() body: { file_base64?: string; importe?: number }) {
+    return this.svc.validatePhoto(body?.file_base64 || '', Number(body?.importe) || 0);
+  }
+
   @Post()
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Alta de la comprobación (archivos ya subidos). Resuelve la solicitud del gasto.' })
