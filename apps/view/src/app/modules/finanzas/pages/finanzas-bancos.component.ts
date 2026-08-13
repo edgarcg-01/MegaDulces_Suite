@@ -121,7 +121,7 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
           <app-load-state [error]="concError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
           @if (concentrado(); as c) {
-            <bancos-concentrado [concentrado]="c" [balances]="balances()" [accountOpts]="accountOpts()" />
+            <bancos-concentrado [concentrado]="c" [balances]="balances()" [accountOpts]="accountOpts()" [period]="period()" />
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin estados de cuenta para {{ period() }}.</p></div>
           }
@@ -155,7 +155,7 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
           @if (sideBySide(); as sbs) {
-            <bancos-side-by-side [data]="sbs" />
+            <bancos-side-by-side [data]="sbs" [period]="period()" />
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
           }

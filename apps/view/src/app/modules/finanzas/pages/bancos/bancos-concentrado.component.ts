@@ -5,6 +5,7 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { Concentrado, Balances } from '../../bank.service';
+import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared';
 
 /**
@@ -15,10 +16,11 @@ import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared'
 @Component({
   selector: 'bancos-concentrado',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, TableModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, SelectModule, TableModule, MetricStripComponent, CajaIngresoRefComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen del periodo" />
+    <caja-ingreso-ref [period]="period()" />
     <div class="fb-filters">
       <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
                 [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event)"
@@ -91,6 +93,7 @@ export class BancosConcentradoComponent {
   readonly concentrado = input.required<Concentrado>();
   readonly balances = input.required<Balances | null>();
   readonly accountOpts = input.required<{ label: string; value: string }[]>();
+  readonly period = input<string>('');
   readonly fAccount = signal('');
 
   /** Mapa bank|account_label → cuadre (del cuadre de saldos verificado). */
