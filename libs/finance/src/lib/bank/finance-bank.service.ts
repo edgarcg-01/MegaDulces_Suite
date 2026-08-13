@@ -2244,7 +2244,9 @@ export class FinanceBankService {
 
       const excelRows = excel.map((e: any) => {
         const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
-        return { ...e, kepler: !!k, contpaqi: !!c, kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null };
+        return { ...e, kepler: !!k, contpaqi: !!c,
+          kepler_importe: k ? n(k.importe) : null, contpaqi_importe: c ? n(c.importe) : null,
+          kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null };
       });
       const keplerOnly = kepler.filter((x) => !x.used).map((x) => ({ doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo }));
       const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));

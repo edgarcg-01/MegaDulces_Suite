@@ -246,6 +246,7 @@ export interface ChequesTransito {
 export interface ThreeWayDetailExcel {
   id: string; fecha: string; concepto: string | null; codigo: string | null;
   dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean;
+  kepler_importe: number | null; contpaqi_importe: number | null;
   kepler_doc: string | null; contpaqi_poliza: string | null;
 }
 export interface ThreeWayDetail {
