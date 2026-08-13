@@ -1279,6 +1279,8 @@ export class ComercialService {
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
     if (opts.layout === 'plaza') params = params.set('layout', 'plaza');
+    // Sin esto el XLSX ignoraba la Medida: 'plaza' salía siempre en cajas y la matriz siempre cajas+monto.
+    if (opts.measure) params = params.set('measure', opts.measure);
     return params;
   }
 
@@ -1437,6 +1439,8 @@ export interface SellOutParams {
   promo?: 'sin' | 'solo' | 'todo';
   /** RS.13 — layout de columnas: 'plaza' = formato estándar (plaza × SUCURSAL/MAYOREO/RUTAS). */
   layout?: 'plaza';
+  /** RS — medida elegida en pantalla. Solo aplica al EXPORT (la matriz filtra en cliente). */
+  measure?: 'cajas' | 'monto' | 'ambas';
 }
 
 export interface SellOutWarehouseRow {

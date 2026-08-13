@@ -885,6 +885,9 @@ export class ComercialSellOutComponent {
       search: this.search() || undefined,
       promo: this.promo() !== 'sin' ? this.promo() : undefined,
       layout: this.reportMode() === 'canal' && this.layout() === 'plaza' ? 'plaza' : undefined,
+      // La matriz de pantalla filtra la medida en cliente, pero el XLSX/PDF se arma en el
+      // server: sin mandarla, "Ambas" + "Por plaza" salía sin la columna de monto.
+      measure: this.measure(),
     };
   }
 
