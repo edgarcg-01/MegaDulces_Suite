@@ -3,7 +3,6 @@ import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
-import { CajaGeneralService } from '../caja/caja-general.service';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -125,9 +124,6 @@ export class FinanceBankService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
-    // CB.34 — Caja General para acreditar depósitos de tienda + cobranza en la conciliación
-    // de INGRESOS (los depósitos que no viven en Kepler tesorería pero sí explica Caja/cobros).
-    @Optional() private readonly caja?: CajaGeneralService,
   ) {}
 
   /** Cuentas de banco/caja/factoraje. */
@@ -1798,7 +1794,6 @@ export class FinanceBankService {
   async reconciliation(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
-    const r2out = (v: number) => Math.round(v * 100) / 100;
 
     const out: any = await this.tk.run(async (trx) => {
       // Lado banco: por categoría (grupo + cuenta Kepler) + kind de la cuenta.
@@ -1900,23 +1895,120 @@ export class FinanceBankService {
         sin_clasificar: (bank as any[]).filter((r) => r.kind !== 'cash' && r.group_key === 'sin_clasificar').reduce((s, r) => s + n(r.deposits) + n(r.withdrawals), 0) };
     });
 
-    // CB.34 — Descompone los DEPÓSITOS del banco por su fuente real. Kepler tesorería no
-    // carga los depósitos de tienda ni la cobranza (UA0501) → sin esto el "sin conciliar"
-    // de ingresos incluye plata que Caja/cobros SÍ explican (verificado: ~$5M/mes de $7.3M
-    // de depósitos huérfanos son cobranza+caja, no residual real). Reusa la MISMA lógica que
-    // la tarjeta "Referencia de Caja". No toca el matcher persistente (bank_recon_matches).
-    if (this.caja) {
-      try {
-        const cd: any = await this.caja.conciliacionDetalle({ month: period });
-        const t = cd?.totals || {};
-        const viaCaja = n(t.matched), viaCobranza = n(t.cobranza), residual = n(t.residual);
-        out.cash.ingresos = {
-          via_caja: r2out(viaCaja), via_cobranza: r2out(viaCobranza), residual: r2out(residual),
-          explicado: r2out(viaCaja + viaCobranza), total: r2out(viaCaja + viaCobranza + residual),
-        };
-      } catch (e: any) { this.logger.warn(`ingresos-detalle en reconciliation falló: ${e?.message || e}`); }
-    }
+    // CB.35 — el control de INGRESOS (¿cada depósito tiene origen?) vive en ingresosControl().
     return out;
+  }
+
+  /**
+   * CB.35 — CONTROL de ingresos: ¿todo depósito del banco tiene origen? Clasifica cada
+   * depósito (kind='bank') contra las 3 fuentes, en orden, con consumo greedy (una fuente
+   * por depósito, sin doble crédito):
+   *   1. Tesorería Kepler (kdm1, mismo account_label + monto ±$1 + fecha ±7d) — live, NO
+   *      depende de haber corrido "Conciliar" (usa el pool, no recon_status).
+   *   2. Cobranza de cliente (UA0501 analytics.erp_collections, monto ±$1 + fecha ±5d).
+   *   3. Depósito de tienda (analytics.caja_depositos SI, monto ±$1 + fecha ±3d).
+   * Lo que no case con ninguna = EXCEPCIÓN (sin explicar → investigar). Además FUGA: caja/
+   * cobros registrados que NO llegaron al banco. Veredicto cuadra si sin_explicar ≤ $1,000.
+   * NO escribe: es lectura + veredicto. El detalle por depósito alimenta la bandeja de acción.
+   */
+  async ingresosControl(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    const dstr = (d: Date) => d.toISOString().slice(0, 10);
+    const addDays = (s: string, k: number) => { const d = new Date(`${s}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + k); return dstr(d); };
+    const peso = (x: any) => Math.round(Number(x) || 0);
+    const dd = (a: any, b: any) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 864e5);
+    const TOL = 1000;
+
+    return this.tk.run(async (trx) => {
+      // Depósitos del banco (solo cuentas kind='bank').
+      const deps = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
+        .andWhere('bm.amount_in', '>', 0).andWhere('bm.movement_date', '>=', ini).andWhere('bm.movement_date', '<', fin)
+        .select('bm.id', 'bm.movement_date as date', 'bm.amount_in as amt', 'bm.concept', 'ba.bank', 'ba.account_label')
+        .orderBy('bm.amount_in', 'desc');
+
+      // Pool tesorería Kepler (entradas, con account_label), ventana ±7d.
+      const tes = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label').where('signo', '>', 0)
+        .andWhere('fecha_valor', '>=', addDays(ini, -7)).andWhere('fecha_valor', '<', addDays(fin, 7))
+        .select('account_label', 'fecha_valor as date', 'importe as amt');
+      // account_label → (monto redondeado → lista). El ±$1 se resuelve sobre el mapa numérico interno.
+      const tesIdx = new Map<string, Map<number, any[]>>();
+      for (const t of tes as any[]) {
+        const lbl = String(t.account_label); const k = peso(t.amt); const o = { date: t.date, used: false };
+        let inner = tesIdx.get(lbl); if (!inner) { inner = new Map(); tesIdx.set(lbl, inner); }
+        (inner.get(k) || inner.set(k, []).get(k))!.push(o);
+      }
+
+      // Cobranza (UA0501), ventana ±5d.
+      let cob: any[] = [];
+      try {
+        cob = (await trx('analytics.erp_collections').where('tenant_id', tenantId).where('monto', '>', 0)
+          .andWhere('cobro_date', '>=', addDays(ini, -5)).andWhere('cobro_date', '<', addDays(fin, 5))
+          .select('cobro_date as date', 'monto as amt')).map((c: any) => ({ date: c.date, amt: c.amt, used: false }));
+      } catch { cob = []; }
+      const cobIdx = new Map<number, any[]>();
+      for (const c of cob) { (cobIdx.get(peso(c.amt)) || cobIdx.set(peso(c.amt), []).get(peso(c.amt)))!.push(c); }
+
+      // Caja de tienda (SI), ventana ±3d.
+      let caja: any[] = [];
+      try {
+        caja = (await trx('analytics.caja_depositos').where({ tenant_id: tenantId, source_instance: 'SI', eliminado: false })
+          .where('total_deposito_real', '>', 0)
+          .andWhere('deposito_date', '>=', addDays(ini, -3)).andWhere('deposito_date', '<', addDays(fin, 3))
+          .select('deposito_date as date', 'total_deposito_real as amt', 'almacen', 'banco_name')).map((c: any) => ({ ...c, used: false }));
+      } catch { caja = []; }
+      const cajaIdx = new Map<number, any[]>();
+      for (const c of caja) { (cajaIdx.get(peso(c.amt)) || cajaIdx.set(peso(c.amt), []).get(peso(c.amt)))!.push(c); }
+
+      // ±$1: revisa los buckets k-1,k,k+1 y toma el candidato de fecha más cercana no usado.
+      const pick = (idx: Map<number, any[]>, k: number, date: any, win: number) => {
+        let best: any = null, bd = Infinity;
+        for (let d = -1; d <= 1; d++) for (const o of idx.get(k + d) || []) { if (o.used) continue; const diff = dd(o.date, date); if (diff <= win && diff < bd) { best = o; bd = diff; } }
+        if (best) best.used = true;
+        return best;
+      };
+
+      const buckets = { tesoreria: [] as any[], cobranza: [] as any[], caja: [] as any[], sin_explicar: [] as any[] };
+      for (const dep of deps as any[]) {
+        const k = peso(dep.amt);
+        const inner = tesIdx.get(String(dep.account_label));
+        if (inner && pick(inner, k, dep.date, 7)) { buckets.tesoreria.push(dep); continue; }
+        if (pick(cobIdx, k, dep.date, 5)) { buckets.cobranza.push(dep); continue; }
+        if (pick(cajaIdx, k, dep.date, 3)) { buckets.caja.push(dep); continue; }
+        buckets.sin_explicar.push(dep);
+      }
+
+      const sum = (a: any[]) => Math.round(a.reduce((s, r) => s + (Number(r.amt) || 0), 0) * 100) / 100;
+      const bankTotal = sum(deps as any[]);
+      const sinExpl = sum(buckets.sin_explicar);
+      const fugaCaja = caja.filter((c) => !c.used);
+
+      return {
+        period, bank_total: bankTotal, bank_n: (deps as any[]).length,
+        via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
+        via_cobranza: { n: buckets.cobranza.length, monto: sum(buckets.cobranza) },
+        via_caja: { n: buckets.caja.length, monto: sum(buckets.caja) },
+        sin_explicar: { n: buckets.sin_explicar.length, monto: sinExpl },
+        explicado: Math.round((bankTotal - sinExpl) * 100) / 100,
+        cuadra: sinExpl <= TOL,
+        exceptions: buckets.sin_explicar.slice(0, 100).map((d) => ({
+          id: d.id, fecha: d.date, bank: d.bank, account_label: d.account_label, monto: Number(d.amt), concept: d.concept,
+        })),
+        fuga: {
+          n: fugaCaja.length, monto: sum(fugaCaja),
+          items: fugaCaja.sort((a, b) => Number(b.amt) - Number(a.amt)).slice(0, 50).map((c) => ({
+            fecha: c.date, almacen: c.almacen, banco: c.banco_name, monto: Number(c.amt),
+          })),
+        },
+        tol: TOL,
+      };
+    });
   }
 
   /**

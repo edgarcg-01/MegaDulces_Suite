@@ -43,13 +43,20 @@ export interface Concentrado {
   groupTotals: Record<string, ConcentradoGroup>; grand: ConcentradoGroup;
 }
 
-export interface ReconIngresos { via_caja: number; via_cobranza: number; residual: number; explicado: number; total: number; }
 export interface ReconCash {
   bank_in: number; kepler_102_cargos: number; delta_in: number;
   bank_out: number; kepler_102_abonos: number; delta_out: number;
   kepler_source?: 'tesoreria' | 'contable';
-  // CB.34 — descomposición de depósitos por fuente real (Caja + cobranza + residual).
-  ingresos?: ReconIngresos;
+}
+// CB.35 — Control de ingresos: cada depósito clasificado por su fuente + excepciones.
+export interface IngresosControlBucket { n: number; monto: number; }
+export interface IngresosException { id: string; fecha: string; bank: string; account_label: string; monto: number; concept: string; }
+export interface IngresosControl {
+  period: string; bank_total: number; bank_n: number;
+  via_tesoreria: IngresosControlBucket; via_cobranza: IngresosControlBucket; via_caja: IngresosControlBucket;
+  sin_explicar: IngresosControlBucket; explicado: number; cuadra: boolean; tol: number;
+  exceptions: IngresosException[];
+  fuga: { n: number; monto: number; items: { fecha: string; almacen: string; banco: string; monto: number }[] };
 }
 export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
 export interface ReconFactoraje { compra: number; pago: number; total: number; }
@@ -324,6 +331,9 @@ export class BankService {
   }
   differences(period: string): Observable<Differences> {
     return this.http.get<Differences>(`${this.base}/differences?period=${encodeURIComponent(period)}`);
+  }
+  ingresosControl(period: string): Observable<IngresosControl> {
+    return this.http.get<IngresosControl>(`${this.base}/ingresos-control?period=${encodeURIComponent(period)}`);
   }
   syncFindings(period: string): Observable<SyncFindingsResult> {
     return this.http.post<SyncFindingsResult>(`${this.base}/findings/sync`, { period });

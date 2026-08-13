@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { FinanceBankService } from './finance-bank.service';
 import { FinanceBankController } from './finance-bank.controller';
 import { SheetSyncService } from './sheet-sync.service';
-import { FinanceCajaGeneralModule } from '../caja/finance-caja-general.module';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Tablero de bancos sobre `finance.bank_*`:
@@ -15,7 +14,6 @@ import { FinanceCajaGeneralModule } from '../caja/finance-caja-general.module';
  * está en el root del API).
  */
 @Module({
-  imports: [FinanceCajaGeneralModule],
   controllers: [FinanceBankController],
   providers: [FinanceBankService, SheetSyncService],
   exports: [FinanceBankService],
