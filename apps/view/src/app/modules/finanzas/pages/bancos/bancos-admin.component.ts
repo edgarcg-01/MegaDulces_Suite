@@ -10,6 +10,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { BankAccount, KeplerAccount } from '../../bank.service';
 import { BankAdminTab } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista ADMIN (read-only catálogo Kepler + setup de cuentas de banco).
@@ -84,14 +85,7 @@ import { BankAdminTab } from './bancos-shared';
       </div>
     }
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .muted { color: var(--text-muted); } .ok { color: var(--ok-fg); }
-    .ta-c { text-align: center; }
-    .col-w4 { width: 4rem; } .col-w6 { width: 6rem; } .col-w7 { width: 7rem; } .col-w8 { width: 8rem; } .col-w10 { width: 10rem; }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .fb-search { min-width: 16rem; }
+  styles: [BANCOS_STYLES, `
     .fb-adminseg { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); }
     .fb-adminseg button { background: none; border: 1px solid var(--border-color); color: var(--text-muted); font: inherit; font-size: var(--fs-xs); font-weight: 500; padding: var(--sp-1) var(--sp-3); border-radius: var(--r-sm); cursor: pointer; }
     .fb-adminseg button.active { color: var(--action); border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
@@ -101,8 +95,6 @@ import { BankAdminTab } from './bancos-shared';
     .fb-inactive { opacity: 0.5; }
     :host ::ng-deep .fb-pin.p-inputtext { width: 100%; font-size: var(--fs-xs); padding: 2px var(--sp-2); }
     :host ::ng-deep .fb-sel.p-select { font-size: var(--fs-sm); }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
   `],
 })
 export class BancosAdminComponent {

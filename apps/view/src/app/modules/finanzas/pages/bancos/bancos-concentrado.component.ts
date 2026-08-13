@@ -7,6 +7,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { Concentrado, Balances } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista CONCENTRADO (pivote cuenta × grupo). Presentacional: recibe el
@@ -65,27 +66,16 @@ import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared'
       </p-table>
     </div>
   `,
-  styles: [`
-    :host { display: block; }
-    .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-    .fb-count { margin-left: auto; font-size: var(--fs-xs); }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
-    .muted { color: var(--text-muted); }
-    .fb-strong { font-weight: 600; color: var(--text-main); }
+  styles: [BANCOS_STYLES, `
     .fb-acct { font-weight: 500; }
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-ghead { display: inline-flex; align-items: center; gap: 4px; }
-    .fb-legend-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--g, var(--text-faint)); flex: none; }
-    .ta-c { text-align: center; }
-    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); }
     .col-cuadre { width: 5rem; }
     /* Fila cuya cuenta no cuadra: borde-tinte sutil (quiet-luxury, no fill saturado). */
     .fb-nocuadra > td:first-child { box-shadow: inset 3px 0 0 var(--bad-fg); }
     .fb-bad-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem;
-      font-size: var(--fs-2xs, .7rem); font-weight: 700; border-radius: var(--r-pill);
+      font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill);
       background: color-mix(in srgb, var(--bad-fg) 15%, transparent); color: var(--bad-fg); }
   `],
 })

@@ -7,6 +7,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
 import { cuadra, money0, dmShort } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.24 — Cuadre 3 vías. Enfrenta las TRES fuentes de verdad del banco en el periodo:
@@ -80,9 +81,9 @@ import { cuadra, money0, dmShort } from './bancos-shared';
                   <td class="ta-r mono">{{ row.workbook | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                   <td class="ta-r mono">{{ row.kepler | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                   <td class="ta-r mono">{{ row.contpaqi | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">{{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_wc)" [class.ok]="cuad(row.delta_wc)">{{ row.delta_wc | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">{{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">{{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_wc)" [class.ok]="cuad(row.delta_wc)">{{ row.delta_wc | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">{{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-c">
                     @if (row.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra dentro de la tolerancia"></i> }
                     @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por cuenta"></i> }
@@ -240,19 +241,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
       }
     </p-dialog>
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; } .ta-c { text-align: center; }
-    .muted { color: var(--text-muted); }
-    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); }
-    .fb-strong { font-weight: 600; color: var(--text-main); }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
-    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
-    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
+  styles: [BANCOS_STYLES, `
     /* Veredicto */
     .tw-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4);
       border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; margin-bottom: var(--sp-3); }
@@ -261,7 +250,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     .tw-verdict > i { font-size: 1.5rem; }
     .tw-verdict.ok > i { color: var(--ok-fg); }
     .tw-verdict.bad > i { color: var(--warn-fg); }
-    .tw-verdict h3 { font-size: var(--fs-md, 1rem); font-weight: 700; margin: 0; color: var(--text-main); }
+    .tw-verdict h3 { font-size: var(--fs-h3); font-weight: 700; margin: 0; color: var(--text-main); }
     .tw-verdict p { font-size: var(--fs-xs); margin: 2px 0 0; line-height: 1.4; }
     .tw-card { margin-bottom: var(--sp-3); }
     .tw-wrap { overflow-x: auto; }
@@ -271,14 +260,12 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     table.tw-tbl thead th i { margin-right: 4px; }
     table.tw-tbl tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); }
     table.tw-tbl tbody tr:last-child td, table.tw-tbl tbody tr:last-child th { border-bottom: none; }
-    .tw-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
+    .tw-tag { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
     .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
     /* Cabecera agrupada Depósitos/Retiros + resalte de la columna Kepler (la fuente nueva) */
     .tw-grp { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; border-bottom: 1px solid var(--border-color); }
     .tw-grp i { margin-right: 4px; }
-    :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2, #6366f1) 6%, transparent); }
-    .fb-in-ico { color: var(--ok-fg); font-size: .8rem; }
-    .fb-out-ico { color: var(--text-faint); font-size: .8rem; }
+    :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2) 6%, transparent); }
     .warn-tag { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-fg); }
     /* CB.32 — barra de cobertura/frescura */
     .tw-cov { border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; border-left-color: var(--ok-fg); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
@@ -290,21 +277,20 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     .tw-cov-bar { height: 5px; border-radius: var(--r-pill); background: var(--hover-bg); overflow: hidden; }
     .tw-cov-fill { height: 100%; background: var(--ok-fg); border-radius: var(--r-pill); }
     .tw-cov-src.stale .tw-cov-fill { background: var(--warn-fg); }
-    .tw-cov-meta { font-size: var(--fs-2xs, .7rem); font-variant-numeric: tabular-nums; }
+    .tw-cov-meta { font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
     .tw-cov-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
     /* CB.33 — filas clicables (drill) */
     .tw-clickable { cursor: pointer; }
     .tw-clickable:hover { background: var(--hover-bg); }
     .tw-drill-ico { font-size: .7rem; color: var(--text-faint); margin-left: 4px; opacity: 0; transition: opacity 120ms ease; }
     .tw-clickable:hover .tw-drill-ico { opacity: 1; }
-    .warn { color: var(--warn-fg); }
     .tw-faint { color: var(--text-faint); font-size: .7rem; }
     .nowrap { white-space: nowrap; }
     .tw-concept { color: var(--text-muted); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* CB.30 — cheques en tránsito */
     .tw-chq-kpis { display: flex; gap: var(--sp-4); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); }
     .tw-chq-kpi { display: flex; flex-direction: column; gap: 1px; }
-    .tw-chq-v { font-size: var(--fs-lg, 1.125rem); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tw-chq-v { font-size: var(--fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
     .tw-chq-kpi.bad .tw-chq-v { color: var(--warn-fg); }
     .tw-chq-kpi.ok .tw-chq-v { color: var(--ok-fg); }
     .tw-chq-l { font-size: var(--fs-xs); color: var(--text-muted); }

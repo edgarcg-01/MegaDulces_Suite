@@ -4,6 +4,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Balances, BankStatement, Diagnostico } from '../../bank.service';
 import { cuadra, kindLabel } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista CUENTAS (cuadre de saldos por cuenta + fallback estados de cuenta).
@@ -46,7 +47,7 @@ import { cuadra, kindLabel } from './bancos-shared';
               <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-r mono">
                 @if (a.sin_saldo) { <span class="muted">—</span> }
-                @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }
               </td>
               <td class="ta-c">
                 @if (a.sin_saldo) { <span class="fb-kind">sin saldo</span> }
@@ -75,7 +76,7 @@ import { cuadra, kindLabel } from './bancos-shared';
         </p-table>
         <p class="fb-recon-note muted">
           Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
-          <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.0-0' }})</span>.
+          <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>.
           @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
         </p>
       </div>
@@ -103,27 +104,14 @@ import { cuadra, kindLabel } from './bancos-shared';
       </div>
     }
   `,
-  styles: [`
-    :host { display: block; }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
+  styles: [BANCOS_STYLES, `
     .fb-bal { margin-bottom: var(--sp-3); }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; } .ta-c { text-align: center; }
-    .muted { color: var(--text-muted); }
-    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); }
-    .fb-strong { font-weight: 600; color: var(--text-main); }
-    .col-w25 { width: 2.5rem; } .col-w5 { width: 5rem; }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
-    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
-    .fb-row-click { cursor: pointer; }
-    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .fb-bal-sinsaldo { opacity: 0.55; }
     .fb-bal-badge { font-size: var(--fs-xs); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-sm); margin-left: var(--sp-2); }
     .fb-bal-badge.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
     .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
-    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
     .fb-break-row > td { background: var(--surface-ground); }
     .fb-breaks { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) var(--sp-3); }
     .fb-breaks-h { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-1); }
@@ -131,8 +119,6 @@ import { cuadra, kindLabel } from './bancos-shared';
     .fb-break-l { color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fb-break-m { font-weight: 600; color: var(--text-main); flex: none; }
     .fb-breaks-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
   `],
 })
 export class BancosCuentasComponent {

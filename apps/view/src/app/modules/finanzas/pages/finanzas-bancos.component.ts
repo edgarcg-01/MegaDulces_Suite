@@ -33,6 +33,7 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
 import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
+import { BANCOS_STYLES } from './bancos/bancos.styles';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -69,13 +70,16 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 
       <!-- Barra de estado del cierre (answer-first: dónde va el periodo de un vistazo) -->
       <div class="fb-status" aria-label="Estado del cierre">
-        <button type="button" class="fb-status-chip" (click)="view.set('cuentas')" title="Ver cuentas y su cuadre de saldos">
+        <button type="button" class="fb-status-chip" (click)="view.set('cuentas')"
+                aria-label="Ir a Cuentas: ver el cuadre de saldos de cada cuenta" title="Ir a Cuentas — cuadre de saldos">
           <i class="pi pi-inbox"></i> Importado <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</button>
         <button type="button" class="fb-status-chip" [class.warn]="(classifiedPct() ?? 100) < 100"
-                (click)="fGroup.set(''); fUncat.set(true); view.set('movimientos'); reloadMovements()" title="Ver los movimientos sin clasificar">
+                (click)="fGroup.set(''); fUncat.set(true); view.set('movimientos'); reloadMovements()"
+                aria-label="Ir a Movimientos filtrado a los que faltan clasificar" title="Ir a Movimientos — sólo los que faltan clasificar">
           <i class="pi pi-tags"></i> Clasificado <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></button>
         <button type="button" class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"
-                (click)="view.set('conciliacion')" title="Ver la conciliación contra Kepler">
+                (click)="view.set('conciliacion')"
+                aria-label="Ir a Conciliación contra Kepler" title="Ir a Conciliación — contra Kepler">
           <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></button>
         @if (sheetCfg(); as sc) {
           <span class="fb-status-chip" [class.warn]="!!sc.last_error"
@@ -190,198 +194,72 @@ import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
       }
     </div>
   `,
-  styles: [`
-    :host { display: block; }
+  styles: [BANCOS_STYLES, `
     .fb-head-actions { display: flex; align-items: center; gap: var(--sp-3); }
     .fb-period { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
-    /* p-select compacto (header + filtros) */
+
     :host ::ng-deep .fb-sel.p-select { font-size: var(--fs-sm); }
     :host ::ng-deep .fb-sel .p-select-label { padding: var(--sp-1) var(--sp-2); }
     :host ::ng-deep .fb-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
-    /* Segmentado estilo iOS ("liquid") — pastilla contenedora + pill activa elevada, coherente con sel-liquid */
+
+    /* Quiet-luxury (Linear/Stripe): hairline, cero gloss, cero sombra difusa. La regla de
+       elevación in-page es borde 1px O sombra, nunca ambas — antes llevaba borde + doble
+       sombra + gloss iOS, que encima necesitaba un override de dark aparte porque el brillo
+       blanco no sobrevive el tema. El desborde se ANUNCIA con fade en los bordes: 9 destinos
+       con scrollbar oculto dejaban vistas invisibles en pantalla mediana. */
     .fb-viewseg {
-      display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 4px;
+      display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 3px;
       background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -ms-overflow-style: none;
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
+      mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
     }
     .fb-viewseg::-webkit-scrollbar { display: none; }
     .fb-viewseg button {
       display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none; border-radius: var(--r-pill);
       color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500;
       padding: var(--sp-1) var(--sp-3); cursor: pointer; white-space: nowrap;
-      transition: background-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+      transition: background-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard);
     }
     .fb-viewseg button:not(.active):hover { color: var(--text-main); }
+    /* Activo = superficie + ring 1px tokenizado (no sombra): se lee igual en light y dark. */
     .fb-viewseg button.active {
       color: var(--action); background: var(--card-bg);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 0 1px var(--border-color);
     }
     .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .fb-seg-config { margin-left: auto; }
-    .theme-monochrome .fb-viewseg { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.5); }
     .fb-title-row { display: inline-flex; align-items: center; gap: var(--sp-1); }
-    /* Barra de estado del cierre */
+
     .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
     .fb-status-chip { display: inline-flex; align-items: center; gap: var(--sp-1); font: inherit; font-size: var(--fs-xs);
       color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--r-pill);
       padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
     .fb-status-chip:hover { background: var(--hover-bg); border-color: var(--border-color); }
+    /* Afordancia de navegación: sólo los chips que SON botón muestran la flecha.
+       No son nav redundante del segmentado — saltan con el filtro ya puesto (DESIGN §Q.4). */
+    button.fb-status-chip::after { content: '→'; opacity: 0; margin-left: 2px; transition: opacity var(--dur-short) var(--ease-standard); }
+    button.fb-status-chip:hover::after, button.fb-status-chip:focus-visible::after { opacity: .55; }
     .fb-status-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .fb-status-chip i { font-size: .8rem; color: var(--text-faint); }
     .fb-status-chip b { color: var(--text-main); font-weight: 600; }
     .fb-status-chip.warn { color: var(--warn-fg); }
     .fb-status-chip.warn i, .fb-status-chip.warn b { color: var(--warn-fg); }
-    /* Checklist accionable (Cierre) */
-    .fb-cierre-h3 { margin: var(--sp-4) 0 var(--sp-2); }
-    .fb-diag-cta { flex: none; }
-    .fb-row-click { cursor: pointer; }
-    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
-    .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-    .fb-search { min-width: 16rem; flex: 1; }
-    .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
-    .fb-toggle { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 var(--sp-3); }
-    .fb-toggle .muted { font-size: var(--fs-xs); }
-    .fb-count { margin-left: auto; font-size: var(--fs-xs); }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
-    .muted { color: var(--text-muted); }
-    .fb-strong { font-weight: 600; color: var(--text-main); }
-    .fb-acct { font-weight: 500; }
-    .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
-    .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
-    .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Chip de categoría de solo lectura (la clasificación se hace en Kepler, no aquí). */
+
     .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
-    .fb-cat-chip.fb-cat-none { color: var(--warn-fg); }
-    .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
-    /* Anchos de columna (evita style="width" inline — antipatrón DESIGN). */
-    .col-w25 { width: 2.5rem; } .col-w4 { width: 4rem; } .col-w5 { width: 5rem; }
-    .col-w6 { width: 6rem; } .col-w7 { width: 7rem; } .col-w8 { width: 8rem; }
-    .col-w10 { width: 10rem; } .col-w11 { width: 11rem; }
-    /* pInputText compacto para edición inline en Admin. */
+
     :host ::ng-deep .fb-pin.p-inputtext { width: 100%; font-size: var(--fs-xs); padding: 2px var(--sp-2); }
-    /* CC — color por grupo (el color = la clasificación; sutil, dark-safe, --g inyectado por fila) */
+
     .fb-colored > td { background: color-mix(in srgb, var(--g, transparent) 8%, transparent); }
-    .fb-colored > td:first-child { box-shadow: inset 3px 0 0 var(--g, transparent); }
-    .fb-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-2); }
-    .fb-legend-item { display: inline-flex; align-items: center; gap: var(--sp-1); font: inherit; font-size: var(--fs-xs);
-      color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--r-pill);
-      padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
-    .fb-legend-item:hover { background: var(--hover-bg); }
     .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
-    .fb-legend-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .fb-legend-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--g, var(--text-faint)); flex: none; }
-    .fb-ghead { display: inline-flex; align-items: center; gap: 4px; }
-    .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
-    .fb-skel-row { height: var(--row-h-md, 40px); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
+    .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
     @keyframes fb-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
     @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
-    .fb-subtable { border-collapse: collapse; font-size: var(--fs-sm); }
-    .fb-subtable th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 4px var(--sp-3); border-bottom: 1px solid var(--border-color); }
-    .fb-subtable td { padding: 4px var(--sp-3); border-bottom: 1px solid var(--border-color); }
-    .ok { color: var(--ok-fg); }
-    .bad { color: var(--bad-fg); }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
-    .fb-recon-cash { margin-bottom: var(--sp-3); }
-    .fb-recon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-3); }
-    .fb-recon-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .fb-recon-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .fb-recon-v { font-size: var(--fs-lg, 1.125rem); font-weight: 600; }
-    .fb-recon-vs { font-size: var(--fs-xs); }
-    .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
-    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
-    /* Lectura en lenguaje llano ("explica el número") */
-    .fb-plain { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
-    /* Renglones donde salta el saldo (expansión en Cuentas) — "dónde está la diferencia" */
-    .fb-break-row > td { background: var(--surface-ground); }
-    .fb-breaks { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) var(--sp-3); }
-    .fb-breaks-h { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-1); }
-    .fb-break { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-xs); padding: 2px 0; border-bottom: 1px solid var(--border-color); }
-    .fb-break-l { color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fb-break-m { font-weight: 600; color: var(--text-main); flex: none; }
-    .fb-breaks-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
-    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
-    .fb-match { margin-bottom: var(--sp-3); }
-    .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
-    .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
-    .fb-bal { margin-bottom: var(--sp-3); }
-    .fb-bal-badge { font-size: var(--fs-xs); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-sm); margin-left: var(--sp-2); }
-    .fb-bal-badge.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
-    .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
-    .fb-bal-sinsaldo { opacity: 0.55; }
-    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-2xs, 0.7rem); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
-    /* Banner de cuadre (Movimientos) */
-    .fb-cuadre { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap;
-      padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
-    .fb-cuadre.ok { border-left-color: var(--ok-fg); }
-    .fb-cuadre.bad { border-left-color: var(--warn-fg); }
-    .fb-cuadre-nums { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
-    .fb-cuadre-kpi { display: flex; flex-direction: column; gap: 1px; }
-    .fb-cuadre-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .fb-cuadre-v { font-size: var(--fs-lg, 1.125rem); font-weight: 600; }
-    .fb-cuadre-verdict { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); font-weight: 500; }
-    .fb-cuadre.ok .fb-cuadre-verdict { color: var(--ok-fg); }
-    .fb-cuadre.bad .fb-cuadre-verdict { color: var(--warn-fg); }
-    .fb-cuadre-link { background: none; border: none; color: var(--action); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
-    .fb-cuadre-link:hover { text-decoration: underline; }
-    /* Diagnóstico */
-    .fb-diag-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); margin-bottom: var(--sp-3);
-      border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
-    .fb-diag-head.ok { border-left-color: var(--ok-fg); }
-    .fb-diag-head.bad { border-left-color: var(--warn-fg); }
-    .fb-diag-head i { font-size: 1.5rem; }
-    .fb-diag-head.ok i { color: var(--ok-fg); }
-    .fb-diag-head.bad i { color: var(--warn-fg); }
-    .fb-diag-head h2 { font-size: var(--fs-md, 1rem); font-weight: 700; margin: 0; color: var(--text-main); }
-    .fb-diag-head p { font-size: var(--fs-sm); color: var(--text-muted); margin: 2px 0 0; }
-    .fb-diag-note { font-size: var(--fs-xs); margin: 0 0 var(--sp-3); }
-    .fb-diag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-    .fb-diag-item { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
-    .fb-diag-item.sev-bad { border-left-color: var(--bad-fg); }
-    .fb-diag-item.sev-warn { border-left-color: var(--warn-fg); }
-    .fb-diag-item-head { display: flex; align-items: center; gap: var(--sp-2); }
-    .fb-diag-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; }
-    .sev-bad .fb-diag-dot { background: var(--bad-fg); }
-    .sev-warn .fb-diag-dot { background: var(--warn-fg); }
-    .fb-diag-title { flex: 1; min-width: 0; font-weight: 600; color: var(--text-main); }
-    .fb-diag-amt { font-weight: 700; }
-    .fb-diag-detalle { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 var(--sp-1); }
-    .fb-diag-accion { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; display: flex; align-items: baseline; gap: var(--sp-1); }
-    .fb-diag-accion i { color: var(--action); font-size: 0.75rem; }
-    .fb-diag-ev { list-style: none; margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: 2px;
-      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
-    .fb-diag-ev li { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-xs); }
-    .fb-diag-ev-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-main); }
-    .fb-diag-ev-meta { color: var(--text-muted); }
-    .fb-diag-ev-folio { color: var(--text-muted); font-family: var(--font-mono); }
-    .fb-diag-ev-monto { font-weight: 600; color: var(--text-main); min-width: 6rem; text-align: right; }
-    .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
-    .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
-    .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
-    .warn { color: var(--warn-fg); }
-    .ta-c { text-align: center; }
-    .fb-rec-ok { color: var(--ok-fg); font-size: 0.85rem; }
-    .fb-rec-no { color: var(--text-faint); font-size: 0.7rem; }
-    .fb-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
-    .fb-adminseg { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); }
-    .fb-adminseg button { background: none; border: 1px solid var(--border-color); color: var(--text-muted); font: inherit; font-size: var(--fs-xs); font-weight: 500; padding: var(--sp-1) var(--sp-3); border-radius: var(--r-sm); cursor: pointer; }
+    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
+    .fb-match-rate.warn { color: var(--warn-fg); }
     .fb-adminseg button.active { color: var(--action); border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
-    .fb-admin-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
-    .fb-admin-note { font-size: var(--fs-xs); max-width: 48rem; margin: 0; }
-    .fb-in { font: inherit; font-size: var(--fs-xs); width: 100%; padding: 2px var(--sp-1); background: var(--card-bg); color: var(--text-main); border: 1px solid transparent; border-radius: var(--r-sm); }
-    .fb-in:hover, .fb-in:focus { border-color: var(--border-color); }
-    .fb-in-num { text-align: right; }
-    .fb-newrow { background: var(--surface-ground); }
-    .fb-newrow .fb-in { border-color: var(--border-color); }
-    .fb-inactive { opacity: 0.5; }
-    .btn-ghost-danger { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 2px var(--sp-1); border-radius: var(--r-sm); }
-    .btn-ghost-danger:hover { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 10%, transparent); }
   `],
 })
 export class FinanzasBancosComponent implements OnInit {

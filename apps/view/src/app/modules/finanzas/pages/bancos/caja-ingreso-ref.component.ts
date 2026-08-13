@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { BankService, IngresosControl } from '../../bank.service';
 import { money0, dmShort } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.35 — CONTROL de ingresos (no memo): ¿cada depósito del banco tiene origen?
@@ -78,34 +79,30 @@ import { money0, dmShort } from './bancos-shared';
       </div>
     }
   `,
-  styles: [`
-    :host { display: block; }
-    .ic-card { background: var(--surface, var(--card-bg)); border: 1px solid var(--border-color); border-left: 3px solid var(--border-color); border-radius: var(--r-md); padding: 1rem 1.1rem; margin-bottom: var(--sp-3, .75rem); }
+  styles: [BANCOS_STYLES, `
+    .ic-card { background: var(--card-bg); border: 1px solid var(--border-color); border-left: 3px solid var(--border-color); border-radius: var(--r-md); padding: 1rem 1.1rem; margin-bottom: var(--sp-3); }
     .ic-card.ic-ok { border-left-color: var(--ok-fg); } .ic-card.ic-warn { border-left-color: var(--warn-fg); }
-    .ic-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3, .75rem); }
+    .ic-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); }
     .ic-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0; }
-    .muted { color: var(--text-muted); font-weight: 400; }
     .ic-verdict { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); font-weight: 700; white-space: nowrap; padding: 2px var(--sp-2); border-radius: var(--r-pill); }
     .ic-verdict.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
     .ic-verdict.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
-    .ic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--sp-3, .75rem); }
-    .ic-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3, .75rem); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .ic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--sp-3); }
+    .ic-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .ic-cell.ic-excn.hot { border-color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 6%, transparent); }
     .ic-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
-    .ic-v { font-size: var(--fs-lg, 1.125rem); font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .ic-v { font-size: var(--fs-lg); font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .ic-v.ok { color: var(--ok-fg); } .ic-v.bad { color: var(--warn-fg); }
     .ic-s { font-size: var(--fs-xs); color: var(--text-faint); }
     .ic-bar { display: flex; height: 8px; border-radius: var(--r-pill); overflow: hidden; margin: var(--sp-3) 0 var(--sp-2); background: var(--border-color); }
-    .ic-seg { height: 100%; } .ic-seg.tes { background: var(--ok-fg); } .ic-seg.cob { background: var(--chart-2, #6b8fb5); } .ic-seg.caj { background: var(--chart-4, #b58f6b); } .ic-seg.sin { background: var(--warn-fg); }
-    .ic-note { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2, .5rem) 0 0; line-height: 1.4; }
-    .ok { color: var(--ok-fg); } .bad { color: var(--warn-fg); }
+    .ic-seg { height: 100%; } .ic-seg.tes { background: var(--ok-fg); } .ic-seg.cob { background: var(--chart-2); } .ic-seg.caj { background: var(--chart-4); } .ic-seg.sin { background: var(--warn-fg); }
+    .ic-note { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2, .5rem) 0 0; line-height: 1.4; } .bad { color: var(--warn-fg); }
     .ic-toggle { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--sp-3); background: none; border: none; color: var(--action); font-weight: 600; font-size: var(--fs-sm); cursor: pointer; padding: 0; }
     .ic-toggle:hover { text-decoration: underline; }
     .ic-tablewrap { margin-top: var(--sp-2); overflow-x: auto; }
     .ic-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     .ic-table th { text-align: left; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
     .ic-table td { padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
-    .ta-r { text-align: right; } .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .ic-concept { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .ic-more { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
     .ic-fuga { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-3) 0 0; line-height: 1.4; }
