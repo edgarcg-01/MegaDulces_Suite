@@ -1294,11 +1294,16 @@ export class CommercialReplenishmentService {
         .where('rp.tenant_id', tenantId)
         .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
       // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
+      // OJO: la columna de catalog.brands es `nombre`, NO `name` (b.name tiraba 42703 → /filters 500,
+      // y con él se caían TODOS los selects de la pantalla). La etiqueta usa display_name cuando
+      // existe (nombre legal completo vs. el comercial), igual que catalog-search.
       const brands = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.brands as b', (j) => j.on('b.tenant_id', 'pr.tenant_id').andOn('b.id', 'pr.brand_id'))
         .where('rp.tenant_id', tenantId)
-        .distinct('b.id as id', 'b.name as name').orderBy('b.name');
+        .whereNull('b.deleted_at')
+        .distinct('b.id as id', trx.raw('COALESCE(b.display_name, b.nombre) as name'))
+        .orderByRaw('COALESCE(b.display_name, b.nombre)');
       // RA-PRO.12 — categorías de compra (sourcing, ej. Guadalajara/Arandas): las que tienen
       // productos activos con política. n_suppliers/n_products alimentan la etiqueta del selector.
       // Depuración del selector (RA-PRO.12): la categoría de Kepler = campo libre de Wincaja
