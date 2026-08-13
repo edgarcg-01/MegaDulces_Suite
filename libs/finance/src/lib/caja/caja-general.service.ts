@@ -220,27 +220,42 @@ export class CajaGeneralService {
           .where('tenant_id', tenantId).where('signo', '>', 0).where('es_traspaso', false).whereBetween('fecha_valor', [from, to])
           .groupBy('banco_nombre').select('banco_nombre').count({ n: '*' }).sum({ monto: 'importe' });
       } catch { kep = []; }
+      // ContPAQi (fiscal/libros): ingreso = flujo 'deposito' en 102xxx; mapea cuenta→banco
+      // via crosswalk CB (bank_accounts.contpaqi_cuenta). Es la 4ª vía = el extremo fiscal.
+      const cpqCuentaBank = new Map<string, string>();
+      try {
+        const bax = await trx('finance.bank_accounts').where('tenant_id', tenantId).whereNotNull('contpaqi_cuenta').select('bank', 'contpaqi_cuenta');
+        bax.forEach((r: any) => cpqCuentaBank.set(String(r.contpaqi_cuenta), canon(r.bank)));
+      } catch { /* sin crosswalk */ }
+      let cpq: any[] = [];
+      try {
+        cpq = await trx('analytics.contpaqi_bank_movements')
+          .where('tenant_id', tenantId).where('flujo', 'deposito').whereBetween('fecha', [from, to])
+          .groupBy('cuenta').select('cuenta').count({ n: '*' }).sum({ monto: 'importe' });
+      } catch { cpq = []; }
 
-      // Acumula las 3 fuentes por clave canónica.
-      const M = new Map<string, { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number }>();
-      const get = (k: string, label: string) => { if (!M.has(k)) M.set(k, { banco: label, caja: 0, caja_n: 0, wb: 0, wb_n: 0, kep: 0, kep_n: 0 }); return M.get(k)!; };
+      // Acumula las 4 fuentes por clave canónica.
+      const M = new Map<string, { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; cpq: number; cpq_n: number }>();
+      const get = (k: string, label: string) => { if (!M.has(k)) M.set(k, { banco: label, caja: 0, caja_n: 0, wb: 0, wb_n: 0, kep: 0, kep_n: 0, cpq: 0, cpq_n: 0 }); return M.get(k)!; };
       caja.forEach((r: any) => { const g = get(canon(r.banco_name), canon(r.banco_name)); g.caja += Number(r.real); g.caja_n += Number(r.n); });
       cb.forEach((r: any) => { const g = get(canon(r.bank), canon(r.bank)); g.wb += Number(r.monto); g.wb_n += Number(r.n); });
       kep.forEach((r: any) => { const g = get(canon(r.banco_nombre), canon(r.banco_nombre)); g.kep += Number(r.monto); g.kep_n += Number(r.n); });
+      cpq.forEach((r: any) => { const bank = cpqCuentaBank.get(String(r.cuenta)); if (!bank) return; const g = get(bank, bank); g.cpq += Number(r.monto); g.cpq_n += Number(r.n); });
 
       const por_banco = [...M.values()].map((g) => ({
-        banco: g.banco, caja: g.caja, caja_n: g.caja_n, wb: g.wb, wb_n: g.wb_n, kep: g.kep, kep_n: g.kep_n,
-        delta_caja_wb: g.caja - g.wb, delta_caja_kep: g.caja - g.kep, delta_wb_kep: g.wb - g.kep,
+        banco: g.banco, caja: g.caja, caja_n: g.caja_n, wb: g.wb, wb_n: g.wb_n, kep: g.kep, kep_n: g.kep_n, cpq: g.cpq, cpq_n: g.cpq_n,
+        delta_caja_wb: g.caja - g.wb, delta_caja_kep: g.caja - g.kep, delta_wb_kep: g.wb - g.kep, delta_caja_cpq: g.caja - g.cpq, delta_wb_cpq: g.wb - g.cpq,
         cuadra_caja_wb: g.wb > 0 && Math.abs(g.caja - g.wb) <= CUADRE_EPS,
         cuadra_wb_kep: g.wb > 0 && g.kep > 0 && Math.abs(g.wb - g.kep) <= CUADRE_EPS,
-      })).sort((a, b) => Math.max(b.caja, b.wb, b.kep) - Math.max(a.caja, a.wb, a.kep));
+        cuadra_wb_cpq: g.wb > 0 && g.cpq > 0 && Math.abs(g.wb - g.cpq) <= CUADRE_EPS,
+      })).sort((a, b) => Math.max(b.caja, b.wb, b.kep, b.cpq) - Math.max(a.caja, a.wb, a.kep, a.cpq));
 
       const sum = (arr: any[], k: string) => arr.reduce((s: number, r: any) => s + Number(r[k] || 0), 0);
       return {
         period: { from, to, instance: inst },
         totals: {
-          caja: sum(caja, 'real'), wb: sum(cb, 'monto'), kep: sum(kep, 'monto'),
-          wb_disponible: cb.length > 0, kep_disponible: kep.length > 0,
+          caja: sum(caja, 'real'), wb: sum(cb, 'monto'), kep: sum(kep, 'monto'), cpq: sum(cpq, 'monto'),
+          wb_disponible: cb.length > 0, kep_disponible: kep.length > 0, cpq_disponible: cpq.length > 0,
         },
         por_banco, cuadre_eps: CUADRE_EPS,
       };
