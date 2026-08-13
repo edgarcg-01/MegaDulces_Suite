@@ -1898,15 +1898,18 @@ export class CommercialAnalyticsService {
         }
       }
       const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
+      // Guard defensivo: `[...node.children.values()]` explota si algún nodo llega sin
+      // Map children. Fallback a [] en cada nivel.
+      const vals = (m: any): any[] => (m instanceof Map ? [...m.values()] : []);
       const tree = [...fam.values()]
         .sort((a, b) => b.total - a.total)
         .map((F) => ({
           key: F.key, label: F.label, level: 'familia', total: F.total, movs: F.movs, share_pct: share(F.total),
-          children: [...F.children.values()].sort((a: any, b: any) => b.total - a.total).map((Mn: any) => ({
+          children: vals(F.children).sort((a: any, b: any) => b.total - a.total).map((Mn: any) => ({
             key: Mn.key, label: Mn.label, level: 'mayor', total: Mn.total, movs: Mn.movs, share_pct: share(Mn.total),
-            children: [...Mn.children.values()].sort((a: any, b: any) => b.total - a.total).map((Sc: any) => ({
+            children: vals(Mn.children).sort((a: any, b: any) => b.total - a.total).map((Sc: any) => ({
               key: Sc.key, label: Sc.label, level: 'cuenta', total: Sc.total, movs: Sc.movs, share_pct: share(Sc.total),
-              children: [...Sc.children.values()].sort((a: any, b: any) => b.total - a.total)
+              children: vals(Sc.children).sort((a: any, b: any) => b.total - a.total)
                 .map((C: any) => ({ ...C, level: 'concepto', share_pct: share(C.total) })),
             })),
           })),
