@@ -20,14 +20,18 @@ export const MONTHS_ES: Record<string, string> = {
  * del Cuadre). `contpaqi` se reencauza a **Factoraje** — su único valor propio (compras
  * factoradas por proveedor vs ContPAQi); su comparación banco↔ContPAQi ya está en Cuadre.
  */
+// Orden izquierda→derecha por IMPORTANCIA (de la respuesta al detalle):
+// Cierre (¿cuadra?) → Cuadre (¿coinciden las fuentes?) → Conciliación (¿casó cada
+// movimiento?) → Movimientos (detalle) → Concentrado (composición) → Cuentas (catálogo)
+// → Factoraje (nicho) → Capturas (entrada). Cierre = home (default del shell).
 export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
+  { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
+  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
   { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
-  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
-  { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
-  { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
+  { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card' },
   { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp' },
 ];
 
