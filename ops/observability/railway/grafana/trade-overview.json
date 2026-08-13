@@ -8,7 +8,7 @@
   "tags": ["trade", "infra"],
   "title": "Trade — Salud del proceso (OOM)",
   "uid": "trade-overview",
-  "version": 1,
+  "version": 2,
   "templating": {
     "list": [
       {
@@ -25,11 +25,10 @@
   "panels": [
     {
       "type": "text",
-      "title": "",
       "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
       "options": {
         "mode": "markdown",
-        "content": "**Salud del proceso — diagnóstico del OOM.** Series por `service_name` (trade-api / trade-worker). Si un panel dice **No data**, el nombre exacto de la métrica difiere según versión: abrí **Explore → Metrics** y ajustá la query (host-metrics = `process_memory_usage_bytes`, `process_cpu_utilization`, `system_memory_usage_bytes`; HTTP = `http_server_request_duration_seconds_*` o `http_server_duration_milliseconds_*`)."
+        "content": "**Salud del proceso — diagnóstico del OOM.** Series por `service_name` (trade-api / trade-worker). Métricas de `apps/api/src/otel.ts` (host-metrics + runtime v8 + HTTP). RSS = señal directa del container-OOM; el heap V8 muestra el lado JS."
       }
     },
     {
@@ -39,72 +38,57 @@
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 3 },
       "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "process_memory_usage_bytes",
-          "legendFormat": "{{service_name}}"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "process_memory_usage", "legendFormat": "{{service_name}}" }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Memoria del sistema usada",
+      "title": "Heap V8 usado (total)",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 3 },
       "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "system_memory_usage_bytes{state=\"used\"}",
-          "legendFormat": "used"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (service_name) (v8js_memory_heap_used_bytes)", "legendFormat": "{{service_name}}" }
       ]
     },
     {
       "type": "timeseries",
       "title": "CPU del proceso",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "process_cpu_utilization",
-          "legendFormat": "{{service_name}}"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "process_cpu_utilization", "legendFormat": "{{service_name}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Event loop — utilización",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "nodejs_eventloop_utilization_ratio", "legendFormat": "{{service_name}}" }
       ]
     },
     {
       "type": "timeseries",
       "title": "HTTP — requests/s",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(http_server_request_duration_seconds_count[5m])) by (service_name)",
-          "legendFormat": "{{service_name}}"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(http_server_request_duration_seconds_count[5m])) by (service_name)", "legendFormat": "{{service_name}}" }
       ]
     },
     {
       "type": "timeseries",
       "title": "HTTP — latencia p95",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
       "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, service_name))",
-          "legendFormat": "{{service_name}} p95"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, service_name))", "legendFormat": "{{service_name}} p95" }
       ]
     }
   ]
