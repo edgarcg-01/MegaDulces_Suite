@@ -1850,6 +1850,18 @@ export class FinanceBankService {
       const tesHas = n(tesRow?.cargos) > 0 || n(tesRow?.abonos) > 0;
       const k102 = tesHas ? { cargos: n(tesRow.cargos), abonos: n(tesRow.abonos) } : (bookBy['102'] || { cargos: 0, abonos: 0 });
       const keplerSource = tesHas ? 'tesoreria' : 'contable';
+
+      // Armonización con el Cuadre (2026-08-13): el lado banco = TOTALES del estado de cuenta
+      // de cuentas kind='bank' (misma fuente que contpaqiCompare/threeWay), NO la suma de
+      // movimientos con exclusiones de traspaso/factoraje. Así "Excel (banco)" de Conciliación
+      // == "Workbook" del Cuadre para el mismo periodo. (caja kind='cash' sigue como memo.)
+      const stmtBank: any = await trx('finance.bank_statements as st')
+        .join('finance.bank_accounts as ba', 'ba.id', 'st.bank_account_id')
+        .where('st.period', period).andWhere('ba.kind', 'bank')
+        .select(trx.raw('COALESCE(SUM(st.total_in),0) AS tin'), trx.raw('COALESCE(SUM(st.total_out),0) AS tout')).first();
+      bankIn = n(stmtBank?.tin);
+      bankOut = n(stmtBank?.tout);
+
       const cash = {
         bank_in: bankIn, kepler_102_cargos: k102.cargos, delta_in: bankIn - k102.cargos,
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
