@@ -43,10 +43,13 @@ export interface Concentrado {
   groupTotals: Record<string, ConcentradoGroup>; grand: ConcentradoGroup;
 }
 
+export interface ReconIngresos { via_caja: number; via_cobranza: number; residual: number; explicado: number; total: number; }
 export interface ReconCash {
   bank_in: number; kepler_102_cargos: number; delta_in: number;
   bank_out: number; kepler_102_abonos: number; delta_out: number;
   kepler_source?: 'tesoreria' | 'contable';
+  // CB.34 — descomposición de depósitos por fuente real (Caja + cobranza + residual).
+  ingresos?: ReconIngresos;
 }
 export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
 export interface ReconFactoraje { compra: number; pago: number; total: number; }
