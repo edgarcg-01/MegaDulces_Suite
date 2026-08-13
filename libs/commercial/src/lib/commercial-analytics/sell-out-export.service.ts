@@ -638,8 +638,8 @@ export class SellOutExportService {
 
   // ─────────── PDF ───────────
 
-  async buildPdf(report: SellOutReport): Promise<Buffer> {
-    const html = this.buildHtml(report);
+  async buildPdf(report: SellOutReport, measure: SellOutMeasure = 'ambas'): Promise<Buffer> {
+    const html = this.buildHtml(report, measure);
     const browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
@@ -662,35 +662,43 @@ export class SellOutExportService {
     }
   }
 
-  private buildHtml(report: SellOutReport): string {
+  private buildHtml(report: SellOutReport, measure: SellOutMeasure = 'ambas'): string {
     const esc = (s: any) =>
       String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
     const money = (n: number) => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
     const num = (n: number) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const cols = report.columns;
 
-    const topHeads = cols.map((c) => `<th colspan="2">${esc(this.colLabel(c))}</th>`).join('') + `<th colspan="2">TOTAL</th>`;
-    const subHeads = cols.map(() => `<th>Cajas</th><th class="m">Monto</th>`).join('') + `<th>Cajas</th><th class="m">Monto</th>`;
+    // Mismas reglas de medida que el XLSX: con una sola medida no hay fila de subtitulos
+    // (el grupo se estira con rowspan); con "ambas" van las dos subcolumnas Cajas|Monto.
+    const showCajas = measure !== 'monto';
+    const showMonto = measure !== 'cajas';
+    const N = (showCajas ? 1 : 0) + (showMonto ? 1 : 0);
+    const groupTh = (label: string) =>
+      N > 1 ? `<th colspan="2">${label}</th>` : `<th rowspan="2">${label}</th>`;
+    const topHeads = cols.map((c) => groupTh(esc(this.colLabel(c)))).join('') + groupTh('TOTAL');
+    const subHeads = N > 1
+      ? cols.map(() => `<th>Cajas</th><th class="m">Monto</th>`).join('') + `<th>Cajas</th><th class="m">Monto</th>`
+      : '';
+    /** Celdas de una fila para un par (cajas, monto), respetando la medida. */
+    const pairTds = (cell: SellOutCell | undefined, bold = false) => {
+      const b = bold ? ' b' : '';
+      const c = showCajas ? `<td class="n${b}">${cell ? num(cell.cajas) : '·'}</td>` : '';
+      const m = showMonto ? `<td class="n m${b}">${cell ? money(cell.monto) : '·'}</td>` : '';
+      return c + m;
+    };
 
     const body = report.rows
       .map((p) => {
-        const cells = cols
-          .map((c) => {
-            const cell = p.cells[c.key];
-            return `<td class="n">${cell ? num(cell.cajas) : '·'}</td><td class="n m">${cell ? money(cell.monto) : '·'}</td>`;
-          })
-          .join('');
-        return `<tr><td>${esc(p.sku)}</td><td class="d">${esc(p.nombre)}</td><td class="n">${p.uxc ?? ''}</td>${cells}<td class="n b">${num(p.total.cajas)}</td><td class="n m b">${money(p.total.monto)}</td></tr>`;
+        const cells = cols.map((c) => pairTds(p.cells[c.key])).join('');
+        return `<tr><td>${esc(p.sku)}</td><td class="d">${esc(p.nombre)}</td><td class="n">${p.uxc ?? ''}</td>${cells}${pairTds(p.total, true)}</tr>`;
       })
       .join('');
 
     const totCells = cols
-      .map((c) => {
-        const t = report.column_totals[c.key] ?? { cajas: 0, monto: 0 };
-        return `<td class="n">${num(t.cajas)}</td><td class="n m">${money(t.monto)}</td>`;
-      })
+      .map((c) => pairTds(report.column_totals[c.key] ?? { cajas: 0, monto: 0 }))
       .join('');
-    const totRow = `<tr class="tot"><td colspan="3">TOTAL</td>${totCells}<td class="n">${num(report.grand_total.cajas)}</td><td class="n m">${money(report.grand_total.monto)}</td></tr>`;
+    const totRow = `<tr class="tot"><td colspan="3">TOTAL</td>${totCells}${pairTds(report.grand_total)}</tr>`;
 
     const period = this.periodLabel(report.period.from, report.period.to);
     const sucursales = report.coverage?.branches_with_data?.length ?? 0;

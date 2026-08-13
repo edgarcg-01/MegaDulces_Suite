@@ -646,10 +646,13 @@ export class CommercialAnalyticsController {
     @Query('mode') mode?: string,
     @Query('promo') promo?: string,
     @Query('layout') layout?: string,
+    @Query('measure') measure?: string,
   ) {
     const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
-    const buf = await this.exporter.buildPdf(report);
+    // Misma regla que el XLSX: la Medida elegida manda; sin param, cajas+monto (default histórico).
+    const m = measure === 'cajas' || measure === 'monto' || measure === 'ambas' ? measure : 'ambas';
+    const buf = await this.exporter.buildPdf(report, m);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
   }
 
