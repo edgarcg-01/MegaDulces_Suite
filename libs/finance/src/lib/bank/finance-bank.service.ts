@@ -321,25 +321,34 @@ export class FinanceBankService {
         : [];
 
       const r2 = (v: number) => Math.round(v * 100) / 100;
-      const key = (v: any) => String(Math.round(n(v) * 100)); // centavos → clave de casado exacto
+      const cents = (v: any) => Math.round(n(v) * 100);
 
-      // Reconciliación greedy por importe exacto dentro de una dirección.
+      // Reconciliación greedy por importe con tolerancia ±$1 (CB.36). Los centavos de
+      // captura (Excel vs ContPAQi) NO son descuadre: antes casaba por centavos EXACTOS →
+      // el mismo pago (banco $X.50 vs libro $X.45) salía en ambas columnas "solo aquí".
+      // Exacto primero, luego el candidato más cercano dentro de ±$1.
+      const AMT_TOL = 100;
       const reconcile = (
         bankSide: any[], cpqSide: any[],
         bankAmt: (r: any) => number,
       ) => {
-        const cpqByAmt = new Map<string, any[]>();
+        const cpqByAmt = new Map<number, any[]>();
         for (const c of cpqSide) {
-          const k = key(c.importe);
+          const k = cents(c.importe);
           (cpqByAmt.get(k) ?? cpqByAmt.set(k, []).get(k)!).push(c);
         }
         const bankOnly: any[] = []; let matched = 0, matchedAmt = 0;
         for (const b of bankSide) {
-          const k = key(bankAmt(b));
-          const bucket = cpqByAmt.get(k);
-          if (bucket && bucket.length) {
-            bucket.shift(); matched++; matchedAmt += bankAmt(b);
-          } else {
+          const t = cents(bankAmt(b));
+          let hit = false;
+          for (let d = 0; d <= AMT_TOL && !hit; d++) {
+            for (const cand of d === 0 ? [t] : [t - d, t + d]) {
+              const bucket = cpqByAmt.get(cand);
+              if (bucket && bucket.length) { bucket.shift(); hit = true; break; }
+            }
+          }
+          if (hit) { matched++; matchedAmt += bankAmt(b); }
+          else {
             bankOnly.push({
               id: b.id, fecha: b.movement_date, importe: r2(bankAmt(b)),
               concepto: b.concept || null, tipo: b.raw_type || null, codigo: b.raw_code || null, categoria: b.category_name || null,
@@ -2184,20 +2193,25 @@ export class FinanceBankService {
         .where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
         .whereIn('ba.account_label', labels as any).andWhere('bm.movement_date', '>=', ini)
         .select('bm.movement_date', 'bm.amount_out', 'ba.account_label');
-      const idx = new Map<string, Date[]>();
-      for (const b of bankOut as any[]) { const k = `${b.account_label}|${cents(b.amount_out)}`; (idx.get(k) || idx.set(k, []).get(k))!.push(new Date(b.movement_date)); }
+      // Índice por cuenta (no por monto exacto): el cobro puede diferir del cheque por
+      // centavos de captura (CB.36) → ±$1. Nearest cobro ≥ emisión, greedy con `used`.
+      const bankByAcct = new Map<string, Array<{ c: number; date: Date; used: boolean }>>();
+      for (const b of bankOut as any[]) {
+        const arr = bankByAcct.get(b.account_label) || bankByAcct.set(b.account_label, []).get(b.account_label)!;
+        arr.push({ c: cents(b.amount_out), date: new Date(b.movement_date), used: false });
+      }
 
-      const used = new Set<string>();
       const rows = (cheques as any[]).map((c) => {
-        const k = `${c.account_label}|${cents(c.importe)}`;
-        const dates = idx.get(k) || [];
+        const chC = cents(c.importe);
         const chDate = new Date(c.fecha_valor);
-        let cashed: Date | null = null, ui = -1;
-        for (let i = 0; i < dates.length; i++) {
-          if (used.has(`${k}|${i}`)) continue;
-          if (dates[i].getTime() >= chDate.getTime() && (!cashed || dates[i] < cashed)) { cashed = dates[i]; ui = i; }
+        const arr = bankByAcct.get(c.account_label) || [];
+        let best: { c: number; date: Date; used: boolean } | null = null;
+        for (const b of arr) {
+          if (b.used || b.date.getTime() < chDate.getTime() || Math.abs(b.c - chC) > 100) continue;
+          if (!best || b.date < best.date) best = b;
         }
-        if (cashed) used.add(`${k}|${ui}`);
+        if (best) best.used = true;
+        const cashed: Date | null = best ? best.date : null;
         return {
           doc_tipo: c.doc_tipo, folio: c.folio, account_label: c.account_label, banco_nombre: c.banco_nombre,
           importe: n(c.importe), fecha: c.fecha_valor, beneficiario: c.beneficiario,
@@ -2264,9 +2278,20 @@ export class FinanceBankService {
         return m;
       };
       const kIdx = buildIdx(kepler), cIdx = buildIdx(contpaqi);
+      // CB.36 — ±$1: los centavos de captura (Excel vs Kepler/ContPAQi, ej. De La Rosa
+      // banco $869,359.50 vs Kepler $869,359.45) NO son descuadre. Exacto primero, luego
+      // el candidato más cercano dentro de ±$1. Misma tolerancia que el matcher y el resto
+      // del módulo — antes casaba por centavos EXACTOS → el mismo pago salía como discrepancia.
+      const AMT_TOL = 100;
       const take = (idx: Map<string, any[]>, dir: string, imp: number) => {
-        const arr = idx.get(`${dir}|${cents(imp)}`); if (!arr) return null;
-        const f = arr.find((x) => !x.used); if (f) { f.used = true; return f; } return null;
+        const t = cents(imp);
+        for (let d = 0; d <= AMT_TOL; d++) {
+          for (const cand of d === 0 ? [t] : [t - d, t + d]) {
+            const arr = idx.get(`${dir}|${cand}`);
+            if (arr) { const f = arr.find((x) => !x.used); if (f) { f.used = true; return f; } }
+          }
+        }
+        return null;
       };
 
       const excelRows = excel.map((e: any) => {
