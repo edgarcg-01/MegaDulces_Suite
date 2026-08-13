@@ -53,6 +53,9 @@ export class BankCaptureService {
     if (q.limit != null) p.set('limit', String(q.limit));
     return this.http.get<CapturesPage>(`${this.base}?${p.toString()}`);
   }
+  upload(body: { file_base64: string; mime?: string; sender_id?: string; sucursal?: string; bank_account_id?: string }): Observable<{ capture_id: string | null }> {
+    return this.http.post<{ capture_id: string | null }>(`${this.base}/upload`, body);
+  }
   validate(id: string): Observable<unknown> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<unknown> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
   update(id: string, patch: Partial<BankCapture>): Observable<unknown> { return this.http.patch(`${this.base}/${id}`, patch); }

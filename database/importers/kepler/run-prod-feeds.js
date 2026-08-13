@@ -107,6 +107,7 @@ const STEPS = {
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
     path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
+    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
     path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
     path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
@@ -157,6 +158,7 @@ const STEPS = {
     path.join(K, 'import-sales-by-channel.js'),
     path.join(K, 'import-cash-cuts.js'),
     path.join(K, 'import-bank-postings.js'),
+    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 vivo + Base Movimientos. Requiere Z: (.245) montado.
   ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];

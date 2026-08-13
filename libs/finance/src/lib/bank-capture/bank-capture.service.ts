@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   TenantKnexService,
@@ -67,8 +68,11 @@ export class BankCaptureService {
     fileBase64: string;
     mime: string;
     caption?: string | null;
+    source?: 'whatsapp' | 'web';
   }): Promise<BankCaptureResult> {
-    const phone = normalizeMxPhone(input.fromPhone) || input.fromPhone;
+    const source = input.source ?? 'whatsapp';
+    // from_phone es NOT NULL → para web queda '' (no hay teléfono). El resto igual.
+    const phone = normalizeMxPhone(input.fromPhone) || input.fromPhone || '';
     const mediaType = this.coerceMediaType(input.mime);
     let errorDetail: string | null = null;
 
@@ -119,7 +123,7 @@ export class BankCaptureService {
         const [row] = await trx('finance.bank_capture_inbox')
           .insert({
             tenant_id: this.tenantId(),
-            source: 'whatsapp',
+            source,
             from_phone: phone,
             sender_id: input.sender.id,
             wa_message_id: input.waMessageId,
@@ -167,6 +171,49 @@ export class BankCaptureService {
     }
 
     return { reply: this.buildAckReply(fields, ocrStatus, errorDetail), capture_id: captureId };
+  }
+
+  /**
+   * CBW.8 — Subida WEB de una ficha (sin WhatsApp): mismo pipeline que `capture()`
+   * (storage + OCR + staging + aviso a Cobranza), atribuida a un remitente existente
+   * o a una sucursal/cuenta capturada a mano. Canal vivo que no depende del BSP.
+   */
+  async captureWeb(input: {
+    fileBase64: string;
+    mime: string;
+    sender_id?: string | null;
+    sucursal?: string | null;
+    bank_account_id?: string | null;
+    caption?: string | null;
+  }): Promise<BankCaptureResult> {
+    if (!input.fileBase64) throw new BadRequestException('file_base64 requerido');
+    let sender: BankCaptureSender;
+    if (input.sender_id) {
+      const found = await this.tk.run((trx) =>
+        trx('finance.bank_capture_senders').where({ id: input.sender_id }).first());
+      if (!found) throw new BadRequestException('remitente no encontrado');
+      sender = found as BankCaptureSender;
+    } else {
+      // Remitente sintético: sin fila en la allowlist (sender_id = null), atribución
+      // por sucursal/cuenta elegida en la subida. El OCR resuelve el banco de la ficha.
+      sender = {
+        id: null,
+        full_name: 'Captura web',
+        sucursal: input.sucursal ?? null,
+        default_bank_account_id: input.bank_account_id ?? null,
+        customer_code: null,
+        rfc: null,
+      } as unknown as BankCaptureSender;
+    }
+    return this.capture({
+      fromPhone: '',
+      sender,
+      waMessageId: `web:${crypto.randomUUID()}`,
+      fileBase64: input.fileBase64,
+      mime: input.mime || 'image/jpeg',
+      caption: input.caption ?? null,
+      source: 'web',
+    });
   }
 
   // ── Bandeja / backend (CBW.4) ──────────────────────────────────────────────
