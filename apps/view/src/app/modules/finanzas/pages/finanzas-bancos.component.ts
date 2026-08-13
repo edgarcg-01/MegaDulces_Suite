@@ -410,7 +410,7 @@ export class FinanzasBancosComponent implements OnInit {
 
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
-  readonly view = signal<View>('comparador');
+  readonly view = signal<View>('cierre');
   readonly loading = signal(true);
   readonly periods = signal<string[]>([]);
   readonly period = signal<string>('');

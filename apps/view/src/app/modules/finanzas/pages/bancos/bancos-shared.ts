@@ -13,15 +13,19 @@ export const MONTHS_ES: Record<string, string> = {
   JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
 };
 
-/** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
+/**
+ * Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane.
+ * OPT.1 (2026-08-13): `comparador` (Excel↔Kepler) y `contpaqi` (vs ContPAQi) OCULTOS del
+ * nav — su comparación es un subconjunto del Cuadre 3 vías (que ya tiene ContPAQi + drill
+ * a movimiento). El código/ruta siguen vivos (reversible; alcanzables por URL) hasta
+ * confirmar que el Cuadre cubre el uso real y reubicar `factoraje-compare` (OPT.2).
+ */
 export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
-  { key: 'comparador', label: 'Excel ↔ Kepler', icon: 'pi pi-arrows-h' },
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
   { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
-  { key: 'contpaqi', label: 'vs ContPAQi', icon: 'pi pi-book' },
-  { key: 'cuadre', label: 'Cuadre 3 vías', icon: 'pi pi-check-square' },
+  { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
   { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp' },
 ];
