@@ -7,7 +7,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
-import { cuadra, money0 } from './bancos-shared';
+import { cuadra, money0, dmShort } from './bancos-shared';
 
 /**
  * CP.2 (Fase CP, ADR-040) — Vista "vs ContPAQi". Compara el estado de cuenta (Excel/finance)
@@ -216,7 +216,7 @@ import { cuadra, money0 } from './bancos-shared';
                   @if (side.data.bank_only.length) {
                     <table class="dlg-mini"><tbody>
                       @for (m of side.data.bank_only; track m.id) {
-                        <tr><td class="mono nowrap">{{ m.fecha | date:'dd/MM' }}</td>
+                        <tr><td class="mono nowrap">{{ dmShort(m.fecha) }}</td>
                             <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                             <td class="dlg-concept" [title]="m.concepto || ''">{{ m.concepto || m.categoria || '—' }}</td></tr>
                       }
@@ -230,7 +230,7 @@ import { cuadra, money0 } from './bancos-shared';
                   @if (side.data.contpaqi_only.length) {
                     <table class="dlg-mini"><tbody>
                       @for (m of side.data.contpaqi_only; track m.id) {
-                        <tr><td class="mono nowrap">{{ m.fecha | date:'dd/MM' }}</td>
+                        <tr><td class="mono nowrap">{{ dmShort(m.fecha) }}</td>
                             <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                             <td class="dlg-concept" [title]="m.concepto || ''">
                               @if (m.poliza_folio) { <span class="muted mono">#{{ m.poliza_folio }}</span> }
@@ -320,6 +320,7 @@ export class BancosContpaqiComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   cuad = cuadra;
+  dmShort = dmShort;
   noExcel(r: ContpaqiCompareRow): boolean { return r.excel_in === 0 && r.excel_out === 0; }
 
   // Drill "¿dónde está el error?" — carga bajo demanda al abrir el diálogo.

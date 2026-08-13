@@ -44,13 +44,13 @@ import { money0, dmy } from './bancos-shared';
     } @else {
       <div class="surf-card bc-tablewrap">
         <p-table [value]="rows()" styleClass="p-datatable-sm" [scrollable]="true">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Fecha</th><th>Remitente</th><th>Suc</th><th>Banco / Cuenta</th>
               <th class="ta-r">Monto</th><th>Ref</th><th>Estado</th><th>Foto</th><th class="ta-r">Acción</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr [class.bc-rej]="r.status==='rechazado' || r.status==='descartado'" [class.bc-err]="r.error_detail">
               <td class="mono muted">{{ dmy(r.created_at) }}</td>
               <td>

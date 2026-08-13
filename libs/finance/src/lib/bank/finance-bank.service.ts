@@ -2039,7 +2039,7 @@ export class FinanceBankService {
       if (!cheques.length) return { period, total: { cheques_n: 0, en_transito_n: 0, en_transito_monto: 0, cobrado_n: 0, cobrado_monto: 0 }, cheques: [] };
 
       // Retiros del banco de las mismas cuentas, del periodo EN ADELANTE (el cheque puede cobrar después).
-      const labels = [...new Set(cheques.map((c: any) => c.account_label))];
+      const labels = Array.from(new Set(cheques.map((c: any) => c.account_label)));
       const bankOut = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')

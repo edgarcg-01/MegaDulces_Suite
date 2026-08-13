@@ -54,13 +54,20 @@ export class CajaIngresoRefComponent {
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   readonly data = signal<CajaIngresoRef | null>(null);
+  private seq = 0;
   constructor() {
     effect(() => {
       const p = this.period();
       if (!p || !/^\d{4}-\d{2}$/.test(p)) { this.data.set(null); return; }
+      // Guard de secuencia: al cambiar rápido de periodo, ignora la respuesta vieja (evita que
+      // gane la del mes anterior y muestre datos que no corresponden al periodo actual).
+      const token = ++this.seq;
       this.http.get<CajaIngresoRef>(`${environment.apiUrl}/finance/caja/conciliacion-detalle?month=${p}`)
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: (d) => this.data.set(d), error: () => this.data.set(null) });
+        .subscribe({
+          next: (d) => { if (token === this.seq) this.data.set(d); },
+          error: () => { if (token === this.seq) this.data.set(null); },
+        });
     });
   }
 }

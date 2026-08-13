@@ -5,7 +5,7 @@ import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
-import { cuadra, money0 } from './bancos-shared';
+import { cuadra, money0, dmShort } from './bancos-shared';
 
 /**
  * CB.24 — Cuadre 3 vías. Enfrenta las TRES fuentes de verdad del banco en el periodo:
@@ -46,7 +46,7 @@ import { cuadra, money0 } from './bancos-shared';
                 @else if (s.stale) { <span class="tw-tag warn-tag">captura pendiente</span> }
               </div>
               <div class="tw-cov-bar"><div class="tw-cov-fill" [style.width.%]="s.pct"></div></div>
-              <div class="tw-cov-meta muted">{{ s.movs }} movs · {{ s.pct }}%<span *ngIf="s.last"> · al {{ s.last | date:'dd/MM' }}</span></div>
+              <div class="tw-cov-meta muted">{{ s.movs }} movs · {{ s.pct }}%<span *ngIf="s.last"> · al {{ dmShort(s.last) }}</span></div>
             </div>
           }
         </div>
@@ -157,7 +157,7 @@ import { cuadra, money0 } from './bancos-shared';
                       <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
                         <td class="tw-concept">{{ q.beneficiario || '—' }}</td>
                         <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                        <td class="mono muted">{{ q.fecha | date:'dd/MM' }}</td></tr>
+                        <td class="mono muted">{{ dmShort(q.fecha) }}</td></tr>
                     }
                   </tbody>
                 </table>
@@ -190,7 +190,7 @@ import { cuadra, money0 } from './bancos-shared';
             <tbody>
               @for (e of dd.excel; track e.id) {
                 <tr>
-                  <td class="mono muted nowrap">{{ e.fecha | date:'dd/MM' }}</td>
+                  <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left fb-in-ico' : 'pi pi-arrow-up-right fb-out-ico'"></i></td>
                   <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
@@ -207,7 +207,7 @@ import { cuadra, money0 } from './bancos-shared';
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ k.fecha | date:'dd/MM' }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
+                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
                 </tbody></table>
               </div>
             }
@@ -215,7 +215,7 @@ import { cuadra, money0 } from './bancos-shared';
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ c.fecha | date:'dd/MM' }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
                 </tbody></table>
               </div>
             }
@@ -345,6 +345,7 @@ export class BancosThreeWayComponent {
   }
 
   cuad = cuadra;
+  dmShort = dmShort;
 
   rows(d: ThreeWay): ThreeWayRow[] { return [d.total.ingresos, d.total.egresos]; }
 
