@@ -300,7 +300,25 @@ export class CajaGeneralService {
           cajaOnly.push({ canon, caja_id: c.deposito_id, banco: c.banco_name, almacen: c.almacen, fecha: c.deposito_date, monto: amt });
         }
       }
-      const bankOnly = bank.filter((b) => !b.used && (!filterBank || b.canon === filterBank)).map((b) => ({ canon: b.canon, bank_id: b.id, label: b.label, fecha: b.date, monto: b.amt, concept: b.concept }));
+      const bankOnly = bank.filter((b) => !b.used && (!filterBank || b.canon === filterBank)).map((b) => ({ canon: b.canon, bank_id: b.id, label: b.label, fecha: b.date, monto: b.amt, concept: b.concept, via_cobranza: false }));
+
+      // CG.9 — 2º pase: atribuir el "banco sin Caja" a COBRANZA (cobros Kepler UA0501),
+      // por monto (±$1) + fecha (±5d). El cobro no trae banco → match sin banco. Lo que
+      // no case queda como residual (transferencia directa / financiero / inter-cuenta).
+      let cob: any[] = [];
+      try {
+        cob = await trx('analytics.erp_collections')
+          .where('tenant_id', tenantId).whereBetween('cobro_date', [from, to]).where('monto', '>', 0)
+          .select('cobro_date', 'monto');
+      } catch { cob = []; }
+      const cobByAmt = new Map<number, any[]>();
+      for (const x of cob) { const k = Math.round(Number(x.monto)); (cobByAmt.get(k) || cobByAmt.set(k, []).get(k))!.push({ date: x.cobro_date, used: false }); }
+      for (const b of bankOnly) {
+        const cands = (cobByAmt.get(Math.round(b.monto)) || []).filter((x) => !x.used && dayDiff(x.date, b.fecha) <= 5).sort((x, y) => dayDiff(x.date, b.fecha) - dayDiff(y.date, b.fecha));
+        if (cands.length) { cands[0].used = true; b.via_cobranza = true; }
+      }
+      const cobranza = bankOnly.filter((b) => b.via_cobranza);
+      const residual = bankOnly.filter((b) => !b.via_cobranza);
 
       const sum = (arr: any[]) => arr.reduce((s, r) => s + (r.monto || 0), 0);
       return {
@@ -308,11 +326,13 @@ export class CajaGeneralService {
         totals: {
           matched_n: matched.length, matched: sum(matched),
           caja_only_n: cajaOnly.length, caja_only: sum(cajaOnly),
+          cobranza_n: cobranza.length, cobranza: sum(cobranza),
+          residual_n: residual.length, residual: sum(residual),
           bank_only_n: bankOnly.length, bank_only: sum(bankOnly),
         },
         matched: matched.sort((a, b) => b.monto - a.monto).slice(0, 500),
         caja_only: cajaOnly.sort((a, b) => b.monto - a.monto).slice(0, 500),
-        bank_only: bankOnly.sort((a, b) => b.monto - a.monto).slice(0, 500),
+        bank_only: residual.sort((a, b) => b.monto - a.monto).slice(0, 500),
         match_eps: MATCH_EPS,
       };
     });

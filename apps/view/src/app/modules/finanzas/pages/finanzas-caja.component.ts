@@ -29,7 +29,7 @@ interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: n
 interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; delta_caja_wb: number; delta_caja_kep: number; delta_wb_kep: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean }
 interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; wb_disponible: boolean; kep_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
 interface CDet {
-  totals: { matched_n: number; matched: number; caja_only_n: number; caja_only: number; bank_only_n: number; bank_only: number };
+  totals: { matched_n: number; matched: number; caja_only_n: number; caja_only: number; cobranza_n: number; cobranza: number; residual_n: number; residual: number; bank_only_n: number; bank_only: number };
   matched: { banco: string; almacen: string; fecha: string; monto: number }[];
   caja_only: { banco: string; almacen: string; fecha: string; monto: number }[];
   bank_only: { label: string; fecha: string; monto: number; concept: string }[];
@@ -417,9 +417,10 @@ export class FinanzasCajaComponent implements OnInit {
   }
   cdetKpis(d: CDet): MetricStripItem[] {
     return [
-      { label: 'Casados', value: d.totals.matched, format: 'currency-short', tone: 'ok', sub: `${d.totals.matched_n} depósitos` },
+      { label: 'Caja → banco', value: d.totals.matched, format: 'currency-short', tone: 'ok', sub: `${d.totals.matched_n} · tienda` },
       { label: 'Caja sin banco', value: d.totals.caja_only, format: 'currency-short', tone: d.totals.caja_only > 0 ? 'warn' : 'ok', sub: `${d.totals.caja_only_n} · fuga/rezago` },
-      { label: 'Banco sin Caja', value: d.totals.bank_only, format: 'currency-short', tone: 'default', sub: `${d.totals.bank_only_n} · cobranza/directo` },
+      { label: 'Cobranza → banco', value: d.totals.cobranza, format: 'currency-short', tone: 'default', sub: `${d.totals.cobranza_n} · cobros cliente` },
+      { label: 'Residual', value: d.totals.residual, format: 'currency-short', tone: 'default', sub: `${d.totals.residual_n} · directo/financiero` },
     ];
   }
   tLabel(t: string): string { return TENDER_LABEL[t] || t; }
