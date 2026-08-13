@@ -109,6 +109,24 @@ export interface SupplierPaymentFields {
 }
 
 /**
+ * GX.8 (validación por vision) — Campos de una FOTO/EVIDENCIA de gasto: ticket,
+ * nota, recibo o comprobante que el colaborador entrega para comprobar un gasto.
+ * Se usa para VALIDAR el monto contra el importe del gasto Kepler (XA1001). No es
+ * un documento estructurado de la empresa — es lo que dio el comercio. Todos null
+ * si es ilegible o no hay ANTHROPIC_API_KEY.
+ */
+export interface ExpenseReceiptFields {
+  total: number | null;      // importe TOTAL pagado (lo principal a validar)
+  subtotal: number | null;   // subtotal antes de impuestos, si se distingue
+  iva: number | null;        // IVA, si se distingue
+  fecha: string | null;      // ISO YYYY-MM-DD del ticket/recibo
+  comercio: string | null;   // nombre del establecimiento / proveedor emisor
+  rfc: string | null;        // RFC del emisor, si aparece
+  folio: string | null;      // folio/ticket del comprobante, si aparece
+  legible: boolean;          // false si la foto está borrosa/cortada/no es un comprobante
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -279,6 +297,27 @@ export class LlmExtractorService implements OnModuleInit {
       return await this.callClaudeVisionGastos(fileBase64, mediaType);
     } catch (e: any) {
       this.logger.warn(`Claude gastos extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  /**
+   * GX.8 (validación por vision) — Lee una FOTO/EVIDENCIA de gasto (ticket, nota,
+   * recibo) y extrae el monto para VALIDARLO contra el importe del gasto Kepler.
+   * `legible=false` cuando la foto está borrosa/cortada o no parece un comprobante
+   * (→ la comprobación queda "en revisión"). Imagen o PDF. null si ilegible/sin key.
+   */
+  async extractExpenseReceipt(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<ExpenseReceiptFields> {
+    const empty: ExpenseReceiptFields = { total: null, subtotal: null, iva: null, fecha: null, comercio: null, rfc: null, folio: null, legible: false };
+    if (!this.apiKey) { this.logger.warn('Receipt OCR sin ANTHROPIC_API_KEY — devuelvo vacío'); return empty; }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionExpenseReceipt(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude expense-receipt extract failed: ${e.message}`);
       return empty;
     }
   }
@@ -912,6 +951,93 @@ export class LlmExtractorService implements OnModuleInit {
       referencia: str(inp.referencia),
       ordenante: str(inp.ordenante),
       metodo: metodo && METODOS.has(metodo) ? metodo : null,
+    };
+  }
+
+  /**
+   * Vision/document para una FOTO/EVIDENCIA de gasto (ticket, nota, recibo). Extrae
+   * el total (lo principal a validar), subtotal, IVA, fecha, comercio, RFC y folio,
+   * y marca `legible=false` si la imagen no es un comprobante legible.
+   */
+  private async callClaudeVisionExpenseReceipt(
+    fileBase64: string,
+    mediaType: string,
+  ): Promise<ExpenseReceiptFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'extract_receipt' },
+        tools: [
+          {
+            name: 'extract_receipt',
+            description:
+              'Extrae los importes de un COMPROBANTE DE GASTO de México: ticket de compra, ' +
+              'nota de venta, recibo, factura simplificada o foto de un pago. Interesa sobre todo ' +
+              'el TOTAL pagado. Usa null para lo que no se distinga. NO inventes cifras.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                total: { type: ['number', 'null'], description: 'Importe TOTAL pagado en pesos (sin símbolo ni comas). El "Total"/"Total a pagar" del comprobante. Es el dato principal.' },
+                subtotal: { type: ['number', 'null'], description: 'Subtotal antes de impuestos, si aparece. null si no.' },
+                iva: { type: ['number', 'null'], description: 'IVA/impuesto, si aparece. null si no.' },
+                fecha: { type: ['string', 'null'], description: 'Fecha del comprobante en ISO YYYY-MM-DD (convierte cualquier formato). null si no se ve.' },
+                comercio: { type: ['string', 'null'], description: 'Nombre del establecimiento o proveedor emisor. null si no se ve.' },
+                rfc: { type: ['string', 'null'], description: 'RFC del emisor, si aparece. null si no.' },
+                folio: { type: ['string', 'null'], description: 'Folio o número de ticket del comprobante, si aparece. null si no.' },
+                legible: { type: 'boolean', description: 'true si es un comprobante legible con al menos un importe visible; false si está borroso, cortado, o no parece un comprobante de gasto.' },
+              },
+              required: ['total', 'subtotal', 'iva', 'fecha', 'comercio', 'rfc', 'folio', 'legible'],
+            },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              fileBlock,
+              { type: 'text', text: 'Esta es la foto/evidencia de un gasto que un colaborador entrega para comprobarlo. Extrae sus importes con la herramienta extract_receipt.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >;
+    };
+
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_receipt',
+    );
+    if (!toolUse) throw new Error('Claude receipt no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
+    const total = num(inp.total);
+    return {
+      total,
+      subtotal: num(inp.subtotal),
+      iva: num(inp.iva),
+      fecha: this.parseTicketDate(inp.fecha),
+      comercio: str(inp.comercio),
+      rfc: str(inp.rfc),
+      folio: str(inp.folio),
+      legible: inp.legible === true && (total != null || num(inp.subtotal) != null),
     };
   }
 

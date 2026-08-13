@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, KeplerGastosOcr } from '../comprobacion-gastos.service';
+import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, ValidatePhotoResult } from '../comprobacion-gastos.service';
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
 
@@ -92,6 +92,7 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
                       }
                     </span>
                     @if (g.folio_comprobacion) { <span class="mono muted cp-folioc">#{{ g.folio_comprobacion }}</span> }
+                    @if (g.comprobacion_status === 'revision' && g.revision_nota) { <span class="cp-motivo" [title]="g.revision_nota"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ g.revision_nota }}</span> }
                   </div>
                 } @else { <span class="muted cp-pend"><i class="pi pi-clock" aria-hidden="true"></i> Pendiente</span> }
               </td>
@@ -114,37 +115,20 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
       }
     </div>
 
-    <!-- Diálogo: nueva comprobación -->
-    <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva comprobación de gasto">
+    <!-- Diálogo: comprobar gasto (datos de Kepler + foto validada por vision) -->
+    <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Comprobar gasto">
       <div class="cp-form">
-        <!-- 1) Subir la comprobación de gastos (documento de Kepler XA1001) — el OCR auto-rellena todo -->
-        <div class="cp-f">
-          <span>Comprobación de gastos (documento de Kepler) *</span>
-          @if (!fileNames()['comprobacion']) {
-            <div class="cp-drop" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDropComprobacion($event)">
-              <i class="pi pi-file-pdf cp-drop-ico" aria-hidden="true"></i>
-              <div class="cp-drop-main">Arrastrá el <strong>documento "Gastos"</strong> (PDF o foto)</div>
-              <div class="cp-drop-or">o</div>
-              <label class="cp-pickbtn"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
-                <input type="file" accept="application/pdf,image/*" (change)="onFile($event, 'comprobacion')" hidden />
-              </label>
-              <div class="cp-drop-hint">Lo leo y auto-relleno folio, proveedor, importe, departamento y fecha.</div>
-            </div>
-          } @else {
-            <div class="cp-file-done">
-              <i class="pi pi-check-circle cp-ok" aria-hidden="true"></i> <span class="cp-file-nm">{{ fileNames()['comprobacion'] }}</span>
-              @if (ocrLoading()) { <span class="cp-proc"><i class="pi pi-spin pi-spinner"></i> leyendo…</span> }
-              <button type="button" class="cp-linkbtn" (click)="clearComprobacion()">cambiar</button>
-            </div>
-          }
-        </div>
+        <!-- 1) Identificar el gasto de Kepler (por folio) — auto-rellena proveedor/importe/sucursal -->
+        <label class="cp-f"><span>Buscar gasto de Kepler (folio · proveedor · importe)</span>
+          <p-autocomplete [(ngModel)]="gastoSel" [suggestions]="gastoSug()" (completeMethod)="searchGasto($event)"
+            (onSelect)="onGastoSelect($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
+            placeholder="Ej. 6569, nombre del proveedor…" appendTo="body" styleClass="w-full" /></label>
 
-        <div class="cp-files-head">Datos del gasto <em class="cp-hint">revisá y completá lo que falte</em></div>
         <div class="cp-row">
           <label class="cp-f"><span>Nombre del solicitante *</span>
             <input pInputText [(ngModel)]="form.solicitante" /></label>
-          <label class="cp-f"><span>Folio del gasto (4 díg.) *</span>
-            <input pInputText [(ngModel)]="form.folio_gasto" maxlength="12" placeholder="0000" /></label>
+          <label class="cp-f"><span>Folio del gasto (Kepler) *</span>
+            <input pInputText [(ngModel)]="form.folio_gasto" maxlength="12" placeholder="0000" (blur)="onFolioBlur()" /></label>
         </div>
         <label class="cp-f"><span>Departamento *</span>
           <p-select [options]="departamentos()" [(ngModel)]="form.departamento_code" optionLabel="nombre" optionValue="code" [filter]="true" placeholder="Selecciona departamento" appendTo="body" styleClass="w-full" (onChange)="onDeptoChange()" /></label>
@@ -158,33 +142,42 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
         <div class="cp-row">
           <label class="cp-f"><span>Folio de la comprobación (últimos 4)</span>
             <input pInputText [(ngModel)]="form.folio_comprobacion" maxlength="12" placeholder="0000" /></label>
-          <label class="cp-f"><span>Importe</span>
-            <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+          <label class="cp-f"><span>Importe del gasto (Kepler) *</span>
+            <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" (onInput)="onImporteChange()" /></label>
         </div>
 
-        @if (readGasto(); as o) {
-          <details class="cp-read" open>
-            <summary>Más datos leídos del documento Kepler</summary>
-            <div class="cp-read-grid">
-              @if (o.sucursal) { <div><em>Sucursal</em> {{ o.sucursal }}</div> }
-              @if (o.moneda) { <div><em>Moneda</em> {{ o.moneda }}</div> }
-              @if (o.fecha_pago) { <div><em>Fecha de pago</em> {{ o.fecha_pago }}</div> }
-              @if (o.autoriza) { <div><em>Autoriza</em> {{ o.autoriza }}</div> }
-              @if (o.cuenta) { <div><em>Cuenta</em> {{ o.cuenta }}</div> }
-              @if (o.concepto) { <div><em>Concepto</em> {{ o.concepto }}</div> }
-              @if (o.proyecto) { <div><em>Proyecto</em> {{ o.proyecto }}</div> }
-              @if (o.poliza) { <div><em>Póliza</em> {{ o.poliza }}</div> }
-              @if (o.a_nombre_de) { <div class="cp-read-wide"><em>A nombre de</em> {{ o.a_nombre_de }}</div> }
-              @if (o.descripcion) { <div class="cp-read-wide"><em>Descripción</em> {{ o.descripcion }}</div> }
-              @if (o.subtotal != null) { <div><em>Subtotal</em> {{ money(o.subtotal) }}</div> }
-              @if (o.iva != null) { <div><em>IVA</em> {{ money(o.iva) }}</div> }
-              @if (o.ieps != null && o.ieps > 0) { <div><em>IEPS</em> {{ money(o.ieps) }}</div> }
-              @if (o.anticipos != null && o.anticipos > 0) { <div><em>Anticipos</em> {{ money(o.anticipos) }}</div> }
-            </div>
-          </details>
+        <!-- 2) Foto/evidencia del gasto → Claude Vision valida el monto contra Kepler -->
+        <div class="cp-files-head">Foto del gasto * <em class="cp-hint">Claude Vision valida el monto contra Kepler</em></div>
+        @if (!fileNames()['comprobacion']) {
+          <div class="cp-drop" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDropPhoto($event)">
+            <i class="pi pi-camera cp-drop-ico" aria-hidden="true"></i>
+            <div class="cp-drop-main">Arrastrá la <strong>foto/evidencia del gasto</strong> (ticket, recibo o PDF)</div>
+            <div class="cp-drop-or">o</div>
+            <label class="cp-pickbtn"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
+              <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'comprobacion')" hidden />
+            </label>
+            <div class="cp-drop-hint">La leo y comparo su monto con el gasto de Kepler. Si no cuadra, queda en revisión.</div>
+          </div>
+        } @else {
+          <div class="cp-file-done">
+            <i class="pi pi-check-circle cp-ok" aria-hidden="true"></i> <span class="cp-file-nm">{{ fileNames()['comprobacion'] }}</span>
+            @if (photoLoading()) { <span class="cp-proc"><i class="pi pi-spin pi-spinner"></i> leyendo…</span> }
+            <button type="button" class="cp-linkbtn" (click)="clearPhoto()">cambiar</button>
+          </div>
+          @if (photoResult(); as pr) {
+            @if (pr.ocr_status === 'ok' && pr.monto_match) {
+              <div class="cp-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra: foto <strong>{{ money(pr.monto_ocr) }}</strong> ≈ gasto {{ money(form.importe) }}. Quedará <strong>validada</strong>.</div>
+            } @else if (pr.ocr_status === 'ok') {
+              <div class="cp-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No cuadra: foto <strong>{{ money(pr.total ?? pr.monto_ocr) }}</strong> vs gasto {{ money(form.importe) }}. Quedará <strong>en revisión</strong>.</div>
+            } @else if (pr.ocr_status === 'sin_key') {
+              <div class="cp-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Lectura automática no disponible — quedará <strong>en revisión</strong>.</div>
+            } @else {
+              <div class="cp-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará <strong>en revisión</strong>.</div>
+            }
+          }
         }
 
-        <div class="cp-files-head">Foto(s) del gasto <em class="cp-hint">evidencia — opcional</em></div>
+        <div class="cp-files-head">Fotos adicionales <em class="cp-hint">opcional</em></div>
         @for (slot of evidenciaSlots; track slot.role) {
           <label class="cp-f cp-file">
             <span>{{ slot.label }}</span>
@@ -260,6 +253,11 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-ok { color: var(--ok-fg); }
     .cp-linkbtn { margin-left: auto; border: none; background: transparent; color: var(--action); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
     .cp-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
+    /* Resultado de la validación por vision de la foto */
+    .cp-val { display: flex; align-items: flex-start; gap: .5rem; font-size: .82rem; padding: .55rem .7rem; border-radius: var(--r-md, .5rem); border: 1px solid var(--border-color); margin-top: .1rem; }
+    .cp-val i { margin-top: .1rem; }
+    .cp-val.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+    .cp-val.warn { color: var(--warn-fg, var(--bad-fg)); background: color-mix(in srgb, var(--warn-fg, var(--bad-fg)) 8%, transparent); border-color: color-mix(in srgb, var(--warn-fg, var(--bad-fg)) 30%, transparent); }
     /* datos extra leídos (read-only) */
     .cp-read { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .5rem .75rem; background: var(--surface-sunken, var(--card-bg)); }
     .cp-read > summary { font-size: .8rem; font-weight: 600; color: var(--text-main); cursor: pointer; }
@@ -284,16 +282,16 @@ export class FinanzasComprobacionGastosComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
-  // OCR del documento "Gastos" de Kepler → auto-rellena el form.
-  readonly ocrLoading = signal(false);
-  readonly readGasto = signal<KeplerGastosOcr | null>(null); // datos completos leídos (panel read-only)
+  // Claude Vision lee la FOTO del gasto y valida el monto contra el importe Kepler.
+  readonly photoLoading = signal(false);
+  readonly photoResult = signal<ValidatePhotoResult | null>(null);
 
   readonly fileSlots: FileSlot[] = [
-    { role: 'comprobacion', label: 'Comprobación de gasto', required: true, accept: 'application/pdf,image/*' },
-    { role: 'evidencia_1', label: 'Foto 1', required: false, accept: 'image/*,.pdf' },
-    { role: 'evidencia_2', label: 'Foto 2', required: false, accept: 'image/*,.pdf' },
+    { role: 'comprobacion', label: 'Foto del gasto', required: true, accept: 'image/*,application/pdf' },
+    { role: 'evidencia_1', label: 'Foto adicional 1', required: false, accept: 'image/*,.pdf' },
+    { role: 'evidencia_2', label: 'Foto adicional 2', required: false, accept: 'image/*,.pdf' },
   ];
-  // Las fotos de evidencia (todo menos la comprobación, que sube arriba con OCR).
+  // Las fotos adicionales (todo menos la foto principal, que valida vision arriba).
   readonly evidenciaSlots = this.fileSlots.filter((s) => s.role !== 'comprobacion');
 
   readonly report = signal<GastosReport | null>(null);
@@ -307,7 +305,7 @@ export class FinanzasComprobacionGastosComponent {
   readonly sucursalDerivada = signal<string>('');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
 
-  readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
+  readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
   search = '';
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -344,6 +342,7 @@ export class FinanzasComprobacionGastosComponent {
       { label: 'Gastos', value: r.kpis.gastos },
       { label: 'Comprobados', value: r.kpis.comprobados, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
+      { label: 'En revisión', value: r.kpis.en_revision || 0, tone: 'warn' },
       { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
   }
@@ -372,6 +371,7 @@ export class FinanzasComprobacionGastosComponent {
     this.form.proveedor = g.proveedor || this.form.proveedor || '';
     if (g.importe) this.form.importe = g.importe;
     if (g.sucursal && !this.form.sucursal) this.form.sucursal = g.sucursal;
+    this.revalidatePhoto();
   }
 
   openNew() {
@@ -379,7 +379,7 @@ export class FinanzasComprobacionGastosComponent {
     this.fechaComprobacion = new Date();
     this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.gastoSel = null;
     this.sucursalDerivada.set('');
-    this.readGasto.set(null);
+    this.photoResult.set(null);
     this.formError.set('');
     this.showForm.set(true);
   }
@@ -405,20 +405,42 @@ export class FinanzasComprobacionGastosComponent {
     if (file) this.handleFile(file, role);
   }
 
-  // Arrastrar la comprobación (doc Kepler) → OCR auto-rellena.
+  // Arrastrar la foto/evidencia del gasto → Claude Vision valida el monto.
   readonly dragging = signal(false);
   onDragOver(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); if (!this.dragging()) this.dragging.set(true); }
   onDragLeave(ev: DragEvent) { ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false); }
-  onDropComprobacion(ev: DragEvent) {
+  onDropPhoto(ev: DragEvent) {
     ev.preventDefault(); ev.stopPropagation(); this.dragging.set(false);
     const file = ev.dataTransfer?.files?.[0];
     if (file) this.handleFile(file, 'comprobacion');
   }
-  clearComprobacion() {
+  clearPhoto() {
     delete this.fileData['comprobacion']; delete this.uploaded['comprobacion'];
     this.fileNames.update((m) => { const n = { ...m }; delete n['comprobacion']; return n; });
-    this.readGasto.set(null);
+    this.photoResult.set(null);
   }
+
+  /** Al elegir un gasto de Kepler por folio (blur del input), jala proveedor/importe/sucursal. */
+  onFolioBlur() {
+    const folio = (this.form.folio_gasto || '').trim();
+    if (!folio) return;
+    this.svc.searchGastos(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => {
+        const g = (rows || []).find((r) => r.folio_gasto === folio) || (rows || [])[0];
+        if (!g) return;
+        this.form.folio_gasto = g.folio_gasto;
+        if (g.proveedor) this.form.proveedor = g.proveedor;
+        if (g.importe) this.form.importe = g.importe;
+        if (g.sucursal && !this.form.sucursal) this.form.sucursal = g.sucursal;
+        this.revalidatePhoto();
+        this.cdr.markForCheck();
+      },
+      error: () => { /* no-op */ },
+    });
+  }
+
+  /** Si el importe cambia y ya hay foto leída, recalcula el cuadre (preview). */
+  onImporteChange() { this.revalidatePhoto(); }
 
   private handleFile(file: File, role: string) {
     if (file.size > 10 * 1024 * 1024) { this.formError.set(`"${file.name}" supera 10 MB.`); return; }
@@ -429,67 +451,33 @@ export class FinanzasComprobacionGastosComponent {
       this.fileData[role] = dataUri;
       delete this.uploaded[role];
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
-      // OCR-primero: al subir el documento "Gastos" de Kepler, auto-rellena el form.
-      if (role === 'comprobacion') this.runGastoOcr(dataUri);
+      // La foto principal del gasto → Claude Vision valida el monto contra Kepler.
+      if (role === 'comprobacion') this.runPhotoValidation(dataUri);
       this.cdr.markForCheck();
     };
     reader.readAsDataURL(file);
   }
 
-  /** Lee el documento "Gastos" de Kepler (XA1001) y auto-rellena la captura. */
-  private runGastoOcr(dataUri: string) {
-    this.ocrLoading.set(true);
-    this.svc.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (o) => {
-        this.ocrLoading.set(false);
-        if (o.ocr_status === 'sin_key') { this.toast.add({ severity: 'info', summary: 'OCR no disponible', detail: 'Captura los datos a mano.' }); return; }
-        if (o.ocr_status === 'ilegible') { this.toast.add({ severity: 'warn', summary: 'No se pudo leer', detail: 'Captura los datos a mano.' }); return; }
-        this.applyGastoOcr(o);
-        this.readGasto.set(o);
+  /** Lee la foto/evidencia del gasto con Claude Vision y la valida contra el importe Kepler. */
+  private runPhotoValidation(dataUri: string) {
+    this.photoLoading.set(true);
+    this.photoResult.set(null);
+    this.svc.validatePhoto(dataUri, Number(this.form.importe) || 0).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.photoLoading.set(false);
+        this.photoResult.set(r);
+        if (r.ocr_status === 'ok' && r.monto_match) this.toast.add({ severity: 'success', summary: 'Monto cuadra', detail: `Foto ${this.money(r.monto_ocr)} ≈ gasto ${this.money(this.form.importe)}` });
+        else if (r.ocr_status === 'ok') this.toast.add({ severity: 'warn', summary: 'Monto no cuadra', detail: 'Quedará en revisión.' });
         this.cdr.markForCheck();
       },
-      error: () => { this.ocrLoading.set(false); },
+      error: () => { this.photoLoading.set(false); },
     });
   }
 
-  private applyGastoOcr(o: KeplerGastosOcr) {
-    const f = this.form;
-    if (o.folio) f.folio_gasto = o.folio;
-    if (o.solicitante) f.solicitante = o.solicitante;
-    if (o.proveedor) f.proveedor = o.proveedor; else if (o.proveedor_code) f.proveedor = o.proveedor_code;
-    if (o.importe != null) f.importe = o.importe;
-    if (!f.comentarios && (o.comentarios || o.descripcion)) f.comentarios = o.comentarios || o.descripcion || '';
-    if (o.fecha) { const d = this.parseIso(o.fecha); if (d) this.fechaComprobacion = d; }
-    // Departamento: casa el código con el catálogo (tolerante a espacios).
-    if (o.departamento) {
-      const norm = (s: string) => s.replace(/\s/g, '');
-      const dep = this.departamentos().find((x) => x.code === o.departamento || norm(x.code) === norm(o.departamento!));
-      if (dep) { f.departamento_code = dep.code; this.sucursalDerivada.set(dep.sucursal || ''); }
-    }
-    // Auto-match el gasto Kepler por folio (completa proveedor/importe/sucursal si faltan).
-    if (o.folio) this.autoMatchGasto(o.folio);
-    this.toast.add({ severity: 'success', summary: 'Datos leídos del gasto Kepler', detail: `${o.folio || ''} · ${o.proveedor || o.proveedor_code || ''}`.trim() });
-  }
-
-  private parseIso(s: string): Date | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
-    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
-  }
-
-  /** Confirma el gasto en el espejo Kepler por folio y completa lo que falte. */
-  private autoMatchGasto(folio: string) {
-    this.svc.searchGastos(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => {
-        const g = (rows || []).find((r) => r.folio_gasto === folio) || (rows || [])[0];
-        if (!g) return;
-        this.form.folio_gasto = g.folio_gasto;
-        if (g.proveedor && !this.form.proveedor) this.form.proveedor = g.proveedor;
-        if (g.importe && !this.form.importe) this.form.importe = g.importe;
-        if (g.sucursal && !this.form.sucursal) this.form.sucursal = g.sucursal;
-        this.cdr.markForCheck();
-      },
-      error: () => { /* el OCR ya rellenó lo básico */ },
-    });
+  /** Reejecuta la validación de la foto ya cargada (cambió el importe/gasto). */
+  private revalidatePhoto() {
+    const dataUri = this.fileData['comprobacion'];
+    if (dataUri && !this.photoLoading()) this.runPhotoValidation(dataUri);
   }
 
   private fmtDate(d?: Date | null): string | undefined {
@@ -504,9 +492,11 @@ export class FinanzasComprobacionGastosComponent {
     if (!f.solicitante?.trim() || !f.departamento_code || !f.folio_gasto?.trim() || !f.proveedor?.trim()) {
       this.formError.set('Completa los campos obligatorios (*).'); return;
     }
+    if (!(Number(f.importe) > 0)) { this.formError.set('Falta el importe del gasto (Kepler) para validar la foto.'); return; }
     for (const slot of this.fileSlots) {
-      if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) { this.formError.set(`Falta: ${slot.label}.`); return; }
+      if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) { this.formError.set(`Falta: ${this.fileLabel(slot.role)}.`); return; }
     }
+    if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
     this.saving.set(true);
 
@@ -537,7 +527,16 @@ export class FinanzasComprobacionGastosComponent {
 
   private createComprobacion(present: string[]) {
     const files = present.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
-    this.svc.create({ ...this.form, fecha_comprobacion: this.fmtDate(this.fechaComprobacion), files })
+    const pr = this.photoResult();
+    this.svc.create({
+      ...this.form,
+      fecha_comprobacion: this.fmtDate(this.fechaComprobacion),
+      files,
+      // Validación por vision de la foto (el backend decide validada vs revisión):
+      monto_ocr: pr?.total ?? null,
+      subtotal_ocr: pr?.subtotal ?? null,
+      receipt_legible: pr ? (pr.ocr_status === 'ok' && pr.legible) : false,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => { this.saving.set(false); this.uploaded = {}; this.showForm.set(false); this.toast.add({ severity: 'success', summary: 'Comprobación enviada', detail: `Gasto ${this.form.folio_gasto}` }); this.load(); },
@@ -565,7 +564,7 @@ export class FinanzasComprobacionGastosComponent {
   }
 
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
-  statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s || ''] || (s || '—'); }
-  statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
+  statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s || ''] || (s || '—'); }
+  statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }

@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
  * de departamentos del módulo de reembolsos (mismo endpoint).
  */
 
-export type ComprobacionStatus = 'recibida' | 'validada' | 'rechazada';
+export type ComprobacionStatus = 'recibida' | 'validada' | 'rechazada' | 'revision';
 export type ComprobacionFileRole = 'comprobacion' | 'evidencia_1' | 'evidencia_2';
 export interface ProofFile { role: ComprobacionFileRole | string; url: string; public_id?: string; kind?: string; name?: string; }
 export interface Departamento { code: string; nombre: string; sucursal: string; }
@@ -48,8 +48,20 @@ export interface Comprobacion {
 }
 
 export interface ComprobacionesReport {
-  kpis: { total: number; recibidas: number; validadas: number; rechazadas: number };
+  kpis: { total: number; recibidas: number; validadas: number; rechazadas: number; en_revision: number };
   rows: Comprobacion[];
+}
+
+/** Resultado de validar la foto del gasto con Claude Vision contra el importe Kepler. */
+export interface ValidatePhotoResult {
+  total: number | null; subtotal: number | null; iva: number | null;
+  fecha: string | null; comercio: string | null; rfc: string | null; folio: string | null;
+  legible: boolean;
+  ocr_status: 'ok' | 'ilegible' | 'sin_key';
+  importe_esperado: number;
+  monto_ocr: number | null;
+  monto_match: boolean;
+  diff: number | null;
 }
 
 /** Un gasto de Kepler (XA1001) con el estado de su comprobación (vista por gasto). */
@@ -65,11 +77,12 @@ export interface GastoRow {
   comprobacion_id: string | null;
   comprobacion_status: ComprobacionStatus | null;
   folio_comprobacion: string | null;
+  revision_nota: string | null;
   files: ProofFile[];
 }
 
 export interface GastosReport {
-  kpis: { gastos: number; comprobados: number; validados: number; monto_pendiente: number };
+  kpis: { gastos: number; comprobados: number; validados: number; en_revision: number; monto_pendiente: number };
   rows: GastoRow[];
 }
 
@@ -85,6 +98,10 @@ export interface CreateComprobacion {
   importe?: number;
   comentarios?: string;
   files?: ProofFile[];
+  // Validación por vision de la foto del gasto:
+  monto_ocr?: number | null;
+  subtotal_ocr?: number | null;
+  receipt_legible?: boolean;
 }
 
 /** OCR del documento "Gastos" de Kepler (XA1001) → auto-rellena la captura. */
@@ -127,6 +144,10 @@ export class ComprobacionGastosService {
   /** OCR del documento "Gastos" de Kepler (XA1001) → campos para auto-rellenar. */
   ocr(file_base64: string): Observable<KeplerGastosOcr> {
     return this.http.post<KeplerGastosOcr>(`${this.base}/ocr`, { file_base64 });
+  }
+  /** Valida la foto/evidencia del gasto con Claude Vision contra el importe Kepler. */
+  validatePhoto(file_base64: string, importe: number): Observable<ValidatePhotoResult> {
+    return this.http.post<ValidatePhotoResult>(`${this.base}/validate-photo`, { file_base64, importe });
   }
   create(body: CreateComprobacion): Observable<{ id: string; folio_gasto: string; folio_solicitud: string | null; status: string }> {
     return this.http.post<{ id: string; folio_gasto: string; folio_solicitud: string | null; status: string }>(this.base, body);
