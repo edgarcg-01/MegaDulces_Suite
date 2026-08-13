@@ -28,6 +28,12 @@ interface ArqRow { mov_id: string; source_caja: string; folio: string | null; ti
 interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: number }[] }
 interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; delta_caja_wb: number; delta_caja_kep: number; delta_wb_kep: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean }
 interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; wb_disponible: boolean; kep_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
+interface CDet {
+  totals: { matched_n: number; matched: number; caja_only_n: number; caja_only: number; bank_only_n: number; bank_only: number };
+  matched: { banco: string; almacen: string; fecha: string; monto: number }[];
+  caja_only: { banco: string; almacen: string; fecha: string; monto: number }[];
+  bank_only: { label: string; fecha: string; monto: number; concept: string }[];
+}
 interface Facets { meses: string[]; bancos: string[]; empresas: string[]; cajas: string[] }
 interface XwRow { banco_code: string; banco_name: string; canon_bank: string; deposits: number; monto: number; current_label: string | null; confirmed_by: string | null; suggested_label: string | null; suggested_matches: number; suggested_reason: 'kepler' | 'unica_cuenta' | null; alternatives: { label: string; n: number }[]; cb_options: string[] }
 const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: 'Morralla', cheques: 'Cheques', tarjeta: 'Tarjeta', caja_chica: 'Caja chica', sobregiro: 'Sobregiro' };
@@ -201,6 +207,24 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </ng-template>
           </p-table>
           <p class="cg-note">3 vías por banco: <b>Caja</b> (lo que Finanzas registró depositar) · <b>Workbook</b> (ingresos del estado de cuenta, cargado del Excel/Sheet en Bancos) · <b>Kepler</b> (entradas de tesorería del ERP). Los tres universos <b>no son idénticos</b> —banco y Kepler reciben también transferencias de clientes, cobranza, etc.— así que los <b>deltas son informativos</b>, no un descuadre estricto. Cuadre por totales ±{{ money(d.cuadre_eps) }}. "s/wb" = ese banco no tiene estado de cuenta cargado. @if (!d.totals.wb_disponible) { <b>Sin workbook cargado en el periodo.</b> } @if (!d.totals.kep_disponible) { <b>Sin feed Kepler en el periodo.</b> }</p>
+          @if (cdet(); as cd) {
+            <h3 class="cg-h3">Ingresos a nivel movimiento — depósito de Caja ↔ ingreso del banco</h3>
+            <app-metric-strip [items]="cdetKpis(cd)" ariaLabel="Conciliación de ingresos por movimiento" />
+            @if (cd.caja_only.length) {
+              <p class="cg-note" style="margin:.4rem 0 .3rem"><b>Depósitos de Caja sin ingreso en el banco</b> (posible fuga o rezago) — lo accionable:</p>
+              <p-table [value]="cd.caja_only" styleClass="p-datatable-sm surf-table" [rowHover]="true" [scrollable]="true" scrollHeight="18rem" [paginator]="cd.caja_only.length>100" [rows]="100">
+                <ng-template #header><tr><th class="cg-w-date">Fecha</th><th>Banco</th><th class="cg-w-suc">Suc</th><th class="ta-r">Monto</th></tr></ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
+                    <td>{{ r.banco || '—' }}</td>
+                    <td class="cg-mono muted">{{ r.almacen || '—' }}</td>
+                    <td class="ta-r num strong warn">{{ money(r.monto) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            } @else { <p class="cg-note" style="margin-top:.4rem">✓ Todos los depósitos de Caja del periodo aparecen en el banco.</p> }
+          }
         }
       }
 
@@ -272,6 +296,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-cancel { opacity:.5; text-decoration:line-through; }
     .cg-w-d { width:3.5rem; } .cg-w-p { width:4rem; } .cg-w-u { width:5rem; } .cg-w-date { width:6rem; } .cg-w-suc { width:3.4rem; }
     .cg-w-met { width:7rem; } .cg-w-com { width:6rem; } .cg-w-fol { width:6rem; } .cg-w-e { width:6rem; } .cg-w-sel { width:10rem; }
+    .cg-h3 { font-size:.9rem; font-weight:700; margin:1.2rem 0 .5rem; }
     .cg-alt { font-family:var(--font-mono); font-size:.68rem; color:var(--text-faint); margin-left:.4rem; }
     .cg-ok { color:var(--ok-fg); margin-left:.4rem; }
     :host ::ng-deep .cg-tag { font-size:.64rem; }
@@ -312,6 +337,7 @@ export class FinanzasCajaComponent implements OnInit {
   readonly dep = signal<DepResp | null>(null);
   readonly arq = signal<ArqResp | null>(null);
   readonly conc = signal<Conc | null>(null);
+  readonly cdet = signal<CDet | null>(null);
   readonly xw = signal<XwRow[] | null>(null);
   readonly pick = signal<Record<string, string>>({});
   private searchTimer: any;
@@ -351,6 +377,7 @@ export class FinanzasCajaComponent implements OnInit {
       this.http.get<ArqResp>(`${this.base}/arqueos${this.qs({ tipo: this.tipo(), almacen: this.caja() })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.arq.set(d); done(); }, error: fail });
     } else if (v === 'conciliacion') {
       this.http.get<Conc>(`${this.base}/conciliacion${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.conc.set(d); done(); }, error: fail });
+      this.http.get<CDet>(`${this.base}/conciliacion-detalle${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.cdet.set(d), error: () => this.cdet.set(null) });
     } else {
       this.http.get<XwRow[]>(`${this.base}/crosswalk`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.xw.set(d); const p: Record<string, string> = {}; d.forEach((r) => { p[r.banco_code] = r.current_label || r.suggested_label || ''; }); this.pick.set(p); done(); }, error: fail });
@@ -386,6 +413,13 @@ export class FinanzasCajaComponent implements OnInit {
       { label: 'Workbook (banco)', value: d.totals.wb, format: 'currency-short', tone: d.totals.wb_disponible ? 'default' : ('muted' as any), sub: d.totals.wb_disponible ? undefined : 'sin cargar' },
       { label: 'Kepler', value: d.totals.kep, format: 'currency-short', tone: d.totals.kep_disponible ? 'default' : ('muted' as any), sub: d.totals.kep_disponible ? undefined : 'sin feed' },
       { label: 'Δ caja–workbook', value: d.totals.caja - d.totals.wb, format: 'currency-short', tone: 'default' },
+    ];
+  }
+  cdetKpis(d: CDet): MetricStripItem[] {
+    return [
+      { label: 'Casados', value: d.totals.matched, format: 'currency-short', tone: 'ok', sub: `${d.totals.matched_n} depósitos` },
+      { label: 'Caja sin banco', value: d.totals.caja_only, format: 'currency-short', tone: d.totals.caja_only > 0 ? 'warn' : 'ok', sub: `${d.totals.caja_only_n} · fuga/rezago` },
+      { label: 'Banco sin Caja', value: d.totals.bank_only, format: 'currency-short', tone: 'default', sub: `${d.totals.bank_only_n} · cobranza/directo` },
     ];
   }
   tLabel(t: string): string { return TENDER_LABEL[t] || t; }

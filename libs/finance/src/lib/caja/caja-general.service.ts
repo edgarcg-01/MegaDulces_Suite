@@ -247,6 +247,77 @@ export class CajaGeneralService {
     });
   }
 
+  /**
+   * CG.8 — Conciliación de INGRESOS a nivel movimiento: depósito de Caja ↔ ingreso del
+   * banco (workbook/CB), casados por monto (±$1) + fecha (±3d) dentro del mismo banco.
+   * Resuelve el "memo de ingresos" de Bancos y detecta fuga:
+   *   · matched     = depósito de Caja que SÍ aparece en el banco.
+   *   · caja_only   = depósito registrado en Caja SIN ingreso en banco (fuga/rezago).
+   *   · bank_only   = ingreso del banco SIN depósito de Caja (cobranza/transferencia directa).
+   * Usa el crosswalk confirmado (account_label) cuando existe; si no, cae a banco canónico.
+   */
+  async conciliacionDetalle(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const inst = this.inst(q);
+    const filterBank = q.banco ? this.canonBank(q.banco) : null;
+    return this.tk.run(async (trx) => {
+      // crosswalk confirmado: banco_code → account_label
+      const xw = await trx('finance.caja_bank_crosswalk').where({ tenant_id: tenantId, source_instance: inst }).whereNotNull('account_label').select('banco_code', 'account_label');
+      const codeToLabel = new Map(xw.map((r: any) => [String(r.banco_code), String(r.account_label)]));
+      // CB account_label → banco canónico
+      const ba = await trx('finance.bank_accounts').where('tenant_id', tenantId).select('bank', 'account_label');
+      const labelBank = new Map(ba.map((r: any) => [String(r.account_label), this.canonBank(r.bank)]));
+
+      const cajaRows = await trx('analytics.caja_depositos')
+        .where({ tenant_id: tenantId, source_instance: inst }).whereBetween('deposito_date', [from, to]).where('eliminado', false).where('total_deposito_real', '>', 0)
+        .select('deposito_id', 'banco_code', 'banco_name', 'almacen', 'deposito_date', 'total_deposito_real');
+      let bankRows: any[] = [];
+      try {
+        bankRows = await trx('finance.bank_movements as bm')
+          .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+          .where('bm.tenant_id', tenantId).where('bm.amount_in', '>', 0).whereBetween('bm.movement_date', [from, to])
+          .whereNull('bm.deleted_at')
+          .select('bm.id', 'ba.bank', 'ba.account_label', 'bm.movement_date', 'bm.amount_in', 'bm.concept');
+      } catch { bankRows = []; }
+
+      // indexa ingresos de banco por (canonBank, monto redondeado)
+      const bank = bankRows.map((b) => ({ id: b.id, canon: this.canonBank(b.bank), label: String(b.account_label), date: b.movement_date, amt: Number(b.amount_in), concept: b.concept, used: false }));
+      const byKey = new Map<string, any[]>();
+      for (const b of bank) { const k = `${b.canon}|${Math.round(b.amt)}`; (byKey.get(k) || byKey.set(k, []).get(k))!.push(b); }
+
+      const dayDiff = (a: any, b: any) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 864e5);
+      const matched: any[] = []; const cajaOnly: any[] = [];
+      for (const c of cajaRows) {
+        const canon = labelBank.get(codeToLabel.get(String(c.banco_code)) || '') || this.canonBank(c.banco_name);
+        if (filterBank && canon !== filterBank) continue;
+        const amt = Number(c.total_deposito_real);
+        const cands = (byKey.get(`${canon}|${Math.round(amt)}`) || []).filter((b) => !b.used && dayDiff(b.date, c.deposito_date) <= 3).sort((x, y) => dayDiff(x.date, c.deposito_date) - dayDiff(y.date, c.deposito_date));
+        if (cands.length) {
+          cands[0].used = true;
+          matched.push({ canon, caja_id: c.deposito_id, banco: c.banco_name, almacen: c.almacen, fecha: c.deposito_date, monto: amt, bank_id: cands[0].id, bank_fecha: cands[0].date });
+        } else {
+          cajaOnly.push({ canon, caja_id: c.deposito_id, banco: c.banco_name, almacen: c.almacen, fecha: c.deposito_date, monto: amt });
+        }
+      }
+      const bankOnly = bank.filter((b) => !b.used && (!filterBank || b.canon === filterBank)).map((b) => ({ canon: b.canon, bank_id: b.id, label: b.label, fecha: b.date, monto: b.amt, concept: b.concept }));
+
+      const sum = (arr: any[]) => arr.reduce((s, r) => s + (r.monto || 0), 0);
+      return {
+        period: { from, to, instance: inst, banco: filterBank },
+        totals: {
+          matched_n: matched.length, matched: sum(matched),
+          caja_only_n: cajaOnly.length, caja_only: sum(cajaOnly),
+          bank_only_n: bankOnly.length, bank_only: sum(bankOnly),
+        },
+        matched: matched.sort((a, b) => b.monto - a.monto).slice(0, 500),
+        caja_only: cajaOnly.sort((a, b) => b.monto - a.monto).slice(0, 500),
+        bank_only: bankOnly.sort((a, b) => b.monto - a.monto).slice(0, 500),
+        match_eps: MATCH_EPS,
+      };
+    });
+  }
+
   /** Nombre de banco → clave canónica común a Caja / CB / Kepler. */
   private canonBank(s: string): string {
     const u = String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');

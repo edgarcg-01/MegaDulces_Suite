@@ -56,6 +56,13 @@ export class CajaGeneralController {
     return this.svc.conciliacion(this.q(month, from, to, instance));
   }
 
+  @Get('conciliacion-detalle')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Conciliación de ingresos a nivel movimiento: depósito Caja ↔ ingreso banco (matched / caja sin banco = fuga / banco sin caja = cobranza). Filtro banco opcional.' })
+  conciliacionDetalle(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string, @Query('banco') banco?: string) {
+    return this.svc.conciliacionDetalle(this.q(month, from, to, instance, banco));
+  }
+
   @Get('facets')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Facetas para filtros: meses, bancos, empresas, cajas.' })
