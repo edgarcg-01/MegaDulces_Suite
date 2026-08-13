@@ -278,42 +278,47 @@ export class CajaGeneralService {
       const bankLabels: Record<string, string[]> = {};
       for (const r of ba) { const cb = this.canonBank(r.bank); labelBank[String(r.account_label)] = cb; (bankLabels[cb] = bankLabels[cb] || []).push(String(r.account_label)); }
 
-      // cuentas de Caja (banco_cuenta que aparecen en depósitos) + volumen + label ya confirmado
+      // cuentas de Caja = banco_code (=BancoDepositado, 1:1 con banco_name; NO banco_cuenta,
+      // que es un campo reusado/inconsistente) + volumen + label ya confirmado
       const accounts = await trx('analytics.caja_depositos as d')
         .leftJoin('finance.caja_bank_crosswalk as x', function () {
-          this.on('x.tenant_id', 'd.tenant_id').andOn('x.source_instance', trx.raw('?', [inst])).andOn('x.banco_code', 'd.banco_cuenta');
+          this.on('x.tenant_id', 'd.tenant_id').andOn('x.source_instance', trx.raw('?', [inst])).andOn('x.banco_code', 'd.banco_code');
         })
-        .where({ 'd.tenant_id': tenantId, 'd.source_instance': inst }).whereNotNull('d.banco_cuenta')
-        .groupBy('d.banco_cuenta', 'x.account_label', 'x.confirmed_by', 'x.confirmed_at')
-        .select('d.banco_cuenta as code', trx.raw('max(d.banco_name) as banco_name'),
+        .where({ 'd.tenant_id': tenantId, 'd.source_instance': inst }).whereNotNull('d.banco_code')
+        .groupBy('d.banco_code', 'x.account_label', 'x.confirmed_by', 'x.confirmed_at')
+        .select('d.banco_code as code', trx.raw('max(d.banco_name) as banco_name'),
           'x.account_label as current_label', 'x.confirmed_by', 'x.confirmed_at',
           trx.raw('count(*)::int as deposits'), trx.raw('coalesce(sum(d.total_deposito_real),0)::numeric as monto'));
 
       // match Kepler por monto+fecha (candidatos por cuenta)
       const m = await trx.raw(
-        `with cj as (select banco_cuenta, deposito_date, round(total_deposito_real)::bigint amt
+        `with cj as (select banco_code, deposito_date, round(total_deposito_real)::bigint amt
                        from analytics.caja_depositos
-                      where tenant_id=? and source_instance=? and eliminado=false and total_deposito_real>100 and banco_cuenta is not null),
+                      where tenant_id=? and source_instance=? and eliminado=false and total_deposito_real>100 and banco_code is not null),
               kp as (select account_label, fecha_valor, round(importe)::bigint amt
                        from analytics.kepler_bank_movements
                       where tenant_id=? and signo>0 and es_traspaso=false)
-         select cj.banco_cuenta as code, kp.account_label as label, count(*)::int as n
+         select cj.banco_code as code, kp.account_label as label, count(*)::int as n
            from cj join kp on cj.amt=kp.amt and kp.fecha_valor between cj.deposito_date-7 and cj.deposito_date+7
-          group by cj.banco_cuenta, kp.account_label`, [tenantId, inst, tenantId]);
+          group by cj.banco_code, kp.account_label`, [tenantId, inst, tenantId]);
       const mrows = (m.rows || m) as any[];
       const byCode: Record<string, { label: string; n: number }[]> = {};
       for (const r of mrows) { (byCode[String(r.code)] = byCode[String(r.code)] || []).push({ label: String(r.label), n: Number(r.n) }); }
 
       return accounts.map((a: any) => {
         const cb = this.canonBank(a.banco_name);
+        const opts = bankLabels[cb] || [];
         const cands = (byCode[String(a.code)] || []).filter((x) => labelBank[x.label] === cb).sort((x, y) => y.n - x.n);
         const sug = cands[0] || null;
+        // Sugerencia: (1) match Kepler; (2) si el banco tiene UNA sola cuenta CB → determinista.
+        const suggested_label = sug?.label || (opts.length === 1 ? opts[0] : null);
+        const suggested_reason = sug ? 'kepler' : (opts.length === 1 ? 'unica_cuenta' : null);
         return {
           banco_code: a.code, banco_name: a.banco_name, canon_bank: cb,
           deposits: Number(a.deposits), monto: Number(a.monto),
           current_label: a.current_label || null, confirmed_by: a.confirmed_by || null, confirmed_at: a.confirmed_at || null,
-          suggested_label: sug?.label || null, suggested_matches: sug?.n || 0,
-          alternatives: cands.slice(1, 4), cb_options: bankLabels[cb] || [],
+          suggested_label, suggested_matches: sug?.n || 0, suggested_reason,
+          alternatives: cands.slice(1, 4), cb_options: opts,
         };
       }).sort((x: any, y: any) => y.monto - x.monto);
     });

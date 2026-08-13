@@ -29,7 +29,7 @@ interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: n
 interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; delta_caja_wb: number; delta_caja_kep: number; delta_wb_kep: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean }
 interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; wb_disponible: boolean; kep_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
 interface Facets { meses: string[]; bancos: string[]; empresas: string[]; cajas: string[] }
-interface XwRow { banco_code: string; banco_name: string; canon_bank: string; deposits: number; monto: number; current_label: string | null; confirmed_by: string | null; suggested_label: string | null; suggested_matches: number; alternatives: { label: string; n: number }[]; cb_options: string[] }
+interface XwRow { banco_code: string; banco_name: string; canon_bank: string; deposits: number; monto: number; current_label: string | null; confirmed_by: string | null; suggested_label: string | null; suggested_matches: number; suggested_reason: 'kepler' | 'unica_cuenta' | null; alternatives: { label: string; n: number }[]; cb_options: string[] }
 const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: 'Morralla', cheques: 'Cheques', tarjeta: 'Tarjeta', caja_chica: 'Caja chica', sobregiro: 'Sobregiro' };
 
 /**
@@ -220,7 +220,11 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <td>
                   @if (r.suggested_label) {
                     <span class="cg-mono">{{ r.suggested_label }}</span>
-                    <p-tag [value]="r.suggested_matches + ' match'" [severity]="r.suggested_matches>=5?'success':'warn'" styleClass="cg-tag" />
+                    @if (r.suggested_reason === 'unica_cuenta') {
+                      <p-tag value="única cuenta" severity="info" styleClass="cg-tag" />
+                    } @else {
+                      <p-tag [value]="r.suggested_matches + ' match'" [severity]="r.suggested_matches>=5?'success':'warn'" styleClass="cg-tag" />
+                    }
                     @for (a of r.alternatives; track a.label) { <span class="cg-alt">{{ a.label }}·{{ a.n }}</span> }
                   } @else { <span class="muted">sin sugerencia</span> }
                 </td>
