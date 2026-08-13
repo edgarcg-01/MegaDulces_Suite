@@ -64,7 +64,7 @@ import { cuadra, money0 } from './bancos-shared';
               <tr>
                 <th scope="col"></th>
                 <th scope="col" class="ta-r"><i class="pi pi-building"></i> Workbook</th>
-                <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler 102</th>
+                <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler (tesorería)</th>
                 <th scope="col" class="ta-r"><i class="pi pi-book"></i> ContPAQi</th>
                 <th scope="col" class="ta-r" title="Workbook − Kepler">Δ W–K</th>
                 <th scope="col" class="ta-r" title="Workbook − ContPAQi">Δ W–C</th>
@@ -92,7 +92,7 @@ import { cuadra, money0 } from './bancos-shared';
           </table>
         </div>
         <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i>
-          <b>Workbook</b> = tu estado de cuenta (lo que movió el banco). <b>Kepler 102</b> = pólizas de banco del ERP ({{ d.kepler_movs }} movs). <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas).
+          <b>Workbook</b> = tu estado de cuenta (lo que movió el banco). <b>Kepler (tesorería)</b> = movimientos de banco del ERP por cuenta (kdm1, {{ d.kepler_movs }} movs) — <b>misma fuente que la pestaña Conciliación</b>. <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas).
         </p>
       </div>
 

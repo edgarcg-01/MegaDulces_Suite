@@ -22,11 +22,11 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
     @if (reconciliation(); as rc) {
       <!-- CB.15.1 — Answer-first: ¿cuánto dice el Excel vs cuánto dice Kepler? -->
       <div class="card-premium card-flat fb-kve">
-        <h3 class="fb-card-title">Kepler vs Excel <span class="muted">— ¿coincide lo que movió el banco con lo que registró Kepler en el 102?</span><app-context-help topic="bancos_caja" /></h3>
+        <h3 class="fb-card-title">Kepler vs Excel <span class="muted">— ¿coincide lo que movió el banco con lo que registró Kepler en tesorería? (misma fuente que el Cuadre)</span><app-context-help topic="bancos_caja" /></h3>
         <div class="fb-kve-wrap">
           <table class="fb-kve">
             <thead>
-              <tr><th scope="col"></th><th scope="col" class="ta-r">Excel (banco)</th><th scope="col" class="ta-r">Kepler (102)</th><th scope="col" class="ta-r">Diferencia</th><th scope="col" class="ta-c">Estado</th></tr>
+              <tr><th scope="col"></th><th scope="col" class="ta-r">Excel (banco)</th><th scope="col" class="ta-r">Kepler ({{ rc.cash.kepler_source === 'contable' ? '102 contable' : 'tesorería' }})</th><th scope="col" class="ta-r">Diferencia</th><th scope="col" class="ta-c">Estado</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -116,7 +116,7 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
             </p-table>
           </div>
           <div class="card-premium card-flat fb-tablewrap">
-            <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar
+            <h3 class="fb-card-title fb-pnl-title">Pagos de Kepler sin conciliar
               <span class="muted">— {{ df.kepler_total.count | number }} · {{ df.kepler_total.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               <app-context-help topic="bancos_kepler_sin_casar" /></h3>
             <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"

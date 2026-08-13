@@ -1836,10 +1836,24 @@ export class FinanceBankService {
         if (EXCLUDE.has(r.group_key)) continue;
         bankIn += n(r.deposits); bankOut += n(r.withdrawals);
       }
-      const k102 = bookBy['102'] || { cargos: 0, abonos: 0 };
+      // Kepler = TESORERÍA (kepler_bank_movements, por banco) — MISMA fuente y query que el
+      // Cuadre (threeWay), para que ambas vistas den el mismo número de Kepler. La balanza 102
+      // contable (ledger_monthly) queda de fallback si no hay feed de tesorería en el periodo.
+      const [ky, km] = period.split('-').map(Number);
+      const kIni = `${period}-01`;
+      const kFin = km >= 12 ? `${ky + 1}-01-01` : `${ky}-${String(km + 1).padStart(2, '0')}-01`;
+      const tesRow: any = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', kIni).andWhere('fecha_valor', '<', kFin)
+        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS cargos`),
+          trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS abonos`)).first();
+      const tesHas = n(tesRow?.cargos) > 0 || n(tesRow?.abonos) > 0;
+      const k102 = tesHas ? { cargos: n(tesRow.cargos), abonos: n(tesRow.abonos) } : (bookBy['102'] || { cargos: 0, abonos: 0 });
+      const keplerSource = tesHas ? 'tesoreria' : 'contable';
       const cash = {
         bank_in: bankIn, kepler_102_cargos: k102.cargos, delta_in: bankIn - k102.cargos,
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
+        kepler_source: keplerSource,
       };
       const r2 = (v: number) => Math.round(v * 100) / 100;
       const caja = { ingresos: r2(cajaIn), egresos: r2(cajaOut), total: r2(cajaIn + cajaOut) };
