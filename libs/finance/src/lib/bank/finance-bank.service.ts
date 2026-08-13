@@ -992,6 +992,9 @@ export class FinanceBankService {
   async differences(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const [ty, tm] = period.split('-').map(Number);
+    const tIni = `${period}-01`;
+    const tFin = tm >= 12 ? `${ty + 1}-01-01` : `${ty}-${String(tm + 1).padStart(2, '0')}-01`;
     return this.tk.run(async (trx) => {
       // Retiros del banco sin casar (TODOS, con su categoría) — rankeados por monto.
       const bank = await trx('finance.bank_movements as bm')
@@ -1002,15 +1005,35 @@ export class FinanceBankService {
           'mc.name as category_name', 'mc.group_key', 'mc.kepler_account')
         .orderBy('bm.amount_out', 'desc');
 
-      // Pagos del 102 en Kepler sin casar (TODOS, no referenciados por ningún match).
-      const kepler = await trx('analytics.bank_postings as p')
-        .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period, 'p.cargo_abono': 'A' })
-        .whereNotExists(function () {
-          this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
-            .whereRaw('m.kepler_doc_tipo = p.doc_tipo AND m.kepler_doc_folio = p.folio');
-        })
-        .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.importe', 'p.contraparte')
-        .orderBy('p.importe', 'desc');
+      // Pagos de Kepler sin casar. CB.36 — DEBE leer de la MISMA fuente que casó el matcher.
+      // Cuando hay feed de tesorería (kdm1), el matcher (runMatchTreasury) referencia sus docs
+      // con doc_tipo "X-D-26"; bank_postings (102) los tiene como "XD2601" → el join por
+      // (doc_tipo,folio) NUNCA empataba y TODA la lista salía como "sin conciliar" aunque el
+      // banco ya estuviera casado (bug reportado: De La Rosa "no concilia por centavos" — en
+      // realidad el match sí existía, pero la lista miraba la fuente equivocada). Sin tesorería,
+      // fallback al 102 contable (matching legacy).
+      const hasTes = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label')
+        .andWhere('fecha_valor', '>=', tIni).andWhere('fecha_valor', '<', tFin).first('doc_tipo');
+      const kepler = hasTes
+        ? await trx('analytics.kepler_bank_movements as k')
+            .where('k.tenant_id', tenantId).where('k.signo', '<', 0).whereNotNull('k.account_label')
+            .andWhere('k.fecha_valor', '>=', tIni).andWhere('k.fecha_valor', '<', tFin)
+            .whereNotExists(function () {
+              this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
+                .whereRaw('m.kepler_doc_tipo = k.doc_tipo AND m.kepler_doc_folio = k.folio');
+            })
+            .select('k.doc_tipo', 'k.folio', trx.raw('k.fecha_valor AS fecha'), 'k.importe',
+              trx.raw('COALESCE(k.beneficiario, k.concepto) AS contraparte'))
+            .orderBy('k.importe', 'desc')
+        : await trx('analytics.bank_postings as p')
+            .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period, 'p.cargo_abono': 'A' })
+            .whereNotExists(function () {
+              this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
+                .whereRaw('m.kepler_doc_tipo = p.doc_tipo AND m.kepler_doc_folio = p.folio');
+            })
+            .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.importe', 'p.contraparte')
+            .orderBy('p.importe', 'desc');
 
       const bankRows = bank.map((r: any) => ({ ...r, amount_out: n(r.amount_out) }));
       const keplerRows = kepler.map((r: any) => ({ ...r, importe: n(r.importe) }));
