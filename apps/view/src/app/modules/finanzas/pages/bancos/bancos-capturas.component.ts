@@ -7,6 +7,7 @@ import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { BankCaptureService, BankCapture, CaptureKpis } from '../../bank-capture.service';
 import { money0, dmy } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CBW.4 (ADR-042) — Bandeja de capturas bancarias por WhatsApp.
@@ -97,8 +98,7 @@ import { money0, dmy } from './bancos-shared';
       </div>
     }
   `,
-  styles: [`
-    :host { display: block; }
+  styles: [BANCOS_STYLES, `
     .bc-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-2); }
     .bc-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 7rem; padding: var(--sp-2) var(--sp-3);
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; text-align: left;
@@ -106,20 +106,17 @@ import { money0, dmy } from './bancos-shared';
     .bc-kpi:hover { border-color: var(--action); }
     .bc-kpi.active { border-color: var(--action); background: color-mix(in srgb, var(--action) 6%, transparent); }
     .bc-kpi-money { cursor: default; }
-    .bc-kpi-n { font-size: var(--fs-lg, 1.125rem); font-weight: 700; color: var(--text-main); }
+    .bc-kpi-n { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
     .bc-kpi-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .bc-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); }
     .bc-note-warn { color: var(--warn-fg); margin-left: var(--sp-2); }
     .bc-note-warn i { font-size: 0.7rem; margin-right: 2px; }
     .bc-upload { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .bc-up-file { display: inline-flex; align-items: center; gap: 6px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; font-size: var(--fs-sm); color: var(--text-main); background: var(--surface, var(--card-bg)); }
+    .bc-up-file { display: inline-flex; align-items: center; gap: 6px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; font-size: var(--fs-sm); color: var(--text-main); background: var(--card-bg); }
     .bc-up-file:hover { border-color: var(--action); } .bc-up-file.has { border-color: var(--ok-fg); color: var(--ok-fg); }
-    .bc-up-suc { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface, var(--card-bg)); color: var(--text-main); font-size: var(--fs-sm); min-width: 10rem; }
+    .bc-up-suc { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-sm); min-width: 10rem; }
     .bc-up-hint { font-size: var(--fs-xs); flex-basis: 100%; }
-    .bc-tablewrap { padding: 0; overflow: hidden; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .muted { color: var(--text-muted); } .ta-r { text-align: right; }
-    .ok { color: var(--ok-fg); } .bc-strong { font-weight: 600; color: var(--text-main); }
+    .bc-tablewrap { padding: 0; overflow: hidden; } .bc-strong { font-weight: 600; color: var(--text-main); }
     .bc-bank { font-size: var(--fs-sm); } .bc-acct { font-size: var(--fs-xs); }
     .bc-cust { font-size: var(--fs-xs); font-family: var(--font-mono); margin-top: 1px; }
     .bc-ref { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -127,7 +124,7 @@ import { money0, dmy } from './bancos-shared';
     .bc-err > td { background: color-mix(in srgb, var(--warn-fg) 6%, transparent); }
     .bc-err-msg { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: var(--fs-xs); color: var(--warn-fg); }
     .bc-err-msg i { font-size: 0.75rem; }
-    .bc-badge { display: inline-block; font-size: var(--fs-2xs, 0.7rem); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-pill); }
+    .bc-badge { display: inline-block; font-size: var(--fs-micro); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-pill); }
     .st-pendiente_confirmacion { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .st-confirmado { color: var(--action); background: color-mix(in srgb, var(--action) 12%, transparent); }
     .st-validado { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
@@ -138,8 +135,6 @@ import { money0, dmy } from './bancos-shared';
     .bc-skel-row { height: 40px; border-radius: var(--r-sm); background: var(--hover-bg); animation: bc-pulse 1.4s ease-in-out infinite; }
     @keyframes bc-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
     @media (prefers-reduced-motion: reduce) { .bc-skel-row { animation: none; } }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
   `],
 })
 export class BancosCapturasComponent implements OnInit {

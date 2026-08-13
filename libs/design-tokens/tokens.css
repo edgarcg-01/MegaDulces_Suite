@@ -38,6 +38,10 @@
   --fs-h1:      1.875rem; /* 30px — page hero title (storefront) */
   --fs-h2:      1.25rem;  /* 20px — page standard title */
   --fs-h3:      1rem;     /* 16px — panel title */
+  /* 18px — KPI/valor destacado dentro de un panel y page-head de apartado. Agregado
+     2026-08-13: faltaba el escalón entre 16 y 20, y las pantallas se lo inventaban
+     (`var(--fs-lg, 1.125rem)` con fallback hardcodeado en /finanzas/bancos). */
+  --fs-lg:      1.125rem; /* 18px */
   --fs-body:    0.875rem; /* 14px — body default */
   --fs-sm:      0.8125rem;/* 13px — cell body / table cell (base Operations) */
   --fs-xs:      0.75rem;  /* 12px — small text / metadatos */

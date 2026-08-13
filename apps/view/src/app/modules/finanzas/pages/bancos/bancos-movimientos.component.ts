@@ -8,10 +8,11 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
-import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
+import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { BankService, BankMovement, MovementFlow } from '../../bank.service';
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista MOVIMIENTOS (tabla filtrable read-only). El shell posee los filtros
@@ -21,7 +22,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
 @Component({
   selector: 'bancos-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule, ButtonModule],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, ButtonModule, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-filters">
@@ -103,13 +104,14 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
     </div>
 
     <!-- Detalle del movimiento (clic en fila): a qué se atribuye + estado + flujo. -->
-    <p-dialog [visible]="!!detail()" (visibleChange)="closeDetail()" [modal]="true" [dismissableMask]="true"
-              [header]="detail()?.title || 'Movimiento'" [style]="{ width: '36rem' }">
+    <!-- DESIGN O.1: los documentos financieros extensos NO se leen en modal — la cadena
+         orden→recepción→factura→pago se lee al lado, sin perder la lista de movimientos. -->
+    <app-side-peek [open]="!!detail()" (openChange)="$event || closeDetail()"
+                   [title]="detail()?.title || 'Movimiento'" [subtitle]="detail()?.note || ''">
       @if (detail(); as d) {
         <dl class="fb-dl">
           @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
         </dl>
-        <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ d.note }}</p>
 
         <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
         <div class="fb-flow-sec">
@@ -177,20 +179,10 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
           }
         </div>
       }
-    </p-dialog>
+    </app-side-peek>
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; } .ta-c { text-align: center; }
-    .muted { color: var(--text-muted); }
-    .col-w6 { width: 6rem; } .col-w7 { width: 7rem; } .col-w8 { width: 8rem; } .col-w11 { width: 11rem; } .col-w25 { width: 2.5rem; }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-    .fb-search { min-width: 16rem; flex: 1; }
+  styles: [BANCOS_STYLES, `
     .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
-    .fb-count { margin-left: auto; font-size: var(--fs-xs); }
-    .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
     .fb-cat-chip.fb-cat-none { color: var(--warn-fg); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
@@ -203,19 +195,13 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
     .fb-legend-item:hover { background: var(--hover-bg); }
     .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
     .fb-legend-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .fb-legend-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--g, var(--text-faint)); flex: none; }
     .fb-rec-ok { color: var(--ok-fg); font-size: 0.85rem; }
     .fb-rec-no { color: var(--text-faint); font-size: 0.7rem; }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
-    .fb-row-click { cursor: pointer; }
-    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .fb-dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
     .fb-dl-row { display: grid; grid-template-columns: 9rem 1fr; gap: var(--sp-2); align-items: baseline; }
     .fb-dl-row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
     .fb-dl-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
     .fb-dl-note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; display: flex; align-items: baseline; gap: var(--sp-1); }
-    .ok { color: var(--ok-fg); } .warn { color: var(--warn-fg); }
     /* CB.15.2 — flujo "de dónde viene" */
     .fb-flow-sec { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .fb-flow-loading { font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }

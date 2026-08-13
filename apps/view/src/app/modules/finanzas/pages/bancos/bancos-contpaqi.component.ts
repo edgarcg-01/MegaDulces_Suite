@@ -8,6 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
 import { cuadra, money0, dmShort } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CP.2 (Fase CP, ADR-040) — Vista "vs ContPAQi". Compara el estado de cuenta (Excel/finance)
@@ -47,7 +48,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
                 <th scope="row"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos <span class="muted">(entra)</span></th>
                 <td class="ta-r mono">{{ c.totals.excel_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="ta-r mono">{{ c.totals.contpaqi_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_in)" [class.ok]="cuad(c.totals.delta_in)">Δ {{ c.totals.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_in)" [class.ok]="cuad(c.totals.delta_in)">Δ {{ c.totals.delta_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (cuad(c.totals.delta_in)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
                   @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por cuenta"></i> }
@@ -57,7 +58,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
                 <th scope="row"><i class="pi pi-arrow-up-right fb-out-ico"></i> Retiros <span class="muted">(sale)</span></th>
                 <td class="ta-r mono">{{ c.totals.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="ta-r mono">{{ c.totals.contpaqi_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_out)" [class.ok]="cuad(c.totals.delta_out)">Δ {{ c.totals.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_out)" [class.ok]="cuad(c.totals.delta_out)">Δ {{ c.totals.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (cuad(c.totals.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
                   @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por cuenta"></i> }
@@ -102,10 +103,10 @@ import { cuadra, money0, dmShort } from './bancos-shared';
               <td class="mono muted" [title]="r.contpaqi_cuenta_nombre || ''">{{ r.contpaqi_cuenta || '—' }}</td>
               <td class="ta-r mono">{{ r.excel_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-r mono">{{ r.contpaqi_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.delta_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-r mono">{{ r.contpaqi_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-c">
                 @if (!r.linked) {
                   <p-select [options]="availOpts()" [ngModel]="null" (onChange)="onPick(r, $event.value)"
@@ -248,22 +249,11 @@ import { cuadra, money0, dmShort } from './bancos-shared';
       }
     </p-dialog>
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; } .ta-c { text-align: center; }
-    .muted { color: var(--text-muted); }
-    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); }
-    .fb-strong { font-weight: 600; color: var(--text-main); }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
-    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
-    .fb-plain { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
-    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
+  styles: [BANCOS_STYLES, `
     .fb-kve { margin-bottom: var(--sp-3); }
     .fb-kve-wrap { overflow-x: auto; }
     .cpq-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
-    .cpq-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-3); padding: var(--sp-3); background: var(--surface-sunken, color-mix(in srgb, var(--text-faint) 6%, transparent)); border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); }
+    .cpq-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-3); padding: var(--sp-3); background: var(--surface-ground)); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .cpq-legend > div { display: flex; flex-direction: column; gap: 2px; }
     .cpq-legend dt { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); }
     .cpq-legend dt i { margin-right: 4px; }
@@ -273,15 +263,11 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     table.fb-kve thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; white-space: nowrap; }
     table.fb-kve tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); white-space: nowrap; }
     table.fb-kve tbody tr:last-child td, table.fb-kve tbody tr:last-child th { border-bottom: none; }
-    .fb-in-ico { color: var(--ok-fg); font-size: .8rem; margin-right: 4px; }
-    .fb-out-ico { color: var(--text-faint); font-size: .8rem; margin-right: 4px; }
-    .cpq-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
+    .cpq-tag { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
     .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
     .ok-tag { background: color-mix(in srgb, var(--ok-fg) 16%, transparent); color: var(--ok-fg); }
     .bad-tag { background: color-mix(in srgb, var(--bad-fg) 16%, transparent); color: var(--bad-fg); font-variant-numeric: tabular-nums; }
     .btn-where :is(.p-button-label) { font-size: var(--fs-xs); }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
     /* Drill dialog */
     .dlg-lead { font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; margin: 0 0 var(--sp-4); }
     .dlg-side { margin-bottom: var(--sp-5); }
@@ -291,11 +277,11 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     .dlg-clean { font-size: var(--fs-sm); margin: var(--sp-2) 0; }
     .dlg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
     @media (max-width: 720px) { .dlg-cols { grid-template-columns: 1fr; } }
-    .dlg-col { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); overflow: hidden; }
+    .dlg-col { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     .dlg-col-head { font-size: var(--fs-xs); font-weight: 700; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); }
-    .dlg-col-head.bank { background: color-mix(in srgb, var(--action, #d97706) 10%, transparent); color: var(--text-main); }
+    .dlg-col-head.bank { background: color-mix(in srgb, var(--action) 10%, transparent); color: var(--text-main); }
     .dlg-col-head.book { background: color-mix(in srgb, var(--text-faint) 10%, transparent); color: var(--text-main); }
-    .dlg-col-hint { font-size: var(--fs-2xs, .7rem); margin: var(--sp-2) var(--sp-3) 0; line-height: 1.35; }
+    .dlg-col-hint { font-size: var(--fs-micro); margin: var(--sp-2) var(--sp-3) 0; line-height: 1.35; }
     .dlg-mini { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); margin-top: var(--sp-2); }
     .dlg-mini td { padding: 3px var(--sp-3); border-top: 1px solid var(--border-color); vertical-align: top; }
     .dlg-concept { color: var(--text-muted); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -303,7 +289,7 @@ import { cuadra, money0, dmShort } from './bancos-shared';
     .nowrap { white-space: nowrap; }
     /* Factoraje */
     .fjt-lead { padding: 0 var(--sp-3); margin: 0 0 var(--sp-3); }
-    .fjt-mini { font-size: var(--fs-2xs, .7rem); color: var(--text-faint); }
+    .fjt-mini { font-size: var(--fs-micro); color: var(--text-faint); }
     .fjt-foot { padding: 0 var(--sp-3) var(--sp-3); }
   `],
 })

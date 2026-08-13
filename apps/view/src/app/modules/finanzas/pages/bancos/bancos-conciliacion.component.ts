@@ -7,6 +7,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista CONCILIACIÓN (matching por-transacción + caja vs 102 + diferencias).
@@ -33,14 +34,14 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
                 <th scope="row"><i class="pi pi-arrow-down-left fb-in-ico"></i> Ingresos <span class="muted">(entra)</span></th>
                 <td class="ta-r mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="ta-r mono">{{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono muted">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono muted">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c"><span class="fb-kve-tag memo" title="Los depósitos NO son espejo del 102: mezclan efectivo de CAJA GENERAL y cobranza de otras sucursales. Se cuadra por total, no 1 a 1. Δ informativo, no un gap.">memo</span></td>
               </tr>
               <tr>
                 <th scope="row"><i class="pi pi-arrow-up-right fb-out-ico"></i> Egresos <span class="muted">(sale)</span></th>
                 <td class="ta-r mono">{{ rc.cash.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="ta-r mono">{{ rc.cash.kepler_102_abonos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (cuadra(rc.cash.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
                   @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle abajo"></i> }
@@ -147,31 +148,20 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
       }
     </p-dialog>
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
-    .muted { color: var(--text-muted); }
-    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); } .warn { color: var(--warn-fg); }
-    .fb-tablewrap { padding: 0; overflow: hidden; }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
-    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
-    .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fb-plain { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
+  styles: [BANCOS_STYLES, `
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
     .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
     .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
-    .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
+    .fb-match-rate { font-size: var(--fs-lg); font-weight: 700; }
     .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
     .fb-recon-cash { margin-bottom: var(--sp-3); }
     .fb-recon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-3); }
     .fb-recon-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .fb-recon-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .fb-recon-v { font-size: var(--fs-lg, 1.125rem); font-weight: 600; }
+    .fb-recon-v { font-size: var(--fs-lg); font-weight: 600; }
     .fb-recon-vs { font-size: var(--fs-xs); }
     .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
-    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
     /* CB.15.1 — tabla Kepler vs Excel (answer-first, densa, quiet-luxury). */
     .fb-kve { margin-bottom: var(--sp-3); }
     .fb-kve-wrap { overflow-x: auto; }
@@ -180,24 +170,17 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
     table.fb-kve thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; white-space: nowrap; }
     table.fb-kve tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); white-space: nowrap; }
     table.fb-kve tbody tr:last-child td, table.fb-kve tbody tr:last-child th { border-bottom: none; }
-    .fb-in-ico { color: var(--ok-fg); font-size: .8rem; margin-right: 4px; }
-    .fb-out-ico { color: var(--text-faint); font-size: .8rem; margin-right: 4px; }
     .fb-fac-ico { color: var(--text-faint); font-size: .8rem; margin-right: 4px; }
     .fb-kve-memo-row td, .fb-kve-memo-row th { border-top: 1px dashed var(--border-color); }
     .fb-fac-note { margin-top: var(--sp-2); }
-    .fb-kve-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill);
+    .fb-kve-tag { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill);
       background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .col-w5 { width: 5rem; } .col-w6 { width: 6rem; }
     .fb-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
-    .fb-row-click { cursor: pointer; }
-    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .fb-dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
     .fb-dl-row { display: grid; grid-template-columns: 8rem 1fr; gap: var(--sp-2); align-items: baseline; }
     .fb-dl-row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
     .fb-dl-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
     .fb-dl-note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; display: flex; align-items: baseline; gap: var(--sp-1); }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
   `],
 })
 export class BancosConciliacionComponent {

@@ -7,6 +7,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { Diagnostico, Concentrado, Balances } from '../../bank.service';
 import { cuadra } from './bancos-shared';
+import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista CIERRE (home: veredicto + resumen del dinero + "qué falta").
@@ -79,13 +80,9 @@ import { cuadra } from './bancos-shared';
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}. Sube un estado de cuenta para empezar.</p></div>
     }
   `,
-  styles: [`
-    :host { display: block; }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .muted { color: var(--text-muted); }
+  styles: [BANCOS_STYLES, `
     .fb-toggle { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 var(--sp-3); }
     .fb-toggle .muted { font-size: var(--fs-xs); }
-    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
     .fb-cierre-h3 { margin: var(--sp-4) 0 var(--sp-2); }
     .fb-diag-note { font-size: var(--fs-xs); margin: 0 0 var(--sp-3); }
     .fb-diag-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); margin-bottom: var(--sp-3);
@@ -95,7 +92,7 @@ import { cuadra } from './bancos-shared';
     .fb-diag-head i { font-size: 1.5rem; }
     .fb-diag-head.ok i { color: var(--ok-fg); }
     .fb-diag-head.bad i { color: var(--warn-fg); }
-    .fb-diag-head h2 { font-size: var(--fs-md, 1rem); font-weight: 700; margin: 0; color: var(--text-main); }
+    .fb-diag-head h2 { font-size: var(--fs-h3); font-weight: 700; margin: 0; color: var(--text-main); }
     .fb-diag-head p { font-size: var(--fs-sm); color: var(--text-muted); margin: 2px 0 0; }
     .fb-diag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
     .fb-diag-item { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
@@ -118,8 +115,6 @@ import { cuadra } from './bancos-shared';
     .fb-diag-ev-meta { color: var(--text-muted); }
     .fb-diag-ev-folio { color: var(--text-muted); font-family: var(--font-mono); }
     .fb-diag-ev-monto { font-weight: 600; color: var(--text-main); min-width: 6rem; text-align: right; }
-    .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
-    .surf-empty i { font-size: 1.5rem; }
   `],
 })
 export class BancosCierreComponent {
