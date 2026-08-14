@@ -18,6 +18,10 @@ const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+// Ventana rodante (días). El feed corre intradía (@1h) → basta leer lo reciente en vez de
+// TODA la historia cada corrida (era la causa del cuelgue: full-scan + upsert fila-por-fila
+// sobre WAN > 10min → timeout 124). KARDEX_DAYS=0 (o negativo) = sin ventana (backfill full).
+const WINDOW_DAYS = process.env.KARDEX_DAYS != null ? Number(process.env.KARDEX_DAYS) : 30;
 
 const BRANCHES = process.env.SALES_BRANCH_MAP
   ? JSON.parse(process.env.SALES_BRANCH_MAP)
@@ -53,13 +57,17 @@ async function readBranch(b) {
   await c.connect();
   try {
     // Solo género N (inventario) de la sucursal propia (c1 = code, evita réplicas).
+    // Ventana rodante por fecha ($2 días): cuando >0 acota a lo reciente (corrida barata);
+    // <=0 = toda la historia (backfill). El cast c10::date es seguro para filas N (ya se
+    // proyecta abajo). Índice implícito por c1; el filtro de fecha reduce el volumen a escribir.
     const r = await c.query(
       `SELECT c1 AS suc, c19 AS almacen, c3 AS sku, c4 AS gen, c5 AS nat, c6 AS grupo,
               c8 AS folio, c9::numeric AS unidades, c12 AS unidad,
               COALESCE(NULLIF(c13::numeric,0), c21::numeric) AS importe, c10::date AS fecha
        FROM md.kdij
-       WHERE c1 = $1 AND c4 = 'N'`,
-      [b.code],
+       WHERE c1 = $1 AND c4 = 'N'
+         AND ($2::int <= 0 OR c10::date >= CURRENT_DATE - $2::int)`,
+      [b.code, WINDOW_DAYS],
     );
     return r.rows.map((x) => ({
       warehouse_code: b.code,
@@ -76,14 +84,45 @@ async function readBranch(b) {
   }
 }
 
+/**
+ * Colapsa filas que comparten la clave de conflicto (suc, folio, género, nat, grupo, sku)
+ * SUMANDO unidades e importe — son líneas distintas del mismo folio/sku (verificado: p.ej.
+ * merma 1u+4u = 5u). Antes el UPSERT fila-por-fila las pisaba (last-wins → perdía importe);
+ * al hacer batch, dos filas con la misma clave en un mismo INSERT rompen ("cannot affect row
+ * a second time"). Respeta la semántica NULL-distinct de Postgres: si algún componente de la
+ * clave es NULL, la fila NO se fusiona (el índice único trata cada NULL como distinto).
+ */
+function dedupeAggregate(rows) {
+  const map = new Map();
+  rows.forEach((r, idx) => {
+    const parts = [r.warehouse_code, r.folio, r.genero, r.naturaleza, r.grupo, r.sku];
+    const k = parts.some((p) => p == null) ? `__uniq__${idx}` : parts.join('|');
+    const cur = map.get(k);
+    if (cur) {
+      cur.unidades = num(cur.unidades + r.unidades);
+      cur.importe = num(cur.importe + r.importe);
+      if (r.fecha && (!cur.fecha || r.fecha > cur.fecha)) cur.fecha = r.fecha;
+    } else {
+      map.set(k, { ...r });
+    }
+  });
+  return [...map.values()];
+}
+
 async function upsert(db, rows) {
+  // UPSERT en LOTE (antes: fila-por-fila = miles de round-trips WAN → cuelgue). Chunks de
+  // 500 → decenas de inserts multi-fila en vez de miles → segundos.
+  const CHUNK = 500;
+  const MERGE_COLS = ['unidades', 'importe', 'clase_mov', 'almacen', 'unidad', 'fecha', 'updated_at'];
   let n = 0;
-  for (const r of rows) {
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const batch = rows.slice(i, i + CHUNK)
+      .map((r) => ({ tenant_id: TENANT, ...r, source: 'kepler', updated_at: db.fn.now() }));
     await db('analytics.stock_ledger')
-      .insert({ tenant_id: TENANT, ...r, source: 'kepler' })
+      .insert(batch)
       .onConflict(['tenant_id', 'warehouse_code', 'folio', 'genero', 'naturaleza', 'grupo', 'sku'])
-      .merge({ unidades: r.unidades, importe: r.importe, clase_mov: r.clase_mov, almacen: r.almacen, unidad: r.unidad, fecha: r.fecha, updated_at: db.fn.now() });
-    n++;
+      .merge(MERGE_COLS);
+    n += batch.length;
   }
   return n;
 }
@@ -99,18 +138,20 @@ async function upsert(db, rows) {
       console.warn(`[${b.db}] ERROR: ${e.message}`);
     }
   }
+  const deduped = dedupeAggregate(all);
+  if (deduped.length !== all.length) console.log(`(dedup: ${all.length} → ${deduped.length} filas; ${all.length - deduped.length} líneas colapsadas por clave)`);
   const byClase = {};
-  for (const r of all) { byClase[r.clase_mov] = byClase[r.clase_mov] || { n: 0, importe: 0 }; byClase[r.clase_mov].n++; byClase[r.clase_mov].importe += r.importe; }
-  console.log(`\nTOTAL: ${all.length} movimientos`);
+  for (const r of deduped) { byClase[r.clase_mov] = byClase[r.clase_mov] || { n: 0, importe: 0 }; byClase[r.clase_mov].n++; byClase[r.clase_mov].importe += r.importe; }
+  console.log(`\nTOTAL: ${deduped.length} movimientos`);
   Object.entries(byClase).sort((a, b) => b[1].importe - a[1].importe).forEach(([k, v]) => console.log(`  ${k}: ${v.n} movs · $${Math.round(v.importe).toLocaleString()}`));
-  const mermas = all.filter((r) => r.clase_mov === 'merma').sort((a, b) => b.importe - a.importe).slice(0, 8);
+  const mermas = deduped.filter((r) => r.clase_mov === 'merma').sort((a, b) => b.importe - a.importe).slice(0, 8);
   console.log('\nTop mermas (salida por ajuste/destrucción):');
   mermas.forEach((r) => console.log(`  suc${r.warehouse_code} sku${r.sku} ${r.fecha?.toISOString?.().slice(0, 10) || r.fecha} folio${r.folio} $${r.importe} (${r.unidades} ${r.unidad || ''})`));
 
   if (!APPLY) { console.log('\n(dry-run — usar --apply para escribir a analytics.stock_ledger)'); return; }
   if (!process.env.DATABASE_URL_NEW) { console.error('ERROR: --apply requiere DATABASE_URL_NEW'); process.exit(1); }
   const db = knexLib({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: { rejectUnauthorized: false } }, pool: { min: 0, max: 2 } });
-  const n = await upsert(db, all);
+  const n = await upsert(db, deduped);
   console.log(`✅ UPSERT ${n} movimientos a analytics.stock_ledger`);
   await db.destroy();
 })().catch((e) => { console.error(e); process.exit(1); });
