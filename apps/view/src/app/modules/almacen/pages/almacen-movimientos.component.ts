@@ -91,6 +91,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <input pInputText type="text" [(ngModel)]="folioQuery" (keyup.enter)="searchFolio()" placeholder="Buscar folio…" aria-label="Buscar por folio (número de documento)" />
         </span>
         <button pButton type="button" class="p-button-sm" (click)="searchFolio()" [disabled]="folioSearching()" ariaLabel="Buscar folio"><span class="p-button-icon pi" [class.pi-search]="!folioSearching()" [class.pi-spinner]="folioSearching()" [class.pi-spin]="folioSearching()" aria-hidden="true"></span>&nbsp;Folio</button>
+        @if (hasFilters()) {
+          <button pButton type="button" class="p-button-sm p-button-text dm-clear" (click)="clearFilters()" title="Quitar todos los filtros del Diario y volver al rango por defecto"><span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
+        }
       </div>
 
       <!-- DM.14 — resultados del buscador de folios: un folio puede mapear a varios documentos -->
@@ -746,6 +749,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-strip .up { color: var(--ok-fg); font-weight: 600; } .dm-strip .down { color: var(--bad-fg); font-weight: 600; }
     .dm-strip .dm-strong { color: var(--text-main); font-weight: 700; }
     .dm-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+    .dm-clear { margin-left: auto; color: var(--action); }
     .dm-sel { min-width: 12rem; } .dm-sel-sm { min-width: 8rem; } .dm-date { min-width: 9rem; } .dm-search input { min-width: 12rem; }
     .dm-folio-search { display: inline-flex; align-items: center; gap: .3rem; } .dm-folio-search .pi-hashtag { color: var(--text-muted); font-size: .8rem; } .dm-folio-search input { min-width: 9rem; }
     .dm-folio-results { margin: .25rem 0 .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden; }
@@ -1304,6 +1308,7 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.fWarehouses = []; this.fFrom = null; this.fTo = null; this.fKind = ''; this.fDocCode = '';
     this.fSearch = ''; this.fEstado = ''; this.fTransferWhs = [];
     this.fDestKinds = [...AlmacenMovimientosComponent.DEST_DEFAULT];
+    this.clearFolio(); // también cierra el buscador de folio
     this.reload();
   }
 
