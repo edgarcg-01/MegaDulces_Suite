@@ -81,8 +81,8 @@ export class CajaGeneralService {
         .groupBy('cuenta', 'cuenta_nombre').orderByRaw('SUM(ingreso)+SUM(gasto) DESC').limit(40);
 
       let movq = inRange()
-        .select('mov_id', 'tipo_dto', 'tipo', 'fecha', 'hora', 'cuenta', 'cuenta_nombre',
-          'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'saldo')
+        .select('mov_id', 'tipo_dto', 'tipo', 'fecha', 'hora', 'usuario', 'cuenta', 'cuenta_nombre',
+          'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'saldo', 'denom')
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'mov_id', order: 'desc' }]).limit(500);
       if (q.tipo) movq = movq.where('tipo', q.tipo);
       if (q.search) movq = movq.whereRaw(
@@ -98,7 +98,10 @@ export class CajaGeneralService {
         },
         por_mes: (porMes as any[]).map((r) => ({ mes: r.mes, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),
         por_cuenta: (porCuenta as any[]).map((r) => ({ cuenta: r.cuenta, cuenta_nombre: r.cuenta_nombre, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),
-        movimientos: (movs as any[]).map((r) => ({ ...r, ingreso: n(r.ingreso), gasto: n(r.gasto), saldo: n(r.saldo) })),
+        movimientos: (movs as any[]).map((r) => ({
+          uid: `${r.tipo_dto}-${r.mov_id}`, ...r,
+          ingreso: n(r.ingreso), gasto: n(r.gasto), saldo: n(r.saldo),
+        })),
       };
     });
   }

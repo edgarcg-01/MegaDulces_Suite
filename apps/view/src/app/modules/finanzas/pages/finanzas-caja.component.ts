@@ -25,7 +25,7 @@ interface CajaGeneral {
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
   por_mes: { mes: string; ingreso: number; gasto: number; n: number }[];
   por_cuenta: { cuenta: string; cuenta_nombre: string | null; ingreso: number; gasto: number; n: number }[];
-  movimientos: { mov_id: string; tipo_dto: number; tipo: string | null; fecha: string; hora: string | null; cuenta: string; cuenta_nombre: string | null; nombre_cliente: string | null; concepto: string | null; ingreso: number; gasto: number; saldo: number }[];
+  movimientos: { uid: string; mov_id: string; tipo_dto: number; tipo: string | null; fecha: string; hora: string | null; usuario: string | null; cuenta: string; cuenta_nombre: string | null; nombre_cliente: string | null; concepto: string | null; ingreso: number; gasto: number; saldo: number; denom: Record<string, number> | null }[];
 }
 interface Overview {
   period: { from: string; to: string; instance: string };
@@ -106,20 +106,39 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               </p-table>
             </div>
           </div>
-          <p-table [value]="d.movimientos" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.movimientos.length>100" [rows]="100">
-            <ng-template #header><tr><th class="cg-w-date">Fecha</th><th class="cg-w-e">Tipo</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Saldo</th></tr></ng-template>
+          <p-table [value]="d.movimientos" dataKey="uid" [expandedRowKeys]="expanded()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.movimientos.length>100" [rows]="100">
+            <ng-template #header><tr><th class="cg-w-x"></th><th class="cg-w-date">Fecha</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></ng-template>
             <ng-template #body let-r>
-              <tr>
+              <tr class="cg-row-click" (click)="toggleRow(r)" [class.cg-row-open]="isExp(r)">
+                <td><i class="pi cg-chev" [class.pi-chevron-right]="!isExp(r)" [class.pi-chevron-down]="isExp(r)" aria-hidden="true"></i></td>
                 <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
-                <td><p-tag [value]="r.tipo || '?'" [severity]="r.tipo==='Ingreso'?'success':(r.tipo==='Gasto'?'warn':'secondary')" styleClass="cg-tag" /></td>
                 <td class="cg-emp" [title]="r.cuenta_nombre">{{ r.cuenta_nombre || '—' }} <span class="muted">#{{ r.cuenta }}</span></td>
                 <td class="cg-emp" [title]="r.nombre_cliente">{{ r.nombre_cliente || '—' }}@if (r.concepto) { <span class="muted"> · {{ r.concepto }}</span> }</td>
-                <td class="ta-r num" [class.strong]="r.ingreso>0">{{ r.ingreso ? money(r.ingreso) : '—' }}</td>
-                <td class="ta-r num" [class.strong]="r.gasto>0">{{ r.gasto ? money(r.gasto) : '—' }}</td>
-                <td class="ta-r num muted">{{ money(r.saldo) }}</td>
+                <td class="ta-r num cg-eg" [class.strong]="r.gasto>0">{{ r.gasto ? money(r.gasto) : '—' }}</td>
+                <td class="ta-r num cg-in" [class.strong]="r.ingreso>0">{{ r.ingreso ? money(r.ingreso) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+            <ng-template #expandedrow let-r>
+              <tr class="cg-detail-row"><td colspan="6">
+                <div class="cg-detail">
+                  <div class="cg-detail-meta">
+                    <span><b>{{ r.tipo }}</b> · folio {{ r.mov_id }}</span>
+                    <span>{{ r.fecha | date:'dd/MM/yyyy' }} {{ r.hora || '' }}</span>
+                    @if (r.usuario) { <span>capturó: <b>{{ r.usuario }}</b></span> }
+                    <span>cuenta: <b>{{ r.cuenta_nombre }}</b> <span class="muted">#{{ r.cuenta }}</span></span>
+                    <span class="cg-detail-amt" [class.cg-in]="r.ingreso>0" [class.cg-eg]="r.gasto>0">{{ r.ingreso>0 ? '+'+money(r.ingreso) : '−'+money(r.gasto) }}</span>
+                  </div>
+                  @if (denomList(r.denom).length) {
+                    <div class="cg-denom">
+                      <span class="cg-denom-t">Denominación:</span>
+                      @for (dn of denomList(r.denom); track dn.k) { <span class="cg-denom-c"><b>{{ dn.n }}</b>×{{ dn.label }}</span> }
+                    </div>
+                  } @else { <div class="cg-denom muted">Sin desglose de denominación.</div> }
+                  @if (r.concepto) { <div class="cg-detail-obs">{{ r.concepto }}</div> }
+                </div>
+              </td></tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="6"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
           <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ d.totals.saldo_fecha | date:'dd/MM/yy' }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
         }
@@ -381,6 +400,20 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-verdict { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; margin:.4rem 0 .2rem; border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:.85rem; }
     .cg-verdict.ok { border-left-color:var(--ok-fg); } .cg-verdict.ok .pi { color:var(--ok-fg); }
     .cg-verdict.warn { border-left-color:var(--warn-fg); } .cg-verdict.warn .pi { color:var(--warn-fg); }
+    .cg-w-x { width:2.2rem; }
+    .cg-row-click { cursor:pointer; } .cg-row-click:hover { background:var(--hover-bg); }
+    .cg-row-open { background:color-mix(in srgb, var(--action) 5%, transparent); }
+    .cg-chev { font-size:.7rem; color:var(--text-faint); }
+    .cg-eg { color:var(--warn-fg); } .cg-in { color:var(--ok-fg); }
+    .cg-detail-row > td { background:var(--surface-ground, var(--card-bg)); padding:.6rem .9rem !important; }
+    .cg-detail { display:flex; flex-direction:column; gap:.4rem; font-size:.78rem; }
+    .cg-detail-meta { display:flex; flex-wrap:wrap; gap:.9rem; align-items:baseline; color:var(--text-muted); }
+    .cg-detail-meta b { color:var(--text-main); }
+    .cg-detail-amt { margin-left:auto; font-family:var(--font-mono); font-weight:700; font-size:.95rem; }
+    .cg-denom { display:flex; flex-wrap:wrap; gap:.5rem; align-items:baseline; }
+    .cg-denom-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); }
+    .cg-denom-c { font-family:var(--font-mono); font-size:.76rem; padding:1px .4rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
+    .cg-detail-obs { font-style:italic; color:var(--text-muted); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -422,6 +455,8 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cgTipo = signal<string | null>(null);
   readonly cg = signal<CajaGeneral | null>(null);
   readonly cq = signal<CajaCuadre | null>(null);
+  readonly expanded = signal<Record<string, boolean>>({});
+  readonly DENOM_LABEL: Record<string, string> = { B1000: '$1000', B500: '$500', B200: '$200', B100: '$100', B50: '$50', B20: '$20', M20: '$20m', M10: '$10', M5: '$5', M2: '$2', M1: '$1', M05: '50¢', M02: '20¢', M01: '10¢', Mor: 'morralla' };
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
   readonly month = signal<string | null>(null);
   readonly banco = signal<string | null>(null);
@@ -450,7 +485,13 @@ export class FinanzasCajaComponent implements OnInit {
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
   onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
-  onCgTipo(v: string | null): void { this.cgTipo.set(v); this.reload(); }
+  onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
+  toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
+  isExp(r: { uid: string }): boolean { return !!this.expanded()[r.uid]; }
+  denomList(denom: Record<string, number> | null): { k: string; label: string; n: number }[] {
+    if (!denom) return [];
+    return Object.keys(this.DENOM_LABEL).filter((k) => Number(denom[k]) > 0).map((k) => ({ k, label: this.DENOM_LABEL[k], n: Number(denom[k]) }));
+  }
   onSearch(v: string): void { this.search.set(v); if (this.searchTimer) clearTimeout(this.searchTimer); this.searchTimer = setTimeout(() => this.reload(), 320); }
   clearDep(): void { this.banco.set(null); this.search.set(''); this.reload(); }
 
