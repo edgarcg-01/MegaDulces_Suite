@@ -47,6 +47,14 @@ const STEPS = {
     path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido (almacén×producto) → /compras/pedido lee de aquí — tras demanda
     path.join(K, 'import-cash-sessions.js'), // SM.10 — cajas ABIERTAS ahora (kp.kdpv_folio_caja, source=kp por default) → /tienda/cajas
   ],
+  // LIVEFAST (loop continuo ~60s): la capa COCINADA display-crítica al momento — venta del día
+  // (sales_daily → Command Center) + cajas abiertas (/tienda). Subset barato del 'live': lee el
+  // consolidado local (RefreshConsolidado @2min) → UPSERT churn-free. NO recalcula demanda/reabasto
+  // (eso se queda en 'live' @30min, no cambia por minuto). Lo agenda \Tienda\LiveFastLoop.
+  livefast: [
+    path.join(K, 'import-sales-fact.js'),    // mart.ventas_enriched → analytics.sales_daily (revenue)
+    path.join(K, 'import-cash-sessions.js'), // cajas ABIERTAS ahora → /tienda/cajas
+  ],
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),
     path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
