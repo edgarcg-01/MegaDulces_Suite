@@ -47,6 +47,62 @@ export class CajaGeneralService {
 
   private inst(q: CajaQuery) { return (q.instance || 'SI').toUpperCase(); }
 
+  /**
+   * CG.2 — CAJA GENERAL VIVA (analytics.caja_general_movimientos, ex-`Doctos`): el hub de
+   * efectivo real de Comisionistas. Ingresos (ventas de ruta que entran) vs gastos
+   * (remisiones a proveedor / comisiones / gastos por sucursal), por cuenta. Devuelve KPIs
+   * + por-mes + por-cuenta + movimientos (filtrables por tipo/búsqueda). Reemplaza la data
+   * muerta del Base Movimientos (caja_ventas_diarias/caja_depositos, abandonado Q1-2026).
+   */
+  async general(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    return this.tk.run(async (trx) => {
+      const T = 'analytics.caja_general_movimientos';
+      const inRange = () => trx(T).where('tenant_id', tenantId).whereBetween('fecha', [from, to]);
+
+      const tot: any = await inRange()
+        .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
+          trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
+      // Saldo actual = SaldoD del último movimiento (running balance de la caja) — global, no del rango.
+      const sal: any = await trx(T).where('tenant_id', tenantId)
+        .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'mov_id', order: 'desc' }]).first('saldo', 'fecha');
+
+      const porMes = await trx(T).where('tenant_id', tenantId)
+        .select(trx.raw(`to_char(fecha,'YYYY-MM') AS mes`), trx.raw('SUM(ingreso)::numeric AS ingreso'),
+          trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
+        .groupByRaw(`to_char(fecha,'YYYY-MM')`).orderByRaw(`to_char(fecha,'YYYY-MM')`);
+
+      const porCuenta = await inRange()
+        .select('cuenta', 'cuenta_nombre', trx.raw('SUM(ingreso)::numeric AS ingreso'),
+          trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
+        .groupBy('cuenta', 'cuenta_nombre').orderByRaw('SUM(ingreso)+SUM(gasto) DESC').limit(40);
+
+      let movq = inRange()
+        .select('mov_id', 'tipo_dto', 'tipo', 'fecha', 'hora', 'cuenta', 'cuenta_nombre',
+          'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'saldo')
+        .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'mov_id', order: 'desc' }]).limit(500);
+      if (q.tipo) movq = movq.where('tipo', q.tipo);
+      if (q.search) movq = movq.whereRaw(
+        '(cuenta_nombre ILIKE ? OR nombre_cliente ILIKE ? OR concepto ILIKE ?)',
+        [`%${q.search}%`, `%${q.search}%`, `%${q.search}%`]);
+      const movs = await movq;
+
+      return {
+        period: { from, to },
+        totals: {
+          ingreso: r2(n(tot?.ingreso)), gasto: r2(n(tot?.gasto)), neto: r2(n(tot?.ingreso) - n(tot?.gasto)),
+          n: n(tot?.n), saldo: r2(n(sal?.saldo)), saldo_fecha: sal?.fecha || null,
+        },
+        por_mes: (porMes as any[]).map((r) => ({ mes: r.mes, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),
+        por_cuenta: (porCuenta as any[]).map((r) => ({ cuenta: r.cuenta, cuenta_nombre: r.cuenta_nombre, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),
+        movimientos: (movs as any[]).map((r) => ({ ...r, ingreso: n(r.ingreso), gasto: n(r.gasto), saldo: n(r.saldo) })),
+      };
+    });
+  }
+
   /** KPIs del periodo: venta vs depositado por forma de pago + descuadre. */
   async overview(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -450,8 +506,12 @@ export class CajaGeneralService {
   async facets() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const meses = (await trx('analytics.caja_ventas_diarias').where('tenant_id', tenantId).whereNotNull('venta_date')
-        .select(trx.raw(`distinct to_char(venta_date,'YYYY-MM') AS m`)).orderBy('m', 'desc')).map((r: any) => r.m);
+      const mesesVd = (await trx('analytics.caja_ventas_diarias').where('tenant_id', tenantId).whereNotNull('venta_date')
+        .select(trx.raw(`distinct to_char(venta_date,'YYYY-MM') AS m`))).map((r: any) => r.m);
+      // CG.2 — incluir meses de la caja general VIVA (Doctos), que llega más allá del Base Movimientos muerto.
+      const mesesCg = (await trx('analytics.caja_general_movimientos').where('tenant_id', tenantId).whereNotNull('fecha')
+        .select(trx.raw(`distinct to_char(fecha,'YYYY-MM') AS m`))).map((r: any) => r.m);
+      const meses = Array.from(new Set(mesesVd.concat(mesesCg))).sort((a: string, b: string) => b.localeCompare(a));
       const bancos = (await trx('analytics.caja_depositos').where('tenant_id', tenantId).whereNotNull('banco_name').distinct('banco_name').orderBy('banco_name')).map((r: any) => r.banco_name);
       const empresas = (await trx('analytics.caja_sucursales_catalog').where('tenant_id', tenantId).whereNotNull('empresa').distinct('empresa').orderBy('empresa')).map((r: any) => r.empresa);
       const cajas = (await trx('analytics.caja_arqueos').where('tenant_id', tenantId).distinct('source_caja').orderBy('source_caja')).map((r: any) => r.source_caja);
