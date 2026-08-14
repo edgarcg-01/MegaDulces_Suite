@@ -24,6 +24,7 @@
 
 const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
+const hb = require('../lib/cron-heartbeat'); // Salud BD: latido por MODO → analytics.cron_runs
 
 const MODE = process.argv[2];
 const APPLY = process.argv.includes('--apply');
@@ -172,6 +173,26 @@ const STEPS = {
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
 
+// Etiquetas legibles del latido por modo (Salud BD grupo "Crons"). Los modos AGENDADOS
+// se registran además en db-health.service.ts (CRON_JOBS) con su cadencia+umbral → un
+// silencio los pinta en ROJO (dead-man's switch). Los modos MANUALES (finance/logistics/
+// all) laten también pero, al no estar registrados, el tablero los muestra en verde sin
+// alarmar (no tienen cadencia esperada).
+const FEED_LABELS = {
+  live: 'Feed live (venta viva @30min)',
+  livefast: 'Feed livefast (loop ~60s)',
+  stock: 'Feed stock (existencia @15min)',
+  receipts: 'Feed recepciones (XA2001 @1-2min)',
+  intraday: 'Feed intraday (transaccionales @1h)',
+  nightly: 'Feed nightly (batch nocturno)',
+  catalog: 'Feed catálogo (semanal/diario)',
+  contpaqi: 'Feed ContPAQi (pólizas+bancos @1min)',
+  'contpaqi-slow': 'Feed ContPAQi lento (balanza+prov @2h)',
+  finance: 'Feed finanzas (manual)',
+  logistics: 'Feed logística (manual)',
+  all: 'Feed all (cutover/manual)',
+};
+
 function usage() {
   console.error('Uso: node run-prod-feeds.js <live|stock|nightly|finance|catalog|logistics|all> [--apply]');
   process.exit(2);
@@ -255,12 +276,32 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
   sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
+
+  // Latido de arranque (solo en corridas reales). NUNCA lanza (cron-heartbeat traga errores).
+  const hbKey = `feed_${MODE}`;
+  if (APPLY) await hb.begin(hbKey, FEED_LABELS[MODE] || `Feed ${MODE}`);
+
   let failed = 0;
+  const failedSteps = [];
   for (const s of steps) {
     console.log(`\n--- ${s} ---`);
     const code = await run(s);
-    if (code !== 0) { failed++; console.error(`✗ ${s} salió con código ${code}`); }
+    if (code !== 0) { failed++; failedSteps.push(path.basename(s)); console.error(`✗ ${s} salió con código ${code}`); }
   }
   console.log(`\n=== Runner terminó: ${steps.length - failed}/${steps.length} OK ===`);
+
+  // Latido de cierre. status='error' SOLO si el batch entero falló (DB caída / mode roto);
+  // una falla PARCIAL (p.ej. 1 paso flaky en el nightly) queda en 'ok' con el detalle en note
+  // → visible en el tablero sin disparar alarma crítica por ruido.
+  if (APPLY) {
+    const total = steps.length;
+    const okCount = total - failed;
+    await hb.end(hbKey, {
+      status: total > 0 && failed === total ? 'error' : 'ok',
+      rows: okCount,
+      note: `${okCount}/${total} pasos OK`,
+      error: failed ? `${failed} paso(s) fallaron: ${failedSteps.join(', ')}`.slice(0, 500) : null,
+    });
+  }
   process.exit(failed ? 1 : 0);
 })();
