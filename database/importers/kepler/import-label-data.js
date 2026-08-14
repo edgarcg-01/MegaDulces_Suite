@@ -121,9 +121,13 @@ function resolveUnits(slots) {
     // Catálogo: índices por SKU y por BARCODE. El barcode es fallback para productos
     // que llegaron al catálogo SIN sku (ej. OJILOCOS): Kepler los tiene por SKU pero el
     // enlace por sku falla, así que los enganchamos por su código de barras (kdii.c7).
+    // ORDER por (deleted_at IS NULL) ASC → las filas ACTIVAS van al final y GANAN el skuToId.set
+    // (last-wins). Sin esto, un SKU duplicado (activo + borrado, ej. 00295) podía colgar la etiqueta
+    // del producto BORRADO y el activo quedaba "sin precio en Kepler".
     const prods = (await db.query(
       `SELECT id, btrim(coalesce(sku,'')) AS sku, btrim(coalesce(barcode,'')) AS barcode
-         FROM public.products WHERE tenant_id=$1`, [M])).rows;
+         FROM public.products WHERE tenant_id=$1
+        ORDER BY (deleted_at IS NULL) ASC`, [M])).rows;
     const skuToId = new Map();
     const bcToId = new Map();
     const curBarcodeById = new Map();   // id → barcode actual (para decidir backfill)
