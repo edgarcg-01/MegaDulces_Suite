@@ -37,6 +37,10 @@ const BASE_DIR = process.env.CAJA_BASE_DIR || 'Z:\\Datos\\Movimientos MegaDulces
 const BASE_MDB = process.env[`CAJA_MDB_${INSTANCE}`] || path.join(BASE_DIR, INSTANCE, `Base Movimientos ${INSTANCE}.mdb`);
 const ARQUEO_MDB = process.env.CAJA_ARQUEO_20 || 'Z:\\Datos\\20 Comisionistas\\MegaDulces\\BMovimientosCajas.mdb';
 const ARQUEO_CAJA = process.env.CAJA_ARQUEO_CAJA || '20';
+// CG.2 — Caja General VIVA (Doctos en BDatos.mdb, backend Wincaja de Comisionistas).
+const DOCTOS_MDB = process.env.CAJA_DOCTOS_MDB || 'Z:\\Datos\\20 Comisionistas\\Dulceria\\BDatos.mdb';
+const DOCTOS_CAJA = process.env.CAJA_DOCTOS_CAJA || '20';
+const DOCTOS_FROM = process.env.CAJA_DOCTOS_FROM || '#01/01/2026#'; // scope: ene-2026 → hoy (Edgar)
 
 const PS = 'powershell';
 const EXTRACTOR = path.join(__dirname, 'extract-mdb.ps1');
@@ -47,6 +51,8 @@ const DATE_HI = '#12/31/2027#';
 const TIPO_PAGO = { 1: 'Transferencia', 2: 'Cheque', 3: 'Efectivo', 4: 'Nota De Credito', 5: 'Comision', 6: 'Automatico', 7: 'Cheque Real' };
 const TIPO_ARQUEO = { 1: 'Arqueo', 2: 'Retiro', 3: 'Corte', 4: 'Deposito', 5: 'Fondo Caja', 6: 'Mixto' };
 const DENOM_COLS = ['B1000', 'B500', 'B200', 'B100', 'B50', 'B20', 'M100', 'M20', 'M10', 'M5', 'M2', 'M1', 'M50C', 'M20C', 'M10C', 'M5C', 'Centavos'];
+const TIPO_DTO = { 1: 'Ingreso', 2: 'Gasto', 3: 'Deposito', 6: 'Misc' };
+const DOCTOS_DENOM = ['B1000', 'B500', 'B200', 'B100', 'B50', 'B20', 'M20', 'M10', 'M5', 'M2', 'M1', 'M05', 'M02', 'M01', 'Mor'];
 
 /** Corre el extractor PS para una query y devuelve el array de objetos. */
 function extract(mdb, query, tag) {
@@ -70,6 +76,12 @@ function cleanDate(v) {
   if (!m) return null;
   const y = Number(m[1]);
   return (y >= 2009 && y <= 2027) ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+/** Hora del día desde un datetime Access (ej. '1899-12-30T13:58:20' → '13:58:20'). */
+function hhmm(v) {
+  const m = String(v || '').match(/T(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : null;
 }
 
 /** UPSERT churn-free genérico: stage temp + INSERT..ON CONFLICT DO UPDATE WHERE distinct. */
@@ -203,6 +215,36 @@ async function upsert(db, table, cols, pk, rows) {
     }).filter((r) => r.mov_id);
   }
 
+  // --- CG.2: Caja General VIVA (Doctos + Cuenta), scope ene-2026 → hoy ---
+  let cuentaRows = [], doctosRows = [];
+  if (want('doctos')) {
+    console.log(`Caja General (Doctos): ${DOCTOS_MDB}  [desde ${DOCTOS_FROM}]`);
+    const cta = extract(DOCTOS_MDB, 'SELECT IdCuenta, NombreCuenta, NombreLargoCta, NivelCta, GrupoCta, AcumulaACta, AfectableCta FROM [Cuenta]', 'cuentas');
+    cuentaRows = cta.map((r) => ({
+      source_caja: DOCTOS_CAJA, id_cuenta: txt(r.IdCuenta), nombre: txt(r.NombreCuenta), nombre_largo: txt(r.NombreLargoCta),
+      nivel: num(r.NivelCta), grupo: txt(r.GrupoCta), acumula_a: txt(r.AcumulaACta), afectable: bool(r.AfectableCta),
+    })).filter((r) => r.id_cuenta);
+    const ctaName = {}; for (const r of cuentaRows) ctaName[r.id_cuenta] = r.nombre;
+
+    const dc = extract(DOCTOS_MDB,
+      `SELECT TipoDto, IdDocto, Fecha, HoraD, UsuarioD, Cuenta, NombreCliente, ObservDocto,
+              Ingreso, Gasto, Deposito, Efectivo, SaldoD, Corte, DolarD, TipoCambD,
+              ${DOCTOS_DENOM.join(', ')}
+         FROM [Doctos] WHERE Fecha >= ${DOCTOS_FROM} AND Fecha < #01/01/2027#`, 'doctos');
+    doctosRows = dc.map((r) => {
+      const denom = {}; DOCTOS_DENOM.forEach((k) => { denom[k] = num(r[k]); });
+      const cuenta = txt(r.Cuenta);
+      return {
+        source_caja: DOCTOS_CAJA, tipo_dto: num(r.TipoDto), mov_id: txt(r.IdDocto),
+        tipo: TIPO_DTO[num(r.TipoDto)] || null, fecha: cleanDate(r.Fecha), hora: hhmm(r.HoraD), usuario: txt(r.UsuarioD),
+        cuenta, cuenta_nombre: cuenta ? (ctaName[cuenta] || null) : null,
+        nombre_cliente: txt(r.NombreCliente), concepto: txt(r.ObservDocto),
+        ingreso: num(r.Ingreso), gasto: num(r.Gasto), deposito: num(r.Deposito), efectivo: num(r.Efectivo),
+        denom: JSON.stringify(denom), saldo: num(r.SaldoD), corte: bool(r.Corte), dolar: num(r.DolarD), tipo_cambio: num(r.TipoCambD),
+      };
+    }).filter((r) => r.mov_id && r.fecha);
+  }
+
   // --- resumen ---
   const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
   console.log(`\nResumen (${INSTANCE}):`);
@@ -211,6 +253,8 @@ async function upsert(db, table, cols, pk, rows) {
   if (ventaRows.length) console.log(`  ventas:     ${ventaRows.length} · venta $${sum(ventaRows, 'venta_total').toLocaleString('es-MX', { maximumFractionDigits: 0 })} · descuadre Σ$${sum(ventaRows, 'desglose').toLocaleString('es-MX', { maximumFractionDigits: 0 })}`);
   if (depRows.length) console.log(`  depositos:  ${depRows.length} · $${sum(depRows, 'total_deposito').toLocaleString('es-MX', { maximumFractionDigits: 0 })}`);
   if (arqRows.length) console.log(`  arqueos:    ${arqRows.length} · efectivo Σ$${sum(arqRows, 'total_efectivo').toLocaleString('es-MX', { maximumFractionDigits: 0 })}`);
+  if (cuentaRows.length) console.log(`  cuentas:    ${cuentaRows.length} (plan de cuentas)`);
+  if (doctosRows.length) console.log(`  caja gral:  ${doctosRows.length} movs · ingreso $${sum(doctosRows, 'ingreso').toLocaleString('es-MX', { maximumFractionDigits: 0 })} · gasto $${sum(doctosRows, 'gasto').toLocaleString('es-MX', { maximumFractionDigits: 0 })}`);
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); fs.rmSync(TMP, { recursive: true, force: true }); return; }
 
@@ -225,6 +269,8 @@ async function upsert(db, table, cols, pk, rows) {
     if (ventaRows.length) n += await upsert(db, 'analytics.caja_ventas_diarias', ['source_instance', 'control', 'empresa', 'almacen', 'venta_date', 'capture_date', 'captured_by', 'venta_total', 'efectivo', 'efectivo_deposito', 'morralla', 'morralla_deposito', 'cheques', 'cheques_deposito', 'tarjeta', 'tarjeta_deposito', 'caja_chica', 'caja_chica_deposito', 'sobregiro', 'sobregiro_deposito', 'desglose', 'revisado', 'eliminado', 'observaciones'], ['tenant_id', 'source_instance', 'control'], ventaRows);
     if (depRows.length) n += await upsert(db, 'analytics.caja_depositos', ['source_instance', 'deposito_id', 'control', 'almacen', 'banco_code', 'banco_name', 'banco_cuenta', 'deposito_date', 'deposito_date_real', 'tipo_pago_code', 'tipo_pago', 'total_deposito', 'total_deposito_real', 'comision', 'iva', 'revisado', 'eliminado', 'observaciones'], ['tenant_id', 'source_instance', 'deposito_id'], depRows);
     if (arqRows.length) n += await upsert(db, 'analytics.caja_arqueos', ['source_caja', 'mov_id', 'folio', 'tipo', 'almacen', 'caja', 'arqueo_date', 'capturo', 'total_billetes', 'total_monedas', 'total_efectivo', 'total_credito', 'total_cheques', 'total_tarjeta', 'total_dolares', 'mov_total', 'denom', 'revisado', 'cancelado', 'observaciones'], ['tenant_id', 'source_caja', 'mov_id'], arqRows);
+    if (cuentaRows.length) n += await upsert(db, 'analytics.caja_general_cuentas', ['source_caja', 'id_cuenta', 'nombre', 'nombre_largo', 'nivel', 'grupo', 'acumula_a', 'afectable'], ['tenant_id', 'source_caja', 'id_cuenta'], cuentaRows);
+    if (doctosRows.length) n += await upsert(db, 'analytics.caja_general_movimientos', ['source_caja', 'tipo_dto', 'mov_id', 'tipo', 'fecha', 'hora', 'usuario', 'cuenta', 'cuenta_nombre', 'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'deposito', 'efectivo', 'denom', 'saldo', 'corte', 'dolar', 'tipo_cambio'], ['tenant_id', 'source_caja', 'tipo_dto', 'mov_id'], doctosRows);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${n} filas escritas (nuevas/cambiadas). Sin DELETE (append-only).`);
   } catch (e) {
