@@ -26,9 +26,11 @@ const BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_li
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
-// --sync: Kepler es la AUTORIDAD del precio de venta → ACTUALIZA los existentes a c90 fresco
-// (churn-free), no solo rellena faltantes. Sin --sync = comportamiento histórico (solo faltantes).
-const SYNC = process.argv.includes('--sync');
+// Kepler es la AUTORIDAD del precio de venta → SYNC (ACTUALIZA los existentes a c90 fresco,
+// churn-free) es el DEFAULT. Opt-out: --gap-fill-only restaura el viejo comportamiento (solo
+// rellena faltantes). Los c90 de $0.01/$0.05 son marcadores de PROMO (solo rutas, no público)
+// → se excluyen del precio base con el piso `c90 > 0.05` (abajo).
+const SYNC = !process.argv.includes('--gap-fill-only');
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
@@ -39,12 +41,13 @@ const SYNC = process.argv.includes('--sync');
     try { await src.connect(); }
     catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
 
-    // precio fresco por sku (dedupe, la carga más reciente; solo c90 > 0)
+    // precio fresco por sku (dedupe, la carga más reciente). Piso c90 > 0.05: los $0.01/$0.05
+    // son marcadores de PROMO (solo rutas, NO precio público) → nunca entran al precio base.
     const rows = (await src.query(
       `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, c90::numeric AS precio
-         FROM kp.kdii WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0
+         FROM kp.kdii WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05
         ORDER BY btrim(c1), _loaded_at DESC`)).rows;
-    console.log(`  KP_CONCENTRADA kp.kdii: ${rows.length} SKUs con c90 > 0`);
+    console.log(`  KP_CONCENTRADA kp.kdii: ${rows.length} SKUs con c90 > 0.05 (promos excluidas)`);
     if (!rows.length) { console.log('  nada que hacer.'); return; }
 
     await dst.query('BEGIN');
