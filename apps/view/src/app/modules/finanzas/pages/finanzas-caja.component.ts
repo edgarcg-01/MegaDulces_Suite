@@ -14,7 +14,12 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
-type View = 'general' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+type View = 'general' | 'cuadre' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+interface CajaCuadre {
+  period: { from: string; to: string };
+  totals: { ingreso: number; gasto: number; deposito: number; remisiones_gastos: number; neto: number; cuadra: boolean; dias: number };
+  por_dia: { fecha: string; ingreso: number; gasto: number; deposito: number; neto: number; n: number; arqueo_efectivo: number | null; arqueo_n: number }[];
+}
 interface CajaGeneral {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
@@ -117,6 +122,34 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
           <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ d.totals.saldo_fecha | date:'dd/MM/yy' }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
+        }
+      }
+
+      <!-- ===== CUADRE (caja general: entra = sale?) ===== -->
+      @if (view()==='cuadre') {
+        @if (loading() && !cq()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @else if (cq(); as d) {
+          <div class="cg-verdict" [class.ok]="d.totals.cuadra" [class.warn]="!d.totals.cuadra">
+            @if (d.totals.cuadra) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Caja cuadra</b> — entró y salió casi lo mismo (pass-through sano). }
+            @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>Descuadre {{ money(d.totals.neto) }}</b> — la diferencia entre lo que entró y lo que salió/depositó. }
+          </div>
+          <app-metric-strip [items]="cqKpis(d)" ariaLabel="Cuadre de caja general" />
+          <p class="cg-note" style="margin:.2rem 0 .8rem">La caja general es un <b>hub de efectivo</b>: la venta de ruta <b>entra</b> (ingreso) y sale a <b>remisiones/gastos</b> + <b>depósito al banco</b> (gasto). Cuadra si <b>ingreso ≈ gasto</b> (todo lo que entró salió). El <b>neto</b> es el efectivo que quedó/faltó. El <b>arqueo</b> (mayor conteo físico del día) es testigo del efectivo real. Tolerancia ±2%.</p>
+          <p-table [value]="d.por_dia" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+            <ng-template #header><tr><th class="cg-w-date">Día</th><th class="ta-c cg-w-d">Movs</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Depósito banco</th><th class="ta-r">Neto</th><th class="ta-r">Arqueo (testigo)</th></tr></ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
+                <td class="ta-c muted">{{ r.n }}</td>
+                <td class="ta-r num strong">{{ money(r.ingreso) }}</td>
+                <td class="ta-r num muted">{{ money(r.gasto) }}</td>
+                <td class="ta-r num muted">{{ r.deposito ? money(r.deposito) : '—' }}</td>
+                <td class="ta-r num" [class.warn]="abs(r.neto) > r.ingreso*0.05 && abs(r.neto)>1000">{{ money(r.neto) }}</td>
+                <td class="ta-r num muted">{{ r.arqueo_efectivo != null ? money(r.arqueo_efectivo) : '—' }}@if (r.arqueo_n) { <span class="muted"> ({{ r.arqueo_n }})</span> }</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+          </p-table>
         }
       }
 
@@ -345,6 +378,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
     .cg-two { margin:.4rem 0 .8rem; } .cg-bd-wide { max-width:none; padding:.4rem .5rem; }
     code { font-family:var(--font-mono); font-size:.9em; }
+    .cg-verdict { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; margin:.4rem 0 .2rem; border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:.85rem; }
+    .cg-verdict.ok { border-left-color:var(--ok-fg); } .cg-verdict.ok .pi { color:var(--ok-fg); }
+    .cg-verdict.warn { border-left-color:var(--warn-fg); } .cg-verdict.warn .pi { color:var(--warn-fg); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -372,6 +408,7 @@ export class FinanzasCajaComponent implements OnInit {
 
   readonly VIEWS: { key: View; label: string; icon: string }[] = [
     { key: 'general', label: 'General', icon: 'pi-wallet' },
+    { key: 'cuadre', label: 'Cuadre', icon: 'pi-check-square' },
     { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar' },
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
@@ -384,6 +421,7 @@ export class FinanzasCajaComponent implements OnInit {
   readonly view = signal<View>('general');
   readonly cgTipo = signal<string | null>(null);
   readonly cg = signal<CajaGeneral | null>(null);
+  readonly cq = signal<CajaCuadre | null>(null);
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
   readonly month = signal<string | null>(null);
   readonly banco = signal<string | null>(null);
@@ -410,7 +448,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.reload(); }
   onSearch(v: string): void { this.search.set(v); if (this.searchTimer) clearTimeout(this.searchTimer); this.searchTimer = setTimeout(() => this.reload(), 320); }
@@ -431,6 +469,8 @@ export class FinanzasCajaComponent implements OnInit {
     const v = this.view();
     if (v === 'general') {
       this.http.get<CajaGeneral>(`${this.base}/general${this.qs({ tipo: this.cgTipo(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cg.set(d); done(); }, error: fail });
+    } else if (v === 'cuadre') {
+      this.http.get<CajaCuadre>(`${this.base}/cuadre${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cq.set(d); done(); }, error: fail });
     } else if (v === 'resumen') {
       this.http.get<Overview>(`${this.base}/overview${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.ov.set(d); done(); }, error: fail });
       this.http.get<SucursalRow[]>(`${this.base}/por-sucursal${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.suc.set(d), error: () => this.suc.set([]) });
@@ -455,6 +495,15 @@ export class FinanzasCajaComponent implements OnInit {
   }
   setPick(code: string, label: string): void { this.pick.set({ ...this.pick(), [code]: label }); }
 
+  cqKpis(d: CajaCuadre): MetricStripItem[] {
+    return [
+      { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.dias} días` },
+      { label: 'Gastos', value: d.totals.gasto, format: 'currency-short', tone: 'default', sub: `${Math.round(d.totals.remisiones_gastos / 1000).toLocaleString('es-MX')}k remis/gastos` },
+      { label: 'Depósito banco', value: d.totals.deposito, format: 'currency-short', tone: 'default' },
+      { label: 'Neto (quedó/faltó)', value: d.totals.neto, format: 'currency-short', tone: d.totals.cuadra ? 'ok' : 'warn' },
+    ];
+  }
+  abs(n: number): number { return Math.abs(n || 0); }
   cgKpis(d: CajaGeneral): MetricStripItem[] {
     return [
       { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.n} movs` },

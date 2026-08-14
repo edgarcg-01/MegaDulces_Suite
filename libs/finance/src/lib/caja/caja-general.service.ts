@@ -103,6 +103,66 @@ export class CajaGeneralService {
     });
   }
 
+  /**
+   * CG.5 — CUADRE de la caja general (Comisionistas). Es un hub de efectivo pass-through:
+   * la venta de ruta ENTRA (ingreso) y SALE a pagar proveedores/comisiones/gastos + depósito
+   * al banco (gasto). El cuadre = ¿entra lo mismo que sale?  neto = ingreso − gasto (el efectivo
+   * que quedó/faltó en caja). Como el saldo de libro no se lleva (SaldoD=0), el arqueo físico
+   * (BMovimientosCajas caja 20, el MAYOR conteo del día) va como TESTIGO del efectivo real.
+   * Desglosa el gasto en depósito-al-banco (cuentas 1990/40000000) vs el resto (remisiones/gastos).
+   */
+  async cajaCuadre(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const DEP_ACCTS = ['1990', '40000000'];
+    return this.tk.run(async (trx) => {
+      const dias = await trx('analytics.caja_general_movimientos')
+        .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
+        .select('fecha',
+          trx.raw('SUM(ingreso)::numeric AS ingreso'),
+          trx.raw('SUM(gasto)::numeric AS gasto'),
+          trx.raw(`SUM(CASE WHEN cuenta IN ('1990','40000000') THEN gasto ELSE 0 END)::numeric AS deposito`),
+          trx.raw('COUNT(*)::int AS n'))
+        .groupBy('fecha').orderBy('fecha');
+
+      // Arqueo físico por día (caja 20, el MAYOR conteo del día = mejor testigo del efectivo).
+      const arq = await trx('analytics.caja_arqueos')
+        .where({ tenant_id: tenantId, source_caja: '20', tipo: 'Arqueo' }).whereBetween('arqueo_date', [from, to])
+        .select('arqueo_date', trx.raw('MAX(total_efectivo)::numeric AS efectivo'), trx.raw('COUNT(*)::int AS n'))
+        .groupBy('arqueo_date');
+      const arqByDay = new Map<string, { efectivo: number; n: number }>();
+      for (const a of arq as any[]) arqByDay.set(String(a.arqueo_date).slice(0, 10), { efectivo: n(a.efectivo), n: n(a.n) });
+
+      const por_dia = (dias as any[]).map((d) => {
+        const key = String(d.fecha).slice(0, 10);
+        const a = arqByDay.get(key);
+        return {
+          fecha: d.fecha, ingreso: r2(n(d.ingreso)), gasto: r2(n(d.gasto)), deposito: r2(n(d.deposito)),
+          neto: r2(n(d.ingreso) - n(d.gasto)), n: n(d.n),
+          arqueo_efectivo: a ? r2(a.efectivo) : null, arqueo_n: a ? a.n : 0,
+        };
+      });
+
+      const ingreso = r2(por_dia.reduce((s, d) => s + d.ingreso, 0));
+      const gasto = r2(por_dia.reduce((s, d) => s + d.gasto, 0));
+      const deposito = r2(por_dia.reduce((s, d) => s + d.deposito, 0));
+      const neto = r2(ingreso - gasto);
+      // pass-through sano si el neto es chico vs el flujo (todo lo que entró salió). Tolerancia 2%.
+      const cuadra = ingreso > 0 ? Math.abs(neto) <= ingreso * 0.02 : Math.abs(neto) < 1000;
+
+      return {
+        period: { from, to },
+        totals: {
+          ingreso, gasto, deposito, remisiones_gastos: r2(gasto - deposito), neto,
+          cuadra, dias: por_dia.length,
+        },
+        por_dia,
+      };
+    });
+  }
+
   /** KPIs del periodo: venta vs depositado por forma de pago + descuadre. */
   async overview(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
