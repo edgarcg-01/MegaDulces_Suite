@@ -28,6 +28,13 @@ export class CajaGeneralController {
     return this.svc.general(this.q(month, from, to, undefined, undefined, undefined, tipo, search));
   }
 
+  @Get('cuadre')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CUADRE caja general: ingreso vs gasto (desglose depósito banco) → neto, por día, con arqueo físico como testigo.' })
+  cuadre(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.cajaCuadre(this.q(month, from, to));
+  }
+
   @Get('overview')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })
