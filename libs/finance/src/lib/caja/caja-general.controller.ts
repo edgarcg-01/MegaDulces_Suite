@@ -21,6 +21,13 @@ export class CajaGeneralController {
     return { month, from, to, instance, banco, almacen, tipo, search, limit: limit ? Number(limit) : undefined };
   }
 
+  @Get('general')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CAJA GENERAL viva (Doctos): ingresos/gastos por cuenta + KPIs + por-mes + movimientos. Filtros: month|from/to, tipo(Ingreso|Gasto), search.' })
+  general(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('tipo') tipo?: string, @Query('search') search?: string) {
+    return this.svc.general(this.q(month, from, to, undefined, undefined, undefined, tipo, search));
+  }
+
   @Get('overview')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })

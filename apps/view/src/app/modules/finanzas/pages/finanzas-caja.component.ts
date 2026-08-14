@@ -14,7 +14,14 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
-type View = 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+type View = 'general' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+interface CajaGeneral {
+  period: { from: string; to: string };
+  totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
+  por_mes: { mes: string; ingreso: number; gasto: number; n: number }[];
+  por_cuenta: { cuenta: string; cuenta_nombre: string | null; ingreso: number; gasto: number; n: number }[];
+  movimientos: { mov_id: string; tipo_dto: number; tipo: string | null; fecha: string; hora: string | null; cuenta: string; cuenta_nombre: string | null; nombre_cliente: string | null; concepto: string | null; ingreso: number; gasto: number; saldo: number }[];
+}
 interface Overview {
   period: { from: string; to: string; instance: string };
   venta_total: number; dias: number; sucursales: number; vendido: number; depositado: number; descuadre: number;
@@ -68,6 +75,50 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       </nav>
 
       @if (err(); as e) { <div class="cg-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="cg-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()" label="Reintentar"></button></div> }
+
+      <!-- ===== CAJA GENERAL (Doctos, viva) ===== -->
+      @if (view()==='general') {
+        <div class="cg-filters">
+          <p-select [options]="['Ingreso','Gasto']" [ngModel]="cgTipo()" (onChange)="onCgTipo($event.value)" placeholder="Tipo" [showClear]="true" styleClass="cg-sel" ariaLabel="Tipo" />
+          <p-iconfield styleClass="cg-search"><p-inputicon styleClass="pi pi-search" /><input pInputText type="text" placeholder="Cuenta/cliente/concepto…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar" /></p-iconfield>
+        </div>
+        @if (loading() && !cg()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @else if (cg(); as d) {
+          <app-metric-strip [items]="cgKpis(d)" ariaLabel="Totales de caja general" />
+          <div class="cg-two">
+            <div class="cg-bd cg-bd-wide">
+              <span class="cg-bd-title">Por cuenta (ingreso / gasto) — top 40</span>
+              <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm surf-table" [rowHover]="true" [scrollable]="true" scrollHeight="22rem" [paginator]="d.por_cuenta.length>40" [rows]="40">
+                <ng-template #header><tr><th>Cuenta</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-c cg-w-d">#</th></tr></ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td>{{ r.cuenta_nombre || '—' }} <span class="muted">#{{ r.cuenta }}</span></td>
+                    <td class="ta-r num" [class.strong]="r.ingreso>0">{{ r.ingreso ? money(r.ingreso) : '—' }}</td>
+                    <td class="ta-r num" [class.strong]="r.gasto>0">{{ r.gasto ? money(r.gasto) : '—' }}</td>
+                    <td class="ta-c muted">{{ r.n }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+          </div>
+          <p-table [value]="d.movimientos" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.movimientos.length>100" [rows]="100">
+            <ng-template #header><tr><th class="cg-w-date">Fecha</th><th class="cg-w-e">Tipo</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Saldo</th></tr></ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
+                <td><p-tag [value]="r.tipo || '?'" [severity]="r.tipo==='Ingreso'?'success':(r.tipo==='Gasto'?'warn':'secondary')" styleClass="cg-tag" /></td>
+                <td class="cg-emp" [title]="r.cuenta_nombre">{{ r.cuenta_nombre || '—' }} <span class="muted">#{{ r.cuenta }}</span></td>
+                <td class="cg-emp" [title]="r.nombre_cliente">{{ r.nombre_cliente || '—' }}@if (r.concepto) { <span class="muted"> · {{ r.concepto }}</span> }</td>
+                <td class="ta-r num" [class.strong]="r.ingreso>0">{{ r.ingreso ? money(r.ingreso) : '—' }}</td>
+                <td class="ta-r num" [class.strong]="r.gasto>0">{{ r.gasto ? money(r.gasto) : '—' }}</td>
+                <td class="ta-r num muted">{{ money(r.saldo) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+          </p-table>
+          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ d.totals.saldo_fecha | date:'dd/MM/yy' }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
+        }
+      }
 
       <!-- ===== RESUMEN ===== -->
       @if (view()==='resumen') {
@@ -292,6 +343,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-bd-row { display:flex; align-items:baseline; gap:.6rem; font-size:.8rem; padding:.15rem 0; }
     .cg-bd-k { flex:1; } .cg-bd-v { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
+    .cg-two { margin:.4rem 0 .8rem; } .cg-bd-wide { max-width:none; padding:.4rem .5rem; }
+    code { font-family:var(--font-mono); font-size:.9em; }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -318,6 +371,7 @@ export class FinanzasCajaComponent implements OnInit {
   private readonly base = `${environment.apiUrl}/finance/caja`;
 
   readonly VIEWS: { key: View; label: string; icon: string }[] = [
+    { key: 'general', label: 'General', icon: 'pi-wallet' },
     { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar' },
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
@@ -327,7 +381,9 @@ export class FinanzasCajaComponent implements OnInit {
   readonly tipoOpts = ['Arqueo', 'Retiro', 'Corte', 'Deposito', 'Fondo Caja'];
   readonly skel = Array.from({ length: 8 });
 
-  readonly view = signal<View>('resumen');
+  readonly view = signal<View>('general');
+  readonly cgTipo = signal<string | null>(null);
+  readonly cg = signal<CajaGeneral | null>(null);
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
   readonly month = signal<string | null>(null);
   readonly banco = signal<string | null>(null);
@@ -354,8 +410,9 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
+  onCgTipo(v: string | null): void { this.cgTipo.set(v); this.reload(); }
   onSearch(v: string): void { this.search.set(v); if (this.searchTimer) clearTimeout(this.searchTimer); this.searchTimer = setTimeout(() => this.reload(), 320); }
   clearDep(): void { this.banco.set(null); this.search.set(''); this.reload(); }
 
@@ -372,7 +429,9 @@ export class FinanzasCajaComponent implements OnInit {
     const done = () => this.loading.set(false);
     const fail = () => { this.loading.set(false); this.err.set('No se pudo cargar la caja.'); };
     const v = this.view();
-    if (v === 'resumen') {
+    if (v === 'general') {
+      this.http.get<CajaGeneral>(`${this.base}/general${this.qs({ tipo: this.cgTipo(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cg.set(d); done(); }, error: fail });
+    } else if (v === 'resumen') {
       this.http.get<Overview>(`${this.base}/overview${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.ov.set(d); done(); }, error: fail });
       this.http.get<SucursalRow[]>(`${this.base}/por-sucursal${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.suc.set(d), error: () => this.suc.set([]) });
     } else if (v === 'depositos') {
@@ -396,6 +455,14 @@ export class FinanzasCajaComponent implements OnInit {
   }
   setPick(code: string, label: string): void { this.pick.set({ ...this.pick(), [code]: label }); }
 
+  cgKpis(d: CajaGeneral): MetricStripItem[] {
+    return [
+      { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.n} movs` },
+      { label: 'Gastos', value: d.totals.gasto, format: 'currency-short', tone: 'default' },
+      { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: d.totals.neto >= 0 ? 'ok' : 'warn' },
+      { label: 'Saldo caja', value: d.totals.saldo, format: 'currency-short', tone: 'default', sub: d.totals.saldo_fecha ? 'actual' : undefined },
+    ];
+  }
   ovKpis(d: Overview): MetricStripItem[] {
     return [
       { label: 'Venta', value: d.venta_total, format: 'currency-short', tone: 'default', sub: `${d.dias} días · ${d.sucursales} suc` },
