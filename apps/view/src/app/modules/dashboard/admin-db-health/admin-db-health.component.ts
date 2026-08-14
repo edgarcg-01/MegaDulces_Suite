@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -29,8 +29,19 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
           }
           <button pButton type="button" [loading]="scanning()" (click)="scan()" size="small" class="p-button-outlined"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
           <button pButton type="button" [loading]="loading()" (click)="load()" size="small"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
+          <button pButton type="button" (click)="toggleAuto()" size="small" [class.p-button-outlined]="!auto()" [title]="auto() ? 'Auto-refresco cada 60s activo' : 'Auto-refresco pausado'"><span class="p-button-icon p-button-icon-left pi" [class.pi-pause]="auto()" [class.pi-play]="!auto()" aria-hidden="true"></span><span class="p-button-label">{{ auto() ? 'Auto 60s' : 'Manual' }}</span></button>
         </div>
       </header>
+
+      <!-- Marcador — lectura instantánea de toda la parvada de feeds/fuentes -->
+      <div class="scoreboard">
+        <button class="tile ok"   [class.on]="filter()==='ok'"       (click)="setFilter('ok')"><span class="n">{{ counts().ok }}</span><span class="l">OK</span></button>
+        <button class="tile warn" [class.on]="filter()==='warn'"     (click)="setFilter('warn')"><span class="n">{{ counts().warn }}</span><span class="l">Atrasados</span></button>
+        <button class="tile crit" [class.on]="filter()==='critical'" (click)="setFilter('critical')"><span class="n">{{ counts().critical }}</span><span class="l">Críticos</span></button>
+        <button class="tile unk"  [class.on]="filter()==='unknown'"  (click)="setFilter('unknown')"><span class="n">{{ counts().unknown }}</span><span class="l">Sin dato</span></button>
+        <div class="tile tot"><span class="n">{{ counts().total }}</span><span class="l">Fuentes</span></div>
+        @if (filter()) { <button class="clr" (click)="setFilter(null)"><i class="pi pi-filter-slash"></i> ver todo</button> }
+      </div>
 
       @if (error()) {
         <div class="banner err">
@@ -148,6 +159,21 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .page-head h1 { font-size: var(--text-page-head, 18px); font-weight: 700; letter-spacing: -0.01em; margin: 0; color: var(--text-main); }
     .page-head .sub { font-size: var(--fs-xs, .72rem); color: var(--text-faint); }
     .actions { display: inline-flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .scoreboard { display: flex; gap: .5rem; flex-wrap: wrap; align-items: stretch; margin-bottom: 1rem; }
+    .tile { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .1rem; min-width: 92px; padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--surface-card, transparent); cursor: pointer; transition: border-color .12s, background .12s; text-align: left; }
+    .tile:hover { border-color: color-mix(in srgb, var(--text-faint) 45%, var(--border-color)); }
+    .tile.on { background: color-mix(in srgb, currentColor 8%, transparent); border-color: currentColor; }
+    .tile .n { font-size: 1.35rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text-main); }
+    .tile .l { font-size: .66rem; letter-spacing: .02em; text-transform: uppercase; color: var(--text-faint); }
+    .tile.ok   { color: var(--ok-fg, #16A34A); }
+    .tile.warn { color: var(--warn-fg, #D97706); }
+    .tile.crit { color: var(--danger-fg, #DC2626); }
+    .tile.unk  { color: var(--text-faint); }
+    .tile.ok .n, .tile.warn .n, .tile.crit .n { color: currentColor; }
+    .tile.tot { cursor: default; background: transparent; }
+    .tile.tot:hover { border-color: var(--border-color); }
+    .clr { align-self: center; display: inline-flex; align-items: center; gap: .3rem; border: none; background: none; cursor: pointer; font-size: .74rem; color: var(--text-faint); padding: 0 .4rem; }
+    .clr:hover { color: var(--text-main); }
     .banner { display: flex; align-items: center; gap: .5rem; font-size: .8rem; padding: .6rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); margin-bottom: .9rem; }
     .banner.crit { color: var(--danger-fg, #DC2626); border-color: color-mix(in srgb, var(--danger-fg, #DC2626) 40%, var(--border-color)); }
     .banner.err  { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, var(--border-color)); }
@@ -178,7 +204,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .rrow .muted { color: var(--text-faint); font-size: .72rem; }
   `],
 })
-export class AdminDbHealthComponent implements OnInit {
+export class AdminDbHealthComponent implements OnInit, OnDestroy {
   private svc = inject(DbHealthService);
 
   readonly report = signal<DbHealthReport | null>(null);
@@ -187,12 +213,55 @@ export class AdminDbHealthComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly openAlerts = signal<HealthAlert[]>([]);
   readonly resolvedAlerts = signal<HealthAlert[]>([]);
+  /** Filtro de severidad activo (clic en el marcador). null = ver todo. */
+  readonly filter = signal<HealthStatus | null>(null);
+  /** Auto-refresco cada 60s (pantalla viva). */
+  readonly auto = signal(true);
+  private timer: ReturnType<typeof setInterval> | null = null;
 
-  readonly appRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'app'));
-  readonly sourceRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'source'));
-  readonly cronRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'cron'));
+  /** Conteo por severidad sobre TODAS las fuentes (crons + app + orígenes). */
+  readonly counts = computed(() => {
+    const s = this.report()?.sources ?? [];
+    return {
+      ok: s.filter((x) => x.status === 'ok').length,
+      warn: s.filter((x) => x.status === 'warn').length,
+      critical: s.filter((x) => x.status === 'critical').length,
+      unknown: s.filter((x) => x.status === 'unknown').length,
+      total: s.length,
+    };
+  });
 
-  ngOnInit(): void { this.load(); }
+  private byGroup(g: SourceHealth['group']): SourceHealth[] {
+    const f = this.filter();
+    return (this.report()?.sources ?? []).filter((s) => s.group === g && (!f || s.status === f));
+  }
+  readonly appRows = computed<SourceHealth[]>(() => this.byGroup('app'));
+  readonly sourceRows = computed<SourceHealth[]>(() => this.byGroup('source'));
+  readonly cronRows = computed<SourceHealth[]>(() => this.byGroup('cron'));
+
+  ngOnInit(): void {
+    this.load();
+    this.startAuto();
+  }
+
+  ngOnDestroy(): void { this.stopAuto(); }
+
+  private startAuto(): void {
+    this.stopAuto();
+    if (this.auto()) this.timer = setInterval(() => this.silentLoad(), 60_000);
+  }
+  private stopAuto(): void { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  toggleAuto(): void { this.auto.update((v) => !v); this.startAuto(); }
+  setFilter(s: HealthStatus | null): void { this.filter.update((cur) => (cur === s ? null : s)); }
+
+  /** Refresco de fondo (auto): NO prende el spinner grande para no parpadear la vista. */
+  private silentLoad(): void {
+    this.svc.getReport().subscribe({
+      next: (r) => { this.report.set(r); this.error.set(null); },
+      error: () => { /* silencioso: no romper la pantalla viva por un blip de red */ },
+    });
+    this.loadAlerts();
+  }
 
   load(): void {
     this.loading.set(true);
