@@ -56,16 +56,9 @@ const CONN_OPTS = {
   keepAlive: true,                // detecta TCP muerto (VPN caída) antes
 };
 
-const BRANCHES = process.env.KP_BRANCH_MAP
-  ? JSON.parse(process.env.KP_BRANCH_MAP)
-  : [
-      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
+const { stockMap } = require('../lib/kepler-branches');
+const BRANCHES = process.env.KP_BRANCH_MAP ? JSON.parse(process.env.KP_BRANCH_MAP) : stockMap({ cedis: true });
 
 // information_schema.data_type → tipo destino (preserva lo esencial; texto por default).
 function mapType(dt) {
