@@ -226,10 +226,21 @@ export class DailyCapturesService {
     const hasSyncUuid = await this.hasSyncUuidColumn();
     if (dto.sync_uuid && hasSyncUuid) {
       // Precheck en trx corta (~ms) — evita upload redundante en retries.
-      const existing = await this.knexRaw.transaction(async (tx) => {
-        await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
-        return tx('daily_captures').where({ sync_uuid: dto.sync_uuid }).first();
-      });
+      // Envuelto en try-catch: si la trx falla (network, pool timeout, etc.)
+      // no debe abortar la request completa ni dejar la conexión en estado
+      // 25P02 para operaciones subsiguientes — solo saltamos el chequeo de
+      // idempotencia y seguimos con el flujo normal de creación.
+      let existing: any = null;
+      try {
+        existing = await this.knexRaw.transaction(async (tx) => {
+          await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+          return tx('daily_captures').where({ sync_uuid: dto.sync_uuid }).first();
+        });
+      } catch (err: any) {
+        this.logger.error(
+          `Precheck de idempotencia falló para sync_uuid=${dto.sync_uuid}: ${err?.message || err}. Continuando sin idempotencia.`,
+        );
+      }
       if (existing) {
         this.logger.warn(
           `Idempotency hit: sync_uuid=${dto.sync_uuid} ya existe (id=${existing.id}, folio=${existing.folio}). Retornando fila existente sin re-procesar.`,
