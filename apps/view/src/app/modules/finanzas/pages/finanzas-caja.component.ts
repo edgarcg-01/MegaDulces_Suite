@@ -168,20 +168,46 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </div>
             <p class="cg-note" style="margin-top:.5rem">El ingreso de <b>sucursal</b> ({{ money(d.ingreso_origen.sucursal.monto) }}) debería acercarse al <b>efectivo de los cortes POS</b> ({{ money(d.pos_efectivo.efectivo) }}) — ambos son efectivo de piso. La diferencia = timing / rutas sin POS / merma. La <b>ruta</b> (Canindo, Vecinal…) no tiene POS, por eso no cruza. Clasificación heurística por texto.</p>
           </div>
-          <p-table [value]="d.por_dia" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
-            <ng-template #header><tr><th class="cg-w-date">Día</th><th class="ta-c cg-w-d">Movs</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Depósito banco</th><th class="ta-r">Neto</th><th class="ta-r">Arqueo (testigo)</th></tr></ng-template>
+          <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="cqExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+            <ng-template #header><tr><th class="cg-w-x"></th><th class="cg-w-date">Día</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Depósito banco</th><th class="ta-r">Neto</th><th class="cg-w-e">Estado</th><th class="ta-r">Arqueo</th></tr></ng-template>
             <ng-template #body let-r>
-              <tr>
-                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
-                <td class="ta-c muted">{{ r.n }}</td>
+              <tr class="cg-row-click" (click)="toggleCqDay(r)" [class.cg-row-open]="cqIsExp(r)">
+                <td><i class="pi cg-chev" [class.pi-chevron-right]="!cqIsExp(r)" [class.pi-chevron-down]="cqIsExp(r)" aria-hidden="true"></i></td>
+                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }} <span class="muted">· {{ r.n }}</span></td>
                 <td class="ta-r num strong">{{ money(r.ingreso) }}</td>
                 <td class="ta-r num muted">{{ money(r.gasto) }}</td>
                 <td class="ta-r num muted">{{ r.deposito ? money(r.deposito) : '—' }}</td>
-                <td class="ta-r num" [class.warn]="abs(r.neto) > r.ingreso*0.05 && abs(r.neto)>1000">{{ money(r.neto) }}</td>
-                <td class="ta-r num muted">{{ r.arqueo_efectivo != null ? money(r.arqueo_efectivo) : '—' }}@if (r.arqueo_n) { <span class="muted"> ({{ r.arqueo_n }})</span> }</td>
+                <td class="ta-r num" [class.cg-in]="netoState(r)==='sobra'" [class.cg-eg]="netoState(r)==='falta'">{{ money(r.neto) }}</td>
+                <td class="cg-w-e">
+                  @if (netoState(r)==='sobra') { <p-tag value="sobra" severity="success" styleClass="cg-tag" /> }
+                  @else if (netoState(r)==='falta') { <p-tag value="falta" severity="danger" styleClass="cg-tag" /> }
+                  @else { <span class="muted">cuadra</span> }
+                </td>
+                <td class="ta-r num muted">{{ r.arqueo_efectivo != null ? money(r.arqueo_efectivo) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="7"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+            <ng-template #expandedrow let-r>
+              <tr class="cg-detail-row"><td colspan="8">
+                @if (cqDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
+                @else if (cqDayMovs()[key(r)]; as ms) {
+                  <div class="cg-daywrap">
+                    <table class="cg-daytbl">
+                      <thead><tr><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
+                      <tbody>
+                        @for (m of ms; track m.uid) {
+                          <tr><td class="cg-emp" [title]="m.cuenta_nombre">{{ m.cuenta_nombre || '—' }} <span class="muted">#{{ m.cuenta }}</span></td>
+                              <td class="cg-emp" [title]="m.nombre_cliente">{{ m.nombre_cliente || '—' }}@if (m.concepto) { <span class="muted"> · {{ m.concepto }}</span> }</td>
+                              <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
+                              <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
+                        }
+                        @if (!ms.length) { <tr><td colspan="4" class="muted" style="padding:.5rem">Sin movimientos.</td></tr> }
+                      </tbody>
+                    </table>
+                  </div>
+                } @else { <div class="muted" style="padding:.5rem">—</div> }
+              </td></tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
         }
       }
@@ -435,6 +461,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-ol { font-size:var(--fs-xs); color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .cg-ov { font-size:var(--fs-lg, 1.05rem); font-weight:700; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-os { font-size:var(--fs-xs); color:var(--text-faint); }
+    .cg-daywrap { overflow-x:auto; } .cg-daytbl { width:100%; border-collapse:collapse; font-size:.78rem; }
+    .cg-daytbl th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); padding:3px 8px; border-bottom:1px solid var(--border-color); }
+    .cg-daytbl td { padding:3px 8px; border-bottom:1px solid var(--border-color); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -476,6 +505,9 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cgTipo = signal<string | null>(null);
   readonly cg = signal<CajaGeneral | null>(null);
   readonly cq = signal<CajaCuadre | null>(null);
+  readonly cqExp = signal<Record<string, boolean>>({});
+  readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
+  readonly cqDayLoad = signal<Record<string, boolean>>({});
   readonly expanded = signal<Record<string, boolean>>({});
   readonly DENOM_LABEL: Record<string, string> = { B1000: '$1000', B500: '$500', B200: '$200', B100: '$100', B50: '$50', B20: '$20', M20: '$20m', M10: '$10', M5: '$5', M2: '$2', M1: '$1', M05: '50¢', M02: '20¢', M01: '10¢', Mor: 'morralla' };
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
@@ -504,7 +536,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -566,6 +598,27 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   abs(n: number): number { return Math.abs(n || 0); }
+  key(r: { fecha: string }): string { return String(r.fecha).slice(0, 10); }
+  netoState(r: { ingreso: number; neto: number }): 'sobra' | 'falta' | 'cuadra' {
+    const tol = Math.max((r.ingreso || 0) * 0.05, 1000);
+    if (r.neto > tol) return 'sobra';
+    if (r.neto < -tol) return 'falta';
+    return 'cuadra';
+  }
+  cqIsExp(r: { fecha: string }): boolean { return !!this.cqExp()[r.fecha]; }
+  toggleCqDay(r: { fecha: string }): void {
+    const rk = r.fecha; const e = { ...this.cqExp() };
+    if (e[rk]) { delete e[rk]; this.cqExp.set(e); return; }
+    e[rk] = true; this.cqExp.set(e);
+    const dk = this.key(r);
+    if (!this.cqDayMovs()[dk] && !this.cqDayLoad()[dk]) {
+      this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: true });
+      this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.cqDayMovs.set({ ...this.cqDayMovs(), [dk]: d.movimientos }); this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false }); },
+        error: () => this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false }),
+      });
+    }
+  }
   cgKpis(d: CajaGeneral): MetricStripItem[] {
     return [
       { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.n} movs` },
