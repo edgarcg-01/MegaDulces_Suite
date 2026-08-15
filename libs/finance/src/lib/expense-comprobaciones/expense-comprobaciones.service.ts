@@ -1,5 +1,8 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+
+/** Datos del usuario del request usados para acotar por departamento (área). */
+export interface ScopeUser { sub?: string; role_name?: string; permissions?: Record<string, boolean>; }
 
 /**
  * GX.8 — Comprobación de Gastos (2ª etapa). Captura de la comprobación de un gasto,
@@ -71,6 +74,48 @@ export class ExpenseComprobacionesService {
     private readonly ocr: LlmExtractorService,
   ) {}
 
+  /**
+   * Áreas (norm_keys) que el usuario puede VER. `null` = sin restricción (ve todo):
+   * admin de plataforma o permiso FINANCE_EXPENSES_VER_ALL. En caso contrario devuelve
+   * las norm_keys de sus `users.finance_expense_area_ids` (vacío → no ve nada = seguro).
+   */
+  private async allowedAreaKeys(trx: any, user?: ScopeUser): Promise<string[] | null> {
+    if (isPlatformAdminRole(user?.role_name)) return null;
+    if (user?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true) return null;
+    if (!user?.sub) return [];
+    const u = await trx('users').where({ id: user.sub }).first('finance_expense_area_ids');
+    const ids: string[] = Array.isArray(u?.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
+    if (!ids.length) return [];
+    return trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key');
+  }
+
+  /** Aplica el filtro de área (por norm_key sobre la columna dada) a un query builder. */
+  private scopeByArea(qb: any, column: string, keys: string[] | null): void {
+    if (keys === null) return;              // ve todo
+    if (!keys.length) { qb.whereRaw('1=0'); return; } // sin áreas → nada
+    qb.whereRaw(`upper(btrim(${column})) = ANY(?::text[])`, [keys]);
+  }
+
+  /**
+   * Catálogo canónico de áreas de gasto (dimensión `finance.expense_areas`). Refresca
+   * de forma idempotente las áreas nuevas de los gastos (XA1001) y devuelve la lista
+   * para el selector de "áreas visibles" en la administración de usuarios.
+   */
+  async listAreas() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(
+        `INSERT INTO finance.expense_areas (tenant_id, name)
+         SELECT DISTINCT tenant_id, btrim(area) FROM analytics.expense_documents
+          WHERE tenant_id = ? AND doc_tipo='XA1001' AND area IS NOT NULL AND btrim(area) <> ''
+         ON CONFLICT (tenant_id, norm_key) DO NOTHING`, [tenantId]);
+      return trx('finance.expense_areas')
+        .where({ tenant_id: tenantId, active: true })
+        .orderBy('name')
+        .select('id', 'name', 'sucursal');
+    });
+  }
+
   /** OCR del documento "Gastos" de Kepler (XA1001, imagen/PDF) → auto-rellena la captura. Preview. */
   async runOcr(dataUri: string): Promise<KeplerGastosFields & { ocr_status: string }> {
     this.tenantCtx.requireTenantId();
@@ -138,14 +183,15 @@ export class ExpenseComprobacionesService {
    * `analytics.expense_documents`. Devuelve folio + proveedor + importe + fecha + la
    * solicitud ligada (XA1501) para auto-rellenar la captura.
    */
-  async searchGastos(search: string, limit = 20) {
+  async searchGastos(search: string, limit = 20, user?: ScopeUser) {
     const tenantId = this.tenantCtx.requireTenantId();
     const term = (search || '').trim();
     if (term.length < 2) return [];
     const lim = Math.min(50, Math.max(1, Number(limit) || 20));
     return this.tk.run(async (trx) => {
+      const keys = await this.allowedAreaKeys(trx, user);
       const s = `%${term}%`;
-      const rows = await trx('analytics.expense_documents')
+      const q = trx('analytics.expense_documents')
         .where('tenant_id', tenantId)
         .where('doc_tipo', 'XA1001')
         .andWhere((w: any) => w.whereILike('doc_folio', s).orWhereILike('beneficiario', s))
@@ -154,6 +200,8 @@ export class ExpenseComprobacionesService {
         .select('sucursal', 'doc_folio AS folio_gasto', 'fecha',
           'beneficiario AS proveedor', trx.raw('importe::numeric AS importe'),
           'solicitud_folio', 'area');
+      this.scopeByArea(q, 'area', keys);   // el buscador no expone gastos de otras áreas
+      const rows = await q;
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
     });
   }
@@ -204,6 +252,13 @@ export class ExpenseComprobacionesService {
       const departamento = gasto.area || req(dto.departamento) || 'General';
       const solicitante = gasto.usuario || req(dto.solicitante) || actor || 'sistema';
 
+      // Normaliza el área a la dimensión canónica (upsert idempotente por norm_key) → area_id.
+      const [area] = await trx('finance.expense_areas')
+        .insert({ tenant_id: trx.raw('public.current_tenant_id()'), name: departamento })
+        .onConflict(['tenant_id', 'norm_key']).merge({ updated_at: trx.fn.now() })
+        .returning('id');
+      const areaId = area?.id || null;
+
       // Validación por vision: cuadra → validada (por Claude Vision); si no → revisión.
       const legible = dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null);
       const { match, usado, diff } = this.montoCuadra(importe, dto.monto_ocr ?? null, dto.subtotal_ocr ?? null);
@@ -217,7 +272,7 @@ export class ExpenseComprobacionesService {
       const [row] = await trx('finance.expense_comprobaciones')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
-          solicitante, departamento, departamento_code: null,
+          solicitante, departamento, departamento_code: null, area_id: areaId,
           sucursal,
           folio_gasto: folioGasto,
           folio_solicitud: gasto.solicitud_folio || null,
@@ -241,10 +296,11 @@ export class ExpenseComprobacionesService {
   }
 
   /** Bandeja + KPIs por estado. */
-  async list(q: ListComprobacionesQuery) {
+  async list(q: ListComprobacionesQuery, user?: ScopeUser) {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     return this.tk.run(async (trx) => {
+      const keys = await this.allowedAreaKeys(trx, user);
       const b = trx('finance.expense_comprobaciones')
         .select('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'folio_gasto', 'folio_solicitud', 'fecha_comprobacion', 'folio_comprobacion', 'proveedor',
@@ -252,6 +308,7 @@ export class ExpenseComprobacionesService {
           'files', 'comentarios', 'status',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
+      this.scopeByArea(b, 'departamento', keys);
       if (q.status) b.where('status', q.status);
       if (q.folio_gasto) b.where('folio_gasto', q.folio_gasto.trim());
       if (q.from) b.where('created_at', '>=', q.from);
@@ -266,7 +323,9 @@ export class ExpenseComprobacionesService {
         files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
       })));
 
-      const agg = await trx('finance.expense_comprobaciones').groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
+      const aggQ = trx('finance.expense_comprobaciones').groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
+      this.scopeByArea(aggQ, 'departamento', keys);
+      const agg = await aggQ;
       const by = Object.fromEntries(agg.map((r: any) => [r.status, Number(r.n)]));
       return {
         kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
@@ -281,10 +340,11 @@ export class ExpenseComprobacionesService {
    * folio). Es la vista "manejada por gasto" (como Cobranza/Pagos/Entradas): el capturista
    * ve qué gastos faltan de comprobar. No escribe a Kepler.
    */
-  async listGastos(q: ListGastosQuery) {
+  async listGastos(q: ListGastosQuery, user?: ScopeUser) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 500));
     return this.tk.run(async (trx) => {
+      const keys = await this.allowedAreaKeys(trx, user);
       const comp = trx('finance.expense_comprobaciones')
         .select('folio_gasto')
         .count('* as n')
@@ -316,6 +376,7 @@ export class ExpenseComprobacionesService {
         .orderBy('g.doc_folio', 'desc')
         .limit(limit);
 
+      this.scopeByArea(b, 'g.area', keys);
       if (q.from) b.where('g.fecha', '>=', q.from);
       if (q.to) b.where('g.fecha', '<=', q.to);
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
@@ -336,6 +397,7 @@ export class ExpenseComprobacionesService {
       const kpiBase = trx('analytics.expense_documents as g')
         .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')
         .where('g.tenant_id', tenantId).where('g.doc_tipo', 'XA1001');
+      this.scopeByArea(kpiBase, 'g.area', keys);
       if (q.from) kpiBase.where('g.fecha', '>=', q.from);
       if (q.to) kpiBase.where('g.fecha', '<=', q.to);
       const [k] = await kpiBase.select(

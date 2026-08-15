@@ -23,6 +23,7 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { ToastModule } from 'primeng/toast';
 import { MessageService, ConfirmationService } from 'primeng/api';
@@ -43,6 +44,7 @@ import {
   UserUpdatePayload,
   SupervisorOption as SupervisorRow,
   ZoneOption as ZoneRow,
+  FinanceAreaOption,
 } from './users.service';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -77,6 +79,7 @@ interface ZoneOption {
     DialogModule,
     InputTextModule,
     SelectModule,
+    MultiSelectModule,
     ToggleSwitchModule,
     ToastModule,
     ConfirmDialogModule,
@@ -190,6 +193,8 @@ export class AdminUsersComponent implements OnInit {
   roles = signal<RoleOption[]>([]);
   supervisors = signal<SupervisorOption[]>([]);
   zones = signal<ZoneOption[]>([]);
+  // GX.8 — áreas de gasto visibles asignables al usuario (dimensión canónica).
+  financeAreas = signal<FinanceAreaOption[]>([]);
   // Opciones de sucursal para el monitor Tienda (null = ve todas / rol global).
   readonly branchOptions = STORE_BRANCHES.map((b) => ({ label: `${b.code} · ${b.name}`, value: b.code }));
 
@@ -211,6 +216,7 @@ export class AdminUsersComponent implements OnInit {
       role_name: ['', Validators.required],
       supervisor_id: [null],
       warehouse_code: [null],
+      finance_expense_area_ids: [[] as string[]],
       activo: [true],
     });
 
@@ -263,6 +269,15 @@ export class AdminUsersComponent implements OnInit {
     this.loadRoles();
     this.loadSupervisors();
     this.loadZones();
+    this.loadFinanceAreas();
+  }
+
+  /** Catálogo de áreas de gasto (GX.8) para el selector de "áreas visibles". Best-effort. */
+  loadFinanceAreas(): void {
+    this.usersService
+      .financeAreas()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (data) => this.financeAreas.set(data || []), error: () => this.financeAreas.set([]) });
   }
 
   onSearchChange(value: string): void {
@@ -331,7 +346,7 @@ export class AdminUsersComponent implements OnInit {
   openNewDialog(): void {
     this.isEditing.set(false);
     this.currentUserId.set(null);
-    this.userForm.reset({ activo: true, role_name: '' });
+    this.userForm.reset({ activo: true, role_name: '', finance_expense_area_ids: [] });
     this.userForm.get('username')?.enable();
     this.userForm
       .get('password')
@@ -358,6 +373,7 @@ export class AdminUsersComponent implements OnInit {
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       warehouse_code: user.warehouse_code ?? null,
+      finance_expense_area_ids: user.finance_expense_area_ids ?? [],
       activo: user.activo,
     });
 

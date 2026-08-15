@@ -20,6 +20,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, ValidatePhotoResult } from '../comprobacion-gastos.service';
 
@@ -47,6 +48,9 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
         <div class="surf-page-head-text">
           <h1>Comprobación de gastos</h1>
           <p class="surf-page-sub">Los gastos ejercidos en Kepler (XA1001) y su comprobación adjunta · pendiente → recibida → validada/rechazada</p>
+          @if (!verAll()) {
+            <span class="cg-scope" title="Solo ves los gastos de las áreas que se te asignaron. Pide 'Ver gastos de todos los departamentos' para ver todo."><i class="pi pi-filter" aria-hidden="true"></i> Viendo solo tus áreas asignadas</span>
+          }
         </div>
         <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva comprobación</span></button>
       </header>
@@ -212,6 +216,7 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
   `,
   styles: [`
     :host { display: block; }
+    .cg-scope { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .74rem; color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .15rem .5rem; }
     .cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
     .cp-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cp-field { display: flex; flex-direction: column; gap: .3rem; }
@@ -291,6 +296,7 @@ export class FinanzasComprobacionGastosComponent {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(ComprobacionGastosService);
   private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -317,7 +323,10 @@ export class FinanzasComprobacionGastosComponent {
   readonly statusSel = signal<string>('pendiente');
   readonly departamentos = signal<Departamento[]>([]);
   readonly sucursalDerivada = signal<string>('');
-  readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
+  // Comprobar (validar/rechazar) = permiso propio FINANCE_EXPENSES_COMPROBAR (admins por manage:all).
+  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true);
+  // ¿Ve todos los departamentos, o solo sus áreas asignadas? (para el aviso de alcance)
+  readonly verAll = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true);
 
   readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
   search = '';
