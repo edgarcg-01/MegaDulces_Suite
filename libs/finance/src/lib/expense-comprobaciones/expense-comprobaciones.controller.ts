@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { ExpenseComprobacionesService, CreateComprobacionDto, ListComprobacionesQuery, ListGastosQuery } from './expense-comprobaciones.service';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
+import { ExpenseComprobacionesService, CreateComprobacionDto, ListComprobacionesQuery, ListGastosQuery, ScopeUser } from './expense-comprobaciones.service';
 
-interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
+const scope = (req?: AuthedRequest): ScopeUser => ({ sub: req?.user?.sub, role_name: req?.user?.role_name, permissions: req?.user?.permissions });
 
 /**
  * GX.8 — Comprobación de Gastos. Captura la comprobación de un gasto (ligada al
@@ -22,6 +23,7 @@ export class ExpenseComprobacionesController {
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Bandeja de comprobaciones + KPIs por estado.' })
   list(
+    @Req() req: AuthedRequest,
     @Query('status') status?: string,
     @Query('folio_gasto') folio_gasto?: string,
     @Query('search') search?: string,
@@ -30,20 +32,28 @@ export class ExpenseComprobacionesController {
     @Query('limit') limit?: string,
   ) {
     const q: ListComprobacionesQuery = { status, folio_gasto, search, from, to, limit: limit ? Number(limit) : undefined };
-    return this.svc.list(q);
+    return this.svc.list(q, scope(req));
+  }
+
+  @Get('areas')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Catálogo canónico de áreas de gasto (dimensión) para el selector de áreas visibles por usuario.' })
+  areas() {
+    return this.svc.listAreas();
   }
 
   @Get('gastos')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Autocomplete del Folio del Gasto (Kepler XA1001) para la captura.' })
-  gastos(@Query('search') search?: string, @Query('limit') limit?: string) {
-    return this.svc.searchGastos(search || '', limit ? Number(limit) : 20);
+  gastos(@Req() req: AuthedRequest, @Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.svc.searchGastos(search || '', limit ? Number(limit) : 20, scope(req));
   }
 
   @Get('gastos-list')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Lista los gastos de Kepler (XA1001) + estado de su comprobación + KPIs (vista por gasto).' })
   gastosList(
+    @Req() req: AuthedRequest,
     @Query('estado') estado?: string,
     @Query('search') search?: string,
     @Query('from') from?: string,
@@ -51,7 +61,7 @@ export class ExpenseComprobacionesController {
     @Query('limit') limit?: string,
   ) {
     const q: ListGastosQuery = { estado, search, from, to, limit: limit ? Number(limit) : undefined };
-    return this.svc.listGastos(q);
+    return this.svc.listGastos(q, scope(req));
   }
 
   @Get('status-by-gasto')
@@ -97,14 +107,14 @@ export class ExpenseComprobacionesController {
   }
 
   @Post(':id/validate')
-  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Valida la comprobación. Auditado.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/reject')
-  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Rechaza la comprobación (con motivo). Auditado.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);

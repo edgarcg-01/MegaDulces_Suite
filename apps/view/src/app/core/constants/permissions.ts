@@ -177,6 +177,10 @@ export enum Permission {
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": el pool del área de Finanzas.
   FINANCE_RECON_RECIBIR = 'FINANCE_RECON_RECIBIR',
+  // GX.8 — ver gastos de TODOS los departamentos (sin él: solo sus áreas asignadas).
+  FINANCE_EXPENSES_VER_ALL = 'FINANCE_EXPENSES_VER_ALL',
+  // GX.8 — comprobar (validar/rechazar) un gasto (separado de la captura).
+  FINANCE_EXPENSES_COMPROBAR = 'FINANCE_EXPENSES_COMPROBAR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',

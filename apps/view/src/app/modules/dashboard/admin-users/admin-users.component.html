@@ -289,6 +289,15 @@
                    optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
          <small class="text-content-dim text-[11px]">Vacío = ve todas las sucursales. Con sucursal = solo ve la venta en vivo de esa tienda.</small>
        </div>
+
+       <div class="flex flex-col gap-2">
+         <label for="finance_expense_area_ids" class="text-label text-content-muted">Áreas de gasto visibles (Comprobación de gastos)</label>
+         <p-multiselect id="finance_expense_area_ids" [options]="financeAreas()" formControlName="finance_expense_area_ids"
+                        placeholder="Ninguna (salvo permiso Ver todos)" [showClear]="true" [filter]="true"
+                        optionLabel="name" optionValue="id" [maxSelectedLabels]="3" selectedItemsLabel="{0} áreas"
+                        appendTo="body" class="w-full" styleClass="w-full"></p-multiselect>
+         <small class="text-content-dim text-[11px]">Gastos de qué departamentos ve este usuario en /finanzas/comprobacion-gastos. Vacío = ninguna, salvo que el rol tenga el permiso "Ver gastos de todos los departamentos".</small>
+       </div>
     </div>
 
     <div class="flex flex-col gap-2">

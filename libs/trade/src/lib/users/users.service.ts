@@ -186,6 +186,7 @@ export class UsersService {
         'u.activo',
         'u.supervisor_id',
         'u.warehouse_code',
+        'u.finance_expense_area_ids',
         'u.created_at',
         'u.last_login_at',
         'u.last_login_ip',
@@ -232,6 +233,7 @@ export class UsersService {
         'u.supervisor_id',
         'u.supervisor_id as parent_supervisor',
         'u.warehouse_code',
+        'u.finance_expense_area_ids',
         'u.created_at',
       )
       .first();

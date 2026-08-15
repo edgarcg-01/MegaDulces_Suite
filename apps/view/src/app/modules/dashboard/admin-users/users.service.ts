@@ -21,6 +21,15 @@ export interface User {
   last_login_at?: string | null;
   /** IP del último login (truncada a 45 chars). */
   last_login_ip?: string | null;
+  /** Áreas de gasto visibles (GX.8). Vacío/NULL = ninguna salvo FINANCE_EXPENSES_VER_ALL. */
+  finance_expense_area_ids?: string[] | null;
+}
+
+/** Área de gasto (dimensión canónica finance.expense_areas) para el selector. */
+export interface FinanceAreaOption {
+  id: string;
+  name: string;
+  sucursal?: string | null;
 }
 
 export interface UserCreatePayload {
@@ -44,6 +53,7 @@ export interface UserUpdatePayload {
   supervisor_id?: string | null;
   activo?: boolean;
   warehouse_code?: string | null;
+  finance_expense_area_ids?: string[] | null;
 }
 
 export interface SupervisorOption {
@@ -82,6 +92,11 @@ export class UsersService {
 
   update(id: string, user: UserUpdatePayload): Observable<User> {
     return this.http.put<User>(`${this.apiUrl}/${id}`, user);
+  }
+
+  /** Catálogo canónico de áreas de gasto (GX.8) para asignar "áreas visibles" al usuario. */
+  financeAreas(): Observable<FinanceAreaOption[]> {
+    return this.http.get<FinanceAreaOption[]>(`${environment.apiUrl}/finance/expenses/comprobaciones/areas`);
   }
 
   remove(id: string): Observable<{ message: string; orphans_cleared: number }> {

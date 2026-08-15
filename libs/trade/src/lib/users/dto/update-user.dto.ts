@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsOptional,
   IsString,
@@ -63,4 +64,10 @@ export class UpdateUserDto {
   @IsString()
   @Matches(/^[0-9]{2}$/, { message: "warehouse_code debe ser 2 dígitos ('00'..'05')" })
   warehouse_code?: string;
+
+  @ApiProperty({ description: 'IDs de áreas de gasto que el usuario puede ver (finance.expense_areas). Vacío = ninguna salvo que tenga FINANCE_EXPENSES_VER_ALL.', required: false, type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  finance_expense_area_ids?: string[];
 }
