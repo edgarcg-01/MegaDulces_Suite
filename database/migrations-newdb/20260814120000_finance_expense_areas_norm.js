@@ -76,14 +76,48 @@ exports.up = async function (knex) {
   }
 
   // 4) Mapeo usuario → áreas visibles.
-  if (!(await knex.schema.withSchema('public').hasColumn('users', 'finance_expense_area_ids'))) {
-    await knex.raw(`ALTER TABLE public.users ADD COLUMN finance_expense_area_ids uuid[]`);
+  //    public.users es una VISTA passthrough sobre identity.users → la columna va en la
+  //    TABLA real + se recrea la vista para exponerla (patrón feedback_fieldops_passthrough_views;
+  //    ver 20260730130000_users_view_warehouse_code). ALTER directo sobre la vista falla en prod.
+  if (!(await knex.schema.withSchema('identity').hasColumn('users', 'finance_expense_area_ids'))) {
+    await knex.raw(`ALTER TABLE identity.users ADD COLUMN finance_expense_area_ids uuid[]`);
+  }
+  const exposed = await knex.raw(
+    `SELECT 1 FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname='public' AND c.relname='users'
+        AND a.attname='finance_expense_area_ids' AND a.attnum>0 AND NOT a.attisdropped`,
+  );
+  if (!exposed.rows.length) {
+    await knex.raw(`
+      CREATE OR REPLACE VIEW public.users AS
+      SELECT
+        id, tenant_id, username, password_hash, nombre, zona_id, role_name,
+        supervisor_id, activo, meta_puntos, created_at, created_by, updated_at,
+        updated_by, deleted_at, deleted_by, customer_id, last_login_at,
+        last_login_ip, last_login_user_agent, warehouse_code, finance_expense_area_ids
+      FROM identity.users
+    `);
   }
 };
 
 exports.down = async function (knex) {
-  if (await knex.schema.withSchema('public').hasColumn('users', 'finance_expense_area_ids')) {
-    await knex.raw(`ALTER TABLE public.users DROP COLUMN finance_expense_area_ids`);
+  // Quitar la exposición en la vista (CREATE OR REPLACE no puede quitar columnas → DROP+CREATE),
+  // luego la columna de la tabla real. Re-grant defensivo (DROP+CREATE pierde grants).
+  await knex.raw(`DROP VIEW IF EXISTS public.users`);
+  await knex.raw(`
+    CREATE VIEW public.users AS
+    SELECT
+      id, tenant_id, username, password_hash, nombre, zona_id, role_name,
+      supervisor_id, activo, meta_puntos, created_at, created_by, updated_at,
+      updated_by, deleted_at, deleted_by, customer_id, last_login_at,
+      last_login_ip, last_login_user_agent, warehouse_code
+    FROM identity.users
+  `);
+  await knex.raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO app_runtime`);
+  if (await knex.schema.withSchema('identity').hasColumn('users', 'finance_expense_area_ids')) {
+    await knex.raw(`ALTER TABLE identity.users DROP COLUMN finance_expense_area_ids`);
   }
   if (await knex.schema.withSchema('finance').hasColumn('expense_comprobaciones', 'area_id')) {
     await knex.raw(`ALTER TABLE finance.expense_comprobaciones DROP COLUMN area_id`);
