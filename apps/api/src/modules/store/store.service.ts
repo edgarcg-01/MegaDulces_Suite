@@ -102,43 +102,50 @@ export class StoreService {
     if (!folio) throw new BadRequestException('folio requerido');
     if (!warehouseCode) throw new BadRequestException('warehouse (sucursal) requerido');
 
-    return this.knex.transaction(async (trx) => {
-      // set_config admite bind param (SET LOCAL x = ? NO — Postgres rechaza params en SET).
-      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
+    try {
+      return await this.knex.transaction(async (trx) => {
+        // set_config admite bind param (SET LOCAL x = ? NO — Postgres rechaza params en SET).
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
 
-      // Allowlist: solo sucursales habilitadas para domicilio (piloto 01/02/03).
-      const wh = await trx('logistics.home_delivery_warehouses')
-        .where({ tenant_id: TENANT, warehouse_code: warehouseCode, enabled: true })
-        .first();
-      if (!wh)
-        throw new ForbiddenException(
-          `La sucursal ${warehouseCode} no está habilitada para entrega a domicilio.`,
-        );
+        // Allowlist: solo sucursales habilitadas para domicilio (piloto 01/02/03).
+        const wh = await trx('logistics.home_delivery_warehouses')
+          .where({ tenant_id: TENANT, warehouse_code: warehouseCode, enabled: true })
+          .first();
+        if (!wh)
+          throw new ForbiddenException(
+            `La sucursal ${warehouseCode} no está habilitada para entrega a domicilio.`,
+          );
 
-      let q = trx('analytics.store_live_tickets')
-        .where({ tenant_id: TENANT, warehouse_code: warehouseCode, folio });
-      if (serie) q = q.andWhere('serie', serie);
-      const t = await q.orderBy('ticket_ts', 'desc').first();
-      if (!t)
-        throw new NotFoundException(
-          `Ticket ${warehouseCode}/${serie || '*'}/${folio} no encontrado en la ventana de la tienda.`,
-        );
+        let q = trx('analytics.store_live_tickets')
+          .where({ tenant_id: TENANT, warehouse_code: warehouseCode, folio });
+        if (serie) q = q.andWhere('serie', serie);
+        const t = await q.orderBy('ticket_ts', 'desc').first();
+        if (!t)
+          throw new NotFoundException(
+            `Ticket ${warehouseCode}/${serie || '*'}/${folio} no encontrado en la ventana de la tienda.`,
+          );
 
-      const items = typeof t.items === 'string' ? JSON.parse(t.items) : t.items || [];
-      const alreadyPaid = String(t.forma_pago || '').toUpperCase() === 'CONTADO';
-      return {
-        warehouse_code: t.warehouse_code,
-        warehouse_name: t.warehouse_name,
-        serie: t.serie,
-        folio: t.folio,
-        ticket_ts: t.ticket_ts,
-        total: Number(t.total) || 0,
-        forma_pago: t.forma_pago,
-        items,
-        already_paid: alreadyPaid, // CONTADO = pagado en caja → repartidor solo entrega
-        collect_on_delivery_suggested: !alreadyPaid, // default del flag COD en la captura
-      };
-    });
+        const items = typeof t.items === 'string' ? JSON.parse(t.items) : t.items || [];
+        const alreadyPaid = String(t.forma_pago || '').toUpperCase() === 'CONTADO';
+        return {
+          warehouse_code: t.warehouse_code,
+          warehouse_name: t.warehouse_name,
+          serie: t.serie,
+          folio: t.folio,
+          ticket_ts: t.ticket_ts,
+          total: Number(t.total) || 0,
+          forma_pago: t.forma_pago,
+          items,
+          already_paid: alreadyPaid, // CONTADO = pagado en caja → repartidor solo entrega
+          collect_on_delivery_suggested: !alreadyPaid, // default del flag COD en la captura
+        };
+      });
+    } catch (error) {
+      // Knex ya hizo rollback automático de la transacción al propagarse la
+      // excepción fuera del callback. Re-lanzamos tal cual para que el filtro
+      // de excepciones de Nest la traduzca al status HTTP correcto.
+      throw error;
+    }
   }
 
   /**
