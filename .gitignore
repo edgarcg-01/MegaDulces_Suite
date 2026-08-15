@@ -83,6 +83,9 @@ database/importers/kepler/daemon/
 database/importers/wincaja/sync.local.env
 database/importers/wincaja/logs/
 
+# Orquestador de feeds (pg-boss) — env real con creds prod + cola .245. NUNCA versionar.
+database/importers/orchestrator/orchestrator.local.env
+
 # ── Seguridad: scripts de debug/scratch que históricamente hardcodearon
 #    credenciales de prod. NUNCA versionar. Usar env (.env) para conexiones.
 .claude/settings.local.json
