@@ -138,6 +138,28 @@ export class CajaGeneralService {
       const arqByDay = new Map<string, { efectivo: number; n: number }>();
       for (const a of arq as any[]) arqByDay.set(String(a.arqueo_date).slice(0, 10), { efectivo: n(a.efectivo), n: n(a.n) });
 
+      // CG.8 — Ingreso por ORIGEN (de dónde viene el efectivo): sucursal (POS) / ruta / otros.
+      // Heurística sobre cuenta + nombre_cliente (texto libre). 'otros' = directivos/nómina/
+      // pagarés/cambios/cartón/préstamos (no venta de piso). Es informativo, no un cuadre.
+      const orig = await trx('analytics.caja_general_movimientos')
+        .where('tenant_id', tenantId).where('tipo_dto', 1).whereBetween('fecha', [from, to])
+        .select(trx.raw(`CASE
+          WHEN cuenta IN ('41000010','41000006','41000008','41000011')
+               OR nombre_cliente ILIKE '%prestamo%' OR nombre_cliente ILIKE '%pagare%'
+               OR nombre_cliente ILIKE '%nomina%' OR nombre_cliente ILIKE '%directivo%' THEN 'otros'
+          WHEN nombre_cliente ILIKE '%suc%' THEN 'sucursal'
+          ELSE 'ruta' END AS origen`),
+          trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(ingreso)::numeric AS monto'))
+        .groupByRaw('1');
+      const og: Record<string, { n: number; monto: number }> = { sucursal: { n: 0, monto: 0 }, ruta: { n: 0, monto: 0 }, otros: { n: 0, monto: 0 } };
+      for (const r of orig as any[]) if (og[r.origen]) og[r.origen] = { n: n(r.n), monto: r2(n(r.monto)) };
+
+      // Testigo POS: efectivo contado en los cortes de caja (Kepler) del periodo. La parte
+      // 'sucursal' del ingreso DEBERÍA acercarse a esto (ambos efectivo) — Δ = timing/merma/no-POS.
+      const pos: any = await trx('analytics.cash_cuts').where('tenant_id', tenantId)
+        .whereBetween('business_date', [from, to])
+        .select(trx.raw('COALESCE(SUM(efectivo_contado),0)::numeric AS efectivo'), trx.raw('COUNT(*)::int AS n')).first();
+
       const por_dia = (dias as any[]).map((d) => {
         const key = String(d.fecha).slice(0, 10);
         const a = arqByDay.get(key);
@@ -161,6 +183,8 @@ export class CajaGeneralService {
           ingreso, gasto, deposito, remisiones_gastos: r2(gasto - deposito), neto,
           cuadra, dias: por_dia.length,
         },
+        ingreso_origen: og,
+        pos_efectivo: { efectivo: r2(n(pos?.efectivo)), n: n(pos?.n) },
         por_dia,
       };
     });
