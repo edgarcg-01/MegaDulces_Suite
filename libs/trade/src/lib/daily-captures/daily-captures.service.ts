@@ -426,45 +426,65 @@ export class DailyCapturesService {
       const id = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
       if (id && typeof id === 'string') incomingIds.add(id);
     }
+    // Aislamiento de errores (25P02): estas queries corren DENTRO de la trx
+    // principal de dbWork. Un error acá (p.ej. UUID malformado tipo "{}" o un
+    // problema transitorio de conexión) aborta la transacción entera en
+    // Postgres y hace fallar en cascada el INSERT de más abajo con "current
+    // transaction is aborted". Como esta validación es best-effort (solo
+    // limpia IDs basura para que el backfill por nombre los intente resolver),
+    // preferimos degradar (dejar los IDs tal cual vinieron) antes que abortar
+    // la trx completa.
     if (incomingIds.size > 0) {
-      const validRows = await this.knex('catalogs')
-        .whereIn('id', Array.from(incomingIds))
-        .select('id');
-      const validIds = new Set(validRows.map((r) => r.id));
-      for (const ex of processedExhibiciones) {
-        const id = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
-        if (id && !validIds.has(id)) {
-          this.logger.warn(
-            `nivelEjecucionId "${id}" no existe en catalogs — limpiando para que backfill por nombre intente resolverlo.`,
-          );
-          ex.nivelEjecucionId = undefined;
-          ex.nivel_ejecucion_id = undefined;
+      try {
+        const validRows = await this.knex('catalogs')
+          .whereIn('id', Array.from(incomingIds))
+          .select('id');
+        const validIds = new Set(validRows.map((r) => r.id));
+        for (const ex of processedExhibiciones) {
+          const id = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+          if (id && !validIds.has(id)) {
+            this.logger.warn(
+              `nivelEjecucionId "${id}" no existe en catalogs — limpiando para que backfill por nombre intente resolverlo.`,
+            );
+            ex.nivelEjecucionId = undefined;
+            ex.nivel_ejecucion_id = undefined;
+          }
         }
+      } catch (error: any) {
+        this.logger.warn(
+          `Fallo validando nivelEjecucionId contra catalogs; se continúa sin limpiar IDs. ${error?.message}`,
+        );
       }
     }
 
     if (nivelesFaltantes.size > 0) {
-      const valores = Array.from(nivelesFaltantes);
-      const nivelRows = await this.knex('catalogs')
-        .where({ catalog_id: 'niveles' })
-        .whereIn(this.knex.raw('LOWER(value)') as any, valores)
-        .select('id', 'value');
+      try {
+        const valores = Array.from(nivelesFaltantes);
+        const nivelRows = await this.knex('catalogs')
+          .where({ catalog_id: 'niveles' })
+          .whereIn(this.knex.raw('LOWER(value)') as any, valores)
+          .select('id', 'value');
 
-      const nivelByName = new Map<string, string>();
-      for (const row of nivelRows) {
-        nivelByName.set(String(row.value).toLowerCase(), row.id);
-      }
+        const nivelByName = new Map<string, string>();
+        for (const row of nivelRows) {
+          nivelByName.set(String(row.value).toLowerCase(), row.id);
+        }
 
-      for (const ex of processedExhibiciones) {
-        if (!ex.nivelEjecucionId && !ex.nivel_ejecucion_id && ex.nivelEjecucion) {
-          const id = nivelByName.get(String(ex.nivelEjecucion).toLowerCase());
-          if (id) {
-            ex.nivelEjecucionId = id;
-            this.logger.debug(
-              `Backfill nivelEjecucionId "${ex.nivelEjecucion}" → ${id}`,
-            );
+        for (const ex of processedExhibiciones) {
+          if (!ex.nivelEjecucionId && !ex.nivel_ejecucion_id && ex.nivelEjecucion) {
+            const id = nivelByName.get(String(ex.nivelEjecucion).toLowerCase());
+            if (id) {
+              ex.nivelEjecucionId = id;
+              this.logger.debug(
+                `Backfill nivelEjecucionId "${ex.nivelEjecucion}" → ${id}`,
+              );
+            }
           }
         }
+      } catch (error: any) {
+        this.logger.warn(
+          `Fallo en backfill de nivelEjecucionId por nombre; se continúa sin backfill. ${error?.message}`,
+        );
       }
     }
 
@@ -473,7 +493,22 @@ export class DailyCapturesService {
     const skipScoring = dto.skip_scoring === true;
 
     // Versión vigente del scoring (cacheada 5min para ahorrar la query en hot path).
-    const activeVersion = skipScoring ? null : await this.getActiveVersionCached();
+    // Aislamiento de errores (25P02): esta llamada corre dentro de la trx
+    // principal de dbWork. Si getActiveVersionCached() falla (query a la BD
+    // o llamada al scoringV2Service), no debe abortar la transacción — se
+    // degrada a "sin scoring" (configVersionId undefined) y la captura se
+    // guarda igual con el score del frontend.
+    let activeVersion: any = null;
+    if (!skipScoring) {
+      try {
+        activeVersion = await this.getActiveVersionCached();
+      } catch (error: any) {
+        this.logger.warn(
+          `Fallo obteniendo la versión activa de scoring; se guarda la captura sin score backend. ${error?.message}`,
+        );
+        activeVersion = null;
+      }
+    }
     const configVersionId = activeVersion?.id;
     const scoreMaximoVersion = Number(activeVersion?.score_maximo) || 0;
 
@@ -527,8 +562,19 @@ export class DailyCapturesService {
          } else {
            this.logger.warn('Ninguna exhibición con nivelEjecucionId válido; usando score frontend');
          }
-       } catch (error) {
-         this.logger.warn(`Fallo al recalcular scores; usando frontend. ${error.message}`);
+       } catch (error: any) {
+         // Aislamiento de errores (25P02): calculateVisitScore() hace queries
+         // a `catalogs` (puede fallar con UUID malformado, p.ej. "{}") y a
+         // scoring_weights DENTRO de la trx principal de dbWork. Cualquier
+         // error acá — sea del propio scoringV2Service o de la conexión —
+         // NO debe propagarse fuera de este catch, o aborta la transacción
+         // completa (25P02 "current transaction is aborted") y hace fallar
+         // el INSERT de la captura más abajo. `error?.message ?? String(error)`
+         // cubre también el caso de que se lance algo que no sea un Error.
+         this.logger.warn(
+           `Fallo al recalcular scores; usando frontend. ${error?.message ?? String(error)}`,
+         );
+         puntosBackendTotales = frontendTotal;
        }
     }
 
@@ -598,10 +644,20 @@ export class DailyCapturesService {
     // RLS, por eso filtramos tenant_id explícito.
     let resolvedStoreId: string | null = dto.store_id || null;
     if (dto.customer_id) {
-      const cust = await this.knex('commercial.customers')
-        .where({ id: dto.customer_id, tenant_id: tenantId })
-        .first('store_id');
-      if (cust?.store_id) resolvedStoreId = cust.store_id;
+      // Aislamiento de errores (25P02): este lookup corre dentro de la trx
+      // principal. Si falla (customer_id malformado, columna faltante, etc.)
+      // NO debe abortar la transacción — degradamos a lo que vino en
+      // dto.store_id (o null) y seguimos con la captura.
+      try {
+        const cust = await this.knex('commercial.customers')
+          .where({ id: dto.customer_id, tenant_id: tenantId })
+          .first('store_id');
+        if (cust?.store_id) resolvedStoreId = cust.store_id;
+      } catch (error: any) {
+        this.logger.warn(
+          `No se pudo resolver store_id desde customer_id=${dto.customer_id}: ${error?.message}. Usando store_id=${resolvedStoreId ?? 'null'} tal cual.`,
+        );
+      }
     }
 
     // Guard anti-FK (offline-first): si el store_id no existe para el tenant
