@@ -79,26 +79,40 @@ export class AuthMtService {
     // 2. Buscar usuario + role_permissions + zona CON tenant context (RLS aplica).
     // role_permissions y zones son tenant-scoped en la nueva DB, así que se
     // leen en la misma trx para que RLS no oculte las filas.
-    const { user, rolePermissions, zonaName } = await this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
-      const u = await trx('users')
-        .where({ username: dto.username.toLowerCase().trim(), activo: true })
-        .first();
-      if (!u) return { user: null, rolePermissions: null, zonaName: null };
-      // Lookup case-insensitive: users.role_name puede diferir en mayúsculas de
-      // role_permissions.role_name (data legacy, p.ej. user 'auxiliar_x' vs fila
-      // 'Auxiliar_x'). Con match exacto el rol no se encontraba → JWT con 0
-      // permisos → el usuario quedaba rebotado a /dashboard/captures.
-      const rp = await trx('role_permissions')
-        .whereRaw('LOWER(role_name) = ?', [String(u.role_name ?? '').toLowerCase()])
-        .first();
-      let zn: string | null = null;
-      if (u.zona_id) {
-        const z = await trx('zones').where({ id: u.zona_id }).first();
-        zn = z?.name ?? null;
-      }
-      return { user: u, rolePermissions: rp, zonaName: zn };
-    });
+    // Nota: NO se lanzan excepciones dentro del callback de la transacción —
+    // el caso "usuario no encontrado" se resuelve devolviendo `user: null` y
+    // se lanza la excepción DESPUÉS de que la transacción haya terminado
+    // limpiamente. Esto evita dejar la conexión en estado abortado (25P02)
+    // si el resto del flujo intentara reutilizar la trx tras un throw.
+    let user: any;
+    let rolePermissions: any;
+    let zonaName: string | null;
+    try {
+      ({ user, rolePermissions, zonaName } = await this.knex.transaction(async (trx) => {
+        await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
+        const u = await trx('users')
+          .where({ username: dto.username.toLowerCase().trim(), activo: true })
+          .first();
+        if (!u) return { user: null, rolePermissions: null, zonaName: null };
+        // Lookup case-insensitive: users.role_name puede diferir en mayúsculas de
+        // role_permissions.role_name (data legacy, p.ej. user 'auxiliar_x' vs fila
+        // 'Auxiliar_x'). Con match exacto el rol no se encontraba → JWT con 0
+        // permisos → el usuario quedaba rebotado a /dashboard/captures.
+        const rp = await trx('role_permissions')
+          .whereRaw('LOWER(role_name) = ?', [String(u.role_name ?? '').toLowerCase()])
+          .first();
+        let zn: string | null = null;
+        if (u.zona_id) {
+          const z = await trx('zones').where({ id: u.zona_id }).first();
+          zn = z?.name ?? null;
+        }
+        return { user: u, rolePermissions: rp, zonaName: zn };
+      }));
+    } catch (error) {
+      // Rollback ya ejecutado por Knex al propagarse el error. Re-lanzamos
+      // tal cual para que no se asuma una trx activa más adelante.
+      throw error;
+    }
 
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
