@@ -39,19 +39,10 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const FULL = process.argv.includes('--full');
 const SNAP_PATH = process.env.STOCK_SNAPSHOT_PATH || path.join(__dirname, '.stock-live-snapshot.json');
-const MAP = process.env.STOCK_BRANCH_MAP
-  ? JSON.parse(process.env.STOCK_BRANCH_MAP)
-  : [
-      // RA-PRO.24 — el CEDIS '00' YA NO se surte de Kepler md_00 (cargaba pseudo-SKUs
-      // contables 00001/00022 que inflaban el hub). Su existencia física viene de Wincaja
-      // Irapuato vía import-cedis-stock-wincaja.js. NO reactivar '00' aquí sin coordinar.
-      // { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). CEDIS '00' NO va aquí:
+// su existencia viene de Wincaja Irapuato (import-cedis-stock-wincaja), no de Kepler md_00.
+const { stockMap } = require('../lib/kepler-branches');
+const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap();
 
 function loadSnap() {
   try { return JSON.parse(fs.readFileSync(SNAP_PATH, 'utf8')); } catch { return {}; }
