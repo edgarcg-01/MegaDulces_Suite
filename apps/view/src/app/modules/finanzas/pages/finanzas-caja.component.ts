@@ -15,9 +15,12 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type View = 'general' | 'cuadre' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+interface OrigenCell { n: number; monto: number }
 interface CajaCuadre {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; deposito: number; remisiones_gastos: number; neto: number; cuadra: boolean; dias: number };
+  ingreso_origen: { sucursal: OrigenCell; ruta: OrigenCell; otros: OrigenCell };
+  pos_efectivo: { efectivo: number; n: number };
   por_dia: { fecha: string; ingreso: number; gasto: number; deposito: number; neto: number; n: number; arqueo_efectivo: number | null; arqueo_n: number }[];
 }
 interface CajaGeneral {
@@ -154,6 +157,17 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           </div>
           <app-metric-strip [items]="cqKpis(d)" ariaLabel="Cuadre de caja general" />
           <p class="cg-note" style="margin:.2rem 0 .8rem">La caja general es un <b>hub de efectivo</b>: la venta de ruta <b>entra</b> (ingreso) y sale a <b>remisiones/gastos</b> + <b>depósito al banco</b> (gasto). Cuadra si <b>ingreso ≈ gasto</b> (todo lo que entró salió). El <b>neto</b> es el efectivo que quedó/faltó. El <b>arqueo</b> (mayor conteo físico del día) es testigo del efectivo real. Tolerancia ±2%.</p>
+
+          <div class="cg-origen">
+            <span class="cg-bd-title">Ingreso por origen — ¿de dónde viene el efectivo?</span>
+            <div class="cg-origen-grid">
+              <div class="cg-ocell"><span class="cg-ol">Sucursal (POS)</span><span class="cg-ov">{{ money(d.ingreso_origen.sucursal.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.sucursal.n }} movs</span></div>
+              <div class="cg-ocell"><span class="cg-ol">Ruta</span><span class="cg-ov">{{ money(d.ingreso_origen.ruta.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.ruta.n }} movs</span></div>
+              <div class="cg-ocell"><span class="cg-ol">Otros <span class="muted">(directivos/nómina)</span></span><span class="cg-ov">{{ money(d.ingreso_origen.otros.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.otros.n }} movs</span></div>
+              <div class="cg-ocell cg-ocell-pos"><span class="cg-ol">Testigo POS <span class="muted">(cortes Kepler)</span></span><span class="cg-ov">{{ money(d.pos_efectivo.efectivo) }}</span><span class="cg-os">{{ d.pos_efectivo.n }} cortes · efectivo</span></div>
+            </div>
+            <p class="cg-note" style="margin-top:.5rem">El ingreso de <b>sucursal</b> ({{ money(d.ingreso_origen.sucursal.monto) }}) debería acercarse al <b>efectivo de los cortes POS</b> ({{ money(d.pos_efectivo.efectivo) }}) — ambos son efectivo de piso. La diferencia = timing / rutas sin POS / merma. La <b>ruta</b> (Canindo, Vecinal…) no tiene POS, por eso no cruza. Clasificación heurística por texto.</p>
+          </div>
           <p-table [value]="d.por_dia" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
             <ng-template #header><tr><th class="cg-w-date">Día</th><th class="ta-c cg-w-d">Movs</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Depósito banco</th><th class="ta-r">Neto</th><th class="ta-r">Arqueo (testigo)</th></tr></ng-template>
             <ng-template #body let-r>
@@ -414,6 +428,13 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-denom-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); }
     .cg-denom-c { font-family:var(--font-mono); font-size:.76rem; padding:1px .4rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .cg-detail-obs { font-style:italic; color:var(--text-muted); }
+    .cg-origen { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.6rem .8rem; margin:.4rem 0 .9rem; }
+    .cg-origen-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(11rem,1fr)); gap:.6rem; margin-top:.5rem; }
+    .cg-ocell { display:flex; flex-direction:column; gap:1px; padding:.5rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); }
+    .cg-ocell-pos { border-style:dashed; background:color-mix(in srgb, var(--action) 4%, transparent); }
+    .cg-ol { font-size:var(--fs-xs); color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
+    .cg-ov { font-size:var(--fs-lg, 1.05rem); font-weight:700; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+    .cg-os { font-size:var(--fs-xs); color:var(--text-faint); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
