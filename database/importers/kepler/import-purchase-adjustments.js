@@ -21,7 +21,8 @@ const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const SRC = process.env.ADJ_SRC || 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00';
+const { branchUrl } = require('../lib/kepler-branches');
+const SRC = process.env.ADJ_SRC || branchUrl('00'); // CEDIS md_00
 const APPLY = process.argv.includes('--apply');
 const fromIx = process.argv.indexOf('--from');
 const FROM = fromIx > -1 ? process.argv[fromIx + 1] : '2026-01-01';

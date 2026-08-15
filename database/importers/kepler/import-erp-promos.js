@@ -12,7 +12,8 @@
 const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
-const SRC = process.env.MARGIN_BRANCH_URL || 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03';
+const { branchUrl } = require('../lib/kepler-branches');
+const SRC = process.env.MARGIN_BRANCH_URL || branchUrl('03'); // md_03
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 

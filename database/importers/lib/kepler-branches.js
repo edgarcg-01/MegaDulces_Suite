@@ -48,6 +48,14 @@ function stockMap({ cedis = false } = {}) {
     .map((b) => ({ code: b.code, url: urlOf(b) }));
 }
 
+/** URL de conexión de UNA sucursal por código ('00'..'05'). Para importers single-branch
+ *  (leen solo CEDIS md_00, o md_03/md_01). Centraliza la cred que estaba inline. */
+function branchUrl(code) {
+  const b = BRANCHES.find((x) => x.code === code);
+  if (!b) throw new Error(`kepler-branches: código de sucursal desconocido '${code}'`);
+  return urlOf(b);
+}
+
 /**
  * Cross-check contra la dim canónica: compara los kepler_code de commercial.warehouses
  * con los codes 01-05 de este módulo. Devuelve {ok, missingInDb, missingInModule}.
@@ -64,4 +72,4 @@ async function verifyAgainstDb(pgClient, tenantId = '00000000-0000-0000-0000-000
   return { ok: !missingInDb.length && !missingInModule.length, missingInDb, missingInModule };
 }
 
-module.exports = { BRANCHES, salesMap, stockMap, urlOf, verifyAgainstDb, USER, PASS };
+module.exports = { BRANCHES, salesMap, stockMap, branchUrl, urlOf, verifyAgainstDb, USER, PASS };
