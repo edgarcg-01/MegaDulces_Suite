@@ -40,20 +40,15 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Default = las 6 (url strings).
+const { stockMap } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SUPPLIERS_BRANCH_MAP
   ? JSON.parse(process.env.SUPPLIERS_BRANCH_MAP)
   : process.env.STOCK_BRANCH_MAP
     ? JSON.parse(process.env.STOCK_BRANCH_MAP).map((b) => b.url)
     : process.env.SUPPLIERS_BRANCH_URL
       ? [process.env.SUPPLIERS_BRANCH_URL]
-      : [
-          'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00',
-          'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01',
-          'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02',
-          'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03',
-          'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04',
-          'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05',
-        ];
+      : stockMap({ cedis: true }).map((b) => b.url);
 
 // Clave normalizada anti-duplicado (espejo de database/scripts/suppliers-normalize.js): quita
 // puntuación + sufijos de razón social. Kepler trunca nombres a 30 chars (char(30) en kdxd.c3) y

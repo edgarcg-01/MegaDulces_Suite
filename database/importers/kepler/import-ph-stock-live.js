@@ -19,7 +19,8 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 // Código del almacén PH varía por entorno: local dev usa 'MD-10', prod usa '01'.
 const WH_CODE = process.env.PH_WAREHOUSE_CODE || 'MD-10';
-const SRC = process.env.PH_BRANCH_URL || 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01';
+const { branchUrl } = require('../lib/kepler-branches');
+const SRC = process.env.PH_BRANCH_URL || branchUrl('01'); // md_01 (Padre Hidalgo)
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
