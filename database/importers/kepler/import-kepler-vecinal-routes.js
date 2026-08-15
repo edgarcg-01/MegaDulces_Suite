@@ -49,10 +49,13 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
 // El warehouse se resuelve por `parent` en wincaja.branches (prueba kepler_code y warehouse_code,
 // usa el que exista en commercial.warehouses) → robusto a prod (códigos cortos 01/02/04) y a
 // dev (MD-10/MD-42/MD-44). Pasar `warehouse` explícito solo si se quiere forzar uno.
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). src vía branchUrl
+// (centraliza cred; de paso corrige md_01 que usaba 'postgres' en vez de 'platform_ro').
+const { branchUrl } = require('../lib/kepler-branches');
 const VECINAL_BRANCHES = process.env.VECINAL_BRANCHES ? JSON.parse(process.env.VECINAL_BRANCHES) : [
-  { src: 'postgresql://postgres:kepler123@192.168.10.10:1977/md_01', parent: '10', codes: ['1V001', '1V002'], cutover: '2026-06-27' }, // Padre Hidalgo
-  { src: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02', parent: '42', codes: ['1V003'], cutover: '2026-04-18' }, // Piedad Abastos
-  { src: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04', parent: '44', codes: ['1V004'], cutover: '2026-05-08' }, // Yurécuaro
+  { src: branchUrl('01'), parent: '10', codes: ['1V001', '1V002'], cutover: '2026-06-27' }, // Padre Hidalgo
+  { src: branchUrl('02'), parent: '42', codes: ['1V003'], cutover: '2026-04-18' }, // Piedad Abastos
+  { src: branchUrl('04'), parent: '44', codes: ['1V004'], cutover: '2026-05-08' }, // Yurécuaro
 ];
 
 async function processBranch(dst, cfg) {
