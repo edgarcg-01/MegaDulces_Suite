@@ -23,16 +23,9 @@ const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 // sobre WAN > 10min → timeout 124). KARDEX_DAYS=0 (o negativo) = sin ventana (backfill full).
 const WINDOW_DAYS = process.env.KARDEX_DAYS != null ? Number(process.env.KARDEX_DAYS) : 30;
 
-const BRANCHES = process.env.SALES_BRANCH_MAP
-  ? JSON.parse(process.env.SALES_BRANCH_MAP)
-  : [
-      { code: '00', host: '192.168.9.95', port: 5432, db: 'md_00', name: 'CEDIS' },
-      { code: '01', host: '192.168.10.10', port: 1977, db: 'md_01', name: 'Padre Hidalgo' },
-      { code: '02', host: '192.168.42.42', port: 5432, db: 'md_02', name: 'La Piedad Abastos' },
-      { code: '03', host: '192.168.40.40', port: 5432, db: 'md_03', name: '8 Esquinas' },
-      { code: '04', host: '192.168.44.44', port: 5432, db: 'md_04', name: 'Yurécuaro' },
-      { code: '05', host: '192.168.54.54', port: 5432, db: 'md_05', name: 'Zamora Centro' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Incluye CEDIS '00'.
+const { salesMap } = require('../lib/kepler-branches');
+const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
 

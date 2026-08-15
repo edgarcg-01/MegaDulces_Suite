@@ -26,16 +26,10 @@ const BATCH = 1000;
 // Mismo mapa que el stock (STOCK_BRANCH_MAP). code = código de almacén en
 // commercial.warehouses. Default = mapeo verificado 2026-07-08 (04/05 → MD-30/MD-50
 // por confirmar contra el runner; el dry-run muestra los matches).
-const MAP = process.env.STOCK_BRANCH_MAP
-  ? JSON.parse(process.env.STOCK_BRANCH_MAP)
-  : [
-      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). CON CEDIS '00'
+// (reorden SÍ lee md_00, a diferencia del stock que lo toma de Wincaja).
+const { stockMap } = require('../lib/kepler-branches');
+const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap({ cedis: true });
 
 (async () => {
   const db = new Client({ connectionString: DST });
