@@ -1847,6 +1847,18 @@ export class FinanceBankService {
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
         kepler_source: keplerSource,
       };
+      // CG.7 — CAJA GENERAL (no fiscal): la fuente autoritativa es la caja general VIVA
+      // (Doctos → analytics.caja_general_movimientos), completa y al día. El kind='cash' del
+      // workbook es parcial (solo enero+agosto) y rezagado → se consolida a una sola verdad.
+      // Fallback al kind='cash' acumulado arriba si analytics no tiene datos del periodo.
+      const [cyy, cmm] = period.split('-').map(Number);
+      const cgIni = `${period}-01`;
+      const cgFin = cmm >= 12 ? `${cyy + 1}-01-01` : `${cyy}-${String(cmm + 1).padStart(2, '0')}-01`;
+      const cgRow: any = await trx('analytics.caja_general_movimientos').where('tenant_id', tenantId)
+        .andWhere('fecha', '>=', cgIni).andWhere('fecha', '<', cgFin)
+        .select(trx.raw('COALESCE(SUM(ingreso),0) AS ingreso'), trx.raw('COALESCE(SUM(gasto),0) AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
+      if (n(cgRow?.n) > 0) { cajaIn = n(cgRow.ingreso); cajaOut = n(cgRow.gasto); }
+
       const r2 = (v: number) => Math.round(v * 100) / 100;
       const caja = { ingresos: r2(cajaIn), egresos: r2(cajaOut), total: r2(cajaIn + cajaOut) };
 
