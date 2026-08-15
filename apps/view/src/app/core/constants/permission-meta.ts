@@ -70,6 +70,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_EXPIRY_VER]: { label: 'Ver Caducidades', description: 'Consultar las hojas de Control de Caducidades (inspección de anaquel).', category: 'Comercial' },
   [Permission.COMMERCIAL_EXPIRY_CAPTURAR]: { label: 'Capturar Caducidades', description: 'Crear/editar hojas de Control de Caducidades y enviarlas (alimenta FEFO).', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_ASIGNAR]: { label: 'Asignar personas al folio', description: 'Asignar contadores y supervisores a un folio de inventario específico.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_RECIBIR]: { label: 'Auditar recepción (caducidad)', description: 'Capturar lote/caducidad con foto+OCR en la recepción y recibir el semáforo 🟢🟡🔴. La autorización de un rojo requiere Supervisar.', category: 'Comercial · Inventario físico' },
 
   // Comercial — pedidos y cobros
   [Permission.COMMERCIAL_ORDERS_VER]: { label: 'Ver Pedidos', description: 'Consultar pedidos y su detalle.', category: 'Comercial · Pedidos' },

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { SentryModule } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { createKeyv } from '@keyv/redis';
@@ -54,6 +53,7 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
+import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
@@ -153,6 +153,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialWarehousesModule,
       CommercialPricingModule,
       CommercialInventoryModule,
+      CommercialReceivingModule,
       CommercialExpiryReviewsModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
@@ -234,9 +235,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
 
 @Module({
   imports: [
-    // Sentry: captura excepciones no manejadas (registra SentryGlobalFilter).
-    // Inerte si Sentry.init no corrió (sin SENTRY_DSN). Debe ir arriba.
-    SentryModule.forRoot(),
+    // Sentry removido (INFRA.2): su SentryGlobalFilter interceptaba las
+    // excepciones y se tragaba el log de error → los 500 no aparecían en los
+    // logs. Ahora AllExceptionsFilter (main.ts) loguea el stacktrace a error.
     // INFRA.2 (ADR-043): logs JSON estructurados (feed a Loki) — opt-in por
     // LOG_JSON=true. Default OFF = logger clásico de Nest, sin cambio de conducta.
     // El mixin inyecta trace_id/span_id del span OTel activo → Grafana enlaza
@@ -267,21 +268,26 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
                   return {};
                 }
               },
-              // dev → pino-pretty legible. prod + OTEL → shipping de logs por
-              // OTLP al collector (Loki los recibe). prod sin OTEL → JSON crudo
-              // a stdout (Railway lo captura en su visor). El transport de OTLP
-              // reusa OTEL_EXPORTER_OTLP_ENDPOINT + OTEL_SERVICE_NAME.
+              // dev → pino-pretty legible. prod + OTEL → DOBLE salida: stdout (para
+              // que Railway siga mostrando los logs en su visor) + OTLP al collector
+              // (Loki/Grafana). prod sin OTEL → JSON crudo a stdout. Antes solo iba a
+              // OTLP → Railway quedaba mudo; el target pino/file dest=1 lo arregla.
               transport:
                 process.env.NODE_ENV !== 'production'
                   ? { target: 'pino-pretty', options: { singleLine: true } }
                   : process.env.OTEL_EXPORTER_OTLP_ENDPOINT
                     ? {
-                        target: 'pino-opentelemetry-transport',
-                        options: {
-                          logRecordProcessorOptions: {
-                            exporterOptions: { protocol: 'http/protobuf' },
+                        targets: [
+                          { target: 'pino/file', options: { destination: 1 } },
+                          {
+                            target: 'pino-opentelemetry-transport',
+                            options: {
+                              logRecordProcessorOptions: {
+                                exporterOptions: { protocol: 'http/protobuf' },
+                              },
+                            },
                           },
-                        },
+                        ],
                       }
                     : undefined,
             },

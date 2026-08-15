@@ -127,6 +127,18 @@ export interface ExpenseReceiptFields {
 }
 
 /**
+ * Fase WMS-REC (auditor de recepción por caducidad, ADR-044) — Campos leídos de la
+ * FOTO de la impresión de LOTE/CADUCIDAD en el empaque del producto. El OCR PROPONE;
+ * el operador confirma y el motor de reglas decide el semáforo. Todos null si la
+ * foto es ilegible o no hay ANTHROPIC_API_KEY (el operador teclea a mano).
+ */
+export interface ExpiryLabelFields {
+  lot_code: string | null;   // lote impreso (ej. "L240815"), tal cual
+  expiry_date: string | null; // ISO YYYY-MM-DD — caducidad. Si solo hay MM/AAAA, usar el último día del mes.
+  confidence: number | null;  // 0..1 confianza del OCR en lo leído
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -348,6 +360,104 @@ export class LlmExtractorService implements OnModuleInit {
       this.logger.warn(`Claude supplier-payment extract failed: ${e.message}`);
       return empty;
     }
+  }
+
+  /**
+   * Fase WMS-REC (ADR-044) — Lee la FOTO de la impresión de LOTE/CADUCIDAD en el
+   * empaque y devuelve {lot_code, expiry_date, confidence}. Es OCR de EVIDENCIA:
+   * la foto sigue siendo la prueba primaria (se guarda aparte); esto solo la vuelve
+   * dato estructurado que el operador confirma. Imagen o PDF. null si ilegible/sin key.
+   */
+  async extractExpiryLabel(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<ExpiryLabelFields> {
+    const empty: ExpiryLabelFields = { lot_code: null, expiry_date: null, confidence: null };
+    if (!this.apiKey) {
+      this.logger.warn('Expiry-label OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
+      return empty;
+    }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionExpiryLabel(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude expiry-label extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  private async callClaudeVisionExpiryLabel(
+    fileBase64: string,
+    mediaType: string,
+  ): Promise<ExpiryLabelFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 300,
+        toolChoice: { type: 'tool', name: 'extract_expiry_label' },
+        tools: [
+          {
+            name: 'extract_expiry_label',
+            description:
+              'Lee la impresión de LOTE y FECHA DE CADUCIDAD en el empaque de un producto de consumo ' +
+              '(dulce/botana). El texto suele venir como "LOTE: L240815  CAD: 15/08/2027", "V. 08/2027", ' +
+              '"BEST BEFORE 2027-08-15", "CONSUMIR ANTES DE AGO 2027", impreso o grabado. NO inventes: si no ' +
+              'se distingue, usa null y baja la confianza.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                lot_code: { type: ['string', 'null'], description: 'Lote/batch impreso, tal cual (ej. "L240815"). null si no se ve.' },
+                expiry_date: { type: ['string', 'null'], description: 'Caducidad en ISO YYYY-MM-DD. Convierte cualquier formato ("15/AGO/2027", "15-08-27" → "2027-08-15"). Si SOLO hay mes/año ("08/2027"), usa el ÚLTIMO día del mes ("2027-08-31"). null si no se ve.' },
+                confidence: { type: ['number', 'null'], description: 'Confianza 0..1 de lo leído (0.96 muy claro, 0.5 borroso, <0.4 casi ilegible).' },
+              },
+              required: ['lot_code', 'expiry_date', 'confidence'],
+            },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              fileBlock,
+              { type: 'text', text: 'Esta es la foto de la impresión de lote/caducidad en el empaque de un producto recibido. Extrae el lote y la fecha de caducidad con la herramienta extract_expiry_label.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >;
+    };
+
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_expiry_label',
+    );
+    if (!toolUse) throw new Error('Claude expiry-label no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
+    const conf = typeof inp.confidence === 'number' && Number.isFinite(inp.confidence)
+      ? Math.min(1, Math.max(0, inp.confidence))
+      : null;
+    return {
+      lot_code: str(inp.lot_code),
+      expiry_date: this.parseTicketDate(inp.expiry_date),
+      confidence: conf,
+    };
   }
 
   async extractProductItems(

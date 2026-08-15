@@ -9,6 +9,7 @@ export * from './lib/commercial-customers/commercial-customers.module';
 export * from './lib/commercial-warehouses/commercial-warehouses.module';
 export * from './lib/commercial-pricing/commercial-pricing.module';
 export * from './lib/commercial-inventory/commercial-inventory.module';
+export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';
 export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-payments/commercial-payments.module';

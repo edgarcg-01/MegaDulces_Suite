@@ -573,6 +573,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // WMS-REC (ADR-044) — Auditor de recepción por caducidad (foto+OCR+semáforo 🟢🟡🔴)
+        path: 'inventory/recepcion',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-auditor.component').then(m => m.AlmacenRecepcionAuditorComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
