@@ -32,16 +32,9 @@ const BATCH = 1000;
 // (>10 min → el orquestador lo mata, código 124). 120 d cubre cualquier OC abierta razonable.
 const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
 
-const MAP = process.env.STOCK_BRANCH_MAP
-  ? JSON.parse(process.env.STOCK_BRANCH_MAP)
-  : [
-      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Con CEDIS '00'.
+const { stockMap } = require('../lib/kepler-branches');
+const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap({ cedis: true });
 
 // Nº de sucursal Kepler (kdm1.c1) desde el md_NN de la URL — kdm1 trae réplicas.
 function branchNum(url) {

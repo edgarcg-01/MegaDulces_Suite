@@ -37,16 +37,9 @@ const daysArg = (() => {
 
 // Mismo map que import-in-transit / stock: código de almacén = nº sucursal Kepler (00–05).
 // En prod lo sobreescribe STOCK_BRANCH_MAP (runner on-prem con los hosts reales).
-const MAP = process.env.STOCK_BRANCH_MAP
-  ? JSON.parse(process.env.STOCK_BRANCH_MAP)
-  : [
-      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Con CEDIS '00'.
+const { stockMap } = require('../lib/kepler-branches');
+const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap({ cedis: true });
 
 // Nº de sucursal Kepler (kdm1.c1). Explícito en el map, o derivado del md_NN de la URL.
 function branchNum(m) {

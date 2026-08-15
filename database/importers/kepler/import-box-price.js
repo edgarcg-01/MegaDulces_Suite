@@ -18,15 +18,9 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
-const MAP = process.env.STOCK_BRANCH_MAP
-  ? JSON.parse(process.env.STOCK_BRANCH_MAP)
-  : [
-      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-    ];
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Sin CEDIS '00'.
+const { stockMap } = require('../lib/kepler-branches');
+const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap();
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
