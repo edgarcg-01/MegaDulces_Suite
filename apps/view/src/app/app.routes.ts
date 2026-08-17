@@ -654,6 +654,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
       },
       {
+        // PREV.3 — Índice de riesgo de inventario (prioridad de Prevención)
+        path: 'riesgo',
+        loadComponent: () => import('./modules/almacen/pages/almacen-riesgo.component').then(m => m.AlmacenRiesgoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+      {
         // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
         path: 'cuadre',
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
