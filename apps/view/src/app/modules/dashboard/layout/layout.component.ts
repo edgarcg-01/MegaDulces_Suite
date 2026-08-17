@@ -577,6 +577,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_MOVEMENTS_VER, anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER] },
         { label: 'Prevención',  icon: 'pi pi-shield',                route: '/almacen/prevencion', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },
         { label: 'Monitoreo',   icon: 'pi pi-eye',                   route: '/almacen/monitoreo', permission: Permission.COMMERCIAL_PREVENTION_VER },
+        { label: 'Riesgo',      icon: 'pi pi-chart-bar',             route: '/almacen/riesgo', permission: Permission.COMMERCIAL_PREVENTION_VER },
       ],
     },
   ];

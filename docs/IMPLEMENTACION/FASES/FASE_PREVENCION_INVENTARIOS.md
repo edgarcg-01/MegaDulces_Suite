@@ -1,6 +1,6 @@
 # Fase PREV — Prevención de Inventarios
 
-> **Estado:** 🔨 EN CURSO — PREV.1 + PREV.2 ✅ CONSTRUIDAS (beta) LOCAL 2026-08-17; PREV.3 planeada.
+> **Estado:** 🟢 CERRADA (beta) LOCAL 2026-08-17 — PREV.1 + PREV.2 + PREV.3 ✅. Pendiente cutover a Railway (migs + permisos).
 > **Origen:** Apéndice B de la visión del Jefe Frank — "auditoría, investigación y prevención de inventarios". Frente 2 del [Proyecto A — WMS / Inventario Trazable](PROYECTO_WMS_INVENTARIO_TRAZABLE.md).
 > **Principio (ADR-016 + segregación):** detectar → documentar → investigar → autorizar → corregir → monitorear → cerrar. **Quien observa una diferencia no la ajusta**: solo Prevención autoriza. El sistema **detecta patrones, no acusa personas**.
 
@@ -46,6 +46,8 @@ Fase I resuelve *"cuánto falta"*. Prevención responde *"por qué falta"* y *"p
 - **Esfuerzo:** medio-alto.
 
 ### PREV.3 — Escalamiento por reincidencia + Índice de riesgo
+
+> **✅ CONSTRUIDA (beta) LOCAL 2026-08-17.** Migración `20260817200000` (`commercial.inventory_risk_index`, único por (almacén,producto), CHECK nivel, RLS forzado). `InventoryRiskService`: `computeScore` determinista (investigations×10 + PNI×25 + monitoring×8 + valor acotado; **reincidencia+PNI → crítico**) + `compute` (agrega expedientes + monitoreo ventana 90d, DELETE+INSERT idempotente) + `list`. Endpoints `/commercial/inventory/risk` (list `VER`, `compute` `GESTIONAR`; reusa `COMMERCIAL_PREVENTION_*`). Frontend `/almacen/riesgo` (lista priorizada por score + KPIs por nivel + "Recalcular"). Nav "Riesgo". **Eje = SKU/almacén, NO persona** (Frank §13). Builds api+view OK. Smoke `test-newdb-inventory-risk` **16/16** (en `run-all-tests`). **Pendiente prod:** aplicar mig a Railway + redeploy. **Diferido:** scanner nocturno multi-tenant (hoy recálculo manual desde la UI; necesita scope CLS sintético) + dimensiones horario/proceso/categoría.
 
 **Qué (Frank §14-15):** reincidencia sube el nivel; **índice de riesgo** por SKU/ubicación/categoría/horario/proceso para dirigir recursos de Prevención. **No acusa personas** — reporta recurrencia bajo condiciones.
 
