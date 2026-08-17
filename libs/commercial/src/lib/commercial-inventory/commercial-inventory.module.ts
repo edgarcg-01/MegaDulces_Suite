@@ -16,6 +16,8 @@ import { BinLocationService } from './bin-location.service';
 import { BinLocationController } from './bin-location.controller';
 import { InventoryInvestigationService } from './inventory-investigation.service';
 import { InventoryInvestigationController } from './inventory-investigation.controller';
+import { InventoryMonitoringService } from './inventory-monitoring.service';
+import { InventoryMonitoringController } from './inventory-monitoring.controller';
 
 @Module({
   imports: [
@@ -26,8 +28,8 @@ import { InventoryInvestigationController } from './inventory-investigation.cont
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService],
-  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService],
 })
 export class CommercialInventoryModule {}
