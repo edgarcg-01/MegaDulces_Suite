@@ -7,7 +7,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
-import { cuadra, money0, dmShort } from './bancos-shared';
+import { cuadra, money, dmShort } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -46,8 +46,8 @@ import { BANCOS_STYLES } from './bancos.styles';
             <tbody>
               <tr>
                 <th scope="row"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos <span class="muted">(entra)</span></th>
-                <td class="ta-r mono">{{ c.totals.excel_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono">{{ c.totals.contpaqi_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ c.totals.excel_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="ta-r mono">{{ c.totals.contpaqi_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_in)" [class.ok]="cuad(c.totals.delta_in)">Δ {{ c.totals.delta_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (cuad(c.totals.delta_in)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
@@ -56,8 +56,8 @@ import { BANCOS_STYLES } from './bancos.styles';
               </tr>
               <tr>
                 <th scope="row"><i class="pi pi-arrow-up-right fb-out-ico"></i> Retiros <span class="muted">(sale)</span></th>
-                <td class="ta-r mono">{{ c.totals.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono">{{ c.totals.contpaqi_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ c.totals.excel_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="ta-r mono">{{ c.totals.contpaqi_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono" [class.bad]="!cuad(c.totals.delta_out)" [class.ok]="cuad(c.totals.delta_out)">Δ {{ c.totals.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (cuad(c.totals.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
@@ -85,15 +85,15 @@ import { BANCOS_STYLES } from './bancos.styles';
         <p-table [value]="c.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="52vh">
           <ng-template #header>
             <tr>
-              <th title="Banco y número de cuenta (según tu Excel bancario)">Cuenta</th>
-              <th title="Cuenta contable 102xxx de ContPAQi enlazada a esta cuenta de banco">Libro ContPAQi</th>
-              <th class="ta-r" title="Depósitos según tu estado de cuenta del banco (Excel)">Dep. Excel</th>
-              <th class="ta-r" title="Depósitos que la contabilidad registró en pólizas (ContPAQi)">Dep. ContPAQi</th>
-              <th class="ta-r" title="Diferencia de depósitos: banco − libros. $0 = cuadra">Δ dep.</th>
-              <th class="ta-r" title="Retiros según tu estado de cuenta del banco (Excel)">Ret. Excel</th>
-              <th class="ta-r" title="Retiros que la contabilidad registró en pólizas (ContPAQi)">Ret. ContPAQi</th>
-              <th class="ta-r" title="Diferencia de retiros: banco − libros. $0 = cuadra">Δ ret.</th>
-              <th class="ta-c" title="✓ cuadra · ⚠ no cuadra · sin enlazar · sin Excel">Estado</th>
+              <th pSortableColumn="bank" title="Banco y número de cuenta (según tu Excel bancario)">Cuenta <p-sorticon field="bank" /></th>
+              <th pSortableColumn="contpaqi_cuenta" title="Cuenta contable 102xxx de ContPAQi enlazada a esta cuenta de banco">Libro ContPAQi <p-sorticon field="contpaqi_cuenta" /></th>
+              <th class="ta-r" pSortableColumn="excel_in" title="Depósitos según tu estado de cuenta del banco (Excel)">Dep. Excel <p-sorticon field="excel_in" /></th>
+              <th class="ta-r" pSortableColumn="contpaqi_in" title="Depósitos que la contabilidad registró en pólizas (ContPAQi)">Dep. ContPAQi <p-sorticon field="contpaqi_in" /></th>
+              <th class="ta-r" pSortableColumn="delta_in" title="Diferencia de depósitos: banco − libros. $0 = cuadra">Δ dep. <p-sorticon field="delta_in" /></th>
+              <th class="ta-r" pSortableColumn="excel_out" title="Retiros según tu estado de cuenta del banco (Excel)">Ret. Excel <p-sorticon field="excel_out" /></th>
+              <th class="ta-r" pSortableColumn="contpaqi_out" title="Retiros que la contabilidad registró en pólizas (ContPAQi)">Ret. ContPAQi <p-sorticon field="contpaqi_out" /></th>
+              <th class="ta-r" pSortableColumn="delta_out" title="Diferencia de retiros: banco − libros. $0 = cuadra">Δ ret. <p-sorticon field="delta_out" /></th>
+              <th class="ta-c" pSortableColumn="linked" title="✓ cuadra · ⚠ no cuadra · sin enlazar · sin Excel">Estado <p-sorticon field="linked" /></th>
               <th class="ta-c" title="Abre el detalle movimiento a movimiento: dónde está el error"></th>
             </tr>
           </ng-template>
@@ -101,11 +101,11 @@ import { BANCOS_STYLES } from './bancos.styles';
             <tr>
               <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span></td>
               <td class="mono muted" [title]="r.contpaqi_cuenta_nombre || ''">{{ r.contpaqi_cuenta || '—' }}</td>
-              <td class="ta-r mono">{{ r.excel_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ r.contpaqi_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono">{{ r.excel_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ r.contpaqi_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.delta_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ r.contpaqi_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ r.contpaqi_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-c">
                 @if (!r.linked) {
@@ -153,14 +153,14 @@ import { BANCOS_STYLES } from './bancos.styles';
               <ng-template #body let-r>
                 <tr>
                   <td><span class="fb-strong">{{ r.proveedor }}</span></td>
-                  <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-c mono muted">{{ r.movs }}</td>
                   <td class="mono muted" [title]="r.cxp_nombre || ''">
-                    @if (r.cxp_cuenta) { {{ r.cxp_cuenta }} <span class="fjt-mini">(mes: {{ r.cxp_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                    @if (r.cxp_cuenta) { {{ r.cxp_cuenta }} <span class="fjt-mini">(mes: {{ r.cxp_cargos | currency:'MXN':'symbol-narrow':'1.2-2' }})</span> }
                     @else { — }
                   </td>
                   <td class="ta-r mono">
-                    @if (r.costo_cuentas) { {{ r.costo_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                    @if (r.costo_cuentas) { {{ r.costo_cargos | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     @else { <span class="muted">—</span> }
                   </td>
                   <td class="ta-c">
@@ -171,7 +171,7 @@ import { BANCOS_STYLES } from './bancos.styles';
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin factoraje.</p></div></td></tr></ng-template>
             </p-table>
-            <p class="fb-recon-note muted fjt-foot"><i class="pi pi-info-circle"></i> <b>{{ f.matched }}</b> de {{ f.rows.length }} proveedores identificados en ContPAQi · Total factoraje Excel {{ f.totals.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }} · Costo ContPAQi de esos proveedores {{ f.totals.costo_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
+            <p class="fb-recon-note muted fjt-foot"><i class="pi pi-info-circle"></i> <b>{{ f.matched }}</b> de {{ f.rows.length }} proveedores identificados en ContPAQi · Total factoraje Excel {{ f.totals.excel_out | currency:'MXN':'symbol-narrow':'1.2-2' }} · Costo ContPAQi de esos proveedores {{ f.totals.costo_cargos | currency:'MXN':'symbol-narrow':'1.2-2' }}.</p>
           }
         </div>
       }
@@ -197,12 +197,12 @@ import { BANCOS_STYLES } from './bancos.styles';
               @if (cuad(side.data.delta)) {
                 <span class="cpq-tag ok-tag"><i class="pi pi-check"></i> Cuadra</span>
               } @else {
-                <span class="cpq-tag bad-tag">Δ {{ side.data.delta | currency:'MXN':'symbol-narrow':'1.0-2' }}</span>
+                <span class="cpq-tag bad-tag">Δ {{ side.data.delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
               }
             </div>
             <p class="dlg-side-sub muted">
-              Banco {{ side.data.bank_total | currency:'MXN':'symbol-narrow':'1.0-0' }} ·
-              ContPAQi {{ side.data.contpaqi_total | currency:'MXN':'symbol-narrow':'1.0-0' }} ·
+              Banco {{ side.data.bank_total | currency:'MXN':'symbol-narrow':'1.2-2' }} ·
+              ContPAQi {{ side.data.contpaqi_total | currency:'MXN':'symbol-narrow':'1.2-2' }} ·
               {{ side.data.matched_count }} movs casados
             </p>
 
@@ -212,13 +212,13 @@ import { BANCOS_STYLES } from './bancos.styles';
               <div class="dlg-cols">
                 <!-- Banco sin póliza -->
                 <div class="dlg-col">
-                  <div class="dlg-col-head bank"><i class="pi pi-building"></i> En el banco, <b>sin póliza</b> ({{ side.data.bank_only.length }}) · {{ side.data.bank_only_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+                  <div class="dlg-col-head bank"><i class="pi pi-building"></i> En el banco, <b>sin póliza</b> ({{ side.data.bank_only.length }}) · {{ side.data.bank_only_amount | currency:'MXN':'symbol-narrow':'1.2-2' }}</div>
                   <p class="dlg-col-hint muted">La contabilidad no registró estos movimientos (o los puso en otra cuenta/mes).</p>
                   @if (side.data.bank_only.length) {
                     <table class="dlg-mini"><tbody>
                       @for (m of side.data.bank_only; track m.id) {
                         <tr><td class="mono nowrap">{{ dmShort(m.fecha) }}</td>
-                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                             <td class="dlg-concept" [title]="m.concepto || ''">{{ m.concepto || m.categoria || '—' }}</td></tr>
                       }
                     </tbody></table>
@@ -226,13 +226,13 @@ import { BANCOS_STYLES } from './bancos.styles';
                 </div>
                 <!-- Póliza sin banco -->
                 <div class="dlg-col">
-                  <div class="dlg-col-head book"><i class="pi pi-book"></i> En ContPAQi, <b>sin banco</b> ({{ side.data.contpaqi_only.length }}) · {{ side.data.contpaqi_only_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+                  <div class="dlg-col-head book"><i class="pi pi-book"></i> En ContPAQi, <b>sin banco</b> ({{ side.data.contpaqi_only.length }}) · {{ side.data.contpaqi_only_amount | currency:'MXN':'symbol-narrow':'1.2-2' }}</div>
                   <p class="dlg-col-hint muted">La contabilidad registró estas pólizas que el banco no movió (registro de más, o de otro mes).</p>
                   @if (side.data.contpaqi_only.length) {
                     <table class="dlg-mini"><tbody>
                       @for (m of side.data.contpaqi_only; track m.id) {
                         <tr><td class="mono nowrap">{{ dmShort(m.fecha) }}</td>
-                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                             <td class="dlg-concept" [title]="m.concepto || ''">
                               @if (m.poliza_folio) { <span class="muted mono">#{{ m.poliza_folio }}</span> }
                               {{ m.concepto || '—' }}
@@ -355,10 +355,10 @@ export class BancosContpaqiComponent {
   read(c: ContpaqiCompare): string {
     if (c.linked === 0) return 'Enlaza las cuentas para comparar el estado de cuenta contra los libros de ContPAQi.';
     const okIn = cuadra(c.totals.delta_in), okOut = cuadra(c.totals.delta_out);
-    if (okIn && okOut) return `Los libros de ContPAQi registran lo mismo que movió el banco: ${money0(c.totals.contpaqi_in)} de depósitos y ${money0(c.totals.contpaqi_out)} de retiros. Cuadra.`;
+    if (okIn && okOut) return `Los libros de ContPAQi registran lo mismo que movió el banco: ${money(c.totals.contpaqi_in)} de depósitos y ${money(c.totals.contpaqi_out)} de retiros. Cuadra.`;
     const gaps: string[] = [];
-    if (!okIn) gaps.push(`${money0(Math.abs(c.totals.delta_in))} en depósitos`);
-    if (!okOut) gaps.push(`${money0(Math.abs(c.totals.delta_out))} en retiros`);
+    if (!okIn) gaps.push(`${money(Math.abs(c.totals.delta_in))} en depósitos`);
+    if (!okOut) gaps.push(`${money(Math.abs(c.totals.delta_out))} en retiros`);
     return `Diferencia de ${gaps.join(' y ')} entre el banco (Excel) y los libros de ContPAQi. Revisa por cuenta abajo: puede ser un estado de cuenta sin cargar, o un movimiento que la contabilidad no registró.`;
   }
 }

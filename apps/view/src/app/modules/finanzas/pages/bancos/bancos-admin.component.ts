@@ -40,7 +40,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="card-premium card-flat fb-tablewrap">
         <p-table [value]="keplerAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
           <ng-template #header>
-            <tr><th class="col-w8">Clave</th><th>Descripción</th><th class="col-w6">Mayor</th></tr>
+            <tr><th class="col-w8" pSortableColumn="clave">Clave <p-sorticon field="clave" /></th><th pSortableColumn="descripcion">Descripción <p-sorticon field="descripcion" /></th><th class="col-w6" pSortableColumn="mayor">Mayor <p-sorticon field="mayor" /></th></tr>
           </ng-template>
           <ng-template #body let-a>
             <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
@@ -59,7 +59,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="card-premium card-flat fb-tablewrap">
         <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
           <ng-template #header>
-            <tr><th class="col-w8">Banco</th><th class="col-w6">Cuenta</th><th class="col-w10">Alias (hoja Excel)</th><th class="col-w7">Tipo</th><th>Vínculo Kepler</th><th class="col-w4 ta-c">Activa</th></tr>
+            <tr><th class="col-w8" pSortableColumn="bank">Banco <p-sorticon field="bank" /></th><th class="col-w6" pSortableColumn="account_label">Cuenta <p-sorticon field="account_label" /></th><th class="col-w10" pSortableColumn="sheet_alias">Alias (hoja Excel) <p-sorticon field="sheet_alias" /></th><th class="col-w7" pSortableColumn="kind">Tipo <p-sorticon field="kind" /></th><th pSortableColumn="kepler_account">Vínculo Kepler <p-sorticon field="kepler_account" /></th><th class="col-w4 ta-c" pSortableColumn="active">Activa <p-sorticon field="active" /></th></tr>
           </ng-template>
           <ng-template #body let-a>
             <tr [class.fb-inactive]="!a.active">

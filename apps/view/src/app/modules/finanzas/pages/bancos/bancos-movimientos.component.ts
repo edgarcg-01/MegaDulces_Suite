@@ -11,7 +11,7 @@ import { InputIconModule } from 'primeng/inputicon';
 import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { BankService, BankMovement, MovementFlow } from '../../bank.service';
-import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './bancos-shared';
+import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -69,9 +69,9 @@ import { BANCOS_STYLES } from './bancos.styles';
         <ng-template #header>
           <tr>
             <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sorticon field="movement_date" /></th>
-            <th class="col-w7">Cuenta</th>
-            <th>Concepto</th>
-            <th class="col-w11">Categoría</th>
+            <th class="col-w7" pSortableColumn="account_label">Cuenta <p-sorticon field="account_label" /></th>
+            <th pSortableColumn="concept">Concepto <p-sorticon field="concept" /></th>
+            <th class="col-w11" pSortableColumn="category_name">Categoría <p-sorticon field="category_name" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sorticon field="amount_in" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sorticon field="amount_out" /></th>
             <th class="col-w25" title="Conciliación"></th>
@@ -124,9 +124,9 @@ import { BANCOS_STYLES } from './bancos.styles';
               <div class="fb-flow-cuadre">
                 <span class="fb-flow-prov">{{ fl.proveedor.nombre }}</span>
                 <div class="fb-flow-nums">
-                  <span><b class="mono">{{ fl.proveedor.banco_total_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> banco ({{ fl.proveedor.banco_movs }})</span>
+                  <span><b class="mono">{{ fl.proveedor.banco_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> banco ({{ fl.proveedor.banco_movs }})</span>
                   <span class="muted">vs</span>
-                  <span><b class="mono">{{ fl.proveedor.kepler_total_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> Kepler 102 ({{ fl.proveedor.kepler_movs }})</span>
+                  <span><b class="mono">{{ fl.proveedor.kepler_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> Kepler 102 ({{ fl.proveedor.kepler_movs }})</span>
                   @if (provCuadra(fl)) { <i class="pi pi-check-circle ok" title="Cuadra en el mes"></i> }
                   @else { <i class="pi pi-exclamation-triangle warn" title="Difieren en el mes"></i> }
                 </div>
@@ -144,7 +144,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                         <td class="mono muted">{{ r.orden_folio || '—' }}</td>
                         <td class="mono muted">{{ r.recepcion_folio || '—' }}</td>
                         <td class="mono muted">{{ r.pago_folio || '—' }} {{ ds(r.pago_fecha) }}</td>
-                        <td class="ta-r mono">{{ r.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="ta-r mono">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       </tr>
                     }
                   </tbody>
@@ -154,7 +154,7 @@ import { BANCOS_STYLES } from './bancos.styles';
             @if (fl.cobranza && fl.cobranza.kepler_movs) {
               <div class="fb-flow-chain">
                 <div class="fb-flow-h">Cómo lo tiene Kepler</div>
-                <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
+                <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
               </div>
             }
             @if (fl.docs.length) {
@@ -168,7 +168,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                         <td class="mono muted">{{ dc.doc_tipo }}</td>
                         <td class="mono">{{ dc.folio }}</td>
                         <td class="mono muted">{{ ds(dc.fecha) }}</td>
-                        <td class="ta-r mono">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="ta-r mono">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       </tr>
                     }
                   </tbody>
@@ -281,7 +281,7 @@ export class BancosMovimientosComponent {
       // "Regla contable": es a qué cuenta DEBERÍA ir según la categoría — NO es un cruce
       // verificado contra Kepler. El cruce real (si existe) es la póliza de abajo.
       { k: 'Regla contable', v: m.kepler_account ? `${m.kepler_account} (regla, sin verificar)` : '—', mono: true },
-      { k: esRetiro ? 'Retiro' : 'Depósito', v: money0(esRetiro ? m.amount_out : m.amount_in), mono: true },
+      { k: esRetiro ? 'Retiro' : 'Depósito', v: money(esRetiro ? m.amount_out : m.amount_in), mono: true },
       { k: 'Conciliación', v: conciliado ? 'Conciliado con Kepler' : m.recon_status === 'unmatched' ? 'Sin conciliar' : '—' },
       // Solo cuando SÍ hay cruce real: el folio de la póliza del 102 de Kepler (verificado).
       ...(folio ? [{ k: 'Póliza Kepler', v: folio, mono: true }] : []),

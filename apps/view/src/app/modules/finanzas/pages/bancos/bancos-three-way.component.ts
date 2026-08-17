@@ -6,7 +6,7 @@ import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
-import { cuadra, money0, dmShort } from './bancos-shared';
+import { cuadra, money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -59,7 +59,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 
       <!-- Nivel 1 — control-total: aquí cuadran las 3 -->
       <div class="card-premium card-flat tw-card">
-        <h3 class="fb-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.0-0' }})</span></h3>
+        <h3 class="fb-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
         <div class="tw-wrap">
           <table class="tw-tbl">
             <thead>
@@ -78,9 +78,9 @@ import { BANCOS_STYLES } from './bancos.styles';
               @for (row of rows(d); track row.label) {
                 <tr>
                   <th scope="row">{{ row.label }}</th>
-                  <td class="ta-r mono">{{ row.workbook | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ row.kepler | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ row.contpaqi | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ row.workbook | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="ta-r mono">{{ row.kepler | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="ta-r mono">{{ row.contpaqi | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono" [class.bad]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">{{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono" [class.bad]="!cuad(row.delta_wc)" [class.ok]="cuad(row.delta_wc)">{{ row.delta_wc | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono" [class.bad]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">{{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -106,29 +106,29 @@ import { BANCOS_STYLES } from './bancos.styles';
           <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="46vh">
             <ng-template #header>
               <tr>
-                <th rowspan="2" title="Banco y número de cuenta">Cuenta</th>
+                <th rowspan="2" pSortableColumn="bank" title="Banco y número de cuenta">Cuenta <p-sorticon field="bank" /></th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos</th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
-                <th rowspan="2" class="ta-c" title="✓ cuadra Workbook↔ContPAQi · ⚠ no cuadra · sin enlazar">Estado</th>
+                <th rowspan="2" class="ta-c" pSortableColumn="linked" title="✓ cuadra Workbook↔ContPAQi · ⚠ no cuadra · sin enlazar">Estado <p-sorticon field="linked" /></th>
               </tr>
               <tr>
-                <th class="ta-r" title="Estado de cuenta (Workbook)">WB</th>
-                <th class="ta-r tw-kep" title="Kepler tesorería (kdm1, por banco)">Kepler</th>
-                <th class="ta-r" title="Libros ContPAQi">CPQ</th>
-                <th class="ta-r" title="Estado de cuenta (Workbook)">WB</th>
-                <th class="ta-r tw-kep" title="Kepler tesorería (kdm1, por banco)">Kepler</th>
-                <th class="ta-r" title="Libros ContPAQi">CPQ</th>
+                <th class="ta-r" pSortableColumn="wb_in" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_in" /></th>
+                <th class="ta-r tw-kep" pSortableColumn="kep_in" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_in" /></th>
+                <th class="ta-r" pSortableColumn="cp_in" title="Libros ContPAQi">CPQ <p-sorticon field="cp_in" /></th>
+                <th class="ta-r" pSortableColumn="wb_out" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_out" /></th>
+                <th class="ta-r tw-kep" pSortableColumn="kep_out" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_out" /></th>
+                <th class="ta-r" pSortableColumn="cp_out" title="Libros ContPAQi">CPQ <p-sorticon field="cp_out" /></th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
               <tr class="tw-clickable" (click)="openDrill(d.period, r)" title="Ver detalle a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi)">
                 <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span> <i class="pi pi-search-plus tw-drill-ico"></i></td>
-                <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</td>
-                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_out)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</td>
-                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_out)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-c">
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="Cuenta no enlazada a ContPAQi">sin enlazar</span> }
                   @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra Workbook↔ContPAQi"></i> }
@@ -146,8 +146,8 @@ import { BANCOS_STYLES } from './bancos.styles';
           <div class="card-premium card-flat tw-card">
             <h3 class="fb-card-title fb-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
             <div class="tw-chq-kpis">
-              <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
-              <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
+              <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
+              <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
             </div>
             <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
             @if (ch.total.en_transito_n > 0) {
@@ -158,7 +158,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                     @for (q of transito(ch); track q.folio) {
                       <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
                         <td class="tw-concept">{{ q.beneficiario || '—' }}</td>
-                        <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                         <td class="mono muted">{{ dmShort(q.fecha) }}</td></tr>
                     }
                   </tbody>
@@ -183,8 +183,8 @@ import { BANCOS_STYLES } from './bancos.styles';
           <span><b>{{ dd.totals.excel_n }}</b> movs banco</span>
           <span class="ok"><b>{{ dd.totals.excel_en_kepler }}</b> en Kepler</span>
           <span class="ok"><b>{{ dd.totals.excel_en_contpaqi }}</b> en ContPAQi</span>
-          @if (dd.totals.kepler_only_n) { <span class="warn"><b>{{ dd.totals.kepler_only_n }}</b> solo Kepler ({{ dd.totals.kepler_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
-          @if (dd.totals.contpaqi_only_n) { <span class="warn"><b>{{ dd.totals.contpaqi_only_n }}</b> solo ContPAQi ({{ dd.totals.contpaqi_only_monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+          @if (dd.totals.kepler_only_n) { <span class="warn"><b>{{ dd.totals.kepler_only_n }}</b> solo Kepler ({{ dd.totals.kepler_only_monto | currency:'MXN':'symbol-narrow':'1.2-2' }})</span> }
+          @if (dd.totals.contpaqi_only_n) { <span class="warn"><b>{{ dd.totals.contpaqi_only_n }}</b> solo ContPAQi ({{ dd.totals.contpaqi_only_monto | currency:'MXN':'symbol-narrow':'1.2-2' }})</span> }
         </div>
         <div class="tw-drill-filters">
           <div class="tw-fg" role="group" aria-label="Dirección">
@@ -202,15 +202,24 @@ import { BANCOS_STYLES } from './bancos.styles';
         </div>
         <div class="tw-wrap">
           <table class="tw-tbl tw-drill-tbl">
-            <thead><tr><th>Fecha</th><th class="ta-c">Dir</th><th class="ta-r">Workbook</th><th class="ta-r">Kepler</th><th class="ta-r">ContPAQi</th><th>Concepto</th></tr></thead>
+            <thead><tr>
+              @for (c of DRILL_COLS; track c.field) {
+                <th [class]="c.cls" [attr.aria-sort]="ariaSort(drillSort(), c.field)">
+                  <button type="button" class="tw-sort" (click)="sortDrill(c.field)"
+                          [attr.aria-label]="'Ordenar por ' + c.label">
+                    {{ c.label }}<i [class]="sortIcon(drillSort(), c.field)" aria-hidden="true"></i>
+                  </button>
+                </th>
+              }
+            </tr></thead>
             <tbody>
               @for (e of drillRows(); track e.id) {
                 <tr>
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left fb-in-ico' : 'pi pi-arrow-up-right fb-out-ico'"></i></td>
-                  <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">@if (e.kepler) { <span [title]="e.kepler_doc || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
-                  <td class="ta-r mono">@if (e.contpaqi) { <span [title]="e.contpaqi_poliza || ''" [class.tw-cent]="e.contpaqi_importe !== e.importe">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="ta-r mono">@if (e.kepler) { <span [title]="e.kepler_doc || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.contpaqi) { <span [title]="e.contpaqi_poliza || ''" [class.tw-cent]="e.contpaqi_importe !== e.importe">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
                 </tr>
               }
@@ -224,7 +233,7 @@ import { BANCOS_STYLES } from './bancos.styles';
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
+                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
                 </tbody></table>
               </div>
             }
@@ -232,7 +241,7 @@ import { BANCOS_STYLES } from './bancos.styles';
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
                 </tbody></table>
               </div>
             }
@@ -242,6 +251,17 @@ import { BANCOS_STYLES } from './bancos.styles';
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, `
+    /* Encabezado ordenable de tabla cruda: el th completo es el objetivo de clic. */
+    .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
+      font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }
+    .ta-r .tw-sort { justify-content: flex-end; }
+    .ta-c .tw-sort { justify-content: center; }
+    .tw-sort i { font-size: .65rem; opacity: .45; }
+    .tw-sort:hover i { opacity: .9; }
+    .tw-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    th[aria-sort]:not([aria-sort='none']) .tw-sort { color: var(--action); }
+    th[aria-sort]:not([aria-sort='none']) .tw-sort i { opacity: 1; }
+
     /* Veredicto */
     .tw-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4);
       border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; margin-bottom: var(--sp-3); }
@@ -337,16 +357,32 @@ export class BancosThreeWayComponent {
   readonly dfDir = signal<'' | 'in' | 'out'>('');
   readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
   readonly dfSearch = signal('');
+  /** Columnas del Detalle 3 vías: etiqueta + campo por el que ordena. */
+  readonly DRILL_COLS = [
+    { field: 'fecha',            label: 'Fecha',     cls: '' },
+    { field: 'dir',              label: 'Dir',       cls: 'ta-c' },
+    { field: 'importe',          label: 'Workbook',  cls: 'ta-r' },
+    { field: 'kepler_importe',   label: 'Kepler',    cls: 'ta-r' },
+    { field: 'contpaqi_importe', label: 'ContPAQi',  cls: 'ta-r' },
+    { field: 'concepto',         label: 'Concepto',  cls: '' },
+  ];
+  readonly drillSort = signal<SortState | null>(null);
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+  sortDrill(field: string): void { this.drillSort.set(toggleSort(this.drillSort(), field)); }
+
   readonly drillRows = computed(() => {
     const dd = this.drill(); if (!dd) return [];
     const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase();
-    return dd.excel.filter((e) => {
+    const filtered = dd.excel.filter((e) => {
       if (dir && e.dir !== dir) return false;
       if (est === 'casado' && !(e.kepler && e.contpaqi)) return false;
       if (est === 'descuadre' && e.kepler && e.contpaqi) return false;
       if (q && !`${e.concepto || ''} ${e.importe}`.toLowerCase().includes(q)) return false;
       return true;
     });
+    // Sin orden elegido se respeta el del backend (cronológico).
+    return sortRows(filtered, this.drillSort(), (r, f) => (r as unknown as Record<string, unknown>)[f]);
   });
 
   constructor() {
@@ -365,7 +401,7 @@ export class BancosThreeWayComponent {
   drillTitle(): string { return this.drillAcct ? `Detalle 3 vías — ${this.drillAcct}` : 'Detalle'; }
   openDrill(period: string, r: ThreeWayAccount): void {
     this.drillAcct = `${r.bank} ${r.account_label}`;
-    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set('');
+    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set(''); this.drillSort.set(null);
     this.drill.set(null); this.drillErr.set(null); this.drillOpen.set(true); this.drillLoading.set(true);
     this.api.threeWayDetail(period, r.account_label).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (dd) => { this.drill.set(dd); this.drillLoading.set(false); },
@@ -379,11 +415,11 @@ export class BancosThreeWayComponent {
   rows(d: ThreeWay): ThreeWayRow[] { return [d.total.ingresos, d.total.egresos]; }
 
   verdict(d: ThreeWay): string {
-    if (d.cuadra) return `Las 3 fuentes cuadran en ${d.period} (dentro de ±${money0(d.tolerance)}).`;
+    if (d.cuadra) return `Las 3 fuentes cuadran en ${d.period} (dentro de ±${money(d.tolerance)}).`;
     const gaps: string[] = [];
     const i = d.total.ingresos, e = d.total.egresos;
-    if (!i.cuadra) gaps.push(`ingresos (mayor Δ ${money0(this.maxDelta(i))})`);
-    if (!e.cuadra) gaps.push(`egresos (mayor Δ ${money0(this.maxDelta(e))})`);
+    if (!i.cuadra) gaps.push(`ingresos (mayor Δ ${money(this.maxDelta(i))})`);
+    if (!e.cuadra) gaps.push(`egresos (mayor Δ ${money(this.maxDelta(e))})`);
     return `Descuadre en ${gaps.join(' y ')}. Revisa el detalle por cuenta abajo.`;
   }
   private maxDelta(r: ThreeWayRow): number {

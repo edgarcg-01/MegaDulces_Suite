@@ -26,7 +26,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         </h3>
         <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
           <ng-template #header>
-            <tr><th class="col-w25"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th class="col-w5 ta-c">Estado</th></tr>
+            <tr><th class="col-w25"></th><th pSortableColumn="bank">Cuenta <p-sorticon field="bank" /></th><th class="ta-r" pSortableColumn="opening">Inicial <p-sorticon field="opening" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="computed">Calculado <p-sorticon field="computed" /></th><th class="ta-r" pSortableColumn="closing">Final <p-sorticon field="closing" /></th><th class="ta-r" pSortableColumn="delta">Δ <p-sorticon field="delta" /></th><th class="col-w5 ta-c" pSortableColumn="cuadra">Estado <p-sorticon field="cuadra" /></th></tr>
           </ng-template>
           <ng-template #body let-a let-expanded="expanded">
             <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
@@ -40,11 +40,11 @@ import { BANCOS_STYLES } from './bancos.styles';
                 }
               </td>
               <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
-              <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono">
                 @if (a.sin_saldo) { <span class="muted">—</span> }
                 @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }
@@ -63,7 +63,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                 @for (b of breaksFor(a); track b.label) {
                   <div class="fb-break">
                     <span class="fb-break-l mono">{{ b.label }}</span>
-                    <span class="fb-break-m mono" [class.bad]="(b.monto || 0) < 0">{{ b.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                    <span class="fb-break-m mono" [class.bad]="(b.monto || 0) < 0">{{ b.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                   </div>
                 }
                 <p class="fb-breaks-note muted">En estos renglones el saldo del estado de cuenta salta más de lo que explica el movimiento: ahí falta capturar algo, o el saldo quedó mal tecleado.</p>
@@ -75,7 +75,7 @@ import { BANCOS_STYLES } from './bancos.styles';
           </ng-template>
         </p-table>
         <p class="fb-recon-note muted">
-          Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
+          Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.2-2' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.2-2' }}
           <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>.
           @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
         </p>
@@ -85,15 +85,15 @@ import { BANCOS_STYLES } from './bancos.styles';
         <h3 class="fb-card-title fb-pnl-title">Cuentas del periodo <span class="muted">— estados de cuenta cargados (sin saldos para verificar el cuadre)</span></h3>
         <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
           <ng-template #header>
-            <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
+            <tr><th pSortableColumn="bank">Banco <p-sorticon field="bank" /></th><th pSortableColumn="account_label">Cuenta <p-sorticon field="account_label" /></th><th pSortableColumn="kind">Tipo <p-sorticon field="kind" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="closing_balance">Saldo final <p-sorticon field="closing_balance" /></th></tr>
           </ng-template>
           <ng-template #body let-s>
             <tr>
               <td>{{ s.bank }}</td>
               <td class="mono">{{ s.account_label }}</td>
               <td><span class="fb-kind">{{ kind(s.kind) }}</span></td>
-              <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             </tr>
           </ng-template>
