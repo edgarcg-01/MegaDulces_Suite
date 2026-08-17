@@ -21,6 +21,8 @@ Consecuencia: el "Vale de Entrada" de la app es el **folio maestro de la captura
 
 ## Pieza 1 — Modo recepción por escaneo
 
+> **✅ CONSTRUIDA (beta) LOCAL 2026-08-17.** Migración `20260817120000` (`commercial.receiving_sessions` = Vale vivo + `receiving_lines` + `receiving_session_sequences`, folio `VE-YYYY-NNNNN`, RLS forzado). Backend `ReceivingSessionService` + `/commercial/receiving/sessions/*` (open manual **o** desde orden de entrada ERP con precarga de líneas esperadas, scan barcode→SKU, setLine, add-line, close, cancel; discrepancia determinista ok/faltante/sobrante/dañado/producto_incorrecto). Frontend: `/almacen/inventory/recepcion-sesiones` (lista + nueva) + `/almacen/inventory/recepcion-sesiones/:id` (handheld: escaneo en vivo + "qué falta validar" + KPIs + cerrar/cancelar). Permiso reusa `COMMERCIAL_INVENTORY_RECIBIR`. Nav "Vales de entrada". Builds api+view OK. Smoke `test-newdb-receiving-session` **18/18** (en `run-all-tests`). **No escribe stock** (captura la realidad física; el alta de stock/FEFO es la Pieza 2 al aceptar, enlazada por `source_ref`=folio). **Pendiente prod:** aplicar mig a Railway + redeploy. **Diferido:** captura de caducidad por-línea embebida en la sesión (hoy la sesión y el auditor Pieza 2 comparten dominio pero son flujos separados); origen desde `purchase_orders` (hoy manual + erp_receipt).
+
 **Objetivo (Frank §5-6):** el operador en la rampa escanea caja→pieza contra *lo esperado*, y el sistema le dice *qué falta validar* + registra faltantes/sobrantes/daños.
 
 **"Lo esperado" viene de** (en orden de preferencia):

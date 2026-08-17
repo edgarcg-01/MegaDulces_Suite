@@ -579,6 +579,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        // WMS-REC Pieza 1 (ADR-044) — Vales de entrada (sesiones de recepción por escaneo)
+        path: 'inventory/recepcion-sesiones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesiones.component').then(m => m.AlmacenRecepcionSesionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
+        path: 'inventory/recepcion-sesiones/:id',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),

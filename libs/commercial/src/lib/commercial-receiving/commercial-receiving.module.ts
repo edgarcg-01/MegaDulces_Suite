@@ -3,6 +3,8 @@ import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-c
 import { CommercialInventoryModule } from '../commercial-inventory/commercial-inventory.module';
 import { ReceivingAuditorService } from './receiving-auditor.service';
 import { ReceivingAuditorController } from './receiving-auditor.controller';
+import { ReceivingSessionService } from './receiving-session.service';
+import { ReceivingSessionController } from './receiving-session.controller';
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -14,8 +16,8 @@ import { ReceivingAuditorController } from './receiving-auditor.controller';
  */
 @Module({
   imports: [CloudinaryModule, AiProductMatcherModule, CommercialInventoryModule],
-  controllers: [ReceivingAuditorController],
-  providers: [ReceivingAuditorService],
-  exports: [ReceivingAuditorService],
+  controllers: [ReceivingAuditorController, ReceivingSessionController],
+  providers: [ReceivingAuditorService, ReceivingSessionService],
+  exports: [ReceivingAuditorService, ReceivingSessionService],
 })
 export class CommercialReceivingModule {}
