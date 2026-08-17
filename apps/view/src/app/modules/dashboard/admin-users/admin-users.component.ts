@@ -9,7 +9,8 @@ import {
   signal,
 } from '@angular/core';
 
-import { Router } from '@angular/router';
+import { DecimalPipe } from '@angular/common';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   FormBuilder,
   FormGroup,
@@ -20,7 +21,6 @@ import {
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
-import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -51,6 +51,20 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { AREAS, AreaMeta, roleAreaSlug } from '../../../core/constants/role-presets';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+
+/** Departamento con su conteo y su higiene de accesos (lo que decide a dónde entrar). */
+export interface DeptRow {
+  area: AreaMeta;
+  total: number;
+  activos: number;
+  /** Activos que NUNCA entraron. */
+  nunca: number;
+  /** Activos sin entrar hace más de 90 días. */
+  dormidos: number;
+  /** Roles distintos conviviendo en el departamento (delata desorden de permisos). */
+  roles: number;
+}
 
 interface RoleOption {
   label: string;
@@ -76,7 +90,6 @@ interface ZoneOption {
     TableModule,
     ButtonModule,
     TagModule,
-    DialogModule,
     InputTextModule,
     SelectModule,
     MultiSelectModule,
@@ -85,8 +98,10 @@ interface ZoneOption {
     ConfirmDialogModule,
     IconFieldModule,
     InputIconModule,
-    FormsModule
-],
+    FormsModule,
+    SidePeekComponent,
+    DecimalPipe,
+  ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-users.component.html',
   styleUrls: ['./admin-users.component.css'],
@@ -101,6 +116,7 @@ export class AdminUsersComponent implements OnInit {
   private authService = inject(AuthService);
   private perms = inject(PermissionsService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private destroyRef = inject(DestroyRef);
 
   // Lectura reactiva: búsqueda client-side (filteredUsers) → el padrón se carga entero
@@ -144,25 +160,96 @@ export class AdminUsersComponent implements OnInit {
     });
   });
 
-  /** Usuarios agrupados por área (via su role_name), en orden de AREAS. */
-  readonly groupedUsers = computed<{ area: AreaMeta; users: User[] }[]>(() => {
-    const list = this.filteredUsers();
-    return AREAS.map((area) => ({
-      area,
-      users: list.filter((u) => roleAreaSlug(u.role_name) === area.slug),
-    })).filter((g) => g.users.length > 0);
-  });
+  // ── Master-detail por departamento ─────────────────────────────────────────
+  // El "departamento" NO es un campo: se deriva del rol con `roleAreaSlug` sobre
+  // las 15 áreas de role-presets. Por eso el rediseño no necesitó migración.
+  // '' = todos.
+  readonly selectedDept = signal<string>('');
+
+  /** Días sin entrar. `null` = nunca entró. */
+  private daysSinceLogin(u: User): number | null {
+    if (!u.last_login_at) return null;
+    return (Date.now() - new Date(u.last_login_at).getTime()) / 864e5;
+  }
 
   /**
-   * Lista plana ordenada por área + con `_areaLabel` en cada fila, para el
-   * rowGroup del p-table (desktop). Contigua por área para que el subheader
-   * agrupe bien.
+   * Departamentos con conteo + higiene de accesos. Se calcula sobre el padrón
+   * COMPLETO, no sobre el filtrado: el aside es un índice estable, no debe
+   * bailar mientras escribís en el buscador.
    */
-  readonly usersByArea = computed(() =>
-    this.groupedUsers().flatMap((g) =>
-      g.users.map((u) => ({ ...u, _areaLabel: g.area.label })),
-    ),
-  );
+  readonly departments = computed<DeptRow[]>(() => {
+    const all = this.users();
+    return AREAS.map((area) => {
+      const list = all.filter((u) => roleAreaSlug(u.role_name) === area.slug);
+      const activos = list.filter((u) => u.activo);
+      let nunca = 0, dormidos = 0;
+      for (const u of activos) {
+        const d = this.daysSinceLogin(u);
+        if (d === null) nunca++;
+        else if (d > 90) dormidos++;
+      }
+      return {
+        area,
+        total: list.length,
+        activos: activos.length,
+        nunca,
+        dormidos,
+        roles: new Set(list.map((u) => u.role_name).filter(Boolean)).size,
+      };
+    }).filter((d) => d.total > 0);
+  });
+
+  /** Total de cuentas con alerta de acceso, para el resumen del encabezado. */
+  readonly alertTotal = computed(() =>
+    this.departments().reduce((a, d) => a + d.nunca + d.dormidos, 0));
+
+  /** Filtro "sólo con alerta de acceso": el contador del resumen es accionable. */
+  readonly onlyAlerts = signal(false);
+  toggleAlerts(): void { this.onlyAlerts.update((v) => !v); }
+
+  /** ¿Esta cuenta activa nunca entró o lleva +90 días sin entrar? */
+  hasAccessAlert(u: User): boolean {
+    if (!u.activo) return false;
+    const d = this.daysSinceLogin(u);
+    return d === null || d > 90;
+  }
+
+  /** Usuarios del departamento elegido, ya pasados por el buscador. */
+  readonly deptUsers = computed<User[]>(() => {
+    const slug = this.selectedDept();
+    let list = this.filteredUsers();
+    if (slug) list = list.filter((u) => roleAreaSlug(u.role_name) === slug);
+    if (this.onlyAlerts()) list = list.filter((u) => this.hasAccessAlert(u));
+    return list;
+  });
+
+  /** Fila del departamento activo (null = "Todos"). */
+  readonly currentDept = computed<DeptRow | null>(() =>
+    this.departments().find((d) => d.area.slug === this.selectedDept()) ?? null);
+
+  /**
+   * Elegir departamento deja rastro en la URL (DESIGN §9: el estado de la vista
+   * vive en la URL). Así F5 no pierde el contexto y se puede compartir
+   * "los usuarios de Compras" como liga.
+   */
+  selectDept(slug: string): void {
+    this.selectedDept.set(slug);
+    this.closeEditor();
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { dept: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Etiqueta de alerta del departamento; '' cuando no hay nada que señalar. */
+  deptAlert(d: DeptRow): string {
+    const bits: string[] = [];
+    if (d.dormidos) bits.push(`${d.dormidos} sin entrar +90d`);
+    if (d.nunca) bits.push(`${d.nunca} nunca`);
+    return bits.join(' · ');
+  }
 
   /** Color de avatar hash-seeded sobre la escala --avatar-1..8 (AA ≥ 4.5 sobre texto blanco). */
   avatarColorFor(seed: string): string {
@@ -270,6 +357,11 @@ export class AdminUsersComponent implements OnInit {
     this.loadSupervisors();
     this.loadZones();
     this.loadFinanceAreas();
+
+    // Estado de la vista en la URL (DESIGN §9): ?dept=compras vuelve al mismo
+    // departamento tras F5 y se puede compartir como liga.
+    const dept = this.route.snapshot.queryParamMap.get('dept');
+    if (dept) this.selectedDept.set(dept);
   }
 
   /** Catálogo de áreas de gasto (GX.8) para el selector de "áreas visibles". Best-effort. */
@@ -382,6 +474,11 @@ export class AdminUsersComponent implements OnInit {
   }
 
   closeDialog(): void {
+    this.displayDialog.set(false);
+  }
+
+  /** Cierra el side-peek de edición (mismo estado, nombre del organismo nuevo). */
+  closeEditor(): void {
     this.displayDialog.set(false);
   }
 

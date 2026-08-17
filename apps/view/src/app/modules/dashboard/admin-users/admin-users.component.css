@@ -1,0 +1,253 @@
+/* /admin/users — master-detail por departamento (Operations).
+   Todo sale de tokens: cero hex. Una sola estructura para desktop y móvil —
+   antes había una p-table y una lista de tarjetas duplicadas a mano. */
+
+:host { display: block; }
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ── Resumen del padrón ─────────────────────────────────────────────────── */
+.au-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.au-sum-item { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.au-sum-item b { color: var(--text-main); font-weight: 600; }
+/* La alerta de accesos es un botón: el dato que evidencia algo lleva a su arreglo. */
+button.au-sum-item {
+  font: inherit;
+  font-size: var(--fs-xs);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  padding: 2px var(--sp-2);
+  cursor: pointer;
+}
+.au-sum-warn, .au-sum-warn b, .au-sum-warn i { color: var(--warn-fg); }
+button.au-sum-item:hover { background: var(--hover-bg); border-color: var(--border-color); }
+button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+/* Filtro activo: el chip se queda encendido y ofrece cómo quitarlo. */
+.au-sum-on {
+  border-color: var(--warn-fg);
+  background: color-mix(in srgb, var(--warn-fg) 10%, transparent);
+}
+.au-sum-x { font-size: 0.6rem; opacity: 0.7; }
+
+/* ── Rejilla master-detail ──────────────────────────────────────────────── */
+.au-grid {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+/* ── Índice de departamentos ────────────────────────────────────────────── */
+.au-aside {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  padding: var(--sp-2);
+  position: sticky;
+  top: var(--sp-4);
+  max-height: calc(100dvh - 12rem);
+  overflow-y: auto;
+}
+.au-aside-h {
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--text-faint);
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+}
+.au-dept {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-main);
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  cursor: pointer;
+  transition: background-color 120ms var(--ease-standard);
+}
+.au-dept:hover { background: var(--overlay-hover); }
+.au-dept[aria-current='true'] {
+  background: var(--overlay-selected);
+  box-shadow: inset 2px 0 0 var(--action);
+  font-weight: 600;
+}
+.au-dept:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+.au-dept-ico { color: var(--text-faint); font-size: var(--fs-xs); }
+.au-dept[aria-current='true'] .au-dept-ico { color: var(--action); }
+.au-dept-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.au-dept-n { font-size: var(--fs-xs); color: var(--text-muted); }
+/* La alerta ocupa el renglón de abajo: es contexto, no compite con el nombre. */
+.au-dept-alert {
+  grid-column: 2 / -1;
+  font-size: var(--fs-micro);
+  color: var(--warn-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Panel de usuarios ──────────────────────────────────────────────────── */
+.au-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.au-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.au-search { flex: 1; min-width: 15rem; max-width: 26rem; }
+:host ::ng-deep .au-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
+.au-count { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
+.au-count b { color: var(--text-main); }
+
+.au-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+/* La tabla scrollea dentro de su caja; el body de la página nunca de lado. */
+.au-tbl-scroll { overflow-x: auto; }
+
+.au-row { cursor: default; }
+.au-row-sel > td { background: var(--overlay-selected); }
+.au-row-sel > td:first-child { box-shadow: inset 3px 0 0 var(--action); }
+
+.au-u { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.au-av {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-pill);
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: #fff; /* los --avatar-* están calibrados AA ≥ 4.5 contra blanco */
+  font-size: var(--fs-micro);
+  font-weight: 700;
+}
+.au-u-txt { display: flex; flex-direction: column; min-width: 0; }
+.au-u-nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.au-u-un { font-size: var(--fs-micro); color: var(--text-faint); }
+.au-u-sup {
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.au-u-sup i { font-size: 0.6rem; }
+
+.au-role,
+.au-zona,
+.au-act,
+.au-ruta { display: block; }
+.au-role { font-size: var(--fs-micro); color: var(--text-muted); }
+.au-zona { font-size: var(--fs-sm); font-weight: 500; color: var(--text-main); }
+.au-act {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+.au-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; }
+.au-ruta { font-size: var(--fs-xs); font-weight: 500; color: var(--text-main); padding-left: calc(8px + var(--sp-2)); }
+.au-ruta-none { color: var(--text-faint); font-style: italic; font-weight: 400; }
+
+.au-col-act { width: 5.5rem; }
+.au-rowact { display: flex; gap: var(--sp-1); justify-content: flex-end; }
+
+.surf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8);
+  color: var(--text-muted);
+  text-align: center;
+}
+.surf-empty i { font-size: 1.5rem; color: var(--text-faint); }
+.surf-empty p { margin: 0; }
+
+/* ── Formulario dentro del side-peek ────────────────────────────────────── */
+.au-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.au-field { display: flex; flex-direction: column; gap: var(--sp-1); }
+.au-field > label {
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+:host ::ng-deep .au-field .p-inputtext,
+:host ::ng-deep .au-field .p-select,
+:host ::ng-deep .au-field .p-multiselect { width: 100%; font-size: var(--fs-sm); }
+.au-hint { font-size: var(--fs-micro); color: var(--text-faint); line-height: 1.35; }
+.au-err { font-size: var(--fs-micro); color: var(--bad-fg); }
+.au-boxed {
+  padding: var(--sp-3);
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+}
+.au-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+}
+.au-toggle-t { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+.au-toggle-s { font-size: var(--fs-micro); color: var(--text-muted); }
+.au-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-color);
+}
+
+/* ── Móvil: el índice se vuelve una tira horizontal sobre la tabla. ─────── */
+@media (max-width: 900px) {
+  .au-grid { grid-template-columns: minmax(0, 1fr); }
+  .au-aside {
+    position: static;
+    max-height: none;
+    display: flex;
+    gap: var(--sp-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-radius: var(--r-pill);
+  }
+  .au-aside::-webkit-scrollbar { display: none; }
+  .au-aside-h { display: none; }
+  .au-dept {
+    grid-template-columns: auto auto auto;
+    width: auto;
+    flex: none;
+    border-radius: var(--r-pill);
+    white-space: nowrap;
+  }
+  .au-dept[aria-current='true'] { box-shadow: 0 0 0 1px var(--action); }
+  /* La alerta no cabe en la tira; el conteo basta para elegir. */
+  .au-dept-alert { display: none; }
+  .au-count { margin-left: 0; }
+}
