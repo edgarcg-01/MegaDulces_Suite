@@ -6,7 +6,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { BankCaptureService, BankCapture, CaptureKpis } from '../../bank-capture.service';
-import { money0, dmy } from './bancos-shared';
+import { money, dmy } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -60,8 +60,8 @@ import { BANCOS_STYLES } from './bancos.styles';
         <p-table [value]="rows()" styleClass="p-datatable-sm" [scrollable]="true">
           <ng-template #header>
             <tr>
-              <th>Fecha</th><th>Remitente</th><th>Suc</th><th>Banco / Cuenta</th>
-              <th class="ta-r">Monto</th><th>Ref</th><th>Estado</th><th>Foto</th><th class="ta-r">Acción</th>
+              <th pSortableColumn="created_at">Fecha <p-sorticon field="created_at" /></th><th pSortableColumn="sender_name">Remitente <p-sorticon field="sender_name" /></th><th pSortableColumn="sucursal">Suc <p-sorticon field="sucursal" /></th><th pSortableColumn="ocr_banco">Banco / Cuenta <p-sorticon field="ocr_banco" /></th>
+              <th class="ta-r" pSortableColumn="amount_in">Monto <p-sorticon field="amount_in" /></th><th pSortableColumn="ocr_referencia">Ref <p-sorticon field="ocr_referencia" /></th><th pSortableColumn="status">Estado <p-sorticon field="status" /></th><th>Foto</th><th class="ta-r">Acción</th>
             </tr>
           </ng-template>
           <ng-template #body let-r>
@@ -160,7 +160,7 @@ export class BancosCapturasComponent implements OnInit {
   });
   readonly errorCount = computed(() => this.rows().filter((r) => !!r.error_detail).length);
 
-  readonly money = money0;
+  readonly money = money;
   readonly dmy = dmy;
 
   ngOnInit(): void { this.load(); }

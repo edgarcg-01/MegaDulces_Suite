@@ -54,7 +54,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                 <span class="fb-diag-dot"></span>
                 <span class="fb-diag-title">{{ it.titulo }}</span>
                 @if (helpTopic(it.tipo); as ht) { <app-context-help [topic]="ht" /> }
-                @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }
                 <p-button type="button" styleClass="p-button-sm p-button-outlined fb-diag-cta"
                         [label]="actionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction.emit(it)"></p-button>
               </div>
@@ -66,7 +66,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                       <span class="fb-diag-ev-label">{{ e.label }}</span>
                       @if (e.count) { <span class="fb-diag-ev-meta">{{ e.count }} mov</span> }
                       @if (e.folio) { <span class="fb-diag-ev-folio">{{ e.folio }}</span> }
-                      @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                      @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }
                     </li>
                   }
                 </ul>

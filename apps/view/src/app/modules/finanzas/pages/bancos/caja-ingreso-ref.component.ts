@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { BankService, IngresosControl } from '../../bank.service';
-import { money0, dmShort } from './bancos-shared';
+import { money, dmShort } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -23,19 +23,19 @@ import { BANCOS_STYLES } from './bancos.styles';
     @if (data(); as c) {
       <div class="ic-card" [class.ic-ok]="c.cuadra" [class.ic-warn]="!c.cuadra">
         <div class="ic-head">
-          <h3 class="ic-title">Control de ingresos <span class="muted">— ¿cada depósito del banco tiene origen? ({{ c.bank_n }} depósitos · {{ c.bank_total | currency:'MXN':'symbol-narrow':'1.0-0' }})</span></h3>
+          <h3 class="ic-title">Control de ingresos <span class="muted">— ¿cada depósito del banco tiene origen? ({{ c.bank_n }} depósitos · {{ c.bank_total | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
           @if (c.cuadra) {
             <span class="ic-verdict ok"><i class="pi pi-check-circle"></i> Cuadra</span>
           } @else {
-            <span class="ic-verdict warn"><i class="pi pi-exclamation-triangle"></i> {{ c.sin_explicar.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} sin explicar</span>
+            <span class="ic-verdict warn"><i class="pi pi-exclamation-triangle"></i> {{ c.sin_explicar.monto | currency:'MXN':'symbol-narrow':'1.2-2' }} sin explicar</span>
           }
         </div>
 
         <div class="ic-grid">
-          <div class="ic-cell"><span class="ic-l">Tesorería Kepler</span><span class="ic-v ok">{{ c.via_tesoreria.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="ic-s">{{ c.via_tesoreria.n }} · casó kdm1</span></div>
-          <div class="ic-cell"><span class="ic-l">Cobranza cliente</span><span class="ic-v">{{ c.via_cobranza.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="ic-s">{{ c.via_cobranza.n }} · UA0501</span></div>
-          <div class="ic-cell"><span class="ic-l">Depósito de tienda</span><span class="ic-v">{{ c.via_caja.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="ic-s">{{ c.via_caja.n }} · Caja</span></div>
-          <div class="ic-cell ic-excn" [class.hot]="c.sin_explicar.n > 0"><span class="ic-l">Sin explicar</span><span class="ic-v" [class.bad]="c.sin_explicar.n > 0">{{ c.sin_explicar.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="ic-s">{{ c.sin_explicar.n }} depósitos</span></div>
+          <div class="ic-cell"><span class="ic-l">Tesorería Kepler</span><span class="ic-v ok">{{ c.via_tesoreria.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="ic-s">{{ c.via_tesoreria.n }} · casó kdm1</span></div>
+          <div class="ic-cell"><span class="ic-l">Cobranza cliente</span><span class="ic-v">{{ c.via_cobranza.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="ic-s">{{ c.via_cobranza.n }} · UA0501</span></div>
+          <div class="ic-cell"><span class="ic-l">Depósito de tienda</span><span class="ic-v">{{ c.via_caja.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="ic-s">{{ c.via_caja.n }} · Caja</span></div>
+          <div class="ic-cell ic-excn" [class.hot]="c.sin_explicar.n > 0"><span class="ic-l">Sin explicar</span><span class="ic-v" [class.bad]="c.sin_explicar.n > 0">{{ c.sin_explicar.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="ic-s">{{ c.sin_explicar.n }} depósitos</span></div>
         </div>
 
         <div class="ic-bar" role="img" [attr.aria-label]="'Explicado ' + pctExpl(c) + '%'">
@@ -45,7 +45,7 @@ import { BANCOS_STYLES } from './bancos.styles';
           <span class="ic-seg sin" [style.width.%]="pct(c.sin_explicar.monto, c.bank_total)"></span>
         </div>
         <p class="ic-note">
-          <b class="ok">{{ pctExpl(c) }}% explicado</b> ({{ c.explicado | currency:'MXN':'symbol-narrow':'1.0-0' }}).
+          <b class="ok">{{ pctExpl(c) }}% explicado</b> ({{ c.explicado | currency:'MXN':'symbol-narrow':'1.2-2' }}).
           @if (c.sin_explicar.n > 0) {
             El resto son depósitos que ninguna fuente explica — <b>revísalos</b> (¿transferencia no registrada? ¿ingreso ajeno? ¿otra cuenta/mes?).
           } @else { Todo depósito tiene origen. }
@@ -63,7 +63,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                 <tbody>
                   @for (e of c.exceptions; track e.id) {
                     <tr><td class="mono">{{ dmShort(e.fecha) }}</td><td class="mono">{{ e.account_label || e.bank || '—' }}</td>
-                        <td class="ta-r mono bad">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="ta-r mono bad">{{ e.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                         <td class="ic-concept" [title]="e.concept">{{ e.concept || '—' }}</td></tr>
                   }
                 </tbody>
@@ -74,7 +74,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         }
 
         @if (c.fuga.n > 0) {
-          <p class="ic-fuga"><i class="pi pi-arrow-circle-up"></i> <b>Fuga:</b> {{ c.fuga.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} en {{ c.fuga.n }} depósitos que Caja registró pero <b>no llegaron al banco</b> (rezago / no depositado). <a routerLink="/finanzas/caja" class="ic-link">Ver en Caja General <i class="pi pi-arrow-right"></i></a></p>
+          <p class="ic-fuga"><i class="pi pi-arrow-circle-up"></i> <b>Fuga:</b> {{ c.fuga.monto | currency:'MXN':'symbol-narrow':'1.2-2' }} en {{ c.fuga.n }} depósitos que Caja registró pero <b>no llegaron al banco</b> (rezago / no depositado). <a routerLink="/finanzas/caja" class="ic-link">Ver en Caja General <i class="pi pi-arrow-right"></i></a></p>
         }
       </div>
     }
@@ -117,7 +117,7 @@ export class CajaIngresoRefComponent {
   readonly data = signal<IngresosControl | null>(null);
   readonly open = signal(false);
   dmShort = dmShort;
-  money0 = money0;
+  money = money;
   private seq = 0;
 
   constructor() {

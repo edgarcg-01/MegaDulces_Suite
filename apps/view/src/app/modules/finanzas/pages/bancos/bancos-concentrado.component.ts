@@ -4,9 +4,9 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
-import { Concentrado, Balances } from '../../bank.service';
+import { Concentrado, ConcentradoAccount, Balances } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
-import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared';
+import { GROUP_ORDER, groupLabel, groupColorVar, money } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -29,22 +29,23 @@ import { BANCOS_STYLES } from './bancos.styles';
       <span class="fb-count muted">{{ rows().length }} cuenta(s)</span>
     </div>
     <div class="card-premium card-flat fb-tablewrap">
-      <p-table [value]="rows()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+      <p-table [value]="rows()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
+               [customSort]="true" (sortFunction)="onSort($event)">
         <ng-template #header>
           <tr>
-            <th class="fb-sticky-col">Cuenta</th>
-            @for (g of groupCols(); track g) { <th class="ta-r"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="color(g)"></span>{{ label(g) }}</span></th> }
-            <th class="ta-r">Depósitos</th>
-            <th class="ta-r">Retiros</th>
-            <th class="ta-c col-cuadre" title="¿El saldo de esta cuenta cierra? (inicial + depósitos − retiros = final)">Cuadre</th>
+            <th class="fb-sticky-col" pSortableColumn="bank">Cuenta <p-sorticon field="bank" /></th>
+            @for (g of groupCols(); track g) { <th class="ta-r" [pSortableColumn]="'g:' + g"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="color(g)"></span>{{ label(g) }}</span> <p-sorticon [field]="'g:' + g" /></th> }
+            <th class="ta-r" pSortableColumn="deposits">Depósitos <p-sorticon field="deposits" /></th>
+            <th class="ta-r" pSortableColumn="withdrawals">Retiros <p-sorticon field="withdrawals" /></th>
+            <th class="ta-c col-cuadre" pSortableColumn="cuadre" title="¿El saldo de esta cuenta cierra? (inicial + depósitos − retiros = final)">Cuadre <p-sorticon field="cuadre" /></th>
           </tr>
         </ng-template>
         <ng-template #body let-a>
           <tr [class.fb-nocuadra]="cuadreOf(a).state === 'bad'">
             <td class="fb-sticky-col"><span class="fb-acct">{{ a.bank }} <span class="muted">{{ a.account_label }}</span></span></td>
-            @for (g of groupCols(); track g) { <td class="ta-r mono">{{ cellAmount(a, g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
-            <td class="ta-r mono fb-strong">{{ a.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-            <td class="ta-r mono fb-strong">{{ a.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            @for (g of groupCols(); track g) { <td class="ta-r mono">{{ cellAmount(a, g) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td> }
+            <td class="ta-r mono fb-strong">{{ a.deposits | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="ta-r mono fb-strong">{{ a.withdrawals | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             <td class="ta-c">
               @switch (cuadreOf(a).state) {
                 @case ('ok') { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
@@ -57,9 +58,9 @@ import { BANCOS_STYLES } from './bancos.styles';
         <ng-template #footer>
           <tr class="fb-total-row">
             <td class="fb-sticky-col">Total</td>
-            @for (g of groupCols(); track g) { <td class="ta-r mono">{{ groupTotal(g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
-            <td class="ta-r mono fb-strong">{{ c().grand.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-            <td class="ta-r mono fb-strong">{{ c().grand.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            @for (g of groupCols(); track g) { <td class="ta-r mono">{{ groupTotal(g) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td> }
+            <td class="ta-r mono fb-strong">{{ c().grand.deposits | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="ta-r mono fb-strong">{{ c().grand.withdrawals | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             <td class="ta-c">@if (noCuadraCount() > 0) { <span class="fb-bad-badge" [title]="noCuadraCount() + ' cuenta(s) sin cuadrar'">{{ noCuadraCount() }}</span> }</td>
           </tr>
         </ng-template>
@@ -97,15 +98,43 @@ export class BancosConcentradoComponent {
   cuadreOf(a: { bank: string; account_label: string }): { state: 'ok' | 'bad' | 'na'; deltaFmt: string } {
     const b = this.balMap().get(`${a.bank}|${a.account_label}`);
     if (!b || b.sin_saldo) return { state: 'na', deltaFmt: '' };
-    return { state: b.cuadra ? 'ok' : 'bad', deltaFmt: money0(b.delta) };
+    return { state: b.cuadra ? 'ok' : 'bad', deltaFmt: money(b.delta) };
   }
   readonly noCuadraCount = computed(() =>
     this.rows().filter((a) => this.cuadreOf(a).state === 'bad').length);
 
   readonly c = computed(() => this.concentrado());
+
+  /**
+   * Orden del pivote. Va por `customSort` y no por el de PrimeNG porque dos de las
+   * columnas no son campos de la fila: las de GRUPO son dinámicas (field `g:<grupo>`,
+   * el valor sale de `cellAmount`) y "Cuadre" es un estado derivado del cuadre de
+   * saldos, no un dato del renglón. `rows()` sigue siendo computed: acá sólo se
+   * guarda qué columna y en qué sentido, nunca se muta el arreglo de entrada.
+   */
+  readonly sortState = signal<{ field: string; order: number } | null>(null);
+  onSort(e: { field?: string; order?: number }): void {
+    this.sortState.set(e?.field ? { field: e.field, order: e.order ?? 1 } : null);
+  }
+  /** Valor comparable de una celda: grupo dinámico, estado de cuadre, o campo directo. */
+  private sortValue(a: ConcentradoAccount, field: string): number | string {
+    if (field.startsWith('g:')) return this.cellAmount(a, field.slice(2));
+    if (field === 'cuadre') { const st = this.cuadreOf(a).state; return st === 'bad' ? 2 : st === 'ok' ? 1 : 0; }
+    if (field === 'bank') return `${a.bank} ${a.account_label}`;
+    return (a as unknown as Record<string, number | string>)[field] ?? 0;
+  }
   readonly rows = computed(() => {
     const c = this.concentrado(); const f = this.fAccount();
-    return f ? c.accounts.filter((a) => a.account_id === f) : c.accounts;
+    const base = f ? c.accounts.filter((a) => a.account_id === f) : c.accounts;
+    const st = this.sortState();
+    if (!st) return base;
+    return [...base].sort((x, y) => {
+      const vx = this.sortValue(x, st.field), vy = this.sortValue(y, st.field);
+      const cmp = typeof vx === 'number' && typeof vy === 'number'
+        ? vx - vy
+        : String(vx).localeCompare(String(vy), 'es-MX', { numeric: true });
+      return cmp * st.order;
+    });
   });
   readonly groupCols = computed(() => {
     const present = new Set(Object.keys(this.concentrado().groupTotals));
