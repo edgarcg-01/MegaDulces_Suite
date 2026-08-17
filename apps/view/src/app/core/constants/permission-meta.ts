@@ -71,6 +71,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_EXPIRY_CAPTURAR]: { label: 'Capturar Caducidades', description: 'Crear/editar hojas de Control de Caducidades y enviarlas (alimenta FEFO).', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_ASIGNAR]: { label: 'Asignar personas al folio', description: 'Asignar contadores y supervisores a un folio de inventario específico.', category: 'Comercial · Inventario físico' },
   [Permission.COMMERCIAL_INVENTORY_RECIBIR]: { label: 'Auditar recepción (caducidad)', description: 'Capturar lote/caducidad con foto+OCR en la recepción y recibir el semáforo 🟢🟡🔴. La autorización de un rojo requiere Supervisar.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_PREVENTION_VER]: { label: 'Ver Prevención de inventarios', description: 'Consultar expedientes de investigación de diferencias y la línea de tiempo del SKU.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_PREVENTION_GESTIONAR]: { label: 'Gestionar Prevención de inventarios', description: 'Abrir expedientes, clasificar la causa raíz y resolver (segregado de contar/reconciliar).', category: 'Comercial · Inventario físico' },
 
   // Comercial — pedidos y cobros
   [Permission.COMMERCIAL_ORDERS_VER]: { label: 'Ver Pedidos', description: 'Consultar pedidos y su detalle.', category: 'Comercial · Pedidos' },

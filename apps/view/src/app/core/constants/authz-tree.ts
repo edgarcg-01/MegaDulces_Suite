@@ -142,6 +142,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'warehouses', label: 'Almacenes', route: '/almacen/warehouses', view: [Permission.COMMERCIAL_WAREHOUSES_VER], manage: [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR] },
           { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR] },
           { id: 'receiving-auditor', label: 'Recepción (caducidad)', route: '/almacen/inventory/recepcion', view: [Permission.COMMERCIAL_INVENTORY_RECIBIR], manage: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] },
+          { id: 'prevention', label: 'Prevención de inventarios', route: '/almacen/prevencion', view: [Permission.COMMERCIAL_PREVENTION_VER], manage: [Permission.COMMERCIAL_PREVENTION_GESTIONAR] },
           { id: 'caducidades', label: 'Control de Caducidades', route: '/almacen/inventory/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'dead-stock', label: 'Stock muerto', route: '/almacen/dead-stock', view: [Permission.COMMERCIAL_DEADSTOCK_VER], manage: [] },
           { id: 'inventory-health', label: 'Salud de inventario', route: '/almacen/inventory-health', view: [Permission.COMMERCIAL_INVHEALTH_VER], manage: [] },

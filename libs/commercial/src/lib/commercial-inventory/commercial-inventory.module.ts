@@ -14,6 +14,8 @@ import { InventoryTeamController } from './inventory-team.controller';
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 import { BinLocationService } from './bin-location.service';
 import { BinLocationController } from './bin-location.controller';
+import { InventoryInvestigationService } from './inventory-investigation.service';
+import { InventoryInvestigationController } from './inventory-investigation.controller';
 
 @Module({
   imports: [
@@ -24,8 +26,8 @@ import { BinLocationController } from './bin-location.controller';
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService],
-  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService],
 })
 export class CommercialInventoryModule {}
