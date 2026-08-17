@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Balances, BankStatement, Diagnostico } from '../../bank.service';
 import { cuadra, kindLabel } from './bancos-shared';
+import { exportXlsx } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -19,7 +20,7 @@ import { BANCOS_STYLES } from './bancos.styles';
   template: `
     @if (balances(); as bal) {
       <div class="card-premium card-flat fb-tablewrap fb-bal">
-        <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span>
+        <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span><button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga el cuadre de saldos y los estados cargados"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button>
           @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
           @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
           @else { <span class="fb-bal-badge ok">todo cuadra</span> }
@@ -105,6 +106,14 @@ import { BANCOS_STYLES } from './bancos.styles';
     }
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+
     .fb-bal { margin-bottom: var(--sp-3); }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-bal-sinsaldo { opacity: 0.55; }
@@ -122,6 +131,41 @@ import { BANCOS_STYLES } from './bancos.styles';
   `],
 })
 export class BancosCuentasComponent {
+  readonly exporting = signal(false);
+  async exportXls(): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const b = this.balances();
+      await exportXlsx('Cuentas ' + this.period(), [
+        {
+          name: 'Cuadre de saldos', subtitle: this.period(), rows: b?.accounts ?? [],
+          cols: [
+            { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+            { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+            { header: 'Inicial', get: (r: any) => r.opening, type: 'money' },
+            { header: 'Depositos', get: (r: any) => r.total_in, type: 'money' },
+            { header: 'Retiros', get: (r: any) => r.total_out, type: 'money' },
+            { header: 'Calculado', get: (r: any) => r.computed, type: 'money' },
+            { header: 'Final', get: (r: any) => r.closing, type: 'money' },
+            { header: 'Diferencia', get: (r: any) => r.delta, type: 'money' },
+            { header: 'Cuadra', get: (r: any) => (r.sin_saldo ? 'Sin saldo' : r.cuadra ? 'Si' : 'No'), width: 12 },
+          ],
+        },
+        {
+          name: 'Estados cargados', rows: this.statements() ?? [],
+          cols: [
+            { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+            { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+            { header: 'Tipo', get: (r: any) => r.kind, width: 12 },
+            { header: 'Depositos', get: (r: any) => r.total_in, type: 'money' },
+            { header: 'Retiros', get: (r: any) => r.total_out, type: 'money' },
+            { header: 'Saldo final', get: (r: any) => r.closing_balance, type: 'money' },
+          ],
+        },
+      ]);
+    } finally { this.exporting.set(false); }
+  }
+
   readonly balances = input.required<Balances | null>();
   readonly statements = input.required<BankStatement[]>();
   readonly diagnostico = input.required<Diagnostico | null>();

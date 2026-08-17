@@ -18,7 +18,7 @@
         "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
-        "allowedCommonJsDependencies": ["leaflet", "jsbarcode"],
+        "allowedCommonJsDependencies": ["leaflet", "jsbarcode", "exceljs"],
         "serviceWorker": true,
         "ngswConfigPath": "apps/view/ngsw-config.json"
       },

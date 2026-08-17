@@ -12,6 +12,7 @@ import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { BankService, BankMovement, MovementFlow } from '../../bank.service';
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
+import { exportXlsx } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -48,6 +49,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="searchChange.emit($event)"
                placeholder="Buscar concepto / código…" aria-label="Buscar" />
       </p-iconfield>
+      <button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga los movimientos con los filtros puestos"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button>
       <span class="fb-count muted">
         @if (movTotal() > movements().length) { Mostrando {{ movements().length | number }} de {{ movTotal() | number }} }
         @else { {{ movTotal() | number }} movimientos }
@@ -182,6 +184,14 @@ import { BANCOS_STYLES } from './bancos.styles';
     </app-side-peek>
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+
     .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
     .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
     .fb-cat-chip.fb-cat-none { color: var(--warn-fg); }
@@ -242,6 +252,31 @@ export class BancosMovimientosComponent {
   ds(v: any): string { return dmShort(v); }
 
   /** Detalle del movimiento (clic en fila): a qué se atribuye + estado de conciliación. */
+
+  readonly exporting = signal(false);
+  /** Exporta LO QUE SE VE: las filas ya vienen filtradas por el shell. */
+  async exportXls(): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const n = this.movements().length, tot = this.movTotal();
+      await exportXlsx('Movimientos de banco', [{
+        name: 'Movimientos',
+        subtitle: n < tot ? ('Mostrando ' + n + ' de ' + tot + ' movimientos (el resto no se descargo)') : (tot + ' movimientos'),
+        rows: this.movements(),
+        cols: [
+          { header: 'Fecha', get: (r: any) => r.movement_date, type: 'date', width: 12 },
+          { header: 'Cuenta', get: (r: any) => r.account_label, width: 18 },
+          { header: 'Concepto', get: (r: any) => r.concept, width: 48 },
+          { header: 'Categoria', get: (r: any) => r.category_name || 'sin clasificar', width: 22 },
+          { header: 'Grupo', get: (r: any) => r.group_key, width: 16 },
+          { header: 'Deposito', get: (r: any) => r.amount_in, type: 'money' },
+          { header: 'Retiro', get: (r: any) => r.amount_out, type: 'money' },
+          { header: 'Conciliado', get: (r: any) => (r.reconciled ? 'Si' : 'No'), width: 11 },
+        ],
+      }]);
+    } finally { this.exporting.set(false); }
+  }
+
   readonly detail = signal<{ title: string; fields: { k: string; v: string; mono?: boolean }[]; note: string } | null>(null);
   private readonly currentId = signal<string | null>(null);
   readonly flow = signal<MovementFlow | null>(null);

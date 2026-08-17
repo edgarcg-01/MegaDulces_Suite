@@ -7,6 +7,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { Concentrado, ConcentradoAccount, Balances } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { GROUP_ORDER, groupLabel, groupColorVar, money } from './bancos-shared';
+import { exportXlsx } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -29,6 +30,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <span class="fb-count muted">{{ rows().length }} cuenta(s)</span>
     </div>
     <div class="card-premium card-flat fb-tablewrap">
+      <h3 class="fb-card-title fb-pnl-title">Concentrado <span class="muted">— cuenta x grupo</span><button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga el concentrado tal como se ve"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button></h3>
       <p-table [value]="rows()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                [customSort]="true" (sortFunction)="onSort($event)">
         <ng-template #header>
@@ -68,6 +70,14 @@ import { BANCOS_STYLES } from './bancos.styles';
     </div>
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+
     .fb-acct { font-weight: 500; }
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
@@ -112,6 +122,27 @@ export class BancosConcentradoComponent {
    * saldos, no un dato del renglón. `rows()` sigue siendo computed: acá sólo se
    * guarda qué columna y en qué sentido, nunca se muta el arreglo de entrada.
    */
+
+  readonly exporting = signal(false);
+  /** El pivote se exporta con las MISMAS columnas de grupo que se ven, en el mismo orden. */
+  async exportXls(): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const groups = this.groupCols();
+      const cols: any[] = [
+        { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+        { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+      ];
+      for (const g of groups) cols.push({ header: this.label(g), get: (r: any) => this.cellAmount(r, g), type: 'money' });
+      cols.push({ header: 'Depositos', get: (r: any) => r.deposits, type: 'money' });
+      cols.push({ header: 'Retiros', get: (r: any) => r.withdrawals, type: 'money' });
+      cols.push({ header: 'Cuadre', get: (r: any) => { const st = this.cuadreOf(r).state; return st === 'ok' ? 'Cuadra' : st === 'bad' ? 'No cuadra' : 'Sin saldo'; }, width: 12 });
+      await exportXlsx('Concentrado ' + this.period(), [{
+        name: 'Concentrado', subtitle: this.period() + ' - ' + this.rows().length + ' cuentas', rows: this.rows(), cols,
+      }]);
+    } finally { this.exporting.set(false); }
+  }
+
   readonly sortState = signal<{ field: string; order: number } | null>(null);
   onSort(e: { field?: string; order?: number }): void {
     this.sortState.set(e?.field ? { field: e.field, order: e.order ?? 1 } : null);

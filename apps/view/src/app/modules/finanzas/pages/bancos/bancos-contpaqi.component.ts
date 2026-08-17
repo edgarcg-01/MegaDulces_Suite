@@ -8,6 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
 import { cuadra, money, dmShort } from './bancos-shared';
+import { exportXlsx } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -81,7 +82,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 
       <!-- Detalle por cuenta -->
       <div class="card-premium card-flat fb-tablewrap">
-        <h3 class="fb-card-title fb-pnl-title">Detalle por cuenta</h3>
+        <h3 class="fb-card-title fb-pnl-title">Detalle por cuenta<button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga la comparacion por cuenta"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button></h3>
         <p-table [value]="c.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="52vh">
           <ng-template #header>
             <tr>
@@ -250,6 +251,14 @@ import { BANCOS_STYLES } from './bancos.styles';
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+
     .fb-kve { margin-bottom: var(--sp-3); }
     .fb-kve-wrap { overflow-x: auto; }
     .cpq-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
@@ -294,6 +303,29 @@ import { BANCOS_STYLES } from './bancos.styles';
   `],
 })
 export class BancosContpaqiComponent {
+  readonly exporting = signal(false);
+  async exportXls(): Promise<void> {
+    const c = this.compare(); if (!c) return;
+    this.exporting.set(true);
+    try {
+      await exportXlsx('Banco vs ContPAQi ' + c.period, [{
+        name: 'Por cuenta', subtitle: c.period, rows: c.rows,
+        cols: [
+          { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+          { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+          { header: 'Libro ContPAQi', get: (r: any) => r.contpaqi_cuenta, width: 16 },
+          { header: 'Dep. Excel', get: (r: any) => r.excel_in, type: 'money' },
+          { header: 'Dep. ContPAQi', get: (r: any) => r.contpaqi_in, type: 'money' },
+          { header: 'Delta dep.', get: (r: any) => r.delta_in, type: 'money' },
+          { header: 'Ret. Excel', get: (r: any) => r.excel_out, type: 'money' },
+          { header: 'Ret. ContPAQi', get: (r: any) => r.contpaqi_out, type: 'money' },
+          { header: 'Delta ret.', get: (r: any) => r.delta_out, type: 'money' },
+          { header: 'Enlazada', get: (r: any) => (r.linked ? 'Si' : 'No'), width: 11 },
+        ],
+      }]);
+    } finally { this.exporting.set(false); }
+  }
+
   readonly compare = input.required<ContpaqiCompare | null>();
   readonly linking = input<boolean>(false);
   readonly period = input<string>('');
