@@ -591,6 +591,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
+        path: 'inventory/ubicaciones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
