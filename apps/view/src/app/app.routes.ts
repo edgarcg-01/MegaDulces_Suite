@@ -642,6 +642,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVHEALTH_VER)]
       },
       {
+        // PREV.1 — Prevención de Inventarios: expediente de investigación de diferencias + timeline SKU
+        path: 'prevencion',
+        loadComponent: () => import('./modules/almacen/pages/almacen-prevencion.component').then(m => m.AlmacenPrevencionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+      {
         // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
         path: 'cuadre',
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),

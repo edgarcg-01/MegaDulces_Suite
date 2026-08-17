@@ -77,6 +77,9 @@ export enum Permission {
   // Control de Caducidades (Fase P2.6): inspección de anaquel + captura de caducidad → FEFO
   COMMERCIAL_EXPIRY_VER = 'COMMERCIAL_EXPIRY_VER',
   COMMERCIAL_EXPIRY_CAPTURAR = 'COMMERCIAL_EXPIRY_CAPTURAR',
+  // Prevención de Inventarios (Fase PREV): expediente de investigación de diferencias (segregado de conteo/reconcile)
+  COMMERCIAL_PREVENTION_VER = 'COMMERCIAL_PREVENTION_VER',
+  COMMERCIAL_PREVENTION_GESTIONAR = 'COMMERCIAL_PREVENTION_GESTIONAR',
 
   // Módulo: Comercial — Pedidos y Cobros (Sprint B.2, declarados acá para tener el set completo)
   COMMERCIAL_ORDERS_VER = 'COMMERCIAL_ORDERS_VER',
