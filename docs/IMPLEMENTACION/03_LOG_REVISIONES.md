@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-08-17 — SYNC "al momento" (producto/stock/ventas) + arranque normalización Fase 0
+
+**Qué:** ronda de sincronización tiempo-real + primeras piezas del backlog de normalización (`REGISTRO_CANONICO_COMPLETO §5`).
+
+**Realtime (salto 2 = el valor durable):** `services/feeds-ingest/apply-handlers.js` gana **normalize-al-llegar**: cuando llega un cambio crudo de `kdii` al handler `raw-upsert`, normaliza SOLO esos SKUs → `catalog.products` (identidad) + `commercial.product_prices` (c90), en tx aparte (si falla NO bloquea el CDC). **Política de barcode** (decisión Edgar): la plataforma conserva el EAN real; Kepler solo llena vacío/placeholder (`c7`=SKU con ceros), nunca pisa un EAN real. Verificado en prod (perturbar precio de 89137 → normalize lo restaura a c90). Salto 1 (transporte): `replicate-ods-fast` + `import-branch-stock-live` + `import-sales-fact` ganan modo `--watch` (loops persistentes) + `ecosystem.sync.config.js` (PM2 durable).
+
+**⚠️ Caveat honesto (gotcha conocido, `project_fase_sync_tiempo_real`):** el watch por **ctid PIERDE UPDATEs in-place en catálogos** (kdii/kdil/kdik) → el watch de producto por ctid NO garantiza captar cambios de precio a productos existentes. Lo cubre la tarea `\Kepler\OdsReplicateCatalog --full PT10M` (ya existente) y lo resuelve bien la **replicación lógica**. El normalize-al-llegar es correcto sin importar el transporte.
+
+**Replicación lógica = PLAN aprobado (diferido, `FASE_SYNC §10`):** decisión Edgar — evolucionar Capa 1 de pollers → replicación lógica nativa (WAL), **sin Cloudflare**. Topología: `.245` on-prem como Subscriber (subscribe a las 6 sucursales sobre LAN, sin exponer puertos), luego `.245→Railway` por el push existente. Riesgo #1 documentado: el slot retiene WAL sin límite si el subscriber se atrasa → puede llenar el disco del POS (obligatorio `max_slot_wal_keep_size` + monitoreo). Gate: `wal_level=logical` requiere reiniciar Postgres en sucursal. Piloto: 1 sucursal + 2-3 tablas.
+
+**Normalización — arranque:** **Fase 0.1 ✅** dims faltantes replicados a `kepler_ods` (`kdud`/`kdm_rutas`/`kdm_transporte`/`kdm_chofer`/`kdpord`, 6 sucursales) → desbloquea Fase 2. **P0 hotfix `doc_prefix` en la llave** (clase C §4.1): `erp_collections`/`erp_goods_receipts` — la PK `(tenant,sucursal,folio)` pisaba en silencio al 2º doctype (goods_receipts YA coexisten XA2001+WCJ-CR/CC). Fix blue-green: **A (mig `20260817140000`, aplicada batch 177)** índice único con doc_prefix + **B** 4 `ON CONFLICT` de la tabla padre al nuevo key + **C (mig `20260817140100`, PENDIENTE)** drop de la PK vieja. Nada roto: la PK vieja sigue hasta C.
+
+**Bloqueador resuelto:** una migración ajena back-dated (`20260814120000_finance_expense_areas_norm`) hacía `ALTER public.users ADD COLUMN` (es VISTA passthrough) → rompía `migrate:latest` prod. Fix view-aware (a `identity.users` + recrear vista). **Lección (`feedback_recreate_view_live_cached_plan`):** recrear la vista invalidó planes cacheados → `0A000`→`25P02` en captures (incidente transitorio); el savepoint de Edgar es el fix correcto.
+
+**Pendiente operacional:** (1) cerrar el hotfix doc_prefix = redeploy feeds-ingest + `git pull` .249 → `migrate:up` (aplica B/C). (2) PM2 para los loops (`ecosystem.sync.config.js`). (3) piloto de replicación lógica (gate: reinicio wal_level). Commits `86e3f07e`/`c6cf350e`(→`d1d3faab`)/`a75602da`/`2bf24b32`/`a8260363`/`ddee10a9`.
+
 ## 2026-08-05 — DM.12: Cuadre de traspasos en /almacen/movimientos (pestaña + reporte PDF)
 
 **Qué:** el usuario preguntó por las cuentas contables **515-002 y 515-001** (mayor 515 «Ajuste traspasos internos» de la balanza Kepler) y pidió visualizarlas desde `/almacen/movimientos`. Se construyó una **pestaña dedicada "Cuadre de traspasos"** (`p-tabs`: Diario | Cuadre) con rango propio (vista de red), como contracara **contable** del `transfersCheck` **físico** que ya vivía en el módulo. Informe con 4 desgloses: por subcuenta (515-001 entrada / 515-002 salida / Δ neto) · serie mensual + tendencia (Δ, % descuadre, acumulado corriente) · por sucursal · **matriz física origen→destino** · **drill de folios sin cuadrar** (clic abre el documento). Más un **reporte mensual en PDF** (puppeteer + estilo DESIGN.md, mismo motor que el export del Diario).
