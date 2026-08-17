@@ -97,23 +97,18 @@ export class ExpenseComprobacionesService {
   }
 
   /**
-   * Catálogo canónico de áreas de gasto (dimensión `finance.expense_areas`). Refresca
-   * de forma idempotente las áreas nuevas de los gastos (XA1001) y devuelve la lista
-   * para el selector de "áreas visibles" en la administración de usuarios.
+   * Catálogo canónico de áreas de gasto (dimensión `finance.expense_areas`) para el
+   * selector de "áreas visibles" en la administración de usuarios. SOLO LECTURA: la dim
+   * se siembra en la migración y se completa al crear comprobaciones (create()) — no se
+   * escribe dentro de este GET (evita el anti-patrón de write en request → tx abortada).
    */
   async listAreas() {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      await trx.raw(
-        `INSERT INTO finance.expense_areas (tenant_id, name)
-         SELECT DISTINCT tenant_id, btrim(area) FROM analytics.expense_documents
-          WHERE tenant_id = ? AND doc_tipo='XA1001' AND area IS NOT NULL AND btrim(area) <> ''
-         ON CONFLICT (tenant_id, norm_key) DO NOTHING`, [tenantId]);
-      return trx('finance.expense_areas')
+    return this.tk.run(async (trx) =>
+      trx('finance.expense_areas')
         .where({ tenant_id: tenantId, active: true })
         .orderBy('name')
-        .select('id', 'name', 'sucursal');
-    });
+        .select('id', 'name', 'sucursal'));
   }
 
   /** OCR del documento "Gastos" de Kepler (XA1001, imagen/PDF) → auto-rellena la captura. Preview. */

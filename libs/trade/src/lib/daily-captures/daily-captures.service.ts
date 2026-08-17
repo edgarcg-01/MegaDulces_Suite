@@ -199,6 +199,37 @@ export class DailyCapturesService {
     return map;
   }
 
+  /**
+   * Corre un bloque best-effort DENTRO DE UN SAVEPOINT de la trx activa (dbWork).
+   * Si alguna query del bloque falla (p.ej. `0A000 cached plan must not change
+   * result type` tras recrearse una vista, o cualquier error transitorio), el
+   * savepoint hace ROLLBACK sin abortar la transacción externa → el INSERT de la
+   * captura de más abajo NO revienta con 25P02. Devuelve `{ ok, value }` para
+   * distinguir "falló" de "corrió y devolvió undefined/null".
+   *
+   * Sin savepoint (envolver el query en try/catch pelado) NO sirve: en Postgres el
+   * error ya abortó la trx compartida y toda query posterior tira 25P02
+   * (ver feedback_global_request_tx_25p02).
+   */
+  private async trySavepoint<T>(label: string, fn: () => Promise<T>): Promise<{ ok: boolean; value?: T }> {
+    const store = legacyTxStorage.getStore();
+    const tx = store?.tx as Knex.Transaction | undefined;
+    if (!tx) {
+      // Fuera de la trx compartida (no debería en este flujo) → corre plano.
+      try { return { ok: true, value: await fn() }; }
+      catch (e: any) { this.logger.warn(`${label} falló (sin trx): ${e?.code || ''} ${e?.message}`); return { ok: false }; }
+    }
+    try {
+      const value = await tx.transaction(async (sp) =>
+        legacyTxStorage.run({ tx: sp, tenantId: store!.tenantId }, () => fn()),
+      );
+      return { ok: true, value };
+    } catch (e: any) {
+      this.logger.warn(`${label} falló (savepoint rollback, trx intacta): ${e?.code || ''} ${e?.message}`);
+      return { ok: false };
+    }
+  }
+
   async create(
     dto: CreateDailyCaptureDto,
     userId: string,
@@ -517,65 +548,52 @@ export class DailyCapturesService {
     let puntosBackendTotales = skipScoring ? 0 : frontendTotal;
 
     if (!skipScoring && configVersionId && processedExhibiciones.length > 0) {
-       try {
-         const exhibicionesParaScoring = processedExhibiciones.map((ex) => ({
-           posicion_id: ex.ubicacionId,
-           exhibicion_id: ex.conceptoId,
-           nivel_ejecucion_id: ex.nivelEjecucionId || ex.nivel_ejecucion_id,
-         }));
+      const exhibicionesParaScoring = processedExhibiciones.map((ex) => ({
+        posicion_id: ex.ubicacionId,
+        exhibicion_id: ex.conceptoId,
+        nivel_ejecucion_id: ex.nivelEjecucionId || ex.nivel_ejecucion_id,
+      }));
+      // Filtrar exhibiciones que tienen todos los IDs resueltos
+      const validExhibiciones = exhibicionesParaScoring.filter(
+        (ex) => ex.posicion_id && ex.exhibicion_id && ex.nivel_ejecucion_id,
+      );
 
-         // Filtrar exhibiciones que tienen todos los IDs resueltos
-         const validExhibiciones = exhibicionesParaScoring.filter(
-           ex => ex.posicion_id && ex.exhibicion_id && ex.nivel_ejecucion_id
-         );
+      if (validExhibiciones.length > 0) {
+        const scoringDto = { config_version_id: configVersionId, exhibiciones: validExhibiciones };
+        // calculateVisitScore corre queries (scoring_weights / catalogs / users)
+        // sobre la MISMA trx del guardado → savepoint para que un fallo transitorio
+        // (p.ej. 0A000 tras recrearse una vista) NO aborte la trx y reviente el INSERT.
+        const r = await this.trySavepoint('recalcular scoring', () =>
+          this.scoringV2Service.calculateVisitScore(scoringDto as any),
+        );
+        if (r.ok && r.value) {
+          const backendTotal = r.value.puntos_obtenidos;
+          // Guarda anti-regresión: un backend total = 0 con front > 0 casi
+          // siempre significa pesos faltantes en scoring_weights (drift
+          // catálogo↔pesos). NO pisamos un score real con 0 — conservamos el
+          // del front y alertamos fuerte.
+          if (backendTotal === 0 && frontendTotal > 0) {
+            this.logger.error(
+              `Scoring backend devolvió 0 pero front=${frontendTotal} (folio=${dto.folio}). ` +
+                `Probable peso faltante en scoring_weights. Conservando score del front.`,
+            );
+            puntosBackendTotales = frontendTotal;
+          } else {
+            puntosBackendTotales = backendTotal;
+          }
+          this.logger.log(`Puntos backend: ${puntosBackendTotales}`);
 
-         if (validExhibiciones.length > 0) {
-           const scoringDto = {
-             config_version_id: configVersionId,
-             exhibiciones: validExhibiciones,
-           };
-           
-           const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
-           const backendTotal = backendScore.puntos_obtenidos;
-
-           // Guarda anti-regresión: un backend total = 0 con front > 0 casi
-           // siempre significa pesos faltantes en scoring_weights (drift
-           // catálogo↔pesos). NO pisamos un score real con 0 — conservamos el
-           // del front y alertamos fuerte. El fallback a catalogs.puntuacion en
-           // ScoringV2 ya debería evitarlo, esto es defensa en profundidad.
-           if (backendTotal === 0 && frontendTotal > 0) {
-             this.logger.error(
-               `Scoring backend devolvió 0 pero front=${frontendTotal} (folio=${dto.folio}). ` +
-                 `Probable peso faltante en scoring_weights. Conservando score del front.`,
-             );
-             puntosBackendTotales = frontendTotal;
-           } else {
-             puntosBackendTotales = backendTotal;
-           }
-           this.logger.log(`Puntos backend: ${puntosBackendTotales}`);
-
-           if (validExhibiciones.length < processedExhibiciones.length) {
-             this.logger.warn(
-               `${processedExhibiciones.length - validExhibiciones.length} exhibiciones sin nivelEjecucionId; usando score frontend para esas`,
-             );
-           }
-         } else {
-           this.logger.warn('Ninguna exhibición con nivelEjecucionId válido; usando score frontend');
-         }
-       } catch (error: any) {
-         // Aislamiento de errores (25P02): calculateVisitScore() hace queries
-         // a `catalogs` (puede fallar con UUID malformado, p.ej. "{}") y a
-         // scoring_weights DENTRO de la trx principal de dbWork. Cualquier
-         // error acá — sea del propio scoringV2Service o de la conexión —
-         // NO debe propagarse fuera de este catch, o aborta la transacción
-         // completa (25P02 "current transaction is aborted") y hace fallar
-         // el INSERT de la captura más abajo. `error?.message ?? String(error)`
-         // cubre también el caso de que se lance algo que no sea un Error.
-         this.logger.warn(
-           `Fallo al recalcular scores; usando frontend. ${error?.message ?? String(error)}`,
-         );
-         puntosBackendTotales = frontendTotal;
-       }
+          if (validExhibiciones.length < processedExhibiciones.length) {
+            this.logger.warn(
+              `${processedExhibiciones.length - validExhibiciones.length} exhibiciones sin nivelEjecucionId; usando score frontend para esas`,
+            );
+          }
+        } else {
+          this.logger.warn('No se pudo recalcular el scoring; usando score del frontend.');
+        }
+      } else {
+        this.logger.warn('Ninguna exhibición con nivelEjecucionId válido; usando score frontend');
+      }
     }
 
     // Sanitización numérica (audit #13): NaN, Infinity, strings garbage no
@@ -669,19 +687,17 @@ export class DailyCapturesService {
     // FK vía search_path (trade.stores). Best-effort: si el chequeo falla, dejamos
     // el id como está (no castigamos capturas válidas por un error de lectura).
     if (resolvedStoreId) {
-      try {
-        const exists = await this.knex('stores')
-          .where({ tenant_id: tenantId, id: resolvedStoreId })
-          .first('id');
-        if (!exists) {
-          this.logger.warn(
-            `store_id ${resolvedStoreId} no existe para tenant ${tenantId} (tienda offline sin sync o cache viejo). Guardando la captura SIN vínculo a tienda (store_id=null) para no perderla. folio=${dto.folio} sync_uuid=${dto.sync_uuid || '-'}`,
-          );
-          resolvedStoreId = null;
-        }
-      } catch (e: any) {
-        this.logger.warn(`No se pudo validar store_id ${resolvedStoreId}: ${e?.message}. Se intenta el insert tal cual.`);
+      // Savepoint: si la lectura falla no debe abortar la trx del guardado (25P02).
+      const r = await this.trySavepoint('validar store_id', () =>
+        this.knex('stores').where({ tenant_id: tenantId, id: resolvedStoreId }).first('id'),
+      );
+      if (r.ok && !r.value) {
+        this.logger.warn(
+          `store_id ${resolvedStoreId} no existe para tenant ${tenantId} (tienda offline sin sync o cache viejo). Guardando la captura SIN vínculo a tienda (store_id=null) para no perderla. folio=${dto.folio} sync_uuid=${dto.sync_uuid || '-'}`,
+        );
+        resolvedStoreId = null;
       }
+      // r.ok === false → error de lectura: dejamos el id como está (no castigamos capturas válidas).
     }
 
     const insertPayload: any = {
