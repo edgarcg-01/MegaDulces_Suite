@@ -205,7 +205,7 @@ export class BancosConciliacionComponent {
             { header: 'Fecha', get: (r: any) => r.movement_date, type: 'date', width: 12 },
             { header: 'Concepto', get: (r: any) => r.concept, width: 48 },
             { header: 'Categoria', get: (r: any) => r.category_name || 'sin clasificar', width: 22 },
-            { header: 'Monto', get: (r: any) => r.amount_out, type: 'money' },
+            { header: 'Monto', get: (r: any) => r.amount_out, type: 'money', total: true },
           ],
         },
         {
@@ -214,7 +214,7 @@ export class BancosConciliacionComponent {
             { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
             { header: 'Beneficiario', get: (r: any) => r.contraparte, width: 40 },
             { header: 'Doc', get: (r: any) => (r.doc_tipo || '') + ' ' + (r.folio || ''), width: 18 },
-            { header: 'Importe', get: (r: any) => r.importe, type: 'money' },
+            { header: 'Importe', get: (r: any) => r.importe, type: 'money', total: true },
           ],
         },
       ]);

@@ -134,8 +134,8 @@ export class BancosConcentradoComponent {
         { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
       ];
       for (const g of groups) cols.push({ header: this.label(g), get: (r: any) => this.cellAmount(r, g), type: 'money' });
-      cols.push({ header: 'Depositos', get: (r: any) => r.deposits, type: 'money' });
-      cols.push({ header: 'Retiros', get: (r: any) => r.withdrawals, type: 'money' });
+      cols.push({ header: 'Depositos', get: (r: any) => r.deposits, type: 'money', total: true });
+      cols.push({ header: 'Retiros', get: (r: any) => r.withdrawals, type: 'money', total: true });
       cols.push({ header: 'Cuadre', get: (r: any) => { const st = this.cuadreOf(r).state; return st === 'ok' ? 'Cuadra' : st === 'bad' ? 'No cuadra' : 'Sin saldo'; }, width: 12 });
       await exportXlsx('Concentrado ' + this.period(), [{
         name: 'Concentrado', subtitle: this.period() + ' - ' + this.rows().length + ' cuentas', rows: this.rows(), cols,

@@ -269,8 +269,8 @@ export class BancosMovimientosComponent {
           { header: 'Concepto', get: (r: any) => r.concept, width: 48 },
           { header: 'Categoria', get: (r: any) => r.category_name || 'sin clasificar', width: 22 },
           { header: 'Grupo', get: (r: any) => r.group_key, width: 16 },
-          { header: 'Deposito', get: (r: any) => r.amount_in, type: 'money' },
-          { header: 'Retiro', get: (r: any) => r.amount_out, type: 'money' },
+          { header: 'Deposito', get: (r: any) => r.amount_in, type: 'money', total: true },
+          { header: 'Retiro', get: (r: any) => r.amount_out, type: 'money', total: true },
           { header: 'Conciliado', get: (r: any) => (r.reconciled ? 'Si' : 'No'), width: 11 },
         ],
       }]);
