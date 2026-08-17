@@ -7,6 +7,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { amtPct, cuadra, money, dmy, groupLabel } from './bancos-shared';
+import { exportXlsx } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -119,7 +120,7 @@ import { BANCOS_STYLES } from './bancos.styles';
           <div class="card-premium card-flat fb-tablewrap">
             <h3 class="fb-card-title fb-pnl-title">Pagos de Kepler sin conciliar
               <span class="muted">— {{ df.kepler_total.count | number }} · {{ df.kepler_total.amount | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              <app-context-help topic="bancos_kepler_sin_casar" /></h3>
+              <app-context-help topic="bancos_kepler_sin_casar" /><button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga las dos listas sin conciliar"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button></h3>
             <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"
                      [paginator]="df.kepler_unmatched.length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
               <ng-template #header><tr><th class="col-w6" pSortableColumn="fecha">Fecha <p-sorticon field="fecha" /></th><th pSortableColumn="contraparte">Beneficiario <p-sorticon field="contraparte" /></th><th class="col-w5" pSortableColumn="folio">Doc <p-sorticon field="folio" /></th><th class="ta-r" pSortableColumn="importe">Monto <p-sorticon field="importe" /></th></tr></ng-template>
@@ -149,6 +150,14 @@ import { BANCOS_STYLES } from './bancos.styles';
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
     .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
@@ -184,6 +193,34 @@ import { BANCOS_STYLES } from './bancos.styles';
   `],
 })
 export class BancosConciliacionComponent {
+  readonly exporting = signal(false);
+  async exportXls(): Promise<void> {
+    const df = this.differences(); if (!df) return;
+    this.exporting.set(true);
+    try {
+      await exportXlsx('Sin conciliar ' + this.period(), [
+        {
+          name: 'Banco sin conciliar', subtitle: this.period(), rows: df.bank_unmatched,
+          cols: [
+            { header: 'Fecha', get: (r: any) => r.movement_date, type: 'date', width: 12 },
+            { header: 'Concepto', get: (r: any) => r.concept, width: 48 },
+            { header: 'Categoria', get: (r: any) => r.category_name || 'sin clasificar', width: 22 },
+            { header: 'Monto', get: (r: any) => r.amount_out, type: 'money' },
+          ],
+        },
+        {
+          name: 'Kepler sin conciliar', rows: df.kepler_unmatched,
+          cols: [
+            { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
+            { header: 'Beneficiario', get: (r: any) => r.contraparte, width: 40 },
+            { header: 'Doc', get: (r: any) => (r.doc_tipo || '') + ' ' + (r.folio || ''), width: 18 },
+            { header: 'Importe', get: (r: any) => r.importe, type: 'money' },
+          ],
+        },
+      ]);
+    } finally { this.exporting.set(false); }
+  }
+
   readonly reconciliation = input.required<Reconciliation | null>();
   readonly matchResult = input.required<MatchResult | null>();
   readonly differences = input.required<Differences | null>();

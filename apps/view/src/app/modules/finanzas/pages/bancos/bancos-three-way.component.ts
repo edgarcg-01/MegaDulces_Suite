@@ -7,6 +7,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
 import { cuadra, money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
+import { exportXlsx, XlsxSheet } from './bancos-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -101,7 +102,11 @@ import { BANCOS_STYLES } from './bancos.styles';
       <!-- Nivel 2 — por cuenta: las 3 fuentes (Kepler desde tesorería kdm1) -->
       <div class="card-premium card-flat fb-tablewrap">
         <h3 class="fb-card-title fb-pnl-title">Por cuenta
-          <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por banco (Kepler desde tesorería)' : 'Workbook ↔ ContPAQi (Kepler aún sin datos del periodo)' }}</span></h3>
+          <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por banco (Kepler desde tesorería)' : 'Workbook ↔ ContPAQi (Kepler aún sin datos del periodo)' }}</span>
+          <button type="button" class="tw-xls tw-xls-head" [disabled]="exporting()" (click)="exportCuadre(d)"
+                  title="Descarga el control-total y el detalle por cuenta">
+            <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
+          </button></h3>
         <div class="tw-wrap">
           <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="46vh">
             <ng-template #header>
@@ -199,6 +204,10 @@ import { BANCOS_STYLES } from './bancos.styles';
           </div>
           <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
           <span class="muted tw-fcount">{{ drillRows().length }} de {{ dd.excel.length }}</span>
+          <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportDrill(dd)"
+                  title="Descarga lo que estas viendo: con los filtros y el orden puestos">
+            <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
+          </button>
         </div>
         <div class="tw-wrap">
           <table class="tw-tbl tw-drill-tbl">
@@ -251,6 +260,15 @@ import { BANCOS_STYLES } from './bancos.styles';
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- es una accion secundaria. */
+    .tw-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; }
+    .tw-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .tw-xls:disabled { opacity: .6; cursor: default; }
+    .tw-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
+
     /* Encabezado ordenable de tabla cruda: el th completo es el objetivo de clic. */
     .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
       font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }
@@ -397,6 +415,104 @@ export class BancosThreeWayComponent {
   }
 
   transito(ch: ChequesTransito) { return ch.cheques.filter((q) => !q.cobrado).slice(0, 50); }
+
+  // -- Export ---------------------------------------------------------------
+  // Se exporta LO QUE SE VE: `drillRows()` ya trae filtros + orden aplicados.
+  // Los importes van como numero con formato de moneda, no como texto: en Excel
+  // se suman. El subtitulo deja escrito que filtros estaban puestos, para que la
+  // hoja no mienta cuando alguien la abra fuera de contexto.
+  readonly exporting = signal(false);
+
+  private filterNote(dd: ThreeWayDetail): string {
+    const f: string[] = [];
+    if (this.dfDir()) f.push(this.dfDir() === 'in' ? 'solo depositos' : 'solo retiros');
+    if (this.dfEstado()) f.push(this.dfEstado() === 'casado' ? 'solo los que estan en las 3' : 'solo los que faltan en alguna');
+    if (this.dfSearch().trim()) f.push('busqueda "' + this.dfSearch().trim() + '"');
+    const so = this.drillSort();
+    if (so) f.push('orden ' + so.field + ' ' + (so.dir === 'asc' ? 'ascendente' : 'descendente'));
+    const base = this.drillAcct + ' - ' + dd.period + ' - ' + this.drillRows().length + ' de ' + dd.excel.length + ' movimientos';
+    return f.length ? base + ' - filtros: ' + f.join(', ') : base;
+  }
+
+  async exportDrill(dd: ThreeWayDetail): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const sheets: XlsxSheet<any>[] = [{
+        name: 'Detalle 3 vias',
+        subtitle: this.filterNote(dd),
+        rows: this.drillRows(),
+        cols: [
+          { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
+          { header: 'Direccion', get: (r: any) => (r.dir === 'in' ? 'Deposito' : 'Retiro'), width: 11 },
+          { header: 'Workbook', get: (r: any) => r.importe, type: 'money' },
+          { header: 'Kepler', get: (r: any) => r.kepler_importe, type: 'money' },
+          { header: 'Doc Kepler', get: (r: any) => r.kepler_doc, width: 16 },
+          { header: 'ContPAQi', get: (r: any) => r.contpaqi_importe, type: 'money' },
+          { header: 'Poliza ContPAQi', get: (r: any) => r.contpaqi_poliza, width: 16 },
+          { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+        ],
+      }];
+      if (dd.kepler_only.length) {
+        sheets.push({
+          name: 'En Kepler sin banco', rows: dd.kepler_only,
+          cols: [
+            { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
+            { header: 'Doc', get: (r: any) => r.doc, width: 16 },
+            { header: 'Importe', get: (r: any) => r.importe, type: 'money' },
+            { header: 'Metodo', get: (r: any) => r.metodo, width: 14 },
+            { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+          ],
+        });
+      }
+      if (dd.contpaqi_only.length) {
+        sheets.push({
+          name: 'En ContPAQi sin banco', rows: dd.contpaqi_only,
+          cols: [
+            { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
+            { header: 'Poliza', get: (r: any) => r.poliza, width: 16 },
+            { header: 'Importe', get: (r: any) => r.importe, type: 'money' },
+            { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+          ],
+        });
+      }
+      await exportXlsx('Detalle 3 vias ' + this.drillAcct + ' ' + dd.period, sheets);
+    } finally { this.exporting.set(false); }
+  }
+
+  async exportCuadre(d: ThreeWay): Promise<void> {
+    this.exporting.set(true);
+    try {
+      await exportXlsx('Cuadre 3 vias ' + d.period, [
+        {
+          name: 'Control-total', subtitle: d.period + ' - tolerancia +/-' + d.tolerance,
+          rows: this.rows(d),
+          cols: [
+            { header: '', get: (r: any) => r.label, width: 18 },
+            { header: 'Workbook', get: (r: any) => r.workbook, type: 'money' },
+            { header: 'Kepler (tesoreria)', get: (r: any) => r.kepler, type: 'money' },
+            { header: 'ContPAQi', get: (r: any) => r.contpaqi, type: 'money' },
+            { header: 'Delta W-K', get: (r: any) => r.delta_wk, type: 'money' },
+            { header: 'Delta W-C', get: (r: any) => r.delta_wc, type: 'money' },
+            { header: 'Delta K-C', get: (r: any) => r.delta_kc, type: 'money' },
+          ],
+        },
+        {
+          name: 'Por cuenta', rows: d.por_cuenta,
+          cols: [
+            { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+            { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+            { header: 'Dep. Workbook', get: (r: any) => r.wb_in, type: 'money' },
+            { header: 'Dep. Kepler', get: (r: any) => (r.kep_has ? r.kep_in : null), type: 'money' },
+            { header: 'Dep. ContPAQi', get: (r: any) => r.cp_in, type: 'money' },
+            { header: 'Ret. Workbook', get: (r: any) => r.wb_out, type: 'money' },
+            { header: 'Ret. Kepler', get: (r: any) => (r.kep_has ? r.kep_out : null), type: 'money' },
+            { header: 'Ret. ContPAQi', get: (r: any) => r.cp_out, type: 'money' },
+            { header: 'Enlazada a ContPAQi', get: (r: any) => (r.linked ? 'Si' : 'No'), width: 18 },
+          ],
+        },
+      ]);
+    } finally { this.exporting.set(false); }
+  }
 
   drillTitle(): string { return this.drillAcct ? `Detalle 3 vías — ${this.drillAcct}` : 'Detalle'; }
   openDrill(period: string, r: ThreeWayAccount): void {
