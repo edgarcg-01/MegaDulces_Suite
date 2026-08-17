@@ -648,6 +648,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
       },
       {
+        // PREV.2 — Monitoreo intensivo + ventanas de pérdida
+        path: 'monitoreo',
+        loadComponent: () => import('./modules/almacen/pages/almacen-monitoreo.component').then(m => m.AlmacenMonitoreoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+      {
         // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
         path: 'cuadre',
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),

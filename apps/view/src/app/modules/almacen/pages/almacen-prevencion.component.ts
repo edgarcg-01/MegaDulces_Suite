@@ -16,6 +16,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PrevencionService, Investigation, InvestigationDetail, RootCause } from '../prevencion.service';
+import { MonitoreoService } from '../monitoreo.service';
 
 /**
  * Fase PREV.1 — Prevención de Inventarios (Apéndice B). Bandeja de expedientes de
@@ -182,6 +183,7 @@ import { PrevencionService, Investigation, InvestigationDetail, RootCause } from
 })
 export class AlmacenPrevencionComponent implements OnInit {
   private readonly svc = inject(PrevencionService);
+  private readonly monitoreo = inject(MonitoreoService);
   private readonly comercial = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -284,10 +286,12 @@ export class AlmacenPrevencionComponent implements OnInit {
 
   monitoring(d: InvestigationDetail): void {
     this.acting.set(true);
-    this.svc.toMonitoring(d.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => { this.acting.set(false); this.detail.set(res); this.toast.add({ severity: 'info', summary: 'En monitoreo intensivo' }); this.reload(); },
-      error: (e) => { this.acting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo' }); },
-    });
+    // Inicia un monitoreo intensivo real del SKU; el backend marca el expediente como 'monitoring'.
+    this.monitoreo.start({ source_investigation_id: d.id, warehouse_id: d.warehouse_id, product_id: d.product_id, reason: 'Pérdida no identificada' })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => { this.acting.set(false); this.toast.add({ severity: 'info', summary: 'En monitoreo intensivo', detail: 'Se abrió un monitoreo para el SKU' }); this.select(d); this.reload(); },
+        error: (e) => { this.acting.set(false); this.toast.add({ severity: e?.status === 409 ? 'warn' : 'error', summary: e?.status === 409 ? 'Ya en monitoreo' : 'Error', detail: e?.error?.message || 'No se pudo' }); },
+      });
   }
 
   openManual(): void { this.manualOpen.set(true); }

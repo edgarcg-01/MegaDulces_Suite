@@ -24,6 +24,7 @@ const TESTS = [
   { file: 'test-newdb-receiving-session.js', label: 'WMS-REC Pieza 1 Vale vivo (schema+RLS+folio secuencial+escaneo ok/faltante/sobrante+cierre pending→faltante+progreso)', needsApi: false },
   { file: 'test-newdb-bin-locations.js', label: 'WMS-REC Pieza 3 bin-level (schema+RLS+bin code único+put-away SUM≤lote+auxiliar+por-ubicar+FEFO físico+deleteBin protegido)', needsApi: false },
   { file: 'test-newdb-inventory-investigation.js', label: 'PREV.1 expediente investigación (schema+RLS+folio INV-DIF+difference/value+CHECK causa/status+1 por item+classify/resolve+timeline SKU)', needsApi: false },
+  { file: 'test-newdb-inventory-monitoring.js', label: 'PREV.2 monitoreo intensivo (schema+RLS+1 activo por SKU+conteo expected/físico+ventana desde conteo previo+pérdida acotada+cerrar/reabrir)', needsApi: false },
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },

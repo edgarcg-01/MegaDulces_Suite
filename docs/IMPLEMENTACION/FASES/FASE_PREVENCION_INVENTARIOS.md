@@ -1,6 +1,6 @@
 # Fase PREV — Prevención de Inventarios
 
-> **Estado:** 🔨 EN CURSO — PREV.1 ✅ CONSTRUIDA (beta) LOCAL 2026-08-17; PREV.2/PREV.3 planeadas.
+> **Estado:** 🔨 EN CURSO — PREV.1 + PREV.2 ✅ CONSTRUIDAS (beta) LOCAL 2026-08-17; PREV.3 planeada.
 > **Origen:** Apéndice B de la visión del Jefe Frank — "auditoría, investigación y prevención de inventarios". Frente 2 del [Proyecto A — WMS / Inventario Trazable](PROYECTO_WMS_INVENTARIO_TRAZABLE.md).
 > **Principio (ADR-016 + segregación):** detectar → documentar → investigar → autorizar → corregir → monitorear → cerrar. **Quien observa una diferencia no la ajusta**: solo Prevención autoriza. El sistema **detecta patrones, no acusa personas**.
 
@@ -36,6 +36,8 @@ Fase I resuelve *"cuánto falta"*. Prevención responde *"por qué falta"* y *"p
 **Esfuerzo:** medio. Reusa Fase I + ledgers. *El fundamento — todo lo demás cuelga de poder abrir/investigar/cerrar una diferencia.*
 
 ### PREV.2 — Monitoreo intensivo + ventanas de pérdida
+
+> **✅ CONSTRUIDA (beta) LOCAL 2026-08-17.** Migración `20260817180000` (`commercial.inventory_monitoring` 1-activo-por-SKU + `inventory_monitoring_counts` con ventana; RLS forzado). `InventoryMonitoringService`: `start` (manual o desde expediente PNI → marca la investigación `monitoring`), `recordCount` (expected = `commercial.stock`; `window_from` = conteo previo o inicio → **acota la ventana de pérdida**), `list` (+ conteos de hoy vs meta + último faltante), `detail`, `close`. Endpoints `/commercial/inventory/monitoring/*` con `COMMERCIAL_PREVENTION_*`. Frontend `/almacen/monitoreo` (master-detail: bandeja + captura de conteo + tabla de ventanas con pérdida resaltada + cerrar; iniciar manual). Nav "Monitoreo". El botón "Monitoreo (PNI)" del expediente ahora **abre un monitoreo real**. Builds api+view OK. Smoke `test-newdb-inventory-monitoring` **14/14** (en `run-all-tests`). **Pendiente prod:** aplicar mig a Railway + redeploy. **Diferido:** scheduler que genere los conteos del día a horas variables + alerta de conteo vencido (hoy el operador captura y el sistema muestra hoy-vs-meta).
 
 **Qué (Frank §10-13):** tras una **pérdida no identificada**, el SKU entra a **monitoreo intensivo** (2 conteos/día, horarios parametrizables/variables). Cada conteo acota la **ventana temporal** de la merma → reduce el universo de investigación.
 
