@@ -420,12 +420,107 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
       [table, changed, Array.isArray(rows) ? rows.length : 0]);
 
     await client.query('COMMIT');
+
+    // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
+    // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
+    // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
+    const normalizer = ODS_NORMALIZERS[table];
+    if (normalizer && Array.isArray(rows) && rows.length) {
+      const keyCol = pk[0];
+      const keys = Array.from(new Set(rows.map((r) => (r[keyCol] == null ? '' : String(r[keyCol]).trim())).filter(Boolean)));
+      if (keys.length) {
+        try { const nz = await normalizer(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}] ${nz} filas app-facing (${keys.length} llaves)`); }
+        catch (e) { console.error(`  [normalize:${table}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+      }
+    }
     return changed;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
   }
 }
+
+// ---- Normalize-al-llegar (hop 2): kepler_ods.<tabla> → tablas que la app LEE ----
+// Cuando llega un cambio crudo a kepler_ods, se normaliza SOLO esas llaves a las tablas de la app.
+// El mismo single-source que el barrido (sync-product-master) pero dirigido y en tx aparte.
+
+const PRODUCT_BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_lists BASE-MXN (is_default)
+
+// Política de barcode (Edgar 2026-08-17): la plataforma CONSERVA el EAN real; Kepler solo llena si
+// está vacío o es placeholder (c7 = SKU con ceros, p.ej. '089137'). NUNCA pisa un EAN real con un
+// placeholder. Placeholder := nulo, o == sku (sin ceros), o < 8 chars. Real := ≥ 12 chars.
+const BARCODE_CASE = `CASE
+    WHEN length(coalesce(p.barcode,'')) >= 12
+         AND (s.barcode IS NULL OR ltrim(s.barcode,'0') = ltrim(s.sku,'0') OR length(s.barcode) < 8)
+      THEN p.barcode
+    ELSE COALESCE(nullif(s.barcode,''), p.barcode)
+  END`;
+
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.products (identidad + política barcode)
+ * + commercial.product_prices (c90). NO reactiva (activo=false es decisión aparte) ni borra (el
+ * barrido reconcilia bajas). Idempotente y churn-free.
+ */
+async function normalizeProductsFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  if (!Array.isArray(skus) || !skus.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+
+    // snapshot canónico SOLO de estos SKUs (una fila por sku, CEDIS '00' primero).
+    await client.query(`
+      CREATE TEMP TABLE snap_p ON COMMIT DROP AS
+      SELECT DISTINCT ON (btrim(c1))
+             btrim(c1) AS sku, btrim(c2) AS nombre,
+             nullif(btrim(coalesce(c7,'')),'') AS barcode,
+             btrim(c3::text) AS linea, c90::numeric AS precio, NULL::uuid AS brand_id
+        FROM kepler_ods.kdii
+       WHERE btrim(c1) = ANY($1) AND btrim(coalesce(c2,'')) <> ''
+       ORDER BY btrim(c1), (sucursal='00') DESC, sucursal`, [skus]);
+    await client.query(`UPDATE snap_p s SET brand_id=b.id FROM catalog.brands b
+                         WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=s.linea`, [tenantId]);
+    const fallback = (await client.query(
+      `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' LIMIT 1`, [tenantId])).rows[0]?.id || null;
+
+    // 1) INSERT nuevos: sku sin fila alguna, (brand,nombre) sin colisión, marca = resuelta ∨ fallback.
+    const ins = fallback ? (await client.query(`
+      INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, source, created_at, updated_at)
+      SELECT gen_random_uuid(), $1, d.brand_id, d.sku, d.nombre, d.barcode, 'kepler', now(), now()
+      FROM (SELECT DISTINCT ON (eff.brand_id, eff.nombre) eff.brand_id, eff.sku, eff.nombre, eff.barcode
+              FROM (SELECT sku, nombre, barcode, COALESCE(brand_id, $2::uuid) AS brand_id FROM snap_p) eff
+             WHERE eff.brand_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM catalog.products p WHERE p.tenant_id=$1 AND p.sku=eff.sku)
+               AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.brand_id=eff.brand_id AND p2.nombre=eff.nombre)
+             ORDER BY eff.brand_id, eff.nombre, eff.sku) d`, [tenantId, fallback])).rowCount : 0;
+
+    // 2) UPDATE identidad (nombre + barcode por política), churn-free, sin colisión de la unique.
+    const idn = (await client.query(`
+      UPDATE catalog.products p SET nombre=s.nombre, barcode=${BARCODE_CASE}, updated_at=now()
+      FROM snap_p s
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=s.sku
+        AND ( p.nombre IS DISTINCT FROM s.nombre OR p.barcode IS DISTINCT FROM ${BARCODE_CASE} )
+        AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
+                          AND p2.brand_id=p.brand_id AND p2.nombre=s.nombre)`, [tenantId])).rowCount;
+
+    // 3) UPSERT precio base (c90 > 0.05, churn-free) — Kepler es autoridad del precio de venta.
+    const prc = (await client.query(`
+      INSERT INTO commercial.product_prices (id, tenant_id, price_list_id, product_id, price, tax_rate, min_qty, created_at, updated_at)
+      SELECT gen_random_uuid(), $1, '${PRODUCT_BASE_LIST}', p.id, s.precio, COALESCE(p.iva_rate,0), 1, now(), now()
+      FROM catalog.products p JOIN snap_p s ON s.sku=p.sku
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND s.precio > 0.05
+      ON CONFLICT (tenant_id, price_list_id, product_id) DO UPDATE SET price=EXCLUDED.price, updated_at=now()
+        WHERE commercial.product_prices.price IS DISTINCT FROM EXCLUDED.price`, [tenantId])).rowCount;
+
+    await client.query('COMMIT');
+    return ins + idn + prc;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+const ODS_NORMALIZERS = { kdii: normalizeProductsFromOds };
 
 const HANDLERS = {
   'stock-delta': applyStockDelta,
@@ -435,4 +530,4 @@ const HANDLERS = {
   'raw-upsert': applyRawUpsert,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyRawUpsert, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyRawUpsert, normalizeProductsFromOds, UUID_RE };
