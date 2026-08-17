@@ -7,11 +7,15 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
+import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
 import { ProductSearchComponent, ProductHit } from '../../comercial/components/product-search.component';
-import { ReceivingAuditorService, ReceivingCapture, SupplierScore } from '../receiving-auditor.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { ReceivingAuditorService, ReceivingCapture, ReceivingPolicy, SupplierScore } from '../receiving-auditor.service';
 
 type Verdict = 'green' | 'yellow' | 'red';
 
@@ -22,11 +26,14 @@ type Verdict = 'green' | 'yellow' | 'red';
  * de lote/caducidad, el OCR propone lote+fecha, confirma, y el sistema le da el
  * semáforo 🟢🟡🔴 comparando contra el inventario existente + la política. El rojo
  * queda como No Conformidad pendiente de autorización de un supervisor.
+ *
+ * Administración de políticas (vida útil mínima + aceptar-más-viejo) en un diálogo
+ * gateado por SUPERVISAR.
  */
 @Component({
   selector: 'app-almacen-recepcion-auditor',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, ToastModule, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule, ToastModule, ProductSearchComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -38,6 +45,13 @@ type Verdict = 'green' | 'yellow' | 'red';
           <h1>Recepción · Auditor de caducidad</h1>
           <p class="surf-page-sub">Captura lote y caducidad con foto + OCR; el sistema audita contra el inventario existente</p>
         </div>
+        @if (canManagePolicy()) {
+          <div class="rec-head-actions">
+            <button pButton [text]="true" severity="secondary" size="small" (click)="openPolicies()">
+              <span class="p-button-icon p-button-icon-left pi pi-sliders-h" aria-hidden="true"></span> Políticas
+            </button>
+          </div>
+        }
       </header>
 
       <div class="rec-layout">
@@ -164,9 +178,57 @@ type Verdict = 'green' | 'yellow' | 'red';
           </div>
         </section>
       </div>
+
+      <!-- Administración de políticas (SUPERVISAR) -->
+      <p-dialog [visible]="policyOpen()" (visibleChange)="policyOpen.set($event)" [modal]="true" [style]="{ width: '660px' }"
+        header="Políticas de caducidad en recepción" [dismissableMask]="true">
+        <p class="rec-hint rec-pol-intro">Definí la vida útil mínima exigida y si se acepta un lote más viejo que el existente, por producto, categoría o proveedor. Resolución en cascada: producto → categoría → proveedor. Sin política, solo aplica la regla “no más viejo que lo existente”.</p>
+
+        <div class="rec-pol-form">
+          <div class="rec-row">
+            <label class="rec-field">
+              <span>Ámbito</span>
+              <p-select [options]="scopeKindOptions" [(ngModel)]="policyScopeKind" optionLabel="label" optionValue="value"></p-select>
+            </label>
+            @if (policyScopeKind === 'product') {
+              <label class="rec-field"><span>Producto</span><app-product-search (productSelected)="policyProduct = $event"></app-product-search></label>
+            } @else if (policyScopeKind === 'category') {
+              <label class="rec-field"><span>Categoría</span><input pInputText [(ngModel)]="policyCategory" placeholder="ej. Chocolates" /></label>
+            } @else {
+              <label class="rec-field"><span>Proveedor (código)</span><input pInputText [(ngModel)]="policySupplier" placeholder="ej. C001" /></label>
+            }
+          </div>
+          <div class="rec-row">
+            <label class="rec-field"><span>Vida útil mínima (días)</span><input pInputText type="number" min="0" [(ngModel)]="policyMinDays" placeholder="ej. 180" /></label>
+            <label class="rec-field rec-check"><input type="checkbox" [(ngModel)]="policyAllowOlder" /> <span>Aceptar más viejo que el existente</span></label>
+          </div>
+          <label class="rec-field"><span>Notas</span><input pInputText [(ngModel)]="policyNotes" /></label>
+          <button pButton (click)="savePolicy()" [loading]="savingPolicy()">
+            <span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span> Guardar política
+          </button>
+        </div>
+
+        <p-table [value]="policies()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="240px">
+          <ng-template #header>
+            <tr><th scope="col">Ámbito</th><th scope="col" class="num">Mín. días</th><th scope="col">+viejo</th><th scope="col"></th></tr>
+          </ng-template>
+          <ng-template #body let-p>
+            <tr>
+              <td>{{ policyScopeLabel(p) }}</td>
+              <td class="num">{{ p.min_shelf_life_days ?? '—' }}</td>
+              <td>{{ p.allow_older_than_existing ? 'Sí' : 'No' }}</td>
+              <td><button pButton size="small" severity="danger" [text]="true" (click)="deletePolicy(p)" title="Eliminar"><span class="pi pi-trash" aria-hidden="true"></span></button></td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin políticas configuradas.</p></div></td></tr>
+          </ng-template>
+        </p-table>
+      </p-dialog>
     </div>
   `,
   styles: [`
+    .rec-head-actions { display: flex; gap: .5rem; align-items: center; }
     .rec-layout { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 1rem; align-items: start; }
     @media (max-width: 900px) { .rec-layout { grid-template-columns: 1fr; } }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; }
@@ -192,6 +254,10 @@ type Verdict = 'green' | 'yellow' | 'red';
     .rec-mono { font-family: var(--font-mono, monospace); }
     .rec-name { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rec-actions { display: flex; gap: .25rem; }
+    .rec-pol-intro { margin: 0 0 1rem; }
+    .rec-pol-form { margin-bottom: 1rem; }
+    .rec-check { flex-direction: row; align-items: center; gap: .5rem; padding-top: 1.5rem; }
+    .rec-check > span { font-weight: 500; color: var(--text-color); }
   `],
 })
 export class AlmacenRecepcionAuditorComponent implements OnInit {
@@ -199,6 +265,8 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   private readonly comercial = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
 
   readonly warehouses = signal<Warehouse[]>([]);
   readonly warehouseOptions = computed(() =>
@@ -223,6 +291,23 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   readonly pendingReds = computed(() =>
     this.captures().filter((c) => c.verdict === 'red' && c.status === 'pending_authorization'),
   );
+
+  // ── Políticas (SUPERVISAR) ──
+  readonly policyOpen = signal(false);
+  readonly policies = signal<ReceivingPolicy[]>([]);
+  readonly savingPolicy = signal(false);
+  policyScopeKind: 'product' | 'category' | 'supplier' = 'product';
+  policyProduct: ProductHit | null = null;
+  policyCategory = '';
+  policySupplier = '';
+  policyMinDays: number | null = null;
+  policyAllowOlder = false;
+  policyNotes = '';
+  readonly scopeKindOptions = [
+    { label: 'Producto', value: 'product' },
+    { label: 'Categoría', value: 'category' },
+    { label: 'Proveedor', value: 'supplier' },
+  ];
 
   ngOnInit(): void {
     this.comercial.listWarehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -327,6 +412,62 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
     });
   }
 
+  // ── Políticas ──
+  canManagePolicy(): boolean {
+    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR];
+  }
+
+  openPolicies(): void {
+    this.policyOpen.set(true);
+    this.loadPolicies();
+  }
+
+  loadPolicies(): void {
+    this.svc.listPolicies().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => this.policies.set(p || []),
+      error: () => this.policies.set([]),
+    });
+  }
+
+  savePolicy(): void {
+    const md = this.policyMinDays === null || this.policyMinDays === undefined || (this.policyMinDays as unknown) === ''
+      ? null : Number(this.policyMinDays);
+    const dto: Partial<ReceivingPolicy> = {
+      min_shelf_life_days: md,
+      allow_older_than_existing: this.policyAllowOlder,
+      notes: this.policyNotes?.trim() || null,
+    };
+    if (this.policyScopeKind === 'product') {
+      if (!this.policyProduct) { this.toast.add({ severity: 'warn', summary: 'Falta producto', detail: 'Elegí un producto' }); return; }
+      dto.product_id = this.policyProduct.id;
+    } else if (this.policyScopeKind === 'category') {
+      if (!this.policyCategory.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Escribí la categoría' }); return; }
+      dto.category = this.policyCategory.trim();
+    } else {
+      if (!this.policySupplier.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta proveedor', detail: 'Escribí el código de proveedor' }); return; }
+      dto.supplier_code = this.policySupplier.trim();
+    }
+    this.savingPolicy.set(true);
+    this.svc.upsertPolicy(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingPolicy.set(false); this.toast.add({ severity: 'success', summary: 'Política guardada' }); this.resetPolicyForm(); this.loadPolicies(); },
+      error: (e) => { this.savingPolicy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar' }); },
+    });
+  }
+
+  deletePolicy(p: ReceivingPolicy): void {
+    this.svc.deletePolicy(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.toast.add({ severity: 'info', summary: 'Política eliminada' }); this.loadPolicies(); },
+      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo eliminar' }),
+    });
+  }
+
+  policyScopeLabel(p: ReceivingPolicy): string {
+    if (p.product_id) return `Producto · ${p.sku || p.product_name || p.product_id}`;
+    if (p.category) return `Categoría · ${p.category}`;
+    if (p.supplier_code) return `Proveedor · ${p.supplier_code}`;
+    return '—';
+  }
+
   private resetCapture(): void {
     this.product.set(null);
     this.supplierCode = '';
@@ -335,6 +476,15 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
     this.confirmedExpiry = '';
     this.photoDataUri.set(null);
     this.ocrConfidence.set(null);
+  }
+
+  private resetPolicyForm(): void {
+    this.policyProduct = null;
+    this.policyCategory = '';
+    this.policySupplier = '';
+    this.policyMinDays = null;
+    this.policyAllowOlder = false;
+    this.policyNotes = '';
   }
 
   verdictLabel(v: Verdict): string {
