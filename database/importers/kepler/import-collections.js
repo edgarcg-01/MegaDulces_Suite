@@ -114,7 +114,7 @@ const formaPago = (concepto) => {
          (tenant_id, sucursal, folio, doc_prefix, cobro_date, cliente_code, cliente_nombre, concepto, forma_pago, monto, tipo_cuenta, source_branch, computed_at)
        SELECT $1, sucursal, folio, doc_prefix, cobro_date, cliente_code, cliente_nombre, concepto, forma_pago, monto, tipo_cuenta, source_branch, now()
          FROM stg_coll
-       ON CONFLICT (tenant_id, sucursal, folio) DO UPDATE SET
+       ON CONFLICT (tenant_id, sucursal, doc_prefix, folio) DO UPDATE SET
          doc_prefix=EXCLUDED.doc_prefix, cobro_date=EXCLUDED.cobro_date,
          cliente_code=EXCLUDED.cliente_code, cliente_nombre=EXCLUDED.cliente_nombre,
          concepto=EXCLUDED.concepto, forma_pago=EXCLUDED.forma_pago, monto=EXCLUDED.monto,

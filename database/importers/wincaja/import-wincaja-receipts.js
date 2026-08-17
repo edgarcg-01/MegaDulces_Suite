@@ -117,7 +117,7 @@ const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-MX', { maximumFra
          (tenant_id, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, computed_at)
        SELECT $1, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, now()
          FROM stg_wgr
-       ON CONFLICT (tenant_id, sucursal, folio) DO UPDATE SET
+       ON CONFLICT (tenant_id, sucursal, doc_prefix, folio) DO UPDATE SET
          doc_prefix=EXCLUDED.doc_prefix, receipt_date=EXCLUDED.receipt_date,
          proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
          proveedor_rfc=EXCLUDED.proveedor_rfc, vale_folio=EXCLUDED.vale_folio, oc_folio=EXCLUDED.oc_folio,
