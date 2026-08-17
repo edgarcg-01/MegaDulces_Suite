@@ -1,4 +1,4 @@
-<div class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
+<div class="surf-page in au-page">
   <p-toast position="top-right"></p-toast>
 
   <p-confirmdialog
@@ -9,353 +9,271 @@
     rejectButtonStyleClass="p-button-secondary"
   ></p-confirmdialog>
 
-  <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-    <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
-        <i class="pi pi-users text-content-main" aria-hidden="true"></i>
-        Administración de Usuarios
-      </h1>
-      <p class="text-sm text-content-muted mt-1">
-        Crea, edita y administra los accesos al sistema.
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Usuarios</h1>
+      <p class="surf-page-sub">
+        Accesos al sistema por departamento. El departamento sale del rol, no se captura aparte.
       </p>
     </div>
     @if (canManageUsers()) {
-      <p-button
-        label="Nuevo Usuario"
-        icon="pi pi-plus"
-        styleClass="p-button-brand"
-        (onClick)="openNewDialog()"
-      ></p-button>
+      <p-button label="Nuevo usuario" icon="pi pi-plus" styleClass="p-button-sm"
+                (onClick)="openNewDialog()"></p-button>
     }
   </header>
 
-  <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-    <p-iconfield class="flex-1 max-w-md">
-      <p-inputicon class="pi pi-search"></p-inputicon>
-      <input
-        pInputText
-        type="search"
-        [ngModel]="searchText()"
-        (ngModelChange)="onSearchChange($event)"
-        placeholder="Buscar por nombre, usuario, rol o zona..."
-        class="w-full"
-        inputmode="search"
-        enterkeyhint="search"
-        autocapitalize="none"
-        autocorrect="off"
-        spellcheck="false"
-      />
-    </p-iconfield>
-    <span class="text-xs text-content-muted">
-      {{ filteredUsers().length }} de {{ users().length }}
+  <!-- Resumen: total + higiene de accesos. Answer-first antes del índice. -->
+  <div class="au-summary">
+    <span class="au-sum-item">
+      <b class="mono">{{ users().length | number }}</b> cuentas
     </span>
+    <span class="au-sum-item">
+      <b class="mono">{{ departments().length }}</b> departamentos
+    </span>
+    @if (alertTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-warn" [class.au-sum-on]="onlyAlerts()"
+              [attr.aria-pressed]="onlyAlerts()" (click)="toggleAlerts()"
+              title="Filtrar a las cuentas activas que nunca entraron o llevan más de 90 días sin entrar">
+        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+        <b class="mono">{{ alertTotal() }}</b> con alerta de acceso
+        @if (onlyAlerts()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
   </div>
 
-  <div class="hidden lg:block bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
-    <p-table
-      [value]="usersByArea()"
-      [loading]="loading()"
-     
-      styleClass="p-datatable-sm"
-      rowGroupMode="subheader"
-      groupRowsBy="_areaLabel"
-    >
-      <ng-template #header>
-        <tr class="text-xs uppercase tracking-wider text-content-faint bg-surface-ground border-b border-divider">
-          <th class="pl-4 py-3 text-left">Usuario</th>
-          <th class="py-3 text-left">Rol · Zona</th>
-          <th class="py-3 text-left">Actividad · Ruta</th>
-          <th class="text-center w-24 py-3">Acciones</th>
-        </tr>
-      </ng-template>
+  <div class="au-grid">
+    <!-- ── Índice de departamentos (master) ───────────────────────────────── -->
+    <nav class="au-aside" aria-label="Departamentos">
+      <div class="au-aside-h">Departamentos</div>
 
-      <ng-template #groupheader let-user>
-        <tr class="bg-surface-ground/60 border-b border-divider">
-          <td colspan="4" class="pl-4 py-2">
-            <span class="text-xs font-bold uppercase tracking-wider text-content-main">{{ user._areaLabel }}</span>
-          </td>
-        </tr>
-      </ng-template>
+      <button type="button" class="au-dept" [attr.aria-current]="selectedDept() === ''"
+              (click)="selectDept('')">
+        <i class="pi pi-users au-dept-ico" aria-hidden="true"></i>
+        <span class="au-dept-nm">Todos</span>
+        <span class="au-dept-n mono">{{ users().length }}</span>
+      </button>
 
-      <ng-template #body let-user>
-        <tr class="text-sm border-b border-divider hover:bg-surface-hover motion-safe:transition-colors">
-          <td class="pl-4 py-3">
-            <div class="flex items-center gap-3">
-              <div class="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                   [style.background-color]="avatarColorFor(user.username || user.id || '?')"
-                   [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
-                {{ getInitials(user.nombre || user.username) }}
-              </div>
-              <div class="min-w-0">
-                <div class="font-semibold text-content-main truncate">{{ user.nombre || 'Sin nombre' }}</div>
-                <div class="text-xs text-content-muted font-mono truncate">{{ '@' + user.username }}</div>
-                @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
-                  <div class="text-xs text-content-muted font-medium mt-0.5 truncate flex items-center gap-1">
-                    <i class="pi pi-arrow-up-right text-[9px]" aria-hidden="true"></i>
-                    {{ getSupervisorName(user.supervisor_id) }}
+      @for (d of departments(); track d.area.slug) {
+        <button type="button" class="au-dept" [attr.aria-current]="selectedDept() === d.area.slug"
+                (click)="selectDept(d.area.slug)">
+          <i [class]="d.area.icon + ' au-dept-ico'" aria-hidden="true"></i>
+          <span class="au-dept-nm">{{ d.area.label }}</span>
+          <span class="au-dept-n mono">{{ d.total }}</span>
+          @if (deptAlert(d); as alert) {
+            <span class="au-dept-alert">{{ alert }}</span>
+          }
+        </button>
+      }
+    </nav>
+
+    <!-- ── Usuarios del departamento (detail) ─────────────────────────────── -->
+    <section class="au-main">
+      <div class="au-toolbar">
+        <p-iconfield class="au-search">
+          <p-inputicon class="pi pi-search"></p-inputicon>
+          <input
+            pInputText
+            type="search"
+            [ngModel]="searchText()"
+            (ngModelChange)="onSearchChange($event)"
+            placeholder="Buscar por nombre, usuario, rol o zona…"
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            aria-label="Buscar usuario"
+          />
+        </p-iconfield>
+        <span class="au-count">
+          @if (currentDept(); as d) {
+            <b>{{ d.area.label }}</b> · {{ deptUsers().length | number }} de {{ d.total | number }}
+          } @else {
+            {{ deptUsers().length | number }} de {{ users().length | number }}
+          }
+        </span>
+      </div>
+
+      <div class="au-panel">
+        <div class="au-tbl-scroll">
+          <p-table [value]="deptUsers()" [loading]="loading()" styleClass="p-datatable-sm"
+                   [rowHover]="true" [paginator]="deptUsers().length > 50" [rows]="50"
+                   [rowsPerPageOptions]="[50, 100, 200]">
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="nombre">Usuario <p-sorticon field="nombre" /></th>
+                <th pSortableColumn="role_name">Rol · Zona <p-sorticon field="role_name" /></th>
+                <th pSortableColumn="last_login_at">Actividad · Ruta <p-sorticon field="last_login_at" /></th>
+                <th class="au-col-act"></th>
+              </tr>
+            </ng-template>
+
+            <ng-template #body let-user>
+              <tr class="au-row" [class.au-row-sel]="currentUserId() === user.id">
+                <td>
+                  <div class="au-u">
+                    <span class="au-av"
+                          [style.background-color]="avatarColorFor(user.username || user.id || '?')"
+                          [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
+                      {{ getInitials(user.nombre || user.username) }}
+                    </span>
+                    <span class="au-u-txt">
+                      <span class="au-u-nm">{{ user.nombre || 'Sin nombre' }}</span>
+                      <span class="au-u-un mono">{{ '@' + user.username }}</span>
+                      @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
+                        <span class="au-u-sup">
+                          <i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+                          {{ getSupervisorName(user.supervisor_id) }}
+                        </span>
+                      }
+                    </span>
                   </div>
-                }
-              </div>
-            </div>
-          </td>
+                </td>
 
-          <td class="py-3">
-            <div class="text-[11px] font-semibold uppercase tracking-wider text-content-muted">{{ user.role_name }}</div>
-            <div class="text-sm font-semibold text-content-main mt-0.5">{{ user.zona || '—' }}</div>
-          </td>
+                <td>
+                  <span class="au-role mono">{{ user.role_name }}</span>
+                  <span class="au-zona">{{ user.zona || '—' }}</span>
+                </td>
 
-          <td class="py-3" [title]="formatLastLoginAbs(user.last_login_at)">
-            <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full shrink-0"
-                    [style.background-color]="activityDotColor(user)"
-                    aria-hidden="true"></span>
-              <span class="text-xs text-content-main">
-                {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
-              </span>
-            </div>
-            <div class="text-sm font-semibold mt-0.5 pl-4 truncate"
-                 [class.text-content-main]="user.has_route_today"
-                 [class.text-content-faint]="!user.has_route_today">
-              @if (user.has_route_today) {
-                {{ user.route_name_today }}
-              } @else {
-                <span class="italic font-normal">Sin ruta</span>
-              }
-            </div>
-          </td>
-
-          <td class="text-center py-3">
-            <div class="flex justify-center gap-1">
-              @if (canManageUsers()) {
-                <button (click)="openEditDialog(user)"
-                        class="icon-btn-ghost icon-btn-ghost-info"
-                        aria-label="Editar usuario"
-                        title="Editar">
-                  <i class="pi pi-pencil text-sm" aria-hidden="true"></i>
-                </button>
-                <button (click)="deleteUser(user)"
-                        class="icon-btn-ghost icon-btn-ghost-bad"
-                        aria-label="Eliminar usuario"
-                        title="Eliminar">
-                  <i class="pi pi-trash text-sm" aria-hidden="true"></i>
-                </button>
-              }
-            </div>
-          </td>
-        </tr>
-      </ng-template>
-
-      <ng-template #emptymessage>
-        <tr>
-          <td colspan="4" class="text-center p-10 text-content-muted">
-            <i class="pi pi-inbox text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>
-            @if (searchText()) {
-              No hay usuarios que coincidan con la búsqueda.
-            } @else {
-              No hay usuarios configurados.
-            }
-          </td>
-        </tr>
-      </ng-template>
-    </p-table>
-  </div>
-
-  <div class="lg:hidden space-y-5">
-    @for (g of groupedUsers(); track g.area.slug) {
-      <section>
-        <header class="flex items-center gap-2 mb-2 px-1">
-          <i [class]="g.area.icon + ' text-content-dim text-sm'" aria-hidden="true"></i>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-content-main">{{ g.area.label }}</h2>
-          <span class="text-[10px] text-content-faint">{{ g.users.length }}</span>
-        </header>
-        <div class="space-y-3">
-        @for (user of g.users; track user.id) {
-      <article class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm">
-        <div class="flex items-start gap-3">
-          <div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-               [style.background-color]="avatarColorFor(user.username || user.id || '?')"
-               [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
-            {{ getInitials(user.nombre || user.username) }}
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0">
-                <h3 class="font-bold text-content-main leading-tight truncate">{{ user.nombre || 'Sin nombre' }}</h3>
-                <div class="text-xs text-content-muted font-mono truncate">{{ '@' + user.username }}</div>
-              </div>
-              @if (canManageUsers()) {
-                <div class="flex gap-1 shrink-0">
-                  <button (click)="openEditDialog(user)"
-                          class="icon-btn-ghost icon-btn-ghost-info"
-                          aria-label="Editar">
-                    <i class="pi pi-pencil text-sm" aria-hidden="true"></i>
-                  </button>
-                  <button (click)="deleteUser(user)"
-                          class="icon-btn-ghost icon-btn-ghost-bad"
-                          aria-label="Eliminar">
-                    <i class="pi pi-trash text-sm" aria-hidden="true"></i>
-                  </button>
-                </div>
-              }
-            </div>
-
-            <dl class="grid grid-cols-2 gap-x-3 gap-y-2 mt-3 pt-3 border-t border-divider/50 text-xs">
-              <div>
-                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Rol</dt>
-                <dd class="text-[11px] font-semibold uppercase tracking-wider text-content-muted mt-0.5">{{ user.role_name }}</dd>
-              </div>
-              <div>
-                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Zona</dt>
-                <dd class="text-sm font-semibold text-content-main mt-0.5">{{ user.zona || '—' }}</dd>
-              </div>
-              <div class="col-span-2">
-                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Actividad · Ruta</dt>
-                <dd class="flex items-center gap-2 mt-0.5 flex-wrap" [title]="formatLastLoginAbs(user.last_login_at)">
-                  <span class="w-2 h-2 rounded-full"
-                        [style.background-color]="activityDotColor(user)"
-                        aria-hidden="true"></span>
-                  <span class="text-content-main">
+                <td [title]="formatLastLoginAbs(user.last_login_at)">
+                  <span class="au-act">
+                    <span class="au-dot" [style.background-color]="activityDotColor(user)" aria-hidden="true"></span>
                     {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
                   </span>
-                  <span class="text-content-faint">·</span>
-                  @if (user.has_route_today) {
-                    <span class="font-semibold text-content-main">{{ user.route_name_today }}</span>
-                  } @else {
-                    <span class="text-content-faint italic">Sin ruta</span>
+                  <span class="au-ruta" [class.au-ruta-none]="!user.has_route_today">
+                    {{ user.has_route_today ? user.route_name_today : 'Sin ruta' }}
+                  </span>
+                </td>
+
+                <td class="au-col-act">
+                  @if (canManageUsers()) {
+                    <div class="au-rowact">
+                      <button type="button" class="icon-btn-ghost icon-btn-ghost-info"
+                              (click)="openEditDialog(user)" aria-label="Editar usuario" title="Editar">
+                        <i class="pi pi-pencil" aria-hidden="true"></i>
+                      </button>
+                      <button type="button" class="icon-btn-ghost icon-btn-ghost-bad"
+                              (click)="deleteUser(user)" aria-label="Eliminar usuario" title="Eliminar">
+                        <i class="pi pi-trash" aria-hidden="true"></i>
+                      </button>
+                    </div>
                   }
-                </dd>
-              </div>
-              @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
-                <div class="col-span-2">
-                  <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Jefe directo</dt>
-                  <dd class="text-sm font-medium text-content-main mt-0.5 flex items-center gap-1">
-                    <i class="pi pi-arrow-up-right text-[9px] text-content-muted" aria-hidden="true"></i>
-                    {{ getSupervisorName(user.supervisor_id) }}
-                  </dd>
-                </div>
-              }
-            </dl>
-          </div>
+                </td>
+              </tr>
+            </ng-template>
+
+            <ng-template #emptymessage>
+              <tr>
+                <td colspan="4">
+                  <div class="surf-empty">
+                    <i class="pi pi-inbox" aria-hidden="true"></i>
+                    @if (searchText()) {
+                      <p>Ningún usuario coincide con «{{ searchText() }}»@if (currentDept(); as d) { en {{ d.area.label }}}.</p>
+                      <p-button label="Ver todos los departamentos" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="selectDept(''); onSearchChange(''); onlyAlerts.set(false)"></p-button>
+                    } @else if (currentDept(); as d) {
+                      <p>{{ d.area.label }} no tiene usuarios.</p>
+                    } @else {
+                      <p>No hay usuarios configurados.</p>
+                    }
+                  </div>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
         </div>
-      </article>
-        }
-        </div>
-      </section>
-    } @empty {
-      <div class="text-center py-12 text-content-muted">
-        <i class="pi pi-inbox text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>
-        @if (searchText()) {
-          No hay usuarios que coincidan con la búsqueda.
-        } @else {
-          No hay usuarios configurados.
-        }
       </div>
-    }
+    </section>
   </div>
 </div>
 
-<p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'"
-          [visible]="displayDialog()"
-          (visibleChange)="displayDialog.set($event)"
-          [modal]="true"
-          appendTo="body"
-          [style]="{width: '500px', maxWidth: '90vw'}"
-          [breakpoints]="{'640px': '100vw'}"
-          [blockScroll]="true"
-          [focusOnShow]="false"
-          [draggable]="false"
-          [resizable]="false"
-          styleClass="surface-card border-divider rounded-2xl"
-          [contentStyleClass]="'bg-surface-card text-content-main p-6'">
+<!-- ── Editor en side-peek (DESIGN #8): se edita sin perder la lista, para poder
+     copiar la configuración de un compañero del mismo departamento. ────────── -->
+<app-side-peek [open]="displayDialog()" (openChange)="displayDialog.set($event)"
+               [title]="isEditing() ? 'Editar usuario' : 'Nuevo usuario'"
+               [subtitle]="isEditing() ? ('@' + (userForm.get('username')?.value || '')) : 'Alta de acceso al sistema'">
 
-  <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
+  <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="au-form">
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-       <div class="flex flex-col gap-2">
-         <label for="nombre" class="text-label text-content-muted">Nombre del Empleado</label>
-         <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" class="w-full" />
-       </div>
-
-       <div class="flex flex-col gap-2">
-         <label for="zona" class="text-label text-content-muted">Zona</label>
-         <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
-                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
-       </div>
-
-       <div class="flex flex-col gap-2">
-         <label for="warehouse_code" class="text-label text-content-muted">Sucursal (monitor Tienda)</label>
-         <p-select id="warehouse_code" [options]="branchOptions" formControlName="warehouse_code"
-                   placeholder="Todas (rol global)" [showClear]="true"
-                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
-         <small class="text-content-dim text-[11px]">Vacío = ve todas las sucursales. Con sucursal = solo ve la venta en vivo de esa tienda.</small>
-       </div>
-
-       <div class="flex flex-col gap-2">
-         <label for="finance_expense_area_ids" class="text-label text-content-muted">Áreas de gasto visibles (Comprobación de gastos)</label>
-         <p-multiselect id="finance_expense_area_ids" [options]="financeAreas()" formControlName="finance_expense_area_ids"
-                        placeholder="Ninguna (salvo permiso Ver todos)" [showClear]="true" [filter]="true"
-                        optionLabel="name" optionValue="id" [maxSelectedLabels]="3" selectedItemsLabel="{0} áreas"
-                        appendTo="body" class="w-full" styleClass="w-full"></p-multiselect>
-         <small class="text-content-dim text-[11px]">Gastos de qué departamentos ve este usuario en /finanzas/comprobacion-gastos. Vacío = ninguna, salvo que el rol tenga el permiso "Ver gastos de todos los departamentos".</small>
-       </div>
+    <div class="au-field">
+      <label for="nombre">Nombre del empleado</label>
+      <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" />
     </div>
 
-    <div class="flex flex-col gap-2">
-      <label for="username" class="text-label text-content-muted">Nombre de Usuario (Login)</label>
-      <div class="p-inputgroup border-divider">
-          <span class="p-inputgroup-addon bg-surface-ground">
-              <i class="pi pi-user text-content-dim"></i>
-          </span>
-          <input pInputText id="username" formControlName="username" placeholder="jperez" />
-      </div>
+    <div class="au-field">
+      <label for="username">Nombre de usuario (login)</label>
+      <input pInputText id="username" formControlName="username" placeholder="jperez" />
       @if (userForm.get('username')?.invalid && userForm.get('username')?.touched) {
-        <small class="text-bad-fg">
-          El usuario es obligatorio (3+ caracteres, sin espacios).
-        </small>
+        <small class="au-err">El usuario es obligatorio (3+ caracteres, sin espacios).</small>
       }
     </div>
 
-    <div class="flex flex-col gap-2">
-      <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>
-      <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name" placeholder="Selecciona el rol"
-                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+    <div class="au-field">
+      <label for="role_name">Nivel de acceso</label>
+      <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
+                placeholder="Selecciona el rol" optionLabel="label" optionValue="value"
+                appendTo="body" styleClass="w-full"></p-select>
+      <small class="au-hint">El rol define además el departamento en el que aparece.</small>
     </div>
 
     @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {
-      <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
-        <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
-        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un supervisor"
-                    optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
+      <div class="au-field">
+        <label for="supervisor_id">Jefe / supervisor de ventas</label>
+        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id"
+                  placeholder="Asigna un supervisor" optionLabel="label" optionValue="value"
+                  [filter]="true" appendTo="body" styleClass="w-full"></p-select>
         @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
-          <small class="text-bad-fg">
-            Debes asignar un supervisor para este usuario.
-          </small>
+          <small class="au-err">Debes asignar un supervisor para este usuario.</small>
         }
       </div>
     }
 
-    <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-divider rounded-lg">
-      <label for="password" class="text-label text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
+    <div class="au-field">
+      <label for="zona">Zona</label>
+      <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
+                optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+    </div>
+
+    <div class="au-field">
+      <label for="warehouse_code">Sucursal (monitor Tienda)</label>
+      <p-select id="warehouse_code" [options]="branchOptions" formControlName="warehouse_code"
+                placeholder="Todas (rol global)" [showClear]="true"
+                optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+      <small class="au-hint">Vacío = ve todas las sucursales. Con sucursal = sólo la venta en vivo de esa tienda.</small>
+    </div>
+
+    <div class="au-field">
+      <label for="finance_expense_area_ids">Áreas de gasto visibles</label>
+      <p-multiselect id="finance_expense_area_ids" [options]="financeAreas()"
+                     formControlName="finance_expense_area_ids"
+                     placeholder="Ninguna (salvo permiso Ver todos)" [showClear]="true" [filter]="true"
+                     optionLabel="name" optionValue="id" [maxSelectedLabels]="3" selectedItemsLabel="{0} áreas"
+                     appendTo="body" styleClass="w-full"></p-multiselect>
+      <small class="au-hint">Gastos de qué departamentos ve en /finanzas/comprobacion-gastos.</small>
+    </div>
+
+    <div class="au-field au-boxed">
+      <label for="password">{{ isEditing() ? 'Actualizar contraseña (opcional)' : 'Contraseña segura' }}</label>
       <input pInputText id="password" type="password" formControlName="password"
-             placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
+             [placeholder]="isEditing() ? 'Dejar en blanco para no cambiar' : 'Mín. 6 caracteres'" />
       @if (userForm.get('password')?.hasError('minlength')) {
-        <small class="text-bad-fg">
-          Requiere al menos 6 caracteres.
-        </small>
+        <small class="au-err">Requiere al menos 6 caracteres.</small>
       }
     </div>
 
-    <div class="flex items-center justify-between p-4 bg-surface-ground border border-divider rounded-lg">
+    <div class="au-toggle">
       <div>
-         <div class="text-body font-bold text-content-main">Estado Activo</div>
-         <div class="text-label text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
+        <div class="au-toggle-t">Estado activo</div>
+        <div class="au-toggle-s">Al desactivar, se revoca el acceso al sistema.</div>
       </div>
       <p-toggleswitch formControlName="activo"></p-toggleswitch>
     </div>
 
-    <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-divider">
-      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="closeDialog()" [disabled]="saving()"></p-button>
-      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid || saving()" [loading]="saving()" styleClass="p-button-brand"></p-button>
+    <div class="au-form-actions">
+      <p-button label="Cancelar" severity="secondary" [text]="true"
+                (onClick)="closeEditor()" [disabled]="saving()"></p-button>
+      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit"
+                [disabled]="userForm.invalid || saving()" [loading]="saving()"></p-button>
     </div>
   </form>
-</p-dialog>
+</app-side-peek>
