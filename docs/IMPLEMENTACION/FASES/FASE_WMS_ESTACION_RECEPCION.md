@@ -1,6 +1,6 @@
 # Fase WMS-REC — Estación de Recepción viva
 
-> **Estado:** 🔨 PLAN (planeación) — 2026-08-15. Sin código.
+> **Estado:** 🟢 Piezas 1 + 2 + 3 CONSTRUIDAS (beta) LOCAL — 2026-08-17. Ver el detalle ✅ por pieza abajo. Pendiente prod: 5 migraciones a Railway + redeploy + permisos.
 > **Origen:** cierra la brecha central del [Proyecto A — WMS / Inventario Trazable](PROYECTO_WMS_INVENTARIO_TRAZABLE.md): hoy tienes el lado de **planeación** (Compras/RA) y el de **evidencia en oficina** (`/compras/entradas`), pero NO la **estación de recepción en la rampa** que pide Frank — donde el operador escanea, captura lote+caducidad con foto→OCR, recibe semáforo 🟢/🟡/🔴 y ubica el producto.
 > **Principio (ADR-016):** el motor de reglas decide el semáforo; el operador confirma la realidad física; el OCR propone pero no autoriza.
 
@@ -91,6 +91,8 @@ Consecuencia: el "Vale de Entrada" de la app es el **folio maestro de la captura
 ---
 
 ## Pieza 3 — Ubicación bin-level (lote × posición)
+
+> **✅ CONSTRUIDA (beta) LOCAL 2026-08-17.** Migración `20260817140000` (`commercial.warehouse_bins` = posiciones + `commercial.stock_lot_locations` = Auxiliar de Ubicaciones, RLS forzado). Regla realista (no invariante estricto): **`SUM(ubicado por lote) ≤ stock_lots.quantity`**, remanente = "por ubicar" (la recepción suma al lote antes del put-away); validada en `BinLocationService.putAway`. Backend en `commercial-inventory`: bins CRUD (`ASIGNAR`), put-away por `bin_id`/`bin_code` escaneado (`RECIBIR`), `/locations` (auxiliar), `/unlocated` (por ubicar), `/pick-suggestion` (**FEFO físico**: bins ordenados por caducidad), `/bins/:id/contents` (lecturas `VER`). Frontend `/almacen/inventory/ubicaciones` (put-away con prefill desde "por ubicar" + auxiliar filtrable + admin de bins en diálogo). Nav "Ubicaciones". Builds api+view OK. Smoke `test-newdb-bin-locations` **18/18** (en `run-all-tests`). **Pendiente prod:** aplicar mig a Railway + redeploy + asignar `COMMERCIAL_INVENTORY_ASIGNAR` (admin de bins) donde aplique. **Diferido:** decremento por surtido real (integración con fulfillment), movimientos de re-acomodo entre bins, put-away embebido en la sesión de recepción (Pieza 1).
 
 **Objetivo (Frank §13-15):** al aceptar, ubicar la mercancía en un bin; el stock sabe **lote × ubicación**; FEFO **dirige al surtidor** al bin correcto.
 
