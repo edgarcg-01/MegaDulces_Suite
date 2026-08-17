@@ -661,6 +661,27 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 ---
 
+## Fase CH — Checadores / Control de asistencia
+
+### Sprint CH.0 — Base de datos de checadores ✅ VALIDADO RUNTIME (2026-08-17, migración Batch 255, local)
+
+> **Contexto:** 10 relojes ZKTeco en la red sin ningún sistema que los lea. No exponen API → se implementó su protocolo binario nativo (TCP 4370). Identidad por **serie**, no por IP.
+
+- [x] **[CH.0.1]** ✅ Descubrimiento de la flota. 7 equipos por barrido TCP 4370 + **3 más que nadie tenía inventariados** (`42.37`, `50.12`, `54.10`) al barrer también **UDP 4370** y mapear los gateways reales de la WAN (subredes existentes: `0, 11, 13, 30, 32, 40, 42, 44, 50, 54`). Escáner validado contra equipos conocidos antes de creer los negativos. **2 declarados no existen en la red**: `192.168.10.2` (subred inexistente, túnel muerto en `172.16.1.2`) y `192.168.30.253` (subred viva, 39 hosts, **cero ZK** en los 254 IPs por TCP+UDP+banner HTTP → apagado o IP cambiada).
+- [x] **[CH.0.2]** ✅ `zk-client.js`: protocolo ZK nativo sin dependencias (comm key ofuscada, `OPTIONS_RRQ`, `DATA_WRRQ`+`READ_BUFFER` para datasets grandes). Decode verificado en vivo: usuario = 72 bytes, checada = 40 bytes, `verify_mode` 1=huella/15=rostro, `punch_type` 0=entrada/1=salida/4-5=extra. Los 10 equipos aceptan **comm key 0**.
+- [x] **[CH.0.3]** ✅ Schema `hr.*` (mig `20260817220000`, RLS forzado + grants `app_runtime`): `attendance_devices` · `employees` · `device_enrollments` · `attendance_logs` · `device_sync_runs` + vista `attendance_days`. Doble cara del tiempo: `punched_local` (hora de pared del reloj) + `punched_at` (canónico vía `AT TIME ZONE`, DST-safe).
+- [x] **[CH.0.4]** ✅ `import-checadores.js` idempotente = carga inicial **y** poller. Llave natural `(device, user_id, punched_at)`, **NO** el `uid` del equipo (índice de ring buffer que se reinicia al purgar → colisionaría con el histórico). Verificado: releer 23,657 checadas inserta 0. Un reloj caído no tumba la corrida (`unreachable` en `device_sync_runs`).
+- [x] **[CH.0.5]** ✅ Carga: **129,461 checadas / 452 enrolamientos / 10 equipos**, histórico desde **2023-09-14** (`.0.153`). 696 checadas quedan sin persona a propósito = `user_id` borrados del reloj (ex-empleados cuyos marcajes siguen en el buffer).
+- [x] **[CH.0.6]** ✅ `link-employees.js` — crosswalk conservador (sobre-fusionar corrompe asistencia; sub-fusionar solo duplica ficha). Nunca fusiona dos enrolamientos del **mismo** reloj (dos "Clau" en `.0.80` son dos personas). Fusiona solo el par `.0.80`/`.0.81` con la regla verificada `id_80 = id_81 + 100` **y** nombre concordante → 35 pares. 417 personas. Los **73 homónimos entre sucursales quedan separados y listados** para revisión humana.
+- [ ] **[CH.0.7]** ⬜ Cargar `label` / `site_code` de los 10 equipos — el reloj no sabe dónde está; es la dimensión principal y no se puede deducir. **Bloquea el reporte por sucursal.**
+- [ ] **[CH.0.8]** ⬜ Revisar los 73 grupos de homónimos y confirmar/fusionar (`match_status='confirmado'`).
+- [ ] **[CH.0.9]** ⬜ Agendar el poller (Task Scheduler `.249`, patrón `run-prod-feeds`) + aplicar mig a Railway.
+- [ ] **[CH.0.10]** ⬜ Módulo/UI de asistencia + permisos dedicados (recipe 6 touch-points).
+
+> **Deriva de reloj detectada** (para alertar): hasta **−145 s** en `40.12`, −99 s en `.0.81`, +34 s en `50.12`. Se guarda en `clock_drift_seconds` por corrida.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

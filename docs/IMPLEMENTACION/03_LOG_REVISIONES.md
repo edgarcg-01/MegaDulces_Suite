@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-08-17 — Fase CH.0: base de datos de checadores (asistencia) desde cero
+
+**Qué:** los relojes checadores de la red nunca se habían leído. Se levantó el schema `hr.*` y se cargó el histórico completo de los 10 equipos: **129,461 checadas / 452 enrolamientos**, desde **2023-09-14**.
+
+**No hay API.** Los ZKTeco (MB360 / MB360/ID / MB160, firmware 6.60) solo hablan su protocolo binario propietario. Se implementó en `database/importers/checadores/zk-client.js` sin dependencias: handshake con **comm key ofuscada** (swap de words de 16 bits + XOR con ticks — la implementación ingenua falla con `ACK_UNAUTH`), `OPTIONS_RRQ` para parámetros, y `DATA_WRRQ` + `READ_BUFFER` por chunks de 64KB para los datasets grandes. Los 10 equipos aceptan **comm key 0** (sin password). Decode verificado en vivo: registro de usuario **72 bytes** (no 28, primer intento equivocado), checada **40 bytes**.
+
+**Lección de descubrimiento: barrer TCP no alcanza.** El barrido inicial por TCP 4370 encontró 7 equipos. Al agregar **UDP 4370** (3 rondas, porque el túnel WAN pierde paquetes) + un mapeo de gateways reales aparecieron **3 checadores que nadie tenía inventariados** (`42.37`, `50.12`, `54.10`) y subredes que no estaban documentadas (`11, 13, 42, 50, 54`). Antes de creer cualquier negativo se validó el escáner contra los 4 equipos conocidos — encontró los 4, incluso por broadcast. De los 2 equipos que el operador declaró: `192.168.10.2` no existe (subred sin gateway, túnel muerto en `172.16.1.2`, vecinas `11.x`/`13.x` con solo el router vivo) y `192.168.30.253` está apagado o con IP cambiada (subred viva con 39 hosts pero **cero ZK** en los 254 IPs por TCP, UDP y banner HTTP).
+
+**Dos trampas de identidad que definieron el schema.** (1) **La IP no es identidad**: varios equipos reportan `IPAddress = 192.168.1.201` (default de fábrica que quedó viejo) mientras viven en otra IP real → el UPSERT casa por `serial_number` y el histórico sobrevive un recableado. (2) **`user_id` no es global**: el `2` es "Tania" en `.0.81` y `.0.153` pero "Lupita" en `.0.196` → la llave del enrolamiento es `(device, user_id)` y la persona se arma aparte (`hr.device_enrollments` con `match_status` HITL).
+
+**Idempotencia — la decisión no obvia:** la llave natural de una checada es `(device, user_id, punched_at)`, **NO** el `uid` que da el equipo. Ese `uid` es el índice de su ring buffer y **se reinicia al purgar registros**, así que usarlo como llave habría colisionado contra el histórico ya cargado. Verificado: releer los 23,657 registros de `.0.153` inserta **0**. El mismo script es carga inicial y poller; un reloj caído no tumba la corrida (queda `unreachable` en `hr.device_sync_runs`).
+
+**Crosswalk conservador (`link-employees.js`):** sobre-fusionar corrompe la asistencia (mezcla checadas de dos personas), sub-fusionar solo duplica una ficha. Entonces: nunca fusiona dos enrolamientos del **mismo** reloj (`.0.80` tiene dos "Clau" y dos "Lupita", y son gente distinta); fusiona solo el par `.0.80`/`.0.81` con la regla verificada **`id_80 = id_81 + 100`** (Tania 102/2, Ubaldo 107/7, Joan 152/52) **exigiendo además que el nombre concuerde**, porque en ese renumerado algunos nombres se corrieron de lugar (Arizbeth quedó en 112 y "Ariz" en 119, cruzados). Resultado: 35 pares fusionados, 417 personas, y **73 grupos de homónimos entre sucursales que quedan separados y listados** para confirmación humana.
+
+**Hallazgos operativos:** 696 checadas quedan sin persona **a propósito** — son `user_id` borrados del reloj (ex-empleados cuyos marcajes siguen en el buffer); es el rastro de quien se fue, y valida no haber puesto FK de `attendance_logs` a enrolamientos. **Deriva de reloj** hasta **−145 s** (`40.12`), −99 s (`.0.81`), +34 s (`50.12`) → se guarda por corrida para alertar. El `.40.12` concentra 51,821 checadas (40% del total) y va en 52% de su capacidad de 100,000.
+
+**Estado:** mig `20260817220000` aplicada **local** (Batch 255). Pendiente: `label`/`site_code` de los 10 equipos (el reloj no sabe dónde está — **bloquea el reporte por sucursal**), revisar los 73 homónimos, agendar el poller, mig a Railway, módulo/UI.
+
+---
+
 ## 2026-08-17 — SYNC "al momento" (producto/stock/ventas) + arranque normalización Fase 0
 
 **Qué:** ronda de sincronización tiempo-real + primeras piezas del backlog de normalización (`REGISTRO_CANONICO_COMPLETO §5`).
