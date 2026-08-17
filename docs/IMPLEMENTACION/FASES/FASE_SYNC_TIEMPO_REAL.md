@@ -199,4 +199,30 @@ Fix scoped: `services/feeds-ingest/Dockerfile` propio + env `RAILWAY_DOCKERFILE_
 1. ADR-035 (aceptar el patrón push/ingress).
 2. `feeds-ingest`: NestJS mínimo vs Node/Fastify plano (recomendado: Node plano, sin peso del framework).
 3. Formato del changeset (JSONL gzip vs binario) — arrancar JSONL gzip.
-4. ¿Cuándo, si acaso, subir a CDC/replicación lógica de Kepler (Capa 1)?
+4. ¿Cuándo, si acaso, subir a CDC/replicación lógica de Kepler (Capa 1)? → **Ver §10 (plan aprobado, diferido).**
+
+---
+
+## 10. Plan (diferido) — Replicación lógica nativa en lugar de pollers
+
+> Decisión Edgar 2026-08-17: **la Capa 1 evoluciona de pollers → replicación lógica nativa de Postgres**, cuando haya ventana. Queda como PLAN (aún no implementado). **Sin Cloudflare** (topología on-prem sobre LAN).
+
+**Por qué:** el WAL (Write-Ahead Log) empuja los cambios en el momento — latencia de ms, cero polling, cero ancho de banda preguntando. Si se cae la red, Postgres **encola** el WAL y lo manda al reconectar.
+
+**Topología aprobada (sin Cloudflare):** **`.245` es el subscriber**, en la LAN.
+- Las 6 sucursales Kepler = **Publishers** (`CREATE PUBLICATION` sobre las tablas `md.*` que ya replicamos).
+- `.245` = **Subscriber**, subscribe a las 6 **sobre la LAN** → branch→.245 sin exponer ningún puerto, sin túnel. El espejo crudo real-time vive en `.245`.
+- `.245 → Railway`: se mantiene el **push existente** (`feeds-ingest`, ingress gratis) — Railway administrado NO puede ser subscriber directo por TCP sin Cloudflare Spectrum, por eso el subscriber vive on-prem.
+
+**Qué reemplaza y qué NO:**
+- **Reemplaza** los pollers `replicate-ods-fast`/`replicate-ods`/`concentrate-kepler` en el hop branch→central (eso sí es "cero código").
+- **NO reemplaza** el salto 2 (normalize-al-llegar: `kepler_ods.*` → `catalog.products`/`commercial.stock`/`sales_daily`) ni la normalización Fase 0–7 (crosswalks, bajas, RLS). La replicación lógica entrega el CRUDO; el normalize + los masters siguen.
+
+**Riesgos / requisitos (el POS está en juego):**
+1. **Slot de replicación llena el disco del POS** (arma de doble filo del "encola cambios"): si el subscriber se atrasa/muere, la sucursal retiene WAL sin límite → disco lleno → **POS cae**. **Obligatorio** `max_slot_wal_keep_size` (PG13+, tira el slot si se pasa → resync) + monitoreo del lag del slot desde el día 1.
+2. **`wal_level=logical` requiere REINICIAR Postgres** en cada sucursal (ventana de mantenimiento) + rol con `REPLICATION` + `CREATE PUBLICATION` sobre tablas del ERP de terceros.
+3. **Bajas gratis:** a diferencia del UPSERT-only de los pollers, la replicación lógica propaga DELETE nativo → cierra el anti-patrón #1 (identidades-muertas-vivas) para las tablas replicadas.
+
+**Rollout del piloto:** 1 sucursal (CEDIS o una de baja carga) + 2–3 tablas → subscriber de prueba en `.245`, midiendo latencia + **retención de WAL/disco** antes de tocar las 6. `max_slot_wal_keep_size` puesto desde el arranque.
+
+**Decisión abierta que faltó cerrar:** ¿Edgar puede reiniciar los Postgres de sucursal para `wal_level=logical`? (gate del piloto).
