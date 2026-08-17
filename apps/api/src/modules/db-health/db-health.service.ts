@@ -53,9 +53,10 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler (SYNC.2): replicate-ods empuja kp.* → kepler_ods.* cada ~2 min. La marca
-  // last_push_at se escribe en cada corrida (aunque no cambie nada) → detecta si el pipe se detuvo.
-  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.5, critH: 3, cadence: 'cada 2 min (tarea OdsReplicate)' },
+  // Espejo crudo Kepler (SYNC.3): replicate-ods-live lee los replicas lógicos locales y empuja
+  // a kepler_ods.* de forma CONTINUA (~15s, tarea OdsLiveLoop). La marca last_push_at se escribe
+  // en cada corrida (aunque no cambie nada) → detecta si el pipe se detuvo. Umbral realtime.
+  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo ~15s (tarea OdsLiveLoop)' },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
