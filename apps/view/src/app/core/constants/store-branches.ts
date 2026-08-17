@@ -1,5 +1,5 @@
 /**
- * Sucursales Kepler (código '00'..'05' → nombre). Fuente canónica única para el
+ * Sucursales Kepler (código '00'..'06' → nombre). Fuente canónica única para el
  * filtro del monitor Tienda y la asignación de sucursal en admin de usuarios.
  * Debe coincidir con el mapa `BRANCHES` del poller
  * (database/importers/kepler/live-tickets-poller.js). CEDIS (00) no vende al público.
@@ -16,6 +16,7 @@ export const STORE_BRANCHES: StoreBranch[] = [
   { code: '03', name: '8 Esquinas' },
   { code: '04', name: 'Yurécuaro' },
   { code: '05', name: 'Zamora Centro' },
+  { code: '06', name: 'Canindo' },
 ];
 
 /** Nombre de sucursal por código (fallback = el propio código). */

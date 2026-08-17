@@ -16,6 +16,7 @@
  *   node database/importers/kepler/live-tickets-poller.js
  */
 const { Client } = require('pg');
+require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
 const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3000/api/store/live/ingest';
 const INGEST_KEY = process.env.STORE_INGEST_KEY || 'dev_store_ingest_key';
@@ -27,6 +28,17 @@ const DRY = process.argv.includes('--dry');
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
+
+// Canindo (06) migró de Wincaja a Kepler; su POS (192.168.50.50:1977) NO tiene platform_ro
+// → NO está en kepler-branches.js. Se lee del REPLICA LÓGICO LOCAL `kepler_md_06` (mismo md.*
+// schema, sin carga al POS, sin cred nueva) vía DATABASE_URL_NEW del .env. Si no hay replica
+// local disponible (o URL inválida), se omite → 01-05 no se afectan.
+if (process.env.DATABASE_URL_NEW && !BRANCHES.some((b) => b.code === '06')) {
+  try {
+    const u = new URL(process.env.DATABASE_URL_NEW); u.pathname = '/kepler_md_06';
+    BRANCHES.push({ code: '06', name: 'Canindo', db: 'kepler_md_06', url: u.toString() });
+  } catch { /* URL inválida → omitir 06 */ }
+}
 
 const pad = (n) => String(n).padStart(2, '0');
 // "YYYY-MM-DD HH:MM" en hora local MX (offset fijo -06, Centro sin DST).
@@ -41,7 +53,10 @@ function startOfTodayMX() {
 }
 
 async function pollBranch(b, since) {
-  const c = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
+  // 06 (Canindo) trae `url` = replica local; 01-05 usan su POS remoto (platform_ro).
+  const c = b.url
+    ? new Client({ connectionString: b.url, connectionTimeoutMillis: 6000, statement_timeout: 30000 })
+    : new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
   await c.connect();
   try {
     const { rows } = await c.query(
