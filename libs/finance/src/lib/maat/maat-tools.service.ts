@@ -790,7 +790,11 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         .groupBy('anio_mes').select('anio_mes').select(trx.raw('SUM(abonos-cargos)::numeric v'));
       const km = new Map(kep.map((r) => [r.anio_mes, Number(r.v)]));
       const cm = new Map(cpq.map((r) => [r.anio_mes, Number(r.v)]));
-      const meses = [...new Set([...km.keys(), ...cm.keys()])].sort();
+      // Array.from + dedup explícito: el bundle del API bajaba esto a
+      // `[].concat(new Set([].concat(km.keys(), cm.keys())))` → `meses` quedaba con UN
+      // elemento (un Set) y la comparación devolvía una fila basura.
+      const todos = Array.from(km.keys()).concat(Array.from(cm.keys()));
+      const meses = todos.filter((m, i) => todos.indexOf(m) === i).sort();
       const rows = meses.map((m) => {
         const k = Math.round(km.get(m) || 0), c = Math.round(cm.get(m) || 0);
         return { mes: m, operacion_kepler: k, libros_contpaqi: c, delta: k - c, ratio_pct: k ? +((c / k) * 100).toFixed(1) : null };
