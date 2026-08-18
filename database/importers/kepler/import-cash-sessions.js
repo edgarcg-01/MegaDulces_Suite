@@ -34,12 +34,12 @@ const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 const BRANCH_NAMES = { '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8ESQ', '04': 'Yurécuaro', '05': 'Zamora Centro' };
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { salesMap } = require('../lib/kepler-branches');
+const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 async function readBranch(b) {
-  const c = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
+  const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 30000 }));
   await c.connect();
   try {
     // Sesiones abiertas HOY/ayer + las cerradas hoy (para reflejar el cierre).

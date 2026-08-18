@@ -23,7 +23,7 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
 
 // code = code de commercial.warehouses/dim.sucursales (00..05)
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { salesMap } = require('../lib/kepler-branches');
+const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
@@ -60,7 +60,7 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
     for (const b of BRANCHES) {
       const wid = whTo.get(b.code);
       if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 120000 }));
       const t0 = Date.now();
       try {
         await src.connect();
