@@ -16,7 +16,24 @@ export interface FinanceCriticalItem {
   importe: number;
 }
 
+/** Aviso informativo genérico de finanzas (no crítico): feed nuevo, movimientos, etc. */
+export interface FinanceNotice {
+  key: string;                    // clave de origen/regla (dedup + ícono en la campana)
+  severity: 'info' | 'warn';
+  title: string;
+  message: string;
+  route?: string;                 // deep-link (p.ej. '/finanzas/bancos')
+  data?: Record<string, any>;
+}
+
 export interface FinanceNotifierPort {
   /** Notifica hallazgos críticos NUEVOS de un tenant (proactivo: WS + push). Best-effort. */
   notifyCritical(tenantId: string, items: FinanceCriticalItem[]): Promise<void>;
+
+  /**
+   * Aviso informativo genérico a los usuarios de Finanzas del tenant (WS a la campana).
+   * Opcional: impls viejas pueden no traerlo → el emisor debe checar `notifier.notify?.`.
+   * Best-effort, nunca bloquea.
+   */
+  notify?(tenantId: string, notice: FinanceNotice): Promise<void>;
 }
