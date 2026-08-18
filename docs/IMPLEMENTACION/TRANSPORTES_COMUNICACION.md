@@ -56,7 +56,8 @@
 ## 2. Reglas de elección (el árbol de decisión)
 
 1. ¿Responde en **menos de 2-3 s**? → **REST** y punto.
-2. ¿Tarda **más de 5 s** o puede fallar y merece reintento? → **202 + `pg-boss` + aviso WS al terminar**. (Techo duro: `location /api/` de nginx **no** define `proxy_read_timeout` → **60 s**, y el navegador ve 504 aunque el server siga trabajando.)
+2. ¿Tarda **más de 5 s** o puede fallar y merece reintento? → **202 + trabajo en background + aviso WS al terminar** — pero **solo si el trabajo tiene efecto persistente** (ver §3.3). El techo del proxy ya no es 60 s: `location /api/` ahora fija `proxy_read_timeout`/`proxy_send_timeout`/`client_body_timeout` en **300 s** (COMM.7). El 202 sigue siendo el patrón correcto para lo largo, no por el proxy sino porque el usuario puede cerrar la pestaña y el resultado tiene que sobrevivir.
+2b. ¿El request tarda por **subir** un archivo grande (base64 de una foto)? Ningún job lo arregla: el cuerpo tiene que llegar **antes** de que el server pueda encolar nada. Se ataca con `client_body_timeout`, comprimiendo en el cliente (patrón `toDataURL` de `/compras/entradas`) y con subida directa al bucket.
 3. ¿El usuario **está mirando** la pantalla que cambia? → **WS** de invalidación (evento con `action` + período/id; la página recarga lo que le toca).
 4. ¿La respuesta llega **por partes** y es un solo pedido? → **SSE** con keepalive (nunca `@Sse()` si necesita POST o `Authorization`).
 5. ¿Hay que avisar **sin pestaña abierta**? → **Web Push**.
@@ -97,6 +98,23 @@ Los cuatro frentes P0 salieron con **un solo patrón**: `202 { job_id }` → tra
 
 **Chat de Maat**: no lleva cola a propósito (es una respuesta interactiva, no un job). Lleva **deadline de 45 s** en el camino síncrono, que es el fallback del SSE y el único que vivía bajo los 60 s del proxy.
 
+### 3.4 Lo que la revisión adversarial encontró en el propio P0 (2026-08-18)
+
+Tres lentes (UX, correctitud, completitud) revisaron el código ya landeado. Hallazgos **reales en mi implementación**, todos corregidos en COMM.7:
+
+| # | Defecto | Por qué importaba |
+|---|---|---|
+| 1 | `FinanceJobsClient.watch()` podía **completar sin emitir**: `timer → take(36) → filter(done|error) → take(1)`. Si los 36 sondeos veían `running`, el Observable terminaba en silencio | spinner girando para siempre, justo en el caso lento que el patrón venía a cubrir. Ahora emite un evento sintético `error` con instrucción al usuario |
+| 2 | El desalojo del registro (`KEEP=50`) borraba **por orden de inserción, sin mirar el estado** | podía tirar un job **en curso** → su dueño quedaba sin resultado y la sonda recibía 404. Ahora salta los `running` |
+| 3 | El gateway sólo validaba que el JWT fuera válido → **cualquier usuario autenticado del tenant** (un vendedor, un repartidor) podía escuchar `finance_job` y `bancos_changed`, con el `result` adentro | fuga de datos financieros por WS. Ahora exige el mismo permiso de lectura que la pantalla, replicando el god-mode de `RolesGuard` (sin eso el superusuario quedaba fuera de su propio tablero) |
+| 4 | Carrera: `run()` emite `running` y arranca el trabajo **antes** de devolver el 202; un job corto puede terminar antes de que el cliente registre el `job_id` | el evento terminal se descartaba. El primer sondeo bajó de 5 s a 1.5 s para rescatarlo rápido |
+| 5 | Los endpoints que delegan no llevaban `@SkipTenantTx()`: el interceptor abre una trx legacy alrededor del handler y la **commitea al devolver el 202** | trampa armada para el día que un exec delegado use el knex legacy vía CLS; además tenía esa conexión ocupada durante todo el trabajo |
+
+Y dos bugs vivos **fuera** del alcance de P0/P1, que la misma pasada destapó:
+
+- **`/api/finance/bank-captures` sin override de body** en `main.ts`: era el único módulo de evidencia sin él, así que cualquier foto de celular tiraba **413** (no 504). Una línea.
+- **`recon-tasks/:id/messages` llamaba a `chat.ask` sin `deadlineMs`**, cuando el chat lo acota a 45 s justamente por el proxy. Paridad restaurada.
+
 ### 3.3 Lo que la auditoría de P1 cambió (2026-08-18)
 
 Antes de convertir los 4 OCR a job, una auditoría en paralelo (un agente por flujo, mapeando backend→frontend) **tumbó el ítem con evidencia**, y la verifiqué a mano:
@@ -122,7 +140,10 @@ Nota: ese mismo default de 60 s **cortaba el SSE** del chat cuando una tool tard
 
 - ~~**P0**~~ ✅ **hecho 2026-08-18** — 8 endpoints a `202 + job + WS` + deadline en el chat síncrono. Pendiente de este frente: mover el trabajo a `pg-boss` (necesita worker desplegado + archivo en S3) y persistir el registro de jobs (hoy es memoria del proceso: un reinicio lo borra y otra instancia no lo ve).
 - ~~**P1**~~ ✅ **hecho 2026-08-18** — WS `/cobranza` (COMM.6). El ítem de "OCR a job" quedó **descartado con evidencia** (§3.3): el LLM ya está acotado a 30 s y el 202 rompería el prefill. En su lugar salieron dos ítems **P2-perf** de costo de query (N+1 en `detail`, `EXISTS` correlacionado en `bank/unmatched`).
+- ✅ **COMM.7 (2026-08-18)** — arreglos del propio P0 (§3.4) + causa raíz de nginx (300 s) + `bank-captures` 413 + deadline en recon-tasks + delegación de lo que había quedado inline con la misma carga: `maat/learning` `train|score|run` (recorren TODOS los hallazgos sin límite) y `contabilidad/polizas/scan` (el MISMO `detector.scanAll` que en hallazgos ya iba por job).
 - **P2 — Web Push en Operations** (`apps/view` no lo tiene): aprobaciones pendientes y hallazgo crítico.
+- **P2 — pendientes que la revisión dejó anotados**: `/finanzas/tareas` es una bandeja **multi-usuario con hilo de chat y cero realtime** (mismo argumento que justificó cobranza); `/fiscal/listas/refresh` (listas SAT) hace **N descargas en serie** y es el peor candidato a timeout del repo; el gate de la sonda `GET /finance/jobs/:id` habrá que ampliarlo el día que se delegue algo fuera de Finanzas (hoy sus dos consumidores están cubiertos).
+- **P3 — verificar antes de escalar**: el registro de jobs es memoria de proceso y el adapter cross-instance de Socket.IO es condicional a `REDIS_URL`. Con 2 réplicas del API y sin Redis, el socket queda en un pod y el job corre en otro → ni evento ni sonda. Confirmar réplicas + `REDIS_URL` en Railway antes de escalar horizontal.
 - **P3 — matar el polling interno** de `finance-feed-scanner`: que el importer avise al terminar.
 
 ---

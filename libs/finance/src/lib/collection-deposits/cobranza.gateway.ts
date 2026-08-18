@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 /** Un cambio en un comprobante de cobranza (lo dispara una acción de un usuario). */
 export interface CollectionDepositEvent {
@@ -44,6 +45,20 @@ export class CobranzaGateway implements OnGatewayConnection, OnGatewayDisconnect
     catch (e: any) { this.logger.warn(`Reject ${client.id}: JWT inválido (${e.message})`); client.emit('auth_error', { reason: 'invalid_token' }); client.disconnect(true); return; }
     const tenantId = payload?.tenant_id;
     if (!tenantId) { client.emit('auth_error', { reason: 'no_tenant_in_token' }); client.disconnect(true); return; }
+    // Los eventos llevan cliente/monto/folio de cobros: se exige el permiso de
+    // lectura de la bandeja, no solo un JWT válido del tenant.
+    // Incluye el god-mode del RolesGuard (isPlatformAdminRole): el superusuario no
+    // lleva los permisos listados y quedaría fuera de su propia bandeja.
+    const perms = (payload?.permissions || {}) as Record<string, boolean>;
+    const allowed = isPlatformAdminRole(payload?.role_name)
+      || perms[Permission.FINANCE_COLLECTIONS_VER] === true
+      || perms[Permission.FINANCE_BANK_VER] === true;
+    if (!allowed) {
+      this.logger.warn(`Reject ${client.id}: ${payload?.username || '?'} sin permiso de lectura de cobranza`);
+      client.emit('auth_error', { reason: 'forbidden' });
+      client.disconnect(true);
+      return;
+    }
     client.join(`tenant:${tenantId}`);
     client.data = { tenantId, username: payload.username };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());

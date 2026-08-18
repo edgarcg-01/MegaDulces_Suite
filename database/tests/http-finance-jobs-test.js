@@ -15,6 +15,9 @@
  *   5. POST /finance/bank/match?sync=true   → 200/201 con el resultado INLINE (CLI/smokes)
  *   6. POST /finance/maat/findings/scan     → 202 (mismo contrato en el motor de Maat)
  *   7. GET /finance/jobs/<uuid inexistente> → 404
+ *   8. COMM.7 — el canal WS de Finanzas NO admite a cualquier usuario del tenant:
+ *      un usuario del portal B2B (customer_b2b, sin permisos de Finanzas) recibe
+ *      `auth_error: forbidden` en vez de escuchar el libro y los resultados de import.
  *
  * Requiere API arriba (FINANCE_JOBS_TEST_PORT, default 3334) con ENABLE_MULTITENANT=true.
  * No escribe nada nuevo: `match` es idempotente (recalcula el matching del periodo).
@@ -56,6 +59,27 @@ function connectWs(token) {
     socket.on('connect_error', (e) => reject(e));
     socket.on('auth_error', (e) => reject(new Error('auth_error: ' + JSON.stringify(e))));
     setTimeout(() => reject(new Error('connection timeout')), 5000);
+  });
+}
+
+/**
+ * Conecta esperando que el gateway RECHACE (gate de permisos de COMM.7) y devuelve
+ * el motivo. 'ACEPTADO' significa que el gate no está haciendo su trabajo.
+ */
+function expectReject(token) {
+  return new Promise((resolve) => {
+    const socket = io(`${WS_BASE}/bancos`, {
+      path: '/reports/socket.io', auth: { token }, transports: ['websocket'], reconnection: false, timeout: 5000,
+    });
+    let reason = null;
+    socket.on('auth_error', (e) => { reason = e && e.reason ? e.reason : 'auth_error'; });
+    socket.on('disconnect', () => { socket.removeAllListeners(); resolve(reason || 'disconnected'); });
+    socket.on('connect_error', () => resolve('connect_error'));
+    setTimeout(() => {
+      const r = reason || (socket.connected ? 'ACEPTADO' : 'timeout');
+      socket.disconnect();
+      resolve(r);
+    }, 4000);
   });
 }
 
@@ -139,6 +163,16 @@ async function waitFinal(jobs, jobId, ms = 90_000) {
     check('scan terminó y avisó por WS', !!scanFinal, 'sin evento terminal en 120s');
     if (scanFinal?.status === 'done') console.log(`    → ${scanFinal.result?.nuevos} nuevos en ${scanFinal.result?.reglas} reglas (${scanFinal.took_ms}ms)`);
     else if (scanFinal) check('scan sin error', false, scanFinal.error || '');
+  }
+
+  // ── 6. el canal de Finanzas no es para todo el tenant ──
+  console.log('-- 6. Gate del canal WS --');
+  const portal = await http('POST', '/auth-mt/login', { tenant_slug: 'mega_dulces', username: 'cliente_demo', password: 'cliente_demo' });
+  if (portal.body?.access_token) {
+    const reason = await expectReject(portal.body.access_token);
+    check('usuario sin permisos de Finanzas es rechazado del WS', reason === 'forbidden', `motivo=${reason}`);
+  } else {
+    console.log(`    (no pude loguear cliente_demo: status=${portal.status} — se omite el gate)`);
   }
 
   ws.socket.disconnect();

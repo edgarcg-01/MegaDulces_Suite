@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { FinanceBankService, ListMovementsQuery } from './finance-bank.service';
 import { SheetSyncService } from './sheet-sync.service';
 import { FinanceJobsService } from '../jobs/finance-jobs.service';
@@ -33,6 +33,12 @@ export class FinanceBankController {
    * COMM-P0 — Delega un motor largo a background y responde 202 + `job_id`; el
    * resultado sale por WS (`finance_job`). Sin esto, los 60 s de `location /api/`
    * en nginx devolvían 504 con el trabajo a medias. Ver FinanceJobsService.
+   *
+   * Los endpoints que delegan llevan `@SkipTenantTx()`: el interceptor abre una
+   * transacción legacy alrededor de TODO el handler y la commitea al devolver el
+   * 202, así que un exec que la usara por CLS escribiría en una trx ya cerrada.
+   * Además liberamos esa conexión en vez de tenerla ocupada durante el trabajo.
+   * (Los services de Finanzas usan `TenantKnexService`, que abre su propia trx.)
    */
   private delegate<T>(res: Response, name: string, label: string, actor: string | undefined, exec: () => Promise<T>) {
     res.status(202);
@@ -71,6 +77,7 @@ export class FinanceBankController {
 
   @Post('match')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @SkipTenantTx()
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Corre el matching por-transacción (retiros banco ↔ pagos Kepler 102). Async: 202 + job_id, resultado por WS `finance_job`.' })
   match(
@@ -117,6 +124,7 @@ export class FinanceBankController {
 
   @Post('findings/sync')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @SkipTenantTx()
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat. Async: 202 + job_id.' })
   syncFindings(
@@ -195,6 +203,7 @@ export class FinanceBankController {
 
   @Post('import')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @SkipTenantTx()
   @ApiQuery({ name: 'sync', required: false, description: 'true = importa inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Sube un workbook Excel (base64) y lo importa/concilia por periodo. Async: 202 + job_id, resultado por WS `finance_job` (un workbook de ~6.5k movimientos se pasaba de los 60 s de nginx).' })
   import(
@@ -263,6 +272,7 @@ export class FinanceBankController {
 
   @Post('reclassify')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @SkipTenantTx()
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Re-aplica las reglas a movimientos ya importados (respeta manual). Async: 202 + job_id.' })
   reclassifyAll(
@@ -308,6 +318,7 @@ export class FinanceBankController {
 
   @Post('sheet-sync/run')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @SkipTenantTx()
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Sincroniza AHORA el workbook maestro (baja el .xlsx del Sheet y lo procesa; force ignora el hash). Async: 202 + job_id.' })
   sheetSyncRun(
