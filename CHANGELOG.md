@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — Cobranza en vivo: WS en la bandeja de comprobantes — COMM.6 / P1 (2026-08-18)
+- `/finanzas/cobranza` era la **única de las dos bandejas gemelas sin tiempo real**: mismo flujo capturista→revisor que `/finanzas/pagos-comprobantes` (que ya tenía gateway), pero si el revisor validaba, el capturista tenía que refrescar a mano. Nuevo `CobranzaGateway` (namespace `/cobranza`, evento `collection_deposit_changed`) con JWT en el handshake y room por tenant.
+- El service emite en las **6 mutaciones** (attach · validate · reject · bank-match · link · unlink), **siempre después del commit** — el evento dispara un reload en las pantallas conectadas y no puede leer una fila que todavía no existe. Best-effort: un fallo de WS nunca tumba la operación. `validate`/`reject` amplían su `returning` para que el evento diga qué cambió.
+- Front: toast **solo si el cambio fue de otro usuario**, refresco con debounce de 400 ms de la vista activa (cobros / abonos-sin-cobro), recarga del diálogo abierto si es el cobro que cambió, y chip "En vivo". Smoke `http-cobranza-ws-test.js` en la regresión (incluye aislamiento entre tenants y limpia su propia evidencia).
+
+### Changed — "OCR a job" descartado con evidencia: no era un problema (2026-08-18)
+- El plan P1 incluía pasar los 4 endpoints de OCR (cobranza, pagos, entradas, comprobación de gastos) al patrón `202 + job`. Una auditoría en paralelo lo tumbó y se verificó a mano: **`LlmExtractorService` acota cada llamada vision a 30 s** (`llm-extractor.service.ts:432,671`), así que el OCR **nunca** alcanza los 60 s del proxy — la premisa del ítem era falsa. Y `/ocr` es *preview puro*: su `next()` prefillea el formulario y **encadena** el match ficha-first con el monto/fecha extraídos; con 202 ese callback llega vacío.
+- **Regla que queda**: un endpoint largo va a job **solo si su trabajo tiene efecto persistente**; si es un cálculo efímero para la pantalla que lo pidió, se acota con deadline (igual que el chat de Maat).
+- En su lugar la auditoría destapó dos problemas reales del módulo, que son **costo de query y no de transporte**: un **N+1 verificado** en `collection-deposits.service.ts:364` (`bankMatch` por cada depósito dentro del loop de `detail()`) y el `EXISTS` correlacionado de `GET /finance/collections/bank/unmatched`. Quedan como P2-perf.
+
 ### Changed — Finanzas: los motores largos salen del request (202 + WS) — COMM.5 / P0 (2026-08-18)
 - **El bug de fondo:** `location /api/` en `nginx.conf` no define `proxy_read_timeout` → rige el default de nginx (**60 s**). El import del workbook (base64 hasta 25 mb, ~6.5k movimientos), la conciliación, el reclasificado y los motores de Maat corrían **dentro del request**: al pasarse, el navegador recibía **504 mientras el backend seguía trabajando** y el usuario no sabía si la operación quedó aplicada.
 - **Contrato nuevo:** el endpoint responde **`202 { job_id, name, label }`** y el resultado llega por WS **`finance_job`** (`running` → `done`/`error`, con el MISMO objeto que antes devolvía el HTTP). Piezas: `FinanceJobsService` (registro en memoria de los últimos 50, scoped por tenant), `GET /finance/jobs[/:id]`, `BancosGateway.emitJob`.
