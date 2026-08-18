@@ -89,10 +89,10 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 |---|---|---|---|
 | **WR.0** | **Descubrimiento** ⛔ ruta crítica | Inventario de `.mdb` objetivo (30/32/00/rutas): ruta, **copia-sombra existe?** (SyncBack cubre 30/32/50; confirmar 00 + rutas), tablas, PKs, tipos, tamaños, **columna incremental** por tabla de movimiento. Entregable: mapa tabla→carril + PK + col-watermark por sucursal. | ⬜ |
 | **WR.1** | Adapter de lectura + esquema | Extractor Jet 32-bit genérico (reusa `extract-table.ps1`) + descubridor de **tablas/columnas/PK** del `.mdb` (`OleDbSchemaGuid`/`MSysObjects`) + wrapper Node `readTable(t,{sinceCol,sinceVal})` / `readAll(t)`. | 🧪 |
-| **WR.2** | Destino réplica + DDL espejo | Crear `wincaja_XX` (o schema-por-sucursal) en `:5433` + auto-generar el DDL espejo desde el esquema Access (tipos → `text`/`numeric` sin precisión, **tolerante a valores corruptos** — el saneamiento vive en silver, no en la réplica cruda). | 🧪 (30 aplicado; 32/00 pendiente) |
-| **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | 🔨 (código; live pend. Docker) |
-| **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | 🔨 (código; falta probar+agendar) |
-| **WR.5** | Verificación + monitoreo | Fidelidad `.mdb` ↔ réplica (conteos + Σ montos, como se hizo con Kepler) + **db-health source** (frescura de la réplica Wincaja). | 🔨 (verifier listo; db-health pend.) |
+| **WR.2** | Destino réplica + DDL espejo | Crear `wincaja_XX` (o schema-por-sucursal) en `:5433` + auto-generar el DDL espejo desde el esquema Access (tipos → `text`/`numeric` sin precisión, **tolerante a valores corruptos** — el saneamiento vive en silver, no en la réplica cruda). | ✅ (w30/w32/w00, 70 tablas c/u) |
+| **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | ✅ (3 sucursales cargadas+verificadas) |
+| **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | ✅ (tarea `WincajaReplicaLoop` 15 min) |
+| **WR.5** | Verificación + monitoreo | Fidelidad `.mdb` ↔ réplica (conteos + Σ montos, como se hizo con Kepler) + **db-health source** (frescura de la réplica Wincaja). | ✅ fidelidad (db-health source diferido) |
 | **WR.6** | Re-apuntar consumidores (Fase 2) | `import-wincaja` + extractores leen de la **réplica Postgres** (SQL) en vez de Jet → el bronze deja de depender de la extracción Jet full-daily; el `WincajaSyncActual` 05:00 se retira o se vuelve micro-batch sobre la réplica. | ⬜ |
 
 **MVP = WR.0–WR.5** (la réplica cruda existe y está fresca). **WR.6** cosecha el beneficio (el pipeline deja de depender de Jet).
@@ -181,6 +181,29 @@ WR y [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md) (CEDIS Kepler-Access) son **el mis
 **BLOQUEADOR live:** el contenedor `pgvector-md` (`:5433`) estaba **caído** al probar (Docker Desktop apagado) → falta correr end-to-end. Pendiente cuando `:5433` vuelva: (1) `replicate-wincaja-live.js --branch=30 --once` (carga inicial + verifica), (2) `wincaja-replica-verify.js --branch=30`, (3) aplicar DDL + carga a 32/00, (4) agendar `WincajaReplicaLoop`.
 
 **Deferred:** reconciliación de DELETEs en catálogos (el full-scan hash-delta captura INSERT/UPDATE, no borrados) → barrido periódico por diff de PK (WR.5.1). Rutas → tras probar 30/32.
+
+---
+
+## 12. WR MVP 🟢 EN VIVO (WR.0–5) — 2026-08-18
+
+Réplica cruda continua operando en `:5433/wincaja`, 3 sucursales:
+
+| Schema | Sucursal | Filas | Fidelidad (Σ de control) |
+|---|---|---|---|
+| `w30` | Morelia Abastos | 305,412 | ΣValorVenta $10,443,778.53 ✓ · ΣPrecio $6,358,296.77 ✓ (67/70 exactas) |
+| `w32` | Morelia Madero | 286,885 | ΣValorVenta $4,862,614.28 ✓ · ΣPrecio $6,367,855.85 ✓ (69/70) |
+| `w00` | CEDIS Irapuato | 214,939 | ΣValorVenta $153,594,831.67 ✓ · ΣPrecio $6,368,520.28 ✓ (69/70) |
+
+- **Deltas de −1..−15 filas** = filas byte-idénticas de valor $0 colapsadas por el surrogate `_row_hash` (las Σ cuadran al centavo → cero pérdida real).
+- **CEDIS 00**: el archivo bueno es `0 BPIRAPUATO MOV.MDB` (DB completa + movimientos); el `0 BPIRAPUATO.mdb` es catálogo viejo con movimientos=0 → se ignora (config corregida).
+- **Steady-state**: ~3.6 min/sucursal (full-scan Jet de catálogos, `wrote=0` cero churn) → ciclo 3-sucursales ≈ 11 min → **tarea `WincajaReplicaLoop` cada 15 min** (timeout 14, IgnoreNew, `SISTEMAS\Desarrollo MD` Interactive Highest).
+
+**Diferido:**
+- **WR.5.1** — split de carriles para frescura 1-5 min en MOVIMIENTOS: incremental (ventas) cada ~2 min, hash-delta (catálogos, caro) cada ~hora. Hoy todo va junto cada 15 min.
+- **WR.5.2** — db-health source (frescura de la réplica en el tablero de salud).
+- **WR.6** — re-apuntar el bronze `import-wincaja` a la réplica (dejar de depender de Jet full-daily).
+- Reconciliación de DELETEs en catálogos (barrido por diff de PK).
+- Rutas (321/322, 21-28) → tras estabilizar 30/32/00.
 
 ---
 

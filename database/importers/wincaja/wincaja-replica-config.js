@@ -14,13 +14,16 @@ const ADMIN_URL = process.env.WINCAJA_REPLICA_ADMIN_URL || 'postgresql://postgre
 /**
  * Sucursales objetivo. Canindo `50` migró su POS a Kepler `06` (Fase Canindo) → fuera.
  * PH `10` congelada 31/05 → histórico (no continuo).
- * CEDIS Irapuato `00` = DOS archivos (base + MOV); se unen en el schema `w00`.
+ * CEDIS Irapuato `00`: hay DOS archivos, pero el bueno es **`… MOV.MDB`** — es la DB COMPLETA y
+ *   ACTUAL (catálogo lleno Articulos 15446/Precios 90185 + movimientos MaestroMovAlmacen 3239…).
+ *   El `0 BPIRAPUATO.mdb` (sin MOV) es un snapshot de catálogo VIEJO/parcial con movimientos=0 →
+ *   se ignora (verificado 2026-08-18). Por eso `w00` se replica solo del MOV.
  * Rutas: se agregan tras probar el loop en 30/32.
  */
 const BRANCHES = [
   { code: '30', schema: 'w30', name: 'Morelia Abastos', mdb: `${MDB_BASE}/30 MORELIA ABASTOS.MDB` },
   { code: '32', schema: 'w32', name: 'Morelia Madero', mdb: `${MDB_BASE}/32 MORELIA MADERO.MDB` },
-  { code: '00', schema: 'w00', name: 'CEDIS Irapuato', mdb: `${MDB_BASE}/0 BPIRAPUATO.mdb`, mov: `${MDB_BASE}/0 BPIRAPUATO MOV.MDB` },
+  { code: '00', schema: 'w00', name: 'CEDIS Irapuato', mdb: `${MDB_BASE}/0 BPIRAPUATO MOV.MDB` },
 ];
 
 /**
