@@ -57,6 +57,45 @@ const APP_SOURCES: SourceCfg[] = [
   // a kepler_ods.* de forma CONTINUA (~15s, tarea OdsLiveLoop). La marca last_push_at se escribe
   // en cada corrida (aunque no cambie nada) → detecta si el pipe se detuvo. Umbral realtime.
   { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo ~15s (tarea OdsLiveLoop)' },
+  // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
+  // replicación lógica (SYNC.3) apareció un modo de falla nuevo: si UN replica (subscription)
+  // se congela, la loop sigue shipeando data VIEJA de esa sucursal → last_push_at fresco pero
+  // el dato de esa sucursal parado. El agregado no lo ve (otras sucursales avanzan). Esto mira
+  // la última VENTA (c4=10) por sucursal en horario de tienda y alarma si UNA se atrasa mientras
+  // la red sigue activa (calca wincaja_branch_stale). Excluye CEDIS 00 (0 venta pública).
+  {
+    key: 'kepler_ods_branch_stale', label: 'Kepler ODS — sucursal congelada (replica)', table: 'kepler_ods.kdm1', tsCandidates: [],
+    sql: `WITH w AS (
+            SELECT (now() AT TIME ZONE 'America/Mexico_City')::time AS mx_time,
+                   (now() AT TIME ZONE 'America/Mexico_City')::date AS mx_date
+          ),
+          per_branch AS (
+            SELECT k.sucursal,
+                   (max(k.c9::date + k.c62::time) AT TIME ZONE 'America/Mexico_City') AS last_sale
+              FROM kepler_ods.kdm1 k, w
+             WHERE k.c2='U' AND k.c3='D' AND k.c4=10
+               AND k.sucursal <> '00'
+               AND k.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
+               AND k.c9::date = w.mx_date
+             GROUP BY k.sucursal
+          ),
+          agg AS (
+            SELECT max(last_sale) AS net_last, min(last_sale) AS stale_last, count(*)::int AS activas,
+                   (array_agg(sucursal ORDER BY last_sale ASC))[1] AS stale_suc
+              FROM per_branch
+          )
+          SELECT CASE
+                   WHEN (SELECT mx_time FROM w) NOT BETWEEN '10:00' AND '21:30' THEN now()
+                   WHEN agg.net_last IS NULL OR agg.net_last < now() - interval '45 min' THEN now()
+                   ELSE agg.stale_last
+                 END AS last_update,
+                 'activas ' || coalesce(agg.activas,0) || '/6 · más atrasada ' ||
+                   coalesce(agg.stale_suc,'—') || ' ' ||
+                   coalesce(to_char(agg.stale_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') ||
+                   ' · red ' || coalesce(to_char(agg.net_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') AS note_extra
+            FROM agg`,
+    warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
+  },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
