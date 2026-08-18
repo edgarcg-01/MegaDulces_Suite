@@ -26,6 +26,7 @@ const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap } = require('../lib/kepler-branches');
+const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
@@ -85,12 +86,15 @@ async function readBranch(b) {
 }
 
 async function upsert(db, rows) {
+  const whMap = await loadWarehouseMap(db, TENANT); // Paso 2b
   let n = 0;
   for (const r of rows) {
+    const wid = whMap.get(String(r.warehouse_code).trim()) || null;
     await db('analytics.cash_cuts')
-      .insert({ tenant_id: TENANT, ...r, cerrado: true, source: 'kepler' })
+      .insert({ tenant_id: TENANT, ...r, warehouse_id: wid, cerrado: true, source: 'kepler' })
       .onConflict(['tenant_id', 'warehouse_code', 'caja', 'business_date', 'folio'])
       .merge({
+        warehouse_id: wid,
         efectivo_esperado: r.efectivo_esperado, efectivo_contado: r.efectivo_contado, efectivo_diff: r.efectivo_diff,
         tarjeta_esperado: r.tarjeta_esperado, tarjeta_contado: r.tarjeta_contado, tarjeta_diff: r.tarjeta_diff,
         transfer_esperado: r.transfer_esperado, transfer_contado: r.transfer_contado, transfer_diff: r.transfer_diff,

@@ -25,6 +25,7 @@ const WINDOW_DAYS = process.env.KARDEX_DAYS != null ? Number(process.env.KARDEX_
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Incluye CEDIS '00'.
 const { salesMap } = require('../lib/kepler-branches');
+const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
@@ -105,12 +106,13 @@ function dedupeAggregate(rows) {
 async function upsert(db, rows) {
   // UPSERT en LOTE (antes: fila-por-fila = miles de round-trips WAN → cuelgue). Chunks de
   // 500 → decenas de inserts multi-fila en vez de miles → segundos.
+  const whMap = await loadWarehouseMap(db, TENANT); // Paso 2b
   const CHUNK = 500;
-  const MERGE_COLS = ['unidades', 'importe', 'clase_mov', 'almacen', 'unidad', 'fecha', 'updated_at'];
+  const MERGE_COLS = ['warehouse_id', 'unidades', 'importe', 'clase_mov', 'almacen', 'unidad', 'fecha', 'updated_at'];
   let n = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const batch = rows.slice(i, i + CHUNK)
-      .map((r) => ({ tenant_id: TENANT, ...r, source: 'kepler', updated_at: db.fn.now() }));
+      .map((r) => ({ tenant_id: TENANT, ...r, warehouse_id: whMap.get(String(r.warehouse_code).trim()) || null, source: 'kepler', updated_at: db.fn.now() }));
     await db('analytics.stock_ledger')
       .insert(batch)
       .onConflict(['tenant_id', 'warehouse_code', 'folio', 'genero', 'naturaleza', 'grupo', 'sku'])

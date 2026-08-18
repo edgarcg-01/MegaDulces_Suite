@@ -35,6 +35,7 @@ const BRANCH_NAMES = { '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Ab
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap } = require('../lib/kepler-branches');
+const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 async function readBranch(b) {
@@ -109,12 +110,15 @@ async function readFromKp() {
 }
 
 async function upsert(db, rows) {
+  const whMap = await loadWarehouseMap(db, TENANT); // Paso 2b
   let n = 0;
   for (const r of rows) {
+    const wid = whMap.get(String(r.warehouse_code).trim()) || null;
     await db('analytics.cash_sessions')
-      .insert({ tenant_id: TENANT, ...r, source: 'kepler' })
+      .insert({ tenant_id: TENANT, ...r, warehouse_id: wid, source: 'kepler' })
       .onConflict(['tenant_id', 'warehouse_code', 'caja', 'folio'])
       .merge({
+        warehouse_id: wid,
         cajero_code: r.cajero_code, closed_at: r.closed_at, status: r.status,
         opened_at: r.opened_at, business_date: r.business_date, updated_at: db.fn.now(),
       });

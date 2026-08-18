@@ -28,8 +28,27 @@ export class StoreService {
     private readonly gateway: StoreGateway,
   ) {}
 
+  // Normalización ALMACÉN Paso 2b: map warehouse_code → warehouse_id (uuid) cacheado 15min.
+  // Incluye kepler_code (Canindo '06' → MD-50) para que el poller poble warehouse_id inline.
+  private whMap: Map<string, string> | null = null;
+  private whMapAt = 0;
+  private async warehouseMap(): Promise<Map<string, string>> {
+    if (this.whMap && Date.now() - this.whMapAt < 15 * 60 * 1000) return this.whMap;
+    const rows = await this.knex('commercial.warehouses')
+      .where({ tenant_id: TENANT }).whereNull('deleted_at')
+      .select('id', 'code', 'kepler_code');
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      if (r.code) m.set(String(r.code).trim(), r.id);
+      if (r.kepler_code) m.set(String(r.kepler_code).trim(), r.id);
+    }
+    this.whMap = m; this.whMapAt = Date.now();
+    return m;
+  }
+
   async ingest(tickets: LiveTicket[], emit = true): Promise<{ received: number; inserted: number }> {
     if (!Array.isArray(tickets) || !tickets.length) return { received: 0, inserted: 0 };
+    const whMap = await this.warehouseMap();
     let inserted = 0;
     for (const t of tickets) {
       if (!t.warehouse_code || !t.folio || !t.serie || !t.ticket_ts) continue;
@@ -37,6 +56,7 @@ export class StoreService {
       const row = {
         tenant_id: TENANT,
         warehouse_code: t.warehouse_code,
+        warehouse_id: whMap.get(String(t.warehouse_code).trim()) || null,
         warehouse_name: t.warehouse_name || null,
         serie: t.serie,
         folio: t.folio,
@@ -56,6 +76,7 @@ export class StoreService {
           .insert(row)
           .onConflict(['tenant_id', 'warehouse_code', 'serie', 'folio'])
           .merge({
+            warehouse_id: row.warehouse_id,
             warehouse_name: row.warehouse_name,
             ticket_ts: row.ticket_ts,
             total: row.total,
