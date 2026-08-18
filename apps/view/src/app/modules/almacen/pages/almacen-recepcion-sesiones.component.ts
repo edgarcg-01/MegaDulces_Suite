@@ -12,7 +12,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
-import { ReceivingSessionService, ReceivingSessionListItem } from '../receiving-session.service';
+import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } from '../receiving-session.service';
 
 /**
  * Fase WMS-REC (Pieza 1, ADR-044) — Lista de Vales de entrada (sesiones de recepción)
@@ -68,21 +68,35 @@ import { ReceivingSessionService, ReceivingSessionListItem } from '../receiving-
 
       <p-dialog [visible]="newOpen()" (visibleChange)="newOpen.set($event)" [modal]="true" [style]="{ width: '520px' }" header="Nueva sesión de recepción" [dismissableMask]="true">
         <div class="rs-form">
-          <label class="rs-field"><span>Almacén *</span>
-            <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="Elegí un almacén" styleClass="rs-w"></p-select>
+          <label class="rs-field"><span>Almacén destino *</span>
+            <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="¿A qué almacén entra la mercancía?" styleClass="rs-w"></p-select>
           </label>
-          <label class="rs-field"><span>Proveedor (código)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
           <label class="rs-field"><span>Origen</span>
-            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" styleClass="rs-w"></p-select>
+            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" (onChange)="foundOrder.set(null)" styleClass="rs-w"></p-select>
           </label>
-          @if (newSource === 'erp_receipt') {
+
+          @if (newSource === 'manual') {
+            <label class="rs-field"><span>Proveedor (opcional)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
+          } @else {
             <div class="rs-row">
-              <label class="rs-field"><span>Sucursal ERP</span><input pInputText [(ngModel)]="newErpSucursal" placeholder="ej. 00" /></label>
-              <label class="rs-field"><span>Folio orden entrada</span><input pInputText [(ngModel)]="newErpFolio" placeholder="ej. 12345" /></label>
+              <label class="rs-field"><span>Sucursal ERP</span>
+                <p-select [options]="sucursalOptions" [(ngModel)]="newErpSucursal" optionLabel="label" optionValue="value" styleClass="rs-w"></p-select>
+              </label>
+              <label class="rs-field"><span>Folio (últimos dígitos)</span><input pInputText [(ngModel)]="newErpFolio" (keyup.enter)="lookupOrder()" placeholder="ej. 2555" /></label>
             </div>
-            <small class="rs-hint">Precarga las líneas esperadas desde la orden de entrada (X-A-40) del ERP.</small>
+            <button pButton [text]="true" severity="secondary" size="small" (click)="lookupOrder()" [loading]="looking()" [disabled]="!newErpFolio"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span> Buscar orden</button>
+            @if (foundOrder(); as o) {
+              <div class="rs-found">
+                <i class="pi pi-check-circle" aria-hidden="true"></i>
+                <div>
+                  <strong>Orden {{ o.folio }}</strong> · {{ o.line_count }} líneas · {{ o.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                  <div class="rs-found-prov">Proveedor: {{ o.proveedor_nombre || o.proveedor_code || '—' }}</div>
+                </div>
+              </div>
+            }
           }
-          <button pButton (click)="create()" [disabled]="!newWarehouse" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir sesión</button>
+
+          <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir sesión</button>
         </div>
       </p-dialog>
     </div>
@@ -100,6 +114,9 @@ import { ReceivingSessionService, ReceivingSessionListItem } from '../receiving-
     .rs-row-form { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     .rs-row { }
     .rs-hint { font-size: .78rem; color: var(--text-color-secondary); margin-bottom: .75rem; display: block; }
+    .rs-found { display: flex; gap: .5rem; align-items: flex-start; margin: .5rem 0 .75rem; padding: .6rem .75rem; border-radius: 8px; background: var(--good-soft-bg, #ecfdf5); font-size: .85rem; }
+    .rs-found i { color: var(--good-fg, #059669); margin-top: .1rem; }
+    .rs-found-prov { color: var(--text-color-secondary); font-size: .8rem; margin-top: .1rem; }
   `],
 })
 export class AlmacenRecepcionSesionesComponent implements OnInit {
@@ -126,11 +143,21 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   newWarehouse = '';
   newSupplier = '';
   newSource: 'manual' | 'erp_receipt' = 'manual';
-  newErpSucursal = '';
+  newErpSucursal = '00';
   newErpFolio = '';
+  readonly foundOrder = signal<ErpOrderLookup | null>(null);
+  readonly looking = signal(false);
   readonly sourceOptions = [
     { label: 'Manual (escaneo libre)', value: 'manual' },
     { label: 'Desde orden de entrada (ERP)', value: 'erp_receipt' },
+  ];
+  readonly sucursalOptions = [
+    { label: 'CEDIS (00)', value: '00' },
+    { label: 'PH (01)', value: '01' },
+    { label: 'Sucursal 02', value: '02' },
+    { label: '8 Esquinas (03)', value: '03' },
+    { label: 'Sucursal 04', value: '04' },
+    { label: 'Sucursal 05', value: '05' },
   ];
 
   ngOnInit(): void {
@@ -149,21 +176,35 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     });
   }
 
-  openNew(): void { this.newOpen.set(true); }
+  openNew(): void { this.foundOrder.set(null); this.newErpFolio = ''; this.newOpen.set(true); }
+
+  /** Busca la orden del ERP por sucursal + últimos dígitos → autollena proveedor + líneas. */
+  lookupOrder(): void {
+    const folio = this.newErpFolio.trim();
+    if (!folio) return;
+    this.looking.set(true);
+    this.svc.lookupErpOrder(this.newErpSucursal, folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (o) => { this.looking.set(false); this.foundOrder.set(o); },
+      error: (e) => { this.looking.set(false); this.foundOrder.set(null); this.toast.add({ severity: 'warn', summary: 'No encontrada', detail: e?.error?.message || 'No hay una orden con ese folio en esa sucursal' }); },
+    });
+  }
+
+  canOpen(): boolean {
+    if (!this.newWarehouse) return false;
+    return this.newSource === 'manual' ? true : !!this.foundOrder();
+  }
 
   create(): void {
-    if (!this.newWarehouse) return;
-    if (this.newSource === 'erp_receipt' && (!this.newErpSucursal.trim() || !this.newErpFolio.trim())) {
-      this.toast.add({ severity: 'warn', summary: 'Falta origen', detail: 'Indicá sucursal y folio de la orden de entrada' });
-      return;
-    }
+    if (!this.canOpen()) return;
+    const o = this.foundOrder();
     this.creating.set(true);
     this.svc.open({
       warehouse_id: this.newWarehouse,
-      supplier_code: this.newSupplier?.trim() || undefined,
+      supplier_code: this.newSource === 'manual' ? (this.newSupplier?.trim() || undefined) : undefined,
       source_kind: this.newSource,
-      erp_sucursal: this.newSource === 'erp_receipt' ? this.newErpSucursal.trim() : undefined,
-      erp_folio: this.newSource === 'erp_receipt' ? this.newErpFolio.trim() : undefined,
+      // Usa el folio COMPLETO de la orden encontrada (el proveedor lo autollena el backend).
+      erp_sucursal: this.newSource === 'erp_receipt' ? this.newErpSucursal : undefined,
+      erp_folio: this.newSource === 'erp_receipt' ? (o?.folio || this.newErpFolio.trim()) : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate(['/almacen/inventory/recepcion-sesiones', s.id]); },
       error: (e) => { this.creating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo abrir' }); },

@@ -45,6 +45,13 @@ export class ReceivingSessionController {
     return this.service.list({ status, warehouse_id: warehouseId, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('erp-order')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Buscar una orden de entrada del ERP por sucursal + últimos dígitos del folio (autollena proveedor)' })
+  erpOrder(@Query('sucursal') sucursal: string, @Query('folio') folio: string) {
+    return this.service.lookupErpOrder(sucursal, folio);
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({ summary: 'Detalle de una sesión + líneas + progreso (qué falta validar)' })

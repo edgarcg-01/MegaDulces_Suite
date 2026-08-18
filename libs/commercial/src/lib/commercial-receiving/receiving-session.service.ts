@@ -61,10 +61,18 @@ export class ReceivingSessionService {
     if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const sourceKind = dto.source_kind || 'manual';
     if (sourceKind === 'erp_receipt' && (!dto.erp_sucursal || !dto.erp_folio))
-      throw new BadRequestException('erp_receipt requiere erp_sucursal + erp_folio');
+      throw new BadRequestException('erp_receipt requiere sucursal + folio de la orden');
 
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
+
+      // Para órdenes del ERP: resuelve la cabecera (folio completo + proveedor) desde el espejo.
+      let erpHeader: any = null;
+      if (sourceKind === 'erp_receipt') {
+        erpHeader = await this.findErpHeader(trx, dto.erp_sucursal!, dto.erp_folio!);
+        if (!erpHeader) throw new NotFoundException('No encontré una orden de entrada con ese folio en esa sucursal');
+      }
+
       const year = new Date().getFullYear();
       const seqRes = await trx.raw(
         `INSERT INTO commercial.receiving_session_sequences (tenant_id, year, last_seq)
@@ -74,32 +82,35 @@ export class ReceivingSessionService {
          RETURNING last_seq`,
         [year],
       );
-      const seq = seqRes.rows[0].last_seq;
-      const folio = `VE-${year}-${String(seq).padStart(5, '0')}`;
+      const folio = `VE-${year}-${String(seqRes.rows[0].last_seq).padStart(5, '0')}`;
+
+      // El proveedor se AUTOLLENA desde la orden del ERP (código o razón social).
+      const supplierCode = erpHeader
+        ? (erpHeader.proveedor_code || erpHeader.proveedor_nombre || null)
+        : (dto.supplier_code || null);
 
       const [session] = await trx('commercial.receiving_sessions')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           folio,
           warehouse_id: dto.warehouse_id,
-          supplier_code: dto.supplier_code || null,
+          supplier_code: supplierCode,
           source_kind: sourceKind,
-          source_ref: sourceKind === 'erp_receipt' ? `${dto.erp_sucursal}/${dto.erp_folio}` : null,
+          source_ref: erpHeader ? `${erpHeader.sucursal}/${erpHeader.folio}` : null,
           status: 'open',
           notes: dto.notes || null,
           created_by: userId,
         })
         .returning('*');
 
-      // Precarga de líneas esperadas desde el espejo ERP (best-effort: mapea SKU Kepler → catalog).
-      if (sourceKind === 'erp_receipt') {
+      // Precarga de líneas esperadas desde el espejo ERP (mapea SKU Kepler → catálogo).
+      if (erpHeader) {
+        const tenantId = this.tenantCtx.get()?.tenantId || null;
         const erpLines = await trx('analytics.erp_goods_receipt_lines')
-          .where({ tenant_id: this.tenantCtx.get()?.tenantId || null, sucursal: dto.erp_sucursal, folio: dto.erp_folio })
+          .where({ tenant_id: tenantId, sucursal: erpHeader.sucursal, folio: erpHeader.folio })
           .select('sku', 'nombre', 'cantidad');
         for (const el of erpLines) {
-          const prod = el.sku
-            ? await trx('public.products').where({ sku: String(el.sku) }).first('id')
-            : null;
+          const prod = el.sku ? await trx('public.products').where({ sku: String(el.sku) }).first('id') : null;
           await trx('commercial.receiving_lines').insert({
             tenant_id: trx.raw('public.current_tenant_id()'),
             session_id: session.id,
@@ -113,6 +124,55 @@ export class ReceivingSessionService {
         }
       }
       return this.detail(session.id);
+    });
+  }
+
+  /**
+   * Resuelve la cabecera de una orden de entrada del ERP por (sucursal, folio). Acepta
+   * el folio COMPLETO o solo los últimos dígitos (búsqueda por sufijo, la más reciente).
+   */
+  private async findErpHeader(trx: any, sucursal: string, folioInput: string) {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const f = String(folioInput || '').trim();
+    if (!f) return null;
+    let row = await trx('analytics.erp_goods_receipts')
+      .where({ tenant_id: tenantId, sucursal }).where('folio', f)
+      .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date');
+    if (!row) {
+      row = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: tenantId, sucursal })
+        .whereRaw('RIGHT(folio, ?) = ?', [f.length, f])
+        .orderBy('receipt_date', 'desc')
+        .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date');
+    }
+    return row || null;
+  }
+
+  /**
+   * Busca una orden de entrada del ERP (para el diálogo "Nueva sesión"): devuelve el
+   * folio completo, el proveedor (autollenado) y cuántas líneas trae. Por últimos dígitos.
+   */
+  async lookupErpOrder(sucursal: string, folio: string) {
+    const suc = String(sucursal || '').trim();
+    const f = String(folio || '').trim();
+    if (!suc) throw new BadRequestException('Indica la sucursal del ERP');
+    if (!/^\d{2,}$/.test(f)) throw new BadRequestException('Indica al menos los últimos dígitos del folio');
+    return this.tk.run(async (trx) => {
+      const row = await this.findErpHeader(trx, suc, f);
+      if (!row) throw new NotFoundException('No encontré una orden de entrada con ese folio en esa sucursal');
+      const tenantId = this.tenantCtx.get()?.tenantId || null;
+      const lc = await trx('analytics.erp_goods_receipt_lines')
+        .where({ tenant_id: tenantId, sucursal: row.sucursal, folio: row.folio })
+        .count('* as c').first();
+      return {
+        sucursal: row.sucursal,
+        folio: row.folio,
+        proveedor_code: row.proveedor_code,
+        proveedor_nombre: row.proveedor_nombre,
+        monto: Number(row.monto) || 0,
+        receipt_date: row.receipt_date,
+        line_count: Number(lc?.c || 0),
+      };
     });
   }
 
