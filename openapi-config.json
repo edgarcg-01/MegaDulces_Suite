@@ -1,8 +1,0 @@
-{
-  "apiModulePrefix": "Api",
-  "configurationPrefix": "Api",
-  "useSingleRequestParameter": true,
-  "serviceSuffix": "ApiService",
-  "modelSuffix": "Dto",
-  "stringEnums": true
-}

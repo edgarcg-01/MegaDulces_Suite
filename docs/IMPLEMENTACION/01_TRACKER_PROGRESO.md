@@ -682,6 +682,19 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 ---
 
+## COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18
+
+Catálogo de transportes NestJS↔Angular auditado y cerrado en **ADR-045**. Cuatro huecos que se leían como pendientes:
+
+- [x] **[COMM.1]** ✅ SSE del chat de Maat endurecido — keepalive `: ping` 15s + cancelación real (`shouldStop` corta el loop de tools cuando el cliente se va) + `finally` idempotente. Documentado por qué **no** se usa `@Sse()` (registra GET; el payload lleva historia + imagen base64 y `EventSource` no manda `Authorization`). Cerrado 2026-08-18.
+- [x] **[COMM.2]** ✅ `EventEmitterModule` retirado — estaba cargado con 0 emisores / 0 `@OnEvent`. La convención cross-dominio (puertos tipados en `libs/contracts/src/ports/*`) quedó escrita en `AppModule`. Dep `@nestjs/event-emitter` fuera. Cerrado 2026-08-18.
+- [x] **[COMM.3]** ✅ Codegen OpenAPI reparado como **snapshot de contrato** — `scripts/generate-openapi.js` baja `/api/docs-json` y diffea operaciones vs snapshot previo (verificado contra la API viva: 45 paths / 61 ops). Fuera `generate:client`, `api:gen`, `openapi-config.json` y `@openapitools/openapi-generator-cli`. Cerrado 2026-08-18.
+- [x] **[COMM.4]** ✅ GraphQL / gRPC / microservicios Nest / `LISTEN-NOTIFY` documentados como **no-van** con compuerta explícita de reapertura (ADR-045). Cerrado 2026-08-18.
+
+Sin migraciones, sin cambios de contrato de endpoints, sin cambios de frontend. Build `api` verde.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

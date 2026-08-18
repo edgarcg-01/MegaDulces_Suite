@@ -11,6 +11,8 @@ import { MaatBriefingService } from './maat-briefing.service';
 
 interface AuthedRequest {
   user?: { id?: string; username?: string; full_name?: string };
+  /** express: 'close' avisa que el cliente abortó (dispara también al terminar bien). */
+  on?: (ev: string, cb: () => void) => void;
 }
 
 @ApiTags('finance-maat')
@@ -69,6 +71,11 @@ export class MaatChatController {
     return { ...result, ...audit };
   }
 
+  // NO usa `@Sse()` de Nest a propósito: ese decorador registra la ruta como GET,
+  // y el payload de aquí (historia + imagen base64) no cabe en query string.
+  // Además EventSource no manda Authorization y el front necesita el interceptor
+  // de auth: por eso POST + text/event-stream a mano, leído con HttpClient
+  // (observe:'events' + partialText). Ver ADR-045.
   @Post('chat/stream')
   @RequirePermissions(Permission.FINANCE_AI_CHAT)
   @Throttle({ long: { limit: 15, ttl: 60_000 } })
@@ -93,7 +100,14 @@ export class MaatChatController {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // nginx: no bufferear el stream
     (res as any).flushHeaders?.();
-    const send = (event: string, data: any) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    // El cliente se fue (cerró la pestaña, navegó, unsubscribe del HttpClient).
+    // 'close' también dispara al terminar bien → distinguir con writableEnded.
+    let clientGone = false;
+    req.on?.('close', () => { if (!res.writableEnded) clientGone = true; });
+    const alive = () => !clientGone && !res.writableEnded;
+    const write = (chunk: string) => { if (alive()) res.write(chunk); };
+    const send = (event: string, data: any) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const keepAlive = setInterval(() => write(`: ping\n\n`), 15_000);
     try {
       const history: MaatChatTurn[] = Array.isArray(body?.history) ? body.history : [];
       if (body?.message) history.push({ role: 'user', content: String(body.message) });
@@ -105,9 +119,14 @@ export class MaatChatController {
       send('step', { label: 'Analizando tu pregunta…' });
       const result = await this.chat.ask(
         scope,
-        { history, think: !!body?.think, deepSearch: !!body?.deep_search, image },
+        {
+          history, think: !!body?.think, deepSearch: !!body?.deep_search, image,
+          shouldStop: () => clientGone,
+        },
         (step) => send('step', step),
       );
+      // Cliente ido: ni audit (respuesta que nadie va a leer) ni evento final.
+      if (clientGone) return;
       const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
       const audit = await this.chat.logExchange(
         { sessionId: body?.session_id || null, userId: req.user?.id, userName, question: lastQuestion },
@@ -117,7 +136,8 @@ export class MaatChatController {
     } catch {
       send('error', { message: 'stream_failed' });
     } finally {
-      res.end();
+      clearInterval(keepAlive);
+      if (!res.writableEnded) res.end();
     }
   }
 

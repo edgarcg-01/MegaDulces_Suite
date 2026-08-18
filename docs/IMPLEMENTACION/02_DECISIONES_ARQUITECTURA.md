@@ -1142,3 +1142,32 @@ Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). He
 2. Completar contexto, decisión, alternativas, consecuencias.
 3. Estado inicial: **"Propuesto"**. Después de discutir/validar: **"Aceptado"**.
 4. Si una decisión vieja se reemplaza: marcar la vieja como "Superseded by ADR-XXX" y crear la nueva.
+
+---
+
+## ADR-045 — **Transportes de comunicación** (cliente↔servidor y in-process): REST + Socket.IO como columna, el resto con compuerta
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-18
+
+**Contexto:** el stack (NestJS 11 + Angular 22) admite muchos más transportes de los que usamos, y la falta de una decisión escrita dejó **cuatro huecos** que se veían como "pendientes" sin serlo: (1) el streaming del chat de Maat es SSE **escrito a mano** sobre `POST` y parecía una desviación del `@Sse()` de Nest; (2) `EventEmitterModule.forRoot()` estaba cargado en `AppModule` con **0 emisores y 0 `@OnEvent`** en todo el repo; (3) los scripts `generate:openapi` / `generate:client` / `api:gen` apuntaban a `scripts/generate-openapi.ts`, **archivo que no existía** — el cliente Angular generado nunca se adoptó (los ~41 módulos usan services HTTP a mano); (4) GraphQL / gRPC / microservicios Nest aparecían recurrentemente como "lo que falta" sin que nadie hubiera decidido que no van.
+
+**Decisión:** el catálogo de transportes queda **cerrado y explícito**:
+
+- **REST HTTP/JSON** (`@Controller` + `HttpClient` + interceptor JWT) = transporte por default de todo dato bajo demanda.
+- **Socket.IO** (8 namespaces, JWT en el handshake, room `tenant:<id>`, `redis-adapter` cuando hay `REDIS_URL`) = todo push server→cliente **con sesión abierta**.
+- **Web Push (VAPID + ngsw)** = push **sin** sesión abierta (vendedor/portal).
+- **SSE artesanal sobre `POST`** = único caso de streaming incremental (chat AI). **NO se usa `@Sse()`** a propósito: ese decorador registra la ruta como **GET** y el payload (historia + imagen base64) no cabe en query string, y `EventSource` no manda `Authorization`. El contrato es: `event: step|done|error` + comentarios `: ping` de keepalive; el front lo lee con `HttpClient(observe:'events', reportProgress)`.
+- **In-process cross-dominio: puertos tipados** (`libs/contracts/src/ports/*`), **no** bus de eventos por strings. Se retira `EventEmitterModule`.
+- **Trabajo diferido: `pg-boss`** (ADR-043) y BullMQ solo donde ya está (WhatsApp). **No** se usa `LISTEN/NOTIFY` de Postgres: pg-boss ya cubre el caso.
+- **Contrato OpenAPI: snapshot, no codegen de cliente.** `npm run generate:openapi` baja `/api/docs-json` a `swagger.json` y **diffea** operaciones contra el snapshot previo. La generación del cliente Angular se retira (junto a `openapi-config.json` y `@openapitools/openapi-generator-cli`).
+
+**Alternativas y compuertas (qué tendría que pasar para reabrir):**
+- **GraphQL** — rechazado: el front consume vistas concretas por pantalla y el over-fetching no es un problema medido. *Compuerta:* un consumidor externo (app de terceros) que necesite armar sus propias consultas.
+- **gRPC / microservicios Nest** (`Transport.TCP/RMQ/KAFKA/NATS`) — rechazado, coherente con ADR-043 (monolito modular + worker-tier). *Compuerta:* que el worker deje de compartir código con el API, o un 2º lenguaje en el stack.
+- **Adoptar el cliente OpenAPI generado** — rechazado hoy: reescribir ~41 módulos de services a mano sin ganancia funcional. *Compuerta:* un 2º consumidor de la API que no sea `apps/view|vendor|portal`.
+- **`@Sse()` nativo** — no aplica mientras el stream necesite POST + Authorization.
+- **Bus in-process (EventEmitter2)** — se puede reintroducir si aparece un side-effect con **N** consumidores desacoplados; con 1 consumidor, el puerto tipado gana.
+
+**Consecuencias:** ✅ el stream de Maat ya no muere por proxy idle (keepalive 15s) ni quema tokens contra un socket muerto (corta en el borde de la iteración cuando el cliente se va, y no audita respuestas que nadie va a leer). ✅ menos superficie: fuera un módulo global inerte y dos dependencias muertas. ✅ `generate:openapi` vuelve a correr y ahora sirve para revisar el diff del contrato antes de commitear. ⚠️ el snapshot `swagger.json` está gitignored: el diff es local, no un gate de CI (candidato a CI después). Hereda ADR-016 (motor decide / LLM fuera del camino) y ADR-043 (monolito modular + worker-tier).

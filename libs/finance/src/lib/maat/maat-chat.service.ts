@@ -80,7 +80,14 @@ export class MaatChatService {
 
   async ask(
     scope: MaatScope,
-    input: { history: MaatChatTurn[]; think?: boolean; deepSearch?: boolean; image?: { mediaType: string; data: string } },
+    input: {
+      history: MaatChatTurn[];
+      think?: boolean;
+      deepSearch?: boolean;
+      image?: { mediaType: string; data: string };
+      /** El caller (stream SSE) puede pedir corte: se evalúa en el borde de cada iteración. */
+      shouldStop?: () => boolean;
+    },
     onStep?: (step: { label: string; tool?: string }) => void,
   ): Promise<MaatChatResult> {
     const think = !!input.think;
@@ -124,6 +131,15 @@ export class MaatChatService {
 
     let iterations = 0;
     while (iterations < maxIterations) {
+      // El cliente se fue (cerró el stream SSE / navegó): cortar en el borde de la
+      // iteración en vez de seguir quemando tokens contra un socket muerto.
+      if (input.shouldStop?.()) {
+        this.logger.warn(`ask() cancelado por el cliente tras ${iterations} iteraciones (${tokensIn}/${tokensOut} tokens)`);
+        return {
+          answer: 'Consulta cancelada.', source: 'error', tools_used: traces,
+          iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: [],
+        };
+      }
       iterations++;
       let resp: any;
       try {
