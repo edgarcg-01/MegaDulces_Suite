@@ -137,11 +137,17 @@ export class FinanceBankService {
     } catch (e: any) { this.logger.warn(`WS emit ${ev.action} falló: ${e?.message || e}`); }
   }
 
-  /** Cuentas de banco/caja/factoraje. */
+  /**
+   * Cuentas de banco/factoraje. La CAJA GENERAL (kind='cash') se EXCLUYE: vive en su
+   * propia página (/finanzas/caja, fuente viva Doctos) — Bancos solo lleva cuentas
+   * bancarias fiscales. Una sola fuente para la caja. (La fila sigue en el catálogo
+   * para el memo de la conciliación; solo se oculta de las vistas de Bancos.)
+   */
   async accounts() {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       return trx('finance.bank_accounts')
+        .whereRaw(`coalesce(kind,'bank') <> 'cash'`)
         .select('id', 'bank', 'account_label', 'alias', 'kind', 'kepler_link', 'active')
         .orderBy([{ column: 'kind' }, { column: 'bank' }, { column: 'account_label' }]);
     });
@@ -527,6 +533,7 @@ export class FinanceBankService {
           .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
           .leftJoin('finance.bank_statements as st', 'st.id', 'bm.statement_id');
         b.whereNull('bm.deleted_at'); // CB.23.3 — oculta filas barridas del Sheet
+        b.whereRaw(`coalesce(ba.kind,'bank') <> 'cash'`); // CG — la caja general vive en su página, no en Bancos
         if (q.period) b.where('st.period', q.period);
         if (q.account_id) b.where('bm.bank_account_id', q.account_id);
         if (q.category_id) b.where('bm.category_id', q.category_id);
@@ -700,6 +707,7 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).whereNull('bm.deleted_at')
+        .whereRaw(`coalesce(ba.kind,'bank') <> 'cash'`) // CG — la caja general vive en su página, no en el Concentrado
         // Agrupa por la columna cruda (nullable); el COALESCE del SELECT deriva de
         // ella y Postgres lo acepta. NO agrupar por el COALESCE con binding: el
         // literal del SELECT y el $ del GROUP BY no matchean → 42803 (visto en prod).
@@ -1107,9 +1115,11 @@ export class FinanceBankService {
           trx.raw(`LEFT(UPPER(COALESCE(bm.concept,'')), 28) AS concepto`),
           trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto'))
         .orderByRaw('SUM(bm.amount_in + bm.amount_out) DESC').limit(6);
-      // Cuentas activas sin estado de cuenta cargado este periodo (p.ej. CAJA GENERAL no importable).
+      // Cuentas bancarias activas sin estado de cuenta cargado este periodo. Excluye la
+      // CAJA GENERAL (kind='cash') — no es cuenta de banco y vive en su propia página.
       const missing = await trx('finance.bank_accounts as ba')
         .where('ba.active', true)
+        .whereRaw(`coalesce(ba.kind,'bank') <> 'cash'`)
         .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
         .select('ba.bank', 'ba.account_label', 'ba.kind');
       // ¿Ya corrió la conciliación por-transacción? Si 0 casados, la evidencia dirá
@@ -2409,7 +2419,9 @@ export class FinanceBankService {
     try { await wb.xlsx.load(buf as any); } catch { throw new BadRequestException('no se pudo leer el Excel'); }
     // CB.23.1 — omite hojas resumen/consolidadas: MOVIMIENTOS GENERAL (unión de todas las
     // cuentas → duplicaría todo), RESUMEN DE SALDOS, POR IDENTIFICAR, y las históricas.
-    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|FilterDatabase/i.test(s.name));
+    // CG — la CAJA GENERAL ya no se importa a Bancos: vive en su propia página (fuente
+    // viva Doctos). Se omite su hoja del workbook → una sola fuente para la caja.
+    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|CAJA GENERAL|FilterDatabase/i.test(s.name));
 
     const result: any = await this.tk.run(async (trx) => {
       // t0 = reloj del servidor al inicio; el barrido marca borrado lo no tocado en este pull
