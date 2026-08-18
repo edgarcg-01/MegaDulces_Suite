@@ -184,6 +184,19 @@ const APP_SOURCES: SourceCfg[] = [
             FROM t, w`,
     warnH: 0.75, critH: 1.5, cadence: 'continuo en horario (poller on-prem cada 25s)',
   },
+  // Ventas por ruta: el rollup analytics.sales_by_route_monthly (rutas WIN-%) que consume
+  // /comercial/ventas-por-ruta. Los feeds de ruta (import-route-push-monthly/-lines/-vecinal)
+  // pasaron a intraday (~1h, 24/7) → updated_at avanza cada corrida (el UPSERT hace updated_at=now()
+  // sin guard). Dead-man propio porque una falla del PASO de ruta (ej. .249 mart.ventas inalcanzable)
+  // NO alarma feed_intraday (falla parcial = batch 'ok'), pero aquí congela updated_at. Umbral intradía.
+  {
+    key: 'route_sales', label: 'Ventas por ruta (rollup intradía)', table: 'analytics.sales_by_route_monthly', tsCandidates: [],
+    sql: `SELECT max(updated_at) AS last_update,
+                 count(DISTINCT route_code)::text || ' rutas · mes ' ||
+                   coalesce(to_char(max(month),'MM/YYYY'),'—') AS note_extra
+            FROM analytics.sales_by_route_monthly WHERE route_code LIKE 'WIN-%'`,
+    warnH: 3, critH: 8, cadence: 'intradía ~1h (feeds de ruta en intraday) + respaldo nightly',
+  },
 ];
 
 const EXT_SOURCES: ExtCfg[] = [
