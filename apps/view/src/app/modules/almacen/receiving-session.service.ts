@@ -64,6 +64,16 @@ export interface OpenSessionDto {
   notes?: string;
 }
 
+export interface ErpOrderLookup {
+  sucursal: string;
+  folio: string;
+  proveedor_code?: string | null;
+  proveedor_nombre?: string | null;
+  monto: number;
+  receipt_date?: string | null;
+  line_count: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReceivingSessionService {
   private readonly http = inject(HttpClient);
@@ -71,6 +81,12 @@ export class ReceivingSessionService {
 
   open(dto: OpenSessionDto): Observable<ReceivingSession> {
     return this.http.post<ReceivingSession>(this.base, dto);
+  }
+
+  /** Busca una orden de entrada del ERP por sucursal + últimos dígitos del folio. */
+  lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {
+    const params = new HttpParams().set('sucursal', sucursal).set('folio', folio);
+    return this.http.get<ErpOrderLookup>(`${this.base}/erp-order`, { params });
   }
 
   list(filters: { status?: string; warehouse_id?: string; limit?: number } = {}): Observable<ReceivingSessionListItem[]> {
