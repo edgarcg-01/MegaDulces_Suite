@@ -89,6 +89,7 @@ const TESTS = [
   { file: 'http-whatsapp-webhook-test.js', label: 'F.0/F.1 WhatsApp webhook (verify + /sim inbound → cola → placeholder out + dedup + DB hilo/mensajes)', needsApi: true },
   { file: 'http-cbw-bank-capture-test.js', label: 'CBW Captura bancaria WhatsApp E2E (sim imagen → bandeja → PATCH → confirmar sí → validar → renglón M=I/102 en el libro + ruteo no-autorizado + limpieza)', needsApi: true },
   { file: 'http-finance-jobs-test.js', label: 'COMM-P0 Trabajos largos de Finanzas (POST /bank/match → 202 + job_id · WS finance_job running→done con el MatchResult · GET /finance/jobs/:id · ?sync=true inline igual al WS · scan de Maat 202 · job inexistente 404)', needsApi: true },
+  { file: 'http-cobranza-ws-test.js', label: 'COMM-P1 WS de cobranza (handshake JWT + auth_error con token inválido · attach/validate/reject emiten collection_deposit_changed con sucursal/folio/monto/actor · aislamiento entre tenants · limpia su evidencia)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
   // LTV Auditoría en Ruta — detalle geográfico (traza GPS + tickets ubicados por hora)
