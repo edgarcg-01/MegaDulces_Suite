@@ -26,6 +26,8 @@ const TABLES = [
   ['analytics', 'cash_cuts'], ['analytics', 'cash_sessions'], ['analytics', 'erp_promotions'],
   ['analytics', 'erp_shipments'], ['analytics', 'pos_cashiers'], ['analytics', 'pos_ticket_sales'],
   ['analytics', 'store_live_tickets'], ['analytics', 'stock_ledger'], ['identity', 'users'],
+  // Batch 3 (mismo resolver warehouse_code): tablas que estaban vacías en batch 1.
+  ['logistics', 'home_delivery_warehouses'], ['reconciliation', 'actions'], ['reconciliation', 'blind_counts'],
 ];
 // Resolución (incluye el caso Canindo explícito → robusto pre/post patch crosswalk).
 const RESOLVE = `w.tenant_id = t.tenant_id AND w.deleted_at IS NULL AND (
