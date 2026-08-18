@@ -81,7 +81,7 @@ export class FleetTrackingGateway implements OnGatewayConnection, OnGatewayDisco
   getStats() {
     const stats: Record<string, number> = {};
     for (const [t, s] of this.tenantSockets) stats[t] = s.size;
-    return { tenants: stats, total_sockets: [...this.tenantSockets.values()].reduce((s, x) => s + x.size, 0) };
+    return { tenants: stats, total_sockets: Array.from(this.tenantSockets.values()).reduce((s, x) => s + x.size, 0) };
   }
 
   private extractToken(client: Socket): string | null {

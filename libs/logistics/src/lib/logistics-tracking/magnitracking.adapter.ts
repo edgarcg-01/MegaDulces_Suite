@@ -303,7 +303,7 @@ export class MagniTrackingAdapter implements FleetProviderPort {
     }
   }
   private cookieHeader(): string {
-    return [...this.cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+    return Array.from(this.cookies.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
   }
 
   private normalizeLegacy(imei: string, v: any): FleetObject {

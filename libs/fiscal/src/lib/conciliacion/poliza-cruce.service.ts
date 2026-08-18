@@ -180,7 +180,7 @@ export class PolizaCruceService {
     }
 
     if (!findings.length) return { pushed: 0, inserted: 0, skipped: 0 };
-    const res = await this.sink.pushFindings(tenantId, findings, [...rules.values()]);
+    const res = await this.sink.pushFindings(tenantId, findings, Array.from(rules.values()));
     this.logger.log(`cruce póliza tenant ${tenantId}: ${findings.length} hallazgos → Maat (${res.inserted} nuevos).`);
     return { pushed: findings.length, ...res };
   }

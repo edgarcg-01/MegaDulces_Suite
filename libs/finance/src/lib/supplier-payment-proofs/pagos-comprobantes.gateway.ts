@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 /** Un cambio en un comprobante de pago (lo dispara una acción de un usuario). */
 export interface PaymentProofEvent {
@@ -42,6 +43,22 @@ export class PagosComprobantesGateway implements OnGatewayConnection, OnGatewayD
     catch (e: any) { this.logger.warn(`Reject ${client.id}: JWT inválido (${e.message})`); client.emit('auth_error', { reason: 'invalid_token' }); client.disconnect(true); return; }
     const tenantId = payload?.tenant_id;
     if (!tenantId) { client.emit('auth_error', { reason: 'no_tenant_in_token' }); client.disconnect(true); return; }
+    // COMM.8 — mismo cierre que en /bancos y /cobranza: antes bastaba un JWT válido
+    // del tenant, así que CUALQUIER usuario autenticado (un vendedor, un repartidor)
+    // podía escuchar este canal. Se exige el permiso de LECTURA de la pantalla que
+    // lo consume, e `isPlatformAdminRole` replica el god-mode del RolesGuard (sin eso
+    // el superusuario quedaba fuera de su propio tablero). Se lee el snapshot del JWT:
+    // un permiso revocado después del login aplica al reconectar, no al instante.
+    const perms = (payload?.permissions || {}) as Record<string, boolean>;
+    const allowed = isPlatformAdminRole(payload?.role_name)
+      || perms[Permission.FINANCE_PAYMENTS_VER] === true
+      || perms[Permission.FINANCE_BANK_VER] === true;
+    if (!allowed) {
+      this.logger.warn(`Reject ${client.id}: ${payload?.username || '?'} sin permiso de lectura de pagos`);
+      client.emit('auth_error', { reason: 'forbidden' });
+      client.disconnect(true);
+      return;
+    }
     client.join(`tenant:${tenantId}`);
     client.data = { tenantId, username: payload.username };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());

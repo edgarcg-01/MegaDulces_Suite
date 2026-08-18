@@ -54,7 +54,7 @@ export class PromoterBrandsService {
           byUser.set(r.user_id, { user_id: r.user_id, username: r.username, nombre: r.user_nombre, brands: [] });
         byUser.get(r.user_id).brands.push({ id: r.brand_id, nombre: r.brand_nombre });
       }
-      return [...byUser.values()];
+      return Array.from(byUser.values());
     });
   }
 
@@ -86,7 +86,7 @@ export class PromoterBrandsService {
   /** Reemplaza el set de marcas de un usuario (admin). */
   async setUserBrands(userId: string, brandIds: string[]) {
     if (!UUID_REGEX.test(userId)) throw new BadRequestException('user_id inválido');
-    const ids = [...new Set((brandIds || []).filter((b) => UUID_REGEX.test(b)))];
+    const ids = Array.from(new Set((brandIds || []).filter((b) => UUID_REGEX.test(b))));
     const createdBy = this.tenantCtx.get()?.userId || null;
     return this.tk.run(async (trx) => {
       await trx('commercial.promoter_brands').where('user_id', userId).del();

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 export interface NewReceiptsEvent {
   count: number;
@@ -34,6 +35,22 @@ export class GoodsReceiptsGateway implements OnGatewayConnection, OnGatewayDisco
     catch (e: any) { this.logger.warn(`Reject ${client.id}: JWT inválido (${e.message})`); client.emit('auth_error', { reason: 'invalid_token' }); client.disconnect(true); return; }
     const tenantId = payload?.tenant_id;
     if (!tenantId) { client.emit('auth_error', { reason: 'no_tenant_in_token' }); client.disconnect(true); return; }
+    // COMM.8 — mismo cierre que en /bancos y /cobranza: antes bastaba un JWT válido
+    // del tenant, así que CUALQUIER usuario autenticado (un vendedor, un repartidor)
+    // podía escuchar este canal. Se exige el permiso de LECTURA de la pantalla que
+    // lo consume, e `isPlatformAdminRole` replica el god-mode del RolesGuard (sin eso
+    // el superusuario quedaba fuera de su propio tablero). Se lee el snapshot del JWT:
+    // un permiso revocado después del login aplica al reconectar, no al instante.
+    // Esta bandeja vive en el proyecto Compras, así que el gate es el suyo.
+    const perms = (payload?.permissions || {}) as Record<string, boolean>;
+    const allowed = isPlatformAdminRole(payload?.role_name)
+      || perms[Permission.COMPRAS_ENTRADAS_VER] === true;
+    if (!allowed) {
+      this.logger.warn(`Reject ${client.id}: ${payload?.username || '?'} sin permiso de lectura de entradas`);
+      client.emit('auth_error', { reason: 'forbidden' });
+      client.disconnect(true);
+      return;
+    }
     client.join(`tenant:${tenantId}`);
     client.data = { tenantId, username: payload.username };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());

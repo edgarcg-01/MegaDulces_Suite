@@ -478,7 +478,7 @@ export class CommercialMapService {
           if (idSet.has(pid)) matchedIds.add(pid);
         }
       }
-      const matchedProducts = [...matchedIds]
+      const matchedProducts = Array.from(matchedIds)
         .map((pid) => productNameMap[pid])
         .filter(Boolean);
       g.visits.push({
@@ -500,7 +500,7 @@ export class CommercialMapService {
       }
     }
 
-    const resultStores = [...grouped.values()]
+    const resultStores = Array.from(grouped.values())
       .map((g) => ({
         id: g.id,
         nombre: g.nombre,
@@ -617,7 +617,7 @@ export class CommercialMapService {
     }
     if (agg.size === 0) return { store_captures: caps.length, items: [] };
 
-    const ids = [...agg.keys()];
+    const ids = Array.from(agg.keys());
     const [products, brands] = await Promise.all([
       this.knex('products').whereIn('id', ids).select('id', 'nombre', 'brand_id'),
       this.knex('brands').select('id', 'nombre'),
@@ -629,7 +629,7 @@ export class CommercialMapService {
       (p: any) => (prodMap[p.id] = { name: p.nombre, brand: brandMap[p.brand_id] || null }),
     );
 
-    const items = [...agg.entries()]
+    const items = Array.from(agg.entries())
       .map(([pid, a]) => ({
         product_id: pid,
         product_name: prodMap[pid]?.name || 'Producto',

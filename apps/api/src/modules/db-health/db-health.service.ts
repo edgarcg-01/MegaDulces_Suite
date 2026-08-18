@@ -441,7 +441,7 @@ export class DbHealthService {
       this.logger.warn(`db-health cron_runs: ${(e as Error).message}`);
     }
     // Recorre el registro de jobs esperados + cualquier job extra que haya reportado.
-    const keys = new Set<string>([...CRON_JOBS.map((j) => j.key), ...byKey.keys()]);
+    const keys = new Set<string>([...CRON_JOBS.map((j) => j.key), ...Array.from(byKey.keys())]);
     for (const key of keys) {
       const cfg = CRON_JOBS.find((j) => j.key === key);
       const row = byKey.get(key);

@@ -100,11 +100,12 @@ export class LogisticsCartaporteService {
       : [];
 
     // Figuras: choferes/ayudantes de las guías
-    const driverIds = [
-      ...new Set(
-        guides.flatMap((g: any) => [g.driver_id, g.helper1_id, g.helper2_id]).filter(Boolean),
-      ),
-    ];
+    // Array.from y NO spread: el bundle del API baja `[...new Set(x)]` a
+    // `[].concat(new Set(x))` → el array queda con el SET adentro, `length===1` burla
+    // el guard y pg recibe un objeto (se serializa a '{}' → 22P02 al castear a uuid[]).
+    const driverIds = Array.from(
+      new Set(guides.flatMap((g: any) => [g.driver_id, g.helper1_id, g.helper2_id]).filter(Boolean)),
+    );
     const drivers = driverIds.length
       ? await trx('logistics.drivers').whereIn('id', driverIds as string[])
       : [];
@@ -112,11 +113,9 @@ export class LogisticsCartaporteService {
     // Mercancías: itemizar desde las órdenes de los destinatarios (multi-drop,
     // J12.0.x). Fallback a la orden ligada al embarque (1:1) si los destinatarios
     // aún no traen order_id.
-    const orderIds = [
-      ...new Set(
-        [...recipients.map((r: any) => r.order_id), shipment.order_id].filter(Boolean),
-      ),
-    ] as string[];
+    const orderIds = Array.from(
+      new Set([...recipients.map((r: any) => r.order_id), shipment.order_id].filter(Boolean)),
+    ) as string[];
     let lines: any[] = [];
     if (orderIds.length) {
       lines = await trx('commercial.order_lines as ol')

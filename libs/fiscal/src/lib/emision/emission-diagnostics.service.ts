@@ -89,8 +89,8 @@ export class EmissionDiagnosticsService {
     return {
       open_total: rows.length,
       criticos,
-      por_tipo: [...byKind.entries()].map(([kind, count]) => ({ kind: kind as EmissionErrorKind, count })),
-      por_severidad: [...bySev.entries()].map(([severity, count]) => ({ severity, count })),
+      por_tipo: Array.from(byKind.entries()).map(([kind, count]) => ({ kind: kind as EmissionErrorKind, count })),
+      por_severidad: Array.from(bySev.entries()).map(([severity, count]) => ({ severity, count })),
     };
   }
 

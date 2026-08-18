@@ -105,9 +105,9 @@ export class CommercialLabelsService {
         for (const b of bcRows) {
           codeToUnit.set(String(b.barcode), { sku: String(b.sku), unit: b.unit ?? null });
         }
-        extraSkus = [...new Set(bcRows.map((b: any) => String(b.sku)))];
+        extraSkus = Array.from(new Set(bcRows.map((b: any) => String(b.sku))));
       }
-      const skuMatch = [...new Set([...codes, ...extraSkus])];
+      const skuMatch = Array.from(new Set([...codes, ...extraSkus]));
 
       const rows = await trx('products as p')
         .leftJoin('commercial.product_label_prices as l', function () {

@@ -463,7 +463,7 @@ export class OpportunityEngineService {
     const prodName = new Map<string, string>();
     if (suggestedProductIds.size) {
       const rows = await this.safeQuery(() =>
-        this.knex('catalog.products').whereIn('id', [...suggestedProductIds]).select('id', 'nombre'),
+        this.knex('catalog.products').whereIn('id', Array.from(suggestedProductIds)).select('id', 'nombre'),
       );
       (rows || []).forEach((p: any) => prodName.set(p.id, p.nombre));
     }
@@ -500,7 +500,7 @@ export class OpportunityEngineService {
     const routeNames = new Map<string, string>();
     if (routeRisk.size) {
       const rows = await this.safeQuery(() =>
-        this.knex('catalogs').whereIn('id', [...routeRisk.keys()]).select('id', 'value'),
+        this.knex('catalogs').whereIn('id', Array.from(routeRisk.keys())).select('id', 'value'),
       );
       (rows || []).forEach((c: any) => routeNames.set(c.id, c.value));
     }

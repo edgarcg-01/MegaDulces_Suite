@@ -127,7 +127,7 @@ export class RecommendationsService {
         .whereRaw(`o.created_at >= NOW() - INTERVAL '${RECOMMENDATION_LIMITS.TENANT_TOP_DAYS} days'`)
         .modify((qb) => {
           if (customerProductIds.size > 0) {
-            qb.whereNotIn('ol.product_id', [...customerProductIds]);
+            qb.whereNotIn('ol.product_id', Array.from(customerProductIds));
           }
         })
         .groupBy('ol.product_id')
@@ -162,10 +162,10 @@ export class RecommendationsService {
       ]);
       if (customerBrandIds.size > 0) {
         const explorationRows = await trx('public.products')
-          .whereIn('brand_id', [...customerBrandIds])
+          .whereIn('brand_id', Array.from(customerBrandIds))
           .where('activo', true)
           .whereNull('deleted_at')
-          .whereNotIn('id', [...explorationIds])
+          .whereNotIn('id', Array.from(explorationIds))
           .orderBy('puntuacion', 'desc')
           .limit(RECOMMENDATION_LIMITS.EXPLORATION);
 

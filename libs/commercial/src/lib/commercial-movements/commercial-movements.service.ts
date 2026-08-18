@@ -679,7 +679,7 @@ export class CommercialMovementsService {
         m.qty_sent += Number(r.qty_sent) || 0; m.qty_received += Number(r.qty_received) || 0; m.amount += Number(r.amount) || 0;
         if (r.status === 'ok') m.n_ok++; else if (r.status === 'diferencia') m.n_diferencia++; else if (r.status === 'sin_recepcion') m.n_sin_recepcion++;
       }
-      const mRows = [...mmap.values()]
+      const mRows = Array.from(mmap.values())
         .map((m) => ({ ...m, delta_qty: m.qty_received - m.qty_sent }))
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 300);

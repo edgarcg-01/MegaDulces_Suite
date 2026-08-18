@@ -197,7 +197,7 @@ export class ScoringV2Service {
     }
 
     const catalogRows = await this.knex('catalogs')
-      .whereIn('id', [...new Set(allCatalogIds)])
+      .whereIn('id', Array.from(new Set(allCatalogIds)))
       .select('id', 'value', 'puntuacion');
 
     const catalogMap = new Map(
@@ -205,7 +205,7 @@ export class ScoringV2Service {
     );
 
     // Verificar que todos los IDs fueron resueltos
-    const missingIds = [...new Set(allCatalogIds)].filter(id => !catalogMap.has(id));
+    const missingIds = Array.from(new Set(allCatalogIds)).filter(id => !catalogMap.has(id));
     if (missingIds.length > 0) {
       this.logger.warn(`IDs de catálogo no encontrados: ${missingIds.join(', ')}`);
     }

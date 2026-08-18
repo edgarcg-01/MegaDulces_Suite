@@ -83,7 +83,7 @@ export class ThotService {
         .andWhere((q: any) => q.whereNull('ends_at').orWhere('ends_at', '>', now))
         .select('code', 'name', 'promotion_type', 'rules', 'priority');
       const promoByProduct = extractPromoProducts(activePromos);
-      const promoLiteral = `{${[...promoByProduct.keys()].join(',')}}`;
+      const promoLiteral = `{${Array.from(promoByProduct.keys()).join(',')}}`;
 
       const res = await trx.raw(
         `

@@ -1220,7 +1220,7 @@ export class ReportsService {
     const baseRows = await q;
 
     const captureIds = baseRows.map((r: any) => r.id);
-    const userIds = [...new Set(baseRows.map((r: any) => r.user_id))];
+    const userIds = Array.from(new Set(baseRows.map((r: any) => r.user_id)));
     const visionMap = new Map<string, any>();
     const findingsMap = new Map<string, any>();
     const vendorFraud = new Map<string, number>();
@@ -2444,7 +2444,7 @@ export class ReportsService {
     if (segments.length > 0) {
       try {
         const pingsByUser = await this.fetchPingsByUser(
-          [...new Set(segments.map((s) => s.user_id))],
+          Array.from(new Set(segments.map((s) => s.user_id))),
           filters,
           tenantId,
         );

@@ -100,7 +100,7 @@ export class InventoryRiskService {
         map.set(key, e);
       }
 
-      const rows = [...map.values()].map((e) => {
+      const rows = Array.from(map.values()).map((e) => {
         const { score, level } = InventoryRiskService.computeScore({
           investigations: e.investigations_count,
           pni: e.pni_count,
