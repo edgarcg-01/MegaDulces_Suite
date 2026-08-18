@@ -25,20 +25,10 @@ const WINDOW_MIN = Number(process.env.WINDOW_MINUTES) || 5;
 // --dry: lee y arma tickets pero NO empuja al API; corre 1 ciclo y sale (verificación).
 const DRY = process.argv.includes('--dry');
 
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { salesMap } = require('../lib/kepler-branches');
+// Fuente única del mapa de sucursales (paso 3 normalización almacén). Incluye CEDIS '00' y
+// Canindo '06' (este último leído del replica lógico local kepler_md_06 vía clientConfig).
+const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
-
-// Canindo (06) migró de Wincaja a Kepler; su POS (192.168.50.50:1977) NO tiene platform_ro
-// → NO está en kepler-branches.js. Se lee del REPLICA LÓGICO LOCAL `kepler_md_06` (mismo md.*
-// schema, sin carga al POS, sin cred nueva) vía DATABASE_URL_NEW del .env. Si no hay replica
-// local disponible (o URL inválida), se omite → 01-05 no se afectan.
-if (process.env.DATABASE_URL_NEW && !BRANCHES.some((b) => b.code === '06')) {
-  try {
-    const u = new URL(process.env.DATABASE_URL_NEW); u.pathname = '/kepler_md_06';
-    BRANCHES.push({ code: '06', name: 'Canindo', db: 'kepler_md_06', url: u.toString() });
-  } catch { /* URL inválida → omitir 06 */ }
-}
 
 const pad = (n) => String(n).padStart(2, '0');
 // "YYYY-MM-DD HH:MM" en hora local MX (offset fijo -06, Centro sin DST).
@@ -53,10 +43,9 @@ function startOfTodayMX() {
 }
 
 async function pollBranch(b, since) {
-  // 06 (Canindo) trae `url` = replica local; 01-05 usan su POS remoto (platform_ro).
-  const c = b.url
-    ? new Client({ connectionString: b.url, connectionTimeoutMillis: 6000, statement_timeout: 30000 })
-    : new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
+  // clientConfig resuelve la conexión por rama: 01-05 su POS remoto (platform_ro), 06 Canindo
+  // su replica lógica local (kepler_md_06). Schema md.* idéntico → mismo query.
+  const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 30000 }));
   await c.connect();
   try {
     const { rows } = await c.query(

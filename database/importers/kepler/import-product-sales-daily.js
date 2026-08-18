@@ -19,6 +19,7 @@
  */
 
 const { Client } = require('pg');
+const { salesMap, clientConfig } = require('../lib/kepler-branches');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
@@ -26,16 +27,7 @@ const APPLY = process.argv.includes('--apply');
 const di = process.argv.indexOf('--days');
 const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 180;
 
-const BRANCHES = process.env.SALES_BRANCH_MAP
-  ? JSON.parse(process.env.SALES_BRANCH_MAP)
-  : [
-      { code: '00', host: '192.168.9.95', port: 5432, db: 'md_00' },
-      { code: '01', host: '192.168.10.10', port: 1977, db: 'md_01' },
-      { code: '02', host: '192.168.42.42', port: 5432, db: 'md_02' },
-      { code: '03', host: '192.168.40.40', port: 5432, db: 'md_03' },
-      { code: '04', host: '192.168.44.44', port: 5432, db: 'md_04' },
-      { code: '05', host: '192.168.54.54', port: 5432, db: 'md_05' },
-    ];
+const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
 
@@ -68,7 +60,7 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
     for (const b of BRANCHES) {
       const wid = whTo.get(b.code);
       if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 8000, statement_timeout: 180000 });
+      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 180000 }));
       const t0 = Date.now();
       try {
         await src.connect();

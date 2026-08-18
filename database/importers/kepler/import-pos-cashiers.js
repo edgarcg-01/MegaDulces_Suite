@@ -19,14 +19,14 @@ const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { salesMap } = require('../lib/kepler-branches');
+const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const clean = (s) => (s == null ? '' : String(s).replace(/[\r\n\t]+/g, ' ').trim());
 
 async function readBranch(b) {
-  const c = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
+  const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 30000 }));
   await c.connect();
   const out = [];
   try {
