@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { MaatDiscoveryService } from './maat-discovery.service';
 import { MaatSkepticService } from './maat-skeptic.service';
 import { FinanceJobsService } from '../jobs/finance-jobs.service';
@@ -37,6 +37,7 @@ export class MaatDiscoveryController {
 
   @Post('discovery/run')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @SkipTenantTx()
   @Throttle({ long: { limit: 3, ttl: 60_000 } })
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'MIQ.4 — Corre los mineros deterministas + proponedor AI (gated) para generar hipótesis. Async: 202 + job_id, resultado por WS `finance_job` (llama al LLM: no cabe en los 60 s de nginx).' })
@@ -68,6 +69,7 @@ export class MaatDiscoveryController {
 
   @Post('skeptic/run')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @SkipTenantTx()
   @Throttle({ long: { limit: 6, ttl: 60_000 } })
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'MIQ.4 — Corre el escéptico: refuta hallazgos débiles (materialidad/muestra/estacionalidad) y baja su ranking. Async: 202 + job_id.' })

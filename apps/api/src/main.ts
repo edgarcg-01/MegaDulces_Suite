@@ -169,6 +169,10 @@ async function bootstrap() {
   // juntos) hasta 20MB → ~27MB en base64 → 32mb. (nginx client_max_body_size=32m aparte.)
   app.use('/api/finance/goods-receipts', json({ limit: '32mb' }));
   app.use('/api/finance/collections', json({ limit: '16mb' }));
+  // CBW — captura bancaria por WhatsApp/web: sube la foto del depósito en base64.
+  // Era el único módulo de evidencia SIN override → con el global de 2mb tiraba 413
+  // (no 504) en cualquier foto de celular. Mismo techo que sus hermanos.
+  app.use('/api/finance/bank-captures', json({ limit: '16mb' }));
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));

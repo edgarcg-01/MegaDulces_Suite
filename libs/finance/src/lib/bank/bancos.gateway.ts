@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 /** Un cambio en el tablero de Bancos (import, sync del Sheet, conciliación o comprobante). */
 export interface BancosEvent {
@@ -45,6 +46,25 @@ export class BancosGateway implements OnGatewayConnection, OnGatewayDisconnect {
     catch (e: any) { this.logger.warn(`Reject ${client.id}: JWT inválido (${e.message})`); client.emit('auth_error', { reason: 'invalid_token' }); client.disconnect(true); return; }
     const tenantId = payload?.tenant_id;
     if (!tenantId) { client.emit('auth_error', { reason: 'no_tenant_in_token' }); client.disconnect(true); return; }
+    // Este canal empuja datos de Finanzas (movimientos del libro, resultado de
+    // conciliaciones e imports). Antes bastaba un JWT válido del tenant, así que
+    // CUALQUIER usuario autenticado —un vendedor, un repartidor— podía escucharlo.
+    // El JWT trae el snapshot de permisos: se exige el mismo gate de LECTURA que
+    // las pantallas que consumen este namespace (tablero de bancos / hallazgos).
+    // `isPlatformAdminRole` replica el god-mode del RolesGuard HTTP: si no, el
+    // superusuario (cuyo rol pasa todo sin tener el permiso listado) quedaba fuera
+    // de su propio tablero. Nota: se lee el snapshot del JWT, así que un permiso
+    // revocado después del login aplica al reconectar el socket, no al instante.
+    const perms = (payload?.permissions || {}) as Record<string, boolean>;
+    const allowed = isPlatformAdminRole(payload?.role_name)
+      || perms[Permission.FINANCE_BANK_VER] === true
+      || perms[Permission.FINANCE_AI_CHAT] === true;
+    if (!allowed) {
+      this.logger.warn(`Reject ${client.id}: ${payload?.username || '?'} sin permiso de lectura de Finanzas`);
+      client.emit('auth_error', { reason: 'forbidden' });
+      client.disconnect(true);
+      return;
+    }
     client.join(`tenant:${tenantId}`);
     client.data = { tenantId, username: payload.username };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());

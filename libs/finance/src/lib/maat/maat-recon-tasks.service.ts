@@ -499,7 +499,13 @@ export class MaatReconTasksService {
         `Diagnóstico por movimiento (qué hacer en Kepler):\n${guide}\n\n` +
         `La persona de Finanzas escribió: "${userText}"\n\n` +
         `Respóndele BREVE y concreto, orientándola sobre DÓNDE y CÓMO arreglarlo en Kepler (auxiliar de la cuenta 102; captura de póliza de egreso XD2601 = C 201 proveedor / A 102 banco). Si tiene dudas de dónde, dale el paso exacto. Recuérdale que al terminar toque "Ya lo hice en Kepler" para que verifiques por re-match.`;
-      const r = await this.chat.ask({ userName: username || null }, { history: [{ role: 'user', content: preamble }] });
+      // deadlineMs: paridad con POST /finance/maat/chat (maat-chat.controller.ts).
+      // Este hilo corre en un request normal bajo el techo del proxy, y `ask` puede
+      // encadenar varias iteraciones × Claude + tools: sin presupuesto se pasaba.
+      const r = await this.chat.ask(
+        { userName: username || null },
+        { history: [{ role: 'user', content: preamble }], deadlineMs: 45_000 },
+      );
       if (r?.answer && r.source !== 'no_api_key' && r.source !== 'error') return r.answer;
     } catch (e: any) { this.logger.warn(`chat.ask en hilo falló: ${e?.message || e}`); }
     return fallback;

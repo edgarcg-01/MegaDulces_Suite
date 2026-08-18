@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
-import { Permission } from '@megadulces/platform-core';
+import { Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { MaatFindingsService } from './maat-findings.service';
 import { MaatDetectorService } from './maat-detector.service';
@@ -91,6 +91,7 @@ export class MaatFindingsController {
 
   @Post('scan')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @SkipTenantTx()
   @Throttle({ long: { limit: 4, ttl: 60_000 } })
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'MAAT.2 — Corre el motor de detectores ahora (manual). Idempotente (UPSERT por dedup_key). Async: 202 + job_id, resultado por WS `finance_job` (los 10 detectores se pasan de los 60 s de nginx).' })
@@ -112,6 +113,7 @@ export class MaatFindingsController {
 
   @Post('graph-sync')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @SkipTenantTx()
   @Throttle({ long: { limit: 2, ttl: 60_000 } })
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'MAAT.10 — Reconstruye el grafo de proveedores en Neo4j desde analytics.expense_documents. No-op si NEO4J_URI no está. Async: 202 + job_id.' })

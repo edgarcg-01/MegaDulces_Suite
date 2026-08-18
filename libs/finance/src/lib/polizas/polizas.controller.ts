@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { PolizasService } from './polizas.service';
 import { MaatDetectorService } from '../maat/maat-detector.service';
+import { FinanceJobsService } from '../jobs/finance-jobs.service';
+
+interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+
+/** `?sync=true` (o `sync: true` en el body) fuerza el camino inline: CLI y smokes. */
+function wantsInline(q?: string, b?: boolean): boolean {
+  return b === true || q === 'true' || q === '1';
+}
 
 /**
  * PV.3 (Fase PV, ADR-041) — API del Auditor de Pólizas. Vive bajo `/contabilidad/*`
@@ -17,6 +26,7 @@ export class PolizasController {
   constructor(
     private readonly svc: PolizasService,
     private readonly detector: MaatDetectorService,
+    private readonly jobs: FinanceJobsService,
   ) {}
 
   @Get('summary')
@@ -60,8 +70,25 @@ export class PolizasController {
 
   @Post('scan')
   @RequirePermissions(Permission.FISCAL_CONTAB_GESTIONAR)
-  @ApiOperation({ summary: 'Corre los detectores (incluye los de cuadre de pólizas) y refresca la bandeja de hallazgos.' })
-  scan() {
-    return this.detector.scanAll('polizas');
+  @SkipTenantTx()
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Corre los detectores (incluye los de cuadre de pólizas) y refresca la bandeja de hallazgos. Async: 202 + job_id, resultado por WS `finance_job`.' })
+  scan(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (wantsInline(sync, body?.sync)) return this.detector.scanAll('polizas');
+    // Mismo `name` que el scan de la bandeja de hallazgos a propósito: es el MISMO
+    // trabajo (los 10 detectores) disparado desde otra pantalla, y el registro de
+    // jobs no debería mostrarlo como dos cosas distintas.
+    res.status(202);
+    return this.jobs.run({
+      name: 'maat-scan',
+      label: 'Detectores (desde pólizas)',
+      actor: req?.user?.full_name || req?.user?.username || null,
+      exec: () => this.detector.scanAll('polizas'),
+    });
   }
 }

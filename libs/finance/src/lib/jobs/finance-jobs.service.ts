@@ -167,10 +167,14 @@ export class FinanceJobsService {
 
   private remember(rec: FinanceJobRecord): void {
     this.jobs.set(rec.id, rec);
-    while (this.jobs.size > KEEP) {
-      const oldest = this.jobs.keys().next().value as string | undefined;
-      if (!oldest) break;
-      this.jobs.delete(oldest);
+    if (this.jobs.size <= KEEP) return;
+    // Desalojar por antigüedad de inserción, PERO nunca un job en curso: si se
+    // desalojaba un `running`, su dueño quedaba con el spinner girando y la sonda
+    // recibía 404 (el trabajo sí terminaba, pero ya no había dónde leer el resultado).
+    for (const [id, job] of this.jobs) {
+      if (this.jobs.size <= KEEP) break;
+      if (job.status === 'running') continue;
+      this.jobs.delete(id);
     }
   }
 

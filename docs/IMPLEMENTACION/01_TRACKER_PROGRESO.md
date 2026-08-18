@@ -720,6 +720,24 @@ Verificación: **smoke HTTP 26/26 verde en vivo 2026-08-18** (202 real · `runni
 
 Builds api+view verdes con exit code real; `CobranzaGateway` presente en el bundle. **Smoke pendiente de correr hasta el próximo restart de la API.**
 
+### COMM.7 — Revisión adversarial de P0/P1: bugs propios + causa raíz — ✅ CERRADO 2026-08-18
+
+Tres lentes (UX / correctitud / completitud) sobre el código ya landeado. Encontraron **5 defectos reales en mi propia implementación** y 2 bugs vivos fuera del alcance:
+
+- [x] **[COMM.7.1]** ✅ `FinanceJobsClient.watch()` **completaba sin emitir** si los 36 sondeos veían `running` → spinner eterno en el caso lento que el patrón venía a cubrir. Ahora emite evento sintético `error`; primer sondeo a 1.5 s (rescata la carrera "job termina antes de que llegue el 202").
+- [x] **[COMM.7.2]** ✅ El desalojo del registro (`KEEP=50`) borraba por orden de inserción **sin mirar el estado** → podía tirar un job **en curso** (dueño sin resultado + sonda 404). Ahora salta los `running`.
+- [x] **[COMM.7.3]** ✅ **Fuga por WS**: el gateway sólo validaba el JWT, así que **cualquier usuario autenticado del tenant** (vendedor, repartidor) escuchaba `finance_job`/`bancos_changed` con el `result` adentro. Ahora exige el permiso de lectura de la pantalla — replicando el **god-mode de `RolesGuard`** (`isPlatformAdminRole`), sin lo cual el superusuario quedaba fuera de su propio tablero. Aplicado a `/bancos` y `/cobranza`. **Los gateways de `/pagos-comprobantes` y `/goods-receipts` tienen el mismo hueco** (preexistente, no tocado).
+- [x] **[COMM.7.4]** ✅ `@SkipTenantTx()` en los 9 endpoints que delegan: el interceptor abre una trx legacy alrededor del handler y la commitea al devolver el 202. Además libera esa conexión durante el trabajo.
+- [x] **[COMM.7.5]** ✅ **Causa raíz**: `location /api/` en `nginx.conf` no tenía timeouts → 60 s por default. Ahora `proxy_read_timeout` / `proxy_send_timeout` / `client_body_timeout` en **300 s**. Cubre de golpe todo lo que nadie delegó, incluido el tiempo de **recepción** del cuerpo (que ningún job arregla).
+- [x] **[COMM.7.6]** ✅ `/api/finance/bank-captures` era el único módulo de evidencia **sin override de body** → **413** en cualquier foto de celular. Una línea en `main.ts`.
+- [x] **[COMM.7.7]** ✅ `recon-tasks/:id/messages` llamaba a `chat.ask` **sin `deadlineMs`** mientras el chat lo acota a 45 s por el proxy. Paridad restaurada.
+- [x] **[COMM.7.8]** ✅ Delegado lo que quedaba inline con la misma carga: `maat/learning` `train|score|run` (1 upsert por hallazgo + 2 UPDATE por hallazgo abierto, sin límite, en una sola trx) y `contabilidad/polizas/scan` (el **mismo** `detector.scanAll` que en hallazgos ya iba por job; reusa el `name` `maat-scan`). Los dos con `?sync=true`.
+- [x] **[COMM.7.9]** ✅ El smoke suma el chequeo negativo del gate: un usuario `customer_b2b` recibe `auth_error: forbidden` en el canal de Finanzas.
+
+**DI que el build NO atrapa**: `PolizasController` pedía `FinanceJobsService` y `FinanceMaatModule` no re-exporta ese módulo → habría fallado **al arrancar**, no al compilar. Se agregó `FinanceJobsModule` a `FinancePolizasModule`.
+
+Builds api+view verdes con exit code real. **Smokes pendientes de correr hasta el próximo restart de la API.**
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I
