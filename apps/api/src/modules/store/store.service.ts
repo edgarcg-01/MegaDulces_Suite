@@ -34,15 +34,19 @@ export class StoreService {
   private whMapAt = 0;
   private async warehouseMap(): Promise<Map<string, string>> {
     if (this.whMap && Date.now() - this.whMapAt < 15 * 60 * 1000) return this.whMap;
-    const rows = await this.knex('commercial.warehouses')
-      .where({ tenant_id: TENANT }).whereNull('deleted_at')
-      .select('id', 'code', 'kepler_code');
+    // commercial.warehouses tiene RLS FORCE y el ingest es @Public (sin interceptor de tenant):
+    // seteamos el contexto en la MISMA tx para que la lectura no vuelva vacía si el rol es app_runtime.
+    const rows: Array<{ id: string; code: string | null; kepler_code: string | null }> =
+      await this.knex.transaction(async (trx) => {
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
+        return trx('commercial.warehouses').where({ tenant_id: TENANT }).whereNull('deleted_at').select('id', 'code', 'kepler_code');
+      });
     const m = new Map<string, string>();
     for (const r of rows) {
       if (r.code) m.set(String(r.code).trim(), r.id);
       if (r.kepler_code) m.set(String(r.kepler_code).trim(), r.id);
     }
-    this.whMap = m; this.whMapAt = Date.now();
+    if (m.size) { this.whMap = m; this.whMapAt = Date.now(); } // no cachear vacío (RLS/transitorio)
     return m;
   }
 
