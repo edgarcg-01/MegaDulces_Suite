@@ -710,6 +710,16 @@ Verificación: **smoke HTTP 26/26 verde en vivo 2026-08-18** (202 real · `runni
 
 - [x] **[COMM.5.7]** ✅ Bug que cachó el smoke: `GET /finance/jobs` devolvía `[{}]` (`[...map.values()]` → `[].concat(iter)` en el bundle). Al revisar el bundle salieron **2 más vivos en Maat** con daño silencioso de datos: `maat-entity` (título de `entidad_duplicada` con `undefined`) y `maat-tools` (comparación por mes con una fila basura). Los 3 con `Array.from`, verificados en `dist`. Quedan **41 ocurrencias medidas en el bundle** (commercial/trade/logistics/fiscal/whatsapp/platform-core) → barrido aparte.
 
+### COMM.6 — P1: simetría de tiempo real en Finanzas — ✅ CERRADO 2026-08-18
+
+- [x] **[COMM.6.1]** ✅ `CobranzaGateway` (namespace `/cobranza`, evento `collection_deposit_changed`) calcando `PagosComprobantesGateway`: JWT en handshake, room `tenant:<id>`, `auth_error` + disconnect. El service emite en las **6 mutaciones** (attach/validate/reject/confirmBank/linkBankToCobro/unlinkBank), **siempre después del commit** (`.then()` sobre `tk.run`) para que el reload no lea una fila que aún no existe.
+- [x] **[COMM.6.2]** ✅ Frontend: `CobranzaSocketService` + la página avisa por toast **solo si el cambio fue de otro**, refresca con debounce 400 ms la vista **activa** (cobros / abonos-sin-cobro) y recarga el diálogo abierto si es el cobro que cambió. Chip "En vivo".
+- [x] **[COMM.6.3]** ✅ Smoke `http-cobranza-ws-test.js` en la regresión (handshake · `auth_error` con token inválido · attach/validate/reject emitiendo con sucursal/folio/monto/actor · aislamiento entre tenants · borra su propia evidencia).
+- [x] **[COMM.6.4]** ❌ **OCR a job: DESCARTADO con evidencia** (no era un problema). La auditoría + verificación a mano mostró que `LlmExtractorService` acota cada llamada vision a **30 s** (`llm-extractor.service.ts:432,671`) → nunca alcanza los 60 s del proxy; y `/ocr` es *preview puro* cuyo `next()` prefillea el formulario y encadena el match ficha-first. El 202 rompía eso a cambio de nada. Regla derivada: **a job solo lo que tiene efecto persistente**; lo efímero se acota con deadline.
+- [ ] **[COMM.6.5]** ⬜ **P2-perf** (aparecieron en la auditoría, NO son de transporte sino costo de query): N+1 en `collection-deposits.service.ts:364` (`bankMatch` por cada depósito dentro del loop de `detail()`) y el `EXISTS` correlacionado de `GET /finance/collections/bank/unmatched`.
+
+Builds api+view verdes con exit code real; `CobranzaGateway` presente en el bundle. **Smoke pendiente de correr hasta el próximo restart de la API.**
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I

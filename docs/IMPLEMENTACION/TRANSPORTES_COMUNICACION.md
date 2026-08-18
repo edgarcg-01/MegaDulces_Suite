@@ -78,8 +78,8 @@ Superficies: bancos (CB), cobranza (CC), pagos-comprobantes (CC ext), comprobaci
 | `POST /finance/maat/findings/scan` (10 detectores) · `graph-sync` · `discovery/run` · `skeptic/run` | ✅ **202 + job + WS** | igual | el nocturno sigue por `@Cron`; el botón manual ya no cuelga la pantalla | ✅ P0 |
 | `POST /finance/maat/chat` (fallback del SSE) con `deep_search` | ✅ REST con **deadline de 45 s** | igual | una cola no sirve para una respuesta interactiva: se cierra honesto antes de que el proxy tire 504 | ✅ P0 |
 | Chat de Maat `POST /chat/stream` | **SSE** + keepalive + cancelación | ✅ **igual** | correcto por diseño (ver ADR-045) | — |
-| OCR (`/collections/ocr`, `/supplier-payments/ocr`, `/goods-receipts/ocr`, `/expenses/comprobaciones/ocr`) | REST **síncrono** (Claude vision) | **202 + cola + WS por documento** | el usuario espera mirando; un PDF grande o un reintento se lleva decenas de segundos | **P1** |
-| `/finanzas/cobranza` (CC) | REST, **sin WS** | **WS** (`collections_changed`) | asimetría: su gemelo `/finanzas/pagos-comprobantes` **sí** tiene gateway; misma bandeja, mismo comportamiento esperado | **P1** |
+| OCR (`/collections/ocr`, `/supplier-payments/ocr`, `/goods-receipts/ocr`, `/expenses/comprobaciones/ocr`) | REST **síncrono** (Claude vision) | ✅ **dejarlo inline** — ver §3.3 | el LLM ya está acotado a **30 s** (`llm-extractor.service.ts:432,671`), así que nunca llega a los 60 s del proxy; y `/ocr` **no persiste nada**: su único consumidor es un diálogo abierto que prefillea el formulario y encadena el match ficha-first con los valores extraídos | ❌ descartado |
+| `/finanzas/cobranza` (CC) | ✅ **WS `/cobranza`** (`collection_deposit_changed`) | igual | cerrada la asimetría con `/finanzas/pagos-comprobantes`: emite en attach/validate/reject/bank-match/bank-unmatch | ✅ P1 |
 | `/finanzas/hallazgos` (bandeja de Maat) | REST + **WS `finance_job`** (cierre de scan/discovery) | falta invalidar cuando el **scan nocturno** deja hallazgos nuevos | con COMM.5 ya se refresca al terminar un motor disparado a mano; el cron de las 3 AM sigue sin avisar a la página | **P2** |
 | Sheet-sync del workbook maestro (`@Cron` 3 min + botón manual) | `@Cron` ✅ + WS ✅; botón = **202 + job** | ✅ igual | Google Sheets no puede empujar: el cron es correcto. El botón salió con P0 | ✅ P0 |
 | `/finanzas/tareas` (recon MA) | REST | **WS de invalidación** | igual que hallazgos | **P2** |
@@ -97,6 +97,21 @@ Los cuatro frentes P0 salieron con **un solo patrón**: `202 { job_id }` → tra
 
 **Chat de Maat**: no lleva cola a propósito (es una respuesta interactiva, no un job). Lleva **deadline de 45 s** en el camino síncrono, que es el fallback del SSE y el único que vivía bajo los 60 s del proxy.
 
+### 3.3 Lo que la auditoría de P1 cambió (2026-08-18)
+
+Antes de convertir los 4 OCR a job, una auditoría en paralelo (un agente por flujo, mapeando backend→frontend) **tumbó el ítem con evidencia**, y la verifiqué a mano:
+
+1. **No hay riesgo de 504**: `LlmExtractorService` acota **cada** llamada vision con `timeoutMs: 30_000` ([`llm-extractor.service.ts:432,671`](../../libs/platform-core/src/lib/ai/llm-extractor.service.ts)). El OCR no puede pasarse de los 60 s de nginx. La premisa de mi propio ítem ("un PDF grande se lleva decenas de segundos hasta el 504") era **falsa**.
+2. **El 202 rompería el único caso de uso**: `/ocr` es *preview puro*, no persiste nada. Su consumidor es un diálogo abierto: el `next()` prefillea el formulario **y encadena** el match ficha-first (`runCapMatch()`) con el monto y la fecha recién extraídos. Con 202 ese `next()` llega vacío y hay que reconstruir la cadena por WS para no ganar nada.
+3. **Los candidatos reales a timeout del módulo son otros, y no son de transporte** — son **costo de query**, así que la respuesta es SQL, no un job:
+
+| Endpoint | Problema | Prio |
+|---|---|---|
+| `GET /finance/collections/:sucursal/:folio` | **N+1 verificado**: `detail()` llama `bankMatch()` **por cada** depósito adjunto dentro del loop ([`collection-deposits.service.ts:364`](../../libs/finance/src/lib/collection-deposits/collection-deposits.service.ts)) | P2-perf |
+| `GET /finance/collections/bank/unmatched` | `EXISTS` correlacionado por fila; el peor candidato a timeout del módulo y no estaba en ninguna lista | P2-perf |
+
+**Regla que queda**: un endpoint largo va a job **solo si su trabajo tiene efecto persistente**. Si es un cálculo efímero que alimenta la pantalla que lo pidió, el arreglo es acotar tiempo (deadline/timeout), no diferirlo. Mismo criterio que llevó al chat de Maat a deadline en vez de cola.
+
 ### 3.1 El hallazgo que ordena las prioridades
 
 `location /api/` en [`nginx.conf`](../../nginx.conf) **no define `proxy_read_timeout`** → vale el default de nginx: **60 s**. Todo lo marcado **P0** es una operación síncrona que puede pasarse de ahí: el navegador recibe **504** mientras el backend sigue trabajando, y el usuario no sabe si el import/matcher quedó aplicado. Subir el timeout es un parche (deja un spinner colgado y no sobrevive un reinicio del proceso); el arreglo real es **202 + cola + WS**, que ya está disponible (`pg-boss`, ADR-043) y con patrón de referencia en `libs/fiscal` (descarga SAT).
@@ -106,7 +121,7 @@ Nota: ese mismo default de 60 s **cortaba el SSE** del chat cuando una tool tard
 ### 3.2 Backlog priorizado (Finanzas)
 
 - ~~**P0**~~ ✅ **hecho 2026-08-18** — 8 endpoints a `202 + job + WS` + deadline en el chat síncrono. Pendiente de este frente: mover el trabajo a `pg-boss` (necesita worker desplegado + archivo en S3) y persistir el registro de jobs (hoy es memoria del proceso: un reinicio lo borra y otra instancia no lo ve).
-- **P1 — simetría de tiempo real**: gateway/evento para `/finanzas/cobranza`; los 4 endpoints de OCR a job (mismo patrón, ya disponible). El botón de sheet-sync ya salió con P0.
+- ~~**P1**~~ ✅ **hecho 2026-08-18** — WS `/cobranza` (COMM.6). El ítem de "OCR a job" quedó **descartado con evidencia** (§3.3): el LLM ya está acotado a 30 s y el 202 rompería el prefill. En su lugar salieron dos ítems **P2-perf** de costo de query (N+1 en `detail`, `EXISTS` correlacionado en `bank/unmatched`).
 - **P2 — Web Push en Operations** (`apps/view` no lo tiene): aprobaciones pendientes y hallazgo crítico.
 - **P3 — matar el polling interno** de `finance-feed-scanner`: que el importer avise al terminar.
 
