@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
+import { BancosGateway } from './bancos.gateway';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -124,7 +125,17 @@ export class FinanceBankService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
+    @Optional() private readonly bancos?: BancosGateway,
   ) {}
+
+  /** Empuja un cambio de Bancos a la room del tenant por WS (best-effort; nunca bloquea). */
+  private emitBancos(tenantId: string, ev: { action: 'imported' | 'sheet_synced' | 'matched'; period: string | null; detail?: string | null; count?: number | null; actor?: string | null }): void {
+    try {
+      this.bancos?.emitChange(tenantId, {
+        action: ev.action, period: ev.period, detail: ev.detail ?? null, count: ev.count ?? null, actor: ev.actor ?? null,
+      });
+    } catch (e: any) { this.logger.warn(`WS emit ${ev.action} falló: ${e?.message || e}`); }
+  }
 
   /** Cuentas de banco/caja/factoraje. */
   async accounts() {
@@ -1760,6 +1771,15 @@ export class FinanceBankService {
 
     // CB.7 — tras casar, refresca los hallazgos de conciliación (best-effort).
     try { await this.syncFindings(period); } catch (e: any) { this.logger.warn(`syncFindings tras match falló: ${e?.message || e}`); }
+
+    // WS: avisa a /finanzas/bancos que se corrió la conciliación del periodo.
+    this.emitBancos(tenantId, {
+      action: 'matched',
+      period,
+      detail: `Conciliación: ${result?.matched ?? 0}/${result?.bank_movements ?? 0} retiros casados (${result?.match_rate ?? 0}%)`,
+      count: result?.matched ?? null,
+      actor: null,
+    });
     return result;
   }
 
@@ -2391,7 +2411,7 @@ export class FinanceBankService {
     // cuentas → duplicaría todo), RESUMEN DE SALDOS, POR IDENTIFICAR, y las históricas.
     const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|FilterDatabase/i.test(s.name));
 
-    return this.tk.run(async (trx) => {
+    const result: any = await this.tk.run(async (trx) => {
       // t0 = reloj del servidor al inicio; el barrido marca borrado lo no tocado en este pull
       // (cada upsert bumpea updated_at ≥ t0; lo que quedó < t0 es lo que desapareció del Sheet).
       const t0 = (await trx.select(trx.raw('now() as now')).first() as any)?.now;
@@ -2505,5 +2525,17 @@ export class FinanceBankService {
       this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, por ${actor || '?'}`);
       return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept };
     });
+
+    // WS: avisa a /finanzas/bancos que el periodo cambió (feed/upload o sync del Sheet).
+    this.emitBancos(tenantId, {
+      action: syncSource === 'sheet' ? 'sheet_synced' : 'imported',
+      period,
+      detail: syncSource === 'sheet'
+        ? `Sheet sincronizado: ${result.total} movimientos${result.swept ? ` · ${result.swept} borrados` : ''}`
+        : `Estado de cuenta importado: ${result.total} movimientos`,
+      count: result.total ?? null,
+      actor: actor ?? null,
+    });
+    return result;
   }
 }

@@ -14,6 +14,7 @@ import {
   type BankCaptureSender,
   type BankCaptureResult,
 } from '@megadulces/contracts';
+import { BancosGateway } from '../bank/bancos.gateway';
 
 /**
  * Fase CBW (ADR-042) — Captura bancaria por WhatsApp.
@@ -39,7 +40,15 @@ export class BankCaptureService {
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
+    @Optional() private readonly bancos?: BancosGateway,
   ) {}
+
+  /** Empuja un cambio de comprobante a la room del tenant por WS (best-effort; nunca bloquea). */
+  private emitBancos(action: 'capture_new' | 'capture_validated' | 'capture_rejected', ev: { period?: string | null; detail?: string | null; actor?: string | null }): void {
+    try {
+      this.bancos?.emitChange(this.tenantId(), { action, period: ev.period ?? null, detail: ev.detail ?? null, count: null, actor: ev.actor ?? null });
+    } catch (e: any) { this.logger.warn(`WS emit ${action} falló: ${e?.message || e}`); }
+  }
 
   /** ¿Teléfono en la allowlist activa? Da identidad para atribuir (o null = no autorizado). */
   async resolveSender(phone: string): Promise<BankCaptureSender | null> {
@@ -168,6 +177,12 @@ export class BankCaptureService {
       await this.notifyError(`Captura con problema: ${errorDetail}`, amountIn, input.sender.sucursal);
     } else if (captureId) {
       await this.notifyCobranza({ id: captureId, amount_in: amountIn, sucursal: input.sender.sucursal, ocr_banco: fields.banco ?? null });
+      // WS: la bandeja Capturas de /finanzas/bancos muestra el depósito al momento.
+      this.emitBancos('capture_new', {
+        period: this.ymd(fields.fecha)?.slice(0, 7) ?? null,
+        detail: `Nuevo depósito${input.sender.sucursal ? ` · Suc ${input.sender.sucursal}` : ''}: $${Number(amountIn).toLocaleString('es-MX')}`,
+        actor: input.sender.full_name ?? null,
+      });
     }
 
     return { reply: this.buildAckReply(fields, ocrStatus, errorDetail), capture_id: captureId };
@@ -291,7 +306,7 @@ export class BankCaptureService {
    */
   async validate(id: string, actor: string): Promise<any> {
     try {
-      return await this.tk.run(async (trx) => {
+      const res = await this.tk.run(async (trx) => {
         const cap = await trx('finance.bank_capture_inbox')
           .where({ id })
           .whereIn('status', ['pendiente_confirmacion', 'confirmado'])
@@ -311,6 +326,11 @@ export class BankCaptureService {
           .returning(['id', 'status', 'bank_movement_id']);
         return row;
       });
+      // WS: el ingreso ya está en el libro → Movimientos/Conciliación se refrescan solos.
+      if (res?.status === 'validado' && res?.bank_movement_id) {
+        this.emitBancos('capture_validated', { detail: 'Comprobante validado → ingreso agregado al libro', actor });
+      }
+      return res;
     } catch (e: any) {
       // Error CONOCIDO y accionable por el usuario (falta cuenta) → pasa tal cual, sin molestar a Perla.
       if (e instanceof BadRequestException) throw e;
@@ -398,14 +418,16 @@ export class BankCaptureService {
 
   /** Rechaza la captura (revisor) con motivo. */
   async reject(id: string, actor: string, motivo?: string): Promise<any> {
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.bank_capture_inbox')
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.bank_capture_inbox')
         .where({ id })
         .whereNotIn('status', ['rechazado'])
         .update({ status: 'rechazado', motivo_rechazo: motivo ?? null, validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
         .returning(['id', 'status']);
-      return row;
+      return r;
     });
+    if (row?.status === 'rechazado') this.emitBancos('capture_rejected', { detail: 'Comprobante rechazado', actor });
+    return row;
   }
 
   /**
@@ -432,13 +454,15 @@ export class BankCaptureService {
 
   /** Cuadra la captura contra un movimiento real del estado de cuenta + la valida. */
   async matchMovement(id: string, bankMovementId: string, actor: string): Promise<any> {
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.bank_capture_inbox')
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.bank_capture_inbox')
         .where({ id })
         .update({ bank_movement_id: bankMovementId, status: 'validado', validated_by: actor, validated_at: trx.fn.now(), updated_at: trx.fn.now() })
         .returning(['id', 'status', 'bank_movement_id']);
-      return row;
+      return r;
     });
+    if (row?.status === 'validado') this.emitBancos('capture_validated', { detail: 'Comprobante cuadrado contra el estado de cuenta', actor });
+    return row;
   }
 
   // ── Admin de remitentes (allowlist) ────────────────────────────────────────
