@@ -73,6 +73,16 @@ export interface ErpOrderLookup {
   receipt_date?: string | null;
   line_count: number;
   tipo?: 'compra' | 'traspaso';
+  warehouse_id?: string | null;
+  warehouse_code?: string | null;
+  warehouse_name?: string | null;
+}
+
+export interface SucursalMapEntry {
+  sucursal: string;
+  warehouse_id: string;
+  warehouse_code?: string | null;
+  warehouse_name?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -88,6 +98,14 @@ export class ReceivingSessionService {
   lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {
     const params = new HttpParams().set('sucursal', sucursal).set('folio', folio);
     return this.http.get<ErpOrderLookup>(`${this.base}/erp-order`, { params });
+  }
+
+  getSucursalMap(): Observable<SucursalMapEntry[]> {
+    return this.http.get<SucursalMapEntry[]>(`${this.base}/sucursal-map`);
+  }
+
+  setSucursalMap(sucursal: string, warehouse_id: string): Observable<{ sucursal: string; warehouse_id: string }> {
+    return this.http.post<{ sucursal: string; warehouse_id: string }>(`${this.base}/sucursal-map`, { sucursal, warehouse_id });
   }
 
   list(filters: { status?: string; warehouse_id?: string; limit?: number } = {}): Observable<ReceivingSessionListItem[]> {

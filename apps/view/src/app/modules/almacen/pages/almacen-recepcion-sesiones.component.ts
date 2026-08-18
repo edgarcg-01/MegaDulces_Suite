@@ -12,7 +12,10 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
-import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } from '../receiving-session.service';
+import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup, SucursalMapEntry } from '../receiving-session.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * Fase WMS-REC (Pieza 1, ADR-044) — Lista de Vales de entrada (sesiones de recepción)
@@ -35,6 +38,9 @@ import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } fro
         </div>
         <div class="rs-head-actions">
           <p-select [options]="statusOptions" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value" (onChange)="reload()" styleClass="rs-status"></p-select>
+          @if (canManageMap()) {
+            <button pButton [text]="true" size="small" severity="secondary" (click)="openMap()"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span> Almacenes×sucursal</button>
+          }
           <button pButton size="small" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Nueva sesión</button>
         </div>
       </header>
@@ -93,12 +99,25 @@ import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } fro
                   <p-tag [value]="o.tipo === 'traspaso' ? 'Traspaso' : 'Compra'" [severity]="o.tipo === 'traspaso' ? 'warn' : 'info'" styleClass="rs-found-tag"></p-tag>
                   · {{ o.line_count }} líneas · {{ o.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}
                   <div class="rs-found-prov">{{ o.tipo === 'traspaso' ? 'Sucursal origen' : 'Proveedor' }}: {{ o.proveedor_nombre || o.proveedor_code || '—' }}</div>
+                  @if (o.warehouse_code) { <div class="rs-found-prov">Almacén: {{ o.warehouse_code }} <span class="rs-auto">(automático)</span></div> }
                 </div>
               </div>
             }
           }
 
           <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir sesión</button>
+        </div>
+      </p-dialog>
+
+      <p-dialog [visible]="mapOpen()" (visibleChange)="mapOpen.set($event)" [modal]="true" [style]="{ width: '540px' }" header="Almacén destino por sucursal ERP" [dismissableMask]="true">
+        <p class="rs-hint">Configurá una vez a qué almacén entra cada sucursal del ERP; después el almacén se autollena al buscar la orden.</p>
+        <div class="rs-map">
+          @for (s of sucursalOptions; track s.value) {
+            <div class="rs-map-row">
+              <span class="rs-map-suc">{{ s.label }}</span>
+              <p-select [options]="warehouseOptions()" [(ngModel)]="mapValues[s.value]" (onChange)="saveMapRow(s.value)" optionLabel="label" optionValue="value" placeholder="Sin asignar" [filter]="true" styleClass="rs-w"></p-select>
+            </div>
+          }
         </div>
       </p-dialog>
     </div>
@@ -119,6 +138,10 @@ import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } fro
     .rs-found { display: flex; gap: .5rem; align-items: flex-start; margin: .5rem 0 .75rem; padding: .6rem .75rem; border-radius: 8px; background: var(--good-soft-bg, #ecfdf5); font-size: .85rem; }
     .rs-found i { color: var(--good-fg, #059669); margin-top: .1rem; }
     .rs-found-prov { color: var(--text-color-secondary); font-size: .8rem; margin-top: .1rem; }
+    .rs-auto { color: var(--good-fg, #059669); font-weight: 600; }
+    .rs-map { display: flex; flex-direction: column; gap: .5rem; }
+    .rs-map-row { display: grid; grid-template-columns: 130px 1fr; gap: .5rem; align-items: center; }
+    .rs-map-suc { font-size: .85rem; font-weight: 600; }
   `],
 })
 export class AlmacenRecepcionSesionesComponent implements OnInit {
@@ -127,6 +150,8 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
 
   readonly sessions = signal<ReceivingSessionListItem[]>([]);
   readonly loading = signal(false);
@@ -162,6 +187,9 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     { label: 'Sucursal 05', value: '05' },
   ];
 
+  readonly mapOpen = signal(false);
+  mapValues: Record<string, string> = {};
+
   ngOnInit(): void {
     this.comercial.listWarehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ws: Warehouse[]) => this.warehouses.set(ws || []),
@@ -186,7 +214,7 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     if (!folio) return;
     this.looking.set(true);
     this.svc.lookupErpOrder(this.newErpSucursal, folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (o) => { this.looking.set(false); this.foundOrder.set(o); },
+      next: (o) => { this.looking.set(false); this.foundOrder.set(o); if (o.warehouse_id) this.newWarehouse = o.warehouse_id; },
       error: (e) => { this.looking.set(false); this.foundOrder.set(null); this.toast.add({ severity: 'warn', summary: 'No encontrada', detail: e?.error?.message || 'No hay una orden con ese folio en esa sucursal' }); },
     });
   }
@@ -215,6 +243,31 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
 
   openSession(s: ReceivingSessionListItem): void {
     this.router.navigate(['/almacen/inventory/recepcion-sesiones', s.id]);
+  }
+
+  canManageMap(): boolean {
+    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_WAREHOUSES_GESTIONAR];
+  }
+
+  openMap(): void {
+    this.svc.getSucursalMap().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows: SucursalMapEntry[]) => {
+        const m: Record<string, string> = {};
+        (rows || []).forEach((r) => (m[r.sucursal] = r.warehouse_id));
+        this.mapValues = m;
+        this.mapOpen.set(true);
+      },
+      error: () => { this.mapValues = {}; this.mapOpen.set(true); },
+    });
+  }
+
+  saveMapRow(sucursal: string): void {
+    const wid = this.mapValues[sucursal];
+    if (!wid) return;
+    this.svc.setSucursalMap(sucursal, wid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.toast.add({ severity: 'success', summary: 'Guardado', detail: `Sucursal ${sucursal} → almacén` }),
+      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar' }),
+    });
   }
 
   statusLabel(s: string): string {

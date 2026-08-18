@@ -167,6 +167,13 @@ export class ReceivingSessionService {
       // Traspaso interno = código de "proveedor" con prefijo TI (sucursal propia,
       // Kepler 01-06 + Wincaja). Todo lo demás (prefijo C…) = compra a proveedor externo.
       const tipo = /^TI/i.test(row.proveedor_code || '') ? 'traspaso' : 'compra';
+      // Almacén destino sugerido desde el crosswalk sucursal→almacén (si está configurado).
+      const wh = await trx('commercial.erp_sucursal_warehouse as m')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
+        })
+        .where('m.sucursal', row.sucursal)
+        .first('w.id', 'w.code', 'w.name');
       return {
         sucursal: row.sucursal,
         folio: row.folio,
@@ -176,7 +183,42 @@ export class ReceivingSessionService {
         receipt_date: row.receipt_date,
         line_count: Number(lc?.c || 0),
         tipo,
+        warehouse_id: wh?.id || null,
+        warehouse_code: wh?.code || null,
+        warehouse_name: wh?.name || null,
       };
+    });
+  }
+
+  /** Mapa configurado sucursal ERP → almacén destino. */
+  async getSucursalMap() {
+    return this.tk.run(async (trx) =>
+      trx('commercial.erp_sucursal_warehouse as m')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
+        })
+        .select('m.sucursal', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name')
+        .orderBy('m.sucursal'),
+    );
+  }
+
+  /** Configura (upsert) el almacén destino de una sucursal ERP. */
+  async setSucursalMap(sucursal: string, warehouseId: string) {
+    const suc = String(sucursal || '').trim();
+    if (!suc) throw new BadRequestException('sucursal requerida');
+    if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      const userId = this.tenantCtx.get()?.userId || null;
+      const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('id');
+      if (!wh) throw new NotFoundException('Almacén no encontrado');
+      await trx.raw(
+        `INSERT INTO commercial.erp_sucursal_warehouse (tenant_id, sucursal, warehouse_id, updated_by)
+           VALUES (public.current_tenant_id(), ?, ?, ?)
+         ON CONFLICT (tenant_id, sucursal)
+           DO UPDATE SET warehouse_id = EXCLUDED.warehouse_id, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [suc, warehouseId, userId],
+      );
+      return { sucursal: suc, warehouse_id: warehouseId };
     });
   }
 

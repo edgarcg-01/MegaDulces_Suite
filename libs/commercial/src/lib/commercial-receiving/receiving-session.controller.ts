@@ -47,9 +47,23 @@ export class ReceivingSessionController {
 
   @Get('erp-order')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
-  @ApiOperation({ summary: 'Buscar una orden de entrada del ERP por sucursal + últimos dígitos del folio (autollena proveedor)' })
+  @ApiOperation({ summary: 'Buscar una orden de entrada del ERP por sucursal + últimos dígitos del folio (autollena proveedor + almacén)' })
   erpOrder(@Query('sucursal') sucursal: string, @Query('folio') folio: string) {
     return this.service.lookupErpOrder(sucursal, folio);
+  }
+
+  @Get('sucursal-map')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Mapa configurado sucursal ERP → almacén destino' })
+  sucursalMap() {
+    return this.service.getSucursalMap();
+  }
+
+  @Post('sucursal-map')
+  @RequirePermissions(Permission.COMMERCIAL_WAREHOUSES_GESTIONAR)
+  @ApiOperation({ summary: 'Configurar el almacén destino de una sucursal ERP' })
+  setSucursalMap(@Body() body: { sucursal: string; warehouse_id: string }) {
+    return this.service.setSucursalMap(body?.sucursal, body?.warehouse_id);
   }
 
   @Get(':id')
