@@ -12,7 +12,7 @@ import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { BankService, BankMovement, MovementFlow } from '../../bank.service';
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
-import { exportXlsx } from './bancos-export';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

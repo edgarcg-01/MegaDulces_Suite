@@ -4,7 +4,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Balances, BankStatement, Diagnostico } from '../../bank.service';
 import { cuadra, kindLabel } from './bancos-shared';
-import { exportXlsx } from './bancos-export';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

@@ -1,5 +1,6 @@
 /**
- * CB — Export a Excel del tablero de bancos.
+ * Export a Excel con el diseño del sistema. Compartido por todas las pantallas
+ * Operations (nació en el tablero de bancos, vive acá desde que Precios lo reusa).
  *
  * Genera un .xlsx REAL (no un CSV renombrado): los importes van como NÚMERO con
  * formato de moneda, así que en Excel se suman y se filtran sin pelearse con el

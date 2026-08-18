@@ -7,7 +7,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { Concentrado, ConcentradoAccount, Balances } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { GROUP_ORDER, groupLabel, groupColorVar, money } from './bancos-shared';
-import { exportXlsx } from './bancos-export';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

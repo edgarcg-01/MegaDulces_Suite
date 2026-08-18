@@ -15,6 +15,7 @@ import {
   CreatePriceListDto,
   UpdatePriceListDto,
   BulkUpsertProductPricesDto,
+  PriceHealthFlag,
 } from './commercial-pricing.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -46,6 +47,18 @@ export class CommercialPricingController {
     return this.service.listPriceLists(
       active === undefined ? undefined : active === 'true',
     );
+  }
+
+  // OJO: va ANTES de 'price-lists/:id'. Nest resuelve en orden de declaración;
+  // al revés, 'health' entraría como :id y reventaría el UUID_REGEX.
+  @Get('price-lists/health')
+  @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
+  @ApiOperation({
+    summary:
+      'Salud de todas las price lists en una consulta: catálogo, con precio, sin precio, centinela (<=$0.05), bajo costo, margen flaco (<10%) y sin costo. Alimenta el índice y los chips-filtro de /comercial/pricing. customer_b2b no recibe los contadores derivados del costo.',
+  })
+  listPriceListsHealth() {
+    return this.service.listPriceListsHealth();
   }
 
   @Get('price-lists/:id')
@@ -82,6 +95,10 @@ export class CommercialPricingController {
     @Query('search') search?: string,
     @Query('commercial_only') commercialOnly?: string,
     @Query('priced_only') pricedOnly?: string,
+    @Query('unpriced_only') unpricedOnly?: string,
+    @Query('flag') flag?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
   ) {
     return this.service.listPrices(priceListId, {
       warehouseId,
@@ -90,6 +107,10 @@ export class CommercialPricingController {
       search,
       commercialOnly: commercialOnly === 'true' || commercialOnly === '1',
       pricedOnly: pricedOnly === 'true' || pricedOnly === '1',
+      unpricedOnly: unpricedOnly === 'true' || unpricedOnly === '1',
+      flag: flag as PriceHealthFlag | undefined,
+      sort,
+      dir: dir === 'desc' ? 'desc' : 'asc',
     });
   }
 
