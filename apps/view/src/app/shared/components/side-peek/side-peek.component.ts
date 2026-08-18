@@ -58,10 +58,19 @@ import {
   `,
   styles: [
     `
+      /* z-index POR DEBAJO de la capa de overlays de PrimeNG (overlay/menu: 1000,
+         modal/tooltip: 1100 — defaults verificados en primeng-config.mjs).
+
+         Este drawer lo dibujamos a mano, así que PrimeNG no lo conoce ni lo mete en
+         su pila de apilado. Con 1200, el panel de un p-select montado en <body>
+         salía en 1000 y quedaba DETRÁS del drawer: el desplegable abría y no se
+         veía. Todo lo que se lanza desde adentro (desplegables, tooltips, diálogos
+         de confirmación) tiene que poder taparlo. Sigue sobrado por encima del
+         chrome de la app, que no pasa de 30. NO subirlo sin resolver eso primero. */
       .sp-root {
         position: fixed;
         inset: 0;
-        z-index: 1200;
+        z-index: 900;
         visibility: hidden;
         pointer-events: none;
       }
