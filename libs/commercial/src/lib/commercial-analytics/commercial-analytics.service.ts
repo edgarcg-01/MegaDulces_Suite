@@ -342,8 +342,8 @@ const SELLOUT_PLAZA_COLUMNS: PlazaCol[] = [
   { key: 'suc_8esq',           label: 'SUCURSAL 8 ESQUINAS',       branches: ['03'],          channels: '*' },
   { key: 'suc_abastos_piedad', label: 'SUCURSAL ABASTOS LA PIEDAD', branches: ['02'],         channels: ['mostrador', 'preventa'] },
   { key: 'suc_yurecuaro',      label: 'SUCURSAL YURECUARO',        branches: ['04'],          channels: '*' },
-  { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['MD-50'],       channels: ['mostrador', 'preventa'] },
-  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['MD-50'],       channels: ['credito'] },
+  { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['06'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['06'],          channels: ['credito'] },
   { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeFirstDigit: ['5'],    channels: ['ruta'] },
   { key: 'suc_zam_centro',     label: 'SUCURSAL ZAM CENTRO',       branches: ['05'],          channels: '*' },
 ];

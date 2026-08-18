@@ -54,7 +54,7 @@ const STORES = (() => {
   return [
     { code: '30', mdb: `${MDB_BASE}/30 MORELIA ABASTOS.MDB`, warehouse_code: 'MD-30', name: 'Morelia Abastos' },
     { code: '32', mdb: `${MDB_BASE}/32 MORELIA MADERO.MDB`, warehouse_code: 'MD-32', name: 'Morelia Madero' },
-    { code: '50', mdb: `${MDB_BASE}/50 CANINDO.MDB`, warehouse_code: 'MD-50', name: 'Canindo' },
+    // Canindo '50' migró su POS a Kepler ('06') → su stock lo alimenta el feed Kepler, no Wincaja.
   ];
 })();
 

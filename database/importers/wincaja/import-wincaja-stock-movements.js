@@ -54,7 +54,7 @@ const UNITS = [
   { br: '54', code: '05', migrated: true },
   { br: '30', code: 'MD-30', migrated: false },
   { br: '32', code: 'MD-32', migrated: false },
-  { br: '50', code: 'MD-50', migrated: false },
+  { br: '50', code: '06', migrated: true }, // Canindo migró a Kepler ('06'): histórico Wincaja con cutover, Kepler toma el relevo
 ];
 
 const TIPOS_IN = "'V','C','E','S','D','I','P','M'";

@@ -131,14 +131,14 @@ const MAP = process.env.SHIPMENTS_BRANCH_MAP ? JSON.parse(process.env.SHIPMENTS_
     }
     // Merge SIN churn: UPSERT solo-cambios (PK folio×sku) + DELETE solo lo que ya no viene.
     // Antes: DELETE-all+INSERT reescribía toda la tabla cada noche.
-    // Paso 2b: resuelve warehouse_id en el INSERT (LEFT JOIN por code/kepler_code, Canindo '06'→MD-50).
+    // Paso 2b: resuelve warehouse_id en el INSERT (LEFT JOIN por code/kepler_code; Canindo = code/kepler_code '06').
     const up = await db.query(
       `INSERT INTO analytics.erp_shipments AS t
          (tenant_id, shipment_folio, sku, product_id, warehouse_code, warehouse_id, route, status, doc_folio, shipped_date, quantity, unit, computed_at)
        SELECT $1, s.shipment_folio, s.sku, s.product_id, s.warehouse_code, w.id, s.route, s.status, s.doc_folio, s.shipped_date, s.quantity, s.unit, now()
          FROM stg_ship s
          LEFT JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.deleted_at IS NULL
-              AND (w.code=btrim(s.warehouse_code) OR w.kepler_code=btrim(s.warehouse_code) OR (w.code='MD-50' AND btrim(s.warehouse_code)='06'))
+              AND (w.code=btrim(s.warehouse_code) OR w.kepler_code=btrim(s.warehouse_code))
        ON CONFLICT (tenant_id, shipment_folio, sku) DO UPDATE SET
          product_id=EXCLUDED.product_id, warehouse_code=EXCLUDED.warehouse_code, warehouse_id=EXCLUDED.warehouse_id, route=EXCLUDED.route,
          status=EXCLUDED.status, doc_folio=EXCLUDED.doc_folio, shipped_date=EXCLUDED.shipped_date,

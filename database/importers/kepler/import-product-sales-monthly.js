@@ -99,7 +99,8 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
     }
     // Merge SIN churn: UPSERT solo-cambios + DELETE solo lo que ya no viene, en la ventana del
     // año. Antes: DELETE-año+INSERT reescribía todo el año cada noche. NO toca las tiendas
-    // SOLO-Wincaja (MD-30/32/50) — las alimenta import-wincaja-product-sales.js (aditivo).
+    // SOLO-Wincaja (MD-30/32) — las alimenta import-wincaja-product-sales.js (aditivo).
+    // Canindo migró a Kepler ('06') → SÍ lo alimenta este feed (ya no es SOLO-Wincaja).
     const up = await db.query(
       `INSERT INTO analytics.product_sales_monthly AS t (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
        SELECT gen_random_uuid(), $1, product_id, warehouse_id, month, sum(units), now()
@@ -112,7 +113,7 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
         WHERE t.tenant_id=$1 AND t.month >= $2 AND t.month < $3
           AND t.warehouse_id NOT IN (
             SELECT id FROM commercial.warehouses
-             WHERE tenant_id=$1 AND code IN ('MD-30','MD-32','MD-50') AND deleted_at IS NULL)
+             WHERE tenant_id=$1 AND code IN ('MD-30','MD-32') AND deleted_at IS NULL)
           AND NOT EXISTS (
             SELECT 1 FROM (SELECT product_id, warehouse_id, month FROM stg_psm GROUP BY product_id, warehouse_id, month) s
              WHERE s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id AND s.month=t.month)`,

@@ -514,7 +514,7 @@ export class ComprasQueTocaComponent implements OnInit {
   territories = [
     { label: 'Bajío', codes: ['01', '02', '03', '04'] },
     { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
-    { label: 'Zamora', codes: ['05', 'MD-50'] },
+    { label: 'Zamora', codes: ['05', '06'] },
     { label: 'CEDIS', codes: ['00'] },
   ];
 

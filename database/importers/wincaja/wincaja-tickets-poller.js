@@ -47,7 +47,10 @@ const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3000/api/st
 const INGEST_KEY = process.env.STORE_INGEST_KEY || 'dev_store_ingest_key';
 const POLL_MS = (Number(process.env.POLL_SECONDS) || 60) * 1000;
 const SEED_DAYS = Number(process.env.SEED_DAYS) || 1;
-const STORES = (process.env.WINCAJA_LIVE_STORES || '30,32,50').split(',').map((s) => s.trim()).filter(Boolean);
+// Canindo '50' migró su POS a Kepler ('06') → sus tickets vivos los trae el poller Kepler
+// (live-tickets-poller). Sacarlo de aquí MATA el doble-conteo (mismo warehouse_id, distinta
+// llave de dedup). Quedan solo las plazas SOLO-Wincaja Morelia Abastos '30' / Madero '32'.
+const STORES = (process.env.WINCAJA_LIVE_STORES || '30,32').split(',').map((s) => s.trim()).filter(Boolean);
 const WH_CODE_MODE = process.env.WH_CODE_MODE === 'source_branch' ? 'source_branch' : 'warehouse_code';
 const DRY = process.argv.includes('--dry');
 const STATE_FILE = path.join(__dirname, '.wincaja-live-watermark.json');
@@ -147,15 +150,36 @@ async function fetchNewTickets(db, branch, wm) {
   return { tickets, wm: newWm };
 }
 
+const PUSH_BATCH = Number(process.env.PUSH_BATCH) || 200;
+const PUSH_TIMEOUT_MS = Number(process.env.PUSH_TIMEOUT_MS) || 30000;
+
+// Postea en LOTES con timeout duro. Un solo POST de ~1000 tickets (backfill tras una caída)
+// se atoraba; batchear + AbortController evita el cuelgue y, si un lote falla, el watermark
+// no avanza y el siguiente ciclo lo reintenta (ingest idempotente por warehouse+serie+folio).
+// emit: WS toast solo en incrementos chicos (live); en backfill grande NO, para no spamear.
 async function pushTickets(tickets) {
   if (!tickets.length) return { received: 0, inserted: 0 };
-  const res = await fetch(INGEST_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
-    body: JSON.stringify({ tickets, emit: true }),
-  });
-  if (!res.ok) throw new Error(`ingest ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return res.json().catch(() => ({}));
+  const emit = tickets.length <= 30;
+  let received = 0, inserted = 0;
+  for (let i = 0; i < tickets.length; i += PUSH_BATCH) {
+    const chunk = tickets.slice(i, i + PUSH_BATCH);
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), PUSH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(INGEST_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
+        body: JSON.stringify({ tickets: chunk, emit }),
+        signal: ctrl.signal,
+      });
+    } finally { clearTimeout(to); }
+    if (!res.ok) throw new Error(`ingest ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const j = await res.json().catch(() => ({}));
+    received += j.received ?? chunk.length;
+    inserted += j.inserted ?? 0;
+  }
+  return { received, inserted };
 }
 
 async function cycle(db, state, whMeta) {

@@ -39,7 +39,7 @@ const SRC = `
            sum(e.costo_promedio * greatest(e.existencia,0)) / nullif(sum(greatest(e.existencia,0)),0) AS unit_cost
     FROM wincaja.existencias e
     JOIN catalog.products p ON p.tenant_id = e.tenant_id AND p.sku = e.articulo AND p.deleted_at IS NULL
-    WHERE e.tenant_id = $1 AND e.almacen IN ('30','32','50') AND e.costo_promedio > 0
+    WHERE e.tenant_id = $1 AND e.almacen IN ('30','32') AND e.costo_promedio > 0
     GROUP BY p.id
   )
   SELECT wf.product_id, wf.fv AS factor_venta

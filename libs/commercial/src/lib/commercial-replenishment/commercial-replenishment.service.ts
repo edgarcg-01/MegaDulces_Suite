@@ -212,7 +212,7 @@ export class CommercialReplenishmentService {
   // unidad cruda por almacén (auto-consistente), así el sugerido y la clasificación no cambian.
   // Requiere que la query joinee `w` (warehouses), `wcf` y `cbf`. >=1.
   private cajaFactor() {
-    return `CASE WHEN w.code IN ('MD-30','MD-32','MD-50') AND wcf.factor_venta > 1
+    return `CASE WHEN w.code IN ('MD-30','MD-32') AND wcf.factor_venta > 1
                  THEN wcf.factor_venta ELSE GREATEST(COALESCE(cbf.box_factor, 1), 1) END`;
   }
   private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
@@ -760,7 +760,7 @@ export class CommercialReplenishmentService {
   // ── RA-PRO.32 — Réplica del workbook del comprador (Excel) ────────────
   /**
    * Una fila por SKU con las columnas del Excel de compra: UXC (factor de caja), costo/caja,
-   * y por cada PUNTO DE COMPRA territorial (PH `MD-10` / Morelia `MD-30`+`MD-32` / Zamora `MD-50`)
+   * y por cada PUNTO DE COMPRA territorial (PH `MD-10` / Morelia `MD-30`+`MD-32` / Zamora Canindo `06`)
    * su Venta 30d (cajas), Existencia (cajas) y Pedido sugerido (cajas); CEDIS `MD-CEDIS` solo
    * existencia; más $Pedido, Valor Venta y Valor Existencia. Lee del fact precomputado
    * (analytics.replenishment_plan) y pivotea por CÓDIGO de almacén — no depende de la topología.

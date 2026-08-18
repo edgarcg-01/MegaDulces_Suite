@@ -58,7 +58,7 @@ const SRC = `
   const chk = (await db.raw(
     `SELECT w.code, count(*)::int n, round(sum(st.quantity)::numeric,0) q
      FROM commercial.stock st JOIN commercial.warehouses w ON w.id = st.warehouse_id
-     WHERE st.tenant_id = ? AND w.code IN ('MD-30','MD-32','MD-50')
+     WHERE st.tenant_id = ? AND w.code IN ('MD-30','MD-32')
      GROUP BY 1 ORDER BY 1`, [TENANT])).rows;
   console.log('✅ commercial.stock por almacen:', chk.map((r) => `${r.code}=${r.n}(q ${Number(r.q).toLocaleString()})`).join(' '));
   await db.destroy();

@@ -435,7 +435,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   territories = [
     { label: 'Bajío', codes: ['01', '02', '03', '04'] },
     { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
-    { label: 'Zamora', codes: ['05', 'MD-50'] },
+    { label: 'Zamora', codes: ['05', '06'] },
     { label: 'CEDIS', codes: ['00'] },
   ];
   private warehouseNames = new Map<string, string>();
@@ -766,7 +766,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
   cajaTitle(r: CriticalStockRow) {
     const f = r.caja_factor != null ? Number(r.caja_factor) : null;
-    const win = !!r.warehouse_code && ['MD-30', 'MD-32', 'MD-50'].includes(r.warehouse_code);
+    const win = !!r.warehouse_code && ['MD-30', 'MD-32'].includes(r.warehouse_code);
     if (!f || f <= 1) return 'Cifras en cajas';
     return win
       ? `Cajas = existencia Wincaja ÷ ${f} (paquetes por caja)`
