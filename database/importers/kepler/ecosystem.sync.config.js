@@ -33,8 +33,9 @@ const base = { cwd: REPO, env, autorestart: true, max_restarts: 50, restart_dela
 
 module.exports = {
   apps: [
-    // PRODUCTO: CDC ctid → kepler_ods.kdii → normalize-al-llegar (catalog.products + product_prices).
-    { name: 'sync-product', script: 'database/importers/kepler/replicate-ods-fast.js', args: '--apply --watch=10 --tables=kdii', ...base },
+    // PRODUCTO: réplicas lógicas locales (01-06, INCLUYE Canindo) → hash-delta → kepler_ods.kdii
+    // → normalize-al-llegar. Evoluciona replicate-ods-fast (ctid, 00-05, perdía UPDATE in-place).
+    { name: 'sync-product', script: 'database/importers/kepler/replicate-ods-live.js', args: '--apply --watch=10 --tables=kdii', ...base },
     // STOCK: kdil de las 5 sucursales → delta → commercial.stock (fórmula c4+c8-c9).
     { name: 'sync-stock', script: 'database/importers/kepler/import-branch-stock-live.js', args: '--apply --watch=15', ...base },
     // VENTAS (Kepler mayoreo): mart.ventas_enriched → analytics.sales_daily (ventana 2d/ciclo).

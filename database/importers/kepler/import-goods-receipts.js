@@ -52,20 +52,16 @@ if (!FROM && process.env.RECEIPTS_DAYS) {
   FROM = d.toISOString().slice(0, 10);
 }
 
-// Mapa de conexiones por sucursal (mismo patrón que import-branch-stock-live).
+// Mapa de conexiones por sucursal — fuente única `kepler-branches` (incluye CEDIS '00' y
+// Canindo '06' vía réplica local kepler_md_06). readBranch deriva la sucursal de la URL
+// (md_XX), así que el shape {code,url} de stockMap encaja directo.
 // Override con env RECEIPTS_BRANCH_MAP (JSON [{code,url}]) o RECEIPTS_SRC (una sola).
+const { stockMap } = require('../lib/kepler-branches');
 const MAP = process.env.RECEIPTS_BRANCH_MAP
   ? JSON.parse(process.env.RECEIPTS_BRANCH_MAP)
   : process.env.RECEIPTS_SRC
     ? [{ code: (process.env.RECEIPTS_SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00', url: process.env.RECEIPTS_SRC }]
-    : [
-        { code: 'md_00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-        { code: 'md_01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-        { code: 'md_02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-        { code: 'md_03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-        { code: 'md_04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-        { code: 'md_05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
-      ];
+    : stockMap({ cedis: true });
 
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 

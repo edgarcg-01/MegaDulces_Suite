@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Stop'
 $map = @{
   '30' = @{ wc = 'MD-30'; wn = 'Morelia Abastos'; mdb = 'D:\Datos\WinCaja\30 MORELIA ABASTOS.mdb' }
   '32' = @{ wc = 'MD-32'; wn = 'Morelia Madero';  mdb = 'D:\Datos\WinCaja\32 MORELIA MADERO.mdb' }
-  '50' = @{ wc = 'MD-50'; wn = 'Canindo';         mdb = 'D:\Datos\WinCaja\50 CANINDO.mdb' }
+  # Canindo '50' migró su POS a Kepler ('06') → ya no corre agente Wincaja.
 }
 if ($map.ContainsKey($Store)) {
   if (-not $Mdb) { $Mdb = $map[$Store].mdb }
