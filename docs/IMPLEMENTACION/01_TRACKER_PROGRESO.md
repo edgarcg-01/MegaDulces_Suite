@@ -704,7 +704,9 @@ Techo real: `location /api/` de nginx no define `proxy_read_timeout` → **60 s*
 - [x] **[COMM.5.5]** ✅ Smoke `http-finance-jobs-test.js` en la regresión (202 + WS running→done + `GET /jobs/:id` + `?sync=true` idéntico al WS + 404). `http-maat-chat-test.js` ajustado a `?sync=true`.
 - [ ] **[COMM.5.6]** ⬜ Mover el trabajo a `pg-boss` + persistir el registro. Gate: worker-tier desplegado (`WORKER=true`) + `REDIS_URL` (para que el emit del worker llegue a los sockets del API) + archivo del import en S3 (25 mb no van en una fila de cola).
 
-Verificación: `nx build api` y `nx build view` verdes (exit code real) · contexto de tenant (AsyncLocalStorage) probado que sobrevive al detach · **smoke HTTP pendiente de que Edgar reinicie la API** (`node database/tests/http-finance-jobs-test.js`).
+Verificación: **smoke HTTP 26/26 verde en vivo 2026-08-18** (202 real · `running`→`done` por WS con el MatchResult: 520 de 1918 retiros, 27%, 831 ms · `?sync=true` idéntico inline · scan de Maat 33 reglas cerrando por WS en 4.5 s · 404 del job inexistente). Builds api+view verdes con exit code real; contexto de tenant (AsyncLocalStorage) probado que sobrevive al detach.
+
+- [x] **[COMM.5.7]** ✅ Bug que cachó el smoke: `GET /finance/jobs` devolvía `[{}]` (`[...map.values()]` → `[].concat(iter)` en el bundle). Al revisar el bundle salieron **2 más vivos en Maat** con daño silencioso de datos: `maat-entity` (título de `entidad_duplicada` con `undefined`) y `maat-tools` (comparación por mes con una fila basura). Los 3 con `Array.from`, verificados en `dist`. Quedan **41 ocurrencias medidas en el bundle** (commercial/trade/logistics/fiscal/whatsapp/platform-core) → barrido aparte.
 
 ---
 

@@ -24,7 +24,9 @@
 
 **Hallazgo colateral — `main` estaba con el build rojo antes de empezar:** `apps/api/src/modules/store/store.service.ts:39` no compilaba (`TS2322`: devolver el QueryBuilder dentro de `knex.transaction` tipa el retorno como `void | T[]`). Venía del commit `47334207`, ajeno a este trabajo. **Lección de método:** el error se me pasó en la sesión anterior porque corrí `nx build api ... | tail`, y con pipe el exit code es el de `tail`, no el del build. Desde ahora: redirigir a archivo y leer `$?`, nunca pipear el build.
 
-**Estado:** builds `api` y `view` verdes con exit code real. Smoke nuevo `http-finance-jobs-test.js` registrado en la regresión, **pendiente de correr** hasta que Edgar reinicie la API (la instancia viva es un build anterior; la regla es que el restart es suyo).
+**El smoke encontró un bug real de entrada (y tiró de un hilo más grande):** `GET /finance/jobs` devolvía `[{}]` — `[...this.jobs.values()]` compila a `[].concat(this.jobs.values())` en el bundle del API, así que el array traía el **MapIterator** como único elemento (el `n=1` del FAIL no era un job). Al verificar el **bundle** en vez del source aparecieron 2 ocurrencias más, vivas y corrompiendo datos en silencio: `maat-entity.service` (el título de los hallazgos `entidad_duplicada` salía con `undefined`) y `maat-tools.service` (la comparación por mes devolvía una fila basura). Fix `Array.from` + dedup `filter/indexOf`, verificado en `dist/apps/api/main.js`. **Medida, no estimada:** quedan **41 ocurrencias** del patrón en el bundle (~13 commercial, 10 trade, 6 logistics, 6 fiscal, resto whatsapp/platform-core); las de `apps/view|vendor|portal` no aplican porque Angular compila a target moderno. Barrido pendiente como trabajo aparte.
+
+**Estado:** **smoke 26/26 verde en vivo** (202 real · `running`→`done` por WS con el MatchResult: 520 de 1918 retiros, 27%, 831 ms · `?sync=true` idéntico inline · scan de Maat con 33 reglas cerrando por WS en 4.5 s — justo el trabajo que antes podía comerse los 60 s del proxy). Builds api+view verdes con exit code real.
 
 ---
 
