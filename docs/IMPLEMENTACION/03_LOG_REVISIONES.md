@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-08-18 — Auditoría de transportes de comunicación (ADR-045): 4 huecos cerrados
+
+**Qué se revisó:** todos los mecanismos de comunicación entre NestJS y Angular presentes en el repo, contra lo que el stack permite. Implementados: REST + 8 namespaces Socket.IO (JWT en handshake, room `tenant:<id>`, `redis-adapter` opcional, path `/reports/socket.io` detrás de nginx) + Web Push VAPID + SSE (1 endpoint) + polling por intervalo (~20 pantallas) + multipart + descarga binaria + offline-first Dexie/ngsw + `pg-boss` + BullMQ (WhatsApp) + webhook entrante con HMAC + axios saliente + Bolt/Neo4j + OTLP. Ausentes **por decisión**: GraphQL, gRPC, microservicios Nest, `LISTEN/NOTIFY`.
+
+**Hueco 1 — SSE frágil.** El stream del chat de Maat (`POST /finance/maat/chat/stream`) escribía `text/event-stream` a mano sin keepalive ni cancelación: (a) una tool lenta dejaba la conexión idle y un proxy la podía cortar; (b) si el usuario navegaba, el loop de tools seguía corriendo y **gastando tokens** contra un socket muerto, y al final escribía audit de una respuesta que nadie vería. Fix: comentario `: ping` cada 15s, `clientGone` por `close` + `writableEnded`, `shouldStop` propagado a `MaatChatService.ask` (corta en el borde de la iteración, con warn de iteraciones/tokens gastados), `clearInterval` + `res.end()` idempotente. **El front no requirió cambio**: su parser descarta los bloques sin `data:`.
+
+**Por qué NO se migró a `@Sse()`** (la pregunta obvia): ese decorador registra la ruta como **GET**, y el payload lleva historia de conversación + imagen base64 — no cabe en query string; además `EventSource` no manda `Authorization` y el front necesita el interceptor de auth. Queda documentado en el propio controller para que no se "arregle" de nuevo.
+
+**Hueco 2 — bus de eventos fantasma.** `EventEmitterModule.forRoot()` estaba cargado con un comentario de convención ("emitir solo post-commit")… y **cero** emisores y **cero** `@OnEvent` en todo el repo. El patrón que sí se usa para cross-dominio son los **puertos tipados** (`FinanceNotifierPort`, `ReconNotifierPort`), que son refactor-safe. Se retiró el módulo y la dependencia; la convención real quedó escrita donde estaba la falsa.
+
+**Hueco 3 — codegen de OpenAPI roto.** `generate:openapi` apuntaba a `scripts/generate-openapi.ts`, que **no está en el repo** (nunca lo estuvo: no aparece en el historial), y `generate:client` producía un cliente Angular que nadie adoptó — los ~41 módulos tienen services HTTP a mano. Decisión: **snapshot de contrato, no codegen**. `scripts/generate-openapi.js` baja `/api/docs-json`, escribe `swagger.json` (gitignored) y diffea operaciones vs el snapshot previo. Fuera `generate:client`, `api:gen`, `openapi-config.json` y la devDep `@openapitools/openapi-generator-cli` (que además exigía Java).
+
+**Hueco 4 — GraphQL/gRPC como "pendiente" folclórico.** No eran huecos: eran decisiones nunca escritas. ADR-045 las cierra con compuerta explícita de reapertura (un consumidor externo que arme sus propias consultas → GraphQL; el worker dejando de compartir código con el API o un 2º lenguaje → gRPC).
+
+**Lección:** un módulo global inerte y un script que apunta a un archivo inexistente **se leen igual que trabajo pendiente**. Lo que no se usa hay que quitarlo o documentar por qué está — si no, cada auditoría lo vuelve a descubrir como hueco.
+
+**Alcance:** solo backend + tooling. Sin migraciones, sin cambios de contrato de endpoints, sin cambios en el frontend. `package-lock.json`: −524 líneas, cero versiones bumpeadas.
+
+---
+
 ## 2026-08-17 — Fase CH.0: base de datos de checadores (asistencia) desde cero
 
 **Qué:** los relojes checadores de la red nunca se habían leído. Se levantó el schema `hr.*` y se cargó el histórico completo de los 10 equipos: **129,461 checadas / 452 enrolamientos**, desde **2023-09-14**.

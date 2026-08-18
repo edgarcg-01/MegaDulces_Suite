@@ -36,7 +36,6 @@ import { CronModule } from './modules/cron/cron.module';
 import { DataModule } from '@megadulces/trade';
 import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WebSocketModule } from '@megadulces/trade';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
 import { NewDatabaseModule } from '@megadulces/platform-core';
@@ -369,9 +368,10 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     KeplerConsolidadoModule,
     // Proyecto Tienda (TDA) — monitor de tickets de venta en vivo (WS /store).
     StoreModule,
-    // Bus de eventos in-process para side-effects cross-domain (síncrono).
-    // CONVENCIÓN: emitir SOLO post-commit (nunca dentro de una trx abierta).
-    EventEmitterModule.forRoot(),
+    // NO hay bus de eventos in-process (se retiró EventEmitterModule: 0 emisores /
+    // 0 @OnEvent en ~2 años). La comunicación cross-dominio va por PUERTOS tipados
+    // (libs/contracts/src/ports/*: FinanceNotifierPort, ReconNotifierPort…) —
+    // refactor-safe y sin strings mágicos. Ver ADR-045.
     ...multitenantModules,
   ],
   controllers: [AppController],
