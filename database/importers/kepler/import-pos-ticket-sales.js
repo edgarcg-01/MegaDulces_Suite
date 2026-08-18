@@ -17,6 +17,7 @@ const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap } = require('../lib/kepler-branches');
+const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 async function readBranch(b) {
@@ -42,12 +43,14 @@ async function readBranch(b) {
 }
 
 async function upsert(db, rows) {
+  const whMap = await loadWarehouseMap(db, TENANT); // Paso 2b
   let n = 0;
   for (const r of rows) {
+    const wid = whMap.get(String(r.warehouse_code).trim()) || null;
     await db('analytics.pos_ticket_sales')
-      .insert({ tenant_id: TENANT, ...r })
+      .insert({ tenant_id: TENANT, ...r, warehouse_id: wid })
       .onConflict(['tenant_id', 'warehouse_code', 'cajero_code', 'business_date'])
-      .merge({ ticket_count: r.ticket_count, ticket_total: r.ticket_total, updated_at: db.fn.now() });
+      .merge({ warehouse_id: wid, ticket_count: r.ticket_count, ticket_total: r.ticket_total, updated_at: db.fn.now() });
     n++;
   }
   return n;

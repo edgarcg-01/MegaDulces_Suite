@@ -85,11 +85,14 @@ const SRCS = [
       return;
     }
     await db.query(`TRUNCATE analytics.erp_promotions`);
+    // Paso 2b: resuelve warehouse_id en el INSERT (LEFT JOIN por code/kepler_code, Canindo '06'→MD-50).
     await db.query(
       `INSERT INTO analytics.erp_promotions
-         (id, tenant_id, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name, computed_at)
-       SELECT gen_random_uuid(), $1, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name, now()
-         FROM stg_promos`, [M]);
+         (id, tenant_id, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, warehouse_id, raw_name, computed_at)
+       SELECT gen_random_uuid(), $1, s.product_id, s.promo_type, s.threshold, s.benefit, s.free_product_id, s.valid_from, s.valid_to, s.warehouse_code, w.id, s.raw_name, now()
+         FROM stg_promos s
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.deleted_at IS NULL
+              AND (w.code=btrim(s.warehouse_code) OR w.kepler_code=btrim(s.warehouse_code) OR (w.code='MD-50' AND btrim(s.warehouse_code)='06'))`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — snapshot cambió → ${rows.length} promos vigentes reescritas.`);
   } catch (e) {

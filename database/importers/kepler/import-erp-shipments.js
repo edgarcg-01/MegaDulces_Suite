@@ -131,18 +131,21 @@ const MAP = process.env.SHIPMENTS_BRANCH_MAP ? JSON.parse(process.env.SHIPMENTS_
     }
     // Merge SIN churn: UPSERT solo-cambios (PK folio×sku) + DELETE solo lo que ya no viene.
     // Antes: DELETE-all+INSERT reescribía toda la tabla cada noche.
+    // Paso 2b: resuelve warehouse_id en el INSERT (LEFT JOIN por code/kepler_code, Canindo '06'→MD-50).
     const up = await db.query(
       `INSERT INTO analytics.erp_shipments AS t
-         (tenant_id, shipment_folio, sku, product_id, warehouse_code, route, status, doc_folio, shipped_date, quantity, unit, computed_at)
-       SELECT $1, shipment_folio, sku, product_id, warehouse_code, route, status, doc_folio, shipped_date, quantity, unit, now()
-         FROM stg_ship
+         (tenant_id, shipment_folio, sku, product_id, warehouse_code, warehouse_id, route, status, doc_folio, shipped_date, quantity, unit, computed_at)
+       SELECT $1, s.shipment_folio, s.sku, s.product_id, s.warehouse_code, w.id, s.route, s.status, s.doc_folio, s.shipped_date, s.quantity, s.unit, now()
+         FROM stg_ship s
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.deleted_at IS NULL
+              AND (w.code=btrim(s.warehouse_code) OR w.kepler_code=btrim(s.warehouse_code) OR (w.code='MD-50' AND btrim(s.warehouse_code)='06'))
        ON CONFLICT (tenant_id, shipment_folio, sku) DO UPDATE SET
-         product_id=EXCLUDED.product_id, warehouse_code=EXCLUDED.warehouse_code, route=EXCLUDED.route,
+         product_id=EXCLUDED.product_id, warehouse_code=EXCLUDED.warehouse_code, warehouse_id=EXCLUDED.warehouse_id, route=EXCLUDED.route,
          status=EXCLUDED.status, doc_folio=EXCLUDED.doc_folio, shipped_date=EXCLUDED.shipped_date,
          quantity=EXCLUDED.quantity, unit=EXCLUDED.unit, computed_at=now()
-       WHERE (t.product_id, t.warehouse_code, t.route, t.status, t.doc_folio, t.shipped_date, t.quantity, t.unit)
+       WHERE (t.product_id, t.warehouse_code, t.warehouse_id, t.route, t.status, t.doc_folio, t.shipped_date, t.quantity, t.unit)
              IS DISTINCT FROM
-             (EXCLUDED.product_id, EXCLUDED.warehouse_code, EXCLUDED.route, EXCLUDED.status, EXCLUDED.doc_folio,
+             (EXCLUDED.product_id, EXCLUDED.warehouse_code, EXCLUDED.warehouse_id, EXCLUDED.route, EXCLUDED.status, EXCLUDED.doc_folio,
               EXCLUDED.shipped_date, EXCLUDED.quantity, EXCLUDED.unit)`, [M]);
     const del = await db.query(
       `DELETE FROM analytics.erp_shipments t
