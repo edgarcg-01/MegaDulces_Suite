@@ -88,7 +88,7 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 | # | Sprint | Entrega | Estado |
 |---|---|---|---|
 | **WR.0** | **Descubrimiento** ⛔ ruta crítica | Inventario de `.mdb` objetivo (30/32/00/rutas): ruta, **copia-sombra existe?** (SyncBack cubre 30/32/50; confirmar 00 + rutas), tablas, PKs, tipos, tamaños, **columna incremental** por tabla de movimiento. Entregable: mapa tabla→carril + PK + col-watermark por sucursal. | ⬜ |
-| **WR.1** | Adapter de lectura + esquema | Extractor Jet 32-bit genérico (reusa `extract-table.ps1`) + descubridor de **tablas/columnas/PK** del `.mdb` (`OleDbSchemaGuid`/`MSysObjects`) + wrapper Node `readTable(t,{sinceCol,sinceVal})` / `readAll(t)`. | ⬜ |
+| **WR.1** | Adapter de lectura + esquema | Extractor Jet 32-bit genérico (reusa `extract-table.ps1`) + descubridor de **tablas/columnas/PK** del `.mdb` (`OleDbSchemaGuid`/`MSysObjects`) + wrapper Node `readTable(t,{sinceCol,sinceVal})` / `readAll(t)`. | 🧪 |
 | **WR.2** | Destino réplica + DDL espejo | Crear `wincaja_XX` (o schema-por-sucursal) en `:5433` + auto-generar el DDL espejo desde el esquema Access (tipos → `text`/`numeric` sin precisión, **tolerante a valores corruptos** — el saneamiento vive en silver, no en la réplica cruda). | ⬜ |
 | **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | ⬜ |
 | **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | ⬜ |
@@ -140,6 +140,31 @@ WR y [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md) (CEDIS Kepler-Access) son **el mis
 - **Config chicas (full cada corrida):** `Almacenes`, `FormasPago`, `IVA`/`IEPS`, `Monedas`, `Unidades`, `Operaciones`, `Seguridad`.
 
 **Notas para WR.1+:** (1) CEDIS Irapuato = 2 `.mdb` (base + MOV) → replicar ambos como `w00_base.*`/`w00_mov.*` o unir. (2) Rutas de Canindo `50 RUTA 50X` = la venta a bordo que **ya se migró a Kepler** (import-canindo-routes) → decidir si su `.mdb` entra a WR (histórico) o se omite. (3) Jet `GetOleDbSchemaTable(Columns/Primary_Keys)` es inestable → descubrir columnas con `SELECT * WHERE 1=0` (reader.GetName/GetFieldType), como el script `wincaja-schema-discovery.ps1`. (4) PS32 rompe con caracteres no-ASCII (em-dash) → scripts solo ASCII.
+
+---
+
+## 10. WR.1 — adapter de lectura Access (✅ 2026-08-18)
+
+**El adapter único** (reusable WR + CA, [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md)) vive en `database/importers/lib/`:
+
+- `access-adapter.js` (Node): `discoverSchema(mdb)` · `readTable(mdb,t,{columns,where,orderBy})` · `readIncremental(mdb,t,{sinceCol,sinceVal})` · `query(mdb,sql)` · `jetToPg(jet)` · `rowHash(row)` (md5 canónico para el carril hash-delta).
+- `access-read.ps1` (PS32): SELECT arbitrario o tabla → JSONL (ancestro `wincaja/extract-query.ps1`).
+- `access-schema.ps1` (PS32): tablas + columnas + tipos Jet + **PK** + row counts → JSONL.
+
+**Smoke real (30 Morelia Abastos):** 70 tablas / 41 con datos en 21s. **PK discovery SÍ funcionó** (contra la nota WR.0 de "inestable" — el `try/catch` lo hace robusto de todos modos):
+
+| Tabla | filas | PK descubierta | carril |
+|---|---|---|---|
+| `Precios` | 89,987 | `[Articulo,NoPrecio]` | hash-delta |
+| `DetallesMovAlmacen` | 88,754 | `[]` ⚠️ | incremental (por `Consecutivo`) |
+| `MovimientoClientes` | 22,448 | `[]` ⚠️ | incremental |
+| `Articulos` | 15,448 | `[Articulo]` | hash-delta |
+| `Existencias` | 15,448 | `[Almacen,Articulo]` | hash-delta |
+| `MaestroMovAlmacen` | 10,396 | `[Consecutivo]` | incremental |
+| `Clientes` | 8,877 | `[Cliente]` | hash-delta |
+| `PagosDia` | 16,287 | `[]` ⚠️ | incremental |
+
+**Para WR.2 (DDL + conflict target):** las tablas de movimiento SIN PK declarada (`DetallesMovAlmacen`, `MovimientoClientes`, `PagosDia`, `DetalleCotizaciones`, `FaltantesDeCotizaciones`) necesitan **conflict-target por convención** — `DetallesMovAlmacen` se une a `MaestroMovAlmacen` por `Consecutivo` pero tiene N líneas → hará falta inspeccionar sus 25 columnas para el par `(Consecutivo, <renglón/artículo>)`. Las tablas CON PK (catálogos + `MaestroMovAlmacen`) usan su PK como conflict target directo. Tipos Jet vistos: `Int32`/`String`/`Double`/`DateTime`/`Byte`/`Boolean` → `numeric`/`text`/`boolean` (fechas como `text`, ISO desde el PS).
 
 ---
 
