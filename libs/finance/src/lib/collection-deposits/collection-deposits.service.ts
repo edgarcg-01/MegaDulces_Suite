@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-core';
+import { CobranzaGateway } from './cobranza.gateway';
 
 /**
  * Fase CC — Comprobantes de Cobranza. Adjunta el comprobante de DEPÓSITO
@@ -57,7 +58,27 @@ export class CollectionDepositsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    @Optional() private readonly gateway?: CobranzaGateway,
   ) {}
+
+  /**
+   * COMM-P1 — Empuja el cambio a la room del tenant (best-effort; nunca bloquea ni
+   * tumba la operación). Se llama SIEMPRE fuera de la transacción, ya con el commit
+   * hecho: el evento dispara un reload en las pantallas conectadas y no queremos que
+   * lean una fila que todavía no existe.
+   */
+  private emit(
+    action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched',
+    ev: { sucursal: string; folio: string; status?: string | null; cliente?: string | null; monto?: number | null; actor?: string | null },
+  ): void {
+    try {
+      this.gateway?.emitChange(this.tenantCtx.requireTenantId(), {
+        action, sucursal: ev.sucursal, folio: ev.folio,
+        status: ev.status ?? null, cliente: ev.cliente ?? null,
+        monto: ev.monto ?? null, actor: ev.actor ?? null,
+      });
+    } catch (e: any) { this.logger.warn(`WS emit ${action} falló: ${e?.message || e}`); }
+  }
 
   /**
    * Lista los cobros de Kepler (espejo `analytics.erp_collections`) con el estado
@@ -262,7 +283,7 @@ export class CollectionDepositsService {
             .then((rs: any[]) => rs.map((r) => `${r.sucursal}/${r.folio}`))
         : [];
 
-      const [row] = await trx('finance.collection_deposits')
+      const [rowIns] = await trx('finance.collection_deposits')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           sucursal, folio,
@@ -287,7 +308,15 @@ export class CollectionDepositsService {
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
       this.logger.log(`ficha adjunta a cobro ${sucursal}/${folio} (match=${montoMatch}, cuenta_propia=${cuentaPropia}, ref_dup=${refOtros.length}) por ${actor || '?'}`);
-      return { ...row, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros };
+      return {
+        ...rowIns, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros,
+        // solo para el evento WS de afuera; no forma parte del contrato del endpoint
+        _ws: { cliente: cobro.cliente_nombre || null, monto: cobroMonto },
+      };
+    }).then((res: any) => {
+      const { _ws, ...out } = res;
+      this.emit('attached', { sucursal, folio, status: out.status, cliente: _ws?.cliente, monto: _ws?.monto, actor: actor || null });
+      return out;
     });
   }
 
@@ -352,8 +381,12 @@ export class CollectionDepositsService {
     return this.tk.run(async (trx) => {
       const [row] = await trx('finance.collection_deposits').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
+        // sucursal/folio/cliente/monto viajan para el evento WS (aditivo: el front solo lee id+status)
+        .returning(['id', 'status', 'sucursal', 'folio', 'cliente_nombre', trx.raw('cobro_monto::numeric AS cobro_monto')]);
       if (!row) throw new BadRequestException('evidencia no encontrada o ya validada');
+      return row;
+    }).then((row: any) => {
+      this.emit('validated', { sucursal: row.sucursal, folio: row.folio, status: row.status, cliente: row.cliente_nombre, monto: Number(row.cobro_monto) || null, actor: actor || null });
       return row;
     });
   }
@@ -364,8 +397,11 @@ export class CollectionDepositsService {
     return this.tk.run(async (trx) => {
       const [row] = await trx('finance.collection_deposits').where({ id }).whereIn('status', ['recibido', 'validado'])
         .update({ status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
+        .returning(['id', 'status', 'sucursal', 'folio', 'cliente_nombre', trx.raw('cobro_monto::numeric AS cobro_monto')]);
       if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
+      return row;
+    }).then((row: any) => {
+      this.emit('rejected', { sucursal: row.sucursal, folio: row.folio, status: row.status, cliente: row.cliente_nombre, monto: Number(row.cobro_monto) || null, actor: actor || null });
       return row;
     });
   }
@@ -471,7 +507,12 @@ export class CollectionDepositsService {
       const dep = await trx('finance.collection_deposits').where({ id: depositId })
         .first('sucursal', 'folio', trx.raw('cobro_monto::numeric AS cobro_monto'));
       if (!dep) throw new BadRequestException('comprobante no encontrado');
-      return this.writeReconMatch(trx, dep.sucursal, dep.folio, Number(dep.cobro_monto) || 0, bankMovementId, actor);
+      const res = await this.writeReconMatch(trx, dep.sucursal, dep.folio, Number(dep.cobro_monto) || 0, bankMovementId, actor);
+      return { ...res, _ws: { sucursal: dep.sucursal, folio: dep.folio, monto: Number(dep.cobro_monto) || null } };
+    }).then((res: any) => {
+      const { _ws, ...out } = res;
+      this.emit('bank_matched', { sucursal: _ws.sucursal, folio: _ws.folio, monto: _ws.monto, actor: actor || null });
+      return out;
     });
   }
 
@@ -573,7 +614,12 @@ export class CollectionDepositsService {
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
         .first(trx.raw('monto::numeric AS monto'));
       if (!cobro) throw new BadRequestException(`cobro ${sucursal}/${folio} no existe en Kepler`);
-      return this.writeReconMatch(trx, sucursal, folio, Number(cobro.monto) || 0, bankMovementId, actor);
+      const res = await this.writeReconMatch(trx, sucursal, folio, Number(cobro.monto) || 0, bankMovementId, actor);
+      return { ...res, _ws: { monto: Number(cobro.monto) || null } };
+    }).then((res: any) => {
+      const { _ws, ...out } = res;
+      this.emit('bank_matched', { sucursal, folio, monto: _ws.monto, actor: actor || null });
+      return out;
     });
   }
 
@@ -588,7 +634,11 @@ export class CollectionDepositsService {
         .del();
       const [rest] = await trx('finance.bank_recon_matches').where({ bank_movement_id: bankMovementId }).count('* as n');
       if (Number(rest.n) === 0) await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'pending', updated_at: trx.fn.now() });
-      return { ok: true };
+      return { ok: true, _ws: { sucursal: dep.sucursal, folio: dep.folio } };
+    }).then((res: any) => {
+      const { _ws, ...out } = res;
+      this.emit('bank_unmatched', { sucursal: _ws.sucursal, folio: _ws.folio });
+      return out;
     });
   }
 

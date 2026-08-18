@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CollectionDepositsController } from './collection-deposits.controller';
+import { CobranzaGateway } from './cobranza.gateway';
 
 /**
  * Fase CC — Comprobantes de Cobranza. Adjunta el comprobante de depósito (imagen/PDF)
@@ -10,9 +12,17 @@ import { CollectionDepositsController } from './collection-deposits.controller';
  * cobros del espejo read-only `analytics.erp_collections`; NO escribe a Kepler.
  */
 @Module({
-  imports: [CloudinaryModule, AiProductMatcherModule],
+  imports: [
+    CloudinaryModule,
+    AiProductMatcherModule,
+    // JwtModule local para el handshake del gateway (mismo default que las otras gateways de Finanzas).
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+    }),
+  ],
   controllers: [CollectionDepositsController],
-  providers: [CollectionDepositsService],
+  providers: [CollectionDepositsService, CobranzaGateway],
   exports: [CollectionDepositsService],
 })
 export class FinanceCollectionDepositsModule {}

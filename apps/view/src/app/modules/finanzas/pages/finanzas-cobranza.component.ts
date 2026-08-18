@@ -19,6 +19,7 @@ import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate } from '../cobranza.service';
+import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socket.service';
 
 /**
  * CC — "Comprobantes de Cobranza". Lista los cobros de Kepler (documento UA0501)
@@ -42,6 +43,7 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
           <h1>Cobranza — comprobantes</h1>
           <p class="surf-page-sub">Adjunta la ficha de depósito a cada cobro de Kepler (UA0501) · OCR compara el monto · pendiente → validado/rechazado</p>
         </div>
+        @if (live()) { <span class="cb-live" title="Los cambios de otros usuarios se reflejan al momento"><span class="cb-live-dot"></span> En vivo</span> }
       </header>
 
       <div class="cb-mode">
@@ -423,6 +425,10 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
   `,
   styles: [`
     :host { display: block; }
+    .cb-live { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; font-size: .74rem; color: var(--ok-fg); font-weight: 600; }
+    .cb-live-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok-fg); animation: cb-pulse 1.8s ease-in-out infinite; }
+    @keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    @media (prefers-reduced-motion: reduce) { .cb-live-dot { animation: none; } }
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -529,6 +535,7 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
 export class FinanzasCobranzaComponent {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(CobranzaService);
+  private readonly socket = inject(CobranzaSocketService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -594,7 +601,54 @@ export class FinanzasCobranzaComponent {
   readonly linkLoading = signal(false);
   readonly linkingFolio = signal<string | null>(null);
 
-  constructor() { this.load(); }
+  /** COMM-P1 — el WS está conectado y esta bandeja refleja cambios de otros al momento. */
+  readonly live = this.socket.connected;
+  private wsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    this.load();
+    // COMM-P1: cierra la asimetría con /finanzas/pagos-comprobantes, que ya tenía WS.
+    this.socket.connect();
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onWsChange(ev));
+    this.destroyRef.onDestroy(() => {
+      if (this.wsTimer) clearTimeout(this.wsTimer);
+      this.socket.disconnect();
+    });
+  }
+
+  /** Verbo para el aviso: qué hizo el otro usuario. */
+  private readonly WS_VERB: Record<CollectionDepositEvent['action'], string> = {
+    attached: 'adjuntó una ficha',
+    validated: 'validó un comprobante',
+    rejected: 'rechazó un comprobante',
+    bank_matched: 'concilió un cobro con el banco',
+    bank_unmatched: 'deshizo una conciliación',
+  };
+
+  /**
+   * Cambio de otro usuario → aviso sutil (si no fui yo) + refresco debounced de la
+   * vista ACTIVA. El debounce coalesce ráfagas (validar varios comprobantes seguidos
+   * emite un evento por cada uno).
+   */
+  private onWsChange(ev: CollectionDepositEvent): void {
+    const me: any = this.auth.user();
+    const mine = !!ev.actor && (ev.actor === me?.full_name || ev.actor === me?.username);
+    if (!mine) {
+      this.toast.add({
+        severity: 'info', summary: 'En vivo', life: 3500,
+        detail: `${ev.actor || 'Alguien'} ${this.WS_VERB[ev.action] || 'actualizó un comprobante'} · ${ev.folio}`,
+      });
+    }
+    if (this.wsTimer) clearTimeout(this.wsTimer);
+    this.wsTimer = setTimeout(() => {
+      if (this.mode() === 'banco') this.loadBanco();
+      else this.load();
+      // Si el diálogo abierto es justo el cobro que cambió, refrescalo también
+      // (reusa el mismo helper que usan conciliar/deshacer).
+      const open = this.viewTarget();
+      if (this.showView() && open && open.sucursal === ev.sucursal && open.folio === ev.folio) this.reloadView();
+    }, 400);
+  }
 
   setMode(v: string) { this.mode.set(v as 'cobros' | 'banco'); if (v === 'banco' && !this.bancoReport()) this.loadBanco(); }
   setHuerfanos(v: string) { this.soloHuerfanos.set(v); this.loadBanco(); }
