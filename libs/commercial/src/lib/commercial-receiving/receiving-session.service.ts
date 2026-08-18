@@ -164,6 +164,9 @@ export class ReceivingSessionService {
       const lc = await trx('analytics.erp_goods_receipt_lines')
         .where({ tenant_id: tenantId, sucursal: row.sucursal, folio: row.folio })
         .count('* as c').first();
+      // Traspaso interno = código de "proveedor" con prefijo TI (sucursal propia,
+      // Kepler 01-06 + Wincaja). Todo lo demás (prefijo C…) = compra a proveedor externo.
+      const tipo = /^TI/i.test(row.proveedor_code || '') ? 'traspaso' : 'compra';
       return {
         sucursal: row.sucursal,
         folio: row.folio,
@@ -172,6 +175,7 @@ export class ReceivingSessionService {
         monto: Number(row.monto) || 0,
         receipt_date: row.receipt_date,
         line_count: Number(lc?.c || 0),
+        tipo,
       };
     });
   }
