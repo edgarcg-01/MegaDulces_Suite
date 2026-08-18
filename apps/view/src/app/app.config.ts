@@ -1,4 +1,4 @@
-import { ApplicationConfig, LOCALE_ID, isDevMode, provideZonelessChangeDetection } from '@angular/core';
+import { ApplicationConfig, ErrorHandler, LOCALE_ID, isDevMode, provideZonelessChangeDetection } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 
@@ -14,6 +14,7 @@ import { provideRouter, withPreloading, withRouterConfig } from '@angular/router
 import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
+import { GlobalErrorHandler } from './core/errors/global-error-handler';
 import { authInterceptor } from './core/http/auth.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
@@ -28,6 +29,9 @@ export const appConfig: ApplicationConfig = {
     // compras-pedido-real (money() guard). zone.js sigue en polyfills.
     provideZonelessChangeDetection(),
     { provide: LOCALE_ID, useValue: 'es-MX' },
+    // Sin esto una excepción no capturada dejaba la pantalla en blanco: nada
+    // que ver, nada que reportar, nada registrado.
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
     // v22 cambió el default de paramsInheritanceStrategy a 'always'; preservamos
     // 'emptyOnly' (comportamiento Angular 18) para no heredar params de rutas padre.
     provideRouter(

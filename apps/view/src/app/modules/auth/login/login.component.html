@@ -55,6 +55,18 @@
       <div class="w-full max-w-sm sm:max-w-md">
         <div class="bg-surface-card border border-divider/50 p-6 sm:p-8 rounded-2xl shadow-sm">
 
+          <!-- Aviso de sesión caída. Va aparte del error de credenciales y en
+               tono ámbar, no rojo: el usuario no hizo nada mal, sólo se le venció
+               la sesión. Pintarlo como error lo haría dudar de su contraseña. -->
+          @if (notice()) {
+            <div class="bg-warn-soft-bg border border-warn-border text-warn-soft-fg p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
+              <div class="flex items-center gap-2">
+                <i class="pi pi-clock"></i>
+                <span>{{ notice() }}</span>
+              </div>
+            </div>
+          }
+
           <!-- Error Message -->
           @if (errorMessage) {
             <div class="bg-bad-soft-bg border border-bad-border text-bad-soft-fg p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">

@@ -987,6 +987,20 @@ export const routes: Routes = [
     pathMatch: 'full'
   },
   {
+    // 403. Dentro del layout, igual que el 404: el sidebar es la salida.
+    // Recibe ?from= (ruta vedada) y ?perm= (permiso que faltó) del guard.
+    path: 'sin-acceso',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./modules/errors/forbidden.component').then((m) => m.ForbiddenComponent),
+      },
+    ],
+  },
+  {
     // 404. Va DENTRO del layout: el sidebar es la salida más rápida, y como el
     // layout deduce el proyecto leyendo la URL, un 404 bajo /comercial/… sale con
     // el menú de Comercial al lado. Antes esto redirigía a /login, que con la

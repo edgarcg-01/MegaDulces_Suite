@@ -29,10 +29,19 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(modifiedReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      // 401 → logout + redirect al login.
+      // 401 → se cayó la sesión. Antes esto era logout + /login MUDO: se veía
+      // idéntico a cerrar sesión a propósito, sin decir que había expirado y
+      // perdiendo dónde estabas. Ahora se lleva el motivo y la ruta de vuelta.
       if (error.status === 401) {
+        const from = router.url;
         authService.logout();
-        router.navigateByUrl('/login');
+        router.navigate(['/login'], {
+          queryParams: {
+            reason: 'expired',
+            // No tiene sentido volver al propio login ni a una pantalla de error.
+            returnUrl: from && !from.startsWith('/login') && !from.startsWith('/sin-acceso') ? from : null,
+          },
+        });
       }
       return throwError(() => error);
     })
