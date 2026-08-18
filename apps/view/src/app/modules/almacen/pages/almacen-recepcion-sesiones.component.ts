@@ -180,11 +180,14 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   ];
   readonly sucursalOptions = [
     { label: 'CEDIS (00)', value: '00' },
-    { label: 'PH (01)', value: '01' },
-    { label: 'Sucursal 02', value: '02' },
+    { label: 'Padre Hidalgo (01)', value: '01' },
+    { label: 'La Piedad Abastos (02)', value: '02' },
     { label: '8 Esquinas (03)', value: '03' },
-    { label: 'Sucursal 04', value: '04' },
-    { label: 'Sucursal 05', value: '05' },
+    { label: 'Yurécuaro (04)', value: '04' },
+    { label: 'Zamora Centro (05)', value: '05' },
+    { label: 'Morelia Abastos (30)', value: '30' },
+    { label: 'Morelia Madero (32)', value: '32' },
+    { label: 'Canindo (50)', value: '50' },
   ];
 
   readonly mapOpen = signal(false);
