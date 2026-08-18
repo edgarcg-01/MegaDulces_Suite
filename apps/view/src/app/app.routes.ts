@@ -987,7 +987,20 @@ export const routes: Routes = [
     pathMatch: 'full'
   },
   {
+    // 404. Va DENTRO del layout: el sidebar es la salida más rápida, y como el
+    // layout deduce el proyecto leyendo la URL, un 404 bajo /comercial/… sale con
+    // el menú de Comercial al lado. Antes esto redirigía a /login, que con la
+    // sesión viva se leía como "se te cayó la sesión" por un dedazo en la URL.
+    // Sin sesión, authGuard sigue mandando a /login, que es lo correcto.
     path: '**',
-    redirectTo: '/login'
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./modules/errors/not-found.component').then((m) => m.NotFoundComponent),
+      },
+    ],
   }
 ];
