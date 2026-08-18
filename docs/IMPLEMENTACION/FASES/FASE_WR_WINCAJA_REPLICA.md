@@ -89,10 +89,10 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 |---|---|---|---|
 | **WR.0** | **Descubrimiento** ⛔ ruta crítica | Inventario de `.mdb` objetivo (30/32/00/rutas): ruta, **copia-sombra existe?** (SyncBack cubre 30/32/50; confirmar 00 + rutas), tablas, PKs, tipos, tamaños, **columna incremental** por tabla de movimiento. Entregable: mapa tabla→carril + PK + col-watermark por sucursal. | ⬜ |
 | **WR.1** | Adapter de lectura + esquema | Extractor Jet 32-bit genérico (reusa `extract-table.ps1`) + descubridor de **tablas/columnas/PK** del `.mdb` (`OleDbSchemaGuid`/`MSysObjects`) + wrapper Node `readTable(t,{sinceCol,sinceVal})` / `readAll(t)`. | 🧪 |
-| **WR.2** | Destino réplica + DDL espejo | Crear `wincaja_XX` (o schema-por-sucursal) en `:5433` + auto-generar el DDL espejo desde el esquema Access (tipos → `text`/`numeric` sin precisión, **tolerante a valores corruptos** — el saneamiento vive en silver, no en la réplica cruda). | ⬜ |
-| **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | ⬜ |
-| **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | ⬜ |
-| **WR.5** | Verificación + monitoreo | Fidelidad `.mdb` ↔ réplica (conteos + Σ montos, como se hizo con Kepler) + **db-health source** (frescura de la réplica Wincaja). | ⬜ |
+| **WR.2** | Destino réplica + DDL espejo | Crear `wincaja_XX` (o schema-por-sucursal) en `:5433` + auto-generar el DDL espejo desde el esquema Access (tipos → `text`/`numeric` sin precisión, **tolerante a valores corruptos** — el saneamiento vive en silver, no en la réplica cruda). | 🧪 (30 aplicado; 32/00 pendiente) |
+| **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | 🔨 (código; live pend. Docker) |
+| **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | 🔨 (código; falta probar+agendar) |
+| **WR.5** | Verificación + monitoreo | Fidelidad `.mdb` ↔ réplica (conteos + Σ montos, como se hizo con Kepler) + **db-health source** (frescura de la réplica Wincaja). | 🔨 (verifier listo; db-health pend.) |
 | **WR.6** | Re-apuntar consumidores (Fase 2) | `import-wincaja` + extractores leen de la **réplica Postgres** (SQL) en vez de Jet → el bronze deja de depender de la extracción Jet full-daily; el `WincajaSyncActual` 05:00 se retira o se vuelve micro-batch sobre la réplica. | ⬜ |
 
 **MVP = WR.0–WR.5** (la réplica cruda existe y está fresca). **WR.6** cosecha el beneficio (el pipeline deja de depender de Jet).
@@ -165,6 +165,22 @@ WR y [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md) (CEDIS Kepler-Access) son **el mis
 | `PagosDia` | 16,287 | `[]` ⚠️ | incremental |
 
 **Para WR.2 (DDL + conflict target):** las tablas de movimiento SIN PK declarada (`DetallesMovAlmacen`, `MovimientoClientes`, `PagosDia`, `DetalleCotizaciones`, `FaltantesDeCotizaciones`) necesitan **conflict-target por convención** — `DetallesMovAlmacen` se une a `MaestroMovAlmacen` por `Consecutivo` pero tiene N líneas → hará falta inspeccionar sus 25 columnas para el par `(Consecutivo, <renglón/artículo>)`. Las tablas CON PK (catálogos + `MaestroMovAlmacen`) usan su PK como conflict target directo. Tipos Jet vistos: `Int32`/`String`/`Double`/`DateTime`/`Byte`/`Boolean` → `numeric`/`text`/`boolean` (fechas como `text`, ISO desde el PS).
+
+---
+
+## 11. WR.2–5 — motor de réplica (código completo, live pendiente de Docker) 2026-08-18
+
+**Archivos:**
+- `lib/access-mirror.js` (genérico WR+CA): `mirrorDDL` (PK natural o `UNIQUE(_row_hash)`) + `conflictTarget` + `dataColumns`.
+- `wincaja/wincaja-replica-config.js`: 3 sucursales (30/32/00) + mapa `INCREMENTAL` (6 tablas watermark) vs hash-delta.
+- `wincaja/wincaja-replica-ddl.js` (WR.2): `ensureDatabase` + `CREATE SCHEMA` + DDL espejo. **DB `wincaja` + `w30` (70/70 tablas) aplicados.**
+- `wincaja/replicate-wincaja-live.js` (WR.3+4): CDC dos carriles. Incremental = `WHERE Consecutivo/Folio > wm` → UPSERT + avanza `ods.wincaja_watermark`. Hash-delta = full-scan + `md5(fila)` en JS → UPSERT `WHERE _row_hash IS DISTINCT` (cero churn). Surrogate `_row_hash` → `DO NOTHING`. Flags `--dry/--once/--watch=N/--branch=/--only=`.
+- `wincaja/wincaja-replica-verify.js` (WR.5): conteos `.mdb` ↔ espejo + Σ de control (ValorVenta/Existencia/Precio).
+- `wincaja/run-wincaja-replica.ps1` (WR.4): launcher per-tick `--once` + heartbeat `wincaja_replica` + nota de tarea `WincajaReplicaLoop` (cada 5 min, IgnoreNew, timeout 5 min).
+
+**BLOQUEADOR live:** el contenedor `pgvector-md` (`:5433`) estaba **caído** al probar (Docker Desktop apagado) → falta correr end-to-end. Pendiente cuando `:5433` vuelva: (1) `replicate-wincaja-live.js --branch=30 --once` (carga inicial + verifica), (2) `wincaja-replica-verify.js --branch=30`, (3) aplicar DDL + carga a 32/00, (4) agendar `WincajaReplicaLoop`.
+
+**Deferred:** reconciliación de DELETEs en catálogos (el full-scan hash-delta captura INSERT/UPDATE, no borrados) → barrido periódico por diff de PK (WR.5.1). Rutas → tras probar 30/32.
 
 ---
 
