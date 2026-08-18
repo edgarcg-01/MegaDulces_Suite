@@ -22,6 +22,7 @@
 | [`03_LOG_REVISIONES.md`](03_LOG_REVISIONES.md) | Historial de checkpoints + lessons learned. | Al cerrar sprint |
 | [`04_FLUJO_END_TO_END_REVIEW.md`](04_FLUJO_END_TO_END_REVIEW.md) | **Revisión flow Trade→Comercial→Logística + 10 GAPS + plan sprints J.6/J.7 (2026-05-27)** | Al cerrar items J.6/J.7 |
 | [`AUDITORIA_BASE_INICIAL.md`](AUDITORIA_BASE_INICIAL.md) | 60 findings del código actual. Severidad + plan correctivo. | Al descubrir finding nuevo |
+| [`TRANSPORTES_COMUNICACION.md`](TRANSPORTES_COMUNICACION.md) | Catálogo de transportes (REST/WS/SSE/Push/colas...) + **cuál conviene por módulo** (Finanzas listo). Baja ADR-045 a la práctica. | Al revisar un módulo o elegir transporte |
 
 ### Plan macro
 | Archivo | Función |
