@@ -58,6 +58,7 @@ const SRC = `
   WHERE sl.tenant_id = ? AND sl.sale_channel = 'ruta_venta'
     AND sl.business_date >= ? AND sl.business_date < ?
     AND sl.business_date <= CURRENT_DATE   -- descarta fechas POS corruptas a futuro (ej. RUTA 22 con dic-2026)
+    AND b.parent_branch <> '50'            -- Canindo migró a Kepler ('06') → sus rutas 501-505 las trae import-canindo-routes-monthly.js (mismo namespace WIN-50X). El histórico WIN-50X (ene-jul) queda; Kepler cubre agosto+.
   GROUP BY 1, 2, 3, 4
 `;
 
