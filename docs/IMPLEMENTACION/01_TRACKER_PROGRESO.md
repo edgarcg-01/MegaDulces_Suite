@@ -740,6 +740,16 @@ Tres lentes (UX / correctitud / completitud) sobre el código ya landeado. Encon
 
 Builds api+view verdes con exit code real. **Smokes pendientes de correr hasta el próximo restart de la API.**
 
+### COMM.8 — Barrido del spread de iterador + cierre de la fuga WS — ✅ CERRADO 2026-08-18
+
+- [x] **[COMM.8.1]** ✅ **53 sitios en 35 archivos** pasados a `Array.from(...)`: 12 commercial · 6 logistics · 6 trade · 5 fiscal · 2 finance · 2 api · platform-core · whatsapp. **Verificado en `dist/apps/api/main.js`: cero ofensores reales.**
+- [x] **[COMM.8.2]** ✅ Lección del método (quedó en la memoria): el 1er escáner usaba un regex que **excluye corchetes dentro de la expresión** → se saltó todos los `[...new Set(x || [])]`, el patrón más común. La 2ª pasada parsea con balanceo. Y **dos casos eran multi-línea** (`logistics-cartaporte`: `driverIds`, `orderIds`), invisibles para cualquier escáner por línea — **los dos bindeados a `whereIn`**, o sea el patrón exacto del `22P02`. Contar en el **bundle** es lo único que cierra el ciclo.
+- [x] **[COMM.8.3]** ✅ Fuga WS cerrada en los 2 gateways que faltaban: `/pagos-comprobantes` (`FINANCE_PAYMENTS_VER`) y `/goods-receipts` (`COMPRAS_ENTRADAS_VER`), con el god-mode de `RolesGuard`. Los 4 gateways de evidencia quedan parejos.
+
+Nota: `COMPRAS_VER` **no existe** en el enum (son `COMPRAS_PEDIDO_*`, `COMPRAS_RED_*`, `COMPRAS_REQUISICIONES_*`, `COMPRAS_ORDENES_*`, `COMPRAS_ENTRADAS_*`) — el typecheck lo atrapó.
+
+Builds api verde con exit code real; typecheck limpio. **Sin migraciones.** Los smokes HTTP no ejercitan el bundle: la verificación de este barrido es el grep del `dist` + el próximo restart.
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I
