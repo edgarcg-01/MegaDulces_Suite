@@ -196,10 +196,14 @@ Réplica cruda continua operando en `:5433/wincaja`, 3 sucursales:
 
 - **Deltas de −1..−15 filas** = filas byte-idénticas de valor $0 colapsadas por el surrogate `_row_hash` (las Σ cuadran al centavo → cero pérdida real).
 - **CEDIS 00**: el archivo bueno es `0 BPIRAPUATO MOV.MDB` (DB completa + movimientos); el `0 BPIRAPUATO.mdb` es catálogo viejo con movimientos=0 → se ignora (config corregida).
-- **Steady-state**: ~3.6 min/sucursal (full-scan Jet de catálogos, `wrote=0` cero churn) → ciclo 3-sucursales ≈ 11 min → **tarea `WincajaReplicaLoop` cada 15 min** (timeout 14, IgnoreNew, `SISTEMAS\Desarrollo MD` Interactive Highest).
+- **Steady-state**: catálogos ~3.6 min/sucursal (full-scan Jet, `wrote=0` cero churn); movimientos ~11s/sucursal (incremental, solo filas > watermark).
+
+**WR.5.1 ✅ split de carriles (frescura real):** flag `--carril=inc|hash|all` en `replicate-wincaja-live.js` + `-Carril` en el launcher → **dos tareas**:
+- **`WincajaReplicaMov`** (`-Carril inc`, movimientos/ventas) cada **3 min** (ciclo 3-suc ~35s) → frescura de ventas ~3 min.
+- **`WincajaReplicaCat`** (`-Carril hash`, catálogos) cada **60 min** (timeout 20, ciclo ~11 min).
+Escriben tablas disjuntas (inc vs hash) → sin contención. Ambas `SISTEMAS\Desarrollo MD` Interactive Highest, IgnoreNew.
 
 **Diferido:**
-- **WR.5.1** — split de carriles para frescura 1-5 min en MOVIMIENTOS: incremental (ventas) cada ~2 min, hash-delta (catálogos, caro) cada ~hora. Hoy todo va junto cada 15 min.
 - **WR.5.2** — db-health source (frescura de la réplica en el tablero de salud).
 - **WR.6** — re-apuntar el bronze `import-wincaja` a la réplica (dejar de depender de Jet full-daily).
 - Reconciliación de DELETEs en catálogos (barrido por diff de PK).

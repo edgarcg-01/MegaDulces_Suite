@@ -11,15 +11,18 @@
     WINCAJA_MDB_BASE      = carpeta de los .mdb. Default Z:/Salidas/Bases/Actuales.
     WINCAJA_REPLICA_ONLY  = (opcional) --only=<tablas> para acotar.
 
-  powershell -ExecutionPolicy Bypass -File run-wincaja-replica.ps1
+  -Carril: inc (movimientos, frescura alta ~3min) | hash (catalogos, cada ~1h) | all (default).
+  powershell -ExecutionPolicy Bypass -File run-wincaja-replica.ps1 -Carril inc
 #>
+param([ValidateSet('all','inc','hash')][string]$Carril = 'all')
 $ErrorActionPreference = 'Stop'
 $here  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dbDir = (Resolve-Path (Join-Path $here '..\..')).Path
 $logDir = Join-Path $here 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$log   = Join-Path $logDir "wincaja_replica_$stamp.log"
+$hb    = if ($Carril -eq 'all') { 'wincaja_replica' } else { "wincaja_replica_$Carril" }
+$log   = Join-Path $logDir "${hb}_$stamp.log"
 function Log($m) { $l = "$(Get-Date -Format o)  $m"; Write-Host $l; Add-Content -Path $log -Value $l }
 
 $envFile = Join-Path $here 'sync.local.env'
@@ -33,35 +36,40 @@ $env:NODE_PATH = (Join-Path (Resolve-Path (Join-Path $dbDir '..')).Path 'node_mo
 
 $extra = @()
 if ($env:WINCAJA_REPLICA_ONLY) { $extra += "--only=$($env:WINCAJA_REPLICA_ONLY)" }
+if ($Carril -ne 'all') { $extra += "--carril=$Carril" }
 
-Log "########## WINCAJA REPLICA (cruda -> :5433/wincaja) ##########"
+Log "########## WINCAJA REPLICA (cruda -> :5433/wincaja) carril=$Carril ##########"
 Push-Location $dbDir
-try { & node importers/lib/cron-heartbeat.js begin wincaja_replica "Wincaja replica cruda (Access->Postgres)" 2>&1 | Out-Null } catch {}
+try { & node importers/lib/cron-heartbeat.js begin $hb "Wincaja replica cruda ($Carril)" 2>&1 | Out-Null } catch {}
 try {
-  $args = @('importers/wincaja/replicate-wincaja-live.js', '--once') + $extra
-  Log "=== node $($args -join ' ')"
+  $nodeArgs = @('importers/wincaja/replicate-wincaja-live.js', '--once') + $extra
+  Log "=== node $($nodeArgs -join ' ')"
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-  & node @args 2>&1 | ForEach-Object { Add-Content -Path $log -Value ($_ | Out-String).TrimEnd() }
+  & node @nodeArgs 2>&1 | ForEach-Object { Add-Content -Path $log -Value ($_ | Out-String).TrimEnd() }
   $code = $LASTEXITCODE; $ErrorActionPreference = $prev
   if ($code -ne 0) { throw "replicate-wincaja-live fallo (exit $code)" }
   Log "########## DONE OK ##########"
-  try { & node importers/lib/cron-heartbeat.js end wincaja_replica ok 2>&1 | Out-Null } catch {}
+  try { & node importers/lib/cron-heartbeat.js end $hb ok 2>&1 | Out-Null } catch {}
 } catch {
   Log "########## FALLO: $($_.Exception.Message) ##########"
-  try { & node importers/lib/cron-heartbeat.js end wincaja_replica error "$($_.Exception.Message)" 2>&1 | Out-Null } catch {}
+  try { & node importers/lib/cron-heartbeat.js end $hb error "$($_.Exception.Message)" 2>&1 | Out-Null } catch {}
   Pop-Location; exit 1
 }
 Pop-Location
 exit 0
 
 <#
-  -- Agendar (una vez, como admin en la maquina de feeds) ---------------------------
-  $act = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\Sistemas\CascadeProjects\Trade_marketing\database\importers\wincaja\run-wincaja-replica.ps1"'
-  $trg = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Minutes 5)
-  $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
+  -- Agendar (WR.5.1: split de carriles, como admin en la maquina de feeds) ---------
+  $F = 'C:\Users\Sistemas\CascadeProjects\Trade_marketing\database\importers\wincaja\run-wincaja-replica.ps1'
   $pri = New-ScheduledTaskPrincipal -UserId 'SISTEMAS\Desarrollo MD' -LogonType Interactive -RunLevel Highest
-  Register-ScheduledTask -TaskName 'WincajaReplicaLoop' -Action $act -Trigger $trg -Settings $set -Principal $pri -Force
+  # MOVIMIENTOS (ventas, incremental) cada 3 min -> frescura ~3 min
+  $aMov = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$F`" -Carril inc"
+  $tMov = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 3)
+  $sMov = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
+  Register-ScheduledTask -TaskName 'WincajaReplicaMov' -Action $aMov -Trigger $tMov -Settings $sMov -Principal $pri -Force
+  # CATALOGOS (hash-delta, caro) cada 60 min
+  $aCat = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$F`" -Carril hash"
+  $tCat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 60)
+  $sCat = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
+  Register-ScheduledTask -TaskName 'WincajaReplicaCat' -Action $aCat -Trigger $tCat -Settings $sCat -Principal $pri -Force
 #>
