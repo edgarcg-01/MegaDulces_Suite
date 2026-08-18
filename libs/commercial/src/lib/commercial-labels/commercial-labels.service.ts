@@ -20,6 +20,7 @@ export interface LabelModel {
   box_price: number | null;
   unit_base: string | null;
   sold_by_kg: boolean;
+  scanned_unit: string | null;         // unidad del barcode con que se resolvió (PZA/CJA/…) o null
 }
 
 const n = (v: unknown): number | null => {
@@ -51,17 +52,34 @@ const barcodeFmt = (v: unknown): string | null => {
 export class CommercialLabelsService {
   constructor(private readonly tk: TenantKnexService) {}
 
-  /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode). */
+  /**
+   * ¿Existe `catalog.product_barcodes` (barcodes por unidad, 1 SKU→N)? Se consulta antes de usarla
+   * para no romper si la migración aún no se aplicó (comportamiento no-regresivo: cae a p.barcode).
+   */
+  private async hasUnitBarcodes(trx: any): Promise<boolean> {
+    const r = await trx.raw(`SELECT to_regclass('catalog.product_barcodes') IS NOT NULL AS ok`);
+    return !!(r?.rows?.[0]?.ok);
+  }
+
+  /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */
   async search(q: string): Promise<{ product_id: string; sku: string | null; name: string; barcode: string | null }[]> {
     const term = String(q ?? '').trim();
     if (term.length < 2) return [];
     return this.tk.run(async (trx) => {
       const like = `%${term}%`;
+      const hasBc = await this.hasUnitBarcodes(trx);
       return trx('products as p')
         .whereNull('p.deleted_at')
-        .andWhere((b) =>
-          b.where('p.nombre', 'ilike', like).orWhere('p.sku', 'ilike', like).orWhere('p.barcode', 'ilike', like),
-        )
+        .andWhere((b) => {
+          b.where('p.nombre', 'ilike', like).orWhere('p.sku', 'ilike', like).orWhere('p.barcode', 'ilike', like);
+          // Además: cualquier producto cuyo barcode de OTRA unidad (caja/paquete) matchee el término.
+          if (hasBc) {
+            b.orWhereExists(function () {
+              this.select(trx.raw('1')).from('catalog.product_barcodes as pb')
+                .whereRaw('pb.sku = p.sku').andWhere('pb.barcode', 'ilike', like).whereNull('pb.deleted_at');
+            });
+          }
+        })
         .select('p.id as product_id', 'p.sku', 'p.nombre as name', 'p.barcode')
         .orderBy('p.nombre', 'asc')
         .limit(20);
@@ -76,12 +94,27 @@ export class CommercialLabelsService {
     if (codes.length > 1000) throw new BadRequestException('Máximo 1000 códigos por lote.');
 
     return this.tk.run(async (trx) => {
+      // Barcodes por UNIDAD (caja/paquete): mapea el código escaneado → SKU + unidad, para que
+      // escanear la caja resuelva al producto e imprima SU barcode (no el de pieza).
+      const codeToUnit = new Map<string, { sku: string; unit: string | null }>();
+      let extraSkus: string[] = [];
+      if (await this.hasUnitBarcodes(trx)) {
+        const bcRows = await trx('catalog.product_barcodes')
+          .whereIn('barcode', codes).whereNull('deleted_at')
+          .select('barcode', 'sku', 'unit');
+        for (const b of bcRows) {
+          codeToUnit.set(String(b.barcode), { sku: String(b.sku), unit: b.unit ?? null });
+        }
+        extraSkus = [...new Set(bcRows.map((b: any) => String(b.sku)))];
+      }
+      const skuMatch = [...new Set([...codes, ...extraSkus])];
+
       const rows = await trx('products as p')
         .leftJoin('commercial.product_label_prices as l', function () {
           this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
         })
         .whereNull('p.deleted_at')
-        .andWhere((b) => b.whereIn('p.sku', codes).orWhereIn('p.barcode', codes))
+        .andWhere((b) => b.whereIn('p.sku', skuMatch).orWhereIn('p.barcode', codes))
         .select(
           'p.id as product_id', 'p.sku', 'p.barcode as product_barcode', 'p.nombre as name',
           'l.content', 'l.barcode', 'l.barcode_format', 'l.piece_price',
@@ -101,23 +134,24 @@ export class CommercialLabelsService {
       const not_found: string[] = [];
       const seen = new Set<string>();
       for (const code of codes) {
-        const r = bySku.get(code) || byBarcode.get(code);
+        const unitHit = codeToUnit.get(code); // se escaneó el barcode de una unidad (caja/paquete/pieza)
+        const r = bySku.get(code) || byBarcode.get(code) || (unitHit ? bySku.get(unitHit.sku) : undefined);
         if (!r || seen.has(r.product_id)) {
           if (!r) not_found.push(code);
           continue;
         }
         seen.add(r.product_id);
-        // El barcode del label sale de p.barcode (lo que el lector matchea). Si es EAN/UPC/EAN8
-        // válido se imprime; si no, se deja null y el frontend imprime CODE128 del SKU.
-        const pbc = String(r.product_barcode ?? '').trim();
-        const fmt = barcodeFmt(pbc);
+        // El barcode del label = el escaneado si vino por una unidad (lo impreso == lo escaneable de
+        // ESA unidad); si no, p.barcode (pieza). EAN/UPC/EAN8 válido se imprime; si no, null → CODE128 del SKU.
+        const rawBc = unitHit ? code : String(r.product_barcode ?? '').trim();
+        const fmt = barcodeFmt(rawBc);
         labels.push({
           code,
           product_id: r.product_id,
           sku: r.sku ?? null,
           name: r.name,
           content: r.content ?? null,
-          barcode: fmt ? pbc : null,
+          barcode: fmt ? rawBc : null,
           barcode_format: fmt,
           piece_price: n(r.piece_price),
           wholesale_piece_min_qty: r.wholesale_piece_min_qty ?? null,
@@ -130,6 +164,7 @@ export class CommercialLabelsService {
           box_price: n(r.box_price),
           unit_base: r.unit_base ?? null,
           sold_by_kg: r.sold_by_kg === true,
+          scanned_unit: unitHit?.unit ?? null,
         });
       }
       return { labels, not_found };
