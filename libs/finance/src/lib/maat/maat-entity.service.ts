@@ -61,7 +61,10 @@ export class MaatEntityService {
     // fan-out: mismo nombre canónico ligado a ≥2 RFCs (duplicación/shell)
     for (const [key, g] of groups) {
       if (g.rfcs.size < 2 || g.monto < minMonto) continue;
-      const detalle = [...g.rfcs.entries()].map(([rfc, v]) => ({ rfc, nombre: v.nombre, monto: Math.round(v.monto), docs: v.n }))
+      // Array.from y NO spread: el bundle del API downlevelea `[...map.entries()]` a
+      // `[].concat(iter)` → detalle quedaba con UN elemento (el iterador) y el título
+      // del hallazgo salía con `undefined`. Ver feedback_webpack_set_spread_downlevel.
+      const detalle = Array.from(g.rfcs.entries()).map(([rfc, v]) => ({ rfc, nombre: v.nombre, monto: Math.round(v.monto), docs: v.n }))
         .sort((a, b) => b.monto - a.monto);
       out.push({
         rule_key: 'entidad_duplicada',
@@ -88,7 +91,8 @@ export class MaatEntityService {
     }
     for (const [rfc, g] of byRfc) {
       if (g.keys.size < 2 || g.monto < minMonto) continue;
-      const detalle = [...g.keys.values()].map((v) => ({ nombre: v.nombre, monto: Math.round(v.monto) })).sort((a, b) => b.monto - a.monto);
+      // Array.from y NO spread (mismo downlevel del bundle del API).
+      const detalle = Array.from(g.keys.values()).map((v) => ({ nombre: v.nombre, monto: Math.round(v.monto) })).sort((a, b) => b.monto - a.monto);
       out.push({
         rule_key: 'entidad_duplicada',
         severity: 'warn',

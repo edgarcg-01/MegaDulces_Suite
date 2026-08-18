@@ -156,7 +156,10 @@ export class FinanceJobsService {
   /** Últimos trabajos del tenant (más reciente primero). */
   recent(limit = 20): FinanceJobRecord[] {
     const tenantId = this.safeTenantId();
-    return [...this.jobs.values()]
+    // Array.from y NO [...map.values()]: el bundler downlevelea el spread de un
+    // iterador a `[].concat(iter)`, que mete el ITERADOR como único elemento →
+    // el endpoint devolvía `[{}]`. Mismo pisón que con [...new Set()].
+    return Array.from(this.jobs.values())
       .filter((j) => !tenantId || !j.tenant_id || j.tenant_id === tenantId)
       .sort((a, b) => (a.started_at < b.started_at ? 1 : -1))
       .slice(0, limit);
