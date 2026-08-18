@@ -66,9 +66,11 @@ export class CajaGeneralService {
       const tot: any = await inRange()
         .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
           trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
-      // Saldo actual = SaldoD del último movimiento (running balance de la caja) — global, no del rango.
-      const sal: any = await trx(T).where('tenant_id', tenantId)
-        .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'mov_id', order: 'desc' }]).first('saldo', 'fecha');
+      // Saldo actual = último SaldoD (running balance) REAL. Ojo: mov_id es texto (IdDocto
+      // por TipoDto) → ordenar por él es un sort lexicográfico, no cronológico; y la última
+      // fila suele traer saldo=0. Tomamos el saldo más reciente DISTINTO de 0 por (fecha, hora).
+      const sal: any = await trx(T).where('tenant_id', tenantId).whereRaw('saldo <> 0')
+        .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).first('saldo', 'fecha');
 
       const porMes = await trx(T).where('tenant_id', tenantId)
         .select(trx.raw(`to_char(fecha,'YYYY-MM') AS mes`), trx.raw('SUM(ingreso)::numeric AS ingreso'),
@@ -83,7 +85,8 @@ export class CajaGeneralService {
       let movq = inRange()
         .select('mov_id', 'tipo_dto', 'tipo', 'fecha', 'hora', 'usuario', 'cuenta', 'cuenta_nombre',
           'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'saldo', 'denom')
-        .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'mov_id', order: 'desc' }]).limit(500);
+        // Cronológico real por (fecha, hora); mov_id es texto → no sirve como orden temporal.
+        .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).limit(500);
       if (q.tipo) movq = movq.where('tipo', q.tipo);
       if (q.search) movq = movq.whereRaw(
         '(cuenta_nombre ILIKE ? OR nombre_cliente ILIKE ? OR concepto ILIKE ?)',

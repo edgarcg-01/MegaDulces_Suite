@@ -114,7 +114,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #body let-r>
               <tr class="cg-row-click" (click)="toggleRow(r)" [class.cg-row-open]="isExp(r)">
                 <td><i class="pi cg-chev" [class.pi-chevron-right]="!isExp(r)" [class.pi-chevron-down]="isExp(r)" aria-hidden="true"></i></td>
-                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
+                <td class="cg-mono">{{ dmy(r.fecha) }}</td>
                 <td class="cg-emp" [title]="r.cuenta_nombre">{{ r.cuenta_nombre || '—' }} <span class="muted">#{{ r.cuenta }}</span></td>
                 <td class="cg-emp" [title]="r.nombre_cliente">{{ r.nombre_cliente || '—' }}@if (r.concepto) { <span class="muted"> · {{ r.concepto }}</span> }</td>
                 <td class="ta-r num cg-eg" [class.strong]="r.gasto>0">{{ r.gasto ? money(r.gasto) : '—' }}</td>
@@ -126,7 +126,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <div class="cg-detail">
                   <div class="cg-detail-meta">
                     <span><b>{{ r.tipo }}</b> · folio {{ r.mov_id }}</span>
-                    <span>{{ r.fecha | date:'dd/MM/yyyy' }} {{ r.hora || '' }}</span>
+                    <span>{{ dmyLong(r.fecha) }} {{ r.hora || '' }}</span>
                     @if (r.usuario) { <span>capturó: <b>{{ r.usuario }}</b></span> }
                     <span>cuenta: <b>{{ r.cuenta_nombre }}</b> <span class="muted">#{{ r.cuenta }}</span></span>
                     <span class="cg-detail-amt" [class.cg-in]="r.ingreso>0" [class.cg-eg]="r.gasto>0">{{ r.ingreso>0 ? '+'+money(r.ingreso) : '−'+money(r.gasto) }}</span>
@@ -143,7 +143,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="6"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
-          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ d.totals.saldo_fecha | date:'dd/MM/yy' }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
+          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ dmy(d.totals.saldo_fecha) }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
         }
       }
 
@@ -173,7 +173,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #body let-r>
               <tr class="cg-row-click" (click)="toggleCqDay(r)" [class.cg-row-open]="cqIsExp(r)">
                 <td><i class="pi cg-chev" [class.pi-chevron-right]="!cqIsExp(r)" [class.pi-chevron-down]="cqIsExp(r)" aria-hidden="true"></i></td>
-                <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }} <span class="muted">· {{ r.n }}</span></td>
+                <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.n }}</span></td>
                 <td class="ta-r num strong">{{ money(r.ingreso) }}</td>
                 <td class="ta-r num muted">{{ money(r.gasto) }}</td>
                 <td class="ta-r num muted">{{ r.deposito ? money(r.deposito) : '—' }}</td>
@@ -241,7 +241,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <td class="ta-r num muted">{{ money(r.depositado) }}</td>
                   <td class="ta-r num" [class.warn]="r.descuadre>1000">{{ money(r.descuadre) }}</td>
                   <td class="ta-c num" [class.warn]="r.pct_depositado<80">{{ r.pct_depositado }}%</td>
-                  <td class="cg-mono muted">{{ r.ultima | date:'dd/MM/yy' }}</td>
+                  <td class="cg-mono muted">{{ dmy(r.ultima) }}</td>
                 </tr>
               </ng-template>
             </p-table>
@@ -267,8 +267,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #header><tr><th class="cg-w-date">Depósito</th><th class="cg-w-date">Real</th><th>Banco</th><th class="cg-w-suc">Suc</th><th class="cg-w-met">Método</th><th class="ta-r">Depósito</th><th class="ta-r">Real</th><th class="ta-r cg-w-com">Comisión</th></tr></ng-template>
             <ng-template #body let-r>
               <tr>
-                <td class="cg-mono">{{ r.deposito_date | date:'dd/MM/yy' }}</td>
-                <td class="cg-mono muted">{{ r.deposito_date_real ? (r.deposito_date_real | date:'dd/MM/yy') : '—' }}</td>
+                <td class="cg-mono">{{ dmy(r.deposito_date) }}</td>
+                <td class="cg-mono muted">{{ r.deposito_date_real ? dmy(r.deposito_date_real) : '—' }}</td>
                 <td>{{ r.banco_name || '—' }}@if (r.banco_cuenta) { <span class="muted"> ·{{ r.banco_cuenta }}</span> }</td>
                 <td class="cg-mono muted">{{ r.almacen || '—' }}</td>
                 <td class="muted">{{ r.tipo_pago || '—' }}</td>
@@ -298,7 +298,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #header><tr><th class="cg-w-date">Fecha</th><th class="cg-w-fol">Folio</th><th>Tipo</th><th class="cg-w-suc">Caja</th><th class="ta-r">Efectivo</th><th class="ta-r">Cheques</th><th class="ta-r">Tarjeta</th><th class="ta-r">Total</th><th class="cg-w-e">Estado</th></tr></ng-template>
             <ng-template #body let-r>
               <tr [class.cg-cancel]="r.cancelado">
-                <td class="cg-mono">{{ r.arqueo_date | date:'dd/MM/yy' }}</td>
+                <td class="cg-mono">{{ dmy(r.arqueo_date) }}</td>
                 <td class="cg-mono">{{ r.folio || '—' }}</td>
                 <td><p-tag [value]="r.tipo || '?'" [severity]="tipoSev(r.tipo)" styleClass="cg-tag" /></td>
                 <td class="cg-mono muted">{{ r.source_caja }}</td>
@@ -363,7 +363,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <ng-template #header><tr><th class="cg-w-date">Fecha</th><th>Banco</th><th class="cg-w-suc">Suc</th><th class="ta-r">Monto</th></tr></ng-template>
                 <ng-template #body let-r>
                   <tr>
-                    <td class="cg-mono">{{ r.fecha | date:'dd/MM/yy' }}</td>
+                    <td class="cg-mono">{{ dmy(r.fecha) }}</td>
                     <td>{{ r.banco || '—' }}</td>
                     <td class="cg-mono muted">{{ r.almacen || '—' }}</td>
                     <td class="ta-r num strong warn">{{ money(r.monto) }}</td>
@@ -661,4 +661,19 @@ export class FinanzasCajaComponent implements OnInit {
   tLabel(t: string): string { return TENDER_LABEL[t] || t; }
   tipoSev(t: string | null): 'warn' | 'info' | 'success' | 'secondary' { return t === 'Retiro' ? 'warn' : t === 'Corte' ? 'info' : t === 'Deposito' ? 'success' : 'secondary'; }
   money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  /**
+   * Fecha SIN voltear de TZ. El API serializa las columnas `date` como ISO a
+   * medianoche UTC (contenedor UTC) → el pipe `| date` las mueve un día atrás en
+   * el navegador MX. Extraemos la parte de fecha del string (o del Date) directo.
+   */
+  dmy(v: any): string {
+    if (v instanceof Date && !isNaN(v.getTime())) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${String(v.getFullYear()).slice(2)}`;
+    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : (v ? String(v) : '—');
+  }
+  dmyLong(v: any): string {
+    if (v instanceof Date && !isNaN(v.getTime())) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
+    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : (v ? String(v) : '—');
+  }
 }
