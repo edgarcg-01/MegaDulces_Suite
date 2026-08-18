@@ -2419,9 +2419,10 @@ export class FinanceBankService {
     try { await wb.xlsx.load(buf as any); } catch { throw new BadRequestException('no se pudo leer el Excel'); }
     // CB.23.1 — omite hojas resumen/consolidadas: MOVIMIENTOS GENERAL (unión de todas las
     // cuentas → duplicaría todo), RESUMEN DE SALDOS, POR IDENTIFICAR, y las históricas.
-    // CG — la CAJA GENERAL ya no se importa a Bancos: vive en su propia página (fuente
-    // viva Doctos). Se omite su hoja del workbook → una sola fuente para la caja.
-    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|CAJA GENERAL|FilterDatabase/i.test(s.name));
+    // CG — la hoja CAJA GENERAL SÍ se importa (kind='cash'), pero como el "lado MANUAL"
+    // del workbook para conciliar contra la caja viva (.mdb/Doctos). Queda OCULTA de las
+    // vistas de Bancos (accounts/concentrado/movements la excluyen) — no es cuenta bancaria.
+    const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|MOVIMIENTOS GENERAL|CONCENTRADO|RESUMEN DE SALDOS|POR IDENTIFICAR|FilterDatabase/i.test(s.name));
 
     const result: any = await this.tk.run(async (trx) => {
       // t0 = reloj del servidor al inicio; el barrido marca borrado lo no tocado en este pull

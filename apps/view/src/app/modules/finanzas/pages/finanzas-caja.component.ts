@@ -14,7 +14,7 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
-type View = 'general' | 'cuadre' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
+type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
 interface CajaCuadre {
   period: { from: string; to: string };
@@ -22,6 +22,12 @@ interface CajaCuadre {
   ingreso_origen: { sucursal: OrigenCell; ruta: OrigenCell; otros: OrigenCell };
   pos_efectivo: { efectivo: number; n: number };
   por_dia: { fecha: string; ingreso: number; gasto: number; deposito: number; neto: number; n: number; arqueo_efectivo: number | null; arqueo_n: number }[];
+}
+interface CajaWb {
+  period: { from: string; to: string };
+  totals: { mdb_ingreso: number; mdb_gasto: number; wb_ingreso: number; wb_gasto: number; delta_ingreso: number; delta_gasto: number; dias: number; dias_wb: number; dias_descuadre: number; wb_disponible: boolean };
+  por_dia: { fecha: string; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; wb_ingreso: number; wb_gasto: number; wb_n: number; delta_ingreso: number; delta_gasto: number; wb_vacio: boolean; cuadra: boolean }[];
+  eps: number;
 }
 interface CajaGeneral {
   period: { from: string; to: string };
@@ -213,6 +219,48 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   </div>
                 } @else { <div class="muted" style="padding:.5rem">—</div> }
               </td></tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+          </p-table>
+        }
+      }
+
+      <!-- ===== VS WORKBOOK (.mdb operativo vs copia manual) ===== -->
+      @if (view()==='workbook') {
+        @if (loading() && !wbc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @else if (wbc(); as d) {
+          <p class="cg-note" style="margin:.2rem 0 .6rem">Concilia la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del workbook (hoja CAJA GENERAL del Sheet). El <b>Δ</b> = error u omisión de captura del Excel. No es "caja vs banco" (la caja no deposita) — es el mismo dato por dos caminos. Tolerancia ±{{ money(d.eps) }}/día.</p>
+          @if (!d.totals.wb_disponible) {
+            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>copia manual</b> del workbook en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General/Cuadre</b>: la caja viva no depende del manual.</span></div>
+          } @else {
+            <div class="cg-verdict" [class.ok]="d.totals.dias_descuadre===0" [class.warn]="d.totals.dias_descuadre>0">
+              @if (d.totals.dias_descuadre===0) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> — el manual empata con el .mdb en los {{ d.totals.dias_wb }} días capturados. }
+              @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>{{ d.totals.dias_descuadre }} día(s) con diferencia</b> entre el manual y el .mdb — revísalos abajo. }
+            </div>
+            <app-metric-strip [items]="wbKpis(d)" ariaLabel="Conciliación .mdb vs workbook" />
+          }
+          <p-table [value]="d.por_dia" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+            <ng-template #header><tr>
+              <th class="cg-w-date">Día</th>
+              <th class="ta-r">.mdb Ingreso</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
+              <th class="ta-r">.mdb Gasto</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
+              <th class="cg-w-e">Estado</th>
+            </tr></ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span></td>
+                <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
+                <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
+                <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
+                <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
+                <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
+                <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
+                <td class="cg-w-e">
+                  @if (r.wb_vacio) { <span class="muted">sin manual</span> }
+                  @else if (r.cuadra) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
+                  @else { <p-tag value="revisar" severity="warn" styleClass="cg-tag" /> }
+                </td>
+              </tr>
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
@@ -507,6 +555,7 @@ export class FinanzasCajaComponent implements OnInit {
   readonly VIEWS: { key: View; label: string; icon: string; legacy?: boolean }[] = [
     { key: 'general', label: 'General', icon: 'pi-wallet' },
     { key: 'cuadre', label: 'Cuadre', icon: 'pi-check-square' },
+    { key: 'workbook', label: 'Vs Workbook', icon: 'pi-book' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
     { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar', legacy: true },
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns', legacy: true },
@@ -522,6 +571,7 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cgTipo = signal<string | null>(null);
   readonly cg = signal<CajaGeneral | null>(null);
   readonly cq = signal<CajaCuadre | null>(null);
+  readonly wbc = signal<CajaWb | null>(null);
   readonly cqExp = signal<Record<string, boolean>>({});
   readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
   readonly cqDayLoad = signal<Record<string, boolean>>({});
@@ -553,7 +603,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -582,6 +632,8 @@ export class FinanzasCajaComponent implements OnInit {
       this.http.get<CajaGeneral>(`${this.base}/general${this.qs({ tipo: this.cgTipo(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cg.set(d); done(); }, error: fail });
     } else if (v === 'cuadre') {
       this.http.get<CajaCuadre>(`${this.base}/cuadre${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cq.set(d); done(); }, error: fail });
+    } else if (v === 'workbook') {
+      this.http.get<CajaWb>(`${this.base}/conciliacion-workbook${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.wbc.set(d); done(); }, error: fail });
     } else if (v === 'resumen') {
       this.http.get<Overview>(`${this.base}/overview${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.ov.set(d); done(); }, error: fail });
       this.http.get<SucursalRow[]>(`${this.base}/por-sucursal${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.suc.set(d), error: () => this.suc.set([]) });
@@ -615,6 +667,14 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   abs(n: number): number { return Math.abs(n || 0); }
+  wbKpis(d: CajaWb): MetricStripItem[] {
+    return [
+      { label: '.mdb (operativo)', value: d.totals.mdb_ingreso, format: 'currency-short', tone: 'default', sub: `ingreso · ${d.totals.dias} días` },
+      { label: 'Manual (workbook)', value: d.totals.wb_ingreso, format: 'currency-short', tone: 'default', sub: `ingreso · ${d.totals.dias_wb} días` },
+      { label: 'Δ Ingreso', value: d.totals.delta_ingreso, format: 'currency-short', tone: Math.abs(d.totals.delta_ingreso) > 1000 ? 'warn' : 'ok' },
+      { label: 'Δ Gasto', value: d.totals.delta_gasto, format: 'currency-short', tone: Math.abs(d.totals.delta_gasto) > 1000 ? 'warn' : 'ok' },
+    ];
+  }
   key(r: { fecha: string }): string { return String(r.fecha).slice(0, 10); }
   netoState(r: { ingreso: number; neto: number }): 'sobra' | 'falta' | 'cuadra' {
     const tol = Math.max((r.ingreso || 0) * 0.05, 1000);

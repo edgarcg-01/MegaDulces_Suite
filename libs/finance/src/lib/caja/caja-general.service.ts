@@ -193,6 +193,67 @@ export class CajaGeneralService {
     });
   }
 
+  /**
+   * CG.10 — Conciliación OPERATIVO ↔ MANUAL: la caja viva (.mdb/Doctos,
+   * analytics.caja_general_movimientos) contra la copia MANUAL del workbook (hoja
+   * CAJA GENERAL → finance.bank_movements kind='cash'). Por día: ingreso/gasto de
+   * cada lado + Δ. Verifica que lo capturado a mano en el Excel empate con lo que la
+   * caja realmente movió; el Δ = error/omisión de captura (o mes sin llenar el workbook).
+   * NO es "caja vs banco" (la caja no deposita) — es el mismo dato por dos caminos.
+   */
+  async conciliacionWorkbook(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const key = (f: any) => String(f).slice(0, 10);
+    return this.tk.run(async (trx) => {
+      // Lado .mdb (Doctos) por día.
+      const mdb = await trx('analytics.caja_general_movimientos')
+        .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
+        .select('fecha', trx.raw('SUM(ingreso)::numeric AS ingreso'), trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
+        .groupBy('fecha');
+      // Lado workbook (manual, kind='cash') por día — oculto de Bancos, aquí es la referencia.
+      const wb = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
+        .whereBetween('bm.movement_date', [from, to])
+        .select(trx.raw('bm.movement_date AS fecha'), trx.raw('SUM(bm.amount_in)::numeric AS ingreso'),
+          trx.raw('SUM(bm.amount_out)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
+        .groupBy('bm.movement_date');
+
+      const byDay = new Map<string, any>();
+      for (const r of mdb as any[]) byDay.set(key(r.fecha), { fecha: key(r.fecha), mdb_ingreso: n(r.ingreso), mdb_gasto: n(r.gasto), mdb_n: n(r.n), wb_ingreso: 0, wb_gasto: 0, wb_n: 0 });
+      for (const r of wb as any[]) { const k = key(r.fecha); const d = byDay.get(k) || { fecha: k, mdb_ingreso: 0, mdb_gasto: 0, mdb_n: 0, wb_ingreso: 0, wb_gasto: 0, wb_n: 0 }; d.wb_ingreso = n(r.ingreso); d.wb_gasto = n(r.gasto); d.wb_n = n(r.n); byDay.set(k, d); }
+
+      const EPS = 1; // ±$1 por día = cuadra
+      const por_dia = Array.from(byDay.values()).map((d) => {
+        const di = r2(d.mdb_ingreso - d.wb_ingreso), dg = r2(d.mdb_gasto - d.wb_gasto);
+        const wb_vacio = d.wb_n === 0;
+        return {
+          fecha: d.fecha, mdb_ingreso: r2(d.mdb_ingreso), mdb_gasto: r2(d.mdb_gasto), mdb_n: d.mdb_n,
+          wb_ingreso: r2(d.wb_ingreso), wb_gasto: r2(d.wb_gasto), wb_n: d.wb_n,
+          delta_ingreso: di, delta_gasto: dg, wb_vacio,
+          cuadra: !wb_vacio && Math.abs(di) <= EPS && Math.abs(dg) <= EPS,
+        };
+      }).sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+      const sum = (k: string) => r2(por_dia.reduce((s, d) => s + Number((d as any)[k] || 0), 0));
+      const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), wb_ingreso: sum('wb_ingreso'), wb_gasto: sum('wb_gasto') };
+      return {
+        period: { from, to },
+        totals: {
+          ...tot,
+          delta_ingreso: r2(tot.mdb_ingreso - tot.wb_ingreso), delta_gasto: r2(tot.mdb_gasto - tot.wb_gasto),
+          dias: por_dia.length, dias_wb: por_dia.filter((d) => !d.wb_vacio).length,
+          dias_descuadre: por_dia.filter((d) => !d.wb_vacio && !d.cuadra).length,
+          wb_disponible: (wb as any[]).length > 0,
+        },
+        por_dia, eps: EPS,
+      };
+    });
+  }
+
   /** KPIs del periodo: venta vs depositado por forma de pago + descuadre. */
   async overview(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
