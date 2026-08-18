@@ -7,7 +7,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
 import { cuadra, money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
-import { exportXlsx, XlsxSheet } from './bancos-export';
+import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

@@ -7,7 +7,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { amtPct, cuadra, money, dmy, groupLabel } from './bancos-shared';
-import { exportXlsx } from './bancos-export';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

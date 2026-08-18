@@ -8,7 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
 import { cuadra, money, dmShort } from './bancos-shared';
-import { exportXlsx } from './bancos-export';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**

@@ -3,6 +3,10 @@ import { WritableSignal } from '@angular/core';
 export interface LazyTableEvent {
   first?: number | null;
   rows?: number | null;
+  /** Sólo llega si la tabla declara columnas `pSortableColumn`. */
+  sortField?: string | string[] | null;
+  /** 1 = asc · -1 = desc (convención PrimeNG). */
+  sortOrder?: number | null;
 }
 
 /**

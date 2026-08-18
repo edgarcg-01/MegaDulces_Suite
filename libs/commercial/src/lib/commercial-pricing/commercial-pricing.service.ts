@@ -34,6 +34,52 @@ export interface BulkUpsertProductPricesDto {
   items: UpsertProductPriceDto[];
 }
 
+// ─────────── salud del precio ───────────
+
+/**
+ * Diagnóstico de un precio. Los cuatro son **disjuntos** a propósito: un precio
+ * centinela también está bajo costo, pero contarlo dos veces haría que los chips
+ * de la UI sumaran más que el total y el usuario dejaría de creerles.
+ *
+ *  - `sentinel`   precio piso de promo ($0.01/$0.05 que mete el sync de Kepler).
+ *                 No es un precio: es una marca. Se evalúa primero.
+ *  - `below_cost` pérdida real: se vende por menos de lo que costó.
+ *  - `thin`       margen 0–10%: no pierde, pero no paga la operación.
+ *  - `no_cost`    tiene precio y no hay costo con qué juzgarlo.
+ */
+export type PriceHealthFlag = 'sentinel' | 'below_cost' | 'thin' | 'no_cost';
+
+const SENTINEL_MAX = 0.05;
+const THIN_MARGIN_MAX = 0.1;
+
+/**
+ * Un solo lugar define cada predicado. `listPrices` (filtro) y
+ * `listPriceListsHealth` (contadores) leen de acá, así que el chip que dice
+ * "164 bajo costo" y la tabla que sale al hacerle clic no pueden discrepar.
+ */
+const PRICE_HEALTH_SQL: Record<PriceHealthFlag, string> = {
+  sentinel: `pp.price <= ${SENTINEL_MAX}`,
+  below_cost: `pp.price > ${SENTINEL_MAX} AND p.cost_base > 0 AND pp.price < p.cost_base`,
+  thin: `pp.price > ${SENTINEL_MAX} AND p.cost_base > 0 AND pp.price >= p.cost_base
+         AND (pp.price - p.cost_base) / pp.price < ${THIN_MARGIN_MAX}`,
+  no_cost: `pp.price > ${SENTINEL_MAX} AND COALESCE(p.cost_base, 0) = 0`,
+};
+
+/**
+ * Columnas ordenables. Whitelist explícita: el `sort` llega del query string y
+ * termina en `orderByRaw`, así que nada que no esté acá toca el SQL.
+ */
+const PRICE_SORT_SQL: Record<string, string> = {
+  product: 'p.nombre',
+  sku: 'p.sku',
+  category: 'cat.name',
+  rotation: 'p.sales_units_30d',
+  cost: 'p.cost_base',
+  price: 'pp.price',
+  margin: '(pp.price - p.cost_base) / NULLIF(pp.price, 0)',
+  min_qty: 'pp.min_qty',
+};
+
 // ─────────── regex ───────────
 
 const CODE_REGEX = /^[A-Z0-9_-]{2,50}$/;
@@ -222,10 +268,26 @@ export class CommercialPricingService {
    *
    * Returns `{ data, pagination }` siempre — antes era array crudo, los callers
    * necesitan actualizar a `.data`.
+   *
+   * `unpricedOnly` es el complemento de `pricedOnly`: la cola de trabajo "falta
+   * ponerle precio en esta lista". `flag` filtra por salud del precio y `sort`
+   * ordena en servidor — ambos existen porque la tabla es lazy/paginada: ordenar
+   * o filtrar en cliente sólo tocaría la página visible y mentiría.
    */
   async listPrices(
     priceListId: string,
-    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string; commercialOnly?: boolean; pricedOnly?: boolean } = {},
+    opts: {
+      warehouseId?: string;
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      commercialOnly?: boolean;
+      pricedOnly?: boolean;
+      unpricedOnly?: boolean;
+      flag?: PriceHealthFlag;
+      sort?: string;
+      dir?: 'asc' | 'desc';
+    } = {},
   ) {
     if (!UUID_REGEX.test(priceListId))
       throw new BadRequestException('price_list_id inválido');
@@ -236,12 +298,15 @@ export class CommercialPricingService {
 
     const page = Math.max(1, Number(opts.page) || 1);
     const pricedOnly = opts.pricedOnly === true;
-    // priced_only sube el techo: el vendedor/portal carga el catálogo pedible
-    // completo (~6k) de un fetch para búsqueda client-side. Sin él, default 500.
-    const pageSize = Math.min(pricedOnly ? 10000 : 500, Math.max(1, Number(opts.pageSize) || 100));
+    const unpricedOnly = opts.unpricedOnly === true;
+    // Techo único de 10k. Antes era 500 salvo con priced_only — pero el filtro no
+    // cambia el costo del query (mismos joins, un WHERE de más), así que el techo
+    // partido sólo servía para truncar en silencio al exportar el catálogo completo.
+    const pageSize = Math.min(10000, Math.max(1, Number(opts.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     const search = (opts.search || '').trim();
     const commercialOnly = opts.commercialOnly === true;
+    const flag = PRICE_HEALTH_SQL[opts.flag as PriceHealthFlag] ? opts.flag : undefined;
 
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
@@ -284,6 +349,16 @@ export class CommercialPricingService {
         // priced_only: solo productos con precio en ESTA price list (pedibles).
         if (pricedOnly) {
           q = q.whereNotNull('pp.price');
+        }
+        // unpriced_only: la cola de "falta preciar". Excluyentes por definición;
+        // si llegan los dos, gana priced_only (el caller está confundido, pero el
+        // catálogo pedible es el default menos sorpresivo).
+        else if (unpricedOnly) {
+          q = q.whereNull('pp.price');
+        }
+
+        if (flag) {
+          q = q.whereRaw(`(${PRICE_HEALTH_SQL[flag]})`);
         }
 
         if (search) {
@@ -345,9 +420,18 @@ export class CommercialPricingService {
         selects.push(trx.raw('NULL::int AS stock_available'));
       }
 
+      // Orden: whitelist + NULLS LAST siempre (un producto sin costo no debe
+      // encabezar "peor margen") y desempate estable por nombre para que dos
+      // páginas consecutivas no repitan ni se salten filas.
+      const sortExpr = PRICE_SORT_SQL[opts.sort ?? ''];
+      const dir = opts.dir === 'desc' ? 'DESC' : 'ASC';
+      const orderBy = sortExpr
+        ? `${sortExpr} ${dir} NULLS LAST, p.nombre ASC`
+        : 'p.nombre ASC';
+
       const data = await q
         .select(...selects)
-        .orderBy('p.nombre', 'asc')
+        .orderByRaw(orderBy)
         .limit(pageSize)
         .offset(offset);
 
@@ -366,6 +450,63 @@ export class CommercialPricingService {
           total: totalNum,
           pageCount: Math.ceil(totalNum / pageSize) || 0,
         },
+      };
+    });
+  }
+
+  /**
+   * Salud de TODAS las price lists en una sola consulta.
+   *
+   * Se construye sobre el mismo eje que `listPrices` — `catalog.products` como
+   * tabla que manda, precio por LEFT JOIN — para que los contadores describan
+   * exactamente las filas que la tabla puede mostrar. Con la unión al revés
+   * (partir de `product_prices`) los números salían más altos: hay precios
+   * apuntando a productos ya borrados, que la tabla nunca pinta.
+   */
+  async listPriceListsHealth() {
+    return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
+      if (allowed !== null && allowed.length === 0) return { data: [] };
+
+      const count = (sql: string, alias: string) =>
+        trx.raw(`COUNT(*) FILTER (WHERE ${sql})::int AS ${alias}`);
+
+      let q = trx('commercial.price_lists as pl')
+        // crossJoin tipa el argumento como Raw en esta versión de knex: un string
+        // con alias no compila.
+        .crossJoin(trx.raw('catalog.products as p'))
+        .leftJoin('commercial.product_prices as pp', function () {
+          this.on('pp.product_id', '=', 'p.id')
+            .andOn('pp.tenant_id', '=', 'p.tenant_id')
+            .andOn('pp.price_list_id', '=', 'pl.id')
+            .andOnNull('pp.deleted_at');
+        })
+        .whereNull('pl.deleted_at')
+        .whereNull('p.deleted_at')
+        .whereRaw('pl.tenant_id = p.tenant_id');
+
+      if (allowed !== null) q = q.whereIn('pl.id', allowed);
+
+      const rows = await q
+        .groupBy('pl.id')
+        .select(
+          'pl.id as price_list_id',
+          trx.raw('COUNT(*)::int AS catalog'),
+          trx.raw('COUNT(pp.price)::int AS priced'),
+          count('pp.price IS NULL', 'unpriced'),
+          count(PRICE_HEALTH_SQL.sentinel, 'sentinel'),
+          count(PRICE_HEALTH_SQL.below_cost, 'below_cost'),
+          count(PRICE_HEALTH_SQL.thin, 'thin'),
+          count(PRICE_HEALTH_SQL.no_cost, 'no_cost'),
+        );
+
+      // Mismo criterio anti-leak que listPrices: los contadores de margen son
+      // costo derivado. Devolver "164 bajo costo" a un customer_b2b le diría
+      // cuánto le cuesta a Mega Dulces lo que le vende.
+      return {
+        data: this.isCustomerB2b()
+          ? rows.map(({ below_cost, thin, no_cost, ...r }: any) => r)
+          : rows,
       };
     });
   }
@@ -661,8 +802,12 @@ export class CommercialPricingService {
    * El endpoint de precios es compartido con el Portal; el costo solo lo ve el
    * vendedor/admin (take-order). La rotación no es sensible y NO se toca.
    */
+  private isCustomerB2b(): boolean {
+    return this.tenantCtx.get()?.roleName === 'customer_b2b';
+  }
+
   private stripCostIfCustomer<T extends Record<string, any>>(rows: T[]): T[] {
-    if (this.tenantCtx.get()?.roleName !== 'customer_b2b') return rows;
+    if (!this.isCustomerB2b()) return rows;
     return rows.map((r) => ({
       ...r,
       cost_base: null,

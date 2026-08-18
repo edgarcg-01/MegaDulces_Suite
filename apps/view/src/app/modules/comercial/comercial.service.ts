@@ -179,8 +179,33 @@ export interface ProductPrice {
   price: number;
   tax_rate?: number;
   min_qty?: number;
-  min_quantity?: number;
   stock_available?: number | null;
+  /** Rotación real: unidades vendidas 30d + tier del ERP. Dice si un precio importa. */
+  sales_units_30d?: number | null;
+  rotation_tier?: string | null;
+  cost_per_case?: number | null;
+}
+
+/**
+ * Diagnóstico de precio. Espejo de `PriceHealthFlag` del backend — los cuatro
+ * son disjuntos, así que los contadores suman sin traslaparse.
+ */
+export type PriceHealthFlag = 'sentinel' | 'below_cost' | 'thin' | 'no_cost';
+
+/** Qué filas pide la tabla de precios. */
+export type PriceScope = 'priced' | 'unpriced' | 'all';
+
+/** Contadores por lista. `catalog === priced + unpriced` siempre. */
+export interface PriceListHealth {
+  price_list_id: string;
+  catalog: number;
+  priced: number;
+  unpriced: number;
+  sentinel: number;
+  /** Derivados del costo: ausentes para customer_b2b. */
+  below_cost?: number;
+  thin?: number;
+  no_cost?: number;
 }
 
 export interface ProductPricesPage {
@@ -634,15 +659,39 @@ export class ComercialService {
   deletePriceList(id: string) {
     return this.http.delete<{ ok: true }>(`${this.base}/price-lists/${id}`);
   }
-  listPrices(priceListId: string, opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string } = {}) {
+  /** Salud de todas las listas (índice + chips-filtro de /comercial/pricing). */
+  listPriceListsHealth() {
+    return this.http.get<{ data: PriceListHealth[] }>(`${this.base}/price-lists/health`);
+  }
+  listPrices(
+    priceListId: string,
+    opts: {
+      warehouseId?: string;
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      /** `'priced'` = sólo con precio en esta lista · `'unpriced'` = falta preciar. */
+      scope?: PriceScope;
+      flag?: PriceHealthFlag;
+      sort?: string;
+      dir?: 'asc' | 'desc';
+    } = {},
+  ) {
     let params = new HttpParams();
     if (opts.warehouseId) params = params.set('warehouse_id', opts.warehouseId);
     if (opts.page != null) params = params.set('page', opts.page);
     if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.scope === 'priced') params = params.set('priced_only', 'true');
+    if (opts.scope === 'unpriced') params = params.set('unpriced_only', 'true');
+    if (opts.flag) params = params.set('flag', opts.flag);
+    if (opts.sort) params = params.set('sort', opts.sort).set('dir', opts.dir ?? 'asc');
     return this.http.get<ProductPricesPage>(`${this.base}/price-lists/${priceListId}/prices`, { params });
   }
-  bulkUpsertPrices(body: { price_list_id: string; items: { product_id: string; price: number; min_quantity?: number }[] }) {
+  // OJO: el backend lee `min_qty`. Antes esta firma decía `min_quantity` y ese
+  // campo se ignoraba en silencio (el upsert dejaba min_qty en 1). No se notó
+  // porque hasta ahora ninguna pantalla llamaba a este método.
+  bulkUpsertPrices(body: { price_list_id: string; items: { product_id: string; price: number; min_qty?: number; tax_rate?: number }[] }) {
     return this.http.post<{ upserted: number }>(`${this.base}/product-prices/bulk-upsert`, body);
   }
   deletePrice(id: string) {
