@@ -58,8 +58,13 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
         WHERE tenant_id=$1 AND code='MD-50'`, [TENANT]);
     const u2 = await p.query(`UPDATE analytics.store_live_tickets SET warehouse_code='06'
         WHERE warehouse_code='MD-50'`);
+    // Crosswalk Wincaja: Canindo '50' ahora mapea a Kepler '06'. Efecto: los importers Wincaja
+    // que filtran por `kepler_code IS NULL` (ej. import-wincaja-receipts) dejan de procesar
+    // Canindo — sus recepciones ya vienen de Kepler (import-goods-receipts incluye '06').
+    const u3 = await p.query(`UPDATE wincaja.branches SET kepler_code='06'
+        WHERE tenant_id=$1 AND source_branch='50' AND coalesce(kepler_code,'')<>'06'`, [TENANT]);
     await p.query('COMMIT');
-    console.log(`\n  ✅ APPLY: warehouse ${u1.rowCount} (code→06, name→Canindo) · store_live_tickets ${u2.rowCount} (MD-50→06)`);
+    console.log(`\n  ✅ APPLY: warehouse ${u1.rowCount} (code→06, name→Canindo) · store_live_tickets ${u2.rowCount} (MD-50→06) · wincaja.branches ${u3.rowCount} (kepler_code→06)`);
   } catch (e) { await p.query('ROLLBACK').catch(() => {}); console.error('\n  ERROR (rollback):', e.message); process.exitCode = 1; }
   await p.end();
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
