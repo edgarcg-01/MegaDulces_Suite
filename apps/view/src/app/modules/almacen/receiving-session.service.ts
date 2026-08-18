@@ -72,6 +72,7 @@ export interface ErpOrderLookup {
   monto: number;
   receipt_date?: string | null;
   line_count: number;
+  tipo?: 'compra' | 'traspaso';
 }
 
 @Injectable({ providedIn: 'root' })

@@ -89,8 +89,10 @@ import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup } fro
               <div class="rs-found">
                 <i class="pi pi-check-circle" aria-hidden="true"></i>
                 <div>
-                  <strong>Orden {{ o.folio }}</strong> · {{ o.line_count }} líneas · {{ o.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                  <div class="rs-found-prov">Proveedor: {{ o.proveedor_nombre || o.proveedor_code || '—' }}</div>
+                  <strong>Orden {{ o.folio }}</strong>
+                  <p-tag [value]="o.tipo === 'traspaso' ? 'Traspaso' : 'Compra'" [severity]="o.tipo === 'traspaso' ? 'warn' : 'info'" styleClass="rs-found-tag"></p-tag>
+                  · {{ o.line_count }} líneas · {{ o.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                  <div class="rs-found-prov">{{ o.tipo === 'traspaso' ? 'Sucursal origen' : 'Proveedor' }}: {{ o.proveedor_nombre || o.proveedor_code || '—' }}</div>
                 </div>
               </div>
             }
