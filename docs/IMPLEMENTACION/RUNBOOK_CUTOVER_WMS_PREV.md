@@ -20,7 +20,7 @@
 
 ---
 
-## 1. Migraciones a Railway (newdb) — **7, idempotentes**
+## 1. Migraciones a Railway (newdb) — **8, idempotentes**
 
 Se aplican con el knexfile de la newdb apuntando a Railway (`DATABASE_URL_NEW` = URL del proxy `*.proxy.rlwy.net`, entorno `production` con SSL), igual que los batches RA/CB/CC:
 
@@ -37,9 +37,13 @@ Orden (lo maneja knex por timestamp; `migrate:latest` sólo aplica pendientes):
 4. `20260817140000_commercial_bin_locations.js`
 5. `20260817160000_commercial_inventory_investigations.js`
 6. `20260817180000_commercial_inventory_monitoring.js`
+7. `20260817200000_commercial_inventory_risk_index.js` (PREV.3 índice de riesgo)
+8. `20260818120000_commercial_erp_sucursal_warehouse.js` (crosswalk sucursal→almacén)
 7. `20260817200000_commercial_inventory_risk_index.js`
 
-**Esperado:** `Batch N run: 7 migrations`. Cada una tiene guard `hasTable` (re-correr = no-op).
+**Esperado:** `Batch N run: 8 migrations`. Cada una tiene guard `hasTable` (re-correr = no-op).
+
+> **Config post-deploy (una vez):** en `/almacen/inventory/recepcion-sesiones` → botón **"Almacenes×sucursal"**, asignar a cada sucursal ERP (00 CEDIS, 01 PH, …) su almacén destino, para que el Vale lo autollene. Requiere `COMMERCIAL_WAREHOUSES_GESTIONAR`.
 **Requisitos:** Postgres **≥15** (usan `NULLS NOT DISTINCT` en índices únicos) — Railway newdb es 16+, OK. Todas crean tablas `commercial.*` con RLS forzado + grant `app_runtime`, FKs a `identity.tenants` / `commercial.warehouses` / `catalog.products` (existen). **Sin** FDW ni boot-migrations → sin el gotcha de crash en arranque.
 **Rollback:** cada mig tiene `down` (dropTableIfExists). No hay backfill destructivo.
 
