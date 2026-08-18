@@ -102,6 +102,11 @@ async function bulkUpsertMovements(db, rows) {
   await db.connect();
   await db.query('BEGIN');
   await db.query(`SET LOCAL app.tenant_id = '${MEGA}'`);
+  // t0 = now() de la transacción (constante en toda la tx). El barrido soft-delete (CB.33)
+  // marca borradas las filas 'upload' del periodo × cuentas de este archivo que ya no se
+  // tocaron (updated_at < t0 = desaparecieron del workbook), sin tocar comprobantes.
+  const t0 = (await db.query('SELECT now() AS now')).rows[0].now;
+  const processedAcctIds = new Set();
 
   // catálogos desde DB
   const catMap = new Map((await db.query(`SELECT id, code, group_key FROM finance.movement_categories WHERE tenant_id=$1`, [MEGA])).rows.map((r) => [r.code, { id: r.id, group: r.group_key }]));
@@ -127,6 +132,7 @@ async function bulkUpsertMovements(db, rows) {
     };
     if (!hRow || !ci.fecha || (!ci.ret && !ci.dep)) { summary.push({ hoja: ws.name, nota: 'layout no estándar — skip' }); continue; }
     if (!acct) { summary.push({ hoja: ws.name, nota: 'cuenta no seedeada — skip' }); continue; }
+    processedAcctIds.add(acct.id);
 
     const movRows = [];
     const seen = new Map();
@@ -181,6 +187,22 @@ async function bulkUpsertMovements(db, rows) {
     .map(([k, v]) => [k, { movs: v.n, depositos: '$' + f0(v.in), retiros: '$' + f0(v.out) }])));
   console.log('  Referencia CONCENTRADO enero 2026: ingreso $52,949,859 · compra $43,534,807 · gasto $6,584,511 · traspaso TI=TE $25,400,000 c/u.');
   console.log(`\nTOTAL: ${grandRows} movs · depósitos $${f0(grandIn)} · retiros $${f0(grandOut)} · sin_clasificar ${grandUncat} (${(100 * grandUncat / Math.max(1, grandRows)).toFixed(1)}%)`);
+
+  // CB.33 — Barrido soft-delete: refleja los borrados del workbook (solo APPLY).
+  if (APPLY && processedAcctIds.size) {
+    const res = await db.query(
+      `UPDATE finance.bank_movements bm
+         SET deleted_at = now(), recon_status = 'ignored', updated_at = now()
+       FROM finance.bank_statements st
+       WHERE st.id = bm.statement_id AND st.period = $1
+         AND bm.bank_account_id = ANY($2)
+         AND bm.sync_source = 'upload'
+         AND bm.client_uuid NOT LIKE 'whatsapp:%'
+         AND bm.deleted_at IS NULL
+         AND bm.updated_at < $3`,
+      [PERIOD, Array.from(processedAcctIds), t0]);
+    if (res.rowCount) console.log(`\nBarrido soft-delete: ${res.rowCount} movimiento(s) que ya no están en el workbook.`);
+  }
 
   if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); }
   else { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }

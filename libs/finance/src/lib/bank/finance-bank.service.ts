@@ -2407,8 +2407,10 @@ export class FinanceBankService {
   /**
    * CB.23 — Núcleo del import (buffer). Lo reusan el upload web (base64) y el sync
    * del Google Sheet (SheetSyncService baja el .xlsx de la URL de export). `syncSource`
-   * marca el origen; cuando es 'sheet' corre el barrido soft-delete (marca deleted_at
-   * las filas que ya NO aparecen en el pull, acotado a periodo × cuentas del archivo).
+   * marca el origen; SIEMPRE corre el barrido soft-delete (CB.33) sobre las filas del
+   * MISMO origen que ya NO aparecen en el pull, acotado a periodo × cuentas del archivo,
+   * excluyendo comprobantes (whatsapp:%). Así el workbook es autoritativo: borrar una fila
+   * y recargar refleja el borrado (upload y sheet), no solo el sync del Sheet.
    */
   async importFromBuffer(buf: Buffer, period: string, sourceFile?: string, actor?: string, syncSource: 'upload' | 'sheet' = 'upload') {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -2523,15 +2525,21 @@ export class FinanceBankService {
         perAccount.push({ sheet: ws.name, movs: rows.length, deposits: Math.round(tin), withdrawals: Math.round(tout), sin_clasificar: uncat });
       }
 
-      // CB.23.3 — Barrido soft-delete (solo sync del Sheet): marca deleted_at las filas
-      // 'sheet' del periodo × cuentas presentes en ESTE pull que ya no fueron tocadas
-      // (updated_at < t0 = desaparecieron del Sheet). Nunca toca filas 'upload' (manuales).
+      // CB.33 — Barrido soft-delete (upload Y sheet). Marca deleted_at las filas del MISMO
+      // origen (upload barre upload, sheet barre sheet), del periodo × cuentas presentes en
+      // ESTE pull, que ya no fueron tocadas (updated_at < t0 = desaparecieron del workbook).
+      // Excluye SIEMPRE los comprobantes (client_uuid 'whatsapp:%'): son captura manual que
+      // no vive en el workbook. Antes el barrido solo corría para 'sheet' → un movimiento
+      // borrado del workbook y recargado por CLI/upload quedaba huérfano y descuadraba contra
+      // ContPAQi (caso enero: "Silvia" $36,547.82 + "Dep. Efectivo" $15,874.88 = $52,422.70).
       let swept = 0;
-      if (syncSource === 'sheet' && processedAcctIds.size && t0) {
+      if (processedAcctIds.size && t0) {
         swept = await trx('finance.bank_movements as bm')
           .whereIn('bm.statement_id', trx('finance.bank_statements').where({ period })
             .whereIn('bank_account_id', Array.from(processedAcctIds)).select('id'))
-          .where('bm.sync_source', 'sheet').whereNull('bm.deleted_at').where('bm.updated_at', '<', t0)
+          .where('bm.sync_source', syncSource)
+          .whereRaw("bm.client_uuid NOT LIKE 'whatsapp:%'")
+          .whereNull('bm.deleted_at').where('bm.updated_at', '<', t0)
           .update({ deleted_at: trx.fn.now(), recon_status: 'ignored', updated_at: trx.fn.now() });
       }
 
