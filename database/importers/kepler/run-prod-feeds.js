@@ -143,6 +143,12 @@ const STEPS = {
     path.join(K, 'import-label-data.js'),          // Etiquetas de anaquel (kdii c90/91/92 precio pieza/paq/caja) → product_label_prices. ANTES quedaba stale (no estaba en nightly) → precios de anaquel ~10% abajo del Kepler vigente (bug 30061 ago-2026)
     path.join(DIR, 'wincaja', 'import-wincaja-caja-factor.js'), // Factor de caja Wincaja (factor_venta) para MOSTRAR cajas en almacenes ciegos MD-30/32/50 — depende de box-factor(c84)+label(c81). Set doble-testigo (anida+costo=paquete)
     path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden)
+    // Norm ALMACÉN Paso 2b (BARRIDO): tras todos los importers, llena warehouse_id NULL de las
+    // tablas normalizadas (batch 1 warehouse_code + batch 2 sucursal). Idempotente (solo toca NULL),
+    // barato. Batch 1 ya va inline en sus writers; esto cubre batch 2 (~15 importers) sin editarlos +
+    // identity.users (app-escrita) + auto-cubre futuros batches. AL FINAL (tras poblarse las filas).
+    path.join(SCRIPTS, 'backfill-warehouse-id-batch1.js'),
+    path.join(SCRIPTS, 'backfill-warehouse-id-batch2.js'),
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
