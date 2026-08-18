@@ -2450,11 +2450,16 @@ export class FinanceBankService {
         for (let r = 1; r <= Math.min(8, ws.rowCount); r++) {
           const u = (ws.getRow(r).values as any[]).map((v) => normKey(v));
           const hasFecha = u.some((v) => v === 'FECHA');
+          // CB.34 — Algunas hojas de banco traen el header SIN rotular la col FECHA (celda
+          // vacía; la fecha igual va en la col antes de M). Ej: BB 854 / BNMX 1463 en feb-2026.
+          // Se reconoce el header de banco por sus otras columnas y ci.fecha cae a col[M]-1.
+          const hasBankHdr = (u.some((v) => v === 'RETIRO') || u.some((v) => v === 'DEPOSITO')) &&
+            (u.some((v) => v === 'M') || u.some((v) => v === 'PROVEEDOR') || u.some((v) => v === 'SALDO'));
           // CB.23.1 — CAJA GENERAL no rotula FECHA (la fecha va en la col antes de M);
           // detectamos su header por CTA/CUENTA + una columna de importe.
           const hasCajaHdr = u.some((v) => v === 'CTA' || v === 'CUENTA') &&
             u.some((v) => v === 'EGRESO' || v === 'INGRESO' || v === 'RETIRO' || v === 'DEPOSITO');
-          if (hasFecha || hasCajaHdr) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
+          if (hasFecha || hasBankHdr || hasCajaHdr) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
         }
         const acct = acctMap.get(normKey(ws.name));
         // Alias de columnas: hojas de banco (C/PROVEEDOR/RETIRO/DEPOSITO/SALDO) y

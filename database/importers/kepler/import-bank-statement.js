@@ -120,12 +120,22 @@ async function bulkUpsertMovements(db, rows) {
   for (const ws of sheets) {
     // header
     let hRow = 0, col = {};
-    for (let r = 1; r <= 8; r++) { const u = ws.getRow(r).values.map((v) => normKey(v)); if (u.some((v) => v === 'FECHA')) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; } }
+    for (let r = 1; r <= 8; r++) {
+      const u = ws.getRow(r).values.map((v) => normKey(v));
+      const hasFecha = u.some((v) => v === 'FECHA');
+      // CB.34 — header de banco SIN rotular la col FECHA (celda vacía; ej BB 854 / BNMX 1463
+      // en feb-2026): se reconoce por sus otras columnas y ci.fecha cae a col[M]-1.
+      const hasBankHdr = (u.some((v) => v === 'RETIRO') || u.some((v) => v === 'DEPOSITO')) &&
+        (u.some((v) => v === 'M') || u.some((v) => v === 'PROVEEDOR') || u.some((v) => v === 'SALDO'));
+      const hasCajaHdr = u.some((v) => v === 'CTA' || v === 'CUENTA') &&
+        u.some((v) => v === 'EGRESO' || v === 'INGRESO' || v === 'RETIRO' || v === 'DEPOSITO');
+      if (hasFecha || hasBankHdr || hasCajaHdr) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
+    }
     const acct = acctMap.get(normKey(ws.name));
     // Alias de columnas: banco (C/PROVEEDOR/RETIRO/DEPOSITO/SALDO) y CAJA GENERAL
     // (CTA/DESCRIPCION/EGRESO/INGRESO, sin SALDO).
     const ci = {
-      fecha: col['FECHA'], m: col['M'], s: col['S'],
+      fecha: col['FECHA'] || (col['M'] ? col['M'] - 1 : 0), m: col['M'], s: col['S'],
       c: col['C'] || col['CTA'], prov: col['PROVEEDOR'] || col['DESCRIPCION'],
       ret: col['RETIRO'] || col['EGRESO'], dep: col['DEPOSITO'] || col['INGRESO'],
       saldo: col['SALDO'], folio: col['#'] || col['FOLIO'],
