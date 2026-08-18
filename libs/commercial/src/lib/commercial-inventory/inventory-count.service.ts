@@ -422,7 +422,7 @@ export class InventoryCountService {
           updated_by: uid,
         };
         // sobrante de un contador aisle-scoped → se atribuye a su (único) pasillo.
-        if (aisleScoped) insertRow.aisle_id = [...myAisleSet][0];
+        if (aisleScoped) insertRow.aisle_id = Array.from(myAisleSet)[0];
         if (isInv) {
           insertRow.product_sku = productSku;
         } else {

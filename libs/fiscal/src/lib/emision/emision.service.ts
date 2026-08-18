@@ -463,7 +463,7 @@ export class EmisionService {
       g.importe = this.round2(g.importe + c.iva);
       byTasa.set(key, g);
     }
-    return { conceptos, subtotal, descuentoTotal, totalTraslados, total, traslados: [...byTasa.values()] };
+    return { conceptos, subtotal, descuentoTotal, totalTraslados, total, traslados: Array.from(byTasa.values()) };
   }
 
   private buildCfdiJson(issuer: any, input: EmitirFacturaInput, serie: string, folio: string, c: Computed): any {

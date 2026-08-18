@@ -249,6 +249,6 @@ export class LogisticsExpensesService {
     if (b && m) out.push(`costo_km_${b}_${m}`);
     if (m) out.push(`costo_km_${m}`);
     if (b) out.push(`costo_km_${b}`);
-    return [...new Set(out)];
+    return Array.from(new Set(out));
   }
 }

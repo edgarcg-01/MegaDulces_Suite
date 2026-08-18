@@ -248,7 +248,7 @@ export class LogisticsRoutingService {
       const locatedIds = new Set(result.order);
       await trx('logistics.guide_recipients')
         .whereIn('id', recipients.map((r: any) => r.id))
-        .whereNotIn('id', [...locatedIds])
+        .whereNotIn('id', Array.from(locatedIds))
         .update({ sequence_order: null });
 
       return { ...result, naive_km: naiveKm, saved_km: savedKm, located: stops.length, unlocated, origin_from: wh?.latitude != null ? 'warehouse' : 'centroid' };

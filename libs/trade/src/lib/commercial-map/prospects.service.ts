@@ -126,7 +126,7 @@ export class ProspectsService {
     const units = await this.denue.buscar('todos', lat, lng, r);
     const filtered = units
       .filter((u) =>
-        !wanted.size || wanted.has(u.scian) || [...wanted].some((c) => u.scian.startsWith(c)),
+        !wanted.size || wanted.has(u.scian) || Array.from(wanted).some((c) => u.scian.startsWith(c)),
       )
       .filter((u) => this.passesGeo(cfg, u)); // entidad (ej. 16 Michoacán) + geocerca
     const upserted = await this.upsertUnits(tenantId, filtered);
@@ -457,7 +457,7 @@ export class ProspectsService {
         if (mineStatus(r.status)) a.mine++;
         else a.candidates++;
       }
-      return [...m.entries()]
+      return Array.from(m.entries())
         .map(([key, a]) => ({ key, ...a, pct: a.universe ? Math.round((a.mine / a.universe) * 1000) / 10 : 0 }))
         .sort((x, y) => y.universe - x.universe);
     };

@@ -61,7 +61,7 @@ export class TicketExtractorService {
     if (!file) throw new BadRequestException('file requerido');
     if (!ACCEPTED_MIME_TYPES.has(file.mimetype)) {
       throw new BadRequestException(
-        `mimetype no soportado: ${file.mimetype}. Aceptados: ${[...ACCEPTED_MIME_TYPES].join(', ')}`,
+        `mimetype no soportado: ${file.mimetype}. Aceptados: ${Array.from(ACCEPTED_MIME_TYPES).join(', ')}`,
       );
     }
     if (file.size > MAX_BYTES) {
@@ -112,7 +112,7 @@ export class TicketExtractorService {
     if (!file) throw new BadRequestException('file requerido');
     if (!ACCEPTED_MIME_TYPES.has(file.mimetype)) {
       throw new BadRequestException(
-        `mimetype no soportado: ${file.mimetype}. Aceptados: ${[...ACCEPTED_MIME_TYPES].join(', ')}`,
+        `mimetype no soportado: ${file.mimetype}. Aceptados: ${Array.from(ACCEPTED_MIME_TYPES).join(', ')}`,
       );
     }
     if (file.size > MAX_BYTES) {

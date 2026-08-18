@@ -229,7 +229,7 @@ export class DiagnosisEngineService {
           subject_id: d.findings[0].subject_id,
           label: label ? String(label).slice(0, 160) : null,
           finding_ids: JSON.stringify(d.findings.map((f) => f.id)),
-          finding_types: JSON.stringify([...new Set(d.findings.map((f) => f.finding_type))]),
+          finding_types: JSON.stringify(Array.from(new Set(d.findings.map((f) => f.finding_type)))),
           confidence: this.confidence(d.findings.length),
           summary: `${who}: ${d.linkage}.`.slice(0, 2000),
           evidence: JSON.stringify({

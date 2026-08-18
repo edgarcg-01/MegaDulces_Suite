@@ -477,7 +477,7 @@ export class MovementsExportService {
       if (r.kind === 'entrada') { g.sr_ent_n++; g.sr_ent_amt += Number(r.importe) || 0; }
       else { g.sr_sal_n++; g.sr_sal_amt += Number(r.importe) || 0; }
     }
-    return [...map.values()].sort((a, b) =>
+    return Array.from(map.values()).sort((a, b) =>
       (b.sr_ent_amt + b.sr_sal_amt) - (a.sr_ent_amt + a.sr_sal_amt) || Math.abs(b.delta) - Math.abs(a.delta));
   }
 

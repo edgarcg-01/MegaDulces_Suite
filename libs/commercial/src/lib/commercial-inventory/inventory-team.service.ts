@@ -71,14 +71,14 @@ export class InventoryTeamService {
 
   /** Genera equipos PAREJOS y los persiste (reescribe las filas aisle-scoped). */
   async generate(countId: string, dto: GenerateTeamsDto) {
-    const supIds = [...new Set((dto.supervisor_ids || []).filter((x) => UUID.test(x)))];
-    const cntIds = [...new Set((dto.counter_ids || []).filter((x) => UUID.test(x)))];
+    const supIds = Array.from(new Set((dto.supervisor_ids || []).filter((x) => UUID.test(x))));
+    const cntIds = Array.from(new Set((dto.counter_ids || []).filter((x) => UUID.test(x))));
     return this.tk.run(async (trx) => {
       const folio = await this.folioOrThrow(trx, countId);
       if (folio.status === 'reconciled' || folio.status === 'cancelled')
         throw new ConflictException('El folio ya está cerrado.');
 
-      const reqAisleIds = [...new Set((dto.aisle_ids || []).filter((x) => UUID.test(x)))];
+      const reqAisleIds = Array.from(new Set((dto.aisle_ids || []).filter((x) => UUID.test(x))));
       let aislesQ = trx('commercial.warehouse_aisles')
         .where('warehouse_id', folio.warehouse_id)
         .andWhere('active', true)
@@ -151,7 +151,7 @@ export class InventoryTeamService {
         if (!t?.aisle_id || !validSet.has(t.aisle_id)) continue;
         if (t.supervisor_id && UUID.test(t.supervisor_id))
           rows.push(this.row(trx, countId, t.supervisor_id, 'supervisor', t.aisle_id, uid));
-        const counters = [...new Set((t.counter_ids || []).filter((x) => UUID.test(x)))];
+        const counters = Array.from(new Set((t.counter_ids || []).filter((x) => UUID.test(x))));
         for (const c of counters) rows.push(this.row(trx, countId, c, 'counter', t.aisle_id, uid));
       }
       if (rows.length) await trx('commercial.inventory_count_assignments').insert(rows);
@@ -210,6 +210,6 @@ export class InventoryTeamService {
       if (r.assignment_role === 'supervisor') grp.supervisor = person;
       else grp.counters.push(person);
     }
-    return [...byAisle.values()];
+    return Array.from(byAisle.values());
   }
 }

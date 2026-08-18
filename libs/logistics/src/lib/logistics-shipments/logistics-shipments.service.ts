@@ -305,8 +305,8 @@ export class LogisticsShipmentsService {
       // Dedup por embarque (un shipment puede tener varias guías/choferes).
       const byShipment = new Map<string, any>();
       for (const r of ships) if (!byShipment.has(r.shipment_id)) byShipment.set(r.shipment_id, r);
-      const rows = [...byShipment.values()];
-      const userIds = [...new Set(rows.map((r) => r.user_id))];
+      const rows = Array.from(byShipment.values());
+      const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
       if (!userIds.length) return [];
 
       // route_location_pings es public (sin RLS) → filtrar tenant explícito.
@@ -463,7 +463,7 @@ export class LogisticsShipmentsService {
             .select('r.id', 'r.sequence_order', 'c.latitude', 'c.longitude')
         : [];
 
-      const driverIds = [...new Set(guides.map((g: any) => g.driver_id).filter(Boolean))] as string[];
+      const driverIds = Array.from(new Set(guides.map((g: any) => g.driver_id).filter(Boolean))) as string[];
       const driversWithUser = driverIds.length
         ? (await trx('logistics.drivers').whereIn('id', driverIds).whereNotNull('user_id').select('id')).length
         : 0;

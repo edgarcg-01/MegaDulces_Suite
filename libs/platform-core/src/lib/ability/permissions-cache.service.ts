@@ -81,7 +81,7 @@ export class PermissionsCacheService {
     }
     // Sin tenant: invalidar la entrada de ese rol en TODOS los tenants cacheados.
     let n = 0;
-    for (const k of [...this.cache.keys()]) {
+    for (const k of Array.from(this.cache.keys())) {
       const parts = k.split(':');
       const kRole = parts.length > 1 ? parts.slice(1).join(':') : k;
       if (kRole === normRole) {

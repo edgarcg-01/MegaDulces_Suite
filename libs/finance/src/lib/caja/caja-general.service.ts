@@ -254,6 +254,33 @@ export class CajaGeneralService {
     });
   }
 
+  /**
+   * CG.10 — Movimientos del lado MANUAL (workbook, finance.bank_movements kind='cash')
+   * para el desglose por día del "Vs Workbook". Espejo del `/general` pero del lado
+   * manual, para comparar movimiento a movimiento contra el .mdb en el día expandido.
+   */
+  async workbookMovimientos(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    return this.tk.run(async (trx) => {
+      const rows = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
+        .whereBetween('bm.movement_date', [from, to])
+        .orderBy([{ column: 'bm.movement_date', order: 'desc' }, { column: 'bm.id', order: 'desc' }])
+        .limit(500)
+        .select('bm.id', 'bm.movement_date as fecha', 'bm.concept', 'bm.sucursal', 'bm.raw_code',
+          'bm.amount_in', 'bm.amount_out');
+      return {
+        movimientos: (rows as any[]).map((r) => ({
+          id: r.id, fecha: r.fecha, concepto: r.concept, sucursal: r.sucursal, codigo: r.raw_code,
+          ingreso: n(r.amount_in), gasto: n(r.amount_out),
+        })),
+      };
+    });
+  }
+
   /** KPIs del periodo: venta vs depositado por forma de pago + descuadre. */
   async overview(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();

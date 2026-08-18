@@ -29,6 +29,7 @@ interface CajaWb {
   por_dia: { fecha: string; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; wb_ingreso: number; wb_gasto: number; wb_n: number; delta_ingreso: number; delta_gasto: number; wb_vacio: boolean; cuadra: boolean }[];
   eps: number;
 }
+interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
 interface CajaGeneral {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
@@ -239,15 +240,17 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </div>
             <app-metric-strip [items]="wbKpis(d)" ariaLabel="Conciliación .mdb vs workbook" />
           }
-          <p-table [value]="d.por_dia" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+          <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
             <ng-template #header><tr>
+              <th class="cg-w-x"></th>
               <th class="cg-w-date">Día</th>
               <th class="ta-r">.mdb Ingreso</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
               <th class="ta-r">.mdb Gasto</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
               <th class="cg-w-e">Estado</th>
             </tr></ng-template>
             <ng-template #body let-r>
-              <tr>
+              <tr class="cg-row-click" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
+                <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
                 <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span></td>
                 <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
                 <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
@@ -262,7 +265,50 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 </td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+            <ng-template #expandedrow let-r>
+              <tr class="cg-detail-row"><td colspan="9">
+                @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
+                @else {
+                  <div class="cg-wbcmp">
+                    <div class="cg-wbside">
+                      <div class="cg-wbside-t">.mdb (operativo) · <span class="muted">{{ (wbDayMdb()[key(r)] || []).length }} movs</span></div>
+                      <div class="cg-daywrap">
+                        <table class="cg-daytbl">
+                          <thead><tr><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
+                          <tbody>
+                            @for (m of wbDayMdb()[key(r)] || []; track m.uid) {
+                              <tr><td class="cg-emp" [title]="m.cuenta_nombre">{{ m.cuenta_nombre || '—' }} <span class="muted">#{{ m.cuenta }}</span></td>
+                                  <td class="cg-emp" [title]="m.nombre_cliente">{{ m.nombre_cliente || '—' }}@if (m.concepto) { <span class="muted"> · {{ m.concepto }}</span> }</td>
+                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
+                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
+                            }
+                            @if (!(wbDayMdb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin movimientos.</td></tr> }
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div class="cg-wbside">
+                      <div class="cg-wbside-t">Manual (workbook) · <span class="muted">{{ (wbDayWb()[key(r)] || []).length }} movs</span></div>
+                      <div class="cg-daywrap">
+                        <table class="cg-daytbl">
+                          <thead><tr><th>Suc / Código</th><th>Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
+                          <tbody>
+                            @for (m of wbDayWb()[key(r)] || []; track m.id) {
+                              <tr><td class="cg-mono muted">{{ m.sucursal || '—' }}@if (m.codigo) { <span class="muted"> ·{{ m.codigo }}</span> }</td>
+                                  <td class="cg-emp" [title]="m.concepto">{{ m.concepto || '—' }}</td>
+                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
+                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
+                            }
+                            @if (!(wbDayWb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin copia manual este día.</td></tr> }
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </td></tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="9"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
         }
       }
@@ -522,6 +568,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-ov { font-size:var(--fs-lg, 1.05rem); font-weight:700; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-os { font-size:var(--fs-xs); color:var(--text-faint); }
     .cg-daywrap { overflow-x:auto; } .cg-daytbl { width:100%; border-collapse:collapse; font-size:.78rem; }
+    .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
+    .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
     .cg-daytbl th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); padding:3px 8px; border-bottom:1px solid var(--border-color); }
     .cg-daytbl td { padding:3px 8px; border-bottom:1px solid var(--border-color); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
@@ -572,6 +620,10 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cg = signal<CajaGeneral | null>(null);
   readonly cq = signal<CajaCuadre | null>(null);
   readonly wbc = signal<CajaWb | null>(null);
+  readonly wbExp = signal<Record<string, boolean>>({});
+  readonly wbDayMdb = signal<Record<string, CajaGeneral['movimientos']>>({});
+  readonly wbDayWb = signal<Record<string, WbMov[]>>({});
+  readonly wbDayLoad = signal<Record<string, boolean>>({});
   readonly cqExp = signal<Record<string, boolean>>({});
   readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
   readonly cqDayLoad = signal<Record<string, boolean>>({});
@@ -603,7 +655,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayMdb.set({}); this.wbDayWb.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -683,6 +735,26 @@ export class FinanzasCajaComponent implements OnInit {
     return 'cuadra';
   }
   cqIsExp(r: { fecha: string }): boolean { return !!this.cqExp()[r.fecha]; }
+  wbIsExp(r: { fecha: string }): boolean { return !!this.wbExp()[r.fecha]; }
+  /** Desglose de un día en Vs Workbook: trae los movimientos del .mdb Y del manual (workbook). */
+  toggleWbDay(r: { fecha: string }): void {
+    const rk = r.fecha; const e = { ...this.wbExp() };
+    if (e[rk]) { delete e[rk]; this.wbExp.set(e); return; }
+    e[rk] = true; this.wbExp.set(e);
+    const dk = this.key(r);
+    if ((dk in this.wbDayWb()) || this.wbDayLoad()[dk]) return;
+    this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
+    let pending = 2;
+    const done = () => { if (--pending === 0) this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); };
+    this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: d.movimientos }); done(); },
+      error: () => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: [] }); done(); },
+    });
+    this.http.get<{ movimientos: WbMov[] }>(`${this.base}/workbook-movimientos?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: d.movimientos }); done(); },
+      error: () => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: [] }); done(); },
+    });
+  }
   toggleCqDay(r: { fecha: string }): void {
     const rk = r.fecha; const e = { ...this.cqExp() };
     if (e[rk]) { delete e[rk]; this.cqExp.set(e); return; }
