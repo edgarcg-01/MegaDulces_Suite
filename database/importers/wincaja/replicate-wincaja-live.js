@@ -37,6 +37,9 @@ const branchArg = (process.argv.find((a) => a.startsWith('--branch=')) || '').sp
 const watchArg = (process.argv.find((a) => a.startsWith('--watch=')) || '').split('=')[1];
 const onlyArg = (process.argv.find((a) => a.startsWith('--only=')) || '').split('=')[1];
 const ONLY = onlyArg ? new Set(onlyArg.split(',').map((s) => s.trim())) : null;
+// Carril a procesar: inc = solo movimientos (watermark, barato → frescura alta) · hash = solo
+// catálogos (full-scan, caro → cadencia baja) · all = ambos (default). Base del split WR.5.1.
+const CARRIL = ((process.argv.find((a) => a.startsWith('--carril=')) || '').split('=')[1] || 'all').toLowerCase();
 const WATCH_MS = watchArg ? Number(watchArg) * 60 * 1000 : 0;
 const BATCH = Number(process.env.WINCAJA_UPSERT_BATCH) || 500;
 
@@ -145,8 +148,10 @@ async function syncTable(c, b, t) {
 }
 
 async function syncBranch(c, b) {
-  const tables = branchSchema(b).filter((t) => !ONLY || ONLY.has(t.table));
-  console.log(`\n=== ${b.code} ${b.name} → ${b.schema} (${tables.length} tablas${ONLY ? ' [filtro]' : ''}) ===`);
+  const tables = branchSchema(b)
+    .filter((t) => !ONLY || ONLY.has(t.table))
+    .filter((t) => CARRIL === 'all' || (CARRIL === 'inc' ? !!watermarkCol(t.table) : !watermarkCol(t.table)));
+  console.log(`\n=== ${b.code} ${b.name} → ${b.schema} (${tables.length} tablas${ONLY ? ' [filtro]' : ''}${CARRIL !== 'all' ? ' carril=' + CARRIL : ''}) ===`);
   const t0 = Date.now();
   let totRead = 0, totWrote = 0, incN = 0, hashN = 0;
   for (const t of tables) {
