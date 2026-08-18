@@ -20,6 +20,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig } from '../bank.service';
+import { BancosSocketService, BancosEvent } from '../bancos-socket.service';
+import { AuthService } from '../../../core/services/auth.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -89,6 +91,11 @@ import { BANCOS_STYLES } from './bancos/bancos.styles';
           </span>
         }
         <app-freshness-pill [since]="lastImported()" />
+        @if (wsConnected()) {
+          <span class="fb-status-chip fb-live" title="Actualización en vivo activa — el tablero se refresca solo">
+            <i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo
+          </span>
+        }
       </div>
 
       <div class="fb-viewseg" role="tablist">
@@ -245,6 +252,10 @@ import { BANCOS_STYLES } from './bancos/bancos.styles';
     .fb-status-chip b { color: var(--text-main); font-weight: 600; }
     .fb-status-chip.warn { color: var(--warn-fg); }
     .fb-status-chip.warn i, .fb-status-chip.warn b { color: var(--warn-fg); }
+    .fb-live { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+    .fb-live i { color: var(--ok-fg); font-size: .5rem; animation: fb-live-pulse 2s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .fb-live i { animation: none; } }
+    @keyframes fb-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
     .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
 
@@ -266,6 +277,12 @@ export class FinanzasBancosComponent implements OnInit {
   private readonly api = inject(BankService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly sock = inject(BancosSocketService);
+  private readonly auth = inject(AuthService);
+
+  /** WS en vivo: verde cuando el socket `/bancos` está conectado. */
+  readonly wsConnected = computed(() => this.sock.connected());
+  private wsTimer: any = null;
 
   readonly tabs = FINANZAS_TABS;
   readonly GROUP_ORDER = GROUP_ORDER;
@@ -370,6 +387,12 @@ export class FinanzasBancosComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // WS realtime `/bancos`: refresca solo cuando el feed importa, el cron sincroniza
+    // el Sheet, se corre la conciliación o entra/valida un comprobante (otro operador).
+    this.sock.connect();
+    this.sock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onRemoteChange(ev));
+    this.destroyRef.onDestroy(() => this.sock.disconnect());
+
     this.api.periods().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ps) => {
         this.periods.set(ps);
@@ -382,6 +405,47 @@ export class FinanzasBancosComponent implements OnInit {
       },
       error: () => this.fail('No se pudieron cargar los periodos.'),
     });
+  }
+
+  /** Un cambio remoto de Bancos llegó por WS: refresca en silencio + avisa si fue de otro. */
+  private onRemoteChange(ev: BancosEvent): void {
+    const mine = !!ev.actor && ev.actor === this.auth.user()?.username;
+    // Refresca sólo si el cambio toca el periodo visible (o es global sin periodo).
+    if (!ev.period || ev.period === this.period()) this.scheduleSoftRefresh();
+    // Toast sólo para cambios de OTROS (el tuyo ya te dio feedback local; evita doble aviso).
+    if (!mine) this.toast.add({ severity: 'info', summary: 'Bancos actualizado', detail: ev.detail || this.wsLabel(ev.action), life: 4000 });
+  }
+
+  private wsLabel(a: BancosEvent['action']): string {
+    switch (a) {
+      case 'imported': return 'Se importó un estado de cuenta';
+      case 'sheet_synced': return 'Se sincronizó el workbook maestro';
+      case 'matched': return 'Se corrió la conciliación';
+      case 'capture_new': return 'Llegó un comprobante de depósito';
+      case 'capture_validated': return 'Se validó un comprobante';
+      case 'capture_rejected': return 'Se rechazó un comprobante';
+      default: return 'Bancos actualizado';
+    }
+  }
+
+  private scheduleSoftRefresh(): void {
+    if (this.wsTimer) clearTimeout(this.wsTimer);
+    this.wsTimer = setTimeout(() => this.softRefresh(), 600);
+  }
+
+  /** Refresco silencioso (sin skeleton) del periodo + la vista abierta, tras un cambio remoto. */
+  private softRefresh(): void {
+    const p = this.period();
+    if (!p) return;
+    this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => this.concentrado.set(c), error: () => { /* silencioso */ } });
+    this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.statements.set(s), error: () => { /* silencioso */ } });
+    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => { /* silencioso */ } });
+    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => { /* silencioso */ } });
+    this.reloadMovements();
+    const v = this.view();
+    if (v === 'conciliacion') this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => { /* silencioso */ } });
+    if (v === 'cuadre') this.loadThreeWay();
+    if (v === 'contpaqi') this.loadContpaqi();
   }
 
   setPeriod(p: string): void { this.period.set(p); this.loadPeriod(); }
