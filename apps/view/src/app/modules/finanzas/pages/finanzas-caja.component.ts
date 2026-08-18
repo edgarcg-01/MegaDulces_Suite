@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -78,9 +78,16 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <nav class="cg-views" role="tablist" aria-label="Vistas de caja">
         @for (v of VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" class="cg-view" [class.on]="view()===v.key" (click)="setView(v.key)"><span class="pi {{v.icon}}" aria-hidden="true"></span>&nbsp;{{ v.label }}</button>
+          <button role="tab" [attr.aria-selected]="view()===v.key" class="cg-view" [class.on]="view()===v.key" [class.legacy]="v.legacy" (click)="setView(v.key)"><span class="pi {{v.icon}}" aria-hidden="true"></span>&nbsp;{{ v.label }}@if (v.legacy) { <span class="cg-hist" title="Fuente histórica (Base Movimientos, ≤ ene-2026)">histórico</span> }</button>
         }
       </nav>
+
+      @if (isLegacy()) {
+        <div class="cg-legacy-note" role="note">
+          <i class="pi pi-clock" aria-hidden="true"></i>
+          <span>Esta vista usa el <b>Base Movimientos</b> de Finanzas, que <b>dejó de alimentarse</b> (ventas 08/abr-2026, depósitos ene-2026). Los datos están completos <b>solo hasta ene-2026</b>; para meses recientes saldrá vacía. La caja <b>viva</b> es <b>General</b> y <b>Cuadre</b> (Doctos).</span>
+        </div>
+      }
 
       @if (err(); as e) { <div class="cg-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="cg-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()" label="Reintentar"></button></div> }
 
@@ -423,6 +430,11 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-view { background:none; border:none; border-bottom:2px solid transparent; padding:.5rem .8rem; font-size:.85rem; color:var(--text-muted); cursor:pointer; }
     .cg-view:hover { color:var(--text-main); }
     .cg-view.on { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
+    .cg-view.legacy { color:var(--text-faint); }
+    .cg-hist { margin-left:.35rem; font-size:.58rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 .28rem; vertical-align:middle; }
+    .cg-legacy-note { display:flex; align-items:center; gap:.55rem; padding:.55rem .8rem; margin:.1rem 0 .7rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:.78rem; color:var(--text-muted); line-height:1.45; }
+    .cg-legacy-note .pi { color:var(--warn-fg); }
+    .cg-legacy-note b { color:var(--text-main); }
     app-metric-strip { display:block; margin:.6rem 0; }
     .cg-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:.4rem 0 .6rem; }
     .cg-search input { min-width:200px; }
@@ -489,15 +501,20 @@ export class FinanzasCajaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly base = `${environment.apiUrl}/finance/caja`;
 
-  readonly VIEWS: { key: View; label: string; icon: string }[] = [
+  // `legacy` = lee el Base Movimientos de Finanzas (caja_ventas_diarias / caja_depositos),
+  // que dejó de alimentarse (ventas 08/abr-2026, depósitos ene-2026). Datos completos solo
+  // ≤ ene-2026 → banner honesto + badge. La caja VIVA es General/Cuadre (Doctos). Arqueos vivo.
+  readonly VIEWS: { key: View; label: string; icon: string; legacy?: boolean }[] = [
     { key: 'general', label: 'General', icon: 'pi-wallet' },
     { key: 'cuadre', label: 'Cuadre', icon: 'pi-check-square' },
-    { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar' },
-    { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
-    { key: 'conciliacion', label: 'Conciliación', icon: 'pi-sync' },
-    { key: 'enlace', label: 'Enlace de cuentas', icon: 'pi-link' },
+    { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar', legacy: true },
+    { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns', legacy: true },
+    { key: 'conciliacion', label: 'Conciliación', icon: 'pi-sync', legacy: true },
+    { key: 'enlace', label: 'Enlace de cuentas', icon: 'pi-link', legacy: true },
   ];
+  private readonly LEGACY = new Set<View>(['resumen', 'depositos', 'conciliacion', 'enlace']);
+  readonly isLegacy = computed(() => this.LEGACY.has(this.view()));
   readonly tipoOpts = ['Arqueo', 'Retiro', 'Corte', 'Deposito', 'Fondo Caja'];
   readonly skel = Array.from({ length: 8 });
 
