@@ -12,6 +12,14 @@ import { Permission } from '../../../core/constants/permissions';
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
 /**
+ * Notificaciones de finanzas TEMPORALMENTE desactivadas (2026-08): la bandeja de hallazgos
+ * está en recalibración; el badge de "críticos" traía cientos de hallazgos sin triar (ruido).
+ * Con esto la campana no muestra ni cuenta nada de finanzas (sección, badge y alertas
+ * finance_finding del feed en vivo). Volver a `true` cuando el flujo esté bien estructurado.
+ */
+const FINANCE_NOTIF_ENABLED = false;
+
+/**
  * CxP (Fase CXP.1) — Centro de Notificaciones del header. Campana única que reúne
  * lo que necesita atención SIN entrar a cada pantalla:
  *   · Cuenta autoritativa (poll 60s): hallazgos críticos + acciones HITL por aprobar
@@ -140,7 +148,15 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly newSince = signal(false);
 
   readonly canSeeFinance = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_AI_CHAT] === true);
+    FINANCE_NOTIF_ENABLED &&
+    (this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_AI_CHAT] === true));
+  /**
+   * Quién ve los avisos de FEED (Kepler/ContPAQi trajo movimientos): quien tiene el
+   * módulo de Bancos. Independiente de FINANCE_NOTIF_ENABLED (ese flag apaga los
+   * hallazgos ruidosos de Maat, no estos avisos de feed).
+   */
+  readonly canSeeFinanceFeed = computed(() =>
+    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_BANK_VER] === true);
   readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
   readonly hasNew = computed(() => this.newSince());
 
@@ -163,6 +179,10 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   }
 
   private onAlert(a: CommercialAlert): void {
+    // Finanzas (hallazgos Maat) desactivado: no dejamos pasar sus alertas al feed en vivo.
+    if (!FINANCE_NOTIF_ENABLED && a.type === ('finance_finding' as any)) return;
+    // Aviso de FEED nuevo (Kepler/ContPAQi): solo a quien tiene el módulo de Finanzas.
+    if (a.type === ('finance_feed' as any) && !this.canSeeFinanceFeed()) return;
     const at = Date.parse(a.emitted_at) || Date.now();
     this.feed.update((f) => [{ type: a.type, severity: a.severity, title: a.title, message: a.message, at, route: a.data?.route }, ...f].slice(0, 20));
     this.newSince.set(true);
@@ -207,6 +227,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'low_stock_critical': return 'pi-box';
       case 'vip_inactive': return 'pi-user';
       case 'db_health': return 'pi-database';
+      case 'finance_feed': return 'pi-sync';
       default: return 'pi-bell';
     }
   }

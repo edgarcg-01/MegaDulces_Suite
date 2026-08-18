@@ -1,5 +1,5 @@
 import { Global, Injectable, Module } from '@nestjs/common';
-import { FINANCE_NOTIFIER_PORT, FinanceNotifierPort, FinanceCriticalItem } from '@megadulces/contracts';
+import { FINANCE_NOTIFIER_PORT, FinanceNotifierPort, FinanceCriticalItem, FinanceNotice } from '@megadulces/contracts';
 import { CommercialAlertsModule } from '@megadulces/commercial';
 import { AlertsService } from '@megadulces/commercial';
 
@@ -28,6 +28,21 @@ class FinanceNotifierAdapter implements FinanceNotifierPort {
       title: `Maat detectó ${items.length} hallazgo(s) crítico(s)`,
       message: `${top.map((i) => `${i.titulo} (${fmt(i.importe)})`).join(' · ')}${items.length > top.length ? ` +${items.length - top.length} más` : ''} — total ${fmt(total)}`,
       data: { source: 'maat', count: items.length, total, items: top, route: '/finanzas/hallazgos' },
+    });
+  }
+
+  /**
+   * Aviso informativo genérico de finanzas (feed nuevo de Kepler/ContPAQi, etc.).
+   * Tipo `finance_feed` (cast: no está en el union AlertType commercial) → la campana
+   * lo filtra a usuarios con permiso de finanzas y hace deep-link vía `data.route`.
+   */
+  async notify(tenantId: string, notice: FinanceNotice): Promise<void> {
+    this.alerts.emit(tenantId, {
+      type: 'finance_feed' as never,
+      severity: notice.severity,
+      title: notice.title,
+      message: notice.message,
+      data: { source: 'finance_feed', key: notice.key, route: notice.route ?? null, ...(notice.data || {}) },
     });
   }
 }
