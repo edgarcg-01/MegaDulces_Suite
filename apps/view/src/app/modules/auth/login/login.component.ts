@@ -4,7 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { HapticService } from '../../../core/services/haptic.service';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 @Component({
   selector: 'app-login',
@@ -18,6 +18,7 @@ export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   public themeService = inject(ThemeService);
   private haptic = inject(HapticService);
   private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
@@ -28,10 +29,28 @@ export class LoginComponent implements OnInit {
   });
 
   errorMessage: string | null = null;
+
+  /**
+   * Por qué estás en el login sin haber pedido salir. Hoy sólo 'expired', que lo
+   * pone el interceptor al recibir un 401.
+   */
+  readonly notice = signal<string | null>(null);
+
+  /** A dónde volver después de entrar; lo trae el interceptor en ?returnUrl=. */
+  private returnUrl: string | null = null;
   isLoading = false;
 
   ngOnInit() {
     // Theme is managed globally by ThemeService
+    const q = this.route.snapshot.queryParamMap;
+    this.returnUrl = q.get('returnUrl');
+    if (q.get('reason') === 'expired') {
+      this.notice.set(
+        this.returnUrl
+          ? 'Tu sesión expiró. Entrá de nuevo y te devolvemos a donde estabas.'
+          : 'Tu sesión expiró. Entrá de nuevo para continuar.',
+      );
+    }
   }
 
   toggleTheme() {
@@ -72,8 +91,9 @@ export class LoginComponent implements OnInit {
         next: () => {
           this.isLoading = false;
           this.haptic.notification('success');
-          // /projects decide entre selector, auto-redirect (si N=1) o fallback.
-          this.router.navigate(['/projects']);
+          // Volver a donde te echó el 401; si no hay, /projects decide entre
+          // selector, auto-redirect (si N=1) o fallback.
+          this.router.navigateByUrl(this.returnUrl || '/projects');
         },
         error: (err) => {
           this.isLoading = false;

@@ -6,11 +6,12 @@ import { filter } from 'rxjs/operators';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { PwaInstallService } from './core/services/pwa-install.service';
 import { StatusBarService } from './core/services/status-bar.service';
+import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ConfirmDialogModule],
+  imports: [RouterOutlet, ConfirmDialogModule, AppErrorOutletComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css'

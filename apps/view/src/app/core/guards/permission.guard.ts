@@ -4,8 +4,21 @@ import { AuthService } from '../services/auth.service';
 import { PermissionsService } from '../services/permissions.service';
 import { Permission } from '../constants/permissions';
 
+/**
+ * Redirección a la pantalla de 403 con el contexto necesario para explicarla.
+ *
+ * Antes cada denegación mandaba MUDO a /dashboard o /dashboard/captures: el
+ * usuario hacía clic, aparecía en otro lado, y no sabía si le faltaba permiso,
+ * si la sección se había movido o si le había errado. Se lleva `from` (a dónde
+ * iba) y `perm` (qué permiso faltó) para que la pantalla lo diga en castellano.
+ */
+const denied = (router: Router, url: string, perm?: Permission) =>
+  router.createUrlTree(['/sin-acceso'], {
+    queryParams: { from: url, perm: perm ?? null },
+  });
+
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const perms = inject(PermissionsService);
     const router = inject(Router);
@@ -23,13 +36,7 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
     const hasAccess = perms.can('manage', 'all');
 
     if (!hasAccess && !hasFallback) {
-      const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
-      if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
-        router.navigate(['/dashboard']);
-      } else {
-        router.navigate(['/dashboard/captures']);
-      }
-      return false;
+      return denied(router, state.url, requiredPermission);
     }
 
     return true;
@@ -42,7 +49,7 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
  * con RUTAS_VER o inteligencia comercial con COMMERCIAL_MAP_VER).
  */
 export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanActivateFn => {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const perms = inject(PermissionsService);
     const router = inject(Router);
@@ -58,13 +65,9 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
       requiredPermissions.some((p) => (legacyPerms ? legacyPerms[p] === true : false));
 
     if (!ok) {
-      const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
-      if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
-        router.navigate(['/dashboard']);
-      } else {
-        router.navigate(['/dashboard/captures']);
-      }
-      return false;
+      // Se nombra el primero: con varios permisos alternativos, cualquiera
+      // alcanza, y pedir uno concreto es más accionable que listarlos todos.
+      return denied(router, state.url, requiredPermissions[0]);
     }
 
     return true;
