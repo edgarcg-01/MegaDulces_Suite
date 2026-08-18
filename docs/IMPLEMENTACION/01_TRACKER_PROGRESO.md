@@ -693,6 +693,19 @@ Catálogo de transportes NestJS↔Angular auditado y cerrado en **ADR-045**. Cua
 
 Sin migraciones, sin cambios de contrato de endpoints, sin cambios de frontend. Build `api` verde.
 
+### COMM.5 — P0 de Finanzas: motores largos fuera del request — ✅ CERRADO 2026-08-18
+
+Techo real: `location /api/` de nginx no define `proxy_read_timeout` → **60 s**. Ocho endpoints síncronos podían pasarse y devolver **504 con el trabajo a medias**.
+
+- [x] **[COMM.5.1]** ✅ `FinanceJobsService` + `GET /finance/jobs[/:id]` + `BancosGateway.emitJob` (evento WS `finance_job`: `running` → `done`/`error` con el mismo objeto que devolvía el HTTP). Registro en memoria (últimos 50, scoped por tenant).
+- [x] **[COMM.5.2]** ✅ 8 endpoints a **202 + job_id**: bank `import` / `match` / `findings/sync` / `reclassify` / `sheet-sync/run` · maat `findings/scan` / `findings/graph-sync` / `discovery/run` / `skeptic/run`. Todos conservan `?sync=true` (o `sync: true` en el body) para CLI y smokes.
+- [x] **[COMM.5.3]** ✅ Frontend: `/finanzas/bancos` y `/finanzas/hallazgos` reaccionan al WS (`onJob`) + `FinanceJobsClient` sondea `GET /finance/jobs/:id` como respaldo si el WS no conectó (el primer aviso gana, dedupe por `job_id`). Refcount de conexión en `BancosSocketService` (ahora lo usan dos páginas).
+- [x] **[COMM.5.4]** ✅ Chat de Maat: **deadline de 45 s** en el camino síncrono (fallback del SSE, 12 iteraciones × Claude con `deep_search`) — cierra honesto en vez de que el proxy tire 504. Sin cola: es respuesta interactiva, no job.
+- [x] **[COMM.5.5]** ✅ Smoke `http-finance-jobs-test.js` en la regresión (202 + WS running→done + `GET /jobs/:id` + `?sync=true` idéntico al WS + 404). `http-maat-chat-test.js` ajustado a `?sync=true`.
+- [ ] **[COMM.5.6]** ⬜ Mover el trabajo a `pg-boss` + persistir el registro. Gate: worker-tier desplegado (`WORKER=true`) + `REDIS_URL` (para que el emit del worker llegue a los sockets del API) + archivo del import en S3 (25 mb no van en una fila de cola).
+
+Verificación: `nx build api` y `nx build view` verdes (exit code real) · contexto de tenant (AsyncLocalStorage) probado que sobrevive al detach · **smoke HTTP pendiente de que Edgar reinicie la API** (`node database/tests/http-finance-jobs-test.js`).
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I

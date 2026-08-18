@@ -87,6 +87,13 @@ export class MaatChatService {
       image?: { mediaType: string; data: string };
       /** El caller (stream SSE) puede pedir corte: se evalúa en el borde de cada iteración. */
       shouldStop?: () => boolean;
+      /**
+       * Techo de tiempo de pared en ms. Lo usa el camino SÍNCRONO (`POST /chat`),
+       * que vive bajo los 60 s de `location /api/` en nginx: al vencer, devuelve
+       * lo que tenga con un cierre honesto en vez de dejar que el proxy tire 504.
+       * El stream no lo necesita (el keepalive mantiene la conexión viva).
+       */
+      deadlineMs?: number;
     },
     onStep?: (step: { label: string; tool?: string }) => void,
   ): Promise<MaatChatResult> {
@@ -129,8 +136,18 @@ export class MaatChatService {
     const traces: MaatToolTrace[] = [];
     let tokensIn = 0, tokensOut = 0;
 
+    const deadlineAt = input.deadlineMs ? Date.now() + input.deadlineMs : 0;
     let iterations = 0;
     while (iterations < maxIterations) {
+      // Se acabó el tiempo del camino síncrono: cerrar con lo que haya (las tools
+      // ya ejecutadas quedan en `traces`) antes de que el proxy corte la respuesta.
+      if (deadlineAt && Date.now() > deadlineAt && iterations > 0) {
+        this.logger.warn(`ask() cortado por deadline (${input.deadlineMs}ms) tras ${iterations} iteraciones`);
+        return {
+          answer: 'Alcancé el límite de tiempo de esta consulta. Acota la pregunta (un periodo o una sola sucursal) y la contesto completa.',
+          source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: [],
+        };
+      }
       // El cliente se fue (cerró el stream SSE / navegó): cortar en el borde de la
       // iteración en vez de seguir quemando tokens contra un socket muerto.
       if (input.shouldStop?.()) {

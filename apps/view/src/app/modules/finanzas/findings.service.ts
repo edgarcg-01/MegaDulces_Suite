@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { JobAccepted } from './bancos-socket.service';
 
 /** MAAT.2 — cliente de la bandeja de hallazgos del motor de patrones. */
 
@@ -107,8 +108,9 @@ export class FindingsService {
   pinRule(ruleKey: string, pinned: boolean): Observable<any> {
     return this.http.post(`${this.base}/rules/${ruleKey}/pin`, { pinned });
   }
-  scan(): Observable<{ nuevos: number; reglas: number; por_regla: any[] }> {
-    return this.http.post<{ nuevos: number; reglas: number; por_regla: any[] }>(`${this.base}/scan`, {});
+  /** COMM-P0 — 202: el resultado del escaneo llega por WS `finance_job` (`maat-scan`). */
+  scan(): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/scan`, {});
   }
 
   // ── MIQ.3 cobertura + calidad de datos ──
@@ -117,10 +119,12 @@ export class FindingsService {
 
   // ── MIQ.4 descubrimiento de detectores (HITL) + escéptico ──
   discovery(status = 'propuesta'): Observable<Hypothesis[]> { return this.http.get<Hypothesis[]>(`${this.maatBase}/discovery?status=${status}`); }
-  runDiscovery(): Observable<{ deterministas: number; ai: number; total: number }> { return this.http.post<{ deterministas: number; ai: number; total: number }>(`${this.maatBase}/discovery/run`, {}); }
+  /** COMM-P0 — 202: resultado por WS (`maat-discovery`). Llama al LLM: no cabe en 60 s. */
+  runDiscovery(): Observable<JobAccepted> { return this.http.post<JobAccepted>(`${this.maatBase}/discovery/run`, {}); }
   approveHypothesis(id: string): Observable<any> { return this.http.post(`${this.maatBase}/discovery/${id}/approve`, {}); }
   rejectHypothesis(id: string): Observable<any> { return this.http.post(`${this.maatBase}/discovery/${id}/reject`, {}); }
-  skepticRun(): Observable<{ revisados: number; refutado: number; debil: number; sostiene: number }> { return this.http.post<{ revisados: number; refutado: number; debil: number; sostiene: number }>(`${this.maatBase}/skeptic/run`, {}); }
+  /** COMM-P0 — 202: resultado por WS (`maat-skeptic`). */
+  skepticRun(): Observable<JobAccepted> { return this.http.post<JobAccepted>(`${this.maatBase}/skeptic/run`, {}); }
 
   // ── MIQ.2/6 modelo que aprende + backtest ──
   learningStatus(): Observable<ModelStatus> { return this.http.get<ModelStatus>(`${this.maatBase}/learning/status`); }

@@ -13,7 +13,7 @@
 | # | Tecnología | Qué resuelve | Cuándo es la MEJOR opción | Estado en el repo |
 |---|---|---|---|---|
 | 1 | **REST HTTP/JSON** (`@Controller` + `HttpClient`) | dato bajo demanda, request↔response | lectura/escritura puntual que responde en **< 2-3 s** | ✅ base de todo (~41 módulos) |
-| 2 | **REST 202 + cola + aviso** | trabajo largo fuera del request | la operación tarda **> 5 s** o es reintentable (import, matcher, OCR, scan) | ⚠️ patrón usado solo en `libs/fiscal` (descarga SAT) |
+| 2 | **REST 202 + trabajo en background + aviso** | trabajo largo fuera del request | la operación tarda **> 5 s** o es reintentable (import, matcher, OCR, scan) | ✅ Finanzas (8 endpoints, COMM.5) + `libs/fiscal` con `pg-boss` |
 | 3 | **WebSocket (Socket.IO)** | push server→cliente con pestaña abierta | invalidar un tablero, progreso, "algo cambió y lo estás viendo" | ✅ 8 namespaces, JWT en handshake, room `tenant:<id>`, `redis-adapter` |
 | 4 | **SSE** (`text/event-stream`) | stream incremental unidireccional | una sola respuesta que llega **por partes** (tokens/pasos de AI) | ✅ 1 endpoint (chat de Maat), con keepalive `: ping` |
 | 5 | **Web Push (VAPID + ngsw)** | avisar **sin** pestaña abierta | aviso que no puede esperar a que el usuario vuelva | ✅ `apps/vendor` y `apps/portal`; ❌ **no** en `apps/view` (Operations) |
@@ -73,21 +73,29 @@ Superficies: bancos (CB), cobranza (CC), pagos-comprobantes (CC ext), comprobaci
 | Superficie / operación | Transporte HOY | Mejor opción | Por qué | Prio |
 |---|---|---|---|---|
 | Tablero `/finanzas/bancos` (movimientos, concentrado, diagnóstico, balances) | REST + **WS `/bancos`** | ✅ **igual** | es el patrón correcto: tabla por REST, invalidación por WS `bancos_changed` | — |
-| `POST /bank/import` (XLSX hasta 25 mb, ~6.5k movs/mes) | REST **síncrono** | **202 + `pg-boss` + WS con progreso** | supera fácil los 60 s de nginx → 504 con el import a medias y el usuario sin saber si quedó | **P0** |
-| `POST /bank/match` (conciliación, 2 pases) · `POST /findings/sync` · `POST /reclassify` | REST **síncrono** | **202 + cola + WS** | mismo riesgo; además son idempotentes y reintentables (encajan exacto en una cola) | **P0** |
-| `POST /finance/maat/scan-now` (10 detectores) | REST **síncrono** | **202 + cola + WS** | el nocturno ya corre por `@Cron`; el botón manual es el mismo trabajo largo | **P0** |
-| `POST /finance/maat/chat` (fallback del SSE) con `deep_search` | REST **síncrono** (12 iteraciones × Claude + tools) | **solo stream**, o 202 + cola | el fallback puede tardar minutos: choca con los 60 s justo cuando el SSE ya falló | **P0** |
+| `POST /bank/import` (XLSX hasta 25 mb, ~6.5k movs/mes) | ✅ **202 + job + WS `finance_job`** | igual | ya no se pasa de los 60 s: el endpoint acusa y el resultado llega por WS | ✅ P0 |
+| `POST /bank/match` · `POST /findings/sync` · `POST /reclassify` · `POST /sheet-sync/run` | ✅ **202 + job + WS** | igual | idempotentes y reintentables; `?sync=true` conserva el camino inline para CLI/smokes | ✅ P0 |
+| `POST /finance/maat/findings/scan` (10 detectores) · `graph-sync` · `discovery/run` · `skeptic/run` | ✅ **202 + job + WS** | igual | el nocturno sigue por `@Cron`; el botón manual ya no cuelga la pantalla | ✅ P0 |
+| `POST /finance/maat/chat` (fallback del SSE) con `deep_search` | ✅ REST con **deadline de 45 s** | igual | una cola no sirve para una respuesta interactiva: se cierra honesto antes de que el proxy tire 504 | ✅ P0 |
 | Chat de Maat `POST /chat/stream` | **SSE** + keepalive + cancelación | ✅ **igual** | correcto por diseño (ver ADR-045) | — |
 | OCR (`/collections/ocr`, `/supplier-payments/ocr`, `/goods-receipts/ocr`, `/expenses/comprobaciones/ocr`) | REST **síncrono** (Claude vision) | **202 + cola + WS por documento** | el usuario espera mirando; un PDF grande o un reintento se lleva decenas de segundos | **P1** |
 | `/finanzas/cobranza` (CC) | REST, **sin WS** | **WS** (`collections_changed`) | asimetría: su gemelo `/finanzas/pagos-comprobantes` **sí** tiene gateway; misma bandeja, mismo comportamiento esperado | **P1** |
-| `/finanzas/hallazgos` (bandeja de Maat) | REST; el aviso llega por la **campana** (`/alerts`) | **WS de invalidación** en la propia página + REST | hoy hay que recargar a mano para ver el resultado de un scan que ya terminó | **P1** |
-| Sheet-sync del workbook maestro (`@Cron` 3 min + botón manual) | `@Cron` ✅ + WS ✅; el botón es síncrono | cron igual; **botón → cola** | Google Sheets no puede empujar: el cron es correcto. El botón comparte el riesgo del import | **P1** |
+| `/finanzas/hallazgos` (bandeja de Maat) | REST + **WS `finance_job`** (cierre de scan/discovery) | falta invalidar cuando el **scan nocturno** deja hallazgos nuevos | con COMM.5 ya se refresca al terminar un motor disparado a mano; el cron de las 3 AM sigue sin avisar a la página | **P2** |
+| Sheet-sync del workbook maestro (`@Cron` 3 min + botón manual) | `@Cron` ✅ + WS ✅; botón = **202 + job** | ✅ igual | Google Sheets no puede empujar: el cron es correcto. El botón salió con P0 | ✅ P0 |
 | `/finanzas/tareas` (recon MA) | REST | **WS de invalidación** | igual que hallazgos | **P2** |
 | Aprobaciones HITL: `/solicitudes`, `/comprobaciones`, `/programa-pagos`, `/pagos-control` | REST | REST ✅ + **Web Push** al aprobador | la acción puntual es REST puro; lo que falta es enterarse cuando algo entra a `pending_approval` sin tener la pestaña abierta | **P2** |
 | Capturas de banco por WhatsApp (CBW) | **webhook entrante** (HMAC) + WS | ✅ igual + **Web Push** al validador | el depósito llega de noche; el gate humano no está mirando la pantalla | **P2** |
 | Aviso "llegó feed nuevo" (Kepler/ContPAQi) | **`@Cron` cada 30 min que compara conteos** en nuestra propia DB | **que avise el importer** (webhook interno o job en cola) → WS inmediato | es polling contra nuestra propia base: el productor sabe exactamente cuándo terminó (regla 6) | **P3** |
 | Caja general | REST + import por CLI | REST ✅ | volumen y frecuencia no piden más | — |
 | Lectura de Kepler / ContPAQi / Wincaja | SQL directo desde importers | ✅ igual | ADR-040: la plataforma lee del SoR, no le escribe | — |
+
+### 3.0 Estado: P0 cerrado (2026-08-18)
+
+Los cuatro frentes P0 salieron con **un solo patrón**: `202 { job_id }` → trabajo en background → evento WS `finance_job` (`running` → `done`/`error`, con el mismo objeto que antes devolvía el HTTP) → la pantalla se refresca sola. Piezas: [`FinanceJobsService`](../../libs/finance/src/lib/jobs/finance-jobs.service.ts) + `GET /finance/jobs/:id` + `BancosGateway.emitJob` + `FinanceJobsClient` (sonda de respaldo en el front por si el WS no conectó) + smoke [`http-finance-jobs-test.js`](../../database/tests/http-finance-jobs-test.js) en la regresión.
+
+**Desvío consciente vs el plan**: el trabajo corre **detached in-process**, todavía NO en `pg-boss`. Dos razones concretas: (1) `QueueService.work()` solo consume con `WORKER=true` y el worker-tier no está desplegado (`ENABLE_WORKER_QUEUE` apagado) → un job encolado hoy no correría nunca; (2) el payload del import es base64 de hasta 25 mb, que no va en una fila de cola sin subir antes el archivo a S3. El 504 queda resuelto igual y el cambio a cola toca un solo archivo. Cuando el worker exista hace falta además `REDIS_URL` para que el `emit` del worker alcance los sockets del API.
+
+**Chat de Maat**: no lleva cola a propósito (es una respuesta interactiva, no un job). Lleva **deadline de 45 s** en el camino síncrono, que es el fallback del SSE y el único que vivía bajo los 60 s del proxy.
 
 ### 3.1 El hallazgo que ordena las prioridades
 
@@ -97,8 +105,8 @@ Nota: ese mismo default de 60 s **cortaba el SSE** del chat cuando una tool tard
 
 ### 3.2 Backlog priorizado (Finanzas)
 
-- **P0 — un solo patrón resuelve 4 endpoints**: `POST /bank/import`, `POST /bank/match` (+ `findings/sync`, `reclassify`), `POST /maat/scan-now` y el fallback `POST /maat/chat` con `deep_search` → `202 { job_id }` + `pg-boss` + evento WS al terminar (reusando `bancos.gateway` donde aplica).
-- **P1 — simetría de tiempo real**: gateway/evento para `/finanzas/cobranza` y para la bandeja de hallazgos; OCR y el botón de sheet-sync a cola.
+- ~~**P0**~~ ✅ **hecho 2026-08-18** — 8 endpoints a `202 + job + WS` + deadline en el chat síncrono. Pendiente de este frente: mover el trabajo a `pg-boss` (necesita worker desplegado + archivo en S3) y persistir el registro de jobs (hoy es memoria del proceso: un reinicio lo borra y otra instancia no lo ve).
+- **P1 — simetría de tiempo real**: gateway/evento para `/finanzas/cobranza`; los 4 endpoints de OCR a job (mismo patrón, ya disponible). El botón de sheet-sync ya salió con P0.
 - **P2 — Web Push en Operations** (`apps/view` no lo tiene): aprobaciones pendientes y hallazgo crítico.
 - **P3 — matar el polling interno** de `finance-feed-scanner`: que el importer avise al terminar.
 

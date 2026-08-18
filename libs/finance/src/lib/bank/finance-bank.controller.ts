@@ -1,10 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { FinanceBankService, ListMovementsQuery } from './finance-bank.service';
 import { SheetSyncService } from './sheet-sync.service';
+import { FinanceJobsService } from '../jobs/finance-jobs.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+
+/** `?sync=true` (o `sync: true` en el body) fuerza el camino inline: CLI y smokes. */
+function wantsInline(q?: string, b?: boolean): boolean {
+  return b === true || q === 'true' || q === '1';
+}
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Lectura del tablero (cuentas, catálogo,
@@ -19,7 +26,18 @@ export class FinanceBankController {
   constructor(
     private readonly svc: FinanceBankService,
     private readonly sheetSync: SheetSyncService,
+    private readonly jobs: FinanceJobsService,
   ) {}
+
+  /**
+   * COMM-P0 — Delega un motor largo a background y responde 202 + `job_id`; el
+   * resultado sale por WS (`finance_job`). Sin esto, los 60 s de `location /api/`
+   * en nginx devolvían 504 con el trabajo a medias. Ver FinanceJobsService.
+   */
+  private delegate<T>(res: Response, name: string, label: string, actor: string | undefined, exec: () => Promise<T>) {
+    res.status(202);
+    return this.jobs.run({ name, label, actor: actor ?? null, exec });
+  }
 
   @Get('accounts')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
@@ -53,8 +71,19 @@ export class FinanceBankController {
 
   @Post('match')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: 'Corre el matching por-transacción (retiros banco ↔ pagos Kepler 102).' })
-  match(@Body() body: { period?: string }) { return this.svc.runMatch(body?.period); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Corre el matching por-transacción (retiros banco ↔ pagos Kepler 102). Async: 202 + job_id, resultado por WS `finance_job`.' })
+  match(
+    @Body() body: { period?: string; sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const period = body?.period;
+    if (wantsInline(sync, body?.sync)) return this.svc.runMatch(period);
+    const label = 'Conciliación ' + (period || 'periodo actual');
+    return this.delegate(res, 'bank-match', label, req?.user?.full_name || req?.user?.username, () => this.svc.runMatch(period));
+  }
 
   @Get('differences')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
@@ -88,8 +117,19 @@ export class FinanceBankController {
 
   @Post('findings/sync')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })
-  syncFindings(@Body() body: { period?: string }) { return this.svc.syncFindings(body?.period); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat. Async: 202 + job_id.' })
+  syncFindings(
+    @Body() body: { period?: string; sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const period = body?.period;
+    if (wantsInline(sync, body?.sync)) return this.svc.syncFindings(period);
+    const label = 'Hallazgos ' + (period || 'periodo actual');
+    return this.delegate(res, 'bank-findings-sync', label, req?.user?.full_name || req?.user?.username, () => this.svc.syncFindings(period));
+  }
 
   // ── CP.2 (Fase CP, ADR-040) — Comparación con la contabilidad ContPAQi ──
 
@@ -155,9 +195,21 @@ export class FinanceBankController {
 
   @Post('import')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: 'Sube un workbook Excel (base64) y lo importa/concilia por periodo.' })
-  import(@Body() body: { file_base64?: string; period?: string; source_file?: string }, @Req() req: AuthedRequest) {
-    return this.svc.importWorkbook(body?.file_base64 || '', body?.period || '', body?.source_file, req?.user?.full_name || req?.user?.username);
+  @ApiQuery({ name: 'sync', required: false, description: 'true = importa inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Sube un workbook Excel (base64) y lo importa/concilia por periodo. Async: 202 + job_id, resultado por WS `finance_job` (un workbook de ~6.5k movimientos se pasaba de los 60 s de nginx).' })
+  import(
+    @Body() body: { file_base64?: string; period?: string; source_file?: string; sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const file = body?.file_base64 || '';
+    const period = body?.period || '';
+    const source = body?.source_file;
+    const actor = req?.user?.full_name || req?.user?.username;
+    if (wantsInline(sync, body?.sync)) return this.svc.importWorkbook(file, period, source, actor);
+    const label = 'Import ' + (period || 'sin periodo');
+    return this.delegate(res, 'bank-import', label, actor, () => this.svc.importWorkbook(file, period, source, actor));
   }
 
   @Patch('movements/:id/category')
@@ -211,8 +263,19 @@ export class FinanceBankController {
 
   @Post('reclassify')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: 'Re-aplica las reglas a movimientos ya importados (respeta manual).' })
-  reclassifyAll(@Body() body: { period?: string }) { return this.svc.reclassifyAll(body?.period); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Re-aplica las reglas a movimientos ya importados (respeta manual). Async: 202 + job_id.' })
+  reclassifyAll(
+    @Body() body: { period?: string; sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const period = body?.period;
+    if (wantsInline(sync, body?.sync)) return this.svc.reclassifyAll(period);
+    const label = 'Reclasificar ' + (period || 'todo');
+    return this.delegate(res, 'bank-reclassify', label, req?.user?.full_name || req?.user?.username, () => this.svc.reclassifyAll(period));
+  }
 
   // ── CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi) ──
 
@@ -245,6 +308,15 @@ export class FinanceBankController {
 
   @Post('sheet-sync/run')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: 'Sincroniza AHORA el workbook maestro (baja el .xlsx del Sheet y lo procesa; force ignora el hash).' })
-  sheetSyncRun() { return this.sheetSync.syncCurrent({ force: true }); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'Sincroniza AHORA el workbook maestro (baja el .xlsx del Sheet y lo procesa; force ignora el hash). Async: 202 + job_id.' })
+  sheetSyncRun(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (wantsInline(sync, body?.sync)) return this.sheetSync.syncCurrent({ force: true });
+    return this.delegate(res, 'bank-sheet-sync', 'Sync del workbook maestro', req?.user?.full_name || req?.user?.username, () => this.sheetSync.syncCurrent({ force: true }));
+  }
 }

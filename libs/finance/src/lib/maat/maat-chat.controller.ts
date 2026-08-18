@@ -62,6 +62,11 @@ export class MaatChatController {
       think: !!body?.think,
       deepSearch: !!body?.deep_search,
       image,
+      // Este camino es el FALLBACK del stream y corre bajo los 60 s de nginx
+      // (`location /api/` no define proxy_read_timeout): con deep_search son 12
+      // iteraciones × Claude + tools, así que se cierra honesto a los 45 s en vez
+      // de que el proxy devuelva 504 sin respuesta.
+      deadlineMs: 45_000,
     });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     const audit = await this.chat.logExchange(

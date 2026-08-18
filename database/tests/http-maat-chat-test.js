@@ -156,7 +156,9 @@ function check(name, cond, det) {
 
   // ── 10. MAAT.2 — motor de detectores + bandeja + feedback L2 ──
   console.log('\n── 10. Motor de patrones + bandeja ──');
-  const scan = await req('POST', '/finance/maat/findings/scan', token);
+  // COMM-P0: el scan responde 202 + job_id (el resultado sale por WS `finance_job`).
+  // Este test asserta sobre el resultado, asi que pide el camino inline.
+  const scan = await req('POST', '/finance/maat/findings/scan?sync=true', token);
   check('scan 200/201', scan.status === 200 || scan.status === 201, `status=${scan.status}`);
   check('scan corrió reglas', Number(scan.body?.reglas) >= 1, `reglas=${scan.body?.reglas}`);
   console.log(`    scan: ${scan.body?.nuevos} nuevos en ${scan.body?.reglas} reglas · ${(scan.body?.por_regla || []).filter((r) => r.total > 0).map((r) => r.rule_key + ':' + r.total).join(', ')}`);

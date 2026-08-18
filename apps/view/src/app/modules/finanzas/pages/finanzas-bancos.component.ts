@@ -19,8 +19,9 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig } from '../bank.service';
-import { BancosSocketService, BancosEvent } from '../bancos-socket.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult } from '../bank.service';
+import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
+import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
@@ -303,6 +304,9 @@ export class FinanzasBancosComponent implements OnInit {
   readonly diagnostico = signal<Diagnostico | null>(null);
   readonly matchResult = signal<MatchResult | null>(null);
   readonly differences = signal<Differences | null>(null);
+  /** COMM-P0 — trabajos largos disparados desde ESTA pantalla (job_id → name). */
+  private readonly pendingJobs = new Map<string, string>();
+  private readonly jobsClient = inject(FinanceJobsClient);
   readonly matching = signal(false);
   readonly syncing = signal(false);
   readonly movements = signal<BankMovement[]>([]);
@@ -391,6 +395,7 @@ export class FinanzasBancosComponent implements OnInit {
     // el Sheet, se corre la conciliación o entra/valida un comprobante (otro operador).
     this.sock.connect();
     this.sock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onRemoteChange(ev));
+    this.sock.job$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onJob(ev));
     this.destroyRef.onDestroy(() => this.sock.disconnect());
 
     this.api.periods().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -405,6 +410,69 @@ export class FinanzasBancosComponent implements OnInit {
       },
       error: () => this.fail('No se pudieron cargar los periodos.'),
     });
+  }
+
+  /**
+   * COMM-P0 — cierre de un motor largo (import / conciliación / hallazgos / sync del
+   * Sheet). El endpoint contestó 202 y el resultado llega aquí: sin esto, un workbook
+   * grande se pasaba de los 60 s de nginx y el navegador veía 504 con el import a medias.
+   * Sólo actúa sobre los trabajos que ESTA pantalla disparó (los de otros usuarios ya
+   * refrescan por `bancos_changed`).
+   */
+  private track(job: JobAccepted): void {
+    this.pendingJobs.set(job.job_id, job.name);
+    // Respaldo del WS: si no conectó, la sonda trae el cierre igual (el primero gana).
+    this.jobsClient.watch(job.job_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ev) => this.onJob(ev),
+      error: () => { /* el WS sigue siendo el camino principal */ },
+    });
+  }
+
+  private onJob(ev: FinanceJobEvent): void {
+    if (ev.status === 'running') return;
+    if (!this.pendingJobs.delete(ev.job_id)) return;
+
+    switch (ev.name) {
+      case 'bank-import': this.uploading.set(false); break;
+      case 'bank-match': this.matching.set(false); break;
+      case 'bank-findings-sync': this.syncing.set(false); break;
+      case 'bank-sheet-sync': this.syncingSheet.set(false); break;
+    }
+
+    if (ev.status === 'error') { this.fail(ev.error || `No se pudo completar: ${ev.label}`); return; }
+
+    if (ev.name === 'bank-import') {
+      const res = ev.result as ImportResult;
+      this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
+      if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
+      this.setPeriod(res.period);
+      return;
+    }
+    if (ev.name === 'bank-match') {
+      const mr = ev.result as MatchResult;
+      this.matchResult.set(mr);
+      this.toast.add({ severity: 'success', summary: `Conciliación ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros conciliados`, life: 3500 });
+      this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
+      this.refreshDiagnostico();
+      this.reloadMovements();
+      return;
+    }
+    if (ev.name === 'bank-findings-sync') {
+      const r = ev.result as SyncFindingsResult;
+      this.toast.add({ severity: 'success', summary: `${r.pushed} diferencias enviadas`, detail: `${r.inserted} nuevas en /finanzas/hallazgos · ${r.skipped} omitidas`, life: 4000 });
+      return;
+    }
+    if (ev.name === 'bank-sheet-sync') {
+      const r = ev.result as SheetSyncRunResult;
+      if (r.skipped) {
+        this.toast.add({ severity: 'info', summary: 'Sin cambios', detail: 'El Sheet no cambió desde la última sincronización.', life: 3000 });
+      } else {
+        this.toast.add({ severity: 'success', summary: `Sincronizado ${r.period}`, detail: `${r.total ?? 0} movimientos · ${r.swept ?? 0} borrados · ${r.sin_clasificar ?? 0} sin clasificar`, life: 4500 });
+      }
+      this.api.sheetSyncConfig().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => this.sheetCfg.set(c));
+      this.threeWay.set(null);
+      this.loadPeriod();
+    }
   }
 
   /** Un cambio remoto de Bancos llegó por WS: refresca en silencio + avisa si fue de otro. */
@@ -474,17 +542,7 @@ export class FinanzasBancosComponent implements OnInit {
     if (this.syncingSheet()) return;
     this.syncingSheet.set(true);
     this.api.sheetSyncRun().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.syncingSheet.set(false);
-        if (r.skipped) {
-          this.toast.add({ severity: 'info', summary: 'Sin cambios', detail: 'El Sheet no cambió desde la última sincronización.', life: 3000 });
-        } else {
-          this.toast.add({ severity: 'success', summary: `Sincronizado ${r.period}`, detail: `${r.total ?? 0} movimientos · ${r.swept ?? 0} borrados · ${r.sin_clasificar ?? 0} sin clasificar`, life: 4500 });
-        }
-        this.api.sheetSyncConfig().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => this.sheetCfg.set(c));
-        this.threeWay.set(null);
-        this.loadPeriod();
-      },
+      next: (job) => this.track(job),
       error: (e) => { this.syncingSheet.set(false); this.fail(e?.error?.message || 'No se pudo sincronizar del Sheet.'); },
     });
   }
@@ -592,12 +650,10 @@ export class FinanzasBancosComponent implements OnInit {
     reader.onload = () => {
       const b64 = String(reader.result || '');
       this.api.importWorkbook(b64, period, file.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (res) => {
-          this.uploading.set(false);
+        next: (job) => {
           input.value = '';
-          this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
-          if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
-          this.setPeriod(res.period);
+          this.track(job);
+          this.toast.add({ severity: 'info', summary: 'Importando…', detail: `${file.name} — te aviso al terminar.`, life: 3000 });
         },
         error: () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo importar el Excel.'); },
       });
@@ -611,14 +667,7 @@ export class FinanzasBancosComponent implements OnInit {
     if (!this.period()) return;
     this.matching.set(true);
     this.api.runMatch(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (mr) => {
-        this.matching.set(false);
-        this.matchResult.set(mr);
-        this.toast.add({ severity: 'success', summary: `Conciliación ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros conciliados`, life: 3500 });
-        this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
-        this.refreshDiagnostico();
-        this.reloadMovements();
-      },
+      next: (job) => this.track(job),
       error: () => { this.matching.set(false); this.fail('No se pudo correr la conciliación.'); },
     });
   }
@@ -628,10 +677,7 @@ export class FinanzasBancosComponent implements OnInit {
     if (!this.period()) return;
     this.syncing.set(true);
     this.api.syncFindings(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.syncing.set(false);
-        this.toast.add({ severity: 'success', summary: `${r.pushed} diferencias enviadas`, detail: `${r.inserted} nuevas en /finanzas/hallazgos · ${r.skipped} omitidas`, life: 4000 });
-      },
+      next: (job) => this.track(job),
       error: () => { this.syncing.set(false); this.fail('No se pudieron enviar las diferencias a Hallazgos.'); },
     });
   }
