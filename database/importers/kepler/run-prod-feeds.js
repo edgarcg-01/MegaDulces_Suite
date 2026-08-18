@@ -77,6 +77,14 @@ const STEPS = {
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
     path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
     path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
+    // RR — ventas por ruta AL DÍA. El reporte /comercial/ventas-por-ruta lee el rollup
+    // analytics.sales_by_route_monthly; antes estos feeds SOLO estaban en nightly → el reporte
+    // iba ~24h atrás aunque el ORIGEN (.249 mart.ventas del push de camionetas) va al día (cada
+    // 15min). Intradía lo refresca cada ~1h. Idempotentes (UPSERT GREATEST); siguen en nightly
+    // como respaldo. El push lee local (.249), la vecinal lee md_01.
+    path.join(K, 'import-route-push-monthly.js'),    // WIN-<NN> camionetas PH (.249 mart.ventas ruta_NN → mensual)
+    path.join(K, 'import-route-push-lines.js'),      // line-level del push → route_push_lines (drill-down del reporte)
+    path.join(K, 'import-kepler-vecinal-routes.js'), // WIN-<1V0NN> rutas vecinales PH (md_01 kdm1.c12)
   ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
