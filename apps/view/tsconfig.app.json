@@ -8,6 +8,11 @@
   },
   "files": ["src/main.ts"],
   "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  // Los .spec quedan fuera del build de la app: con `types: []` los globals de
+  // jest (describe/it/expect) no existen acá y CUALQUIER test real rompía la
+  // compilación de producción. Por eso el único spec del repo estaba vacío con
+  // un TODO. Los specs los compila tsconfig.spec.json.
+  "exclude": ["src/**/*.spec.ts"],
   "angularCompilerOptions": {
     "extendedDiagnostics": {
       "checks": {
