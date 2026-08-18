@@ -112,19 +112,34 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 
 ---
 
-## 6. Decisiones abiertas (resolver en WR.0)
+## 6. Decisiones (resueltas por Edgar 2026-08-18)
 
-1. **Topología del destino**: `wincaja_30`/`wincaja_32`/… (DB por sucursal, como Kepler) **vs** un `wincaja_replica` con **schema por sucursal** (`w30.*`, `w32.*`). Recomiendo schema-por-sucursal (menos DBs que gestionar; las tablas Access tienen los mismos nombres → el schema las separa).
-2. **Qué datasets**: `Concentradas` (actual, continuo) es el objetivo de WR. El histórico por año (`Z:\Salidas\Bases\<año>`) es one-shot → carga inicial, no CDC.
-3. **Rutas**: los `.mdb` de rutas (321/322…) — ¿entran a la réplica continua o quedan en el batch? (tienen la venta a bordo).
-4. **Copia-sombra de `00` (Irapuato) y rutas**: ¿SyncBack ya las copia? (hoy live-extract cubre 30/32/50).
-5. **WR.6 alcance**: ¿re-apuntar TODO el pipeline a la réplica ahora, o dejar el bronze como está y solo agregar la réplica cruda para consultas?
+1. **Topología del destino ✅ DB centralizada `wincaja`** con **schema por sucursal** (`w30.*`, `w32.*`, `w00.*`, `w<ruta>.*`) en `:5433`. Una sola DB que gestionar; el schema separa las tablas homónimas (`MaestroMovAlmacen`…).
+2. **Copia-sombra ✅ TODAS** las bases se copian (SyncBack) — 30/32/CEDIS-00/rutas. No hay que montar copia nueva.
+3. **Rutas ✅ INCLUIDAS** en la réplica continua (traen la venta a bordo).
+4. **Datasets**: `Concentradas` (actual) = objetivo continuo de WR. El histórico por año (`Z:\Salidas\Bases\<año>`) = one-shot (carga inicial, no CDC).
+5. **WR.6** (re-apuntar el bronze a la réplica) queda como Fase 2 tras el MVP (WR.0–5).
 
 ---
 
 ## 7. Relación con Fase CA (un solo adapter)
 
 WR y [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md) (CEDIS Kepler-Access) son **el mismo problema** (Access 97 → Postgres, Jet + hash-delta) sobre esquemas distintos (Wincaja: `MaestroMovAlmacen`…; Kepler-Access: `kdXX`). **Conviene construir el adapter Access → Postgres una vez** (reader Jet + descubridor de esquema + CDC dos carriles + DDL espejo auto) y aplicarlo a ambos. Orden sugerido: hacer el adapter en la que arranque primero; la otra reusa.
+
+---
+
+## 9. WR.0 — hallazgos del descubrimiento (✅ 2026-08-18)
+
+**Ubicación (copia-sombra, SyncBack):** `Z:\Salidas\Bases\Actuales\` — CEDIS Irapuato `0 BPIRAPUATO.mdb` (19.9MB) + `0 BPIRAPUATO MOV.MDB` (30.9MB, **2 archivos**: catálogo + movimientos), `30 MORELIA ABASTOS.MDB` (58MB), `32 MORELIA MADERO.MDB` (50MB), rutas `32 RUTA 321/322`, `21-28 RUTA` (PH), `50 RUTA 501-505` (Canindo). Histórico: `Z:\Salidas\Bases\Concentradas\` (285MB Morelia) + por año `Z:\Salidas\Bases\<año>` (one-shot).
+
+**Esquema UNIFORME entre bases** (verificado 30 Morelia Abastos + CEDIS Irapuato-MOV, mismo Wincaja): **70 tablas** (~40 con datos). Tipos Jet: `Int32`/`String`/`Double`/`DateTime`/`Byte`/`Boolean`.
+
+**Clasificación por carril:**
+- **Incremental (watermark = `Consecutivo` Int32 monótono):** `MaestroMovAlmacen` (cabeceras: Consecutivo/Tipo/Documento/Tercero/Fecha/Hora/Almacen/Caja/Cajero/Vendedor/Cancelado…), `DetallesMovAlmacen` (líneas: Consecutivo/Articulo/CantidadRegular/ValorVenta/ValorCosto…), `MovimientoClientes`, `MovimientoProveedores`, `PagosDia`, `Retiros`, `Arqueos`, `Cortes` (Folio), `MaestroCotizaciones`/`DetalleCotizaciones`.
+- **Hash-delta (catálogos mutables):** `Articulos` (~15.4k), `Existencias` (~15.4k), `Precios` (~90k), `Clientes`, `Proveedores`, `Categorias`/`Familias`/`Subfamilias`, `Ofertas`, `ArticulosRelacion`, `Productos`, `Vendedores`, `Cajas`/`Cajeros`.
+- **Config chicas (full cada corrida):** `Almacenes`, `FormasPago`, `IVA`/`IEPS`, `Monedas`, `Unidades`, `Operaciones`, `Seguridad`.
+
+**Notas para WR.1+:** (1) CEDIS Irapuato = 2 `.mdb` (base + MOV) → replicar ambos como `w00_base.*`/`w00_mov.*` o unir. (2) Rutas de Canindo `50 RUTA 50X` = la venta a bordo que **ya se migró a Kepler** (import-canindo-routes) → decidir si su `.mdb` entra a WR (histórico) o se omite. (3) Jet `GetOleDbSchemaTable(Columns/Primary_Keys)` es inestable → descubrir columnas con `SELECT * WHERE 1=0` (reader.GetName/GetFieldType), como el script `wincaja-schema-discovery.ps1`. (4) PS32 rompe con caracteres no-ASCII (em-dash) → scripts solo ASCII.
 
 ---
 
