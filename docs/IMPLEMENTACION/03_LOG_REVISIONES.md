@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-08-18 — COMM.5 (P0 Finanzas): los motores largos salen del request
+
+**Qué se arregló:** ocho endpoints de Finanzas corrían el trabajo **dentro del request** y podían pasarse del techo real de la infra: `location /api/` en `nginx.conf` **no define `proxy_read_timeout`**, así que rige el default de nginx (**60 s**). Pasado ese punto el navegador recibe **504 mientras el backend sigue trabajando**, y el usuario no sabe si el import quedó aplicado — el peor de los dos mundos en un módulo de dinero. Ahora: `202 { job_id }` + trabajo en background + evento WS `finance_job` (`running` → `done`/`error`, con el MISMO objeto que antes venía en la respuesta HTTP).
+
+**Endpoints migrados:** bank `import` (base64 hasta 25 mb / ~6.5k movs), `match`, `findings/sync`, `reclassify`, `sheet-sync/run`; maat `findings/scan` (10 detectores), `findings/graph-sync`, `discovery/run`, `skeptic/run`.
+
+**El escape hatch importa tanto como el cambio:** `?sync=true` (o `sync: true` en el body) mantiene el camino inline. Sin eso, romper el contrato hubiera roto la CLI y los smokes que assertan sobre el resultado — `http-maat-chat-test.js` es exactamente ese caso y quedó ajustado.
+
+**Desvío consciente del plan (no es `pg-boss` todavía):** el plan decía 202 + cola. El trabajo corre **detached in-process** por dos razones verificadas en el código: (1) `QueueService.work()` solo consume si el proceso corre con `WORKER=true`, y el worker-tier no está desplegado (`ENABLE_WORKER_QUEUE` apagado) → un job encolado hoy **no correría nunca**; (2) el payload del import es base64 de hasta 25 mb y no va en una fila de cola sin subir antes el archivo a S3. El 504 queda resuelto igual, el consumo de RAM es el mismo que ya había, y el cambio a cola toca un solo archivo (`FinanceJobsService`). Nota para ese día: el worker necesita `REDIS_URL`, porque sin el redis-adapter su `emit` no alcanza los sockets conectados al API.
+
+**El chat de Maat NO lleva cola, lleva deadline.** Una respuesta interactiva no es un job en background: lo que servía era un techo de tiempo. `ask()` ahora acepta `deadlineMs` y el camino síncrono (`POST /chat`, que es el fallback del SSE) lo fija en 45 s → cierra con lo que tenga y un mensaje honesto, en vez de que el proxy corte sin respuesta. El stream no lo necesita: lo protege el keepalive de COMM.1.
+
+**Lo que había que probar y no se podía asumir:** el trabajo detached sigue corriendo **después** de que el handler respondió — ¿sobrevive el tenant? Sí, y quedó verificado en dos niveles: (a) `AsyncLocalStorage` propaga el store a continuaciones creadas dentro del scope (probado con un script aislado, incluido el control negativo); (b) `TenantKnexService.run()` **abre su propia transacción** por llamada (no reusa una trx del request), así que no le afecta el COMMIT del interceptor legacy — que es el pozo del `25P02` documentado en las lecciones.
+
+**Red de seguridad en el front:** si el WS no conecta (proxy que no hace upgrade, red corporativa), el 202 dejaría un spinner eterno. `FinanceJobsClient` sondea `GET /finance/jobs/:id` cada 5 s hasta 3 min; el primer aviso que llega gana (dedupe por `job_id` contra el mapa de trabajos propios de la pantalla). También hubo que meter **refcount** en `BancosSocketService`: ahora lo usan dos páginas y la primera en desmontarse cerraba el socket de la otra.
+
+**Hallazgo colateral — `main` estaba con el build rojo antes de empezar:** `apps/api/src/modules/store/store.service.ts:39` no compilaba (`TS2322`: devolver el QueryBuilder dentro de `knex.transaction` tipa el retorno como `void | T[]`). Venía del commit `47334207`, ajeno a este trabajo. **Lección de método:** el error se me pasó en la sesión anterior porque corrí `nx build api ... | tail`, y con pipe el exit code es el de `tail`, no el del build. Desde ahora: redirigir a archivo y leer `$?`, nunca pipear el build.
+
+**Estado:** builds `api` y `view` verdes con exit code real. Smoke nuevo `http-finance-jobs-test.js` registrado en la regresión, **pendiente de correr** hasta que Edgar reinicie la API (la instancia viva es un build anterior; la regla es que el restart es suyo).
+
+---
+
 ## 2026-08-18 — Auditoría de transportes de comunicación (ADR-045): 4 huecos cerrados
 
 **Qué se revisó:** todos los mecanismos de comunicación entre NestJS y Angular presentes en el repo, contra lo que el stack permite. Implementados: REST + 8 namespaces Socket.IO (JWT en handshake, room `tenant:<id>`, `redis-adapter` opcional, path `/reports/socket.io` detrás de nginx) + Web Push VAPID + SSE (1 endpoint) + polling por intervalo (~20 pantallas) + multipart + descarga binaria + offline-first Dexie/ngsw + `pg-boss` + BullMQ (WhatsApp) + webhook entrante con HMAC + axios saliente + Bolt/Neo4j + OTLP. Ausentes **por decisión**: GraphQL, gRPC, microservicios Nest, `LISTEN/NOTIFY`.

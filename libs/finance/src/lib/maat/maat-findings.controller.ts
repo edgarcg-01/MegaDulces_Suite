@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -10,8 +11,14 @@ import { MaatDetectorService } from './maat-detector.service';
 import { MaatProviderGraphService } from './maat-provider-graph.service';
 import { MaatCoverageService } from './maat-coverage.service';
 import { MaatDataQualityService } from './maat-dataquality.service';
+import { FinanceJobsService } from '../jobs/finance-jobs.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+
+/** `?sync=true` (o `sync: true` en el body) fuerza el camino inline: CLI y smokes. */
+function wantsInline(q?: string, b?: boolean): boolean {
+  return b === true || q === 'true' || q === '1';
+}
 
 @ApiTags('finance-maat')
 @ApiBearerAuth()
@@ -25,6 +32,7 @@ export class MaatFindingsController {
     private readonly coverage: MaatCoverageService,
     private readonly dataQuality: MaatDataQualityService,
     private readonly tenantCtx: TenantContextService,
+    private readonly jobs: FinanceJobsService,
   ) {}
 
   @Get()
@@ -84,12 +92,43 @@ export class MaatFindingsController {
   @Post('scan')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @Throttle({ long: { limit: 4, ttl: 60_000 } })
-  @ApiOperation({ summary: 'MAAT.2 — Corre el motor de detectores ahora (manual). Idempotente (UPSERT por dedup_key).' })
-  scan() { return this.detector.scanAll('manual'); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'MAAT.2 — Corre el motor de detectores ahora (manual). Idempotente (UPSERT por dedup_key). Async: 202 + job_id, resultado por WS `finance_job` (los 10 detectores se pasan de los 60 s de nginx).' })
+  scan(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (wantsInline(sync, body?.sync)) return this.detector.scanAll('manual');
+    res.status(202);
+    return this.jobs.run({
+      name: 'maat-scan',
+      label: 'Escaneo de detectores',
+      actor: req?.user?.full_name || req?.user?.username || null,
+      exec: () => this.detector.scanAll('manual'),
+    });
+  }
 
   @Post('graph-sync')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @Throttle({ long: { limit: 2, ttl: 60_000 } })
-  @ApiOperation({ summary: 'MAAT.10 — Reconstruye el grafo de proveedores en Neo4j desde analytics.expense_documents. No-op si NEO4J_URI no está.' })
-  graphSync() { return this.graph.sync(this.tenantCtx.requireTenantId()); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'MAAT.10 — Reconstruye el grafo de proveedores en Neo4j desde analytics.expense_documents. No-op si NEO4J_URI no está. Async: 202 + job_id.' })
+  graphSync(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (wantsInline(sync, body?.sync)) return this.graph.sync(tenantId);
+    res.status(202);
+    return this.jobs.run({
+      name: 'maat-graph-sync',
+      label: 'Grafo de proveedores',
+      actor: req?.user?.full_name || req?.user?.username || null,
+      exec: () => this.graph.sync(tenantId),
+    });
+  }
 }

@@ -14,6 +14,8 @@ import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Coverage, DataQuality, Hypothesis, ModelStatus, Backtest, UncertainRow } from '../findings.service';
+import { BancosSocketService, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
+import { FinanceJobsClient } from '../finance-jobs.client';
 import { ActionsService, ProposedAction } from '../actions.service';
 
 /**
@@ -367,6 +369,11 @@ import { ActionsService, ProposedAction } from '../actions.service';
 export class FinanzasHallazgosComponent implements OnInit {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(FindingsService);
+  /** COMM-P0 — el namespace `/bancos` es el canal WS de Finanzas (no sólo del tablero). */
+  private readonly sock = inject(BancosSocketService);
+  /** Motores disparados desde ESTA pantalla (job_id → name). */
+  private readonly pendingJobs = new Map<string, string>();
+  private readonly jobsClient = inject(FinanceJobsClient);
   private readonly actionsSvc = inject(ActionsService);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
@@ -407,7 +414,54 @@ export class FinanzasHallazgosComponent implements OnInit {
   readonly discovering = signal(false);
   readonly training = signal(false);
 
-  ngOnInit() { this.reload(); this.loadStats(); this.loadActions(); }
+  ngOnInit() {
+    this.reload();
+    this.loadStats();
+    this.loadActions();
+    // COMM-P0 — el escaneo y el descubrimiento responden 202: su resultado llega por WS.
+    this.sock.connect();
+    this.sock.job$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onJob(ev));
+    this.destroyRef.onDestroy(() => this.sock.disconnect());
+  }
+
+  /**
+   * COMM-P0 — cierre de un motor largo de Maat. Los 10 detectores y el proponedor AI
+   * se pasaban de los 60 s de `location /api/` en nginx (504 con el scan corriendo);
+   * ahora el endpoint acusa 202 y el resultado real entra por aquí.
+   */
+  private track(job: JobAccepted): void {
+    this.pendingJobs.set(job.job_id, job.name);
+    // Respaldo por si el WS no conectó (proxy sin upgrade): el primer aviso gana.
+    this.jobsClient.watch(job.job_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ev) => this.onJob(ev),
+      error: () => { /* el WS sigue siendo el camino principal */ },
+    });
+  }
+
+  private onJob(ev: FinanceJobEvent): void {
+    if (ev.status === 'running') return;
+    if (!this.pendingJobs.delete(ev.job_id)) return;
+
+    if (ev.name === 'maat-scan') this.scanning.set(false);
+    if (ev.name === 'maat-discovery') this.discovering.set(false);
+
+    if (ev.status === 'error') {
+      this.toast.add({ severity: 'error', summary: 'Error', detail: ev.error || `No se pudo completar: ${ev.label}` });
+      return;
+    }
+    if (ev.name === 'maat-scan') {
+      const r = ev.result as { nuevos: number; reglas: number };
+      this.toast.add({ severity: 'success', summary: 'Escaneo listo', detail: `${r.nuevos} hallazgo(s) nuevo(s) en ${r.reglas} reglas.` });
+      this.reload();
+      this.loadStats();
+      return;
+    }
+    if (ev.name === 'maat-discovery') {
+      const r = ev.result as { deterministas: number; ai: number; total: number };
+      this.toast.add({ severity: 'success', summary: 'Descubrimiento', detail: `${r.total} hipótesis (${r.deterministas} deterministas + ${r.ai} AI).` });
+      this.loadMiq(this.svc.discovery('propuesta'), this.hypotheses);
+    }
+  }
 
   private loadActions() {
     this.actionsSvc.list().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (a) => this.actions.set(a), error: () => {} });
@@ -448,7 +502,7 @@ export class FinanzasHallazgosComponent implements OnInit {
   scan() {
     this.scanning.set(true);
     this.svc.scan().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.scanning.set(false); this.toast.add({ severity: 'success', summary: 'Escaneo listo', detail: `${r.nuevos} hallazgo(s) nuevo(s) en ${r.reglas} reglas.` }); this.reload(); this.loadStats(); },
+      next: (job) => { this.track(job); this.toast.add({ severity: 'info', summary: 'Escaneando…', detail: 'Te aviso cuando termine.', life: 3000 }); },
       error: () => { this.scanning.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo escanear.' }); },
     });
   }
@@ -477,7 +531,7 @@ export class FinanzasHallazgosComponent implements OnInit {
   runDiscovery() {
     this.discovering.set(true);
     this.svc.runDiscovery().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.discovering.set(false); this.toast.add({ severity: 'success', summary: 'Descubrimiento', detail: `${r.total} hipótesis (${r.deterministas} deterministas + ${r.ai} AI).` }); this.loadMiq(this.svc.discovery('propuesta'), this.hypotheses); },
+      next: (job) => { this.track(job); this.toast.add({ severity: 'info', summary: 'Buscando hipótesis…', detail: 'Te aviso cuando termine.', life: 3000 }); },
       error: () => { this.discovering.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo correr el descubrimiento.' }); },
     });
   }

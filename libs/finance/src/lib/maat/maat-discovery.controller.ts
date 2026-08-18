@@ -1,11 +1,18 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { MaatDiscoveryService } from './maat-discovery.service';
 import { MaatSkepticService } from './maat-skeptic.service';
+import { FinanceJobsService } from '../jobs/finance-jobs.service';
 
 interface AuthedRequest { user?: { username?: string }; }
+
+/** `?sync=true` (o `sync: true` en el body) fuerza el camino inline: CLI y smokes. */
+function wantsInline(q?: string, b?: boolean): boolean {
+  return b === true || q === 'true' || q === '1';
+}
 
 /**
  * MAAT-IQ · MIQ.4 — Descubrimiento de detectores + escéptico. La bandeja de
@@ -20,6 +27,7 @@ export class MaatDiscoveryController {
   constructor(
     private readonly discovery: MaatDiscoveryService,
     private readonly skeptic: MaatSkepticService,
+    private readonly jobs: FinanceJobsService,
   ) {}
 
   @Get('discovery')
@@ -30,8 +38,23 @@ export class MaatDiscoveryController {
   @Post('discovery/run')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @Throttle({ long: { limit: 3, ttl: 60_000 } })
-  @ApiOperation({ summary: 'MIQ.4 — Corre los mineros deterministas + proponedor AI (gated) para generar hipótesis.' })
-  run() { return this.discovery.run(); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'MIQ.4 — Corre los mineros deterministas + proponedor AI (gated) para generar hipótesis. Async: 202 + job_id, resultado por WS `finance_job` (llama al LLM: no cabe en los 60 s de nginx).' })
+  run(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (wantsInline(sync, body?.sync)) return this.discovery.run();
+    res.status(202);
+    return this.jobs.run({
+      name: 'maat-discovery',
+      label: 'Búsqueda de hipótesis',
+      actor: req?.user?.username || null,
+      exec: () => this.discovery.run(),
+    });
+  }
 
   @Post('discovery/:id/approve')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
@@ -46,6 +69,21 @@ export class MaatDiscoveryController {
   @Post('skeptic/run')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @Throttle({ long: { limit: 6, ttl: 60_000 } })
-  @ApiOperation({ summary: 'MIQ.4 — Corre el escéptico: refuta hallazgos débiles (materialidad/muestra/estacionalidad) y baja su ranking.' })
-  skepticRun() { return this.skeptic.review(); }
+  @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
+  @ApiOperation({ summary: 'MIQ.4 — Corre el escéptico: refuta hallazgos débiles (materialidad/muestra/estacionalidad) y baja su ranking. Async: 202 + job_id.' })
+  skepticRun(
+    @Body() body: { sync?: boolean },
+    @Query('sync') sync: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (wantsInline(sync, body?.sync)) return this.skeptic.review();
+    res.status(202);
+    return this.jobs.run({
+      name: 'maat-skeptic',
+      label: 'Escéptico',
+      actor: req?.user?.username || null,
+      exec: () => this.skeptic.review(),
+    });
+  }
 }

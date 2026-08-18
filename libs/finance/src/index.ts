@@ -19,6 +19,8 @@ export * from './lib/supplier-payment-proofs/supplier-payment-proofs.service';
 export * from './lib/goods-receipt-proofs/finance-goods-receipt-proofs.module';
 export * from './lib/goods-receipt-proofs/goods-receipt-proofs.service';
 export * from './lib/bank/finance-bank.module';
+export * from './lib/jobs/finance-jobs.module';
+export * from './lib/jobs/finance-jobs.service';
 export * from './lib/bank/finance-bank.service';
 export * from './lib/bank-capture/finance-bank-capture.module';
 export * from './lib/bank-capture/bank-capture.service';

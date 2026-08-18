@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { JobAccepted } from './bancos-socket.service';
 
 /** CB.2/CB.3 — cliente del tablero de conciliación bancaria (finance.bank_*). */
 
@@ -327,8 +328,12 @@ export class BankService {
     return this.http.patch(`${this.base}/movements/${id}/category`, { category_id: categoryId });
   }
 
-  runMatch(period: string): Observable<MatchResult> {
-    return this.http.post<MatchResult>(`${this.base}/match`, { period });
+  /**
+   * COMM-P0 — 202: el resultado (MatchResult) llega por WS `finance_job`
+   * (name `bank-match`). `?sync=true` sigue existiendo para CLI/smokes.
+   */
+  runMatch(period: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/match`, { period });
   }
   differences(period: string): Observable<Differences> {
     return this.http.get<Differences>(`${this.base}/differences?period=${encodeURIComponent(period)}`);
@@ -336,12 +341,17 @@ export class BankService {
   ingresosControl(period: string): Observable<IngresosControl> {
     return this.http.get<IngresosControl>(`${this.base}/ingresos-control?period=${encodeURIComponent(period)}`);
   }
-  syncFindings(period: string): Observable<SyncFindingsResult> {
-    return this.http.post<SyncFindingsResult>(`${this.base}/findings/sync`, { period });
+  /** COMM-P0 — 202: SyncFindingsResult llega por WS (`bank-findings-sync`). */
+  syncFindings(period: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/findings/sync`, { period });
   }
 
-  importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<ImportResult> {
-    return this.http.post<ImportResult>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
+  /**
+   * COMM-P0 — 202: ImportResult llega por WS (`bank-import`). Un workbook de
+   * ~6.5k movimientos se pasaba de los 60 s de nginx y el navegador veía 504.
+   */
+  importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
   }
 
   // ── CB.6 Admin ──
@@ -354,7 +364,8 @@ export class BankService {
   createRule(body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.post<ClassifyRule>(`${this.base}/rules`, body); }
   updateRule(id: string, body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.patch<ClassifyRule>(`${this.base}/rules/${id}`, body); }
   deleteRule(id: string): Observable<unknown> { return this.http.delete(`${this.base}/rules/${id}`); }
-  reclassifyAll(period?: string): Observable<ReclassifyResult> { return this.http.post<ReclassifyResult>(`${this.base}/reclassify`, { period }); }
+  /** COMM-P0 — 202: ReclassifyResult llega por WS (`bank-reclassify`). */
+  reclassifyAll(period?: string): Observable<JobAccepted> { return this.http.post<JobAccepted>(`${this.base}/reclassify`, { period }); }
 
   // ── CB.24 — Cuadre 3 vías ──
   threeWay(period: string): Observable<ThreeWay> {
@@ -374,8 +385,9 @@ export class BankService {
   sheetSyncUpdate(body: { sheet_id?: string; period?: string; active?: boolean }): Observable<SheetSyncConfig> {
     return this.http.patch<SheetSyncConfig>(`${this.base}/sheet-sync/config`, body);
   }
-  sheetSyncRun(): Observable<SheetSyncRunResult> {
-    return this.http.post<SheetSyncRunResult>(`${this.base}/sheet-sync/run`, {});
+  /** COMM-P0 — 202: SheetSyncRunResult llega por WS (`bank-sheet-sync`). */
+  sheetSyncRun(): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/sheet-sync/run`, {});
   }
 }
 

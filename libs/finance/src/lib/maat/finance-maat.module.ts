@@ -33,6 +33,7 @@ import { ContabilidadContpaqiController } from './contabilidad-contpaqi.controll
 import { PagosControlService } from '../pagos/pagos-control.service';
 import { PagosControlController } from '../pagos/pagos-control.controller';
 import { FinanceBankModule } from '../bank/finance-bank.module';
+import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -43,7 +44,7 @@ import { FinanceBankModule } from '../bank/finance-bank.module';
  *             del feedback / el LLM sigue fuera de los números.
  */
 @Module({
-  imports: [FinanceBankModule],
+  imports: [FinanceBankModule, FinanceJobsModule],
   controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController, ContabilidadContpaqiController, PagosControlController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,

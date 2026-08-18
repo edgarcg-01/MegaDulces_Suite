@@ -65,6 +65,18 @@ export class BancosGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.debug(`${ev.action} ${ev.period ?? ''} → tenant:${tenantId}`);
   }
 
+  /**
+   * COMM-P0 — Empuja el ciclo de vida de un trabajo largo (`finance_job`) a la room
+   * del tenant: `running` al aceptarlo, `done`/`error` al terminar. El payload va
+   * tipado en FinanceJobEvent (libs/finance/jobs) — aquí se recibe como objeto para
+   * no acoplar el gateway al módulo de jobs.
+   */
+  emitJob(tenantId: string, ev: Record<string, unknown>): void {
+    if (!this.server) return;
+    this.server.to(`tenant:${tenantId}`).emit('finance_job', ev);
+    this.logger.debug(`job ${ev['name']} ${ev['status']} → tenant:${tenantId}`);
+  }
+
   private extractToken(client: Socket): string | null {
     const a = client.handshake?.auth?.token;
     if (typeof a === 'string' && a.length > 10) return a;

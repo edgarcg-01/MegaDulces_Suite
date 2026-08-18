@@ -3,6 +3,7 @@ import { FinanceBankService } from './finance-bank.service';
 import { FinanceBankController } from './finance-bank.controller';
 import { SheetSyncService } from './sheet-sync.service';
 import { BancosRealtimeModule } from './bancos-realtime.module';
+import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Tablero de bancos sobre `finance.bank_*`:
@@ -15,7 +16,7 @@ import { BancosRealtimeModule } from './bancos-realtime.module';
  * está en el root del API).
  */
 @Module({
-  imports: [BancosRealtimeModule],
+  imports: [BancosRealtimeModule, FinanceJobsModule],
   controllers: [FinanceBankController],
   providers: [FinanceBankService, SheetSyncService],
   exports: [FinanceBankService],
