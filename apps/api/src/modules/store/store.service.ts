@@ -39,7 +39,13 @@ export class StoreService {
     const rows: Array<{ id: string; code: string | null; kepler_code: string | null }> =
       await this.knex.transaction(async (trx) => {
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
-        return trx('commercial.warehouses').where({ tenant_id: TENANT }).whereNull('deleted_at').select('id', 'code', 'kepler_code');
+        // await antes del return: devolver el QueryBuilder tal cual hace que knex
+        // tipe la transacción como `void | T[]` y el build no compila (TS2322).
+        const rows = await trx('commercial.warehouses')
+          .where({ tenant_id: TENANT })
+          .whereNull('deleted_at')
+          .select('id', 'code', 'kepler_code');
+        return rows;
       });
     const m = new Map<string, string>();
     for (const r of rows) {
