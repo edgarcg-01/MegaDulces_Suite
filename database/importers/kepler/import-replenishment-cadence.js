@@ -38,7 +38,7 @@ const TRSF_WIN = Number(process.env.RA8_TRSF_WINDOW || 120);   // cadencia de tr
 const MIN_GAPS = Number(process.env.RA8_MIN_GAPS || 2);        // ≥2 gaps (≥3 entregas) para una mediana
 
 // Spokes confirmados con datos → hub. Solo se aplica si source_warehouse_id está NULL (respeta override).
-const TOPOLOGY = { '02': '01', '03': '01', '04': '01', '05': 'MD-50' };
+const TOPOLOGY = { '02': '01', '03': '01', '04': '01', '05': '06' };
 
 const PURCH = `((sm.genero='X' AND sm.doc_type='40') OR sm.doc_code='WIN_C')`;
 const TRSF = `(sm.doc_type='50' AND sm.doc_code='TrsfRcv')`;

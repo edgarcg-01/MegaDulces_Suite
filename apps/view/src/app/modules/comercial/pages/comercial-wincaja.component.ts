@@ -24,7 +24,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
         <div class="surf-page-head-text">
           <h1>Sucursales Wincaja</h1>
           <p class="surf-page-sub">
-            POS Access (legacy). Las marcadas <strong>Sólo Wincaja</strong> (Morelia Abastos/Madero, Canindo)
+            POS Access (legacy). Las marcadas <strong>Sólo Wincaja</strong> (Morelia Abastos/Madero)
             no existen en Kepler — antes invisibles en la plataforma. Montos = mejor esfuerzo (bronze).
           </p>
         </div>

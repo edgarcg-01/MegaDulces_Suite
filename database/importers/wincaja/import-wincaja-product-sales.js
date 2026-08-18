@@ -22,7 +22,7 @@ const knexLib = require('knex');
 
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const STORES = ['MD-30', 'MD-32', 'MD-50'];
+const STORES = ['MD-30', 'MD-32']; // Canindo migró a Kepler ('06') → sus ventas las alimenta el feed Kepler
 
 (async () => {
   const cfg = process.env.DATABASE_URL_NEW

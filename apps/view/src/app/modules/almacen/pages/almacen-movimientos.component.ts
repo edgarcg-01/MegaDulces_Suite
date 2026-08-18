@@ -998,7 +998,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   dDest: string[] = []; // filtro por tienda destino (una o más)
   // Fallback estático si el backend aún no devolvió `destinos` (1ª carga). El backend manda los reales.
   private static readonly DEST_FALLBACK = [
-    'Morelia Abastos (30)', 'Morelia Madero (32)', 'Canindo (50)', 'Padre Hidalgo (01)',
+    'Morelia Abastos (30)', 'Morelia Madero (32)', 'Canindo (06)', 'Padre Hidalgo (01)',
     'Piedad (02)', '8 Esquinas (03)', 'Yurécuaro (04)', 'Zamora (05)', 'CEDIS (00)',
   ];
   /** Opciones de destino para el filtro — desde el backend (detail.destinos), no hardcodeadas. */
