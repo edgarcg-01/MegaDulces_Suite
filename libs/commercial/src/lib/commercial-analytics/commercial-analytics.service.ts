@@ -3253,9 +3253,19 @@ export class CommercialAnalyticsService {
   async sellOutWarehouses(): Promise<SellOutWarehouseRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.sales_daily as sd')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        .where('sd.tenant_id', tenantId)
+      // Almacenes con venta en CUALQUIER fact de sell-out (sales_daily del consolidado O
+      // product_sales_monthly del feed por-sucursal). Antes solo sales_daily → Canindo '06'
+      // (migró de Wincaja '50' a Kepler '06') NO salía porque su venta aún no llega a sales_daily
+      // (gap del consolidado on-prem mart.ventas_enriched), aunque product_sales SÍ la tiene.
+      // El union NO enmascara el gap: Sell-Out sigue mostrando 0 para Canindo hasta arreglar el
+      // consolidado; pero al menos el reporte Salidas (que lee product_sales) ya lo lista.
+      const rows = await trx('commercial.warehouses as w')
+        .where('w.tenant_id', tenantId)
+        .whereNull('w.deleted_at')
+        .whereRaw(
+          `(EXISTS (SELECT 1 FROM analytics.sales_daily sd WHERE sd.tenant_id = w.tenant_id AND sd.warehouse_id = w.id)
+         OR EXISTS (SELECT 1 FROM analytics.product_sales_monthly ps WHERE ps.tenant_id = w.tenant_id AND ps.warehouse_id = w.id))`,
+        )
         .distinct('w.code as code', 'w.name as name')
         .orderBy('w.code');
       return rows as SellOutWarehouseRow[];
