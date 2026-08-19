@@ -25,8 +25,8 @@ interface CajaCuadre {
 }
 interface CajaWb {
   period: { from: string; to: string };
-  totals: { mdb_ingreso: number; mdb_gasto: number; wb_ingreso: number; wb_gasto: number; delta_ingreso: number; delta_gasto: number; dias: number; dias_wb: number; dias_descuadre: number; wb_disponible: boolean };
-  por_dia: { fecha: string; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; wb_ingreso: number; wb_gasto: number; wb_n: number; delta_ingreso: number; delta_gasto: number; wb_vacio: boolean; cuadra: boolean }[];
+  totals: { mdb_ingreso: number; mdb_gasto: number; wb_ingreso: number; wb_gasto: number; kp_ingreso: number; kp_gasto: number; delta_ingreso: number; delta_gasto: number; delta_kep_ingreso: number; delta_kep_gasto: number; dias: number; dias_wb: number; dias_descuadre: number; wb_disponible: boolean; kep_disponible: boolean };
+  por_dia: { fecha: string; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; wb_ingreso: number; wb_gasto: number; wb_n: number; kp_ingreso: number; kp_gasto: number; kp_n: number; delta_ingreso: number; delta_gasto: number; delta_kep_ingreso: number; delta_kep_gasto: number; wb_vacio: boolean; cuadra: boolean }[];
   eps: number;
 }
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
@@ -203,6 +203,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <ng-template #expandedrow let-r>
               <tr class="cg-detail-row"><td colspan="8">
                 @if (cqDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
+                @else if (cqDayErr()[key(r)]; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
                 @else if (cqDayMovs()[key(r)]; as ms) {
                   <div class="cg-daywrap">
                     <table class="cg-daytbl">
@@ -230,7 +231,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       @if (view()==='workbook') {
         @if (loading() && !wbc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
         @else if (wbc(); as d) {
-          <p class="cg-note" style="margin:.2rem 0 .6rem">Concilia la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del workbook (hoja CAJA GENERAL del Sheet). El <b>Δ</b> = error u omisión de captura del Excel. No es "caja vs banco" (la caja no deposita) — es el mismo dato por dos caminos. Tolerancia ±{{ money(d.eps) }}/día.</p>
+          <p class="cg-note" style="margin:.2rem 0 .6rem">Concilia la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del workbook (hoja CAJA GENERAL del Sheet). El <b>Δ mdb–man</b> = error u omisión de captura del Excel (comparación exacta, tolerancia ±{{ money(d.eps) }}/día). La columna <b>Kepler</b> es la CAJA GENERAL del ERP (tesorería): es <b>más gruesa</b> —registra lo capturado en el ERP, no cada movimiento— así que su diferencia vs .mdb es <b>informativa</b> (gap de granularidad), no error de captura. No es "caja vs banco" (la caja no deposita).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
           @if (!d.totals.wb_disponible) {
             <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>copia manual</b> del workbook en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General/Cuadre</b>: la caja viva no depende del manual.</span></div>
           } @else {
@@ -241,22 +242,30 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <app-metric-strip [items]="wbKpis(d)" ariaLabel="Conciliación .mdb vs workbook" />
           }
           <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
-            <ng-template #header><tr>
-              <th class="cg-w-x"></th>
-              <th class="cg-w-date">Día</th>
-              <th class="ta-r">.mdb Ingreso</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
-              <th class="ta-r">.mdb Gasto</th><th class="ta-r">Manual</th><th class="ta-r">Δ</th>
-              <th class="cg-w-e">Estado</th>
-            </tr></ng-template>
+            <ng-template #header>
+              <tr>
+                <th class="cg-w-x" rowspan="2"></th>
+                <th class="cg-w-date" rowspan="2">Día</th>
+                <th class="ta-r" colspan="4">Ingreso</th>
+                <th class="ta-r" colspan="4">Gasto</th>
+                <th class="cg-w-e" rowspan="2">Estado</th>
+              </tr>
+              <tr>
+                <th class="ta-r cg-sub">.mdb</th><th class="ta-r cg-sub">Manual</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ mdb–man</th>
+                <th class="ta-r cg-sub">.mdb</th><th class="ta-r cg-sub">Manual</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ mdb–man</th>
+              </tr>
+            </ng-template>
             <ng-template #body let-r>
               <tr class="cg-row-click" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
                 <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
                 <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span></td>
                 <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
                 <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
+                <td class="ta-r num cg-kep" [title]="'Δ mdb–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
                 <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
                 <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
                 <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
+                <td class="ta-r num cg-kep" [title]="'Δ mdb–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
                 <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
                 <td class="cg-w-e">
                   @if (r.wb_vacio) { <span class="muted">sin manual</span> }
@@ -266,7 +275,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               </tr>
             </ng-template>
             <ng-template #expandedrow let-r>
-              <tr class="cg-detail-row"><td colspan="9">
+              <tr class="cg-detail-row"><td colspan="11">
                 @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
                 @else {
                   <div class="cg-wbcmp">
@@ -282,7 +291,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                                   <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
                                   <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
                             }
-                            @if (!(wbDayMdb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin movimientos.</td></tr> }
+                            @if (wbDayErr()[key(r)]?.mdb; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
+                            @else if (!(wbDayMdb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin movimientos.</td></tr> }
                           </tbody>
                         </table>
                       </div>
@@ -299,7 +309,26 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                                   <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
                                   <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
                             }
-                            @if (!(wbDayWb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin copia manual este día.</td></tr> }
+                            @if (wbDayErr()[key(r)]?.wb; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
+                            @else if (!(wbDayWb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin copia manual este día.</td></tr> }
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div class="cg-wbside">
+                      <div class="cg-wbside-t">Kepler (ERP) · <span class="muted">{{ (wbDayKep()[key(r)] || []).length }} movs</span></div>
+                      <div class="cg-daywrap">
+                        <table class="cg-daytbl">
+                          <thead><tr><th>Doc / Benef.</th><th>Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
+                          <tbody>
+                            @for (m of wbDayKep()[key(r)] || []; track m.id) {
+                              <tr><td class="cg-mono muted">{{ m.sucursal || '—' }}@if (m.codigo) { <span class="muted"> ·{{ m.codigo }}</span> }</td>
+                                  <td class="cg-emp" [title]="m.concepto">{{ m.concepto || '—' }}</td>
+                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
+                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
+                            }
+                            @if (wbDayErr()[key(r)]?.kep; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
+                            @else if (!(wbDayKep()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin registro Kepler este día.</td></tr> }
                           </tbody>
                         </table>
                       </div>
@@ -308,7 +337,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 }
               </td></tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="9"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="11"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
         }
       }
@@ -516,6 +545,12 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     </div>
   `,
   styles: [`
+    /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
+       igual que un día sin movimientos: un 404 del API, un 403 o el 22007 por una
+       fecha mal formada eran indistinguibles de "no hubo nada". */
+    .cg-dayerr { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--warn-fg); }
+    .cg-dayerr i { margin-top: 2px; flex: none; }
+
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .cg-head-actions { display:flex; gap:.5rem; align-items:center; }
@@ -623,10 +658,22 @@ export class FinanzasCajaComponent implements OnInit {
   readonly wbExp = signal<Record<string, boolean>>({});
   readonly wbDayMdb = signal<Record<string, CajaGeneral['movimientos']>>({});
   readonly wbDayWb = signal<Record<string, WbMov[]>>({});
+  readonly wbDayKep = signal<Record<string, WbMov[]>>({});
   readonly wbDayLoad = signal<Record<string, boolean>>({});
+  /**
+   * Error del desglose de un día, por lado.
+   *
+   * Antes los dos `catch` guardaban `[]` y la pantalla decía "Sin movimientos":
+   * un 404, un 403 o un 500 se veían EXACTAMENTE igual que un día sin nada. Con
+   * `workbook-movimientos` recién agregado, un API atrasado respecto de HEAD
+   * devuelve 404 y el desglose quedaba mudo, sin forma de saber por qué.
+   */
+  readonly wbDayErr = signal<Record<string, { mdb?: string; wb?: string; kep?: string }>>({});
   readonly cqExp = signal<Record<string, boolean>>({});
   readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
   readonly cqDayLoad = signal<Record<string, boolean>>({});
+  /** Mismo caso que `wbDayErr`: el catch de Cuadre tampoco decía nada. */
+  readonly cqDayErr = signal<Record<string, string>>({});
   readonly expanded = signal<Record<string, boolean>>({});
   readonly DENOM_LABEL: Record<string, string> = { B1000: '$1000', B500: '$500', B200: '$200', B100: '$100', B50: '$50', B20: '$20', M20: '$20m', M10: '$10', M5: '$5', M2: '$2', M1: '$1', M05: '50¢', M02: '20¢', M01: '10¢', Mor: 'morralla' };
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
@@ -655,7 +702,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayMdb.set({}); this.wbDayWb.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayMdb.set({}); this.wbDayWb.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -723,11 +770,23 @@ export class FinanzasCajaComponent implements OnInit {
     return [
       { label: '.mdb (operativo)', value: d.totals.mdb_ingreso, format: 'currency-short', tone: 'default', sub: `ingreso · ${d.totals.dias} días` },
       { label: 'Manual (workbook)', value: d.totals.wb_ingreso, format: 'currency-short', tone: 'default', sub: `ingreso · ${d.totals.dias_wb} días` },
-      { label: 'Δ Ingreso', value: d.totals.delta_ingreso, format: 'currency-short', tone: Math.abs(d.totals.delta_ingreso) > 1000 ? 'warn' : 'ok' },
-      { label: 'Δ Gasto', value: d.totals.delta_gasto, format: 'currency-short', tone: Math.abs(d.totals.delta_gasto) > 1000 ? 'warn' : 'ok' },
+      { label: 'Kepler (ERP)', value: d.totals.kp_ingreso, format: 'currency-short', tone: 'default', sub: d.totals.kep_disponible ? 'ingreso · tesorería' : 'sin feed' },
+      { label: 'Δ Ingreso', value: d.totals.delta_ingreso, format: 'currency-short', tone: Math.abs(d.totals.delta_ingreso) > 1000 ? 'warn' : 'ok', sub: 'mdb–manual' },
+      { label: 'Δ Gasto', value: d.totals.delta_gasto, format: 'currency-short', tone: Math.abs(d.totals.delta_gasto) > 1000 ? 'warn' : 'ok', sub: 'mdb–manual' },
     ];
   }
   key(r: { fecha: string }): string { return String(r.fecha).slice(0, 10); }
+  /**
+   * Traduce un fallo HTTP a algo accionable. El 404 se nombra aparte porque es el
+   * caso real más probable acá: el endpoint del desglose es nuevo y un API que
+   * quedó atrás de HEAD lo devuelve así.
+   */
+  private httpMsg(e: { status?: number }, ruta: string): string {
+    if (e?.status === 404) return `El API no tiene ${ruta} (404) — quedó atrás del código. Hace falta redesplegarlo.`;
+    if (e?.status === 403) return `Sin permiso para ${ruta} (403).`;
+    if (e?.status === 0) return `Sin conexión con el API al pedir ${ruta}.`;
+    return `Falló ${ruta}${e?.status ? ` (${e.status})` : ''}.`;
+  }
   netoState(r: { ingreso: number; neto: number }): 'sobra' | 'falta' | 'cuadra' {
     const tol = Math.max((r.ingreso || 0) * 0.05, 1000);
     if (r.neto > tol) return 'sobra';
@@ -744,15 +803,21 @@ export class FinanzasCajaComponent implements OnInit {
     const dk = this.key(r);
     if ((dk in this.wbDayWb()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
-    let pending = 2;
+    let pending = 3;
     const done = () => { if (--pending === 0) this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); };
+    const setErr = (lado: 'mdb' | 'wb' | 'kep', msg: string) =>
+      this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { ...(this.wbDayErr()[dk] || {}), [lado]: msg } });
     this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: d.movimientos }); done(); },
-      error: () => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: [] }); done(); },
+      error: (e) => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: [] }); setErr('mdb', this.httpMsg(e, '/caja/general')); done(); },
     });
     this.http.get<{ movimientos: WbMov[] }>(`${this.base}/workbook-movimientos?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: d.movimientos }); done(); },
-      error: () => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: [] }); done(); },
+      error: (e) => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: [] }); setErr('wb', this.httpMsg(e, '/caja/workbook-movimientos')); done(); },
+    });
+    this.http.get<{ movimientos: WbMov[] }>(`${this.base}/kepler-movimientos?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.wbDayKep.set({ ...this.wbDayKep(), [dk]: d.movimientos }); done(); },
+      error: (e) => { this.wbDayKep.set({ ...this.wbDayKep(), [dk]: [] }); setErr('kep', this.httpMsg(e, '/caja/kepler-movimientos')); done(); },
     });
   }
   toggleCqDay(r: { fecha: string }): void {
@@ -764,7 +829,11 @@ export class FinanzasCajaComponent implements OnInit {
       this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: true });
       this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.cqDayMovs.set({ ...this.cqDayMovs(), [dk]: d.movimientos }); this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false }); },
-        error: () => this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false }),
+        error: (e) => {
+          this.cqDayMovs.set({ ...this.cqDayMovs(), [dk]: [] });
+          this.cqDayErr.set({ ...this.cqDayErr(), [dk]: this.httpMsg(e, '/caja/general') });
+          this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false });
+        },
       });
     }
   }

@@ -29,6 +29,28 @@ export interface CajaQuery {
   limit?: number;
 }
 
+/**
+ * Normaliza a `YYYY-MM-DD` una fecha que puede venir como Date o como texto.
+ *
+ * node-postgres parsea las columnas `date` a **objeto Date**, así que el
+ * `String(f).slice(0, 10)` que había acá producía `"Wed Jan 28"` — el prefijo del
+ * toString() de JS. Ese texto viajaba en `por_dia[].fecha`, el frontend lo mandaba
+ * como `?from=`, y Postgres tiraba 22007 (invalid input syntax for type date). El
+ * desglose del día quedaba vacío y el catch del componente lo pintaba como "sin
+ * movimientos", así que el error no se veía por ningún lado.
+ *
+ * Se arma con las partes LOCALES y no con `toISOString()`: pg construye el Date en
+ * la zona del proceso, y pasar por UTC recorre el día hacia atrás en México — el
+ * mismo flip que ya se corrigió antes en esta pantalla.
+ */
+function ymd(f: unknown): string {
+  if (f instanceof Date) {
+    const p2 = (x: number) => String(x).padStart(2, '0');
+    return `${f.getFullYear()}-${p2(f.getMonth() + 1)}-${p2(f.getDate())}`;
+  }
+  return String(f ?? '').slice(0, 10);
+}
+
 @Injectable()
 export class CajaGeneralService {
   constructor(
@@ -139,7 +161,7 @@ export class CajaGeneralService {
         .select('arqueo_date', trx.raw('MAX(total_efectivo)::numeric AS efectivo'), trx.raw('COUNT(*)::int AS n'))
         .groupBy('arqueo_date');
       const arqByDay = new Map<string, { efectivo: number; n: number }>();
-      for (const a of arq as any[]) arqByDay.set(String(a.arqueo_date).slice(0, 10), { efectivo: n(a.efectivo), n: n(a.n) });
+      for (const a of arq as any[]) arqByDay.set(ymd(a.arqueo_date), { efectivo: n(a.efectivo), n: n(a.n) });
 
       // CG.8 — Ingreso por ORIGEN (de dónde viene el efectivo): sucursal (POS) / ruta / otros.
       // Heurística sobre cuenta + nombre_cliente (texto libre). 'otros' = directivos/nómina/
@@ -164,10 +186,10 @@ export class CajaGeneralService {
         .select(trx.raw('COALESCE(SUM(efectivo_contado),0)::numeric AS efectivo'), trx.raw('COUNT(*)::int AS n')).first();
 
       const por_dia = (dias as any[]).map((d) => {
-        const key = String(d.fecha).slice(0, 10);
+        const key = ymd(d.fecha);
         const a = arqByDay.get(key);
         return {
-          fecha: d.fecha, ingreso: r2(n(d.ingreso)), gasto: r2(n(d.gasto)), deposito: r2(n(d.deposito)),
+          fecha: key, ingreso: r2(n(d.ingreso)), gasto: r2(n(d.gasto)), deposito: r2(n(d.deposito)),
           neto: r2(n(d.ingreso) - n(d.gasto)), n: n(d.n),
           arqueo_efectivo: a ? r2(a.efectivo) : null, arqueo_n: a ? a.n : 0,
         };
@@ -206,7 +228,7 @@ export class CajaGeneralService {
     const [from, to] = this.range(q);
     const n = (x: any) => Number(x) || 0;
     const r2 = (v: number) => Math.round(v * 100) / 100;
-    const key = (f: any) => String(f).slice(0, 10);
+    const key = ymd;
     return this.tk.run(async (trx) => {
       // Lado .mdb (Doctos) por día.
       const mdb = await trx('analytics.caja_general_movimientos')
@@ -221,33 +243,52 @@ export class CajaGeneralService {
         .select(trx.raw('bm.movement_date AS fecha'), trx.raw('SUM(bm.amount_in)::numeric AS ingreso'),
           trx.raw('SUM(bm.amount_out)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
         .groupBy('bm.movement_date');
+      // CG.11 — 3ª fuente: Kepler tesorería, la CAJA GENERAL del ERP (account_label='CG').
+      // Es MÁS GRUESA que la caja operativa (agrupa/registra lo capturado en el ERP), así
+      // que su Δ vs .mdb es informativo (gap de granularidad), no error de captura como el
+      // workbook. signo>0=ingreso, signo<0=gasto; importe es magnitud positiva.
+      const kp = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
+        .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
+        .select(trx.raw('fecha_valor AS fecha'),
+          trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo>0),0)::numeric AS ingreso`),
+          trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo<0),0)::numeric AS gasto`),
+          trx.raw('COUNT(*)::int AS n'))
+        .groupBy('fecha_valor');
 
+      const blank = (k: string) => ({ fecha: k, mdb_ingreso: 0, mdb_gasto: 0, mdb_n: 0, wb_ingreso: 0, wb_gasto: 0, wb_n: 0, kp_ingreso: 0, kp_gasto: 0, kp_n: 0 });
       const byDay = new Map<string, any>();
-      for (const r of mdb as any[]) byDay.set(key(r.fecha), { fecha: key(r.fecha), mdb_ingreso: n(r.ingreso), mdb_gasto: n(r.gasto), mdb_n: n(r.n), wb_ingreso: 0, wb_gasto: 0, wb_n: 0 });
-      for (const r of wb as any[]) { const k = key(r.fecha); const d = byDay.get(k) || { fecha: k, mdb_ingreso: 0, mdb_gasto: 0, mdb_n: 0, wb_ingreso: 0, wb_gasto: 0, wb_n: 0 }; d.wb_ingreso = n(r.ingreso); d.wb_gasto = n(r.gasto); d.wb_n = n(r.n); byDay.set(k, d); }
+      for (const r of mdb as any[]) { const d = blank(key(r.fecha)); d.mdb_ingreso = n(r.ingreso); d.mdb_gasto = n(r.gasto); d.mdb_n = n(r.n); byDay.set(d.fecha, d); }
+      for (const r of wb as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.wb_ingreso = n(r.ingreso); d.wb_gasto = n(r.gasto); d.wb_n = n(r.n); byDay.set(k, d); }
+      for (const r of kp as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.kp_ingreso = n(r.ingreso); d.kp_gasto = n(r.gasto); d.kp_n = n(r.n); byDay.set(k, d); }
 
-      const EPS = 1; // ±$1 por día = cuadra
+      const EPS = 1; // ±$1 por día = cuadra (mdb ↔ workbook, la comparación exacta)
       const por_dia = Array.from(byDay.values()).map((d) => {
         const di = r2(d.mdb_ingreso - d.wb_ingreso), dg = r2(d.mdb_gasto - d.wb_gasto);
         const wb_vacio = d.wb_n === 0;
         return {
           fecha: d.fecha, mdb_ingreso: r2(d.mdb_ingreso), mdb_gasto: r2(d.mdb_gasto), mdb_n: d.mdb_n,
           wb_ingreso: r2(d.wb_ingreso), wb_gasto: r2(d.wb_gasto), wb_n: d.wb_n,
-          delta_ingreso: di, delta_gasto: dg, wb_vacio,
+          kp_ingreso: r2(d.kp_ingreso), kp_gasto: r2(d.kp_gasto), kp_n: d.kp_n,
+          delta_ingreso: di, delta_gasto: dg,
+          delta_kep_ingreso: r2(d.mdb_ingreso - d.kp_ingreso), delta_kep_gasto: r2(d.mdb_gasto - d.kp_gasto),
+          wb_vacio,
           cuadra: !wb_vacio && Math.abs(di) <= EPS && Math.abs(dg) <= EPS,
         };
       }).sort((a, b) => b.fecha.localeCompare(a.fecha));
 
       const sum = (k: string) => r2(por_dia.reduce((s, d) => s + Number((d as any)[k] || 0), 0));
-      const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), wb_ingreso: sum('wb_ingreso'), wb_gasto: sum('wb_gasto') };
+      const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), wb_ingreso: sum('wb_ingreso'), wb_gasto: sum('wb_gasto'), kp_ingreso: sum('kp_ingreso'), kp_gasto: sum('kp_gasto') };
       return {
         period: { from, to },
         totals: {
           ...tot,
           delta_ingreso: r2(tot.mdb_ingreso - tot.wb_ingreso), delta_gasto: r2(tot.mdb_gasto - tot.wb_gasto),
+          delta_kep_ingreso: r2(tot.mdb_ingreso - tot.kp_ingreso), delta_kep_gasto: r2(tot.mdb_gasto - tot.kp_gasto),
           dias: por_dia.length, dias_wb: por_dia.filter((d) => !d.wb_vacio).length,
           dias_descuadre: por_dia.filter((d) => !d.wb_vacio && !d.cuadra).length,
           wb_disponible: (wb as any[]).length > 0,
+          kep_disponible: (kp as any[]).length > 0,
         },
         por_dia, eps: EPS,
       };
@@ -276,6 +317,31 @@ export class CajaGeneralService {
         movimientos: (rows as any[]).map((r) => ({
           id: r.id, fecha: r.fecha, concepto: r.concept, sucursal: r.sucursal, codigo: r.raw_code,
           ingreso: n(r.amount_in), gasto: n(r.amount_out),
+        })),
+      };
+    });
+  }
+
+  /**
+   * CG.11 — Movimientos del lado KEPLER (tesorería, CAJA GENERAL account_label='CG')
+   * para el desglose por día del "Vs Workbook". 3ª columna del drill: qué registró el
+   * ERP ese día vs la caja operativa (.mdb) y la copia manual (workbook).
+   */
+  async keplerMovimientos(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
+        .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
+        .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'folio', order: 'desc' }])
+        .limit(500)
+        .select('folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+      return {
+        movimientos: (rows as any[]).map((r) => ({
+          id: r.folio, fecha: r.fecha, concepto: r.concepto, sucursal: r.beneficiario, codigo: r.doc_tipo,
+          ingreso: n(r.signo) > 0 ? n(r.importe) : 0, gasto: n(r.signo) < 0 ? n(r.importe) : 0,
         })),
       };
     });
