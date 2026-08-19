@@ -174,10 +174,10 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               <thead>
                 <tr>
                   <th></th>
-                  <th class="ta-r">.mdb <span class="cg-sub">(operativo)</span></th>
-                  <th class="ta-r">Manual <span class="cg-sub">(workbook)</span></th>
+                  <th class="ta-r">Control <span class="cg-sub">(caja)</span></th>
+                  <th class="ta-r">Workbook <span class="cg-sub">(manual)</span></th>
                   <th class="ta-r">Kepler <span class="cg-sub">(ERP)</span></th>
-                  <th class="ta-r">Δ <span class="cg-sub">mdb–man</span></th>
+                  <th class="ta-r">Δ <span class="cg-sub">ctrl–wb</span></th>
                   <th class="ta-c">Estado</th>
                 </tr>
               </thead>
@@ -186,7 +186,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <th scope="row"><i class="pi pi-arrow-down-left cg-in" aria-hidden="true"></i> Ingresos <span class="muted">(entra)</span></th>
                   <td class="ta-r num strong">{{ money(d.totals.mdb_ingreso) }}</td>
                   <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
-                  <td class="ta-r num cg-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
+                  <td class="ta-r num cg-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_ingreso)>1">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
                   <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
                   <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
                 </tr>
@@ -194,20 +194,20 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <th scope="row"><i class="pi pi-arrow-up-right cg-eg" aria-hidden="true"></i> Gastos <span class="muted">(sale)</span></th>
                   <td class="ta-r num strong">{{ money(d.totals.mdb_gasto) }}</td>
                   <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
-                  <td class="ta-r num cg-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
+                  <td class="ta-r num cg-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_gasto)>1">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
                   <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
                   <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p class="cg-note" style="margin:.2rem 0 .6rem">Enfrenta la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del Excel y contra <b>Kepler</b> (CAJA GENERAL del ERP). El <b>Δ mdb–man</b> es la comparación exacta (±{{ money(d.eps) }}/día) → caza errores de captura del Excel. <b>Kepler</b> es más grueso (registra lo capturado en el ERP, no cada movimiento) → su diferencia es informativa. Clic en un día → <b>¿dónde está el descuadre?</b> (movimientos que faltan de cada lado).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
+          <p class="cg-note" style="margin:.2rem 0 .6rem">Enfrenta el <b>Control</b> (caja viva Doctos — lo que de verdad se movió) contra el <b>workbook</b> (copia manual del Excel) y contra <b>Kepler</b> (CAJA GENERAL del ERP). El <b>Δ ctrl–wb</b> es la comparación exacta (±{{ money(d.eps) }}/día) → caza errores de captura del Excel. <b>Kepler</b> es más grueso (registra lo capturado en el ERP, no cada movimiento) → su diferencia es informativa. Clic en un día → <b>¿dónde está el descuadre?</b> (movimientos que faltan de cada lado).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
           @if (!d.totals.wb_disponible) {
-            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>copia manual</b> del workbook en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General</b>: la caja viva no depende del manual.</span></div>
+            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>workbook</b> (copia manual) en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General</b>: el Control no depende del manual.</span></div>
           } @else {
             <div class="cg-verdict" [class.ok]="d.totals.dias_descuadre===0" [class.warn]="d.totals.dias_descuadre>0">
-              @if (d.totals.dias_descuadre===0) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> — el manual empata con el .mdb en los {{ d.totals.dias_wb }} días capturados. }
-              @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>{{ d.totals.dias_descuadre }} día(s) con diferencia</b> entre el manual y el .mdb — revísalos abajo. }
+              @if (d.totals.dias_descuadre===0) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> — el workbook empata con el Control en los {{ d.totals.dias_wb }} días capturados. }
+              @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>{{ d.totals.dias_descuadre }} día(s) con diferencia</b> entre el workbook y el Control — revísalos abajo. }
             </div>
           }
           <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
@@ -220,8 +220,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <th class="cg-w-e" rowspan="2">Estado</th>
               </tr>
               <tr>
-                <th class="ta-r cg-sub">.mdb</th><th class="ta-r cg-sub">Manual</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ mdb–man</th>
-                <th class="ta-r cg-sub">.mdb</th><th class="ta-r cg-sub">Manual</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ mdb–man</th>
+                <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ ctrl–wb</th>
+                <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ ctrl–wb</th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
@@ -230,14 +230,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span></td>
                 <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
                 <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
-                <td class="ta-r num cg-kep" [title]="'Δ mdb–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
+                <td class="ta-r num cg-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
                 <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
                 <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
                 <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
-                <td class="ta-r num cg-kep" [title]="'Δ mdb–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
+                <td class="ta-r num cg-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
                 <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
                 <td class="cg-w-e">
-                  @if (r.wb_vacio) { <span class="muted">sin manual</span> }
+                  @if (r.wb_vacio) { <span class="muted">sin workbook</span> }
                   @else if (r.cuadra) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
                   @else { <p-tag value="revisar" severity="warn" styleClass="cg-tag" /> }
                 </td>
@@ -248,7 +248,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Casando movimientos del día…</div> }
                 @else if (wbDayErr()[key(r)]?.dia; as e) { <div class="cg-dayerr" style="padding:.5rem"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
                 @else if (wbDayDia()[key(r)]; as cd) {
-                  <p class="cg-drill-lead">Enfrentamos cada movimiento del <b>.mdb (caja real)</b> contra cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b> — a la izquierda lo que la caja movió y la fuente no tiene, a la derecha lo que la fuente tiene y la caja no movió.</p>
+                  <p class="cg-drill-lead">Enfrentamos cada movimiento del <b>Control (caja real)</b> contra cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b> — a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente tiene y el Control no movió.</p>
                   @for (p of pairings(cd); track p.key) {
                     <div class="cg-pair">
                       <div class="cg-pair-t">vs {{ p.title }}</div>
@@ -258,14 +258,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                             <span class="cg-side-name">{{ s.name }}</span>
                             @if (abs(s.data.delta) <= 1) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
                             @else { <p-tag [value]="'Δ ' + money(s.data.delta)" severity="warn" styleClass="cg-tag" /> }
-                            <span class="muted cg-side-sub">.mdb {{ money(s.data.caja_total) }} · {{ p.short }} {{ money(s.data.other_total) }} · {{ s.data.matched_count }} casados</span>
+                            <span class="muted cg-side-sub">Control {{ money(s.data.caja_total) }} · {{ p.short }} {{ money(s.data.other_total) }} · {{ s.data.matched_count }} casados</span>
                           </div>
                           @if (!s.data.caja_only.length && !s.data.other_only.length) {
                             <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
                           } @else {
                             <div class="cg-drill-cols">
                               <div class="cg-drill-col">
-                                <div class="cg-drill-colh cg-col-caja">En la caja, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</div>
+                                <div class="cg-drill-colh cg-col-caja">En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</div>
                                 @if (s.data.caja_only.length) {
                                   <table class="cg-daytbl"><tbody>
                                     @for (m of s.data.caja_only; track m.id) {
@@ -275,7 +275,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                                 } @else { <p class="cg-drill-none muted">— nada —</p> }
                               </div>
                               <div class="cg-drill-col">
-                                <div class="cg-drill-colh cg-col-other">En {{ p.short }}, sin caja ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</div>
+                                <div class="cg-drill-colh cg-col-other">En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</div>
                                 @if (s.data.other_only.length) {
                                   <table class="cg-daytbl"><tbody>
                                     @for (m of s.data.other_only; track m.id) {
@@ -774,7 +774,7 @@ export class FinanzasCajaComponent implements OnInit {
   /** Espejo del drill de Bancos: casa .mdb ↔ Manual y .mdb ↔ Kepler → huérfanos por día. */
   pairings(cd: ConcDia): { key: string; title: string; short: string; sides: { key: string; name: string; data: ReconSide }[] }[] {
     return [
-      { key: 'manual', title: 'Manual (workbook)', short: 'manual', sides: [
+      { key: 'manual', title: 'Workbook', short: 'workbook', sides: [
         { key: 'ing', name: 'Ingresos', data: cd.vs_manual.ingresos },
         { key: 'gas', name: 'Gastos', data: cd.vs_manual.gastos } ] },
       { key: 'kepler', title: 'Kepler (ERP)', short: 'Kepler', sides: [
