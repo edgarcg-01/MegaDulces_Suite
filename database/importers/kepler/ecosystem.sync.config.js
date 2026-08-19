@@ -40,5 +40,10 @@ module.exports = {
     { name: 'sync-stock', script: 'database/importers/kepler/import-branch-stock-live.js', args: '--apply --watch=15', ...base },
     // VENTAS (Kepler mayoreo): mart.ventas_enriched → analytics.sales_daily (ventana 2d/ciclo).
     { name: 'sync-sales', script: 'database/importers/kepler/import-sales-fact.js', args: '--apply --watch=60', ...base },
+    // ESPEJO CDC: trigger ALWAYS en el replica encola I/U/D de las ~315 tablas mutables → este
+    // forwarder drena la cola y empuja SOLO el delta a kepler_ods. Reemplaza el re-scan del carril
+    // hash → las 335 tablas frescas casi al segundo sin re-leer. Requiere el setup una vez
+    // (ods-cdc-setup.js --apply). Las append-only grandes (kdm1/kdm2…) van por sync-product/ctid.
+    { name: 'ods-cdc', script: 'database/importers/kepler/ods-cdc-forward.js', args: '--apply --watch=5', ...base },
   ],
 };
