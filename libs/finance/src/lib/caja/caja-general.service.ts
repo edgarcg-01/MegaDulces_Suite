@@ -347,6 +347,83 @@ export class CajaGeneralService {
     });
   }
 
+  /**
+   * CG.12 — Drill "¿dónde está el descuadre?" de la caja — ESPEJO del de Bancos
+   * (finance-bank.contpaqiAccountDetail). Para UN día, enfrenta movimiento a movimiento
+   * la caja operativa (.mdb) contra las OTRAS dos fuentes por separado — Manual (workbook)
+   * y Kepler (ERP) — casando greedy por importe ±$1 dentro de cada dirección (ingreso/gasto),
+   * y devuelve los HUÉRFANOS de cada lado (los movimientos que faltan/sobran). La suma de
+   * huérfanos explica el Δ, igual que en Bancos.
+   */
+  async conciliacionDia(q: CajaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const n = (x: any) => Number(x) || 0;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const cents = (v: any) => Math.round(n(v) * 100);
+    const AMT_TOL = 100; // ±$1 absorbe centavos de captura
+
+    // Etiqueta uniforme de un movimiento huérfano (para render idéntico en el frontend).
+    type Lbl = { id: string; fecha: string; importe: number; concepto: string | null; extra: string | null };
+    // Casa greedy por importe: consume del otro lado; lo que sobra son los huérfanos.
+    const matchDir = (caja: { amt: number; lbl: Lbl }[], other: { amt: number; lbl: Lbl }[]) => {
+      const byAmt = new Map<number, { amt: number; lbl: Lbl }[]>();
+      for (const o of other) { const k = cents(o.amt); (byAmt.get(k) ?? byAmt.set(k, []).get(k)!).push(o); }
+      const cajaOnly: Lbl[] = []; let matched = 0, matchedAmt = 0;
+      for (const c of caja) {
+        const t = cents(c.amt); let hit = false;
+        for (let d = 0; d <= AMT_TOL && !hit; d++) {
+          for (const cand of d === 0 ? [t] : [t - d, t + d]) {
+            const bucket = byAmt.get(cand);
+            if (bucket && bucket.length) { bucket.shift(); hit = true; break; }
+          }
+        }
+        if (hit) { matched++; matchedAmt += c.amt; } else cajaOnly.push(c.lbl);
+      }
+      const otherOnly: Lbl[] = [];
+      for (const arr of byAmt.values()) for (const o of arr) otherOnly.push(o.lbl);
+      cajaOnly.sort((a, b) => b.importe - a.importe); otherOnly.sort((a, b) => b.importe - a.importe);
+      const cajaTotal = r2(caja.reduce((s, r) => s + r.amt, 0));
+      const otherTotal = r2(other.reduce((s, r) => s + r.amt, 0));
+      return {
+        caja_total: cajaTotal, other_total: otherTotal, delta: r2(cajaTotal - otherTotal),
+        matched_count: matched, matched_amount: r2(matchedAmt),
+        caja_only: cajaOnly, other_only: otherOnly,
+        caja_only_amount: r2(cajaOnly.reduce((s, r) => s + r.importe, 0)),
+        other_only_amount: r2(otherOnly.reduce((s, r) => s + r.importe, 0)),
+      };
+    };
+
+    return this.tk.run(async (trx) => {
+      const mdb = await trx('analytics.caja_general_movimientos')
+        .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
+        .select('mov_id', 'fecha', 'concepto', 'cuenta_nombre', 'nombre_cliente', 'ingreso', 'gasto');
+      const man = await trx('finance.bank_movements as bm').join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
+        .whereBetween('bm.movement_date', [from, to])
+        .select('bm.id', 'bm.movement_date as fecha', 'bm.concept as concepto', 'bm.sucursal', 'bm.raw_code', 'bm.amount_in', 'bm.amount_out');
+      const kep = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
+        .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
+        .select('folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+
+      const key = (f: any) => String(f).slice(0, 10);
+      const mdbSide = (dir: 'ingreso' | 'gasto') => (mdb as any[]).filter((r) => n(r[dir]) > 0).map((r) => ({
+        amt: n(r[dir]), lbl: { id: String(r.mov_id), fecha: key(r.fecha), importe: r2(n(r[dir])), concepto: r.concepto || null, extra: r.cuenta_nombre || r.nombre_cliente || null } }));
+      const manSide = (col: 'amount_in' | 'amount_out') => (man as any[]).filter((r) => n(r[col]) > 0).map((r) => ({
+        amt: n(r[col]), lbl: { id: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [r.sucursal, r.raw_code].filter(Boolean).join(' · ') || null } }));
+      const kepSide = (sign: 1 | -1) => (kep as any[]).filter((r) => (n(r.signo) > 0 ? 1 : -1) === sign).map((r) => ({
+        amt: n(r.importe), lbl: { id: String(r.folio), fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
+
+      const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
+      return {
+        period: { from, to },
+        vs_manual: { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) },
+        vs_kepler: { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) },
+      };
+    });
+  }
+
   /** KPIs del periodo: venta vs depositado por forma de pago + descuadre. */
   async overview(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
