@@ -164,85 +164,51 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         }
       }
 
-      <!-- ===== CUADRE (caja general: entra = sale?) ===== -->
+      <!-- ===== CUADRE (conciliación 3 fuentes: .mdb operativo vs Manual vs Kepler) ===== -->
       @if (view()==='cuadre') {
-        @if (loading() && !cq()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
-        @else if (cq(); as d) {
-          <div class="cg-verdict" [class.ok]="d.totals.cuadra" [class.warn]="!d.totals.cuadra">
-            @if (d.totals.cuadra) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Caja cuadra</b> — entró y salió casi lo mismo (pass-through sano). }
-            @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>Descuadre {{ money(d.totals.neto) }}</b> — la diferencia entre lo que entró y lo que salió/depositó. }
-          </div>
-          <app-metric-strip [items]="cqKpis(d)" ariaLabel="Cuadre de caja general" />
-          <p class="cg-note" style="margin:.2rem 0 .8rem">La caja general es un <b>hub de efectivo</b>: la venta de ruta <b>entra</b> (ingreso) y sale a <b>remisiones/gastos</b> + <b>depósito al banco</b> (gasto). Cuadra si <b>ingreso ≈ gasto</b> (todo lo que entró salió). El <b>neto</b> es el efectivo que quedó/faltó. El <b>arqueo</b> (mayor conteo físico del día) es testigo del efectivo real. Tolerancia ±2%.</p>
-
-          <div class="cg-origen">
-            <span class="cg-bd-title">Ingreso por origen — ¿de dónde viene el efectivo?</span>
-            <div class="cg-origen-grid">
-              <div class="cg-ocell"><span class="cg-ol">Sucursal (POS)</span><span class="cg-ov">{{ money(d.ingreso_origen.sucursal.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.sucursal.n }} movs</span></div>
-              <div class="cg-ocell"><span class="cg-ol">Ruta</span><span class="cg-ov">{{ money(d.ingreso_origen.ruta.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.ruta.n }} movs</span></div>
-              <div class="cg-ocell"><span class="cg-ol">Otros <span class="muted">(directivos/nómina)</span></span><span class="cg-ov">{{ money(d.ingreso_origen.otros.monto) }}</span><span class="cg-os">{{ d.ingreso_origen.otros.n }} movs</span></div>
-              <div class="cg-ocell cg-ocell-pos"><span class="cg-ol">Testigo POS <span class="muted">(cortes Kepler)</span></span><span class="cg-ov">{{ money(d.pos_efectivo.efectivo) }}</span><span class="cg-os">{{ d.pos_efectivo.n }} cortes · efectivo</span></div>
-            </div>
-            <p class="cg-note" style="margin-top:.5rem">El ingreso de <b>sucursal</b> ({{ money(d.ingreso_origen.sucursal.monto) }}) debería acercarse al <b>efectivo de los cortes POS</b> ({{ money(d.pos_efectivo.efectivo) }}) — ambos son efectivo de piso. La diferencia = timing / rutas sin POS / merma. La <b>ruta</b> (Canindo, Vecinal…) no tiene POS, por eso no cruza. Clasificación heurística por texto.</p>
-          </div>
-          <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="cqExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
-            <ng-template #header><tr><th class="cg-w-x"></th><th class="cg-w-date">Día</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-r">Depósito banco</th><th class="ta-r">Neto</th><th class="cg-w-e">Estado</th><th class="ta-r">Arqueo</th></tr></ng-template>
-            <ng-template #body let-r>
-              <tr class="cg-row-click" (click)="toggleCqDay(r)" [class.cg-row-open]="cqIsExp(r)">
-                <td><i class="pi cg-chev" [class.pi-chevron-right]="!cqIsExp(r)" [class.pi-chevron-down]="cqIsExp(r)" aria-hidden="true"></i></td>
-                <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.n }}</span></td>
-                <td class="ta-r num strong">{{ money(r.ingreso) }}</td>
-                <td class="ta-r num muted">{{ money(r.gasto) }}</td>
-                <td class="ta-r num muted">{{ r.deposito ? money(r.deposito) : '—' }}</td>
-                <td class="ta-r num" [class.cg-in]="netoState(r)==='sobra'" [class.cg-eg]="netoState(r)==='falta'">{{ money(r.neto) }}</td>
-                <td class="cg-w-e">
-                  @if (netoState(r)==='sobra') { <p-tag value="sobra" severity="success" styleClass="cg-tag" /> }
-                  @else if (netoState(r)==='falta') { <p-tag value="falta" severity="danger" styleClass="cg-tag" /> }
-                  @else { <span class="muted">cuadra</span> }
-                </td>
-                <td class="ta-r num muted">{{ r.arqueo_efectivo != null ? money(r.arqueo_efectivo) : '—' }}</td>
-              </tr>
-            </ng-template>
-            <ng-template #expandedrow let-r>
-              <tr class="cg-detail-row"><td colspan="8">
-                @if (cqDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
-                @else if (cqDayErr()[key(r)]; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
-                @else if (cqDayMovs()[key(r)]; as ms) {
-                  <div class="cg-daywrap">
-                    <table class="cg-daytbl">
-                      <thead><tr><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
-                      <tbody>
-                        @for (m of ms; track m.uid) {
-                          <tr><td class="cg-emp" [title]="m.cuenta_nombre">{{ m.cuenta_nombre || '—' }} <span class="muted">#{{ m.cuenta }}</span></td>
-                              <td class="cg-emp" [title]="m.nombre_cliente">{{ m.nombre_cliente || '—' }}@if (m.concepto) { <span class="muted"> · {{ m.concepto }}</span> }</td>
-                              <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
-                              <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
-                        }
-                        @if (!ms.length) { <tr><td colspan="4" class="muted" style="padding:.5rem">Sin movimientos.</td></tr> }
-                      </tbody>
-                    </table>
-                  </div>
-                } @else { <div class="muted" style="padding:.5rem">—</div> }
-              </td></tr>
-            </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
-          </p-table>
-        }
-      }
-
-      <!-- ===== VS WORKBOOK (.mdb operativo vs copia manual) ===== -->
-      @if (view()==='workbook') {
         @if (loading() && !wbc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
         @else if (wbc(); as d) {
-          <p class="cg-note" style="margin:.2rem 0 .6rem">Concilia la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del workbook (hoja CAJA GENERAL del Sheet). El <b>Δ mdb–man</b> = error u omisión de captura del Excel (comparación exacta, tolerancia ±{{ money(d.eps) }}/día). La columna <b>Kepler</b> es la CAJA GENERAL del ERP (tesorería): es <b>más gruesa</b> —registra lo capturado en el ERP, no cada movimiento— así que su diferencia vs .mdb es <b>informativa</b> (gap de granularidad), no error de captura. No es "caja vs banco" (la caja no deposita).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
+          <!-- Answer-first: ¿las 3 fuentes registran lo mismo que la caja movió? (espejo de Bancos) -->
+          <div class="cg-kve-wrap">
+            <table class="cg-kve">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th class="ta-r">.mdb <span class="cg-sub">(operativo)</span></th>
+                  <th class="ta-r">Manual <span class="cg-sub">(workbook)</span></th>
+                  <th class="ta-r">Kepler <span class="cg-sub">(ERP)</span></th>
+                  <th class="ta-r">Δ <span class="cg-sub">mdb–man</span></th>
+                  <th class="ta-c">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><i class="pi pi-arrow-down-left cg-in" aria-hidden="true"></i> Ingresos <span class="muted">(entra)</span></th>
+                  <td class="ta-r num strong">{{ money(d.totals.mdb_ingreso) }}</td>
+                  <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
+                  <td class="ta-r num cg-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
+                  <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
+                  <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
+                </tr>
+                <tr>
+                  <th scope="row"><i class="pi pi-arrow-up-right cg-eg" aria-hidden="true"></i> Gastos <span class="muted">(sale)</span></th>
+                  <td class="ta-r num strong">{{ money(d.totals.mdb_gasto) }}</td>
+                  <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
+                  <td class="ta-r num cg-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
+                  <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
+                  <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="cg-note" style="margin:.2rem 0 .6rem">Enfrenta la caja <b>viva</b> (.mdb/Doctos — lo que de verdad se movió) contra la <b>copia manual</b> del Excel y contra <b>Kepler</b> (CAJA GENERAL del ERP). El <b>Δ mdb–man</b> es la comparación exacta (±{{ money(d.eps) }}/día) → caza errores de captura del Excel. <b>Kepler</b> es más grueso (registra lo capturado en el ERP, no cada movimiento) → su diferencia es informativa. Clic en un día → <b>¿dónde está el descuadre?</b> (movimientos que faltan de cada lado).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
           @if (!d.totals.wb_disponible) {
-            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>copia manual</b> del workbook en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General/Cuadre</b>: la caja viva no depende del manual.</span></div>
+            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>copia manual</b> del workbook en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General</b>: la caja viva no depende del manual.</span></div>
           } @else {
             <div class="cg-verdict" [class.ok]="d.totals.dias_descuadre===0" [class.warn]="d.totals.dias_descuadre>0">
               @if (d.totals.dias_descuadre===0) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> — el manual empata con el .mdb en los {{ d.totals.dias_wb }} días capturados. }
               @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>{{ d.totals.dias_descuadre }} día(s) con diferencia</b> entre el manual y el .mdb — revísalos abajo. }
             </div>
-            <app-metric-strip [items]="wbKpis(d)" ariaLabel="Conciliación .mdb vs workbook" />
           }
           <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
             <ng-template #header>
@@ -615,6 +581,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-col-caja { background:color-mix(in srgb, var(--action) 10%, transparent); color:var(--text-main); }
     .cg-col-other { background:color-mix(in srgb, var(--text-faint) 10%, transparent); color:var(--text-main); }
     .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
+    .cg-kve-wrap { overflow-x:auto; margin-bottom:.6rem; }
+    table.cg-kve { width:100%; border-collapse:collapse; font-size:.82rem; }
+    table.cg-kve th, table.cg-kve td { padding:.35rem .6rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    table.cg-kve thead th { font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
+    table.cg-kve tbody th[scope=row] { text-align:left; font-weight:600; color:var(--text-main); }
+    table.cg-kve tbody tr:last-child td, table.cg-kve tbody tr:last-child th { border-bottom:none; }
+    .cg-ok-i { color:var(--ok-fg, #16a34a); }
+    .cg-bad-i { color:var(--bad-fg, #dc2626); }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .strong { font-weight:700; } .muted { color:var(--text-faint); } .warn { color:var(--warn-fg); font-weight:700; }
     .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -644,7 +618,6 @@ export class FinanzasCajaComponent implements OnInit {
   readonly VIEWS: { key: View; label: string; icon: string; legacy?: boolean }[] = [
     { key: 'general', label: 'General', icon: 'pi-wallet' },
     { key: 'cuadre', label: 'Cuadre', icon: 'pi-check-square' },
-    { key: 'workbook', label: 'Vs Workbook', icon: 'pi-book' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
     { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar', legacy: true },
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns', legacy: true },
@@ -734,8 +707,7 @@ export class FinanzasCajaComponent implements OnInit {
     if (v === 'general') {
       this.http.get<CajaGeneral>(`${this.base}/general${this.qs({ tipo: this.cgTipo(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cg.set(d); done(); }, error: fail });
     } else if (v === 'cuadre') {
-      this.http.get<CajaCuadre>(`${this.base}/cuadre${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cq.set(d); done(); }, error: fail });
-    } else if (v === 'workbook') {
+      // Cuadre = conciliación 3 fuentes (.mdb operativo vs Manual vs Kepler), espejo de Bancos.
       this.http.get<CajaWb>(`${this.base}/conciliacion-workbook${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.wbc.set(d); done(); }, error: fail });
     } else if (v === 'resumen') {
       this.http.get<Overview>(`${this.base}/overview${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.ov.set(d); done(); }, error: fail });
