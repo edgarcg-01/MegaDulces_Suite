@@ -14,7 +14,6 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
-import { CUADRE_STYLES } from './cuadre.styles';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
@@ -502,11 +501,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       }
     </div>
   `,
-  styles: [CUADRE_STYLES, `
+  styles: [`
     /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
        igual que un día sin movimientos: un 404 del API, un 403 o el 22007 por una
        fecha mal formada eran indistinguibles de "no hubo nada". */
+    .cg-dayerr { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--warn-fg); }
+    .cg-dayerr i { margin-top: 2px; flex: none; }
 
+    :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .cg-head-actions { display:flex; gap:.5rem; align-items:center; }
     :host ::ng-deep .cg-sel { min-width:8.5rem; }
@@ -516,6 +518,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-view.on { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
     .cg-view.legacy { color:var(--text-faint); }
     .cg-hist { margin-left:.35rem; font-size:.58rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 .28rem; vertical-align:middle; }
+    .cg-legacy-note { display:flex; align-items:center; gap:.55rem; padding:.55rem .8rem; margin:.1rem 0 .7rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:.78rem; color:var(--text-muted); line-height:1.45; }
+    .cg-legacy-note .pi { color:var(--warn-fg); }
+    .cg-legacy-note b { color:var(--text-main); }
     app-metric-strip { display:block; margin:.6rem 0; }
     .cg-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:.4rem 0 .6rem; }
     .cg-search input { min-width:200px; }
@@ -530,6 +535,15 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
     .cg-two { margin:.4rem 0 .8rem; } .cg-bd-wide { max-width:none; padding:.4rem .5rem; }
     code { font-family:var(--font-mono); font-size:.9em; }
+    .cg-verdict { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; margin:.4rem 0 .2rem; border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:.85rem; }
+    .cg-verdict.ok { border-left-color:var(--ok-fg); } .cg-verdict.ok .pi { color:var(--ok-fg); }
+    .cg-verdict.warn { border-left-color:var(--warn-fg); } .cg-verdict.warn .pi { color:var(--warn-fg); }
+    .cg-w-x { width:2.2rem; }
+    .cg-row-click { cursor:pointer; } .cg-row-click:hover { background:var(--hover-bg); }
+    .cg-row-open { background:color-mix(in srgb, var(--action) 5%, transparent); }
+    .cg-chev { font-size:.7rem; color:var(--text-faint); }
+    .cg-eg { color:var(--warn-fg); } .cg-in { color:var(--ok-fg); }
+    .cg-detail-row > td { background:var(--surface-ground, var(--card-bg)); padding:.6rem .9rem !important; }
     .cg-detail { display:flex; flex-direction:column; gap:.4rem; font-size:.78rem; }
     .cg-detail-meta { display:flex; flex-wrap:wrap; gap:.9rem; align-items:baseline; color:var(--text-muted); }
     .cg-detail-meta b { color:var(--text-main); }
@@ -545,16 +559,53 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-ol { font-size:var(--fs-xs); color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .cg-ov { font-size:var(--fs-lg, 1.05rem); font-weight:700; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-os { font-size:var(--fs-xs); color:var(--text-faint); }
+    .cg-daywrap { overflow-x:auto; } .cg-daytbl { width:100%; border-collapse:collapse; font-size:.78rem; }
     .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
     .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
+    .cg-daytbl th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); padding:3px 8px; border-bottom:1px solid var(--border-color); }
+    .cg-daytbl td { padding:3px 8px; border-bottom:1px solid var(--border-color); }
+    .ta-r { text-align:right; } .ta-c { text-align:center; }
+    .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
+    .cg-kep { color:var(--text-faint); font-style:italic; }
+    .cg-drill-lead { font-size:.78rem; color:var(--text-main); line-height:1.5; margin:.2rem 0 .7rem; }
+    .cg-pair { margin-bottom:.9rem; }
+    .cg-pair-t { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border-color); padding-bottom:.2rem; margin-bottom:.4rem; }
+    .cg-side { margin-bottom:.6rem; }
+    .cg-side-h { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin-bottom:.25rem; }
+    .cg-side-name { font-size:.8rem; font-weight:700; color:var(--text-main); }
+    .cg-side-sub { font-size:.68rem; }
+    .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
+    .cg-drill-cols { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+    @media (max-width:720px) { .cg-drill-cols { grid-template-columns:1fr; } }
+    .cg-drill-col { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); overflow:hidden; }
+    .cg-drill-colh { font-size:.68rem; font-weight:700; padding:.3rem .5rem; border-bottom:1px solid var(--border-color); }
+    .cg-col-caja { background:color-mix(in srgb, var(--action) 10%, transparent); color:var(--text-main); }
+    .cg-col-other { background:color-mix(in srgb, var(--text-faint) 10%, transparent); color:var(--text-main); }
+    .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
+    .cg-kve-wrap { overflow-x:auto; margin-bottom:.6rem; }
+    table.cg-kve { width:100%; border-collapse:collapse; font-size:.82rem; }
+    table.cg-kve th, table.cg-kve td { padding:.35rem .6rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    table.cg-kve thead th { font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
+    table.cg-kve tbody th[scope=row] { text-align:left; font-weight:600; color:var(--text-main); }
+    table.cg-kve tbody tr:last-child td, table.cg-kve tbody tr:last-child th { border-bottom:none; }
+    .cg-ok-i { color:var(--ok-fg, #16a34a); }
+    .cg-bad-i { color:var(--bad-fg, #dc2626); }
+    .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .strong { font-weight:700; } .muted { color:var(--text-faint); } .warn { color:var(--warn-fg); font-weight:700; }
+    .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-cancel { opacity:.5; text-decoration:line-through; }
-    .cg-w-p { width:4rem; } .cg-w-u { width:5rem; } .cg-w-suc { width:3.4rem; }
-    .cg-w-met { width:7rem; } .cg-w-com { width:6rem; } .cg-w-fol { width:6rem; } .cg-w-sel { width:10rem; }
+    .cg-w-d { width:3.5rem; } .cg-w-p { width:4rem; } .cg-w-u { width:5rem; } .cg-w-date { width:6rem; } .cg-w-suc { width:3.4rem; }
+    .cg-w-met { width:7rem; } .cg-w-com { width:6rem; } .cg-w-fol { width:6rem; } .cg-w-e { width:6rem; } .cg-w-sel { width:10rem; }
     .cg-h3 { font-size:.9rem; font-weight:700; margin:1.2rem 0 .5rem; }
     .cg-alt { font-family:var(--font-mono); font-size:.68rem; color:var(--text-faint); margin-left:.4rem; }
     .cg-ok { color:var(--ok-fg); margin-left:.4rem; }
+    :host ::ng-deep .cg-tag { font-size:.64rem; }
+    .cg-note { margin-top:.6rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     .cg-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .cg-errbox .pi { color:var(--bad-fg); } .cg-errbox-txt { flex:1; font-size:.84rem; }
+    .cg-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2rem 1rem; text-align:center; color:var(--text-muted); }
+    .cg-empty .pi { font-size:1.6rem; color:var(--text-faint); }
+    .cg-skel { display:flex; flex-direction:column; gap:.4rem; margin-top:1rem; }
   `],
 })
 export class FinanzasCajaComponent implements OnInit {
