@@ -123,7 +123,7 @@ const STEPS = {
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
     path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)
     path.join(K, 'import-ledger-chain.js'),      // MAAT.1 — balanza fam 1-9 + cadena de gasto → Maat P&L / fiscal / impuestos provisionales
-    path.join(K, 'import-expense-requests.js'),  // GX.6 — solicitudes XA1501 (+UPDATE a expense_documents) — TRAS expenses-polizas
+    path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
     path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)

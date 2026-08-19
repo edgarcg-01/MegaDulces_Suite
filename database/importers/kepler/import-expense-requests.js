@@ -1,19 +1,22 @@
 /* eslint-disable no-console */
 /**
- * GX.6 — Solicitudes de gasto (XA1501) → analytics.expense_requests + cadena.
+ * GX.6 — Vínculo solicitud↔gasto + hallazgos de solicitudes de gasto.
  *
- * Lee de cada sucursal Kepler (READ-ONLY):
- *   - XA1501 "Expense request"    → cabecera de la solicitud (folio, fecha, importe,
- *     solicitante c48, beneficiario c32, concepto c24, estado c43, usuario c67).
+ * `analytics.expense_requests` YA NO se escribe aquí: es una **VISTA** derive-no-copy sobre
+ * `kepler_ods.kdm1` (XA1501) — mig 20260819160000. Este importer solo mantiene lo que la vista
+ * no puede: el vínculo del gasto a su solicitud y los hallazgos.
+ *
+ * Lee de `kepler_ods.kdm1` (ODS replicado, LOCAL — ya no las 6 ramas remotas → sin timeout):
+ *   - XA1501 "Expense request"    → solicitudes (folio c6, fecha c9, importe c16, solicitante c48,
+ *     beneficiario c32, concepto c24, estado c43). Anti-réplica c1=sucursal.
  *   - XA1001 "Expense allocation" → el gasto que APLICA la solicitud (enlace c39 = folio solicitud).
  *
  * Puebla:
- *   - analytics.expense_requests  (todas las solicitudes, con flag `aplicada`).
  *   - analytics.expense_documents.solicitud_tipo/folio  (referencia del gasto → su solicitud).
  *   - analytics.expense_findings tipo='solicitud_sin_aplicar' (solicitudes vencidas sin gasto).
  *
- * Idempotente. Reemplaza SOLO lo suyo (requests por sucursal; findings por tipo+sucursal;
- * doc.solicitud_* por gasto). Nada de RLS: filtro de tenant explícito.
+ * Idempotente. Reemplaza SOLO lo suyo (findings por tipo+sucursal; doc.solicitud_* por gasto).
+ * Filtro de tenant explícito (kepler_ods sin RLS; expense_* con RLS → SET LOCAL app.tenant_id).
  *
  *   node database/importers/kepler/import-expense-requests.js            # dry-run
  *   node database/importers/kepler/import-expense-requests.js --apply    # commit
@@ -24,12 +27,7 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
-const DOCTYPE = "(c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0'))";
 const TODAY = new Date().toISOString().slice(0, 10);
-
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { stockMap } = require('../lib/kepler-branches');
-const MAP = process.env.EXPENSES_BRANCH_MAP ? JSON.parse(process.env.EXPENSES_BRANCH_MAP) : stockMap({ cedis: true });
 
 const norm = (s) => { const t = String(s || '').toUpperCase().replace(/\s+/g, ' ').trim(); return t || null; };
 
@@ -50,74 +48,52 @@ async function bulkInsert(db, table, cols, rows) {
   const db = new Client({ connectionString: DST });
   await db.connect();
   try {
-    console.log(`\n=== Solicitudes de gasto (XA1501) → analytics.expense_requests (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    console.log(`\n=== GX.6 — vínculo solicitud↔gasto + hallazgos (fuente: kepler_ods) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`CREATE TEMP TABLE stg_req (sucursal text, folio text, fecha date, importe numeric, solicitante text, beneficiario text, concepto text, estado text, usuario text, aplicada boolean) ON COMMIT DROP`);
     await db.query(`CREATE TEMP TABLE stg_link (sucursal text, gasto_folio text, sol_folio text) ON COMMIT DROP`);
     await db.query(`CREATE TEMP TABLE stg_reqfind (sucursal text, fecha date, doc_folio text, beneficiario text, importe numeric, nota text) ON COMMIT DROP`);
 
-    const okCodes = [];
-    const summary = [];
-    for (const b of MAP) {
-      const src = new Client({ connectionString: b.url, connectionTimeoutMillis: 6000, query_timeout: 120000 });
-      try { await src.connect(); } catch (e) { console.log(`  ⚠ sucursal ${b.code}: sin conexión — skip`); continue; }
-      okCodes.push(b.code);
-      try {
-        // Gastos (XA1001): folio + solicitud ligada (c39). Set de solicitudes aplicadas.
-        const gastos = (await src.query(
-          `SELECT c6 AS gasto_folio, NULLIF(btrim(c39),'') AS sol_folio FROM md.kdm1 WHERE ${DOCTYPE}='XA1001'`,
-        )).rows;
-        const applied = new Set();
-        const linkStg = [];
-        for (const g of gastos) {
-          if (g.sol_folio) { applied.add(g.sol_folio); linkStg.push([b.code, g.gasto_folio, g.sol_folio]); }
-        }
-        // Solicitudes (XA1501)
-        const sols = (await src.query(
-          `SELECT c6 AS folio, c9::date AS fecha, c16::numeric AS importe,
-                  NULLIF(btrim(c48),'') AS solicitante, NULLIF(btrim(c32),'') AS beneficiario,
-                  NULLIF(btrim(c24),'') AS concepto, NULLIF(btrim(c43),'') AS estado, NULLIF(btrim(c67),'') AS usuario
-             FROM md.kdm1 WHERE ${DOCTYPE}='XA1501' AND c6 IS NOT NULL`,
-        )).rows;
-        const reqStg = [], findStg = [];
-        for (const s of sols) {
-          const folio = String(s.folio).trim();
-          const aplicada = applied.has(folio);
-          const estado = s.estado || null;
-          reqStg.push([b.code, folio, s.fecha, Number(s.importe) || 0, norm(s.solicitante), s.beneficiario, s.concepto, estado, s.usuario, aplicada]);
-          // Hallazgo: pedida/aprobada, vencida y sin gasto (excluye canceladas 'C').
-          const fechaStr = s.fecha ? new Date(s.fecha).toISOString().slice(0, 10) : null;
-          if (!aplicada && estado !== 'C' && fechaStr && fechaStr <= TODAY) {
-            findStg.push([b.code, s.fecha, folio, s.beneficiario, Number(s.importe) || 0,
-              `Solicitud ${folio} de ${norm(s.solicitante) || '?'} sin aplicar (estado ${estado || '?'})`]);
-          }
-        }
-        await bulkInsert(db, 'stg_req', ['sucursal', 'folio', 'fecha', 'importe', 'solicitante', 'beneficiario', 'concepto', 'estado', 'usuario', 'aplicada'], reqStg);
-        await bulkInsert(db, 'stg_link', ['sucursal', 'gasto_folio', 'sol_folio'], linkStg);
-        await bulkInsert(db, 'stg_reqfind', ['sucursal', 'fecha', 'doc_folio', 'beneficiario', 'importe', 'nota'], findStg);
-        summary.push({ code: b.code, solicitudes: reqStg.length, sin_aplicar: findStg.length });
-      } catch (e) { console.log(`  ⚠ sucursal ${b.code}: ${e.message}`); }
-      finally { await src.end(); }
+    // Gastos (XA1001): folio + solicitud ligada (c39). Set de solicitudes aplicadas por sucursal.
+    const gastos = (await db.query(
+      `SELECT sucursal::text AS suc, btrim(c6::text) AS gasto_folio, NULLIF(btrim(c39::text),'') AS sol_folio
+         FROM kepler_ods.kdm1
+        WHERE c2='X' AND c3='A' AND btrim(c4::text)='10' AND btrim(c5::text)='1' AND btrim(c1::text)=sucursal::text`,
+    )).rows;
+    const applied = new Set();       // `suc|folio`
+    const linkStg = [];
+    for (const g of gastos) {
+      if (g.sol_folio) { applied.add(`${g.suc}|${g.sol_folio}`); linkStg.push([g.suc, g.gasto_folio, g.sol_folio]); }
     }
-    console.table(summary);
-    const totReq = (await db.query(`SELECT count(*)::int n FROM stg_req`)).rows[0].n;
-    const totFind = (await db.query(`SELECT count(*)::int n, round(sum(importe),0) m FROM stg_reqfind`)).rows[0];
-    console.log(`Staging: ${totReq} solicitudes · ${totFind.n} sin aplicar ($${Number(totFind.m || 0).toLocaleString('es-MX')})`);
+
+    // Solicitudes (XA1501) — solo para derivar los hallazgos (la tabla ahora es vista).
+    const sols = (await db.query(
+      `SELECT sucursal::text AS suc, btrim(c6::text) AS folio, c9::date AS fecha,
+              c16::numeric AS importe, NULLIF(btrim(c48::text),'') AS solicitante,
+              NULLIF(btrim(c32::text),'') AS beneficiario, NULLIF(btrim(c43::text),'') AS estado
+         FROM kepler_ods.kdm1
+        WHERE c2='X' AND c3='A' AND btrim(c4::text)='15' AND btrim(c5::text)='1'
+          AND btrim(c1::text)=sucursal::text AND btrim(c6::text)<>''`,
+    )).rows;
+
+    const okCodes = [...new Set(sols.map((s) => s.suc))];
+    const findStg = [];
+    for (const s of sols) {
+      const aplicada = applied.has(`${s.suc}|${s.folio}`);
+      const fechaStr = s.fecha ? new Date(s.fecha).toISOString().slice(0, 10) : null;
+      // Hallazgo: pedida/aprobada, vencida y sin gasto (excluye canceladas 'C' y fechas futuras).
+      if (!aplicada && s.estado !== 'C' && fechaStr && fechaStr <= TODAY) {
+        findStg.push([s.suc, s.fecha, s.folio, s.beneficiario, Number(s.importe) || 0,
+          `Solicitud ${s.folio} de ${norm(s.solicitante) || '?'} sin aplicar (estado ${s.estado || '?'})`]);
+      }
+    }
+
+    await bulkInsert(db, 'stg_link', ['sucursal', 'gasto_folio', 'sol_folio'], linkStg);
+    await bulkInsert(db, 'stg_reqfind', ['sucursal', 'fecha', 'doc_folio', 'beneficiario', 'importe', 'nota'], findStg);
+    console.log(`Leído del ODS: ${sols.length} solicitudes · ${linkStg.length} vínculos gasto→solicitud · ${findStg.length} sin aplicar`);
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
-    if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó.'); return; }
-
-    // expense_requests: UPSERT update-in-place (SIN DELETE, no churn en Railway). El flag
-    // `aplicada` y el estado se refrescan al re-postear una solicitud ya existente.
-    const upReq = await db.query(`
-      INSERT INTO analytics.expense_requests
-        (tenant_id,sucursal,folio,fecha,importe,solicitante,beneficiario,concepto,estado,usuario,aplicada,computed_at)
-      SELECT $1,sucursal,folio,fecha,importe,solicitante,beneficiario,concepto,estado,usuario,aplicada,now() FROM stg_req
-      ON CONFLICT (tenant_id,sucursal,folio) DO UPDATE SET
-        fecha=EXCLUDED.fecha, importe=EXCLUDED.importe, solicitante=EXCLUDED.solicitante,
-        beneficiario=EXCLUDED.beneficiario, concepto=EXCLUDED.concepto, estado=EXCLUDED.estado,
-        usuario=EXCLUDED.usuario, aplicada=EXCLUDED.aplicada, computed_at=now()`, [M]);
+    if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] ODS sin solicitudes — nada que hacer.'); return; }
 
     // Referencia del gasto → su solicitud (expense_documents.solicitud_*).
     const upDoc = await db.query(`
@@ -126,8 +102,7 @@ async function bulkInsert(db, table, cols, rows) {
         FROM stg_link l
        WHERE d.tenant_id=$1 AND d.sucursal=l.sucursal AND d.doc_tipo='XA1001' AND d.doc_folio=l.gasto_folio`, [M]);
 
-    // Hallazgo solicitud_sin_aplicar (sin clave natural): set-level skip. Solo se reescribe
-    // cuando el conjunto cambió → cero churn diario cuando no hay solicitudes nuevas sin aplicar.
+    // Hallazgo solicitud_sin_aplicar (sin clave natural): set-level skip (cero churn si no cambió).
     const FP_R = `concat_ws('|', sucursal, coalesce(fecha::text,''), coalesce(doc_folio,''), coalesce(beneficiario,''), coalesce(importe::text,''), coalesce(nota,''))`;
     const { rows: cmpR } = await db.query(
       `SELECT (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP_R} fp FROM stg_reqfind) a)
@@ -143,7 +118,7 @@ async function bulkInsert(db, table, cols, rows) {
     }
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — requests: ${upReq.rowCount} · doc.solicitud actualizados: ${upDoc.rowCount} · hallazgos sin_aplicar: ${cmpR[0].same ? 'sin cambios' : upFindCount + ' reescritos'}`);
+    console.log(`\n[APPLY] COMMIT — doc.solicitud actualizados: ${upDoc.rowCount} · hallazgos sin_aplicar: ${cmpR[0].same ? 'sin cambios' : upFindCount + ' reescritos'}`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('ERROR:', e.message);
