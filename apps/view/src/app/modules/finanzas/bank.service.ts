@@ -222,7 +222,14 @@ export interface ThreeWayAccount {
   /** Peor desviación contra el banco entre las fuentes disponibles, y de cuál viene. */
   worst_delta: number; worst_abs: number; worst_src: 'K' | 'C' | null;
 }
-export interface ThreeWaySource { movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean; }
+/**
+ * Frescura de una fuente en el periodo. `pct` es cobertura EN DÍAS (hasta qué día del mes
+ * llegó la captura contra el día esperado), no participación sobre el total de movimientos.
+ */
+export interface ThreeWaySource {
+  movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean;
+  days_covered: number; days_target: number;
+}
 export interface ThreeWayCoverage {
   is_current_month: boolean;
   workbook: ThreeWaySource; kepler: ThreeWaySource; contpaqi: ThreeWaySource;
