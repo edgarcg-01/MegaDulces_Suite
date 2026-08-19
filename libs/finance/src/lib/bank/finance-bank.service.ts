@@ -2097,18 +2097,38 @@ export class FinanceBankService {
       egresos: mkRow('Egresos', cpq.totals.excel_out, kep.out, cpq.totals.contpaqi_out),
     };
 
+    // El veredicto y el orden miran las TRES fuentes, no sólo Workbook↔ContPAQi.
+    // Antes `cuadra` y el sort salían de delta_in/delta_out (ContPAQi) mientras la tabla ya
+    // mostraba Kepler: una cuenta con Kepler desviado millones salía con palomita verde y
+    // hundida al fondo del scroll. Se compara contra cada fuente DISPONIBLE (Kepler si tiene
+    // movimientos de la cuenta, ContPAQi si está enlazada) y se publica la peor desviación
+    // contra el banco: es lo que ordena la tabla y lo que se muestra como cifra.
     const por_cuenta = cpq.rows.map((r: any) => {
       const k = kmap.get(r.account_label);
       const kin = k ? k.in : 0, kout = k ? k.out : 0;
+      const dwk_in = r2(r.excel_in - kin), dwk_out = r2(r.excel_out - kout);
+      const pick = (a: number, b: number) => (Math.abs(a) >= Math.abs(b) ? a : b);
+      const cands: { src: 'K' | 'C'; delta: number }[] = [];
+      if (k) cands.push({ src: 'K', delta: pick(dwk_in, dwk_out) });
+      if (r.linked) cands.push({ src: 'C', delta: pick(r.delta_in, r.delta_out) });
+      cands.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      const worst = cands[0] ?? null;
       return {
         bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
         wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
         kep_in: kin, kep_out: kout, kep_has: !!k,
         delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi
-        delta_wk_in: r2(r.excel_in - kin), delta_wk_out: r2(r.excel_out - kout), // Workbook − Kepler
-        cuadra: Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL,
+        delta_wk_in: dwk_in, delta_wk_out: dwk_out,                 // Workbook − Kepler
+        /** Hay al menos una fuente contra la cual comparar. Sin esto, `cuadra: true` mentiría. */
+        comparable: !!k || !!r.linked,
+        /** Peor desviación contra el banco y de qué fuente viene. 0/null si no hay comparación. */
+        worst_delta: worst ? worst.delta : 0,
+        worst_abs: worst ? Math.abs(worst.delta) : 0,
+        worst_src: worst ? worst.src : null,
+        cuadra: (!k || (Math.abs(dwk_in) < TOL && Math.abs(dwk_out) < TOL))
+          && (!r.linked || (Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL)),
       };
-    }).sort((a: any, b: any) => (Math.abs(b.delta_in) + Math.abs(b.delta_out)) - (Math.abs(a.delta_in) + Math.abs(a.delta_out)));
+    }).sort((a: any, b: any) => b.worst_abs - a.worst_abs);
 
     // CB.32 — Cobertura/frescura por fuente: distingue "captura pendiente" de "descuadre real".
     // Cada fuente captura a su ritmo (banco al día > Kepler operativo > ContPAQi fiscal). En el

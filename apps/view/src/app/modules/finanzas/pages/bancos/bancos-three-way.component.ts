@@ -8,7 +8,7 @@ import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
-import { cuadra, money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
+import { money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
@@ -20,7 +20,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
  *   • Kepler 102 = las pólizas de banco del ERP operativo.
  *   • ContPAQi  = los libros fiscales (con folio de póliza).
  * Nivel 1 (control-total): 2 filas Ingresos/Egresos × 3 fuentes + deltas por par + semáforo.
- * Nivel 2 (por cuenta): Workbook ↔ ContPAQi (el 102 de Kepler no se desglosa por banco).
+ * Nivel 2 (por cuenta): las 3 fuentes por banco (Kepler sale de tesorería kdm1, que sí
+ * desglosa; el 102 contable estaba lumped). El veredicto y el orden de la tabla miran las
+ * fuentes DISPONIBLES de cada cuenta — no sólo ContPAQi — y publican la peor desviación
+ * contra el banco como cifra, no como tinte.
  * Presentacional: recibe el payload de threeWay(); sin estado propio.
  */
 @Component({
@@ -142,7 +145,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <th rowspan="2" pSortableColumn="bank" title="Banco y número de cuenta">Cuenta <p-sorticon field="bank" /></th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos</th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
-                <th rowspan="2" class="ta-c" pSortableColumn="linked" title="✓ cuadra Workbook↔ContPAQi · ⚠ no cuadra · sin enlazar">Estado <p-sorticon field="linked" /></th>
+                <th rowspan="2" class="ta-r tw-col-dif" pSortableColumn="worst_abs"
+                    title="Peor desviación contra el banco entre las fuentes disponibles">Diferencia <p-sorticon field="worst_abs" /></th>
               </tr>
               <tr>
                 <th class="ta-r" pSortableColumn="wb_in" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_in" /></th>
@@ -156,17 +160,29 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <ng-template #body let-r>
               <tr class="tw-clickable" [attr.data-acct]="r.account_label" [class.tw-hl]="hlAcct() === r.account_label"
                   (click)="openDrill(d.period, r)" title="Ver detalle a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi)">
-                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span> <i class="pi pi-search-plus tw-drill-ico"></i></td>
+                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
+                  @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
+                  <i class="pi pi-search-plus tw-drill-ico"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_out)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="ta-c">
-                  @if (!r.linked) { <span class="tw-tag muted-tag" title="Cuenta no enlazada a ContPAQi">sin enlazar</span> }
-                  @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra Workbook↔ContPAQi"></i> }
-                  @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
+                <!-- La diferencia se muestra como CIFRA, no sólo como tinte: antes había que
+                     restar mentalmente entre columnas separadas para saber cuánto faltaba, y
+                     el color era el único portador del problema (§Q.2 / §Q.6). -->
+                <td class="ta-r tw-col-dif">
+                  @if (!r.comparable) {
+                    <span class="tw-tag muted-tag" title="No hay contra qué comparar: la cuenta no está enlazada a ContPAQi y Kepler no tiene movimientos suyos en el periodo">sin comparar</span>
+                  } @else if (r.cuadra) {
+                    <i class="pi pi-check-circle ok" [attr.title]="'Cuadra contra las fuentes disponibles (±' + money(tol()) + ')'"></i>
+                  } @else {
+                    <span class="tw-dif">
+                      <span class="mono bad">{{ r.worst_delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                      <span class="tw-tag warn-tag">vs {{ r.worst_src === 'K' ? 'Kepler' : 'ContPAQi' }}</span>
+                    </span>
+                  }
                 </td>
               </tr>
             </ng-template>
@@ -422,6 +438,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-grp i { margin-right: 4px; }
     :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2) 6%, transparent); }
     .warn-tag { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-fg); }
+    /* Columna Diferencia: cifra + fuente en una línea, alineadas a la derecha como el resto
+       de los números. El ancho fijo evita que la tabla salte al cambiar de periodo. */
+    .tw-col-dif { min-width: 12rem; }
+    .tw-dif { display: inline-flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; }
     /* CB.32 — barra de cobertura/frescura */
     .tw-cov { border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; border-left-color: var(--ok-fg); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
     .tw-cov.warn { border-left-color: var(--warn-fg); }
@@ -749,6 +769,8 @@ export class BancosThreeWayComponent {
             { header: 'Ret. Workbook', get: (r: any) => r.wb_out, type: 'money', total: true },
             { header: 'Ret. Kepler', get: (r: any) => (r.kep_has ? r.kep_out : null), type: 'money', total: true },
             { header: 'Ret. ContPAQi', get: (r: any) => r.cp_out, type: 'money', total: true },
+            { header: 'Diferencia', get: (r: any) => (r.comparable && !r.cuadra ? r.worst_delta : null), type: 'money', total: true },
+            { header: 'Diferencia vs', get: (r: any) => (r.comparable && !r.cuadra ? (r.worst_src === 'K' ? 'Kepler' : 'ContPAQi') : ''), width: 14 },
             { header: 'Enlazada a ContPAQi', get: (r: any) => (r.linked ? 'Si' : 'No'), width: 18 },
           ],
         },
@@ -767,7 +789,14 @@ export class BancosThreeWayComponent {
     });
   }
 
-  cuad = cuadra;
+  /**
+   * Tolerancia de cuadre: la manda el servidor. El encabezado imprimía `d.tolerance` mientras
+   * las celdas semaforeaban con el 1000 hardcodeado de `cuadra()`; el día que el backend mueva
+   * TOL, la pantalla decía "±$X" y pintaba con otro número. El fallback es el mismo valor.
+   */
+  tol(): number { return this.data()?.tolerance ?? 1000; }
+  cuad(delta: number): boolean { return Math.abs(delta) < this.tol(); }
+  money = money;
   dmShort = dmShort;
 
   rows(d: ThreeWay): ThreeWayRow[] { return [d.total.ingresos, d.total.egresos]; }

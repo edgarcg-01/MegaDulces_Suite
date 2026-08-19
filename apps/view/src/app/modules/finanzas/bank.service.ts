@@ -217,6 +217,10 @@ export interface ThreeWayAccount {
   wb_in: number; wb_out: number; cp_in: number; cp_out: number;
   kep_in: number; kep_out: number; kep_has: boolean;
   delta_in: number; delta_out: number; delta_wk_in: number; delta_wk_out: number; cuadra: boolean;
+  /** Hay al menos una fuente contra la cual comparar (Kepler con datos o ContPAQi enlazada). */
+  comparable: boolean;
+  /** Peor desviación contra el banco entre las fuentes disponibles, y de cuál viene. */
+  worst_delta: number; worst_abs: number; worst_src: 'K' | 'C' | null;
 }
 export interface ThreeWaySource { movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean; }
 export interface ThreeWayCoverage {
