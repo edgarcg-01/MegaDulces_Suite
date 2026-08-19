@@ -391,12 +391,28 @@ function normArea(raw) {
          FROM stg_exp s JOIN exp_changed c ON c.sucursal=s.sucursal AND date_trunc('month',s.fecha)::date=c.mes`,
       [M]);
 
-    // GX v3 — documentos: YA NO se materializan aquí. `analytics.expense_documents` es
-    // una VISTA (mig 20260819210000) derive-no-copy sobre kepler_ods.kdm1 → siempre al
-    // día y con el 100% del vínculo solicitud↔gasto (c39). Escribir sobre la vista
-    // tiraría error. Las LÍNEAS `expense_document_lines` siguen materializadas abajo.
-    const upDoc = { rowCount: 0 };
-    const delDoc = { rowCount: 0 };
+    // GX v3 — documentos + líneas (clave natural) → UPSERT solo-cambios + delete-not-seen.
+    // RESTAURADO 2026-08-19: expense_documents vuelve a ser TABLA contable (kdc2). La vista
+    // sobre kdm1 (mig 20260819210000) rompía la conciliación fiscal (importe/fecha del
+    // movimiento ≠ contable, $2.57M en 277 recepciones). Revertida por mig 20260819230000.
+    const upDoc = await db.query(
+      `INSERT INTO analytics.expense_documents AS t
+         (tenant_id,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,computed_at)
+       SELECT $1,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,now()
+         FROM stg_doc
+       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO UPDATE SET
+         fecha=EXCLUDED.fecha, fecha_doc=EXCLUDED.fecha_doc, beneficiario=EXCLUDED.beneficiario, rfc=EXCLUDED.rfc,
+         concepto=EXCLUDED.concepto, area=EXCLUDED.area, importe=EXCLUDED.importe, iva=EXCLUDED.iva,
+         usuario=EXCLUDED.usuario, clase=EXCLUDED.clase, computed_at=now()
+       WHERE (t.fecha,t.fecha_doc,t.beneficiario,t.rfc,t.concepto,t.area,t.importe,t.iva,t.usuario,t.clase)
+             IS DISTINCT FROM
+             (EXCLUDED.fecha,EXCLUDED.fecha_doc,EXCLUDED.beneficiario,EXCLUDED.rfc,EXCLUDED.concepto,EXCLUDED.area,EXCLUDED.importe,EXCLUDED.iva,EXCLUDED.usuario,EXCLUDED.clase)`,
+      [M]);
+    const delDoc = await db.query(
+      `DELETE FROM analytics.expense_documents t
+        WHERE t.tenant_id=$1 AND t.sucursal = ANY($2) AND t.fecha >= $3::date AND t.fecha <= $4::date
+          AND NOT EXISTS (SELECT 1 FROM stg_doc s WHERE s.sucursal=t.sucursal AND s.doc_tipo=t.doc_tipo AND s.doc_folio=t.doc_folio)`,
+      [M, sucursales, from, to]);
     const upLine = await db.query(
       `INSERT INTO analytics.expense_document_lines AS t
          (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,computed_at)
