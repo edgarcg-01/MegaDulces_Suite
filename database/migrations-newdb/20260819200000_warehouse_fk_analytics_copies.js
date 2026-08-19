@@ -15,9 +15,11 @@
  *
  * @param { import("knex").Knex } knex
  */
+// NOTA: erp_collections y erp_supplier_payments NO están aquí — se convierten a VISTA
+// (mig 20260819220000, proyección fina del ODS). Una vista no lleva FK; resuelve warehouse_id en vivo.
 const TABLES = [
   'ap_provider', 'bank_postings', 'cash_cuts', 'cash_sessions', 'cedis_supply_cadence',
-  'erp_collections', 'erp_promotions', 'erp_purchase_adjustments', 'erp_shipments', 'erp_supplier_payments',
+  'erp_promotions', 'erp_purchase_adjustments', 'erp_shipments',
   'expense_doc_chain', 'expense_document_lines', 'expense_findings', 'gl_poliza_lines', 'gl_polizas',
   'inventory_health', 'kepler_bank_movements', 'ledger_monthly', 'pos_cashiers', 'pos_ticket_sales',
   'product_demand', 'product_sales_daily', 'product_sales_monthly', 'purchase_in_transit', 'purchase_velocity',
