@@ -135,8 +135,9 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
        la pantalla de la app en vez de las etiquetas. Esta copia cuelga del <body>, nunca se
        ve en pantalla, y en @media print es lo ÚNICO que queda en pie. En el camino bueno
        (el iframe sí imprime) estas reglas ni se evalúan: el documento impreso es el otro.
-       Sin regla @page a propósito — estos estilos son globales (encapsulation None) y fijar el
-       tamaño de hoja acá le cambiaría la impresión al resto de la app. */
+       El tamaño de hoja NO se fija acá: estos estilos son globales (encapsulation None) y le
+       cambiarían el papel al resto de la app. Va en un <style> temporal que se inyecta al
+       imprimir y se quita al terminar (ver printIsolated). */
     .etqp-print-fallback{ display:none; }
     @media print{
       body.etqp-printing > *:not(.etqp-print-fallback){ display:none !important; }
@@ -566,9 +567,22 @@ export class TiendaEtiquetasComponent {
     document.body.appendChild(fallback);
     document.body.classList.add('etqp-printing');
 
+    // Si algo apagó la clase entre medio, el navegador nos avisa justo antes de imprimir.
+    const rearm = () => { if (document.body.contains(fallback)) document.body.classList.add('etqp-printing'); };
+    window.addEventListener('beforeprint', rearm);
+
     // Clona TODOS los estilos del documento (incluye los estilos del componente etiqueta + fuente Baloo).
     const styles = Array.from(document.querySelectorAll('head style, head link[rel="stylesheet"]'))
       .map((n) => n.outerHTML).join('\n');
+
+    // Papel del camino de respaldo. Va en un <style> temporal y no en los estilos del componente
+    // porque `@page` no se puede acotar por selector: dejarlo fijo le cambiaría el tamaño de hoja
+    // a cualquier otra impresión de la app después de visitar esta pantalla. Se agrega DESPUÉS de
+    // clonar los estilos para no duplicar el @page que el iframe ya declara por su cuenta.
+    const pageStyle = document.createElement('style');
+    pageStyle.id = 'etqp-print-page';
+    pageStyle.textContent = '@page { size: letter landscape; margin: 8mm; }';
+    document.head.appendChild(pageStyle);
 
     const iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
@@ -576,7 +590,12 @@ export class TiendaEtiquetasComponent {
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument;
     const win = iframe.contentWindow;
-    const dropFallback = () => { document.body.classList.remove('etqp-printing'); fallback.remove(); };
+    const dropFallback = () => {
+      window.removeEventListener('beforeprint', rearm);
+      document.body.classList.remove('etqp-printing');
+      fallback.remove();
+      pageStyle.remove();
+    };
     if (!doc || !win) { dropFallback(); iframe.remove(); this.finishPrint(); return; }
 
     doc.open();
