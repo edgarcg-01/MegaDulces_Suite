@@ -56,6 +56,13 @@ export class CajaGeneralController {
     return this.svc.keplerMovimientos(this.q(month, from, to));
   }
 
+  @Get('conciliacion-dia')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Drill "¿dónde está el descuadre?" de un día: match greedy por importe .mdb↔Manual y .mdb↔Kepler → huérfanos de cada lado (espejo de Bancos).' })
+  conciliacionDia(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.conciliacionDia(this.q(month, from, to));
+  }
+
   @Get('overview')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })

@@ -30,6 +30,9 @@ interface CajaWb {
   eps: number;
 }
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
+interface OrphanMov { id: string; fecha: string; importe: number; concepto: string | null; extra: string | null }
+interface ReconSide { caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number; caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number }
+interface ConcDia { period: { from: string; to: string }; vs_manual: { ingresos: ReconSide; gastos: ReconSide }; vs_kepler: { ingresos: ReconSide; gastos: ReconSide } }
 interface CajaGeneral {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
@@ -276,64 +279,51 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </ng-template>
             <ng-template #expandedrow let-r>
               <tr class="cg-detail-row"><td colspan="11">
-                @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Cargando movimientos del día…</div> }
-                @else {
-                  <div class="cg-wbcmp">
-                    <div class="cg-wbside">
-                      <div class="cg-wbside-t">.mdb (operativo) · <span class="muted">{{ (wbDayMdb()[key(r)] || []).length }} movs</span></div>
-                      <div class="cg-daywrap">
-                        <table class="cg-daytbl">
-                          <thead><tr><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
-                          <tbody>
-                            @for (m of wbDayMdb()[key(r)] || []; track m.uid) {
-                              <tr><td class="cg-emp" [title]="m.cuenta_nombre">{{ m.cuenta_nombre || '—' }} <span class="muted">#{{ m.cuenta }}</span></td>
-                                  <td class="cg-emp" [title]="m.nombre_cliente">{{ m.nombre_cliente || '—' }}@if (m.concepto) { <span class="muted"> · {{ m.concepto }}</span> }</td>
-                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
-                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
-                            }
-                            @if (wbDayErr()[key(r)]?.mdb; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
-                            @else if (!(wbDayMdb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin movimientos.</td></tr> }
-                          </tbody>
-                        </table>
-                      </div>
+                @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Casando movimientos del día…</div> }
+                @else if (wbDayErr()[key(r)]?.dia; as e) { <div class="cg-dayerr" style="padding:.5rem"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
+                @else if (wbDayDia()[key(r)]; as cd) {
+                  <p class="cg-drill-lead">Enfrentamos cada movimiento del <b>.mdb (caja real)</b> contra cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b> — a la izquierda lo que la caja movió y la fuente no tiene, a la derecha lo que la fuente tiene y la caja no movió.</p>
+                  @for (p of pairings(cd); track p.key) {
+                    <div class="cg-pair">
+                      <div class="cg-pair-t">vs {{ p.title }}</div>
+                      @for (s of p.sides; track s.key) {
+                        <div class="cg-side">
+                          <div class="cg-side-h">
+                            <span class="cg-side-name">{{ s.name }}</span>
+                            @if (abs(s.data.delta) <= 1) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
+                            @else { <p-tag [value]="'Δ ' + money(s.data.delta)" severity="warn" styleClass="cg-tag" /> }
+                            <span class="muted cg-side-sub">.mdb {{ money(s.data.caja_total) }} · {{ p.short }} {{ money(s.data.other_total) }} · {{ s.data.matched_count }} casados</span>
+                          </div>
+                          @if (!s.data.caja_only.length && !s.data.other_only.length) {
+                            <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
+                          } @else {
+                            <div class="cg-drill-cols">
+                              <div class="cg-drill-col">
+                                <div class="cg-drill-colh cg-col-caja">En la caja, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</div>
+                                @if (s.data.caja_only.length) {
+                                  <table class="cg-daytbl"><tbody>
+                                    @for (m of s.data.caja_only; track m.id) {
+                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="cg-emp" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                    }
+                                  </tbody></table>
+                                } @else { <p class="cg-drill-none muted">— nada —</p> }
+                              </div>
+                              <div class="cg-drill-col">
+                                <div class="cg-drill-colh cg-col-other">En {{ p.short }}, sin caja ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</div>
+                                @if (s.data.other_only.length) {
+                                  <table class="cg-daytbl"><tbody>
+                                    @for (m of s.data.other_only; track m.id) {
+                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="cg-emp" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                    }
+                                  </tbody></table>
+                                } @else { <p class="cg-drill-none muted">— nada —</p> }
+                              </div>
+                            </div>
+                          }
+                        </div>
+                      }
                     </div>
-                    <div class="cg-wbside">
-                      <div class="cg-wbside-t">Manual (workbook) · <span class="muted">{{ (wbDayWb()[key(r)] || []).length }} movs</span></div>
-                      <div class="cg-daywrap">
-                        <table class="cg-daytbl">
-                          <thead><tr><th>Suc / Código</th><th>Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
-                          <tbody>
-                            @for (m of wbDayWb()[key(r)] || []; track m.id) {
-                              <tr><td class="cg-mono muted">{{ m.sucursal || '—' }}@if (m.codigo) { <span class="muted"> ·{{ m.codigo }}</span> }</td>
-                                  <td class="cg-emp" [title]="m.concepto">{{ m.concepto || '—' }}</td>
-                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
-                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
-                            }
-                            @if (wbDayErr()[key(r)]?.wb; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
-                            @else if (!(wbDayWb()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin copia manual este día.</td></tr> }
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    <div class="cg-wbside">
-                      <div class="cg-wbside-t">Kepler (ERP) · <span class="muted">{{ (wbDayKep()[key(r)] || []).length }} movs</span></div>
-                      <div class="cg-daywrap">
-                        <table class="cg-daytbl">
-                          <thead><tr><th>Doc / Benef.</th><th>Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></thead>
-                          <tbody>
-                            @for (m of wbDayKep()[key(r)] || []; track m.id) {
-                              <tr><td class="cg-mono muted">{{ m.sucursal || '—' }}@if (m.codigo) { <span class="muted"> ·{{ m.codigo }}</span> }</td>
-                                  <td class="cg-emp" [title]="m.concepto">{{ m.concepto || '—' }}</td>
-                                  <td class="ta-r num cg-eg">{{ m.gasto ? money(m.gasto) : '—' }}</td>
-                                  <td class="ta-r num cg-in">{{ m.ingreso ? money(m.ingreso) : '—' }}</td></tr>
-                            }
-                            @if (wbDayErr()[key(r)]?.kep; as e) { <tr><td colspan="4" class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</td></tr> }
-                            @else if (!(wbDayKep()[key(r)] || []).length) { <tr><td colspan="4" class="muted" style="padding:.4rem">Sin registro Kepler este día.</td></tr> }
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                  }
                 }
               </td></tr>
             </ng-template>
@@ -610,6 +600,21 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .cg-kep { color:var(--text-faint); font-style:italic; }
+    .cg-drill-lead { font-size:.78rem; color:var(--text-main); line-height:1.5; margin:.2rem 0 .7rem; }
+    .cg-pair { margin-bottom:.9rem; }
+    .cg-pair-t { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border-color); padding-bottom:.2rem; margin-bottom:.4rem; }
+    .cg-side { margin-bottom:.6rem; }
+    .cg-side-h { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin-bottom:.25rem; }
+    .cg-side-name { font-size:.8rem; font-weight:700; color:var(--text-main); }
+    .cg-side-sub { font-size:.68rem; }
+    .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
+    .cg-drill-cols { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+    @media (max-width:720px) { .cg-drill-cols { grid-template-columns:1fr; } }
+    .cg-drill-col { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); overflow:hidden; }
+    .cg-drill-colh { font-size:.68rem; font-weight:700; padding:.3rem .5rem; border-bottom:1px solid var(--border-color); }
+    .cg-col-caja { background:color-mix(in srgb, var(--action) 10%, transparent); color:var(--text-main); }
+    .cg-col-other { background:color-mix(in srgb, var(--text-faint) 10%, transparent); color:var(--text-main); }
+    .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .strong { font-weight:700; } .muted { color:var(--text-faint); } .warn { color:var(--warn-fg); font-weight:700; }
     .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -657,9 +662,7 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cq = signal<CajaCuadre | null>(null);
   readonly wbc = signal<CajaWb | null>(null);
   readonly wbExp = signal<Record<string, boolean>>({});
-  readonly wbDayMdb = signal<Record<string, CajaGeneral['movimientos']>>({});
-  readonly wbDayWb = signal<Record<string, WbMov[]>>({});
-  readonly wbDayKep = signal<Record<string, WbMov[]>>({});
+  readonly wbDayDia = signal<Record<string, ConcDia>>({});
   readonly wbDayLoad = signal<Record<string, boolean>>({});
   /**
    * Error del desglose de un día, por lado.
@@ -669,7 +672,7 @@ export class FinanzasCajaComponent implements OnInit {
    * `workbook-movimientos` recién agregado, un API atrasado respecto de HEAD
    * devuelve 404 y el desglose quedaba mudo, sin forma de saber por qué.
    */
-  readonly wbDayErr = signal<Record<string, { mdb?: string; wb?: string; kep?: string }>>({});
+  readonly wbDayErr = signal<Record<string, { dia?: string }>>({});
   readonly cqExp = signal<Record<string, boolean>>({});
   readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
   readonly cqDayLoad = signal<Record<string, boolean>>({});
@@ -703,7 +706,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayMdb.set({}); this.wbDayWb.set({}); this.wbDayKep.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayDia.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -796,29 +799,28 @@ export class FinanzasCajaComponent implements OnInit {
   }
   cqIsExp(r: { fecha: string }): boolean { return !!this.cqExp()[r.fecha]; }
   wbIsExp(r: { fecha: string }): boolean { return !!this.wbExp()[r.fecha]; }
-  /** Desglose de un día en Vs Workbook: trae los movimientos del .mdb Y del manual (workbook). */
+  /** Espejo del drill de Bancos: casa .mdb ↔ Manual y .mdb ↔ Kepler → huérfanos por día. */
+  pairings(cd: ConcDia): { key: string; title: string; short: string; sides: { key: string; name: string; data: ReconSide }[] }[] {
+    return [
+      { key: 'manual', title: 'Manual (workbook)', short: 'manual', sides: [
+        { key: 'ing', name: 'Ingresos', data: cd.vs_manual.ingresos },
+        { key: 'gas', name: 'Gastos', data: cd.vs_manual.gastos } ] },
+      { key: 'kepler', title: 'Kepler (ERP)', short: 'Kepler', sides: [
+        { key: 'ing', name: 'Ingresos', data: cd.vs_kepler.ingresos },
+        { key: 'gas', name: 'Gastos', data: cd.vs_kepler.gastos } ] },
+    ];
+  }
+  /** Desglose de un día: corre el match server-side (.mdb↔Manual y .mdb↔Kepler). */
   toggleWbDay(r: { fecha: string }): void {
     const rk = r.fecha; const e = { ...this.wbExp() };
     if (e[rk]) { delete e[rk]; this.wbExp.set(e); return; }
     e[rk] = true; this.wbExp.set(e);
     const dk = this.key(r);
-    if ((dk in this.wbDayWb()) || this.wbDayLoad()[dk]) return;
+    if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
-    let pending = 3;
-    const done = () => { if (--pending === 0) this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); };
-    const setErr = (lado: 'mdb' | 'wb' | 'kep', msg: string) =>
-      this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { ...(this.wbDayErr()[dk] || {}), [lado]: msg } });
-    this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: d.movimientos }); done(); },
-      error: (e) => { this.wbDayMdb.set({ ...this.wbDayMdb(), [dk]: [] }); setErr('mdb', this.httpMsg(e, '/caja/general')); done(); },
-    });
-    this.http.get<{ movimientos: WbMov[] }>(`${this.base}/workbook-movimientos?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: d.movimientos }); done(); },
-      error: (e) => { this.wbDayWb.set({ ...this.wbDayWb(), [dk]: [] }); setErr('wb', this.httpMsg(e, '/caja/workbook-movimientos')); done(); },
-    });
-    this.http.get<{ movimientos: WbMov[] }>(`${this.base}/kepler-movimientos?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.wbDayKep.set({ ...this.wbDayKep(), [dk]: d.movimientos }); done(); },
-      error: (e) => { this.wbDayKep.set({ ...this.wbDayKep(), [dk]: [] }); setErr('kep', this.httpMsg(e, '/caja/kepler-movimientos')); done(); },
+    this.http.get<ConcDia>(`${this.base}/conciliacion-dia?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.wbDayDia.set({ ...this.wbDayDia(), [dk]: d }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
+      error: (err) => { this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { dia: this.httpMsg(err, '/caja/conciliacion-dia') } }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
     });
   }
   toggleCqDay(r: { fecha: string }): void {
