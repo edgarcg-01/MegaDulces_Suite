@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 /** Datos del usuario del request usados para acotar por departamento (área). */
@@ -97,6 +97,20 @@ export class ExpenseComprobacionesService {
   }
 
   /**
+   * Enforce del scoping de áreas en ESCRITURA (comprobar/validar/rechazar). El scoping
+   * de solo-lectura no basta: un usuario acotado no debe poder actuar sobre un gasto de
+   * un área ajena aunque conozca el folio. Admin / FINANCE_EXPENSES_VER_ALL pasan.
+   */
+  private async assertAreaAllowed(trx: any, user: ScopeUser | undefined, areaText: string | null): Promise<void> {
+    const keys = await this.allowedAreaKeys(trx, user);
+    if (keys === null) return; // ve/gestiona todas las áreas
+    const norm = String(areaText ?? '').trim().toUpperCase();
+    if (!keys.length || !norm || !keys.includes(norm)) {
+      throw new ForbiddenException('No tienes acceso a los gastos de esta área.');
+    }
+  }
+
+  /**
    * Catálogo canónico de áreas de gasto (dimensión `finance.expense_areas`) para el
    * selector de "áreas visibles" en la administración de usuarios. SOLO LECTURA: la dim
    * se siembra en la migración y se completa al crear comprobaciones (create()) — no se
@@ -104,6 +118,18 @@ export class ExpenseComprobacionesService {
    */
   async listAreas() {
     const tenantId = this.tenantCtx.requireTenantId();
+    // Auto-descubre áreas nuevas de los gastos (XA1001). Best-effort en su PROPIA trx
+    // aislada (new-DB, app_runtime) → si falla, no rompe el catálogo. NO es el
+    // write-en-la-trx-legacy que causaba 25P02 (esa es otra conexión).
+    try {
+      await this.tk.run(async (trx) => trx.raw(
+        `INSERT INTO finance.expense_areas (tenant_id, name)
+         SELECT DISTINCT tenant_id, btrim(area) FROM analytics.expense_documents
+          WHERE tenant_id = ? AND doc_tipo='XA1001' AND area IS NOT NULL AND btrim(area) <> ''
+         ON CONFLICT (tenant_id, norm_key) DO NOTHING`, [tenantId]));
+    } catch (e: any) {
+      this.logger.warn(`refresh de áreas de gasto falló (best-effort): ${e?.message || e}`);
+    }
     return this.tk.run(async (trx) =>
       trx('finance.expense_areas')
         .where({ tenant_id: tenantId, active: true })
@@ -222,7 +248,7 @@ export class ExpenseComprobacionesService {
    * solicitud) se derivan del espejo `analytics.expense_documents` — la captura solo
    * aporta la FOTO del comprobante (+ comentarios). La foto se valida por vision.
    */
-  async create(dto: CreateComprobacionDto, actor?: string) {
+  async create(dto: CreateComprobacionDto, actor?: string, user?: ScopeUser) {
     const tenantId = this.tenantCtx.requireTenantId();
     const req = (v?: string) => (v || '').trim();
     const folioGasto = req(dto.folio_gasto);
@@ -240,6 +266,8 @@ export class ExpenseComprobacionesService {
         .modify((q: any) => { const s = req(dto.sucursal); if (s) q.andWhere('sucursal', s); })
         .first('sucursal', 'beneficiario', trx.raw('importe::numeric AS importe'), 'area', 'usuario', 'solicitud_folio');
       if (!gasto) throw new BadRequestException(`gasto ${folioGasto} no encontrado en Kepler`);
+      // Scoping en escritura: un usuario acotado solo comprueba gastos de sus áreas.
+      await this.assertAreaAllowed(trx, user, gasto.area);
 
       const proveedor = gasto.beneficiario || req(dto.proveedor) || '—';
       const importe = Number(gasto.importe) || 0;
@@ -440,9 +468,12 @@ export class ExpenseComprobacionesService {
   }
 
   /** El contador valida la comprobación. */
-  async validate(id: string, actor?: string) {
+  async validate(id: string, actor?: string, user?: ScopeUser) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento');
+      if (!cur) throw new BadRequestException('comprobación no encontrada');
+      await this.assertAreaAllowed(trx, user, cur.departamento); // no validar áreas ajenas
       const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision'])
         .update({ status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now() })
         .returning(['id', 'status']);
@@ -452,9 +483,12 @@ export class ExpenseComprobacionesService {
   }
 
   /** Rechaza (con motivo). */
-  async reject(id: string, actor?: string, motivo?: string) {
+  async reject(id: string, actor?: string, motivo?: string, user?: ScopeUser) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento');
+      if (!cur) throw new BadRequestException('comprobación no encontrada');
+      await this.assertAreaAllowed(trx, user, cur.departamento); // no rechazar áreas ajenas
       const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'validada', 'revision'])
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);
