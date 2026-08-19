@@ -61,11 +61,12 @@ const STEPS = {
     path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
     path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 refresca el fact tras cambiar existencia
   ],
-  // RECEIPTS (cada 1-2 min): detecta órdenes de entrada XA2001 nuevas en las sucursales Kepler
-  // y las empuja a Railway por feeds-ingest (ingress gratis). Ventana rodante vía RECEIPTS_DAYS.
-  receipts: [
-    path.join(K, 'import-goods-receipts.js'),
-  ],
+  // RECEIPTS — RETIRADO 2026-08-19: `analytics.erp_goods_receipts` es ahora una VISTA derive-no-copy
+  // sobre `kepler_ods.kdm1` (XA2001) + Wincaja `movimiento_proveedores` (mig 20260819120000). Las
+  // recepciones se derivan EN VIVO del ODS replicado → sin importer (que se atoraba) ni copia que se
+  // atrasa. Se deja vacío para que la tarea agendada sea no-op (correr el importer pegaría contra la
+  // vista → error). El importer/handler quedan como fallback histórico (usar solo si se revierte).
+  receipts: [],
   // INTRADAY (cada ~30-60 min): feeds TRANSACCIONALES que cambian a diario y ANTES estaban
   // huérfanos (no en ningún modo → se quedaban viejos). UPSERT churn-free; ventanas rodantes
   // donde aplica (PAYMENTS_DAYS/…). Los agenda \Kepler\Intraday + los vigila el FeedGuardian.
