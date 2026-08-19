@@ -103,20 +103,20 @@ export class ExpenseComprobacionesController {
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Alta de la comprobación (archivos ya subidos). Resuelve la solicitud del gasto.' })
   create(@Body() body: CreateComprobacionDto, @Req() req: AuthedRequest) {
-    return this.svc.create(body, req?.user?.full_name || req?.user?.username);
+    return this.svc.create(body, req?.user?.full_name || req?.user?.username, scope(req));
   }
 
   @Post(':id/validate')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Valida la comprobación. Auditado.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
+    return this.svc.validate(id, req?.user?.full_name || req?.user?.username, scope(req));
   }
 
   @Post(':id/reject')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Rechaza la comprobación (con motivo). Auditado.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
-    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
+    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, scope(req));
   }
 }
