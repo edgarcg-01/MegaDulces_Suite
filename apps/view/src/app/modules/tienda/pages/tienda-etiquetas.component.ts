@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -45,6 +45,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-title{ margin:0; margin-right:auto; }
     .etqp-title h1{ margin:0; font-size:1.125rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; }
     .etqp-title p{ margin:.1rem 0 0; font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
+    /* Marca de diagnóstico: discreta cuando todo está bien, imposible de ignorar cuando no. */
+    .etqp-diag.ok{ color: var(--ok-fg); }
+    .etqp-diag.bad{ color: var(--bad-soft-fg); background: var(--bad-soft-bg); font-weight:700;
+      padding:1px .4rem; border-radius: var(--r-sm); }
     .etqp-head .p-multiselect{ min-width: 15rem; }
 
     /* ── Mensaje / banner ──────────────────────────────────── */
@@ -157,7 +161,17 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       <div class="etqp-head">
         <div class="etqp-title">
           <h1>Etiquetas de anaquel</h1>
-          <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm</p>
+          <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm
+            <!-- Diagnóstico visible: dice si ESTE equipo tiene cargada la protección de
+                 impresión. Sin esto, "no imprime bien" y "está corriendo el bundle viejo"
+                 se ven idénticos, y el service worker puede dejar una tablet meses atrás.
+                 Se resuelve mirando la pantalla, sin consola. -->
+            @if (printGuard() === 'ok') {
+              <span class="etqp-diag ok" title="Este equipo tiene cargada la protección de impresión aislada.">· impresión aislada ✓</span>
+            } @else {
+              <span class="etqp-diag bad" title="Este equipo está corriendo una versión vieja de la app: al imprimir va a salir toda la pantalla. Cerrá el navegador por completo y volvé a abrir.">· versión vieja — al imprimir sale toda la pantalla ✗</span>
+            }
+          </p>
         </div>
         <p-multiselect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
           optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
@@ -307,12 +321,35 @@ export class TiendaEtiquetasComponent {
   printLabels = signal<SheetLabel[]>([]);
   printing = signal(false);
 
+  /**
+   * ¿El CSS que aísla la impresión está vivo en el bundle que corre ESTE equipo?
+   *
+   * No es paranoia: la app tiene service worker con prefetch, y una tablet que no cambia de
+   * ruta puede quedarse meses en una versión vieja. Sin esta marca, "imprime toda la pantalla"
+   * y "está corriendo código de hace tres deploys" se ven exactamente igual, y no hay consola
+   * a mano en el piso de tienda para distinguirlos.
+   */
+  readonly printGuard = signal<'ok' | 'missing'>('missing');
+
+  private checkPrintGuard(): void {
+    let found = false;
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        // Una hoja de otro origen tira SecurityError al leer cssRules: se salta.
+        if (Array.from(sheet.cssRules).some((r) => r.cssText.includes('etqp-printing'))) { found = true; break; }
+      } catch { /* hoja no legible */ }
+    }
+    this.printGuard.set(found ? 'ok' : 'missing');
+  }
+
   constructor() {
     // Mensaje en error de la búsqueda (equivale al catchError viejo).
     effect(() => {
       const err = this.acRes.error();
       if (err) this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' });
     });
+    // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
+    afterNextRender(() => this.checkPrintGuard());
   }
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
