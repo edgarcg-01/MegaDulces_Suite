@@ -49,6 +49,13 @@ export class CajaGeneralController {
     return this.svc.workbookMovimientos(this.q(month, from, to));
   }
 
+  @Get('kepler-movimientos')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Movimientos del lado KEPLER (tesorería CAJA GENERAL, account_label=CG) para el desglose por día del Vs Workbook.' })
+  keplerMovimientos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.keplerMovimientos(this.q(month, from, to));
+  }
+
   @Get('overview')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })
