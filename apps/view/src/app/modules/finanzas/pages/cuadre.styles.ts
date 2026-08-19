@@ -1,110 +1,104 @@
 /**
- * Vocabulario visual del CUADRE de Finanzas — fuente única para `/finanzas/caja` y para la
- * pestaña Cuadre de `/finanzas/bancos`.
+ * Vocabulario visual del CUADRE de Finanzas — fuente única para la pestaña Cuadre de
+ * `/finanzas/bancos` y la vista Cuadre de `/finanzas/caja`.
  *
  * Las dos pantallas responden la misma pregunta con la misma forma: enfrentar N fuentes que
- * deberían decir lo mismo, declarar si cuadran, y dejar abrir el renglón que no cuadra para
- * ver, lado a lado, qué tiene una fuente que la otra no. Mientras cada una tenía su propia
- * copia de las reglas, el mismo concepto se veía distinto en cada lado (una con iconos
- * pelados y la otra con `p-tag`, una con drill en diálogo y la otra inline, dos escalas
- * tipográficas). Esto lo vuelve un solo sistema.
+ * deberían decir lo mismo, declarar si cuadran, y dejar abrir el renglón que no cuadra. El
+ * diseño de referencia es el de **Bancos** (veredicto arriba, cards `card-premium card-flat`,
+ * control-total en `table.tw-tbl`, tags, drill); Caja lo adopta.
  *
  * Uso:  styles: [CUADRE_STYLES, `…lo propio de esta vista…`]
  *
- * Regla: una clase que necesiten las dos pantallas va acá — no se copia. El prefijo `cg-`
- * se conserva (nació en caja) para no reescribir la pantalla que ya lo usaba.
+ * Solo lleva selectores con prefijo (`tw-`, `fb-`, `*-tag`). NADA de clases genéricas
+ * (`.muted`, `.num`, `.strong`, `.ta-r`): cada pantalla ya define las suyas y redefinirlas
+ * acá las pisaría en silencio — en Caja `.muted` es `--text-faint` y en Bancos `--text-muted`.
+ *
+ * Regla: una clase que necesiten las dos vistas va acá — no se copia.
  * Tokens en libs/design-tokens/tokens.css. Cero hex crudo.
  */
 export const CUADRE_STYLES = `
-  :host { display:block; }
+  /* ── Veredicto: la conclusión, arriba de todo ──────────────────────────────
+     Borde izquierdo de 3px como portador de estado además del icono. Elevación =
+     borde, nunca sombra (regla del design system para superficies in-page). */
+  .tw-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4);
+    border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; margin-bottom: var(--sp-3); }
+  .tw-verdict.ok { border-left-color: var(--ok-fg); }
+  /* Un "no cuadra" es atención, no error: warn y no bad. */
+  .tw-verdict.bad { border-left-color: var(--warn-fg); }
+  .tw-verdict > i { font-size: 1.5rem; }
+  .tw-verdict.ok > i { color: var(--ok-fg); }
+  .tw-verdict.bad > i { color: var(--warn-fg); }
+  .tw-verdict h3 { font-size: var(--fs-h3); font-weight: 700; margin: 0; color: var(--text-main); }
+  .tw-verdict p { font-size: var(--fs-xs); margin: 2px 0 0; line-height: 1.4; }
 
-  /* ── Tipografía de dato ─────────────────────────────────────────────────
-     tabular-nums obligatorio: sin esto las columnas de cifras no se leen como columnas. */
-  .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
-  .strong { font-weight:700; }
-  .muted { color:var(--text-faint); }
-  .warn { color:var(--warn-fg); font-weight:700; }
-  .ta-r { text-align:right; } .ta-c { text-align:center; }
-  /* Calificador de una columna ("(caja)", "(manual)", "(ERP)"): baja de peso, no de sitio. */
-  .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
-  /* Fuente informativa — su diferencia no es descuadre accionable. */
-  .cg-kep { color:var(--text-faint); font-style:italic; }
-  .cg-eg { color:var(--warn-fg); } .cg-in { color:var(--ok-fg); }
-  .cg-ok-i { color:var(--ok-fg); }
-  .cg-bad-i { color:var(--bad-fg); }
-  .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* ── Cabeceras y notas de las cards ─────────────────────────────────────
+     Mismas reglas que los .fb-* de BANCOS_STYLES, con prefijo propio: ahí las usan los otros
+     10 componentes del tablero de bancos, y copiarlas para Caja abriría drift. Acá viven una
+     sola vez y las consumen las dos vistas de cuadre. */
+  .tw-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
+  /* Título de una card cuya tabla va pegada al borde: el padding lo pone el título. */
+  .tw-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
+  .tw-tablewrap { padding: 0; overflow: hidden; }
+  /* Lectura en llano al pie de un bloque (DESIGN §Q.2). */
+  .tw-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
+  .tw-strong { font-weight: 600; color: var(--text-main); }
+  /* Dirección del dinero: entra / sale. */
+  .tw-in-ico { color: var(--ok-fg); font-size: var(--fs-xs); margin-right: 4px; }
+  .tw-out-ico { color: var(--text-faint); font-size: var(--fs-xs); margin-right: 4px; }
 
   /* ── Control-total: las N fuentes enfrentadas, 2 renglones (entra / sale) ──
-     Tabla cruda y no p-table a propósito: lleva encabezados agrupados y es de 2 filas. */
-  .cg-kve-wrap { overflow-x:auto; margin-bottom:.6rem; }
-  table.cg-kve { width:100%; border-collapse:collapse; font-size:.82rem; }
-  table.cg-kve th, table.cg-kve td { padding:.35rem .6rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
-  table.cg-kve thead th { font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
-  table.cg-kve tbody th[scope=row] { text-align:left; font-weight:600; color:var(--text-main); }
-  table.cg-kve tbody tr:last-child td, table.cg-kve tbody tr:last-child th { border-bottom:none; }
+     Tabla cruda y no p-table a propósito: lleva encabezados agrupados con colspan/rowspan
+     que p-table no arma, y son dos filas. */
+  .tw-card { margin-bottom: var(--sp-3); }
+  .tw-wrap { overflow-x: auto; }
+  table.tw-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  table.tw-tbl th, table.tw-tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+  table.tw-tbl thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
+  table.tw-tbl thead th i { margin-right: 4px; }
+  table.tw-tbl tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); }
+  table.tw-tbl tbody tr:last-child td, table.tw-tbl tbody tr:last-child th { border-bottom: none; }
 
-  /* ── Veredicto: una línea, DESPUÉS de la tabla y su nota ──
-     Va después a propósito: primero se ve el dinero, después la lectura. Borde izquierdo de
-     3px como único portador de estado además del icono (elevación = borde, nunca sombra). */
-  .cg-verdict { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; margin:.4rem 0 .2rem;
-    border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md);
-    background:var(--card-bg); font-size:.85rem; }
-  .cg-verdict.ok { border-left-color:var(--ok-fg); } .cg-verdict.ok .pi { color:var(--ok-fg); }
-  .cg-verdict.warn { border-left-color:var(--warn-fg); } .cg-verdict.warn .pi { color:var(--warn-fg); }
+  /* Cabecera agrupada (Depósitos/Retiros, Ingreso/Gasto) + resalte de la columna del ERP. */
+  .tw-grp { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; border-bottom: 1px solid var(--border-color); }
+  .tw-grp i { margin-right: 4px; }
+  :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2) 6%, transparent); }
 
-  /* Aviso de contexto (falta una fuente, hay captura pendiente): mismo cuerpo que el veredicto. */
-  .cg-legacy-note { display:flex; align-items:center; gap:.55rem; padding:.55rem .8rem; margin:.1rem 0 .7rem;
-    border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md);
-    background:var(--card-bg); font-size:.78rem; color:var(--text-muted); line-height:1.45; }
-  .cg-legacy-note .pi { color:var(--warn-fg); }
-  .cg-legacy-note b { color:var(--text-main); }
+  /* ── Tags de estado ─────────────────────────────────────────────────────── */
+  .tw-tag { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
+  .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
+  .warn-tag { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-fg); }
+  .ok-tag { background: color-mix(in srgb, var(--ok-fg) 16%, transparent); color: var(--ok-fg); }
 
-  /* Nota al pie: qué es cada fuente y qué significa el Δ (DESIGN §Q.2). */
-  .cg-note { margin-top:.6rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
+  /* ── Fila que abre detalle: el icono de lupa aparece al pasar el mouse ──── */
+  .tw-clickable { cursor: pointer; }
+  .tw-clickable:hover { background: var(--hover-bg); }
+  .tw-drill-ico { font-size: .7rem; color: var(--text-faint); margin-left: 4px; opacity: 0; transition: opacity 120ms ease; }
+  .tw-clickable:hover .tw-drill-ico { opacity: 1; }
+  .tw-faint { color: var(--text-faint); font-size: .7rem; }
+  .nowrap { white-space: nowrap; }
+  /* Concepto largo: se trunca con title, nunca rompe la densidad de la fila. */
+  .tw-concept { color: var(--text-muted); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* ── Fila expandible: el drill vive DENTRO de la tabla, no en un diálogo ──
-     Así no se pierde el renglón de contexto ni hace falta volver a buscarlo al cerrar. */
-  .cg-w-x { width:2.2rem; }
-  .cg-w-d { width:3.5rem; } .cg-w-date { width:6rem; } .cg-w-e { width:6rem; }
-  .cg-row-click { cursor:pointer; }
-  .cg-row-click:hover { background:var(--hover-bg); }
-  .cg-row-open { background:color-mix(in srgb, var(--action) 5%, transparent); }
-  .cg-chev { font-size:.7rem; color:var(--text-faint); }
-  .cg-detail-row > td { background:var(--surface-ground, var(--card-bg)); padding:.6rem .9rem !important; }
+  /* ── Detalle (diálogo o fila expandida) ─────────────────────────────────── */
+  .dlg-lead { font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; margin: 0 0 var(--sp-3); }
+  .tw-drill-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: var(--sp-3); }
+  .tw-drill-kpis b { color: var(--text-main); }
+  .tw-drill-tbl th, .tw-drill-tbl td { padding: var(--sp-1) var(--sp-3); }
+  .tw-empty { padding: var(--sp-4); }
 
-  /* ── Detalle del descuadre: qué tiene una fuente que la otra no ──
-     Dos columnas enfrentadas por par de fuentes. El encabezado de cada columna lleva conteo
-     Y monto: sin el monto, "18 movimientos" no dice si el problema es grande o chico. */
-  .cg-drill-lead { font-size:.78rem; color:var(--text-main); line-height:1.5; margin:.2rem 0 .7rem; }
-  .cg-pair { margin-bottom:.9rem; }
-  .cg-pair-t { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:var(--text-muted);
-    border-bottom:1px solid var(--border-color); padding-bottom:.2rem; margin-bottom:.4rem; }
-  .cg-side { margin-bottom:.6rem; }
-  .cg-side-h { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin-bottom:.25rem; }
-  .cg-side-name { font-size:.8rem; font-weight:700; color:var(--text-main); }
-  .cg-side-sub { font-size:.68rem; }
-  .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
-  .cg-drill-cols { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
-  @media (max-width:720px) { .cg-drill-cols { grid-template-columns:1fr; } }
-  .cg-drill-col { border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; }
-  .cg-drill-colh { font-size:.68rem; font-weight:700; padding:.3rem .5rem; border-bottom:1px solid var(--border-color); }
-  /* El lado de la fuente de referencia se tinta con la acción; el otro, neutro. */
-  .cg-col-caja { background:color-mix(in srgb, var(--action) 10%, transparent); color:var(--text-main); }
-  .cg-col-other { background:color-mix(in srgb, var(--text-faint) 10%, transparent); color:var(--text-main); }
-  .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
-  .cg-daywrap { overflow-x:auto; }
-  .cg-daytbl { width:100%; border-collapse:collapse; font-size:.78rem; }
-  .cg-daytbl th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); padding:3px 8px; border-bottom:1px solid var(--border-color); }
-  .cg-daytbl td { padding:3px 8px; border-bottom:1px solid var(--border-color); }
+  /* Huérfanos: lo que una fuente registra y la otra no movió, enfrentados. */
+  .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
+  @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
+  .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+  .tw-orphan h4 { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); background: var(--surface-ground); }
+  .tw-orphan table td { padding: 3px var(--sp-3); border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); }
 
-  /* Un drill que falla lo DICE: antes el catch guardaba [] y un 404/403 se leía igual que
-     "no hubo nada". */
-  .cg-dayerr { display:flex; align-items:flex-start; gap:var(--sp-2); padding:var(--sp-2) var(--sp-3); font-size:var(--fs-xs); color:var(--warn-fg); }
-  .cg-dayerr i { margin-top:2px; flex:none; }
-
-  .cg-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2rem 1rem; text-align:center; color:var(--text-muted); }
-  .cg-empty .pi { font-size:1.6rem; color:var(--text-faint); }
-  .cg-skel { display:flex; flex-direction:column; gap:.4rem; margin-top:1rem; }
-
-  :host ::ng-deep .cg-tag { font-size:.64rem; }
+  /* ── Export: ghost, discreto — es una acción secundaria ─────────────────── */
+  .tw-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+    border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+    padding: 2px var(--sp-2); cursor: pointer; }
+  .tw-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+  .tw-xls:disabled { opacity: .6; cursor: default; }
+  .tw-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
 `;
