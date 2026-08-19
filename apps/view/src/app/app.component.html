@@ -2,3 +2,12 @@
 <p-confirmdialog></p-confirmdialog>
 <!-- Fuera del router: una excepción puede haber dejado la navegación inservible. -->
 <app-error-outlet />
+
+<!-- Versión nueva lista y el usuario lleva rato sin cambiar de ruta. Se OFRECE, no se
+     impone: recargar bajo las manos de alguien que está capturando es peor que esperar. -->
+@if (updateReady()) {
+  <button type="button" class="app-update" (click)="applyUpdate()">
+    <i class="pi pi-refresh" aria-hidden="true"></i>
+    <span>Hay una versión nueva · <b>Actualizar</b></span>
+  </button>
+}

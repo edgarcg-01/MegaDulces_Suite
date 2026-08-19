@@ -1,0 +1,26 @@
+/* Aviso de versión nueva. Flotante abajo a la derecha, por encima de todo menos de los
+   overlays de error (z 9990+), y respetando el safe-area del notch en tablet/PWA. */
+.app-update {
+  position: fixed;
+  right: max(var(--sp-4, 1rem), env(safe-area-inset-right));
+  bottom: max(var(--sp-4, 1rem), env(safe-area-inset-bottom));
+  z-index: 9980;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2, .5rem);
+  padding: var(--sp-2, .5rem) var(--sp-4, 1rem);
+  min-height: 44px;                 /* objetivo táctil: se toca desde una tablet */
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-pill, 999px);
+  background: var(--card-bg);
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--fs-sm, .85rem);
+  /* Overlay: sombra + borde (regla de elevación del design system). */
+  box-shadow: var(--shadow-float, 0 8px 24px rgb(0 0 0 / .18));
+  cursor: pointer;
+}
+.app-update:hover { background: var(--hover-bg); }
+.app-update:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.app-update i { color: var(--action); }
+.app-update b { font-weight: 700; color: var(--action); }

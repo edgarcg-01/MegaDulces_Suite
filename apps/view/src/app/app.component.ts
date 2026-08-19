@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
 import { SwUpdate, VersionReadyEvent, UnrecoverableStateEvent } from '@angular/service-worker';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -28,6 +28,24 @@ export class AppComponent implements OnInit {
 
   private updatePending = false;
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;
+  /**
+   * Cuánto se espera a que el usuario navegue solo antes de ofrecerle el botón.
+   * Una pantalla de trabajo (la etiquetera, el monitor de tienda) puede pasar el día entero
+   * sin cambiar de ruta: ahí la actualización nunca se aplicaba y el equipo se quedaba con
+   * la versión vieja aunque el deploy hubiera salido hace horas.
+   */
+  private static readonly UPDATE_NUDGE_MS = 60 * 1000;
+  /** Hay versión nueva lista y ya pasó el tiempo de gracia: se ofrece aplicarla. */
+  readonly updateReady = signal(false);
+
+  /** Aplica la versión nueva ahora. Es acción del usuario: nadie recarga bajo sus manos. */
+  applyUpdate(): void {
+    this.updateReady.set(false);
+    this.updatePending = false;
+    this.swUpdate.activateUpdate()
+      .then(() => document.location.reload())
+      .catch(() => { this.updatePending = true; this.updateReady.set(true); });
+  }
 
   ngOnInit() {
     this.setupPwaInstall();
@@ -60,6 +78,8 @@ export class AppComponent implements OnInit {
       )
       .subscribe(() => {
         this.updatePending = true;
+        // Si en un minuto no navegó (pantalla de trabajo fija), se lo ofrecemos visible.
+        setTimeout(() => { if (this.updatePending) this.updateReady.set(true); }, AppComponent.UPDATE_NUDGE_MS);
       });
 
     this.router.events
@@ -70,10 +90,11 @@ export class AppComponent implements OnInit {
       .subscribe(() => {
         if (!this.updatePending) return;
         this.updatePending = false;
+        this.updateReady.set(false);
         this.swUpdate
           .activateUpdate()
           .then(() => document.location.reload())
-          .catch(() => { this.updatePending = true; });
+          .catch(() => { this.updatePending = true; this.updateReady.set(true); });
       });
 
     // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
