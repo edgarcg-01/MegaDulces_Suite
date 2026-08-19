@@ -78,6 +78,10 @@ const STEPS = {
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
     path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
+    // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no
+    // viven en Kepler), así que el importer del .mdb es la fuente válida. Sube a INTRADAY (no solo
+    // nightly) para que refresque seguido junto al ritmo del libro. Requiere Z: (.245) montado.
+    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'),
     path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
     // RR — ventas por ruta AL DÍA. El reporte /comercial/ventas-por-ruta lee el rollup
     // analytics.sales_by_route_monthly; antes estos feeds SOLO estaban en nightly → el reporte
