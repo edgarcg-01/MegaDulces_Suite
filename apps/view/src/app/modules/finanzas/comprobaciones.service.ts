@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
-export type ProofStatus = 'recibida' | 'validada' | 'rechazada';
+export type ProofStatus = 'recibida' | 'validada' | 'rechazada' | 'revision';
 
 /** Roles de archivo del formulario (Google Form → plataforma). */
 export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
@@ -26,6 +26,9 @@ export interface ExpenseProof {
   files: ProofFile[];
   comentarios: string | null;
   status: ProofStatus;
+  monto_ocr?: number | null;      // total leído de la foto (Claude Vision)
+  monto_match?: boolean | null;   // cuadró vs el importe de la solicitud
+  revision_nota?: string | null;  // por qué quedó en revisión
   validated_by: string | null;
   validated_at: string | null;
   motivo_rechazo: string | null;
@@ -34,8 +37,19 @@ export interface ExpenseProof {
 }
 
 export interface ExpenseProofsReport {
-  kpis: { total: number; recibidas: number; validadas: number; rechazadas: number };
+  kpis: { total: number; recibidas: number; validadas: number; rechazadas: number; en_revision?: number };
   rows: ExpenseProof[];
+}
+
+/** Resultado del preview de validación por vision del comprobante. */
+export interface ProofPhotoOcr {
+  ocr_status: 'ok' | 'ilegible' | 'sin_key';
+  importe_esperado: number;
+  monto_ocr: number | null;
+  monto_match: boolean;
+  diff: number | null;
+  total: number | null;
+  subtotal: number | null;
 }
 
 export interface CreateExpenseProof {
@@ -49,6 +63,9 @@ export interface CreateExpenseProof {
   importe?: number;
   comentarios?: string;
   files?: ProofFile[];
+  monto_ocr?: number | null;
+  subtotal_ocr?: number | null;
+  receipt_legible?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -61,9 +78,13 @@ export class ComprobacionesService {
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<ExpenseProofsReport>(this.base, { params });
   }
-  /** Sube UN archivo (base64 data URI) y devuelve su referencia Cloudinary. */
+  /** Sube UN archivo (base64 data URI) y devuelve su referencia (bucket privado). */
   uploadFile(file_base64: string, role: ProofFileRole): Observable<ProofFile> {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });
+  }
+  /** Preview: valida la foto del comprobante con Claude Vision contra el importe de la solicitud. */
+  validatePhoto(file_base64: string, importe: number): Observable<ProofPhotoOcr> {
+    return this.http.post<ProofPhotoOcr>(`${this.base}/validate-photo`, { file_base64, importe });
   }
   create(body: CreateExpenseProof): Observable<{ id: string; folio_solicitud: string; status: string }> {
     return this.http.post<{ id: string; folio_solicitud: string; status: string }>(this.base, body);

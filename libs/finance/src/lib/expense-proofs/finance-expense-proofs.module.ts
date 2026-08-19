@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-core';
 import { ExpenseProofsService } from './expense-proofs.service';
 import { ExpenseProofsController } from './expense-proofs.controller';
 
@@ -8,7 +8,7 @@ import { ExpenseProofsController } from './expense-proofs.controller';
  * reemplaza el Google Form). Sube a Cloudinary + guarda en `finance.expense_proofs`.
  */
 @Module({
-  imports: [CloudinaryModule],
+  imports: [CloudinaryModule, AiProductMatcherModule],
   controllers: [ExpenseProofsController],
   providers: [ExpenseProofsService],
   exports: [ExpenseProofsService],

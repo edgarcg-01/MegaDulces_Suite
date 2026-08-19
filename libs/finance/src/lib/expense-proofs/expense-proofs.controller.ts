@@ -48,9 +48,16 @@ export class ExpenseProofsController {
 
   @Post('upload')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) a Cloudinary y devuelve su referencia.' })
+  @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) al bucket y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || '');
+  }
+
+  @Post('validate-photo')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Valida la FOTO del comprobante con Claude Vision contra el importe de la solicitud. Preview (cuadra/en revisión).' })
+  validatePhoto(@Body() body: { file_base64?: string; importe?: number }) {
+    return this.svc.validatePhoto(body?.file_base64 || '', Number(body?.importe) || 0);
   }
 
   @Post()
