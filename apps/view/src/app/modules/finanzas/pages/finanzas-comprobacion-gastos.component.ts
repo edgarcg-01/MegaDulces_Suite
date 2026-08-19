@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
@@ -26,7 +27,9 @@ import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, 
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
 /** Gasto de Kepler seleccionado (read-only) — la fuente de verdad. */
-interface SelGasto { folio_gasto: string; proveedor: string | null; importe: number; sucursal: string | null; area: string | null; fecha: string | null; solicitud_folio: string | null; }
+interface SelGasto { folio_gasto: string; proveedor: string | null; importe: number; sucursal: string | null; area: string | null; fecha: string | null; solicitud_folio: string | null; solicitud_importe: number | null; }
+/** Archivo abierto en el visor embebido. */
+interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
 
 /**
  * GX.8 — "Comprobación de Gastos" (2ª etapa del ciclo). Se elige el gasto de Kepler
@@ -84,7 +87,15 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
           <ng-template #body let-g>
             <tr>
               <td>{{ g.fecha | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ g.folio_gasto }}@if (g.solicitud_folio) { <div class="cp-suc-cell">sol {{ g.solicitud_folio }}</div> }</td>
+              <td class="mono">{{ g.folio_gasto }}
+                @if (g.solicitud_folio) {
+                  <div class="cp-suc-cell cp-solc" [class.ok]="g.solicitud_cuadra === true" [class.bad]="g.solicitud_cuadra === false">
+                    sol {{ g.solicitud_folio }}
+                    @if (g.solicitud_cuadra === true) { <i class="pi pi-check" title="El gasto cuadra con la solicitud"></i> }
+                    @else if (g.solicitud_cuadra === false) { <i class="pi pi-exclamation-triangle" [title]="'No cuadra: gasto ' + moneyFull(g.importe) + ' vs solicitud ' + moneyFull(g.solicitud_importe)"></i> }
+                  </div>
+                }
+              </td>
               <td>{{ g.proveedor || '—' }}</td>
               <td class="muted">{{ g.area || '—' }}<div class="cp-suc-cell">{{ g.sucursal }}</div></td>
               <td class="ta-r strong">{{ money(g.importe) }}</td>
@@ -94,7 +105,7 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
                     <p-tag [value]="statusLabel(g.comprobacion_status)" [severity]="statusSev(g.comprobacion_status)" />
                     <span class="cp-files">
                       @for (f of g.files; track f.url) {
-                        <a [href]="f.url" target="_blank" rel="noopener" class="cp-fchip" [title]="fileLabel(f.role)"><i class="pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'"></i></a>
+                        <button type="button" class="cp-fchip" [title]="'Ver ' + fileLabel(f.role)" (click)="openPreview(f)"><i class="pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'"></i></button>
                       }
                     </span>
                     @if (g.folio_comprobacion) { <span class="mono muted cp-folioc">#{{ g.folio_comprobacion }}</span> }
@@ -145,6 +156,13 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
               @if (selectedGasto()!.fecha) { <span><i class="pi pi-calendar"></i> {{ selectedGasto()!.fecha | date:'dd/MM/yy' }}</span> }
               @if (selectedGasto()!.solicitud_folio) { <span class="muted">sol {{ selectedGasto()!.solicitud_folio }}</span> }
             </div>
+            @if (selectedGasto()!.solicitud_folio) {
+              <div class="cp-solcuadre" [class.ok]="solicitudCuadra() === 'ok'" [class.bad]="solicitudCuadra() === 'bad'">
+                @if (solicitudCuadra() === 'ok') { <i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra con la solicitud {{ selectedGasto()!.solicitud_folio }} · {{ moneyFull(selectedGasto()!.solicitud_importe) }} }
+                @else if (solicitudCuadra() === 'bad') { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No cuadra: la solicitud {{ selectedGasto()!.solicitud_folio }} pide {{ moneyFull(selectedGasto()!.solicitud_importe) }}, el gasto es {{ moneyFull(selectedGasto()!.importe) }} }
+                @else { <i class="pi pi-info-circle" aria-hidden="true"></i> Solicitud {{ selectedGasto()!.solicitud_folio }} sin importe para comparar }
+              </div>
+            }
             <button type="button" class="cp-linkbtn cp-gc-change" (click)="changeGasto()">cambiar gasto</button>
           </div>
         }
@@ -213,6 +231,23 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
         <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Diálogo: visor del comprobante (PDF embebido / imagen) — leíble sin salir de la app -->
+    <p-dialog [(visible)]="showPreview" [modal]="true" [style]="{ width: '58rem', maxWidth: '95vw' }" [contentStyle]="{ padding: '0' }" [draggable]="false" [header]="preview()?.label || 'Documento'">
+      @if (preview(); as p) {
+        <div class="cp-viewer">
+          @if (p.kind === 'pdf' && previewUrl()) {
+            <iframe [src]="previewUrl()" title="Comprobante" class="cp-viewer-frame"></iframe>
+          } @else {
+            <img [src]="p.url" alt="Comprobante" class="cp-viewer-img" />
+          }
+        </div>
+      }
+      <ng-template #footer>
+        @if (preview(); as p) { <a [href]="p.url" target="_blank" rel="noopener" class="cp-viewer-open"><i class="pi pi-external-link" aria-hidden="true"></i> Abrir en pestaña nueva</a> }
+        <button pButton type="button" text (click)="showPreview.set(false)"><span class="p-button-label">Cerrar</span></button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -230,8 +265,12 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
     .cp-suc-cell { font-size: .7rem; color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cp-files { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
-    .cp-fchip { color: var(--action); font-size: 1rem; }
+    .cp-fchip { color: var(--action); font-size: 1rem; border: none; background: transparent; padding: 0; cursor: pointer; line-height: 1; }
     .cp-fchip:hover { opacity: .75; }
+    .cp-solc { display: inline-flex; align-items: center; gap: .25rem; }
+    .cp-solc.ok { color: var(--ok-fg); }
+    .cp-solc.bad { color: var(--bad-fg); }
+    .cp-solc i { font-size: .7rem; }
     .cp-comp { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
     .cp-pend { display: inline-flex; align-items: center; gap: .3rem; }
     .cp-pend i { font-size: .75rem; opacity: .7; }
@@ -290,6 +329,16 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
     .cp-filepick { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cp-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
+    /* Cuadre gasto↔solicitud en la tarjeta del diálogo */
+    .cp-solcuadre { display: flex; align-items: center; gap: .4rem; font-size: .8rem; padding: .45rem .6rem; border-radius: var(--r-sm, .4rem); border: 1px solid var(--border-color); color: var(--text-muted); }
+    .cp-solcuadre.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+    .cp-solcuadre.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); border-color: color-mix(in srgb, var(--bad-fg) 30%, transparent); }
+    /* Visor embebido del comprobante */
+    .cp-viewer { width: 100%; height: 72vh; background: var(--surface-sunken, rgba(0,0,0,.06)); display: flex; align-items: center; justify-content: center; overflow: auto; }
+    .cp-viewer-frame { width: 100%; height: 100%; border: none; }
+    .cp-viewer-img { max-width: 100%; max-height: 72vh; object-fit: contain; }
+    .cp-viewer-open { color: var(--action); text-decoration: none; display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; margin-right: auto; }
+    .cp-viewer-open:hover { text-decoration: underline; }
   `],
 })
 export class FinanzasComprobacionGastosComponent {
@@ -300,11 +349,26 @@ export class FinanzasComprobacionGastosComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly sanitizer = inject(DomSanitizer);
   // Claude Vision lee la FOTO del gasto y valida el monto contra el importe Kepler.
   readonly photoLoading = signal(false);
   readonly photoResult = signal<ValidatePhotoResult | null>(null);
   // Gasto de Kepler seleccionado (read-only) — todo se deriva de él.
   readonly selectedGasto = signal<SelGasto | null>(null);
+  // Verifica que el gasto cuadre contra el importe pedido en su solicitud (XA1501).
+  readonly solicitudCuadra = computed<'ok' | 'bad' | 'na'>(() => {
+    const g = this.selectedGasto();
+    if (!g || g.solicitud_importe == null) return 'na';
+    const tol = Math.max(1, Math.abs(g.importe) * 0.01);
+    return Math.abs(g.importe - g.solicitud_importe) <= tol ? 'ok' : 'bad';
+  });
+  // Visor embebido del comprobante (PDF en iframe / imagen).
+  readonly showPreview = signal(false);
+  readonly preview = signal<PreviewFile | null>(null);
+  readonly previewUrl = computed<SafeResourceUrl | null>(() => {
+    const p = this.preview();
+    return p && p.kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(p.url) : null;
+  });
 
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobacion', label: 'Foto del gasto', required: true, accept: 'image/*,application/pdf' },
@@ -366,6 +430,7 @@ export class FinanzasComprobacionGastosComponent {
       { label: 'Comprobados', value: r.kpis.comprobados, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
       { label: 'En revisión', value: r.kpis.en_revision || 0, tone: 'warn' },
+      { label: 'Descuadre solicitud', value: r.kpis.descuadre_solicitud || 0, tone: 'warn' },
       { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
   }
@@ -390,7 +455,7 @@ export class FinanzasComprobacionGastosComponent {
   onGastoSelect(ev: { value: GastoSug & { label: string } } | (GastoSug & { label: string })) {
     const g = (ev as { value: GastoSug & { label: string } }).value ?? (ev as GastoSug & { label: string });
     if (!g || typeof g === 'string') return;
-    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio });
+    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio, solicitud_importe: g.solicitud_importe ?? null });
   }
 
   /** Fija el gasto de Kepler (fuente de verdad) y prepara la validación de la foto. */
@@ -425,7 +490,7 @@ export class FinanzasComprobacionGastosComponent {
   /** Abre el diálogo con el gasto de la fila ya seleccionado (read-only) + foto. */
   openComprobar(g: GastoRow) {
     this.openNew();
-    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio });
+    this.setGasto({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio, solicitud_importe: g.solicitud_importe ?? null });
   }
 
   onFile(ev: Event, role: string) {
@@ -448,6 +513,14 @@ export class FinanzasComprobacionGastosComponent {
     delete this.fileData['comprobacion']; delete this.uploaded['comprobacion'];
     this.fileNames.update((m) => { const n = { ...m }; delete n['comprobacion']; return n; });
     this.photoResult.set(null);
+  }
+
+  /** Abre el comprobante en el visor embebido (PDF en iframe / imagen) sin salir de la app. */
+  openPreview(f: ProofFile) {
+    if (!f?.url) return;
+    const isPdf = f.kind === 'pdf' || /\.pdf(\?|$)/i.test(f.url);
+    this.preview.set({ url: f.url, kind: isPdf ? 'pdf' : 'image', label: this.fileLabel(f.role) });
+    this.showPreview.set(true);
   }
 
   /** Al elegir un gasto de Kepler por folio (blur del input), jala proveedor/importe/sucursal. */

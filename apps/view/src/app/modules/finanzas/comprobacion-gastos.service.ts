@@ -21,6 +21,7 @@ export interface GastoSug {
   proveedor: string | null;
   importe: number;
   solicitud_folio: string | null;
+  solicitud_importe: number | null;   // importe pedido en la solicitud (XA1501)
   sucursal: string | null;
   area: string | null;
 }
@@ -72,6 +73,8 @@ export interface GastoRow {
   proveedor: string | null;
   importe: number;
   solicitud_folio: string | null;
+  solicitud_importe: number | null;    // importe pedido en la solicitud (XA1501)
+  solicitud_cuadra: boolean | null;    // gasto ≈ solicitud (null = sin solicitud ligada)
   area: string | null;
   comprobaciones: number;
   comprobacion_id: string | null;
@@ -82,7 +85,7 @@ export interface GastoRow {
 }
 
 export interface GastosReport {
-  kpis: { gastos: number; comprobados: number; validados: number; en_revision: number; monto_pendiente: number };
+  kpis: { gastos: number; comprobados: number; validados: number; en_revision: number; descuadre_solicitud: number; monto_pendiente: number };
   rows: GastoRow[];
 }
 
