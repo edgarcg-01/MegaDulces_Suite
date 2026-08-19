@@ -45,12 +45,20 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       <!-- CB.32 — Cobertura/frescura por fuente: captura pendiente ≠ descuadre.
            La barra mide DÍAS del periodo capturados, no cuántos movimientos trae cada fuente:
            el banco registra en bulto lo que Kepler parte por venta, así que comparar conteos
-           entre fuentes marcaba atraso donde sólo había granularidad distinta. -->
-      <div class="tw-cov" [class.warn]="anyStale(d)">
-        <div class="tw-cov-head">
-          <span><i class="pi pi-database"></i> Cobertura del periodo <span class="tw-cov-sub">— días capturados</span></span>
+           entre fuentes marcaba atraso donde sólo había granularidad distinta.
+           Va colapsada cuando las 3 van al día: es metadato de confianza, no la conclusión, y
+           así ocupaba una card entera con tres barras llenas por encima del cuadre. Se abre
+           sola cuando hay atraso — ahí sí es lo que explica el descuadre. -->
+      <div class="tw-cov" [class.warn]="anyStale(d)" [class.tw-cov-shut]="!covOpen(d)">
+        <button type="button" class="tw-cov-head" (click)="covToggled.set(!covOpen(d))"
+                [attr.aria-expanded]="covOpen(d)">
+          <i class="pi pi-database" aria-hidden="true"></i>
+          <span>Cobertura del periodo <span class="tw-cov-sub">— días capturados</span></span>
+          @if (!covOpen(d)) { <span class="tw-cov-sum">{{ covSummary(d) }}</span> }
           @if (d.coverage.is_current_month) { <span class="tw-tag muted-tag">mes en curso</span> }
-        </div>
+          <i class="tw-cov-chev pi" [class.pi-chevron-down]="!covOpen(d)" [class.pi-chevron-up]="covOpen(d)" aria-hidden="true"></i>
+        </button>
+        @if (covOpen(d)) {
         <div class="tw-cov-sources">
           @for (s of covSources(d); track s.key) {
             <div class="tw-cov-src" [class.stale]="s.stale || s.sin_datos">
@@ -70,6 +78,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         </div>
         @if (anyStale(d)) {
           <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día. El banco (Workbook) va al día.</p>
+        }
         }
       </div>
 
@@ -201,7 +210,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       <!-- CB.30 — Cheques en tránsito: el gap de timing banco↔Kepler -->
       @if (cheques(); as ch) {
         @if (ch.total.cheques_n > 0) {
-          <div class="card-premium card-flat tw-card">
+          <div class="card-premium card-flat tw-card" id="tw-cheques">
             <h3 class="fb-card-title fb-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
             <div class="tw-chq-kpis">
               <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
@@ -245,6 +254,19 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           Se reparte así entre las cuentas.
           @if (!expResidual()) { <b>Las contribuciones suman el total exacto.</b> }
         </p>
+
+        <!-- Los cheques en tránsito son LA explicación estructural del Δ Workbook−Kepler en
+             egresos, y vivían al final de la pantalla, después de una tabla con scroll propio.
+             Acá aparecen donde se hace la pregunta. -->
+        @if (chequesHint(); as h) {
+          <p class="tw-exp-hint">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span><b class="mono">{{ h.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> de esta diferencia
+            son <b>{{ h.n }} cheques emitidos y todavía no cobrados</b>: Kepler los descuenta al
+            emitirlos, el banco cuando se presentan. No es descuadre.
+            <button type="button" class="tw-exp-go tw-hint-go" (click)="goToCheques()">Ver cheques <i class="pi pi-arrow-right" aria-hidden="true"></i></button></span>
+          </p>
+        }
 
         @if (expResidual(); as resto) {
           <p class="tw-exp-resid">
@@ -453,9 +475,20 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     /* CB.32 — barra de cobertura/frescura */
     .tw-cov { border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; border-left-color: var(--ok-fg); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
     .tw-cov.warn { border-left-color: var(--warn-fg); }
-    .tw-cov-head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-2); }
+    .tw-cov-head { display: flex; align-items: center; gap: var(--sp-2); width: 100%; background: none; border: none;
+      font: inherit; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-muted); margin-bottom: var(--sp-2); padding: 0; cursor: pointer; text-align: left; }
+    .tw-cov-head:hover { color: var(--text-main); }
+    .tw-cov-head:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    /* Colapsada no lleva margen bajo el encabezado: la card queda de una línea. */
+    .tw-cov-shut .tw-cov-head { margin-bottom: 0; }
+    .tw-cov-chev { margin-left: auto; font-size: .7rem; opacity: .6; }
     /* Qué mide la barra, en el encabezado: sin esto "cobertura %" se lee como completitud. */
     .tw-cov-sub { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+    /* Resumen que reemplaza a las 3 barras cuando todo va al día. */
+    .tw-cov-sum { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-faint); min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tw-cov.warn .tw-cov-sum { color: var(--warn-fg); }
     .tw-cov-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--sp-3); }
     .tw-cov-src { display: flex; flex-direction: column; gap: 3px; }
     .tw-cov-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: var(--sp-2); }
@@ -529,6 +562,13 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-exp-resid { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-xs); color: var(--text-muted); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-3); }
     .tw-exp-resid i { color: var(--warn-fg); margin-top: 2px; flex: none; }
     .tw-exp-resid b { color: var(--text-main); }
+    /* Pista de cheques: informativa, no alarma — por eso neutra y no ámbar como el residuo. */
+    .tw-exp-hint { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-xs);
+      color: var(--text-muted); background: var(--surface-ground); border-radius: var(--r-md);
+      padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-3); }
+    .tw-exp-hint i { color: var(--text-faint); margin-top: 2px; flex: none; }
+    .tw-exp-hint b { color: var(--text-main); }
+    .tw-hint-go { margin-left: var(--sp-2); vertical-align: baseline; }
   `],
 })
 export class BancosThreeWayComponent {
@@ -582,6 +622,7 @@ export class BancosThreeWayComponent {
     effect(() => {
       const d = this.data();
       this.cheques.set(null);
+      this.covToggled.set(null);   // periodo nuevo → la cobertura vuelve a decidir sola
       if (d?.period) {
         this.api.chequesTransito(d.period).pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({ next: (c) => this.cheques.set(c), error: () => this.cheques.set(null) });
@@ -618,6 +659,23 @@ export class BancosThreeWayComponent {
   readonly expResidual = signal(0);
   /** Cuenta a resaltar en "Por cuenta" al volver del panel. */
   readonly hlAcct = signal<string | null>(null);
+
+  /**
+   * Cheques en tránsito, sólo cuando son pertinentes al descuadre que se está mirando: el par
+   * Workbook↔Kepler en egresos. En cualquier otro par no explican nada y ofrecerlos sería ruido.
+   */
+  readonly chequesHint = computed(() => {
+    const c = this.expCtx(), ch = this.cheques();
+    if (!c || c.pair !== 'wk' || c.row !== 'egresos') return null;
+    if (!ch || !ch.total.en_transito_n) return null;
+    return { n: ch.total.en_transito_n, monto: ch.total.en_transito_monto };
+  });
+
+  /** Del panel al bloque de cheques: cierra y lo trae a la vista. */
+  goToCheques(): void {
+    this.expOpen.set(false);
+    setTimeout(() => document.getElementById('tw-cheques')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+  }
 
   readonly expTitle = computed(() => {
     const c = this.expCtx();
@@ -831,6 +889,24 @@ export class BancosThreeWayComponent {
       { key: 'kep', label: 'Kepler (tesorería)', ...c.kepler },
       { key: 'cpq', label: 'ContPAQi (libros)', ...c.contpaqi },
     ];
+  }
+
+  /**
+   * Estado abierto/cerrado del bloque de cobertura. `null` = como venga el periodo: cerrado
+   * si las 3 fuentes van al día, abierto si alguna está atrasada. Un clic fija la decisión
+   * hasta que cambie el periodo (el effect del constructor lo devuelve a `null`).
+   */
+  readonly covToggled = signal<boolean | null>(null);
+  covOpen(d: ThreeWay): boolean { return this.covToggled() ?? this.anyStale(d); }
+
+  /** Lo que reemplaza a las 3 barras cuando el bloque está cerrado. */
+  covSummary(d: ThreeWay): string {
+    const mal = this.covSources(d)
+      .filter((s) => s.sin_datos || s.stale)
+      .map((s) => `${s.label.split(' ')[0]} ${s.sin_datos ? 'sin datos' : `${s.days_target - s.days_covered} días atrás`}`);
+    if (mal.length) return mal.join(' · ');
+    const wb = d.coverage.workbook;
+    return `las 3 fuentes al día${wb.last ? ` (al ${dmShort(wb.last)})` : ''}`;
   }
 
   /** Lectura en llano de la barra — también es su etiqueta accesible: sola no dice nada. */
