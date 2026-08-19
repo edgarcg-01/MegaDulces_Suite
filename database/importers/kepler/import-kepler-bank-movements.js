@@ -2,20 +2,23 @@
 /**
  * CB (3ª fuente) — Libro de bancos Kepler por CUENTA → analytics.kepler_bank_movements.
  *
- * Lee tesorería (md.kdm1 ⋈ md.kdb1) de CEDIS md_00 y materializa el movimiento bancario por cuenta.
+ * Lee tesorería del CANÓNICO NORMALIZADO `kepler_ods.kdm1 ⋈ kepler_ods.kdb1` (sucursal CEDIS
+ * '00') y materializa el movimiento bancario por cuenta. NO se conecta a las ramas Kepler:
+ * todo sale de kepler_ods (derivar-no-copiar), que la réplica ODS mantiene al día. Antes leía
+ * `md_00` directo (192.168.9.95, marcado como PRUEBA en Fase CA); ahora una sola conexión (DST).
  * Reglas verificadas 2026-08-12 (ver migración 20260812130000):
  *   importe=c16 · dirección por tipo-de-doc · N-A-26 traspaso = 2 piernas (−c45,+c47) · excluye c43='C'.
  *
  *   node database/importers/kepler/import-kepler-bank-movements.js            # dry-run
  *   node database/importers/kepler/import-kepler-bank-movements.js --apply
- * Env: DATABASE_URL_NEW (prod) · KEPLER_BANK_SRC (default md_00) · KEPLER_BANK_DAYS (ventana rodante c68; 0=todo).
+ * Env: DATABASE_URL_NEW (prod, trae kepler_ods) · KEPLER_BANK_SUC (default '00') · KEPLER_BANK_DAYS (ventana c68; 0=todo).
+ * REQUIERE que la réplica ODS incluya kdb1 (carril hash) — si falta, hace SKIP sin escribir.
  */
 const { Client } = require('pg');
 
 const M = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const { branchUrl } = require('../lib/kepler-branches');
-const SRC = process.env.KEPLER_BANK_SRC || branchUrl('00'); // CEDIS md_00
+const ODS_SUC = process.env.KEPLER_BANK_SUC || '00'; // CEDIS — bancos/CAJA GENERAL de Kepler viven en suc '00'
 const APPLY = process.argv.includes('--apply');
 const DAYS = Math.max(0, Number(process.env.KEPLER_BANK_DAYS) || 0);
 const BATCH = 800;
@@ -32,12 +35,16 @@ const dstr = (d) => { if (!d) return null; const s = d instanceof Date ? d.toISO
 const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
 
 (async () => {
-  console.log(`\n=== Bancos Kepler (md_00, kdm1⋈kdb1) → analytics.kepler_bank_movements (${APPLY ? 'APPLY' : 'DRY-RUN'})${DAYS ? ` · ventana ${DAYS}d` : ''} ===\n`);
-  const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 10000, statement_timeout: 180000 });
-  await src.connect();
+  console.log(`\n=== Bancos Kepler (kepler_ods suc ${ODS_SUC}, kdm1⋈kdb1) → analytics.kepler_bank_movements (${APPLY ? 'APPLY' : 'DRY-RUN'})${DAYS ? ` · ventana ${DAYS}d` : ''} ===\n`);
+  const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false, connectionTimeoutMillis: 10000, statement_timeout: 180000 });
+  await db.connect();
 
-  // Catálogo de cuentas (kdb1): clave → {nombre, cuenta_contable, tipo}
-  const kdb1 = (await src.query(`SELECT btrim(c1) clave, btrim(c2) nombre, btrim(c5) cta, btrim(c9) rfc FROM md.kdb1 WHERE btrim(coalesce(c1,''))<>''`)).rows;
+  // Catálogo de cuentas (kepler_ods.kdb1, suc CEDIS): clave → {nombre, cuenta_contable, tipo}.
+  // Guard: si la réplica ODS aún no trae kdb1 (o no hay filas para la suc) → SKIP sin escribir.
+  const hasKdb1 = (await db.query(`SELECT to_regclass('kepler_ods.kdb1') AS t`)).rows[0].t;
+  if (!hasKdb1) { console.error(`\n[SKIP] kepler_ods.kdb1 no existe todavía — falta que la réplica ODS lo incluya (carril hash). No se escribe nada.`); await db.end(); return; }
+  const kdb1 = (await db.query(`SELECT btrim(c1) clave, btrim(c2) nombre, btrim(c5) cta, btrim(c9) rfc FROM kepler_ods.kdb1 WHERE sucursal=$1 AND btrim(coalesce(c1,''))<>''`, [ODS_SUC])).rows;
+  if (!kdb1.length) { console.error(`\n[SKIP] kepler_ods.kdb1 sin cuentas para suc ${ODS_SUC} — ¿ya corrió la réplica ODS con kdb1? No se escribe nada.`); await db.end(); return; }
   const bank = new Map();
   for (const r of kdb1) {
     const tipo = !/^102/.test(r.cta || '') ? 'puente' : (CAJAS.has(r.clave) ? 'caja' : 'banco');
@@ -45,17 +52,17 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
   }
   console.log(`  kdb1: ${bank.size} cuentas (${[...bank.values()].filter((b) => b.tipo === 'banco').length} banco · ${[...bank.values()].filter((b) => b.tipo === 'caja').length} caja · ${[...bank.values()].filter((b) => b.tipo === 'puente').length} puente)`);
 
-  // Documentos de tesorería que tocan banco (c45 ∈ kdb1), NO cancelados. Ventana rodante por c68 (captura).
+  // Documentos de tesorería que tocan banco (c45 ∈ kdb1), NO cancelados, de la suc CEDIS.
+  // Ventana rodante por c68 (captura). Todo de kepler_ods (no ramas).
   const claves = [...bank.keys()];
-  const where = [`btrim(c45::text) = ANY($1)`, `btrim(coalesce(c43::text,'')) <> 'C'`];
-  const params = [claves];
+  const where = [`sucursal = $1`, `btrim(c45::text) = ANY($2)`, `btrim(coalesce(c43::text,'')) <> 'C'`];
+  const params = [ODS_SUC, claves];
   if (DAYS) { where.push(`c68::date >= (CURRENT_DATE - ${DAYS})`); }
-  const docs = (await src.query(
+  const docs = (await db.query(
     `SELECT btrim(c1::text) suc, btrim(c2::text)||'-'||btrim(c3::text)||'-'||btrim(c4::text) dt, btrim(c6::text) folio,
             c9::date fecha_valor, c68::date fecha_captura, c16::numeric importe,
             btrim(c24::text) concepto, btrim(c31::text) metodo, btrim(c32::text) beneficiario, btrim(c45::text) c45, btrim(c47::text) c47
-       FROM md.kdm1 WHERE ${where.join(' AND ')}`, params)).rows;
-  await src.end();
+       FROM kepler_ods.kdm1 WHERE ${where.join(' AND ')}`, params)).rows;
   console.log(`  docs bancarios: ${docs.length}`);
 
   // Materializar (traspaso = 2 piernas)
@@ -83,10 +90,8 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
   console.log(`  filas: ${out.length} (${traspasos} traspasos → 2 piernas · ${otros} tipo desconocido)`);
   console.log(`  entradas $${round2(nEnt).toLocaleString()} · salidas $${round2(nSal).toLocaleString()}`);
 
-  if (!APPLY) { console.log('\n[DRY-RUN] nada escrito. Corré con --apply.'); return; }
+  if (!APPLY) { console.log('\n[DRY-RUN] nada escrito. Corré con --apply.'); await db.end(); return; }
 
-  const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
-  await db.connect();
   await db.query(`
     CREATE TABLE IF NOT EXISTS analytics.kepler_bank_movements (
       tenant_id uuid NOT NULL, sucursal text NOT NULL, doc_tipo text NOT NULL, folio text NOT NULL, clave_banco text NOT NULL,

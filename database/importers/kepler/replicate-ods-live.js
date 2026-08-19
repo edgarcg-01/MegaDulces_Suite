@@ -45,11 +45,12 @@ const ONLY = (process.argv.find((a) => a.startsWith('--tables=')) || '').split('
 const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
 const WATCH_SEC = WATCH_ARG ? Math.max(3, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
 
-const TABLES = (ONLY || process.env.KP_ODS_TABLES || 'kdm1,kdm2,kdii,kdil,kdig,kdik,kdib,kdid,kdij,kdue,kduv,kdud,kdm_rutas,kdm_transporte,kdm_chofer,kdpord')
+const TABLES = (ONLY || process.env.KP_ODS_TABLES || 'kdm1,kdm2,kdii,kdil,kdig,kdik,kdib,kdb1,kdid,kdij,kdue,kduv,kdud,kdm_rutas,kdm_transporte,kdm_chofer,kdpord')
   .split(',').map((s) => s.trim()).filter(Boolean);
 // Catálogos mutables (UPDATE in-place) → carril hash. El resto → carril ctid (append-only o grande).
+// kdb1 (catálogo de cuentas de banco) es chico y mutable → hash; lo consume el libro de bancos Kepler.
 const HASH_TABLES = new Set(
-  (process.env.ODS_HASH_TABLES || 'kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdm_rutas,kdm_transporte,kdm_chofer')
+  (process.env.ODS_HASH_TABLES || 'kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer')
     .split(',').map((s) => s.trim()).filter(Boolean));
 const READ_BATCH = Math.max(500, Number(process.env.ODS_READ_BATCH) || 5000);
 const SHIP_BATCH = Math.max(500, Number(process.env.ODS_SHIP_BATCH) || 5000);
