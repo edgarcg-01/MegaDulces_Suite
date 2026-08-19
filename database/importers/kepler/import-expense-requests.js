@@ -95,10 +95,15 @@ async function bulkInsert(db, table, cols, rows) {
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] ODS sin solicitudes — nada que hacer.'); return; }
 
-    // Referencia del gasto → su solicitud: YA NO se escribe aquí. `expense_documents`
-    // es una VISTA (mig 20260819210000) que deriva solicitud_tipo/folio inline desde
-    // el `c39` del propio gasto en kepler_ods.kdm1 → siempre 100% al día. Escribir sobre
-    // la vista tiraría error. Este importer conserva solo los hallazgos de más abajo.
+    // Referencia del gasto → su solicitud (expense_documents.solicitud_*). RESTAURADO
+    // 2026-08-19: `expense_documents` vuelve a ser TABLA contable (mig 20260819230000
+    // revirtió la vista — rompía la conciliación fiscal por importe/fecha). El vínculo
+    // se mantiene 100% aquí desde el c39 del ODS, sin tocar el monto contable.
+    const upDoc = await db.query(`
+      UPDATE analytics.expense_documents d
+         SET solicitud_tipo='XA1501', solicitud_folio=l.sol_folio
+        FROM stg_link l
+       WHERE d.tenant_id=$1 AND d.sucursal=l.sucursal AND d.doc_tipo='XA1001' AND d.doc_folio=l.gasto_folio`, [M]);
 
     // Hallazgo solicitud_sin_aplicar (sin clave natural): set-level skip (cero churn si no cambió).
     const FP_R = `concat_ws('|', sucursal, coalesce(fecha::text,''), coalesce(doc_folio,''), coalesce(beneficiario,''), coalesce(importe::text,''), coalesce(nota,''))`;
@@ -116,7 +121,7 @@ async function bulkInsert(db, table, cols, rows) {
     }
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — hallazgos sin_aplicar: ${cmpR[0].same ? 'sin cambios' : upFindCount + ' reescritos'} (solicitud_folio ahora lo deriva la vista expense_documents)`);
+    console.log(`\n[APPLY] COMMIT — doc.solicitud actualizados: ${upDoc.rowCount} · hallazgos sin_aplicar: ${cmpR[0].same ? 'sin cambios' : upFindCount + ' reescritos'}`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('ERROR:', e.message);
