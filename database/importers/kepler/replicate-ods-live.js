@@ -54,6 +54,17 @@ const HASH_TABLES = new Set(
 const READ_BATCH = Math.max(500, Number(process.env.ODS_READ_BATCH) || 5000);
 const SHIP_BATCH = Math.max(500, Number(process.env.ODS_SHIP_BATCH) || 5000);
 
+// RED DE SEGURIDAD del carril ctid (bug 2026-08-19): el ctid NO es monótono en un SUBSCRIBER de
+// replicación lógica (el heap reusa espacio) → filas nuevas caen por debajo del watermark y
+// `ctid > wm` las SALTA en silencio (verificado: ODS perdía 233 kdm1 de PH, incl. recepciones
+// 394/396/398). Fix additivo: tras el carril ctid, re-enviar por UPSERT idempotente la VENTANA
+// RECIENTE por fecha de negocio → cualquier fila saltada se recupera en ≤1 pasada. Barato (la
+// ventana es chica) y no toca el camino ctid. Throttle por tabla×sucursal para acotar egress.
+const SAFETY_DAYS = Number(process.env.ODS_SAFETY_DAYS || 3);
+const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 1000;
+const RECENT_COL = { kdm1: 'c9', kdm2: 'c9', kdpord: 'c9', kdue: 'c9', kdij: 'c9' }; // fecha de negocio del ctid table
+const _lastSafety = new Map();
+
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -163,6 +174,28 @@ async function syncCtid(p, code, table, meta, { apply, full }) {
        rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
     [table, lastCtid, seen, changed]);
   if (seen) console.log(`  ✓ ${code}/${table} [ctid]: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
+
+  // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
+  // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
+  const rcol = RECENT_COL[table];
+  if (rcol && meta.cols.some((c) => c.column_name === rcol)) {
+    const key = `${code}/${table}`;
+    const nowMs = Date.now();
+    if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
+      _lastSafety.set(key, nowMs);
+      let sbuf = [], sSeen = 0, sChanged = 0;
+      const rows = (await p.query(
+        `SELECT ${selList} FROM md.${qid(table)} WHERE ${qid(rcol)} >= current_date - ${SAFETY_DAYS}`)).rows;
+      for (const row of rows) {
+        const o = { sucursal: code };
+        for (const c of meta.cols) o[c.column_name] = row[c.column_name];
+        sbuf.push(o); sSeen++;
+        if (sbuf.length >= SHIP_BATCH) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); sbuf = []; }
+      }
+      if (sbuf.length) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); }
+      if (sChanged) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
+    }
+  }
   return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed };
 }
 
