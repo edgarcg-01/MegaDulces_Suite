@@ -55,6 +55,23 @@ const HASH_TABLES = new Set(
 const READ_BATCH = Math.max(500, Number(process.env.ODS_READ_BATCH) || 5000);
 const SHIP_BATCH = Math.max(500, Number(process.env.ODS_SHIP_BATCH) || 5000);
 
+// MODO ESPEJO COMPLETO (`--tables=*` o KP_ODS_TABLES=*): trae TODAS las md.* del replica.
+// Las 335 tablas tienen PK en el replica (indisprimary) → tableMeta la deriva sola. En este modo
+// el carril por defecto es HASH (universal: re-lee y compara md5, no pierde filas como el ctid),
+// salvo la whitelist CTID (grandes append-only, donde el ctid es barato y seguro).
+const ALL_MODE = ONLY === '*' || process.env.KP_ODS_TABLES === '*';
+const CTID_TABLES = new Set(
+  (process.env.ODS_CTID_TABLES || 'kdm1,kdm2,kdij,kdue,kdpord,kdm3,kdm4,kdm5,kdm6,kdm7,kdm8,kdm9,kdmx,kdmx_25,kdmx_26,kdlogmov,orglogtbl_24,orglogtbl_25,orglogtbl_26,pos95historico')
+    .split(',').map((s) => s.trim()).filter(Boolean));
+/** Lista de tablas a sincronizar para un replica dado (enumera todo el schema si ALL_MODE). */
+async function tablesFor(p) {
+  if (!ALL_MODE) return TABLES;
+  return (await p.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE' ORDER BY 1`)).rows.map((r) => r.table_name);
+}
+/** ¿tabla va por carril hash? En modo espejo: todo hash salvo la whitelist ctid. Si no: el set HASH. */
+const isHashTable = (table) => (ALL_MODE ? !CTID_TABLES.has(table) : HASH_TABLES.has(table));
+
 // RED DE SEGURIDAD del carril ctid (bug 2026-08-19): el ctid NO es monótono en un SUBSCRIBER de
 // replicación lógica (el heap reusa espacio) → filas nuevas caen por debajo del watermark y
 // `ctid > wm` las SALTA en silencio (verificado: ODS perdía 233 kdm1 de PH, incl. recepciones
@@ -261,8 +278,9 @@ async function primeCtid() {
     try { await p.connect(); } catch (e) { console.log(`  ⚠ replica ${b.code}: no conecta — skip`); continue; }
     try {
       await ensureLocalCtl(p);
-      for (const table of TABLES) {
-        if (HASH_TABLES.has(table)) continue;
+      const tables = await tablesFor(p);
+      for (const table of tables) {
+        if (isHashTable(table)) continue;
         const meta = await tableMeta(p, table);
         if (!meta || !meta.pk.length) continue;
         const r = await p.query(`SELECT ctid FROM md.${qid(table)} ORDER BY ctid DESC LIMIT 1`);
@@ -286,12 +304,13 @@ async function cycleAll({ apply, full }) {
     catch (e) { console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`); continue; }
     try {
       await ensureLocalCtl(p);
-      for (const table of TABLES) {
+      const tables = await tablesFor(p);
+      for (const table of tables) {
         try {
           const meta = await tableMeta(p, table);
           if (!meta) { summary.push({ suc: b.code, tabla: table, skip: 'no existe' }); continue; }
           if (!meta.pk.length) { summary.push({ suc: b.code, tabla: table, skip: 'sin PK' }); continue; }
-          const fn = HASH_TABLES.has(table) ? syncHash : syncCtid;
+          const fn = isHashTable(table) ? syncHash : syncCtid;
           summary.push(await fn(p, b.code, table, meta, { apply, full }));
         } catch (e) { console.log(`  ✗ ${b.code}/${table}: ${e.message.slice(0, 90)}`); summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) }); }
       }
@@ -302,8 +321,8 @@ async function cycleAll({ apply, full }) {
 
 (async () => {
   console.log(`\n=== replicate-ods-LIVE — replicas locales → kepler_ods (${APPLY || WATCH_SEC ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
-  console.log(`  sink: ${sink.sinkMode()}  ·  ramas: ${BRANCH_CODES.join(',')}  ·  tablas: ${TABLES.length}`);
-  console.log(`  carril hash: ${[...HASH_TABLES].join(',')}`);
+  console.log(`  sink: ${sink.sinkMode()}  ·  ramas: ${BRANCH_CODES.join(',')}  ·  tablas: ${ALL_MODE ? 'TODAS (espejo completo md.*)' : TABLES.length}`);
+  console.log(ALL_MODE ? `  carril ctid (whitelist): ${[...CTID_TABLES].join(',')} · resto → hash` : `  carril hash: ${[...HASH_TABLES].join(',')}`);
 
   if (PRIME) {
     console.log(`  PRIME — fijando watermark ctid al máximo actual (sin shipear)…`);
