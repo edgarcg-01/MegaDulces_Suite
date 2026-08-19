@@ -130,6 +130,23 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
        No se imprime desde aquí; se clona a un iframe aislado. */
     .etqp-print{ position:fixed; left:-100000px; top:0; width:115mm; }
 
+    /* HOTFIX tablets — varios navegadores (Safari/iPadOS, WebViews de Android) ignoran
+       iframe.contentWindow.print() y mandan a imprimir el DOCUMENTO PRINCIPAL: salía toda
+       la pantalla de la app en vez de las etiquetas. Esta copia cuelga del <body>, nunca se
+       ve en pantalla, y en @media print es lo ÚNICO que queda en pie. En el camino bueno
+       (el iframe sí imprime) estas reglas ni se evalúan: el documento impreso es el otro.
+       Sin regla @page a propósito — estos estilos son globales (encapsulation None) y fijar el
+       tamaño de hoja acá le cambiaría la impresión al resto de la app. */
+    .etqp-print-fallback{ display:none; }
+    @media print{
+      body.etqp-printing > *:not(.etqp-print-fallback){ display:none !important; }
+      body.etqp-printing .etqp-print-fallback{ display:block !important; text-align:center; font-size:0; }
+      body.etqp-printing .etqp-print-fallback app-label{ display:inline-block; vertical-align:top;
+        break-inside:avoid; page-break-inside:avoid; margin:2.5mm; }
+      body.etqp-printing .etqp-print-fallback .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
+      body.etqp-printing *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    }
+
     @media (prefers-reduced-motion: reduce){
       .etqp-ta, .etqp-scanbar{ transition:none; }
     }
@@ -538,6 +555,17 @@ export class TiendaEtiquetasComponent {
     const sheet = document.querySelector('.etqp-print') as HTMLElement | null;
     if (!sheet || !sheet.innerHTML.trim()) { this.finishPrint(); return; }
 
+    // Red de seguridad para tablets: copia de la hoja colgada del <body> (ver la nota de
+    // `.etqp-print-fallback` en los estilos). Si el navegador ignora el iframe e imprime el
+    // documento principal, esto es lo único que sale. Los barcodes son <svg>, así que el
+    // clon por innerHTML los conserva.
+    const fallback = document.createElement('div');
+    fallback.className = 'etqp-print-fallback';
+    fallback.setAttribute('aria-hidden', 'true');
+    fallback.innerHTML = sheet.innerHTML;
+    document.body.appendChild(fallback);
+    document.body.classList.add('etqp-printing');
+
     // Clona TODOS los estilos del documento (incluye los estilos del componente etiqueta + fuente Baloo).
     const styles = Array.from(document.querySelectorAll('head style, head link[rel="stylesheet"]'))
       .map((n) => n.outerHTML).join('\n');
@@ -548,7 +576,8 @@ export class TiendaEtiquetasComponent {
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument;
     const win = iframe.contentWindow;
-    if (!doc || !win) { iframe.remove(); this.finishPrint(); return; }
+    const dropFallback = () => { document.body.classList.remove('etqp-printing'); fallback.remove(); };
+    if (!doc || !win) { dropFallback(); iframe.remove(); this.finishPrint(); return; }
 
     doc.open();
     doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
@@ -569,8 +598,19 @@ export class TiendaEtiquetasComponent {
     doc.close();
 
     let done = false;
-    const finish = () => { if (done) return; done = true; iframe.remove(); this.finishPrint(); };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('afterprint', finish);
+      dropFallback();
+      iframe.remove();
+      this.finishPrint();
+    };
     win.addEventListener('afterprint', finish);
+    // Si el navegador imprimió el documento principal en vez del iframe, el `afterprint`
+    // llega a la ventana de arriba y no a la del iframe: sin esto el botón se quedaría
+    // en "Preparando…" hasta el timeout de limpieza.
+    window.addEventListener('afterprint', finish);
     const fire = () => { try { win.focus(); win.print(); } catch { finish(); } };
     const fonts = (doc as any).fonts;
     if (fonts?.ready) fonts.ready.then(() => setTimeout(fire, 150)).catch(() => setTimeout(fire, 300));
