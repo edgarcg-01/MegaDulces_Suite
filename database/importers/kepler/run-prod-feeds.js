@@ -71,17 +71,13 @@ const STEPS = {
   // huérfanos (no en ningún modo → se quedaban viejos). UPSERT churn-free; ventanas rodantes
   // donde aplica (PAYMENTS_DAYS/…). Los agenda \Kepler\Intraday + los vigila el FeedGuardian.
   intraday: [
-    path.join(K, 'import-supplier-payments.js'),  // CxP → analytics.erp_supplier_payments (/finanzas/pagos-comprobantes)
-    path.join(K, 'import-collections.js'),         // cobranza → analytics.erp_collections (fichas de depósito)
+    // RETIRADO 2026-08-19: erp_supplier_payments y erp_collections son VISTAS derive-no-copy sobre
+    // kepler_ods.kdm1 (mig 20260819220000) → se derivan EN VIVO del ODS, sin importer que se atrase.
+    // Correr los importers pegaría contra la vista → error. Los .js quedan como fallback histórico.
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
     path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
-    // CG.16 — Control de CAJA GENERAL (.mdb/Doctos) EN INTRADÍA, no solo nightly: el libro
-    // (workbook, incl. el Workbook de caja) se sincroniza por web cada 3 min, así que el
-    // Control debe refrescar seguido para que el Cuadre de caja no quede 24h atrás del libro.
-    // REQUIERE Z: (.245 \\D) montado en el host del intraday + PowerShell/ACE.OLEDB (igual que nightly).
-    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'),
     path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
     // RR — ventas por ruta AL DÍA. El reporte /comercial/ventas-por-ruta lee el rollup
     // analytics.sales_by_route_monthly; antes estos feeds SOLO estaban en nightly → el reporte

@@ -25,22 +25,26 @@ const VALIDATED = [
 ];
 const NOT_VALID = ['product_sales_daily']; // 6 huérfanos legacy → declarar sin validar
 const fkName = (t) => `fk_${t}_product`;
+// supplier_id → catalog.suppliers(id) — 1 tabla, 0 huérfanos verificado.
+const SUPPLIER = ['replenishment_plan'];
+const supFk = (t) => `fk_${t}_supplier`;
 
-async function addFk(knex, t, validate) {
-  const name = fkName(t);
+async function addFk(knex, t, col, ref, name, validate) {
   const exists = await knex.raw(`SELECT 1 FROM pg_constraint WHERE conname=? AND conrelid=to_regclass(?)`, [name, `analytics.${t}`]);
   if (exists.rows.length) return;
-  await knex.raw(`ALTER TABLE analytics.${t} ADD CONSTRAINT ${name} FOREIGN KEY (product_id) REFERENCES catalog.products(id) NOT VALID`);
+  await knex.raw(`ALTER TABLE analytics.${t} ADD CONSTRAINT ${name} FOREIGN KEY (${col}) REFERENCES ${ref} NOT VALID`);
   if (validate) await knex.raw(`ALTER TABLE analytics.${t} VALIDATE CONSTRAINT ${name}`);
 }
 
 exports.up = async function (knex) {
-  for (const t of VALIDATED) await addFk(knex, t, true);
-  for (const t of NOT_VALID) await addFk(knex, t, false);
+  for (const t of VALIDATED) await addFk(knex, t, 'product_id', 'catalog.products(id)', fkName(t), true);
+  for (const t of NOT_VALID) await addFk(knex, t, 'product_id', 'catalog.products(id)', fkName(t), false);
+  for (const t of SUPPLIER) await addFk(knex, t, 'supplier_id', 'catalog.suppliers(id)', supFk(t), true);
 };
 
 exports.down = async function (knex) {
   for (const t of [...VALIDATED, ...NOT_VALID]) {
     await knex.raw(`ALTER TABLE analytics.${t} DROP CONSTRAINT IF EXISTS ${fkName(t)}`);
   }
+  for (const t of SUPPLIER) await knex.raw(`ALTER TABLE analytics.${t} DROP CONSTRAINT IF EXISTS ${supFk(t)}`);
 };
