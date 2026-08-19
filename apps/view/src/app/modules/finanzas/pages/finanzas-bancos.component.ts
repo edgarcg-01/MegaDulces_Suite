@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -278,6 +279,8 @@ export class FinanzasBancosComponent implements OnInit {
   private readonly api = inject(BankService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly sock = inject(BancosSocketService);
   private readonly auth = inject(AuthService);
 
@@ -390,6 +393,64 @@ export class FinanzasBancosComponent implements OnInit {
     return this.amtPct(mr);
   });
 
+  /**
+   * §Ing.UI 9 — la vista y el periodo viven en la URL (`?view=cuadre&period=2026-01`).
+   *
+   * Eran signals planos: no se podía mandar "mirá el Cuadre de enero" por chat, el botón
+   * Atrás del navegador no hacía nada y recargar devolvía a Cierre perdiendo el contexto.
+   *
+   * Va como `effect` sobre las señales y no como llamada en cada handler porque hay una
+   * docena de puntos que cambian de vista — las chips de estado del cierre, el drill de un
+   * hallazgo, el engrane de Configuración, el segmento de pestañas — y cualquiera que se
+   * olvide dejaría la URL mintiendo. El effect los cubre a todos.
+   */
+  private urlReady = false;
+  /** Último estado que ESTA pantalla escribió en la URL; corta el ida y vuelta con el watcher. */
+  private urlState = '';
+
+  constructor() {
+    effect(() => {
+      const view = this.view(), period = this.period();
+      if (!this.urlReady) return;
+      const key = `${view}|${period}`;
+      if (key === this.urlState) return;
+      this.urlState = key;
+      this.writeUrl(view, period, false);
+    });
+  }
+
+  private writeUrl(view: View, period: string, replace: boolean): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view, period: period || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: replace,
+    });
+  }
+
+  private isView(v: string | null): v is View {
+    return !!v && (v === 'admin' || WORK_VIEWS.some((w) => w.key === v));
+  }
+
+  /**
+   * Atrás/Adelante del navegador y enlaces pegados: ahí la URL manda. Se engancha recién
+   * cuando ya hay lista de periodos — antes no se puede validar cuál es legítimo.
+   */
+  private watchUrl(): void {
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      const v = q.get('view'), p = q.get('period');
+      const view = this.isView(v) ? v : this.view();
+      const period = p && this.periods().includes(p) ? p : this.period();
+      if (view === this.view() && period === this.period()) return;
+      this.urlState = `${view}|${period}`;   // ya está en la URL: no reescribirla
+      const cambioPeriodo = period !== this.period();
+      this.view.set(view);
+      this.period.set(period);
+      if (cambioPeriodo) this.loadPeriod();
+      else this.lazyForView(view);
+    });
+  }
+
   ngOnInit(): void {
     // WS realtime `/bancos`: refresca solo cuando el feed importa, el cron sincroniza
     // el Sheet, se corre la conciliación o entra/valida un comprobante (otro operador).
@@ -398,15 +459,29 @@ export class FinanzasBancosComponent implements OnInit {
     this.sock.job$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onJob(ev));
     this.destroyRef.onDestroy(() => this.sock.disconnect());
 
+    // Arranque: la URL decide vista y periodo. Un periodo que ya no existe (enlace viejo)
+    // cae al más reciente en vez de dejar la pantalla vacía.
+    const q0 = this.route.snapshot.queryParamMap;
+    const v0 = q0.get('view');
+    if (this.isView(v0)) this.view.set(v0);
+
     this.api.periods().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ps) => {
         this.periods.set(ps);
-        this.period.set(ps[0] || '');
+        const want = q0.get('period');
+        this.period.set(want && ps.includes(want) ? want : (ps[0] || ''));
         this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs));
         this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as));
         this.api.sheetSyncConfig().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => this.sheetCfg.set(c), error: () => { /* sync opcional */ } });
         if (this.period()) this.loadPeriod();
         else this.loading.set(false);
+        this.lazyForView(this.view());
+        // Normaliza la URL SIN entrada de historial: el primer Atrás debe salir de Bancos,
+        // no deshacer un parámetro que el usuario nunca puso.
+        this.urlReady = true;
+        this.urlState = `${this.view()}|${this.period()}`;
+        this.writeUrl(this.view(), this.period(), true);
+        this.watchUrl();
       },
       error: () => this.fail('No se pudieron cargar los periodos.'),
     });
@@ -521,6 +596,15 @@ export class FinanzasBancosComponent implements OnInit {
   /** Cambio de vista; carga perezosa del comparador (payload grande) al abrirlo. */
   goView(v: View): void {
     this.view.set(v);
+    this.lazyForView(v);
+  }
+
+  /**
+   * Payloads grandes que sólo se traen al abrir su vista. Se llama también al arrancar
+   * sobre `?view=cuadre` y al volver con el botón Atrás: sin esto, entrar por enlace directo
+   * dejaba la pestaña vacía hasta que el usuario cambiaba de vista y regresaba.
+   */
+  private lazyForView(v: View): void {
     if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
     if (v === 'cuadre' && !this.threeWay() && !this.twLoading()) this.loadThreeWay();
   }
