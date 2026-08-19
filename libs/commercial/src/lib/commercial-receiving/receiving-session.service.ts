@@ -123,7 +123,7 @@ export class ReceivingSessionService {
           });
         }
       }
-      return this.detail(session.id);
+      return this.detailTx(trx, session.id);
     });
   }
 
@@ -273,7 +273,7 @@ export class ReceivingSessionService {
           discrepancy_kind: 'sobrante',
         });
       }
-      return this.detail(sessionId);
+      return this.detailTx(trx, sessionId);
     });
   }
 
@@ -297,7 +297,7 @@ export class ReceivingSessionService {
         notes: patch.notes != null ? patch.notes : line.notes,
         updated_at: trx.fn.now(),
       });
-      return this.detail(sessionId);
+      return this.detailTx(trx, sessionId);
     });
   }
 
@@ -333,7 +333,7 @@ export class ReceivingSessionService {
         received_qty: 0,
         discrepancy_kind: 'pending',
       });
-      return this.detail(sessionId);
+      return this.detailTx(trx, sessionId);
     });
   }
 
@@ -358,7 +358,7 @@ export class ReceivingSessionService {
       await trx('commercial.receiving_sessions').where({ id: sessionId }).update({
         status: 'closed', closed_at: trx.fn.now(), closed_by: userId, updated_at: trx.fn.now(),
       });
-      return this.detail(sessionId);
+      return this.detailTx(trx, sessionId);
     });
   }
 
@@ -371,7 +371,7 @@ export class ReceivingSessionService {
       await trx('commercial.receiving_sessions').where({ id: sessionId }).update({
         status: 'cancelled', updated_at: trx.fn.now(),
       });
-      return this.detail(sessionId);
+      return this.detailTx(trx, sessionId);
     });
   }
 
@@ -400,7 +400,16 @@ export class ReceivingSessionService {
 
   async detail(sessionId: string) {
     if (!UUID.test(sessionId)) throw new BadRequestException('session_id inválido');
-    return this.tk.run(async (trx) => {
+    return this.tk.run((trx) => this.detailTx(trx, sessionId));
+  }
+
+  /**
+   * Arma el detalle DENTRO de la transacción dada. Se usa desde open/scan/close/…
+   * para no abrir una transacción anidada (otra conexión del pool NO vería los
+   * cambios aún sin commitear → NotFoundException + rollback). Ver bug 2026-08-19.
+   */
+  private async detailTx(trx: any, sessionId: string) {
+    {
       const session = await trx('commercial.receiving_sessions as s')
         .leftJoin('commercial.warehouses as w', function () {
           this.on('w.tenant_id', '=', 's.tenant_id').andOn('w.id', '=', 's.warehouse_id');
@@ -430,6 +439,6 @@ export class ReceivingSessionService {
         received_units: lines.reduce((a, l) => a + Number(l.received_qty), 0),
       };
       return { ...session, lines, progress };
-    });
+    }
   }
 }
