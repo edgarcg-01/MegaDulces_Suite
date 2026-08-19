@@ -51,10 +51,17 @@ export interface LabelModel {
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
-    @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Bebas+Neue&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Anton&family=Baloo+2:wght@500;600;700;800&family=Bebas+Neue&display=swap');
     .etq-label{
       --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea; --red:#F05A28;
-      --font:'Baloo 2',system-ui,sans-serif; --font-num:'Impact','Haettenschweiler','Anton','Arial Narrow',sans-serif;
+      --font:'Baloo 2',system-ui,sans-serif;
+      /* El precio grande va con Anton, que SE DESCARGA. Antes encabezaba 'Impact', que no es
+         webfont: existe instalada en Windows y macOS pero no en iPad ni en Android, y ahí toda
+         la cadena caía hasta sans-serif — el precio salía en Helvetica normal en vez de la
+         condensada pesada. Misma etiqueta, dos tipografías según el equipo que la imprimiera.
+         Anton queda primero para que la etiqueta impresa sea idéntica en todos lados; Impact
+         queda de respaldo por si el equipo está sin internet y ya la tiene instalada. */
+      --font-num:'Anton','Impact','Haettenschweiler','Arial Narrow',sans-serif;
       --font-cond:'Bebas Neue','Impact','Arial Narrow',sans-serif;
       width:115mm; height:40mm; background:var(--cream); border-radius:3mm; overflow:hidden;
       font-family:var(--font); color:var(--green); display:flex; flex-direction:column;
