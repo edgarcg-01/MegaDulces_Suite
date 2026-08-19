@@ -2133,22 +2133,63 @@ export class FinanceBankService {
     // CB.32 — Cobertura/frescura por fuente: distingue "captura pendiente" de "descuadre real".
     // Cada fuente captura a su ritmo (banco al día > Kepler operativo > ContPAQi fiscal). En el
     // mes en curso una fuente rezagada NO es descuadre; el semáforo no debe leerse como error.
-    const curYm = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit' })
-      .format(new Date()).slice(0, 7);
+    //
+    // MIDE DÍAS, NO CONTEOS. El pct era movs/max(movs de las 3): la fuente con más registros
+    // marcaba 100% aunque le faltara medio mes, y `stale` disparaba comparando conteos entre
+    // fuentes cuya granularidad difiere POR DISEÑO (el banco registra en bulto lo que Kepler
+    // parte por venta), así que la etiqueta "captura pendiente" salía por estructura del dato
+    // y no por atraso. Ahora: hasta qué día del periodo llegó cada fuente, contra el día
+    // esperado (fin de mes, o HOY si es el mes en curso).
+    const curYmd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(new Date());
+    const curYm = curYmd.slice(0, 7);
     const cov = await this.tk.run(async (trx) => {
       const wb: any = await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(bm.movement_date) AS last')).first();
       const kp: any = await trx('analytics.kepler_bank_movements').where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
-        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_captura) AS last')).first();
+        // fecha_valor, no fecha_captura: la cobertura mide hasta qué DÍA DEL PERIODO llegó la
+        // fuente, y la fecha de captura puede caer fuera del mes (se captura después).
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) AS last')).first();
       const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) AS last')).first();
       return { wb, kp, cq };
     });
     const cw = n(cov.wb?.movs), ck = n(cov.kp?.movs), cc = n(cov.cq?.movs);
-    const maxc = Math.max(cw, ck, cc, 1);
-    const src = (movs: number, last: any) => ({ movs, pct: Math.round((movs / maxc) * 100), last: last || null, stale: movs > 0 && movs < 0.3 * maxc });
+    /** Día del periodo hasta el que se espera tener captura. */
+    const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const targetDay = period === curYm ? Math.min(Number(curYmd.slice(8, 10)) || lastDay, lastDay) : lastDay;
+    /** Días de atraso a partir de los cuales la captura de una fuente se marca pendiente. */
+    const STALE_LAG = 3;
+    // node-postgres devuelve las columnas `date` como Date de JS: se leen por componentes
+    // locales, nunca con toISOString() (voltea el día en TZ MX).
+    const ymdOf = (v: any): string => {
+      if (v instanceof Date && !isNaN(v.getTime())) {
+        const p2 = (x: number) => String(x).padStart(2, '0');
+        return `${v.getFullYear()}-${p2(v.getMonth() + 1)}-${p2(v.getDate())}`;
+      }
+      return String(v ?? '').slice(0, 10);
+    };
+    const dayOf = (v: any): number => {
+      const s = ymdOf(v);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return 0;
+      const ym = s.slice(0, 7);
+      if (ym < period) return 0;        // anterior al periodo: no cubre nada de él
+      if (ym > period) return lastDay;  // posterior: el periodo está cubierto entero
+      return Number(s.slice(8, 10)) || 0;
+    };
+    const src = (movs: number, last: any) => {
+      const day = movs > 0 ? dayOf(last) : 0;
+      return {
+        movs,
+        last: movs > 0 ? (ymdOf(last) || null) : null,
+        /** Hasta qué día del periodo llegó esta fuente, y hasta cuál se espera. */
+        days_covered: day, days_target: targetDay,
+        pct: Math.max(0, Math.min(100, Math.round((day / targetDay) * 100))),
+        stale: movs > 0 && targetDay - day >= STALE_LAG,
+      };
+    };
     const coverage = {
       is_current_month: period === curYm,
       workbook: src(cw, cov.wb?.last),

@@ -42,10 +42,13 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         </div>
       </div>
 
-      <!-- CB.32 — Cobertura/frescura por fuente: captura pendiente ≠ descuadre -->
+      <!-- CB.32 — Cobertura/frescura por fuente: captura pendiente ≠ descuadre.
+           La barra mide DÍAS del periodo capturados, no cuántos movimientos trae cada fuente:
+           el banco registra en bulto lo que Kepler parte por venta, así que comparar conteos
+           entre fuentes marcaba atraso donde sólo había granularidad distinta. -->
       <div class="tw-cov" [class.warn]="anyStale(d)">
         <div class="tw-cov-head">
-          <span><i class="pi pi-database"></i> Cobertura del periodo</span>
+          <span><i class="pi pi-database"></i> Cobertura del periodo <span class="tw-cov-sub">— días capturados</span></span>
           @if (d.coverage.is_current_month) { <span class="tw-tag muted-tag">mes en curso</span> }
         </div>
         <div class="tw-cov-sources">
@@ -53,10 +56,15 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <div class="tw-cov-src" [class.stale]="s.stale || s.sin_datos">
               <div class="tw-cov-lbl">{{ s.label }}
                 @if (s.sin_datos) { <span class="tw-tag warn-tag">sin datos</span> }
-                @else if (s.stale) { <span class="tw-tag warn-tag">captura pendiente</span> }
+                @else if (s.stale) { <span class="tw-tag warn-tag">{{ s.days_target - s.days_covered }} días atrás</span> }
               </div>
-              <div class="tw-cov-bar"><div class="tw-cov-fill" [style.width.%]="s.pct"></div></div>
-              <div class="tw-cov-meta muted">{{ s.movs }} movs · {{ s.pct }}%<span *ngIf="s.last"> · al {{ dmShort(s.last) }}</span></div>
+              <div class="tw-cov-bar" role="img" [attr.aria-label]="covAria(s)">
+                <div class="tw-cov-fill" [style.width.%]="s.pct"></div>
+              </div>
+              <div class="tw-cov-meta muted" [attr.title]="covAria(s)">
+                @if (s.sin_datos) { sin movimientos del periodo }
+                @else { día {{ s.days_covered }} de {{ s.days_target }} · {{ s.movs }} movs<span *ngIf="s.last"> · al {{ dmShort(s.last) }}</span> }
+              </div>
             </div>
           }
         </div>
@@ -446,6 +454,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-cov { border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; border-left-color: var(--ok-fg); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
     .tw-cov.warn { border-left-color: var(--warn-fg); }
     .tw-cov-head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-2); }
+    /* Qué mide la barra, en el encabezado: sin esto "cobertura %" se lee como completitud. */
+    .tw-cov-sub { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-faint); }
     .tw-cov-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--sp-3); }
     .tw-cov-src { display: flex; flex-direction: column; gap: 3px; }
     .tw-cov-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: var(--sp-2); }
@@ -821,6 +831,14 @@ export class BancosThreeWayComponent {
       { key: 'kep', label: 'Kepler (tesorería)', ...c.kepler },
       { key: 'cpq', label: 'ContPAQi (libros)', ...c.contpaqi },
     ];
+  }
+
+  /** Lectura en llano de la barra — también es su etiqueta accesible: sola no dice nada. */
+  covAria(s: { label: string; sin_datos?: boolean; days_covered: number; days_target: number; movs: number }): string {
+    if (s.sin_datos) return `${s.label}: sin movimientos capturados en el periodo.`;
+    const falta = s.days_target - s.days_covered;
+    const base = `${s.label}: capturado hasta el día ${s.days_covered} de ${s.days_target} esperados (${s.movs} movimientos)`;
+    return falta > 0 ? `${base}; van ${falta} días sin captura.` : `${base}; al día.`;
   }
   anyStale(d: ThreeWay): boolean {
     const c = d.coverage;
