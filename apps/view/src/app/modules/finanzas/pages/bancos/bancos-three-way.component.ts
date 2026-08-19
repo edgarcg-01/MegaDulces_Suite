@@ -11,6 +11,7 @@ import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, T
 import { money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
+import { CUADRE_STYLES } from '../cuadre.styles';
 import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
          explainAccounts, explainMovements, totalDelta } from './three-way-explain';
 
@@ -84,7 +85,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
 
       <!-- Nivel 1 — control-total: aquí cuadran las 3 -->
       <div class="card-premium card-flat tw-card">
-        <h3 class="fb-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
+        <h3 class="tw-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
         <div class="tw-wrap">
           <table class="tw-tbl">
             <thead>
@@ -142,14 +143,14 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             </tbody>
           </table>
         </div>
-        <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i>
+        <p class="tw-note muted"><i class="pi pi-info-circle"></i>
           <b>Workbook</b> = tu estado de cuenta (lo que movió el banco). <b>Kepler (tesorería)</b> = movimientos de banco del ERP por cuenta (kdm1, {{ d.kepler_movs }} movs) — <b>misma fuente que la pestaña Conciliación</b>. <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas).
         </p>
       </div>
 
       <!-- Nivel 2 — por cuenta: las 3 fuentes (Kepler desde tesorería kdm1) -->
-      <div class="card-premium card-flat fb-tablewrap">
-        <h3 class="fb-card-title fb-pnl-title">Por cuenta
+      <div class="card-premium card-flat tw-tablewrap">
+        <h3 class="tw-card-title tw-pnl-title">Por cuenta
           <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por banco (Kepler desde tesorería)' : 'Workbook ↔ ContPAQi (Kepler aún sin datos del periodo)' }}</span>
           <button type="button" class="tw-xls tw-xls-head" [disabled]="exporting()" (click)="exportCuadre(d)"
                   title="Descarga el control-total y el detalle por cuenta">
@@ -160,7 +161,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <ng-template #header>
               <tr>
                 <th rowspan="2" pSortableColumn="bank" title="Banco y número de cuenta">Cuenta <p-sorticon field="bank" /></th>
-                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos</th>
+                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left tw-in-ico"></i> Depósitos</th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
                 <th rowspan="2" class="ta-r tw-col-dif" pSortableColumn="worst_abs"
                     title="Peor desviación contra el banco entre las fuentes disponibles">Diferencia <p-sorticon field="worst_abs" /></th>
@@ -177,7 +178,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <ng-template #body let-r>
               <tr class="tw-clickable" [attr.data-acct]="r.account_label" [class.tw-hl]="hlAcct() === r.account_label"
                   (click)="openDrill(d.period, r)" title="Ver detalle a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi)">
-                <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
+                <td><span class="tw-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
                   <i class="pi pi-search-plus tw-drill-ico"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -211,12 +212,12 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       @if (cheques(); as ch) {
         @if (ch.total.cheques_n > 0) {
           <div class="card-premium card-flat tw-card" id="tw-cheques">
-            <h3 class="fb-card-title fb-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
+            <h3 class="tw-card-title tw-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
             <div class="tw-chq-kpis">
               <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
               <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
             </div>
-            <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
+            <p class="tw-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
             @if (ch.total.en_transito_n > 0) {
               <div class="tw-wrap">
                 <table class="tw-tbl tw-chq-tbl">
@@ -283,7 +284,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <li class="tw-exp-acct">
                 <div class="tw-exp-head">
                   <span class="tw-exp-name">
-                    <span class="fb-strong">{{ a.bank }}</span>
+                    <span class="tw-strong">{{ a.bank }}</span>
                     <span class="muted mono">{{ a.account_label }}</span>
                     @if (a.falta_en) { <span class="tw-tag warn-tag">sin datos en {{ a.falta_en }}</span> }
                   </span>
@@ -329,7 +330,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               (cubren el {{ expShownPct() }}% de la diferencia bruta). Quedan {{ expRest() }} con aportes menores.
             </p>
           }
-          <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i>
+          <p class="tw-note muted"><i class="pi pi-info-circle"></i>
             Los movimientos listados son los que <b>faltan por completo</b> en una de las dos fuentes
             ({{ ctx.hint }}). No suman el Δ por sí solos: un movimiento presente en ambas con importe
             distinto también lo mueve, y ese aparece marcado en el Detalle 3 vías de la cuenta.
@@ -388,7 +389,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               @for (e of drillRows(); track e.id) {
                 <tr>
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
-                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left fb-in-ico' : 'pi pi-arrow-up-right fb-out-ico'"></i></td>
+                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'"></i></td>
                   <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono">@if (e.kepler) { <span [title]="e.kepler_doc || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="ta-r mono">@if (e.contpaqi) { <span [title]="e.contpaqi_poliza || ''" [class.tw-cent]="e.contpaqi_importe !== e.importe">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
@@ -422,16 +423,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       }
     </p-dialog>
   `,
-  styles: [BANCOS_STYLES, `
-    /* Boton de export: ghost, discreto -- es una accion secundaria. */
-    .tw-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
-      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
-      padding: 2px var(--sp-2); cursor: pointer; }
-    .tw-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
-    .tw-xls:disabled { opacity: .6; cursor: default; }
-    .tw-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
-
+  styles: [BANCOS_STYLES, CUADRE_STYLES, `
     /* Encabezado ordenable de tabla cruda: el th completo es el objetivo de clic. */
     .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
       font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }
@@ -443,31 +435,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     th[aria-sort]:not([aria-sort='none']) .tw-sort { color: var(--action); }
     th[aria-sort]:not([aria-sort='none']) .tw-sort i { opacity: 1; }
 
-    /* Veredicto */
-    .tw-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4);
-      border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; margin-bottom: var(--sp-3); }
-    .tw-verdict.ok { border-left-color: var(--ok-fg); }
-    .tw-verdict.bad { border-left-color: var(--warn-fg); }
-    .tw-verdict > i { font-size: 1.5rem; }
-    .tw-verdict.ok > i { color: var(--ok-fg); }
-    .tw-verdict.bad > i { color: var(--warn-fg); }
-    .tw-verdict h3 { font-size: var(--fs-h3); font-weight: 700; margin: 0; color: var(--text-main); }
-    .tw-verdict p { font-size: var(--fs-xs); margin: 2px 0 0; line-height: 1.4; }
-    .tw-card { margin-bottom: var(--sp-3); }
-    .tw-wrap { overflow-x: auto; }
-    table.tw-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    table.tw-tbl th, table.tw-tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
-    table.tw-tbl thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
-    table.tw-tbl thead th i { margin-right: 4px; }
-    table.tw-tbl tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); }
-    table.tw-tbl tbody tr:last-child td, table.tw-tbl tbody tr:last-child th { border-bottom: none; }
-    .tw-tag { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
-    .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
-    /* Cabecera agrupada Depósitos/Retiros + resalte de la columna Kepler (la fuente nueva) */
-    .tw-grp { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; border-bottom: 1px solid var(--border-color); }
-    .tw-grp i { margin-right: 4px; }
-    :host ::ng-deep th.tw-kep, .tw-kep { background: color-mix(in srgb, var(--chart-2) 6%, transparent); }
-    .warn-tag { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-fg); }
     /* Columna Diferencia: cifra + fuente en una línea, alineadas a la derecha como el resto
        de los números. El ancho fijo evita que la tabla salte al cambiar de periodo. */
     .tw-col-dif { min-width: 12rem; }
@@ -498,13 +465,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-cov-meta { font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
     .tw-cov-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
     /* CB.33 — filas clicables (drill) */
-    .tw-clickable { cursor: pointer; }
-    .tw-clickable:hover { background: var(--hover-bg); }
-    .tw-drill-ico { font-size: .7rem; color: var(--text-faint); margin-left: 4px; opacity: 0; transition: opacity 120ms ease; }
-    .tw-clickable:hover .tw-drill-ico { opacity: 1; }
-    .tw-faint { color: var(--text-faint); font-size: .7rem; }
-    .nowrap { white-space: nowrap; }
-    .tw-concept { color: var(--text-muted); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* CB.30 — cheques en tránsito */
     .tw-chq-kpis { display: flex; gap: var(--sp-4); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); }
     .tw-chq-kpi { display: flex; flex-direction: column; gap: 1px; }
@@ -514,10 +474,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-chq-l { font-size: var(--fs-xs); color: var(--text-muted); }
     .tw-chq-tbl th, .tw-chq-tbl td { padding: var(--sp-1) var(--sp-3); }
     /* CB.33 — dialog drill */
-    .dlg-lead { font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; margin: 0 0 var(--sp-3); }
-    .tw-drill-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: var(--sp-3); }
-    .tw-drill-kpis b { color: var(--text-main); }
-    .tw-drill-tbl th, .tw-drill-tbl td { padding: var(--sp-1) var(--sp-3); }
     /* CB.37 — filtros del detalle */
     .tw-drill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
     .tw-fg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
@@ -528,12 +484,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-fsearch { padding: 3px var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-xs); min-width: 12rem; }
     .tw-fcount { font-size: var(--fs-xs); margin-left: auto; }
     .tw-cent { color: var(--warn-fg); } /* monto de la fuente ≠ workbook (centavos/tolerancia) */
-    .tw-empty { padding: var(--sp-4); }
-    .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
-    @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
-    .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
-    .tw-orphan h4 { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); background: var(--surface-ground); }
-    .tw-orphan table td { padding: 3px var(--sp-3); border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); }
     /* CB.38 — el Δ que no cuadra es un botón: el número que evidencia algo lleva a su arreglo */
     .tw-dlink { font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: var(--sp-1); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
     .tw-dlink i { font-size: .7rem; opacity: 0; transition: opacity 120ms ease; }

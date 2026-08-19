@@ -14,6 +14,7 @@ import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
+import { CUADRE_STYLES } from './cuadre.styles';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
@@ -169,118 +170,150 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       @if (view()==='cuadre') {
         @if (loading() && !wbc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
         @else if (wbc(); as d) {
-          <!-- Answer-first: ¿las 3 fuentes registran lo mismo que la caja movió? (espejo de Bancos) -->
-          <div class="cg-kve-wrap">
-            <table class="cg-kve">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th class="ta-r">Control <span class="cg-sub">(caja)</span></th>
-                  <th class="ta-r">Workbook <span class="cg-sub">(manual)</span></th>
-                  <th class="ta-r">Kepler <span class="cg-sub">(ERP)</span></th>
-                  <th class="ta-r">Δ <span class="cg-sub">ctrl–wb</span></th>
-                  <th class="ta-c">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row"><i class="pi pi-arrow-down-left cg-in" aria-hidden="true"></i> Ingresos <span class="muted">(entra)</span></th>
-                  <td class="ta-r num strong">{{ money(d.totals.mdb_ingreso) }}</td>
-                  <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
-                  <td class="ta-r num cg-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_ingreso)>1">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
-                  <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
-                  <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
-                </tr>
-                <tr>
-                  <th scope="row"><i class="pi pi-arrow-up-right cg-eg" aria-hidden="true"></i> Gastos <span class="muted">(sale)</span></th>
-                  <td class="ta-r num strong">{{ money(d.totals.mdb_gasto) }}</td>
-                  <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
-                  <td class="ta-r num cg-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_gasto)>1">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
-                  <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
-                  <td class="ta-c">@if (!d.totals.wb_disponible) { <span class="muted">s/manual</span> } @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> } @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra"></i> }</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="cg-note" style="margin:.2rem 0 .6rem">Enfrenta el <b>Control</b> (caja viva Doctos — lo que de verdad se movió) contra el <b>workbook</b> (copia manual del Excel) y contra <b>Kepler</b> (CAJA GENERAL del ERP). El <b>Δ ctrl–wb</b> es la comparación exacta (±{{ money(d.eps) }}/día) → caza errores de captura del Excel. <b>Kepler</b> es más grueso (registra lo capturado en el ERP, no cada movimiento) → su diferencia es informativa. Clic en un día → <b>¿dónde está el descuadre?</b> (movimientos que faltan de cada lado).@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }</p>
+
+          <!-- Veredicto answer-first (mismo organismo que el Cuadre de Bancos) -->
           @if (!d.totals.wb_disponible) {
-            <div class="cg-legacy-note" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No hay <b>workbook</b> (copia manual) en este periodo (la hoja CAJA GENERAL del Sheet está vacía). Llénala en el Excel para conciliar — o usa <b>General</b>: el Control no depende del manual.</span></div>
+            <div class="tw-verdict bad">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <div>
+                <h3>Sin workbook para este periodo</h3>
+                <p class="muted">La hoja CAJA GENERAL del Sheet está vacía: no hay copia manual contra la cual conciliar. Llénala en el Excel, o usá <b>General</b> — el Control no depende del manual.</p>
+              </div>
+            </div>
           } @else {
-            <div class="cg-verdict" [class.ok]="d.totals.dias_descuadre===0" [class.warn]="d.totals.dias_descuadre>0">
-              @if (d.totals.dias_descuadre===0) { <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> — el workbook empata con el Control en los {{ d.totals.dias_wb }} días capturados. }
-              @else { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <b>{{ d.totals.dias_descuadre }} día(s) con diferencia</b> entre el workbook y el Control — revísalos abajo. }
+            <div class="tw-verdict" [class.ok]="d.totals.dias_descuadre===0" [class.bad]="d.totals.dias_descuadre>0">
+              <i [class]="d.totals.dias_descuadre===0 ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'" aria-hidden="true"></i>
+              <div>
+                <h3>{{ verdict(d) }}</h3>
+                <p class="muted">El <b>Control</b> (caja viva Doctos) es lo que de verdad se movió; el <b>workbook</b> es la copia manual del Excel y <b>Kepler</b> el CAJA GENERAL del ERP. Tolerancia ±{{ money(d.eps) }}/día.</p>
+              </div>
             </div>
           }
-          <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
-            <ng-template #header>
-              <tr>
-                <th class="cg-w-x" rowspan="2"></th>
-                <th class="cg-w-date" rowspan="2">Día</th>
-                <th class="ta-r" colspan="4">Ingreso</th>
-                <th class="ta-r" colspan="4">Gasto</th>
-                <th class="cg-w-e" rowspan="2">Estado</th>
-              </tr>
-              <tr>
-                <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ ctrl–wb</th>
-                <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub">Kepler</th><th class="ta-r cg-sub">Δ ctrl–wb</th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-r>
-              <tr class="cg-row-click" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
-                <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
-                <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span></td>
-                <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
-                <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
-                <td class="ta-r num cg-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
-                <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
-                <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
-                <td class="ta-r num cg-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
-                <td class="cg-w-e">
-                  @if (r.wb_vacio) { <span class="muted">sin workbook</span> }
-                  @else if (r.cuadra) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
-                  @else { <p-tag value="revisar" severity="warn" styleClass="cg-tag" /> }
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template #expandedrow let-r>
-              <tr class="cg-detail-row"><td colspan="11">
-                @if (wbDayLoad()[key(r)]) { <div class="muted" style="padding:.5rem">Casando movimientos del día…</div> }
-                @else if (wbDayErr()[key(r)]?.dia; as e) { <div class="cg-dayerr" style="padding:.5rem"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
-                @else if (wbDayDia()[key(r)]; as cd) {
-                  <p class="cg-drill-lead">Enfrentamos cada movimiento del <b>Control (caja real)</b> contra cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b> — a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente tiene y el Control no movió.</p>
-                  @for (p of pairings(cd); track p.key) {
-                    <div class="cg-pair">
-                      <div class="cg-pair-t">vs {{ p.title }}</div>
+
+          <!-- Nivel 1 — control-total: las 3 fuentes del periodo -->
+          <div class="card-premium card-flat tw-card">
+            <h3 class="tw-card-title">Control-total <span class="muted">— las 3 fuentes en {{ month() }} (tolerancia ±{{ money(d.eps) }}/día)</span></h3>
+            <div class="tw-wrap">
+              <table class="tw-tbl">
+                <thead>
+                  <tr>
+                    <th scope="col"></th>
+                    <th scope="col" class="ta-r"><i class="pi pi-wallet"></i> Control</th>
+                    <th scope="col" class="ta-r"><i class="pi pi-file-excel"></i> Workbook</th>
+                    <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler</th>
+                    <th scope="col" class="ta-r" title="Control − Workbook">Δ C–W</th>
+                    <th scope="col" class="ta-r" title="Control − Kepler">Δ C–K</th>
+                    <th scope="col" class="ta-c">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingresos <span class="muted">(entra)</span></th>
+                    <td class="ta-r num strong">{{ money(d.totals.mdb_ingreso) }}</td>
+                    <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
+                    <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
+                    <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
+                    <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_ingreso)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_ingreso) : '—' }}</td>
+                    <td class="ta-c">
+                      @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
+                      @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
+                      @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — revisa el detalle por día"></i> }
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gastos <span class="muted">(sale)</span></th>
+                    <td class="ta-r num strong">{{ money(d.totals.mdb_gasto) }}</td>
+                    <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
+                    <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
+                    <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
+                    <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_gasto)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_gasto) : '—' }}</td>
+                    <td class="ta-c">
+                      @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
+                      @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
+                      @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — revisa el detalle por día"></i> }
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="tw-note muted"><i class="pi pi-info-circle"></i>
+              <b>Control</b> = caja viva de Comisionistas (Doctos), lo que de verdad se movió. <b>Workbook</b> = copia manual del Excel; el <b>Δ C–W</b> es la comparación exacta y caza errores de captura. <b>Kepler</b> = CAJA GENERAL del ERP, más grueso (registra lo capturado, no cada movimiento) → su diferencia es informativa.@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }
+            </p>
+          </div>
+
+          <!-- Nivel 2 — por día: clic en una fila abre qué movimientos no casan -->
+          <div class="card-premium card-flat tw-tablewrap">
+            <h3 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h3>
+            <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+              <ng-template #header>
+                <tr>
+                  <th class="cg-w-x" rowspan="2"></th>
+                  <th class="cg-w-date" rowspan="2">Día</th>
+                  <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th>
+                  <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th>
+                  <th class="cg-w-e ta-c" rowspan="2">Estado</th>
+                </tr>
+                <tr>
+                  <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub tw-kep">Kepler</th><th class="ta-r cg-sub">Δ C–W</th>
+                  <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub tw-kep">Kepler</th><th class="ta-r cg-sub">Δ C–W</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr class="tw-clickable" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
+                  <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
+                  <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span><i class="pi pi-search-plus tw-drill-ico"></i></td>
+                  <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
+                  <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
+                  <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
+                  <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
+                  <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
+                  <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
+                  <td class="cg-w-e ta-c">
+                    @if (r.wb_vacio) { <span class="tw-tag muted-tag">sin workbook</span> }
+                    @else if (r.cuadra) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
+                    @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — abre el día"></i> }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #expandedrow let-r>
+                <tr class="cg-detail-row"><td colspan="11">
+                  @if (wbDayLoad()[key(r)]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
+                  @else if (wbDayErr()[key(r)]?.dia; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
+                  @else if (wbDayDia()[key(r)]; as cd) {
+                    <p class="dlg-lead">Cada movimiento del <b>Control (caja real)</b> se enfrenta a cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b>: a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente registra y el Control no movió.</p>
+                    @for (p of pairings(cd); track p.key) {
                       @for (s of p.sides; track s.key) {
                         <div class="cg-side">
-                          <div class="cg-side-h">
-                            <span class="cg-side-name">{{ s.name }}</span>
-                            @if (abs(s.data.delta) <= 1) { <p-tag value="cuadra" severity="success" styleClass="cg-tag" /> }
-                            @else { <p-tag [value]="'Δ ' + money(s.data.delta)" severity="warn" styleClass="cg-tag" /> }
-                            <span class="muted cg-side-sub">Control {{ money(s.data.caja_total) }} · {{ p.short }} {{ money(s.data.other_total) }} · {{ s.data.matched_count }} casados</span>
+                          <div class="tw-drill-kpis">
+                            <span><b>{{ s.name }}</b></span>
+                            @if (abs(s.data.delta) <= 1) { <span class="tw-tag ok-tag">cuadra</span> }
+                            @else { <span class="tw-tag warn-tag">Δ {{ money(s.data.delta) }}</span> }
+                            <span>Control <b>{{ money(s.data.caja_total) }}</b></span>
+                            <span>{{ p.short }} <b>{{ money(s.data.other_total) }}</b></span>
+                            <span><b>{{ s.data.matched_count }}</b> casados</span>
                           </div>
                           @if (!s.data.caja_only.length && !s.data.other_only.length) {
                             <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
                           } @else {
-                            <div class="cg-drill-cols">
-                              <div class="cg-drill-col">
-                                <div class="cg-drill-colh cg-col-caja">En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</div>
+                            <div class="tw-orphans">
+                              <div class="tw-orphan">
+                                <h4><i class="pi pi-wallet"></i> En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</h4>
                                 @if (s.data.caja_only.length) {
-                                  <table class="cg-daytbl"><tbody>
+                                  <table class="tw-tbl"><tbody>
                                     @for (m of s.data.caja_only; track m.id) {
-                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="cg-emp" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
                                     }
                                   </tbody></table>
                                 } @else { <p class="cg-drill-none muted">— nada —</p> }
                               </div>
-                              <div class="cg-drill-col">
-                                <div class="cg-drill-colh cg-col-other">En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</div>
+                              <div class="tw-orphan">
+                                <h4><i class="pi pi-database"></i> En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</h4>
                                 @if (s.data.other_only.length) {
-                                  <table class="cg-daytbl"><tbody>
+                                  <table class="tw-tbl"><tbody>
                                     @for (m of s.data.other_only; track m.id) {
-                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="cg-emp" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
                                     }
                                   </tbody></table>
                                 } @else { <p class="cg-drill-none muted">— nada —</p> }
@@ -289,13 +322,13 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                           }
                         </div>
                       }
-                    </div>
+                    }
                   }
-                }
-              </td></tr>
-            </ng-template>
-            <ng-template #emptymessage><tr><td colspan="11"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
-          </p-table>
+                </td></tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="11"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+            </p-table>
+          </div>
         }
       }
 
@@ -501,7 +534,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       }
     </div>
   `,
-  styles: [`
+  styles: [CUADRE_STYLES, `
     /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
        igual que un día sin movimientos: un 404 del API, un 403 o el 22007 por una
        fecha mal formada eran indistinguibles de "no hubo nada". */
@@ -535,9 +568,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
     .cg-two { margin:.4rem 0 .8rem; } .cg-bd-wide { max-width:none; padding:.4rem .5rem; }
     code { font-family:var(--font-mono); font-size:.9em; }
-    .cg-verdict { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; margin:.4rem 0 .2rem; border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:.85rem; }
-    .cg-verdict.ok { border-left-color:var(--ok-fg); } .cg-verdict.ok .pi { color:var(--ok-fg); }
-    .cg-verdict.warn { border-left-color:var(--warn-fg); } .cg-verdict.warn .pi { color:var(--warn-fg); }
     .cg-w-x { width:2.2rem; }
     .cg-row-click { cursor:pointer; } .cg-row-click:hover { background:var(--hover-bg); }
     .cg-row-open { background:color-mix(in srgb, var(--action) 5%, transparent); }
@@ -559,35 +589,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-ol { font-size:var(--fs-xs); color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .cg-ov { font-size:var(--fs-lg, 1.05rem); font-weight:700; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .cg-os { font-size:var(--fs-xs); color:var(--text-faint); }
-    .cg-daywrap { overflow-x:auto; } .cg-daytbl { width:100%; border-collapse:collapse; font-size:.78rem; }
     .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
     .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
-    .cg-daytbl th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); padding:3px 8px; border-bottom:1px solid var(--border-color); }
-    .cg-daytbl td { padding:3px 8px; border-bottom:1px solid var(--border-color); }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .cg-kep { color:var(--text-faint); font-style:italic; }
-    .cg-drill-lead { font-size:.78rem; color:var(--text-main); line-height:1.5; margin:.2rem 0 .7rem; }
-    .cg-pair { margin-bottom:.9rem; }
-    .cg-pair-t { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border-color); padding-bottom:.2rem; margin-bottom:.4rem; }
     .cg-side { margin-bottom:.6rem; }
-    .cg-side-h { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin-bottom:.25rem; }
-    .cg-side-name { font-size:.8rem; font-weight:700; color:var(--text-main); }
-    .cg-side-sub { font-size:.68rem; }
     .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
-    .cg-drill-cols { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
-    @media (max-width:720px) { .cg-drill-cols { grid-template-columns:1fr; } }
-    .cg-drill-col { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); overflow:hidden; }
-    .cg-drill-colh { font-size:.68rem; font-weight:700; padding:.3rem .5rem; border-bottom:1px solid var(--border-color); }
-    .cg-col-caja { background:color-mix(in srgb, var(--action) 10%, transparent); color:var(--text-main); }
-    .cg-col-other { background:color-mix(in srgb, var(--text-faint) 10%, transparent); color:var(--text-main); }
     .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
-    .cg-kve-wrap { overflow-x:auto; margin-bottom:.6rem; }
-    table.cg-kve { width:100%; border-collapse:collapse; font-size:.82rem; }
-    table.cg-kve th, table.cg-kve td { padding:.35rem .6rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
-    table.cg-kve thead th { font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
-    table.cg-kve tbody th[scope=row] { text-align:left; font-weight:600; color:var(--text-main); }
-    table.cg-kve tbody tr:last-child td, table.cg-kve tbody tr:last-child th { border-bottom:none; }
     .cg-ok-i { color:var(--ok-fg, #16a34a); }
     .cg-bad-i { color:var(--bad-fg, #dc2626); }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -752,6 +761,16 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   abs(n: number): number { return Math.abs(n || 0); }
+
+  /**
+   * Lectura del cuadre en una línea. Mismo rol que `verdict()` del Cuadre de Bancos: la
+   * conclusión va arriba y con nombre propio, no un semáforo que hay que interpretar.
+   */
+  verdict(d: { totals: { dias_descuadre: number; dias_wb: number } }): string {
+    const { dias_descuadre: mal, dias_wb: total } = d.totals;
+    if (!mal) return `El workbook empata con el Control en los ${total} días capturados.`;
+    return `${mal} de ${total} días capturados no empatan entre el workbook y el Control.`;
+  }
   wbKpis(d: CajaWb): MetricStripItem[] {
     return [
       { label: '.mdb (operativo)', value: d.totals.mdb_ingreso, format: 'currency-short', tone: 'default', sub: `ingreso · ${d.totals.dias} días` },
