@@ -171,6 +171,40 @@ export class ExpenseComprobacionesService {
   }
 
   /**
+   * Vision AUTORITATIVO en el servidor: re-lee el comprobante YA SUBIDO (bucket) con
+   * Claude Vision, en vez de confiar en el `monto_ocr` que reporta el cliente (que podría
+   * forzar un auto-validado falso). El cliente no puede influir en esta lectura. Si no hay
+   * `ANTHROPIC_API_KEY` o el archivo no se puede leer, cae a lo que reportó el cliente
+   * (best-effort). Se corre FUERA de la transacción (I/O de segundos).
+   */
+  private async serverReadReceipt(
+    files: ComprobacionFile[],
+    dto: CreateComprobacionDto,
+  ): Promise<{ total: number | null; subtotal: number | null; legible: boolean; source: 'servidor' | 'cliente' }> {
+    const fallback = {
+      total: dto.monto_ocr ?? null,
+      subtotal: dto.subtotal_ocr ?? null,
+      legible: dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null),
+      source: 'cliente' as const,
+    };
+    if (!process.env.ANTHROPIC_API_KEY) return fallback;
+    const comp = files.find((f) => f.role === 'comprobacion') || files[0];
+    const key = comp?.public_id || comp?.url || '';
+    const dataUri = key ? await this.storage.getDataUri(key) : null;
+    if (!dataUri) return fallback;
+    const m = /^data:([^;,]+)[;,]/.exec(dataUri);
+    const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
+    const base64 = dataUri.replace(/^data:[^,]*,/, '');
+    try {
+      const f = await this.ocr.extractExpenseReceipt(base64, mediaType as any);
+      return { total: f.total, subtotal: f.subtotal, legible: f.legible && (f.total != null || f.subtotal != null), source: 'servidor' };
+    } catch (e: any) {
+      this.logger.warn(`Vision servidor falló, uso OCR del cliente: ${e?.message || e}`);
+      return fallback;
+    }
+  }
+
+  /**
    * GX.8 (validación por vision) — Lee la FOTO/EVIDENCIA del gasto con Claude Vision
    * y la valida contra el importe del gasto Kepler (XA1001). Preview: el front la
    * llama al adjuntar la foto para mostrar "cuadra / en revisión" antes de enviar.
@@ -259,6 +293,9 @@ export class ExpenseComprobacionesService {
       if (!roles.has(r)) throw new BadRequestException(`falta la foto del comprobante`);
     }
 
+    // Vision autoritativo FUERA de la trx (I/O lento): re-lee el comprobante en el servidor.
+    const srv = await this.serverReadReceipt(files, dto);
+
     return this.tk.run(async (trx) => {
       // El gasto de Kepler es la fuente de verdad (proveedor/importe/sucursal/área/etc).
       const gasto = await trx('analytics.expense_documents')
@@ -283,8 +320,9 @@ export class ExpenseComprobacionesService {
       const areaId = area?.id || null;
 
       // Validación por vision: cuadra → validada (por Claude Vision); si no → revisión.
-      const legible = dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null);
-      const { match, usado, diff } = this.montoCuadra(importe, dto.monto_ocr ?? null, dto.subtotal_ocr ?? null);
+      // La lectura viene del SERVIDOR (srv), no del cliente → no se puede falsear.
+      const legible = srv.legible;
+      const { match, usado, diff } = this.montoCuadra(importe, srv.total, srv.subtotal);
       const cuadra = legible && match;
       const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       const status = cuadra ? 'validada' : 'revision';
@@ -313,7 +351,7 @@ export class ExpenseComprobacionesService {
           created_by: actor || null,
         })
         .returning(['id', 'folio_gasto', 'folio_solicitud', 'status']);
-      this.logger.log(`comprobación gasto ${row.folio_gasto} → ${status}${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
+      this.logger.log(`comprobación gasto ${row.folio_gasto} → ${status} [vision:${srv.source}]${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
       return row;
     });
   }

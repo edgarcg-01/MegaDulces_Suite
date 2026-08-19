@@ -109,6 +109,25 @@ export class ObjectStorageService {
     }));
   }
 
+  /**
+   * Descarga un objeto del bucket y lo devuelve como data URI (`data:<ct>;base64,…`),
+   * para re-correr OCR/Vision en el servidor sobre un archivo ya subido (validación
+   * autoritativa, sin confiar en lo que reporta el cliente). Devuelve null si no está
+   * configurado, la key es una URL http legacy (Cloudinary), o la descarga falla.
+   */
+  async getDataUri(key: string): Promise<string | null> {
+    if (!key || !this.isConfigured() || /^https?:\/\//i.test(key)) return null;
+    try {
+      const res = await this.client().send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      const bytes = await (res.Body as any).transformToByteArray();
+      const ct = res.ContentType || (key.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      return `data:${ct};base64,${Buffer.from(bytes).toString('base64')}`;
+    } catch (e: any) {
+      this.logger.warn(`GET ${key} (getDataUri): ${e?.message || e}`);
+      return null;
+    }
+  }
+
   async remove(key: string): Promise<void> {
     if (!key || !this.isConfigured() || /^https?:\/\//i.test(key)) return;
     try { await this.client().send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key })); }
