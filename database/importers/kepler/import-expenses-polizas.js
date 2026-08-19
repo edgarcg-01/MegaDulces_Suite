@@ -391,28 +391,42 @@ function normArea(raw) {
          FROM stg_exp s JOIN exp_changed c ON c.sucursal=s.sucursal AND date_trunc('month',s.fecha)::date=c.mes`,
       [M]);
 
-    // GX v3 — documentos + líneas (clave natural) → UPSERT solo-cambios + delete-not-seen.
-    // RESTAURADO 2026-08-19: expense_documents vuelve a ser TABLA contable (kdc2). La vista
-    // sobre kdm1 (mig 20260819210000) rompía la conciliación fiscal (importe/fecha del
-    // movimiento ≠ contable, $2.57M en 277 recepciones). Revertida por mig 20260819230000.
-    const upDoc = await db.query(
-      `INSERT INTO analytics.expense_documents AS t
-         (tenant_id,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,computed_at)
-       SELECT $1,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,now()
-         FROM stg_doc
-       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO UPDATE SET
-         fecha=EXCLUDED.fecha, fecha_doc=EXCLUDED.fecha_doc, beneficiario=EXCLUDED.beneficiario, rfc=EXCLUDED.rfc,
-         concepto=EXCLUDED.concepto, area=EXCLUDED.area, importe=EXCLUDED.importe, iva=EXCLUDED.iva,
-         usuario=EXCLUDED.usuario, clase=EXCLUDED.clase, computed_at=now()
-       WHERE (t.fecha,t.fecha_doc,t.beneficiario,t.rfc,t.concepto,t.area,t.importe,t.iva,t.usuario,t.clase)
-             IS DISTINCT FROM
-             (EXCLUDED.fecha,EXCLUDED.fecha_doc,EXCLUDED.beneficiario,EXCLUDED.rfc,EXCLUDED.concepto,EXCLUDED.area,EXCLUDED.importe,EXCLUDED.iva,EXCLUDED.usuario,EXCLUDED.clase)`,
-      [M]);
-    const delDoc = await db.query(
-      `DELETE FROM analytics.expense_documents t
-        WHERE t.tenant_id=$1 AND t.sucursal = ANY($2) AND t.fecha >= $3::date AND t.fecha <= $4::date
-          AND NOT EXISTS (SELECT 1 FROM stg_doc s WHERE s.sucursal=t.sucursal AND s.doc_tipo=t.doc_tipo AND s.doc_folio=t.doc_folio)`,
-      [M, sucursales, from, to]);
+    // GX v3 — documentos: `analytics.expense_documents` es VISTA derive-no-copy sobre kepler_ods.kdm1
+    // (mig 20260819210000) → NO se escribe desde acá. Su importe/iva salen del AGREGADO CONTABLE
+    // `analytics.expense_doc_accounting` (mig 20260819250000): total por documento = costo (511/6xx) +
+    // IVA (122x), lado cargo, desde las pólizas `kepler_ods.kdc2YYMM`. Se refresca acá (month-agnostic:
+    // enumera las kdc2 del ODS en runtime; el ODS ya viene fresco vía CDC). Corrige el c16 roto del
+    // movimiento (ej. recepción 02/0000482: c16=$207k vs contable $414,629.68). Si no hay ODS en este
+    // entorno (dev local sin kepler_ods) se omite sin romper el feed de pólizas.
+    let upDoc = { rowCount: 0 }, delDoc = { rowCount: 0 };
+    try {
+      const kdcTabs = (await db.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema='kepler_ods' AND table_name ~ '^kdc2[0-9]{4}$' ORDER BY 1`)).rows.map((r) => r.table_name);
+      if (kdcTabs.length) {
+        const union = kdcTabs.map((t) =>
+          `SELECT c14::text suc,(c15||c16||lpad(btrim(c17::text),2,'0')||lpad(btrim(c18::text),2,'0')) tipo,` +
+          `btrim(c19::text) folio,btrim(c3::text) cuenta,c4 ca,` +
+          `coalesce(nullif(regexp_replace(c5::text,'[^0-9.-]','','g'),'')::numeric,0) imp FROM kepler_ods.${t}`).join(' UNION ALL ');
+        upDoc = await db.query(
+          `INSERT INTO analytics.expense_doc_accounting AS t (tenant_id,sucursal,doc_tipo,doc_folio,importe_contable,iva_contable,computed_at)
+           SELECT $1, suc, tipo, folio,
+                  round(sum(imp) FILTER (WHERE ca='C' AND (cuenta='511' OR cuenta LIKE '6%' OR cuenta LIKE '122%')),2),
+                  round(sum(imp) FILTER (WHERE ca='C' AND cuenta LIKE '122%'),2),
+                  now()
+             FROM (${union}) p
+            WHERE tipo IN ('XA1001','XA2001') AND folio <> ''
+            GROUP BY suc,tipo,folio
+           ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO UPDATE
+             SET importe_contable=EXCLUDED.importe_contable, iva_contable=EXCLUDED.iva_contable, computed_at=now()
+            WHERE t.importe_contable IS DISTINCT FROM EXCLUDED.importe_contable
+               OR t.iva_contable IS DISTINCT FROM EXCLUDED.iva_contable`,
+          [M]);
+      } else {
+        console.log('  ⚠ sin kepler_ods.kdc2* en este entorno — agregado contable omitido (importe cae a c16).');
+      }
+    } catch (e) {
+      console.log(`  ⚠ refresh expense_doc_accounting: ${e.message.slice(0, 100)} — omitido (pólizas OK).`);
+    }
     const upLine = await db.query(
       `INSERT INTO analytics.expense_document_lines AS t
          (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,computed_at)
@@ -433,7 +447,7 @@ function normArea(raw) {
 
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — pólizas (block-diff mes): ${del.rowCount} borrados + ${up.rowCount} reinsertados.`);
-    console.log(`[APPLY] documentos: ${upDoc.rowCount} upserted + ${delDoc.rowCount} borrados · líneas: ${upLine.rowCount} upserted + ${delLine.rowCount} borrados.`);
+    console.log(`[APPLY] agregado contable (expense_doc_accounting): ${upDoc.rowCount} docs upserted · líneas: ${upLine.rowCount} upserted + ${delLine.rowCount} borrados.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
