@@ -13,6 +13,7 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { BancosSocketService } from '../bancos-socket.service';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
@@ -610,6 +611,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 export class FinanzasCajaComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly bancosSock = inject(BancosSocketService);
   private readonly base = `${environment.apiUrl}/finance/caja`;
 
   // `legacy` = lee el Base Movimientos de Finanzas (caja_ventas_diarias / caja_depositos),
@@ -672,6 +674,14 @@ export class FinanzasCajaComponent implements OnInit {
   private searchTimer: any;
 
   ngOnInit(): void {
+    // Al actualizar el LIBRO en Bancos (sheet-sync o upload) se reescribe también el
+    // Workbook de CAJA GENERAL (kind='cash'); nos enganchamos al mismo WS para refrescar
+    // el Cuadre en vivo sin recargar. El feed Control (.mdb/Doctos) va aparte (on-prem).
+    this.bancosSock.connect();
+    this.destroyRef.onDestroy(() => this.bancosSock.disconnect());
+    this.bancosSock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.action === 'sheet_synced' || e.action === 'imported') this.reload();
+    });
     this.http.get<Facets>(`${this.base}/facets`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => { this.f.set(f); if (f.meses?.length) this.month.set(f.meses[0]); this.reload(); },
       error: () => { this.err.set('No se pudieron cargar los filtros.'); this.reload(); },
