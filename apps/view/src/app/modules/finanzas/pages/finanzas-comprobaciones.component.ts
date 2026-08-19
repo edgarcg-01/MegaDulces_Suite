@@ -103,6 +103,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               </td>
               <td>
                 <p-tag [value]="statusLabel(r.status)" [severity]="statusSev(r.status)" />
+                @if (r.status === 'validada' && r.validated_by === 'Claude Vision') { <span class="cp-vision" title="Validada automáticamente por Claude Vision"><i class="pi pi-sparkles" aria-hidden="true"></i></span> }
+                @if (r.status === 'revision' && r.revision_nota) { <div class="cp-motivo" [title]="r.revision_nota">{{ r.revision_nota }}</div> }
                 @if (r.status === 'rechazada' && r.motivo_rechazo) { <div class="cp-motivo" [title]="r.motivo_rechazo">{{ r.motivo_rechazo }}</div> }
               </td>
               <td>
@@ -196,6 +198,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     .cp-fchip { color: var(--action); font-size: 1rem; }
     .cp-fchip:hover { opacity: .75; }
     .cp-motivo { font-size: .72rem; color: var(--bad-fg); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-vision { color: var(--action); margin-left: .35rem; font-size: .75rem; }
     .cp-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cp-form { display: flex; flex-direction: column; gap: .8rem; padding: .25rem 0; }
     .cp-row { display: flex; gap: .8rem; }
@@ -243,7 +246,7 @@ export class FinanzasComprobacionesComponent {
   readonly sucursalDerivada = signal<string>('');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
 
-  readonly statusOpts = [{ label: 'Todas', value: '' }, { label: 'Recibidas', value: 'recibida' }, { label: 'Validadas', value: 'validada' }, { label: 'Rechazadas', value: 'rechazada' }];
+  readonly statusOpts = [{ label: 'Todas', value: '' }, { label: 'Recibidas', value: 'recibida' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Rechazadas', value: 'rechazada' }];
   search = '';
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -284,11 +287,13 @@ export class FinanzasComprobacionesComponent {
   }
 
   kpiItems(r: ExpenseProofsReport): MetricStripItem[] {
-    return [
+    const items: MetricStripItem[] = [
       { label: 'Recibidas', value: r.kpis.recibidas, tone: 'warn' },
       { label: 'Validadas', value: r.kpis.validadas, tone: 'ok' },
       { label: 'Rechazadas', value: r.kpis.rechazadas, tone: 'bad' },
     ];
+    if (r.kpis.en_revision) items.splice(2, 0, { label: 'En revisión', value: r.kpis.en_revision, tone: 'warn' });
+    return items;
   }
 
   setStatus(v: string) { this.statusSel.set(v); this.load(); }
@@ -425,7 +430,7 @@ export class FinanzasComprobacionesComponent {
   }
 
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
-  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s] || s; }
-  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary'; }
+  statusLabel(s: string): string { return ({ recibida: 'Recibida', revision: 'En revisión', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s] || s; }
+  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', revision: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }
