@@ -64,6 +64,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'prov_203_orfano', clase: 'error_captura', nombre: 'Provisión 203 sin descargar', descripcion: 'Provisiones en la cuenta 203 que nunca se descargan (nómina/IMSS/SAT).', params: {} },
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
+  { rule_key: 'fecha_futura', clase: 'error_captura', nombre: 'Documento con fecha futura', descripcion: 'Documento (recepción/pago/ajuste) con fecha POSTERIOR a hoy — error de captura (año/día tecleado mal). Ensucia la frescura, el aging (nunca aparece vencido) y el cuadre del mes. Severidad crítica para que NOTIFIQUE al detectarlo (una vez por documento, dedup). Fuentes: erp_goods_receipts / erp_supplier_payments / erp_purchase_adjustments.', params: { limit_por_fuente: 100 } },
   { rule_key: 'contpaqi_proveedor_efos', clase: 'riesgo', nombre: 'Proveedor en lista negra del SAT (EFOS/69)', descripcion: 'Proveedor de la contabilidad (ContPAQi) cuyo RFC está en la lista negra del SAT: 69B = EFOS (facturan operaciones simuladas → CFDI no deducible, foco de auditoría), 69 = art. 69 CFF (incumplido / no localizado / cancelado). Cruce por RFC exacto sobre los proveedores reales de los libros.', params: {} },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, max_spread_pct: 300, min_proveedores: 2, min_compras: 2 } },
   // PV.2 — validación de pólizas (Fase PV): ¿se subió mal esta póliza? Leen analytics.gl_polizas/gl_poliza_lines.
@@ -177,6 +178,7 @@ export class MaatDetectorService {
       case 'proveedor_nuevo_grande': return this.detProveedorNuevo(trx, tenantId, params);
       case 'spread_proveedor_sku': return this.detSpread(trx, tenantId, params);
       case 'compra_sin_rfc': return this.detCompraSinRfc(trx, tenantId, params);
+      case 'fecha_futura': return this.detFechaFutura(trx, tenantId, params);
       case 'contpaqi_proveedor_efos': return this.detContpaqiEfos(trx, tenantId);
       case 'benford_importes': return this.anomaly.detBenford(trx, tenantId, params);
       case 'peer_group_outlier': return this.anomaly.detPeerGroup(trx, tenantId, params);
@@ -286,6 +288,52 @@ export class MaatDetectorService {
         dedup_key: `compra_sin_rfc|${r.doc_tipo}`,
       };
     });
+  }
+
+  // ── error_captura: documento con fecha en el FUTURO (año/día tecleado mal) ──
+  // Barre los marts de documentos con fecha del ERP. Una fecha > hoy es un error de captura que
+  // ensucia frescura/aging/cuadre. UN hallazgo por documento (dedup por fuente+sucursal+folio) y
+  // severity 'critical' → el scanner lo NOTIFICA (una vez, al primer avistamiento). Robusto entre
+  // entornos: si una fuente no existe (feed solo-prod), se salta sin fallar.
+  private async detFechaFutura(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
+    const lim = Number(p.limit_por_fuente) || 100;
+    const SOURCES = [
+      { tabla: 'analytics.erp_goods_receipts', fecha: 'receipt_date', doc: 'Recepción' },
+      { tabla: 'analytics.erp_supplier_payments', fecha: 'pago_date', doc: 'Pago a proveedor' },
+      { tabla: 'analytics.erp_purchase_adjustments', fecha: 'adjustment_date', doc: 'Ajuste de compra' },
+    ];
+    const out: RawFinding[] = [];
+    for (const s of SOURCES) {
+      let rows: any[];
+      try {
+        rows = await trx(s.tabla)
+          .where('tenant_id', tenantId)
+          .whereRaw(`${s.fecha} > CURRENT_DATE`)
+          .select('sucursal', 'folio',
+            trx.raw(`${s.fecha}::text AS fecha`),
+            trx.raw(`(${s.fecha} - CURRENT_DATE)::int AS dias`),
+            trx.raw('COALESCE(monto,0)::numeric AS monto'),
+            trx.raw('proveedor_nombre AS prov'))
+          .orderByRaw(`${s.fecha} DESC`)
+          .limit(lim);
+      } catch { continue; } // tabla/columna ausente en este entorno → skip
+      for (const r of rows) {
+        const prov = (r.prov || '').toString().trim();
+        out.push({
+          rule_key: 'fecha_futura',
+          severity: 'critical',
+          score: 0.8,
+          titulo: `Fecha futura — ${s.doc} folio ${r.folio} (suc ${r.sucursal})`,
+          resumen: `${s.doc} folio ${r.folio} (suc ${r.sucursal})${prov ? `, ${prov}` : ''} tiene fecha ${String(r.fecha).slice(0, 10)} — ${r.dias} día(s) en el FUTURO. Error de captura (año/día mal): corregir en el ERP; distorsiona frescura, aging y cuadre del mes.`,
+          entity: { sucursal: r.sucursal, folio: r.folio, doc: s.doc, fuente: s.tabla },
+          periodo: String(r.fecha).slice(0, 7),
+          importe: Number(r.monto) || 0,
+          evidencia: { fuente: s.tabla, fecha: String(r.fecha).slice(0, 10), dias_futuro: Number(r.dias), monto: Number(r.monto) || 0, proveedor: prov || null },
+          dedup_key: `fecha_futura|${s.tabla}|${r.sucursal}|${r.folio}`,
+        });
+      }
+    }
+    return out;
   }
 
   // ── riesgo (CP.3): proveedor de la contabilidad ContPAQi en la lista negra del SAT ──
