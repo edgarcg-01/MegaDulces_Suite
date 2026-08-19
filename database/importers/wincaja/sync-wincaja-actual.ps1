@@ -62,7 +62,9 @@ Push-Location $dbDir
 # Heartbeat de cron → Salud BD (grupo Crons). No debe tumbar el sync si falla.
 try { & node importers/lib/cron-heartbeat.js begin wincaja_sync "Wincaja sync (BRONZE+GOLD)" 2>&1 | Out-Null } catch {}
 try {
-  Run-Node 'BRONZE actual' @('importers/wincaja/import-wincaja.js', '--branch', 'all', '--domain', 'all', '--dataset', 'actual', '--apply')
+  # WR.6: --source replica → las sucursales con espejo (30/32/00) leen de :5433/wincaja (SQL, ~seg);
+  # las demás (10/40/44/54 + rutas) caen a Jet automáticamente. Recorta el grueso del Jet full-daily.
+  Run-Node 'BRONZE actual' @('importers/wincaja/import-wincaja.js', '--branch', 'all', '--domain', 'all', '--dataset', 'actual', '--source', 'replica', '--apply')
   Run-Node 'GOLD sales+MV' @('importers/wincaja/import-wincaja-analytics.js', '--apply')
   Run-Node 'GOLD stock'    @('importers/wincaja/import-wincaja-stock.js', '--apply')
   Run-Node 'GOLD stock CEDIS' @('importers/wincaja/import-cedis-stock-wincaja.js', '--apply')  # RA-PRO.24 — existencia CEDIS '00' = Irapuato (no Kepler)

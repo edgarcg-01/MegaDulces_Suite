@@ -93,7 +93,7 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 | **WR.3** | CDC dos carriles | Carril incremental (movimientos por watermark) + carril hash-delta (catálogos md5-en-JS vs shadow). Estado en schema `ods`. | ✅ (3 sucursales cargadas+verificadas) |
 | **WR.4** | Orquestador + tarea continua | `replicate-wincaja-live.js` (hermano de `replicate-ods-live`) orquesta sucursales × tablas × carriles + `--watch=N` + launcher `.cmd` + tarea `WincajaLiveLoop` (continua). | ✅ (tarea `WincajaReplicaLoop` 15 min) |
 | **WR.5** | Verificación + monitoreo | Fidelidad `.mdb` ↔ réplica (conteos + Σ montos, como se hizo con Kepler) + **db-health source** (frescura de la réplica Wincaja). | ✅ fidelidad (db-health source diferido) |
-| **WR.6** | Re-apuntar consumidores (Fase 2) | `import-wincaja` + extractores leen de la **réplica Postgres** (SQL) en vez de Jet → el bronze deja de depender de la extracción Jet full-daily; el `WincajaSyncActual` 05:00 se retira o se vuelve micro-batch sobre la réplica. | ⬜ |
+| **WR.6** | Re-apuntar consumidores (Fase 2) | `import-wincaja` + extractores leen de la **réplica Postgres** (SQL) en vez de Jet → el bronze deja de depender de la extracción Jet full-daily; el `WincajaSyncActual` 05:00 se retira o se vuelve micro-batch sobre la réplica. | 🧪 (flag `--source replica`; 30/32/00; daily apuntado) |
 
 **MVP = WR.0–WR.5** (la réplica cruda existe y está fresca). **WR.6** cosecha el beneficio (el pipeline deja de depender de Jet).
 
@@ -203,11 +203,12 @@ Réplica cruda continua operando en `:5433/wincaja`, 3 sucursales:
 - **`WincajaReplicaCat`** (`-Carril hash`, catálogos) cada **60 min** (timeout 20, ciclo ~11 min).
 Escriben tablas disjuntas (inc vs hash) → sin contención. Ambas `SISTEMAS\Desarrollo MD` Interactive Highest, IgnoreNew.
 
+**WR.6 ✅ re-apuntado del bronze:** flag `--source replica` en `import-wincaja.js` — para `--dataset actual`, las sucursales con espejo (30/32/00) leen de `:5433/wincaja` por SQL (~seg; ej. 90k Precios en 454ms vs Jet ~5s por tabla); las demás (10/40/44/54 + rutas) caen a Jet automáticamente. `mapRow` compartido (coerce+derive idéntico) → cero divergencia; resolución de columnas case-insensitive (Postgres es case-sensitive). `sync-wincaja-actual.ps1` (daily 05:00) ya usa `--source replica`. Dry-run branch 30 = 27 tablas OK, valores verificados. **Falta:** correr un `--apply` real contra prod bronze para cerrar 🧪→✅ (lo hace el próximo daily, o `--source replica --apply` manual).
+
 **Diferido:**
 - **WR.5.2** — db-health source (frescura de la réplica en el tablero de salud).
-- **WR.6** — re-apuntar el bronze `import-wincaja` a la réplica (dejar de depender de Jet full-daily).
+- **WR.6.1** — sumar 10/40/44/54 (+rutas) a la réplica → más sucursales salen de Jet.
 - Reconciliación de DELETEs en catálogos (barrido por diff de PK).
-- Rutas (321/322, 21-28) → tras estabilizar 30/32/00.
 
 ---
 

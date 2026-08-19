@@ -27,12 +27,20 @@ const os = require('os');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const knexLib = require('knex');
+const { BRANCHES: REPL_BRANCHES, REPLICA_URL } = require('./wincaja-replica-config');
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const APPLY = process.argv.includes('--apply');
 const BRANCH = arg('branch', '30');
 const DOMAIN = arg('domain', 'catalogo');
 const DATASET = arg('dataset', 'both'); // actual | concentrada | both
+// WR.6: fuente de lectura. `jet` (default) = extract-table.ps1 (Jet 32-bit, lento). `replica` =
+// SELECT desde la réplica cruda `:5433/wincaja` (rápido) para las sucursales que la tienen
+// (30/32/00, dataset 'actual'); las demás caen a Jet automáticamente. La etapa de transform/reload
+// es IDÉNTICA — solo cambia de dónde salen las filas crudas.
+const SOURCE = arg('source', 'jet');
+// code → schema de la réplica (w30/w32/w00). Solo aplica a dataset 'actual' (la réplica espeja Actuales).
+const REPLICA_SCHEMA = Object.fromEntries(REPL_BRANCHES.map((b) => [b.code, b.schema]));
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const PS32 = 'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe';
 const EXTRACT = path.join(__dirname, 'extract-table.ps1');
@@ -206,15 +214,43 @@ function extract(mdb, accessTable, cols) {
   return { out, rows: m ? parseInt(m[1], 10) : null };
 }
 
+// Mapea una fila CRUDA (claves = nombres de columna Access) → fila bronze (coerce + derive).
+// Compartido por el path Jet-JSONL y el path réplica-SQL → cero divergencia de transform.
+function mapRow(raw, spec) {
+  const r = {};
+  for (const [pg, ac, ty] of spec.cols) r[pg] = coerce(ty, raw[ac]);
+  if (spec.derive) spec.derive(r);
+  return r;
+}
+
 function loadJsonl(file, spec) {
   const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean);
-  return lines.map((ln) => {
-    const raw = JSON.parse(ln);
-    const r = {};
-    for (const [pg, ac, ty] of spec.cols) r[pg] = coerce(ty, raw[ac]);
-    if (spec.derive) spec.derive(r);
-    return r;
-  });
+  return lines.map((ln) => mapRow(JSON.parse(ln), spec));
+}
+
+// ── WR.6: lectura desde la réplica cruda (:5433/wincaja) ──────────────────────────
+// Columnas reales del espejo (case exacto de Access), cacheadas por tabla, para resolver
+// el nombre del spec (case-insensitive) → la réplica es Postgres, case-sensitive en identificadores.
+const _replCols = new Map();
+async function getReplicaCols(rdb, schema, table) {
+  const key = `${schema}.${table}`;
+  if (_replCols.has(key)) return _replCols.get(key);
+  const rows = await rdb('information_schema.columns')
+    .where({ table_schema: schema, table_name: table }).select('column_name');
+  const map = {};
+  for (const r of rows) map[r.column_name.toLowerCase()] = r.column_name;
+  _replCols.set(key, map);
+  return map;
+}
+
+async function readFromReplica(rdb, schema, spec) {
+  const colMap = await getReplicaCols(rdb, schema, spec.access);
+  if (!Object.keys(colMap).length) throw new Error(`réplica sin tabla ${schema}.${spec.access}`);
+  // alias: clave = nombre Access del spec, valor = columna real (resuelta por case) → mapRow(raw[ac]) intacto.
+  const sel = {};
+  for (const c of spec.cols) { const actual = colMap[c[1].toLowerCase()]; if (actual) sel[c[1]] = actual; }
+  const raw = await rdb(spec.access).withSchema(schema).select(sel);
+  return raw.map((r) => mapRow(r, spec));
 }
 
 // Errores de red transitorios al escribir a Railway vía el proxy público: la conexión
@@ -323,20 +359,36 @@ async function reload(db, branch, dataset, spec, rows) {
     db = knexLib(cfg);
   }
 
+  // WR.6: conexión de LECTURA a la réplica cruda (local :5433/wincaja). Se abre siempre que
+  // SOURCE=replica (dry-run también lee para contar). Separada de `db` (prod bronze, escritura).
+  let replicaDb = null;
+  if (SOURCE === 'replica') {
+    replicaDb = knexLib({ client: 'pg', connection: REPLICA_URL, pool: { min: 0, max: 2 }, acquireConnectionTimeout: 30000 });
+  }
+
   for (const dataset of datasets) {
     const dir = folderFor(dataset);
     if (!dir) { console.error(`Dataset desconocido: ${dataset} (usar actual|concentrada|both o un año YYYY)`); continue; }
     console.log(`\n########## DATASET=${dataset}  (${dir}) ##########`);
     for (const br of wantBranches) {
-      const mdb = resolveFile(dir, br);
-      if (!mdb) { console.warn(`  suc ${br.code} (${br.name}): sin .mdb en ${dataset}, skip`); continue; }
-      console.log(`\n=== suc ${br.code} ${br.name} :: ${path.basename(mdb)} ===`);
+      // WR.6: usa la réplica si SOURCE=replica, dataset='actual' y la sucursal tiene schema (30/32/00).
+      // Las rutas y las sucursales sin réplica (10/40/44/54…) caen a Jet automáticamente.
+      const useReplica = SOURCE === 'replica' && dataset === 'actual' && !br.route && !!REPLICA_SCHEMA[br.code];
+      const mdb = useReplica ? null : resolveFile(dir, br);
+      if (!useReplica && !mdb) { console.warn(`  suc ${br.code} (${br.name}): sin .mdb en ${dataset}, skip`); continue; }
+      const srcLbl = useReplica ? `réplica ${REPLICA_SCHEMA[br.code]}` : path.basename(mdb);
+      console.log(`\n=== suc ${br.code} ${br.name} :: ${srcLbl} ===`);
       for (const spec of specs) {
         const t0 = Date.now();
         try {
-          const { out } = extract(mdb, spec.access, spec.cols);
-          const rows = loadJsonl(out, spec);
-          fs.unlinkSync(out);
+          let rows;
+          if (useReplica) {
+            rows = await readFromReplica(replicaDb, REPLICA_SCHEMA[br.code], spec);
+          } else {
+            const { out } = extract(mdb, spec.access, spec.cols);
+            rows = loadJsonl(out, spec);
+            fs.unlinkSync(out);
+          }
           const n = APPLY ? await reload(db, br.code, dataset, spec, rows) : rows.length;
           console.log(`  ${spec.access.padEnd(22)} -> ${spec.pg.padEnd(22)} ${String(n).padStart(7)} ${APPLY ? 'OK' : '(dry)'} ${Date.now() - t0}ms`);
         } catch (e) {
@@ -346,5 +398,6 @@ async function reload(db, branch, dataset, spec, rows) {
     }
   }
   if (db) await db.destroy();
+  if (replicaDb) await replicaDb.destroy();
   if (!APPLY) console.log('\n(dry-run - usar --apply para escribir a wincaja.*)');
 })().catch((e) => { console.error(e); process.exit(1); });
