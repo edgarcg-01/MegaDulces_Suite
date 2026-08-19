@@ -246,18 +246,22 @@ export class ExpenseComprobacionesService {
     return this.tk.run(async (trx) => {
       const keys = await this.allowedAreaKeys(trx, user);
       const s = `%${term}%`;
-      const q = trx('analytics.expense_documents')
-        .where('tenant_id', tenantId)
-        .where('doc_tipo', 'XA1001')
-        .andWhere((w: any) => w.whereILike('doc_folio', s).orWhereILike('beneficiario', s))
-        .orderBy('fecha', 'desc')
+      const q = trx('analytics.expense_documents as g')
+        .where('g.tenant_id', tenantId)
+        .where('g.doc_tipo', 'XA1001')
+        .andWhere((w: any) => w.whereILike('g.doc_folio', s).orWhereILike('g.beneficiario', s))
+        // Su solicitud (XA1501) para mostrar el importe pedido y verificar el cuadre.
+        .leftJoin('analytics.expense_requests as sr', function (this: any) {
+          this.on('sr.tenant_id', '=', 'g.tenant_id').andOn('sr.sucursal', '=', 'g.sucursal').andOn('sr.folio', '=', 'g.solicitud_folio');
+        })
+        .orderBy('g.fecha', 'desc')
         .limit(lim)
-        .select('sucursal', 'doc_folio AS folio_gasto', 'fecha',
-          'beneficiario AS proveedor', trx.raw('importe::numeric AS importe'),
-          'solicitud_folio', 'area');
-      this.scopeByArea(q, 'area', keys);   // el buscador no expone gastos de otras áreas
+        .select('g.sucursal', 'g.doc_folio AS folio_gasto', 'g.fecha',
+          'g.beneficiario AS proveedor', trx.raw('g.importe::numeric AS importe'),
+          'g.solicitud_folio', 'g.area', trx.raw('sr.importe::numeric AS solicitud_importe'));
+      this.scopeByArea(q, 'g.area', keys);   // el buscador no expone gastos de otras áreas
       const rows = await q;
-      return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
+      return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0, solicitud_importe: r.solicitud_importe == null ? null : Number(r.solicitud_importe) }));
     });
   }
 
@@ -420,12 +424,21 @@ export class ExpenseComprobacionesService {
 
       const b = trx('analytics.expense_documents as g')
         .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')
+        // Su solicitud (XA1501) para verificar que el gasto cuadre contra lo pedido.
+        .leftJoin('analytics.expense_requests as s', function (this: any) {
+          this.on('s.tenant_id', '=', 'g.tenant_id').andOn('s.sucursal', '=', 'g.sucursal').andOn('s.folio', '=', 'g.solicitud_folio');
+        })
         .where('g.tenant_id', tenantId)
         .where('g.doc_tipo', 'XA1001')
         .select(
           'g.sucursal', 'g.doc_folio AS folio_gasto', 'g.fecha',
           'g.beneficiario AS proveedor', trx.raw('g.importe::numeric AS importe'),
           'g.solicitud_folio', 'g.area',
+          trx.raw('s.importe::numeric AS solicitud_importe'),
+          // cuadre determinista gasto↔solicitud (tolerancia $1 o 1%). null = sin solicitud ligada.
+          trx.raw(`CASE WHEN s.importe IS NULL THEN NULL
+                        WHEN abs(g.importe::numeric - s.importe::numeric) <= GREATEST(1, abs(g.importe::numeric)*0.01) THEN true
+                        ELSE false END AS solicitud_cuadra`),
           trx.raw('COALESCE(d.n, 0)::int AS comprobaciones'),
           trx.raw('d.last_id AS comprobacion_id'),
           trx.raw('d.last_status AS comprobacion_status'),
@@ -452,11 +465,15 @@ export class ExpenseComprobacionesService {
 
       const rows = await Promise.all((await b).map(async (r: any) => ({
         ...r, importe: Number(r.importe),
+        solicitud_importe: r.solicitud_importe == null ? null : Number(r.solicitud_importe),
         files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
       })));
 
       const kpiBase = trx('analytics.expense_documents as g')
         .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')
+        .leftJoin('analytics.expense_requests as s', function (this: any) {
+          this.on('s.tenant_id', '=', 'g.tenant_id').andOn('s.sucursal', '=', 'g.sucursal').andOn('s.folio', '=', 'g.solicitud_folio');
+        })
         .where('g.tenant_id', tenantId).where('g.doc_tipo', 'XA1001');
       this.scopeByArea(kpiBase, 'g.area', keys);
       if (q.from) kpiBase.where('g.fecha', '>=', q.from);
@@ -466,13 +483,16 @@ export class ExpenseComprobacionesService {
         trx.raw('COUNT(d.n)::int AS comprobados'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validada')::int AS validados`),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='revision')::int AS en_revision`),
+        // gastos cuyo importe NO cuadra contra su solicitud (control determinista).
+        trx.raw(`COUNT(*) FILTER (WHERE s.importe IS NOT NULL AND abs(g.importe::numeric - s.importe::numeric) > GREATEST(1, abs(g.importe::numeric)*0.01))::int AS descuadre_solicitud`),
         trx.raw('COALESCE(SUM(g.importe::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
       );
 
       return {
         kpis: {
           gastos: Number(k.gastos), comprobados: Number(k.comprobados),
-          validados: Number(k.validados), en_revision: Number(k.en_revision), monto_pendiente: Number(k.monto_pendiente),
+          validados: Number(k.validados), en_revision: Number(k.en_revision),
+          descuadre_solicitud: Number(k.descuadre_solicitud), monto_pendiente: Number(k.monto_pendiente),
         },
         rows,
       };
