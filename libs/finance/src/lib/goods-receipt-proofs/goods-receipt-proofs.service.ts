@@ -104,10 +104,18 @@ export class GoodsReceiptProofsService {
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
-      applySmartSearch(b, q.search, {
-        columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'],
-        numeric: ['c.monto'],
-      });
+      // Prioridad de identificación: los ÚLTIMOS 4 DÍGITOS del folio de la orden de entrada.
+      // Un término de 1–4 dígitos matchea el sufijo del folio (exacto); lo demás va al buscador
+      // difuso (proveedor/RFC/OC).
+      const term = (q.search || '').trim();
+      if (/^\d{1,4}$/.test(term)) {
+        b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [term.padStart(4, '0')]);
+      } else {
+        applySmartSearch(b, q.search, {
+          columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'],
+          numeric: ['c.monto'],
+        });
+      }
 
       const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
 
@@ -174,7 +182,12 @@ export class GoodsReceiptProofsService {
       let rows: any[] = [];
       if (search) {
         const b = sel();
-        applySmartSearch(b, search, { columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'], numeric: ['c.monto'] });
+        // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
+        if (/^\d{1,4}$/.test(search)) {
+          b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [search.padStart(4, '0')]);
+        } else {
+          applySmartSearch(b, search, { columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'], numeric: ['c.monto'] });
+        }
         rows = await order(b);
       } else {
         // FOLIO primero (preciso, evita falsos positivos). Solo si NO hay match por folio, cae a MONTO (±$2).
