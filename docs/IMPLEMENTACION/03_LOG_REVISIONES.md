@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-08-20 — FKJ: integridad referencial + JOINs correctos + copias→vista
+
+**Origen:** el usuario pidió un análisis de tablas sin FK, que la integridad referencial fuera correcta, y que se usara JOIN donde debe. El audit del código (uso de JOINs a dims canónicas) se corrió con un **Workflow de 13 agentes** (6 dimensiones × find→verify adversarial + síntesis): 14 hallazgos confirmados, 0 falsos positivos.
+
+**P0 — el bug de dinero (verificado con datos, era regresión propia):** al convertir `analytics.erp_goods_receipts` de tabla→vista (mig `20260819140000`), la vista fijó `dup_of_folio = NULL` en TODAS las filas. Pero 5 consumidores filtran `WHERE dup_of_folio IS NULL` (mecanismo RE.12 que oculta la copia CEDIS `'00'`). Con la columna siempre NULL el filtro quedó **no-op** → **1,240 recepciones / $9.87M doble-contadas** en KPIs, watcher y link de comprobantes; y `detect-goods-receipt-duplicates.js` hacía `UPDATE` contra una vista (no-op). Fix (patrón `expense_doc_accounting`): tabla chica `analytics.erp_goods_receipt_dedup` que la vista lee por LEFT JOIN, mantenida por el detector reescrito a UPSERT + cableado al grupo `receipts` del runner. De paso, el `warehouse_id` del CEDIS pasó de `kepler_code` (NULL para '00') a `code` (cubre '00'..'06'). Verificado en prod: 1,240 marcas, gemelas ocultas, `warehouse_id` 8,929/8,929.
+
+**Integridad referencial — la pregunta clave del usuario ("qué regla ON DELETE le asignaste"):** las FK que se venían creando quedaban en **`NO ACTION` (default de Postgres, no decisión)** — 68 así, contra la convención del codebase (RESTRICT 176 / SET NULL 105 / CASCADE 80). Regla correcta por semántica: **atributo requerido → RESTRICT · match/opcional → SET NULL · hijo de agregado → CASCADE**. Se agregaron **7 FK faltantes** deliberadas: `purchase_requisition_lines.supplier_id` (inconsistencia flagrante — el padre `purchase_requisitions` ya la tenía) + 5 columnas `match` (`vehicle_stops`/`prospect_stores` `matched_customer/store_id`, `payment_program.supplier_id`) todas **SET NULL** compuestas, 0 huérfanos, validadas. `matched_store_id → trade.stores` (NUNCA a `public.stores`, que es VIEW). Realinear las 68 `NO ACTION` quedó como hardening diferido.
+
+**JOINs:** `erpShipments`/`erpPromotions` (commercial-analytics) agrupaban/etiquetaban por `warehouse_code` denorm teniendo `warehouse_id` con FK → ahora JOIN a `commercial.warehouses` (nombre vivo). Copias leídas para estado ACTUAL (drift) → se atacaron volviéndolas vista (abajo).
+
+**Copias PURAS → vista derive-no-copy** (sobre `kepler_ods`, fresco vía CDC): `erp_customers` (kdud, 1,417 clientes — mata 2 findings de drift), `erp_promotions` (kdpv_*, paridad EXACTA 794=794), `erp_shipments` (kdpord). **Shipments trajo un 2º bug pre-existente:** `kdpord` está **replicado entre sucursales** y el importer sumaba las réplicas (`qty +=`) → 4,983/4,991 colisiones con mismo qty. La vista aplica **anti-réplica `c19=sucursal`** → units 2,751,475→2,697,236 (**−2% de doble conteo corregido**), fan-out 0. Cada importer retirado (su `@Cron` in-process → no-op + línea del runner comentada; correrlos pegaría contra la vista → error).
+
+**Dónde se PARÓ el copy→vista (decisión, no pendiente):** `erp_purchase_adjustments` **se queda tabla** — no es copia pura: carga **144 categorías clasificadas por LLM** (Haiku, `categoria_source='llm'`) + 311 `doctype_default` que **no existen en el ODS** y el UPSERT preserva. Convertirla perdería el enriquecimiento o exigiría un híbrido riesgoso para una tabla **sin bug activo**. Igual criterio para `caja_*`/`ledger_monthly`/`contpaqi_*` (agregados) y `kepler_bank_movements` (verificar `account_label` antes). El copy→vista se cierra en las 3 copias puras.
+
+**Lección de método:** cuando el usuario dijo "ya corrí la migración y todo bien", `knex_migrations` mostró batch 194 = solo `erp_customers` — promos+shipments (commiteados después) NO habían entrado. **Verificar `knex_migrations`/`relkind` en vez de asumir** cerró el ciclo; el entorno auto-commitea y a veces el migrate corre antes de que los commits lleguen.
+
+**Estado:** P0+P1+P2 (batch 193) + `erp_customers` (batch 194) en PROD y verificados en vivo. **Pendiente prod:** aplicar `20260820160000` (promos) + `20260820170000` (shipments) + **redeploy api** (crons `customersFeed`/`promosFeed`/`shipmentsFeed` neutralizados; sin redeploy tronarían 05:00–05:20 contra las vistas). Diferido: realinear 68 FK `NO ACTION`, PK a `commercial.routes` (habilita FKear `route_id`), bajar la tarea `receipts` @1-2min a nightly.
+
+---
+
 ## 2026-08-18 — COMM.5 (P0 Finanzas): los motores largos salen del request
 
 **Qué se arregló:** ocho endpoints de Finanzas corrían el trabajo **dentro del request** y podían pasarse del techo real de la infra: `location /api/` en `nginx.conf` **no define `proxy_read_timeout`**, así que rige el default de nginx (**60 s**). Pasado ese punto el navegador recibe **504 mientras el backend sigue trabajando**, y el usuario no sabe si el import quedó aplicado — el peor de los dos mundos en un módulo de dinero. Ahora: `202 { job_id }` + trabajo en background + evento WS `finance_job` (`running` → `done`/`error`, con el MISMO objeto que antes venía en la respuesta HTTP).
