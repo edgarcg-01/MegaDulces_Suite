@@ -43,10 +43,17 @@ export class ExpenseComprobacionesController {
   }
 
   @Get('gastos')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Autocomplete del Folio del Gasto (Kepler XA1001) para la captura.' })
   gastos(@Req() req: AuthedRequest, @Query('search') search?: string, @Query('limit') limit?: string) {
     return this.svc.searchGastos(search || '', limit ? Number(limit) : 20, scope(req));
+  }
+
+  @Get('mine')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Mis últimas capturas (comprobaciones que subió el usuario actual) — vista del capturista.' })
+  mine(@Req() req: AuthedRequest, @Query('limit') limit?: string) {
+    return this.svc.listMine(req?.user?.full_name || req?.user?.username || '', limit ? Number(limit) : 50);
   }
 
   @Get('gastos-list')
@@ -79,28 +86,28 @@ export class ExpenseComprobacionesController {
   }
 
   @Post('upload')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Sube un archivo (comprobación/evidencia) al bucket y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'comprobacion');
   }
 
   @Post('ocr')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'OCR del documento "Gastos" de Kepler (XA1001, imagen/PDF) → campos para auto-rellenar la comprobación. Preview.' })
   ocr(@Body() body: { file_base64?: string }) {
     return this.svc.runOcr(body?.file_base64 || '');
   }
 
   @Post('validate-photo')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Valida la FOTO/EVIDENCIA del gasto con Claude Vision contra el importe del gasto Kepler. Preview (cuadra/en revisión).' })
   validatePhoto(@Body() body: { file_base64?: string; importe?: number }) {
     return this.svc.validatePhoto(body?.file_base64 || '', Number(body?.importe) || 0);
   }
 
   @Post()
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Alta de la comprobación (archivos ya subidos). Resuelve la solicitud del gasto.' })
   create(@Body() body: CreateComprobacionDto, @Req() req: AuthedRequest) {
     return this.svc.create(body, req?.user?.full_name || req?.user?.username, scope(req));

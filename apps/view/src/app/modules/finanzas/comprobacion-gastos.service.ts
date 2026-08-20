@@ -132,10 +132,14 @@ export class ComprobacionGastosService {
     return this.http.get<ComprobacionesReport>(this.base, { params });
   }
   /** Lista los gastos de Kepler (XA1001) + estado de su comprobación + KPIs (vista por gasto). */
-  listGastos(q: { estado?: string; search?: string; from?: string; to?: string } = {}): Observable<GastosReport> {
+  listGastos(q: { estado?: string; search?: string; from?: string; to?: string; sucursal?: string; cuadre?: string; sort?: string; dir?: string } = {}): Observable<GastosReport> {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<GastosReport>(`${this.base}/gastos-list`, { params });
+  }
+  /** Mis capturas (comprobaciones que subió el usuario) — vista del capturista. */
+  mine(limit = 50): Observable<ComprobacionesReport> {
+    return this.http.get<ComprobacionesReport>(`${this.base}/mine`, { params: new HttpParams().set('limit', String(limit)) });
   }
   /** Autocomplete del Folio del Gasto (Kepler XA1001). */
   searchGastos(search: string): Observable<GastoSug[]> {

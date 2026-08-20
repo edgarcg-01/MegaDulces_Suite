@@ -59,6 +59,10 @@ export interface ListGastosQuery {
   search?: string;
   from?: string;
   to?: string;
+  sucursal?: string;
+  cuadre?: 'si' | 'no' | string;        // filtro cuadre gasto↔solicitud
+  sort?: 'fecha' | 'importe' | string;  // orden (default fecha)
+  dir?: 'asc' | 'desc' | string;        // dirección (default desc)
   limit?: number;
 }
 
@@ -400,6 +404,36 @@ export class ExpenseComprobacionesService {
   }
 
   /**
+   * "Mis capturas" (vista del capturista): las comprobaciones que subió el usuario actual
+   * (por `created_by`). Sin scoping de área (uno ve lo suyo). Recientes primero.
+   */
+  async listMine(actor: string, limit = 50) {
+    this.tenantCtx.requireTenantId();
+    const lim = Math.min(200, Math.max(1, Number(limit) || 50));
+    const a = (actor || '').trim();
+    const empty = { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] as any[] };
+    if (!a) return empty;
+    return this.tk.run(async (trx) => {
+      const rows = await trx('finance.expense_comprobaciones')
+        .where({ created_by: a })
+        .select('id', 'departamento', 'sucursal', 'folio_gasto', 'folio_solicitud',
+          'fecha_comprobacion', 'folio_comprobacion', 'proveedor',
+          trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
+          'files', 'comentarios', 'status', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
+        .orderBy('created_at', 'desc').limit(lim);
+      const signed = await Promise.all(rows.map(async (r: any) => ({
+        ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
+        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])),
+      })));
+      const by: Record<string, number> = signed.reduce((m: any, r: any) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
+      return {
+        kpis: { total: signed.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
+        rows: signed,
+      };
+    });
+  }
+
+  /**
    * Lista los GASTOS de Kepler (XA1001, espejo `analytics.expense_documents`) con el
    * estado de su comprobación adjunta (LEFT JOIN a `finance.expense_comprobaciones` por
    * folio). Es la vista "manejada por gasto" (como Cobranza/Pagos/Entradas): el capturista
@@ -446,13 +480,20 @@ export class ExpenseComprobacionesService {
           trx.raw('d.last_revision_nota AS revision_nota'),
           trx.raw('d.last_files AS files'),
         )
-        .orderBy('g.fecha', 'desc')
-        .orderBy('g.doc_folio', 'desc')
         .limit(limit);
+
+      // Orden (default fecha desc); doc_folio como desempate estable.
+      const dir = q.dir === 'asc' ? 'asc' : 'desc';
+      b.orderBy(q.sort === 'importe' ? 'g.importe' : 'g.fecha', dir).orderBy('g.doc_folio', 'desc');
 
       this.scopeByArea(b, 'g.area', keys);
       if (q.from) b.where('g.fecha', '>=', q.from);
       if (q.to) b.where('g.fecha', '<=', q.to);
+      if (q.sucursal) b.where('g.sucursal', q.sucursal);
+      // Cuadre gasto↔solicitud (se repite la expresión: no se puede filtrar por el alias del SELECT).
+      const CUADRA = `s.importe IS NOT NULL AND abs(g.importe::numeric - s.importe::numeric) <= GREATEST(1, abs(g.importe::numeric)*0.01)`;
+      if (q.cuadre === 'si') b.whereRaw(`(${CUADRA})`);
+      else if (q.cuadre === 'no') b.whereRaw(`(s.importe IS NOT NULL AND NOT (${CUADRA}))`);
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'comprobada') b.whereRaw('d.n > 0');
       if (q.estado === 'validada') b.whereRaw(`d.last_status = 'validada'`);

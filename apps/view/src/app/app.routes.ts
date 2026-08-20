@@ -278,10 +278,16 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
-        // GX.8 — Comprobación de Gastos (2ª etapa: comprueba un gasto Kepler XA1001).
+        // GX.8 — Comprobación de Gastos (2ª etapa: comprueba un gasto Kepler XA1001). Autorizador.
         path: 'comprobacion-gastos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-comprobacion-gastos.component').then(m => m.FinanzasComprobacionGastosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        // GX.8 — Captura (capturista): solo folio + subir comprobante. Sin bandeja de revisión.
+        path: 'capturar-gasto',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-capturar-gasto.component').then(m => m.FinanzasCapturarGastoComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_CAPTURAR)]
       },
       {
         path: 'cobranza',
