@@ -39,6 +39,7 @@ exports.up = async function (knex) {
      ORDER BY ns.nspname, rel.relname, con.conname`, [SCHEMAS])).rows;
 
   let restrict = 0, setnull = 0, skipped = 0;
+  const notValidated = [];
   for (const fk of fks) {
     if (/_snapshot_bak$/.test(fk.tab) || /_backup_/.test(fk.tab)) { skipped++; continue; }
     const cols = fk.cols.split(',');
@@ -55,7 +56,6 @@ exports.up = async function (knex) {
     const composite = cols.length > 1;
     const onDel = !nullable ? 'RESTRICT'
       : (composite ? `SET NULL (${biz.map(q).join(',')})` : 'SET NULL');
-    if (nullable) setnull++; else restrict++;
 
     const colList = cols.map(q).join(',');
     const fcolList = fcols.map(q).join(',');
@@ -64,10 +64,21 @@ exports.up = async function (knex) {
     await knex.raw(
       `ALTER TABLE ${tbl} ADD CONSTRAINT ${q(fk.conname)} FOREIGN KEY (${colList})
          REFERENCES ${q(fk.fsch)}.${q(fk.ftab)} (${fcolList}) ON DELETE ${onDel} NOT VALID`);
-    await knex.raw(`ALTER TABLE ${tbl} VALIDATE CONSTRAINT ${q(fk.conname)}`);
+    if (nullable) setnull++; else restrict++;
+    // La regla (ON DELETE) YA quedó realineada con el ADD. El VALIDATE solo marca la FK como
+    // verificada; si la tabla tiene huérfanos legacy (ej. product_sales_daily, productos borrados)
+    // falla → se deja NOT VALID (igual enforcea escrituras nuevas, tolera los viejos), como estaba
+    // antes. NO abortar el realineado del resto por eso.
+    try {
+      await knex.raw(`ALTER TABLE ${tbl} VALIDATE CONSTRAINT ${q(fk.conname)}`);
+    } catch (e) {
+      notValidated.push(`${fk.sch}.${fk.tab}.${fk.conname}`);
+      // eslint-disable-next-line no-console
+      console.log(`  ⚠ ${fk.sch}.${fk.tab}.${fk.conname}: realineada a ${onDel} pero queda NOT VALID (${e.message.slice(0, 60)})`);
+    }
   }
   // eslint-disable-next-line no-console
-  console.log(`[realign FK] ${restrict} RESTRICT · ${setnull} SET NULL · ${skipped} backups saltados`);
+  console.log(`[realign FK] ${restrict} RESTRICT · ${setnull} SET NULL · ${skipped} backups saltados · ${notValidated.length} NOT VALID (huérfanos)`);
 };
 
 // Downgrade: revertir a NO ACTION sería un retroceso de convención. No-op (el estado realineado es
