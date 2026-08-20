@@ -2321,15 +2321,24 @@ export class CommercialAnalyticsService {
           if (q.route) qb.whereRaw('s.route ILIKE ?', [`%${q.route}%`]);
           if (q.status) qb.where('s.status', q.status);
         });
+      // warehouse: JOIN a la dim canónica (nombre actual), no el warehouse_code denorm (stale).
+      const isProduct = dim === 'product_id';
+      const isWarehouse = (q.group_by || 'route') === 'warehouse';
+      const labelExpr = isProduct ? 'p.nombre'
+        : isWarehouse ? 'COALESCE(w.name, s.warehouse_code::text)'
+          : `s.${dim}::text`;
       const rows: any[] = await base.clone()
-        .modify((qb) => { if (dim === 'product_id') qb.leftJoin('catalog.products AS p', 'p.id', 's.product_id'); })
+        .modify((qb) => {
+          if (isProduct) qb.leftJoin('catalog.products AS p', 'p.id', 's.product_id');
+          else if (isWarehouse) qb.leftJoin('commercial.warehouses AS w', 'w.id', 's.warehouse_id');
+        })
         .select(
-          trx.raw(`COALESCE(${dim === 'product_id' ? 'p.nombre' : `s.${dim}::text`}, '(s/d)') AS label`),
+          trx.raw(`COALESCE(${labelExpr}, '(s/d)') AS label`),
           trx.raw('COUNT(*)::int AS lines'),
           trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
           trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
         )
-        .groupByRaw(dim === 'product_id' ? 'p.nombre' : `s.${dim}`)
+        .groupByRaw(labelExpr)
         .orderByRaw('SUM(s.quantity) DESC NULLS LAST')
         .limit(200);
       const [tot] = await base.clone().select(
@@ -2354,10 +2363,12 @@ export class CommercialAnalyticsService {
       trx('analytics.erp_promotions AS pr')
         .join('catalog.products AS p', 'p.id', 'pr.product_id')
         .leftJoin('catalog.products AS fp', 'fp.id', 'pr.free_product_id')
+        .leftJoin('commercial.warehouses AS w', 'w.id', 'pr.warehouse_id') // nombre actual de la dim, no el code denorm (stale)
         .where('pr.tenant_id', tenantId)
         .select(
           'p.sku', 'p.nombre AS product_name', 'pr.promo_type', 'pr.threshold', 'pr.benefit',
-          'fp.nombre AS free_product_name', 'pr.valid_from', 'pr.valid_to', 'pr.warehouse_code',
+          'fp.nombre AS free_product_name', 'pr.valid_from', 'pr.valid_to',
+          trx.raw('COALESCE(w.name, pr.warehouse_code) AS warehouse_code'),
         )
         .orderBy('pr.valid_to', 'asc')
         .limit(1000),
