@@ -771,7 +771,10 @@ Builds api verde con exit code real; typecheck limpio. **Sin migraciones.** Los 
 
 **1 migración** (`20260820140000`, solo local — la cola de knex está trabada por una migración ajena pendiente que pide `kepler_ods.kdm1`, vacío en local; la mía es idempotente por `hasTable` y se registra sola cuando la cola se destrabe). Builds api + view verdes. Smoke 22/22. **Verificación visual pendiente** (no automatizable desde CLI).
 
-**Pendiente prod:** mig a Railway + `import-purchase-docs.js` desde la LAN + agendarlo junto al importer de recepciones + redeploy api/view.
+| ER.7b Espejo → vista en vivo | ✅ 2026-08-20 | Mig `20260820200000`: `erp_purchase_docs` (+`_lines`) pasa de tabla copiada a **vista sobre `kepler_ods`**, como recepciones. Medido: la copia se quedó atrás por 12 docs ($1.05M) en 2 horas. Proyección validada contra Kepler real: **0 diferencias en 15,379 filas**. No-op sin ODS (no traba la cola). Importer + handler se auto-retiran ante una vista. |
+| ER.7c Guard anti-42P01 | ✅ 2026-08-20 | `to_regclass` en los 3 puntos que tocan el espejo: sin él, una tabla ausente tiraba 500 y se llevaba la ficha ENTERA de la entrada. Pasó en prod. |
+
+**Pendiente prod (BLOQUEADO):** ninguna de las 2 migs corrió en Railway aunque el código sí está desplegado → **`migrate:latest` no está completando en el deploy**. Hasta resolver eso, ninguna migración nueva aplica. Con la vista ya no hace falta importer ni agendarlo.
 
 Decisión abierta que quedó tomada por defecto: el resolvedor vive en `libs/commercial` pero con **ruta neutral** `/entity-ref` y sin dependencias de compras — mover el archivo a `shared` cuando Finanzas lo consuma es un `git mv`, no un rediseño.
 

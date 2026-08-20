@@ -25,11 +25,20 @@
 - En Compras 360 el clic en la OC **abre el documento** en vez de filtrar la lista — la ficha ya lista sus recepciones, que era para lo que servía el filtro.
 - **Cobertura total:** 11,405/11,405 `vale_folio` y 8,950/8,950 `oc_folio` de las recepciones resuelven a un documento real; la liga vale→OC resuelve 9,457/9,457 y es **estructural**, no estimada.
 
+### Changed — ER.7b: el espejo de OC/vales pasa a VISTA en vivo (derive-no-copy) (2026-08-20)
+- Mig `20260820200000`: `analytics.erp_purchase_docs` (+ `_lines`) deja de ser tabla copiada por importer y pasa a **vista sobre `kepler_ods.kdm1`/`kdm2`** (doctypes 35 y 37, anti-réplica `c1=sucursal`), igual que `erp_goods_receipts` (mig `20260819120000`). **Regla: toda tabla se normaliza y deriva de la base central al momento.**
+- Motivo, medido y no supuesto: la copia nació el mismo día y **ya se había quedado atrás por 12 documentos ($1.05M)** creados en Kepler entre la corrida del importer y dos horas después. Además, existir-o-no la copia se convirtió en un 42P01 en prod que se llevaba puesta la ficha entera de la entrada.
+- Verificado antes de cambiar: la proyección de la vista, corrida contra el Kepler real, da **0 diferencias en 15,379 filas** contra lo que había cargado el importer — mismo dato, sin el desfase.
+- La migración **es no-op donde no hay ODS** (`to_regclass`): deja la tabla y no traba la cola de knex en máquinas sin replicación. `import-purchase-docs.js` y el handler `erp-purchase-docs` detectan la vista y no hacen nada.
+
+### Fixed
+- `EntityRefService` degrada con `to_regclass` si el espejo de OC/vales no existe en esa base: la ficha de la entrada **abre igual** y lo declara en `notes`, en vez de tirar 42P01 y romper la vista entera.
+
 ### Changed
 - `analytics.erp_purchase_adjustments` ahora expone `sucursal` en `list()` y `forEntrada()` (la necesitaba el ref del ajuste; `AdjustmentRow.sucursal` en el DTO del front).
 
 ### Pending — huecos declarados, no disimulados
-- **Prod**: aplicar mig `20260820140000` a Railway + correr `import-purchase-docs.js` **desde la LAN** (Railway no alcanza las DBs de sucursal) + agendar junto al importer de recepciones + redeploy api/view.
+- **Prod**: las migs `20260820140000` + `20260820200000` NO han corrido en Railway (el código sí está desplegado y da 404 controlado). Con la vista ya no hace falta importer ni agendarlo — pero hay que averiguar **por qué `migrate:latest` no completa en el deploy**, o ninguna migración nueva va a aplicar.
 - **El avance de surtido compara importes, no piezas** — la OC puede estar en cajas y la recepción en piezas; restarlas daría un número falso. El panel lo dice.
 - **Pago↔entrada heurístico** (RE.8): Kepler no liga X-D-26 a la recepción → se listan "pagos candidatos" del mismo proveedor en 30 días, marcados como estimados.
 - **Lead time / mínimo de pedido fuera de la ficha**: `catalog.suppliers.code` (inventario) y `proveedor_code` (contabilidad) son espacios de códigos distintos — **0 de 328** empatan. Falta crosswalk; el panel lo declara en vez de cruzar por nombre.

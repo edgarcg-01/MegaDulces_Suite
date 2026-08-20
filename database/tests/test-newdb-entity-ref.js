@@ -159,6 +159,10 @@ const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
       console.log('     ⚠️  espejo vacío — correr import-purchase-docs.js desde la LAN');
       ok(true, 'sin documentos de compra cargados (skip)');
     } else {
+      const shape = (await c.query(
+        `SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.erp_purchase_docs')`)).rows[0];
+      console.log(`     · el espejo es ${shape && shape.relkind === 'v' ? 'VISTA en vivo sobre kepler_ods (derive-no-copy)' : 'TABLA copiada por importer (base sin ODS)'}`);
+
       const byDt = (await c.query(
         `SELECT doctype, count(*)::int n FROM analytics.erp_purchase_docs WHERE tenant_id=$1 GROUP BY 1 ORDER BY 1`, [TENANT])).rows;
       console.log(`     · ${byDt.map((r) => `${r.doctype}:${r.n}`).join('  ')}`);
