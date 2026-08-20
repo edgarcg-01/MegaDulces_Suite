@@ -5,8 +5,9 @@
  * los productos); la fila CEDIS se marca `dup_of_(sucursal,folio)` → la canónica.
  *
  * Match: (proveedor_rfc + receipt_date + monto); si el RFC falta en algún lado, cae a
- * (proveedor_nombre + fecha + monto). Pick determinista (DISTINCT ON folio CEDIS). Recompute
- * completo cada corrida (resetea antes). Idempotente. Verificado en prod: ~1,139 CEDIS dups.
+ * (proveedor_nombre + fecha + monto). Pick determinista (DISTINCT ON folio CEDIS). Escribe las
+ * marcas en analytics.erp_goods_receipt_dedup (UPSERT + limpia obsoletas); la VISTA erp_goods_receipts
+ * las lee por LEFT JOIN. Idempotente. Verificado en prod: ~1,240 CEDIS dups / $9.87M.
  *
  * Uso:
  *   node database/importers/kepler/detect-goods-receipt-duplicates.js            # DRY-RUN
@@ -32,11 +33,11 @@ const MATCH = `
   const db = new Client({ connectionString: DB_URL, ssl: local ? false : { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
   await db.connect();
 
-  // Guard: columnas presentes (la migración 20260811120000 debe estar aplicada).
-  const col = await db.query(
-    `SELECT 1 FROM information_schema.columns WHERE table_schema='analytics' AND table_name='erp_goods_receipts' AND column_name='dup_of_folio'`,
-  );
-  if (!col.rowCount) { console.error('Falta la columna dup_of_folio — aplicá la migración 20260811120000 primero.'); process.exit(1); }
+  // Guard: la tabla de marcas debe existir (mig 20260820120000). Desde esa migración
+  // erp_goods_receipts es VISTA → las marcas viven en analytics.erp_goods_receipt_dedup
+  // (la vista las lee por LEFT JOIN). Este importer YA NO hace UPDATE a la vista.
+  const tbl = await db.query(`SELECT to_regclass('analytics.erp_goods_receipt_dedup') r`);
+  if (!tbl.rows[0].r) { console.error('Falta analytics.erp_goods_receipt_dedup — aplicá la migración 20260820120000 primero.'); process.exit(1); }
 
   const [{ count }] = (await db.query(
     `SELECT count(*)::int count FROM analytics.erp_goods_receipts c
@@ -61,21 +62,29 @@ const MATCH = `
   }
 
   await db.query('BEGIN');
-  const reset = await db.query(
-    `UPDATE analytics.erp_goods_receipts SET dup_of_sucursal=NULL, dup_of_folio=NULL
-     WHERE tenant_id=$1 AND sucursal='00' AND dup_of_folio IS NOT NULL`, [T]);
+  // Materializa la vista UNA vez (evita evaluarla dos veces en el self-join) y calcula las gemelas.
+  await db.query(
+    `CREATE TEMP TABLE _gr ON COMMIT DROP AS
+       SELECT sucursal, folio, receipt_date, monto, proveedor_rfc, proveedor_nombre
+         FROM analytics.erp_goods_receipts WHERE tenant_id=$1 AND monto > 0`, [T]);
+  await db.query(`CREATE INDEX ON _gr (receipt_date, monto)`);
+  // UPSERT de marcas (última gana, determinista) en la tabla de dedup — NO en la vista.
   const upd = await db.query(
-    `WITH pairs AS (
-       SELECT DISTINCT ON (c.folio) c.folio AS cedis_folio, s.sucursal AS suc, s.folio AS suc_folio
-       FROM analytics.erp_goods_receipts c
-       JOIN analytics.erp_goods_receipts s ON ${MATCH}
-       WHERE c.tenant_id=$1 AND c.sucursal='00' AND c.monto>0
-       ORDER BY c.folio, s.sucursal, s.folio
-     )
-     UPDATE analytics.erp_goods_receipts c
-     SET dup_of_sucursal=p.suc, dup_of_folio=p.suc_folio
-     FROM pairs p WHERE c.tenant_id=$1 AND c.sucursal='00' AND c.folio=p.cedis_folio`, [T]);
+    `INSERT INTO analytics.erp_goods_receipt_dedup (tenant_id, cedis_folio, dup_of_sucursal, dup_of_folio, computed_at)
+     SELECT DISTINCT ON (c.folio) $1::uuid, c.folio, s.sucursal, s.folio, now()
+       FROM _gr c JOIN _gr s ON ${MATCH}
+      WHERE c.sucursal='00'
+      ORDER BY c.folio, s.sucursal, s.folio
+     ON CONFLICT (tenant_id, cedis_folio) DO UPDATE
+       SET dup_of_sucursal=EXCLUDED.dup_of_sucursal, dup_of_folio=EXCLUDED.dup_of_folio, computed_at=now()`, [T]);
+  // Limpia marcas obsoletas: folios CEDIS que ya no tienen gemela (o cambió el monto/proveedor).
+  const del = await db.query(
+    `DELETE FROM analytics.erp_goods_receipt_dedup d
+      WHERE d.tenant_id=$1
+        AND NOT EXISTS (
+          SELECT 1 FROM _gr c JOIN _gr s ON ${MATCH}
+           WHERE c.sucursal='00' AND c.folio=d.cedis_folio)`, [T]);
   await db.query('COMMIT');
-  console.log(`\n[APPLY] ${reset.rowCount} reseteadas · ${upd.rowCount} marcadas como duplicadas de su sucursal.`);
+  console.log(`\n[APPLY] ${upd.rowCount} marcadas (UPSERT) · ${del.rowCount} marcas obsoletas eliminadas.`);
   await db.end();
 })().catch(async (e) => { console.error('ERR', e.message); process.exit(1); });
