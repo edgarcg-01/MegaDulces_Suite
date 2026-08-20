@@ -777,6 +777,27 @@ Decisión abierta que quedó tomada por defecto: el resolvedor vive en `libs/com
 
 ---
 
+## FASE UN — Normalización de usuarios, departamentos y puestos
+
+Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Regla dura del sprint: **cero cambio de privilegios** — `database/scripts/snapshot-user-privileges.js` compara el set efectivo por usuario antes/después y debe salir vacío.
+
+- [x] **[UN.0]** ✅ 2026-08-20 — Diagnóstico. `identity.users` (57 usuarios / 8 roles en uso) + `identity.role_permissions` (30 roles, **22 sin ningún usuario**). Dos taxonomías conviviendo (legacy funcional vs presets por área 2026-07-11), ninguna alineada al organigrama. 8 padrones de personas sin identidad común (`hr.employees` 417, `analytics.pos_cashiers` 723, `wincaja.cajeros` 302, `wincaja.vendedores` 140, `logistics.drivers`, `erp.staff`, `analytics.vendor_identity`). Enum `Permission` copiado 5 veces (160/160/60/54/**36 stale en `libs/shared-auth`**); 8 permisos en código que ningún rol tiene.
+- [x] **[UN.1]** ✅ 2026-08-20 — Ejes DEPARTAMENTO y PUESTO (mig `20260820200000`). `identity.departments` (13) + `identity.positions` (43 puestos canónicos, `org_labels` guarda las **61 variantes literales** del PDF) + `users.department_code`/`position_code` con FK composite. Codes en texto y no JOIN en la vista `public.users`: auth-mt la lee en el login sin contexto de tenant.
+- [x] **[UN.2]** ✅ 2026-08-20 — Asignación de los 57 (mig `20260820201000`). Cajas 28 (por sucursal Kepler 01-05), Ruta Directa 23 (19 vendedor_ruta + 3 supervisor_rd + 1 vendedor_ruta), Sistemas 2, Administración 1, Externo 2. `colaborador → ruta_directa/vendedor_ruta` confirmado por Edgar. `repartidor_smoke` sin asignar (cuenta de smoke, no persona).
+- [x] **[UN.3]** ✅ 2026-08-20 — Higiene (mig `20260820202000`). **Bug real arreglado**: `auth-mt` busca `username.toLowerCase()` contra comparación case-sensitive → el usuario `Superuser` (superadmin, dueño) **nunca pudo entrar** (`last_login_at` NULL desde abril). Bajado a `superuser`. Mojibake Latin-1→UTF-8 corregido en 5 nombres (regla que respeta los Title Case legítimos).
+- [x] **[UN.3.1]** ✅ 2026-08-20 — `test-newdb-rls-isolation` estaba **rojo desde julio** (cleanup borraba 1 rol de tenant B pero los seeds "para cada tenant activo" le dejan 14+). Cleanup ahora descubre el grafo de FK a `tenants` y barre en pasadas. 16/16 verde.
+
+- [ ] **[UN.4]** ⚠️ BLOQUEADO — 25 permisos de Finanzas/Fiscal filtrados a los 5 roles operativos. Causa raíz: cadena de backfills anclados que arranca en `20260706170000` (`FINANCE_EXPENSES_VER ← COMMERCIAL_ANALYTICS_VER`). Hoy un anaquelista puede `FISCAL_CREDENCIALES_GESTIONAR` y `FISCAL_FACTURAR_GESTIONAR`. Requiere decisión: preservar (queda legitimado) o quitar (24 personas pierden acceso).
+- [ ] **[UN.5]** ⬜ Archivar los 22 roles sin usuarios. Necesita fix de código: `catalogs.service.ts` lista roles **sin filtrar `deleted_at`**, así que el soft-delete solo no los oculta.
+- [ ] **[UN.6]** ⬜ Colapsar el enum `Permission` a fuente única (borrar el de `shared-auth`, generar portal/vendor desde `platform-core`).
+- [ ] **[UN.7]** ⬜ Reset de contraseña de los **11 usuarios que comparten el mismo hash bcrypt**. No hay flujo de cambio obligatorio.
+- [ ] **[UN.8]** ⬜ `identity.people` + crosswalk de los 8 padrones (dedup validable contra las 120 plazas del organigrama).
+- [ ] **[UN.9]** ⬜ Casing de `nombre` (UPPER vs Title Case), backfill `warehouse_id` (bloqueado por `commercial.warehouses.kepler_code` vacío), purga de 3 tenants de prueba.
+
+**Hallazgos que necesitan a Edgar:** (1) el organigrama describe 5 sitios pero Kepler opera 7 — Yurécuaro `04` y Zamora Centro `05` tienen 7 cajeras y no aparecen; Morelia Abastos y Madero suman 55 plazas y 0 usuarios. (2) Morelia Abastos declara 40 pero suma 42: `CAJA GENERAL (1)` dibujado **detrás** de `AUX. DE RR-HH (1)`, y `CHECADOR (1)` + `CHECADORES (2)` duplicados. (3) `cristian.lopez` es rol `jefe_marketing` pero el organigrama solo tiene `AUX. DE MKT (1)` → quedó sin puesto.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

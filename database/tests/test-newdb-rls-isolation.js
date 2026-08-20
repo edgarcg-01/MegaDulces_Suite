@@ -214,7 +214,34 @@ async function runWithTenant(client, tenantId, fn) {
     // Borrar data de tenant B (como postgres para evitar RLS issues con FKs)
     await adminClient.query(`DELETE FROM zones WHERE name IN ('ZONA_B_TEST') AND tenant_id = '${TENANT_B}'`);
     await adminClient.query(`DELETE FROM zones WHERE name = 'ZONA_A_TEST' AND tenant_id = '${TENANT_A}'`);
-    await adminClient.query(`DELETE FROM role_permissions WHERE role_name = 'admin_b' AND tenant_id = '${TENANT_B}'`);
+    // Todas las FK a tenants son RESTRICT, asi que hay que vaciar TODO lo del
+    // tenant B antes de borrarlo. Borrar solo 'admin_b' no alcanza y listar las
+    // tablas a mano se rompe cada vez que aparece un seed nuevo del tipo "para
+    // cada tenant activo" (presets por area, rol cajera, departamentos, puestos,
+    // prospect_sources, ...). Se descubre el grafo y se barre en varias pasadas
+    // porque entre esas tablas tambien hay FKs (users -> role_permissions).
+    const owned = await adminClient.query(`
+      SELECT DISTINCT c.table_schema, c.table_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+       WHERE c.column_name = 'tenant_id'
+         AND t.table_type = 'BASE TABLE'
+         AND c.table_schema NOT IN ('pg_catalog', 'information_schema')`);
+    let pending = owned.rows.map((r) => `${r.table_schema}.${r.table_name}`);
+    for (let pass = 0; pass < 6 && pending.length; pass++) {
+      const stillBlocked = [];
+      for (const tbl of pending) {
+        try {
+          await adminClient.query(`DELETE FROM ${tbl} WHERE tenant_id = '${TENANT_B}'`);
+        } catch (e) {
+          stillBlocked.push(tbl); // referenciada por otra tabla que aun no vaciamos
+        }
+      }
+      if (stillBlocked.length === pending.length) break; // sin progreso
+      pending = stillBlocked;
+    }
+    if (pending.length) console.log(`  ! no se pudo vaciar: ${pending.join(', ')}`);
     await adminClient.query(`DELETE FROM tenants WHERE id = '${TENANT_B}'`);
     console.log('  ✓ Data de test eliminada');
 
