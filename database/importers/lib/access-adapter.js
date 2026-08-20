@@ -36,6 +36,7 @@ function tmpOut(tag) {
 function runPs(psFile, args) {
   const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile, ...args], {
     encoding: 'utf8', maxBuffer: STDOUT_MAX,
+    windowsHide: true, // NO abrir ventana de consola por cada lectura (bajo PM2/interactivo salían visibles)
   });
   if (res.error) throw new Error(`PS32 no arrancó (${psFile}): ${res.error.message}`);
   if (res.status !== 0) throw new Error(`PS32 falló (${path.basename(psFile)}): ${(res.stderr || res.stdout || '').slice(0, 400)}`);
