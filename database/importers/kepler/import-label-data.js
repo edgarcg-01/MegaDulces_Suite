@@ -3,9 +3,10 @@
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
  * Fuente = `kepler_ods.*` en prod (same-DB, @min; CANON.1.2). Une las 6 sucursales (col `sucursal`).
- * Fallback `--source=kp` = CONCENTRADA `kp.*` en .245. Reconcilia precios entre sucursales:
- * algunas traen placeholders ($6/$0.01 debajo del costo) → por SKU se toma la sucursal con el
- * precio de pieza (c90) MÁS ALTO (el real; los placeholders son bajos). Ver SKU 20804 (2026-07-20).
+ * Fallback `--source=kp` = CONCENTRADA `kp.*` en .245. Reconcilia precios entre sucursales por la MISMA
+ * regla que BASE-MXN (CANON.1.2b): EXCLUIR CEDIS (sucursal 00 = mayoreo) + MODA de c90 entre retail
+ * (01-06); fallback a CEDIS si el SKU no tiene retail. Así etiqueta = base (landmine #13). El piso
+ * c90>0.05 excluye placeholders de promo ($0.01/$0.05).
  *
  * Fuente (decodificada 2026-07-09; corregida 2026-07-10 — modelo de unidades por ETIQUETA):
  *   kp.kdii             c1=sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza, c11=unidad base.
@@ -155,15 +156,33 @@ function resolveUnits(slots) {
     // catálogo-wide, pero hay sucursales con placeholders ($6/$0.01 debajo del costo). Reconciliamos:
     // por SKU tomamos la sucursal con el precio de pieza (c90) MÁS ALTO (los placeholders son bajos).
     // `DISTINCT ON (sku) … ORDER BY sku, c90 DESC` = una fila por SKU, la de mayor precio real.
+    // CANON.1.2b — precio de PIEZA por la MISMA regla que BASE-MXN (excl CEDIS + moda retail) para que
+    // etiqueta = base (landmine #13). moda = c90 más común entre retail (01-06); fallback a CEDIS si el
+    // SKU no tiene retail. Se elige la FILA a ese precio (pref. retail) → c91/c92/unidades coherentes.
     const kdii = (await readSrc.query(`
-      SELECT DISTINCT ON (btrim(c1))
-             c1 AS sku, c2 AS name, c7 AS barcode, c95 AS barcode_alt, c11 AS unit_base,
-             btrim(c80) AS u1, c81 AS f1, c91 AS p1,
-             btrim(c83) AS u2, c84 AS f2, c92 AS p2,
-             c90 AS piece_price
-        FROM ${KSCHEMA}.kdii
-       WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0
-       ORDER BY btrim(c1), c90::numeric DESC`)).rows;
+      WITH moda_retail AS (
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
+          FROM ${KSCHEMA}.kdii
+         WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00'
+         GROUP BY btrim(c1)),
+      moda_cedis AS (
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
+          FROM ${KSCHEMA}.kdii
+         WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) = '00'
+         GROUP BY btrim(c1)),
+      moda AS (
+        SELECT sku, m FROM moda_retail
+        UNION ALL
+        SELECT c.sku, c.m FROM moda_cedis c WHERE NOT EXISTS (SELECT 1 FROM moda_retail r WHERE r.sku=c.sku))
+      SELECT DISTINCT ON (btrim(k.c1))
+             k.c1 AS sku, k.c2 AS name, k.c7 AS barcode, k.c95 AS barcode_alt, k.c11 AS unit_base,
+             btrim(k.c80) AS u1, k.c81 AS f1, k.c91 AS p1,
+             btrim(k.c83) AS u2, k.c84 AS f2, k.c92 AS p2,
+             md.m AS piece_price
+        FROM ${KSCHEMA}.kdii k
+        JOIN moda md ON md.sku = btrim(k.c1) AND k.c90::numeric = md.m
+       WHERE btrim(coalesce(k.c1,''))<>'' AND k.c90::numeric > 0.05
+       ORDER BY btrim(k.c1), (btrim(k.sucursal)='00'), btrim(k.sucursal)`)).rows;
 
     // Diagnóstico on-prem: DEBUG_SKU=44360 imprime lo que Kepler trae para ese SKU en TODAS las
     // sucursales (sin filtro de precio) → revela por qué un producto no llega a la etiquetera.
