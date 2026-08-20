@@ -1171,3 +1171,19 @@ Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). He
 - **Bus in-process (EventEmitter2)** — se puede reintroducir si aparece un side-effect con **N** consumidores desacoplados; con 1 consumidor, el puerto tipado gana.
 
 **Consecuencias:** ✅ el stream de Maat ya no muere por proxy idle (keepalive 15s) ni quema tokens contra un socket muerto (corta en el borde de la iteración cuando el cliente se va, y no audita respuestas que nadie va a leer). ✅ menos superficie: fuera un módulo global inerte y dos dependencias muertas. ✅ `generate:openapi` vuelve a correr y ahora sirve para revisar el diff del contrato antes de commitear. ⚠️ el snapshot `swagger.json` está gitignored: el diff es local, no un gate de CI (candidato a CI después). Hereda ADR-016 (motor decide / LLM fuera del camino) y ADR-043 (monolito modular + worker-tier).
+
+---
+
+### ADR-046: Consolidación de la ingesta — `kepler_ods` como único crudo canónico Kepler
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-20
+
+**Contexto:** la frescura de un dato en prod depende del eslabón MÁS LENTO de su cadena de feeds, y hoy hay demasiados eslabones independientes. Catálogo 2026-08-20: **69 feeds activos**, pero **solo 2 leen `kepler_ods`** (el crudo canónico, espejo de 207 tablas Kepler, replicación lógica continua, fresco al minuto). El resto re-lee fuentes MÁS VIEJAS que ya viven, frescas, en el mismo Postgres: **36 leen `branches`** (md_* directo / KP_CONCENTRADA @4h cross-LAN / Mega_Dulces .245 por archivos), **6 leen el `mart`** consolidado on-prem, 17 son transforms 2º nivel sobre `prod` (OK), 8 son externos irreducibles. Resultado: split-brain (el mismo atributo distinto en dos pantallas), reversión de identidad @02:00, precios stale 6 días. Diagnóstico completo en [`MODELO_CANONICO_DATOS.md`](../MODELO_CANONICO_DATOS.md) (2026-08-15). Trayectoria ya iniciada: 6 tablas `erp_*` convertidas a VISTA sobre `kepler_ods`.
+
+**Decisión:** normalizar **cómo LLEGA la información**, no solo el esquema. `kepler_ods.*` = **único crudo canónico Kepler**; todo lo Kepler-derivado lo lee (vista si no tiene cols de app / bajas / RLS; transform con SRC=ODS si sí). Colapsar las **8 fuentes de frescura → 4** irreducibles: **Kepler ODS · Wincaja · ContPAQi · caja .mdb**. Matar KP_CONCENTRADA y Mega_Dulces .245 como orígenes; colapsar el `mart` a una vista sobre `kepler_ods`. Plan por fases + verificación dry-run en [`FASE_CANON_INGESTA.md`](FASES/FASE_CANON_INGESTA.md).
+
+**Límites duros (no todo es vista):** (1) el ODS **no propaga hard-DELETE** → las tablas con bajas siguen siendo transform con DELETE; (2) **RLS no aplica a vistas** → `commercial.*`/`catalog.*` tenant-scoped repuntan SRC pero siguen materializadas; (3) el skew per-sucursal es inherente a 6 servidores (se reduce, no se elimina).
+
+**Consecuencias:** ✅ menos eslabones = menos superficie de staleness y de falla. ✅ same-DB (cero egress, sin cross-LAN @4h). ✅ un solo linaje por entidad → mata el split-brain. ⚠️ requiere reemplazo ODS ANTES de matar Mega_Dulces (cost_base/tiers sin escritor si no — §7-R6). ⚠️ ejecución por lotes con dry-run compare (no big-bang). Hereda ADR-016 y la regla derivar-no-copiar del modelo canónico.
