@@ -30,29 +30,43 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// CANON.1.3 — fuente por default `ods`: kepler_ods.kdii en el MISMO Postgres de prod. Reconciliación
+// retail-first (excluir CEDIS '00' + fallback a CEDIS si el SKU no tiene retail). Fallback `--source=kp`.
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+const KSCHEMA = SOURCE === 'ods' ? 'kepler_ods' : 'kp';
 const APPLY = process.argv.includes('--apply');
 const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s === '' ? null : s; };
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
-  const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+  const useOds = SOURCE === 'ods';
+  const src = useOds ? null : new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+  const readSrc = useOds ? dst : src;
   try {
-    console.log(`\n=== REPOINT presencia de catálogo (KP_CONCENTRADA → prod) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
-    try { await src.connect(); }
-    catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
+    console.log(`\n=== REPOINT presencia de catálogo (${useOds ? 'kepler_ods' : 'KP_CONCENTRADA'} → prod) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    if (!useOds) {
+      try { await src.connect(); }
+      catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
+    }
 
-    // Productos vivos frescos (dedupe por sku, carga más reciente). Excluye promos y descontinuados.
-    const fresh = (await src.query(
-      `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, btrim(c2) AS nombre,
-              btrim(c3::text) AS linea, btrim(coalesce(c7,'')) AS barcode
-         FROM kp.kdii
-        WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> ''
-          AND c90::numeric > 0.05
-          AND btrim(c2) NOT ILIKE '%DESCONTINUADO%'
-          AND btrim(c2) !~ '^[*[:space:]]+$'   -- excluye placeholders "***" / "*"
-        ORDER BY btrim(c1), _loaded_at DESC`)).rows;
-    console.log(`  KP_CONCENTRADA kp.kdii vivos (precio real, no descontinuados): ${fresh.length} SKUs`);
+    // Productos vivos frescos por sku, retail-first (excluir CEDIS '00'; fallback a CEDIS si no hay
+    // retail). Excluye promos (c90>0.05), descontinuados y placeholders "***".
+    const QF = `btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> '' AND c90::numeric > 0.05
+          AND btrim(c2) NOT ILIKE '%DESCONTINUADO%' AND btrim(c2) !~ '^[*[:space:]]+$'`;
+    const fresh = (await readSrc.query(`
+      WITH retail AS (
+        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, btrim(c2) AS nombre, btrim(c3::text) AS linea, btrim(coalesce(c7,'')) AS barcode
+          FROM ${KSCHEMA}.kdii WHERE ${QF} AND btrim(sucursal) <> '00'
+          ORDER BY btrim(c1), c90::numeric DESC),
+      cedis AS (
+        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, btrim(c2) AS nombre, btrim(c3::text) AS linea, btrim(coalesce(c7,'')) AS barcode
+          FROM ${KSCHEMA}.kdii WHERE ${QF} AND btrim(sucursal) = '00'
+          ORDER BY btrim(c1), c90::numeric DESC)
+      SELECT sku, nombre, linea, barcode FROM retail
+      UNION ALL
+      SELECT c.sku, c.nombre, c.linea, c.barcode FROM cedis c WHERE NOT EXISTS (SELECT 1 FROM retail r WHERE r.sku=c.sku)`)).rows;
+    console.log(`  ${KSCHEMA}.kdii vivos (precio real, no descontinuados): ${fresh.length} SKUs`);
 
     // mapa marca (código Kepler línea → brand_id) — único egress notable
     const brandsByCode = new Map(
@@ -136,7 +150,7 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
-    await src.end().catch(() => {});
+    if (src) await src.end().catch(() => {});
     await dst.end().catch(() => {});
   }
 })();

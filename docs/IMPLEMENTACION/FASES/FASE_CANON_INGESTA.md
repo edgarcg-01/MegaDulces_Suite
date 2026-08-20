@@ -63,9 +63,9 @@ Todo lo Kepler-derivado lee el ODS; los 17 `prod`-transforms se quedan (no son o
 KP_CONCENTRADA @4h cross-LAN → ODS @min same-DB. Todas las tablas confirmadas en el ODS.
 - [x] **CANON.1.1** — `import-cash-sessions` → `kepler_ods.kdpv_folio_caja` (same-DB prod). ✅ 2026-08-20. Dry-run compare: ODS superset (0 faltantes vs KP) y MÁS preciso (ODS 9 abiertas vs KP 13, con ~6 cierres de hoy que KP @4h no veía). `source=ods` default; `kp`/`branches` quedan de fallback. Límite R2 visto: 1 sesión con lag del carril hash (se cierra en el próximo ciclo). Toma efecto en la próxima corrida `live`/`livefast`.
 - [x] **CANON.1.2** — `import-label-data` → `kepler_ods.kdii`+`kdpv_prod_util` (same-DB). ✅ 2026-08-20. Dry-run compare: ODS cubre TODOS los 9,452 SKUs de KP (0 faltantes) + 22 extra + 19 precios ODS>KP (frescura: subieron y KP @4h no vio); tiers kdpv idénticos (18,411 vs 18,412). `source=ods` default (lee en la misma conexión de prod, sin src .245); `kp` de fallback. Toma efecto en la próxima corrida `nightly`.
-- [ ] **CANON.1.3** — `repoint-catalog-presence` / `repoint-catalog-names` / `repoint-catalog-prices` (`kp.kdii` → `kepler_ods.kdii`).
-      Al repuntar names, **quitar el gate "el nombre debe diferir"** (corrige 1,685 barcodes) — se hace JUNTO al repunte
-      para que el barcode venga de la fuente autoritativa, no de KP_CONCENTRADA @4h.
+- [x] **CANON.1.3** — `repoint-catalog-presence/names/prices` → `kepler_ods.kdii` (same-DB). ✅ 2026-08-20. Reconciliación decidida (Edgar): **excluir CEDIS '00' (mayoreo) + MODA retail** (01-06) para precio; retail-first + fallback a CEDIS para identidad. Dry-run: precio 99% idéntico (solo 90 correcciones al consenso); identidad ODS superset (nombre 0 diffs); names 5 correcciones, presence 0/0 (ya en sync). Arregla de paso landmine #13 (base = etiqueta). `source=ods` default; `kp` fallback. **Milestone: KP_CONCENTRADA eliminada como fuente de frescura** (los 5 lectores repuntados).
+- [ ] **CANON.1.3b** — quitar el gate "el nombre debe diferir" de `repoint-catalog-names` (corrige 1,685 barcodes). Diferido a paso propio (cambia comportamiento, no solo fuente); requiere dry-run de la interacción con el guard anti-colisión.
+- [ ] **CANON.1.2b** — revisitar `import-label-data`: alinear su precio de etiqueta a la MISMA regla (excl CEDIS + moda) para que base = etiqueta. Hoy usa `c90 DESC` (puede tomar CEDIS).
 
 ### Fase 2 — colapsar el `mart` (2-4 sem)
 - [ ] **CANON.2.1** — `mart.ventas_enriched` → **VISTA sobre `kepler_ods.kdm1/kdm2`** (enrichment de canal en módulo
