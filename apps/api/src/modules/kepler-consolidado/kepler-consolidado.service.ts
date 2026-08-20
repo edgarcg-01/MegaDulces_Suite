@@ -21,7 +21,6 @@ const MARGIN_SCRIPT = 'database/importers/kepler/import-margin.js';
 const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
-const ERP_PROMOS_SCRIPT = 'database/importers/kepler/import-erp-promos.js';
 const CUSTOMER_SALES_SCRIPT = 'database/importers/kepler/import-customer-sales.js';
 const LOGISTICS_DIMS_SCRIPT = 'database/importers/kepler/import-logistics-dims.js';
 const ERP_SHIPMENTS_SCRIPT = 'database/importers/kepler/import-erp-shipments.js';
@@ -37,7 +36,6 @@ export class KeplerConsolidadoService {
   private salesFactRunning = false;
   private salesStatsRunning = false;
   private invHealthRunning = false;
-  private promosRunning = false;
   private custSalesRunning = false;
   private logDimsRunning = false;
   private shipmentsRunning = false;
@@ -225,22 +223,12 @@ export class KeplerConsolidadoService {
   }
 
   /**
-   * Promos vigentes del ERP → analytics.erp_promotions (KV.6). Nightly 05:00.
-   * Señal para Thot / portal.
+   * RETIRADO 2026-08-20 (mig 20260820160000): `analytics.erp_promotions` es ahora VISTA
+   * derive-no-copy sobre kepler_ods.kdpv_* → se deriva EN VIVO (fresco vía CDC), sin importer
+   * (correrlo pegaría TRUNCATE/INSERT contra la vista → error). No-op sin @Cron.
    */
-  @Cron('0 0 5 * * *')
   async promosFeed(): Promise<void> {
-    if (!this.db) return;
-    if (this.promosRunning) {
-      this.logger.warn('Skip promosFeed: corrida anterior aún activa');
-      return;
-    }
-    this.promosRunning = true;
-    try {
-      await this.runScript(ERP_PROMOS_SCRIPT, 'Promos ERP', /vigentes|COMMIT|ERROR/);
-    } finally {
-      this.promosRunning = false;
-    }
+    this.logger.log('promosFeed: no-op — erp_promotions es VISTA derive-no-copy (mig 20260820160000).');
   }
 
   /**
