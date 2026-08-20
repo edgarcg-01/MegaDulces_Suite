@@ -126,4 +126,11 @@ export class ExpenseComprobacionesController {
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, scope(req));
   }
+
+  @Post(':id/request-correction')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: 'Devuelve la comprobación al capturista para que la re-suba (estado correccion + motivo). Auditado.' })
+  requestCorrection(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
+    return this.svc.requestCorrection(id, req?.user?.full_name || req?.user?.username, body?.motivo, scope(req));
+  }
 }

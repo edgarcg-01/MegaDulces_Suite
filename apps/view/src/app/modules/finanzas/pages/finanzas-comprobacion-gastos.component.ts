@@ -24,6 +24,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole, ValidatePhotoResult } from '../comprobacion-gastos.service';
+import { ComprobacionGastosSocketService } from '../comprobacion-gastos-socket.service';
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
 /** Gasto de Kepler seleccionado (read-only) — la fuente de verdad. */
@@ -54,6 +55,7 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
           @if (!verAll()) {
             <span class="cg-scope" title="Solo ves los gastos de las áreas que se te asignaron. Pide 'Ver gastos de todos los departamentos' para ver todo."><i class="pi pi-filter" aria-hidden="true"></i> Viendo solo tus áreas asignadas</span>
           }
+          @if (liveConnected()) { <span class="cg-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
         </div>
         <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva comprobación</span></button>
       </header>
@@ -127,6 +129,7 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
                   <button pButton type="button" size="small" text (click)="openComprobar(g)" title="Agregar otra comprobación"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otra</span></button>
                   @if (g.comprobacion_id && canManage()) {
                     @if (g.comprobacion_status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === g.comprobacion_id" [disabled]="!!validatingId()" (click)="doValidate(g)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
+                    @if (g.comprobacion_status !== 'correccion') { <button pButton type="button" size="small" text severity="warn" (click)="openCorrection(g)" title="Solicitar corrección (regresar al capturista)"><span class="p-button-icon pi pi-undo" aria-hidden="true"></span></button> }
                     @if (g.comprobacion_status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(g)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
                   }
                 }
@@ -226,16 +229,21 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
       </ng-template>
     </p-dialog>
 
-    <!-- Diálogo: rechazo -->
-    <p-dialog [(visible)]="showReject" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobación">
+    <!-- Diálogo: rechazo / solicitar corrección (dual) -->
+    <p-dialog [(visible)]="showReject" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" [header]="rejectMode() === 'correction' ? 'Solicitar corrección' : 'Rechazar comprobación'">
       <div class="cp-form">
         <p class="muted">Gasto <strong>{{ rejectTarget()?.folio_gasto }}</strong> · {{ rejectTarget()?.proveedor }}</p>
-        <label class="cp-f"><span>Motivo del rechazo *</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al gasto…"></textarea></label>
+        @if (rejectMode() === 'correction') { <p class="cp-hint">Regresa la comprobación al capturista para que la re-suba. No es un rechazo en firme.</p> }
+        <label class="cp-f"><span>{{ rejectMode() === 'correction' ? 'Qué corregir *' : 'Motivo del rechazo *' }}</span>
+          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" [placeholder]="rejectMode() === 'correction' ? 'Ej. falta el ticket completo, sube una foto más clara…' : 'Ej. comprobante ilegible, no corresponde al gasto…'"></textarea></label>
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+        @if (rejectMode() === 'correction') {
+          <button pButton type="button" severity="warn" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-undo" aria-hidden="true"></span><span class="p-button-label">Solicitar corrección</span></button>
+        } @else {
+          <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+        }
       </ng-template>
     </p-dialog>
 
@@ -259,6 +267,8 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
   styles: [`
     :host { display: block; }
     .cg-scope { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .74rem; color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .15rem .5rem; }
+    .cg-live { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; margin-left: .5rem; font-size: .72rem; color: var(--ok-fg); }
+    .cg-live i { font-size: .55rem; }
     .cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
     .cp-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cp-field { display: flex; flex-direction: column; gap: .3rem; }
@@ -359,6 +369,8 @@ export class FinanzasComprobacionGastosComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly socket = inject(ComprobacionGastosSocketService);
+  readonly liveConnected = this.socket.connected;
   // Claude Vision lee la FOTO del gasto y valida el monto contra el importe Kepler.
   readonly photoLoading = signal(false);
   readonly photoResult = signal<ValidatePhotoResult | null>(null);
@@ -429,14 +441,22 @@ export class FinanzasComprobacionGastosComponent {
   private fileData: Record<string, string> = {};
   private uploaded: Record<string, ProofFile> = {};
 
-  // reject
+  // reject / solicitar corrección (mismo diálogo)
   readonly showReject = signal(false);
+  readonly rejectMode = signal<'reject' | 'correction'>('reject');
   readonly rejectTarget = signal<GastoRow | null>(null);
   rejectMotivo = '';
 
   constructor() {
     this.svc.departamentos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((d) => this.departamentos.set(d));
     this.load();
+    // Realtime: el capturista sube → el autorizador se entera sin refrescar.
+    this.socket.connect();
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.action === 'captured') this.toast.add({ severity: 'info', summary: 'Nueva captura', detail: `Gasto ${e.folio_gasto}${e.proveedor ? ' · ' + e.proveedor : ''}` });
+      this.load();
+    });
+    this.destroyRef.onDestroy(() => this.socket.disconnect());
   }
 
   kpiItems(r: GastosReport): MetricStripItem[] {
@@ -671,18 +691,26 @@ export class FinanzasComprobacionGastosComponent {
       });
   }
 
-  openReject(g: GastoRow) { this.rejectTarget.set(g); this.rejectMotivo = ''; this.showReject.set(true); }
+  openReject(g: GastoRow) { this.rejectMode.set('reject'); this.rejectTarget.set(g); this.rejectMotivo = ''; this.showReject.set(true); }
+  openCorrection(g: GastoRow) { this.rejectMode.set('correction'); this.rejectTarget.set(g); this.rejectMotivo = ''; this.showReject.set(true); }
   doReject() {
     const g = this.rejectTarget();
     if (!g?.comprobacion_id) return;
+    const correction = this.rejectMode() === 'correction';
     this.saving.set(true);
-    this.svc.reject(g.comprobacion_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Gasto ${g.folio_gasto}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+    const call = correction
+      ? this.svc.requestCorrection(g.comprobacion_id, this.rejectMotivo || undefined)
+      : this.svc.reject(g.comprobacion_id, this.rejectMotivo || undefined);
+    call.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: correction ? 'Corrección solicitada' : 'Rechazada', detail: `Gasto ${g.folio_gasto}` }); this.load(); },
+        error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: correction ? 'Error al solicitar corrección' : 'Error al rechazar' }); },
+      });
   }
 
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
-  statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s || ''] || (s || '—'); }
-  statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s || ''] || 'secondary'; }
+  statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión', correccion: 'Corrección solicitada' } as Record<string, string>)[s || ''] || (s || '—'); }
+  statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn', correccion: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }
