@@ -61,8 +61,8 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Órdenes de entrada — comprobantes</h1>
-          <p class="surf-page-sub">Adjunta la remisión/factura del proveedor a cada orden de entrada de Kepler (X-A-40) · OCR compara el total · pendiente → validado/rechazado</p>
+          <h1>Órdenes de entrada — factura del proveedor</h1>
+          <p class="surf-page-sub">Identificá la entrada por los <strong>últimos 4 dígitos</strong> de su folio y subí solo la <strong>factura del proveedor</strong> · el OCR la compara contra el total de Kepler · pendiente → validado/rechazado</p>
         </div>
       </header>
 
@@ -70,9 +70,9 @@ interface AttachFile {
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
         <div class="cb-field cb-grow"><label>Buscar</label>
-          <input pInputText [(ngModel)]="search" placeholder="Folio, OC, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
+          <input pInputText [(ngModel)]="search" placeholder="Últimos 4 del folio (ej. 0397), o proveedor / RFC / OC…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
-          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Arrastrá o elegí el PDF de la orden y se enlaza solo a la entrada"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Adjuntar (PDF)</span></button></div>
+          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Identificá la entrada por folio y subí la factura"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Subir factura</span></button></div>
         @if (newCount() > 0) {
           <div class="cb-field cb-field-pill"><label>&nbsp;</label>
             <button pButton type="button" class="cb-newpill" (click)="applyNew()" [title]="newCount() + ' orden(es) de entrada nueva(s) en el ERP'"><span class="p-button-icon p-button-icon-left pi pi-arrow-down" aria-hidden="true"></span><span class="p-button-label">{{ newCount() }} nueva(s) — actualizar</span></button></div>
@@ -135,18 +135,18 @@ interface AttachFile {
     <p-dialog [visible]="showAttach()" (visibleChange)="onAttachVisible($event)" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" [header]="photoFirst() ? 'Adjuntar comprobantes (PDF)' : 'Adjuntar comprobantes de la entrada'">
       <div class="cb-form">
         @if (photoFirst() && attachStep() === 1) {
-          <!-- PASO 1 — solo la Aplica Orden Entrada: se lee con OCR y enlaza la recepción -->
-          <div class="cb-step-head"><span class="cb-step-n">1</span><span>Subí la <strong>Aplica Orden Entrada</strong> — la leo y enlazo la recepción sola. El resto de documentos va en el paso 2.</span></div>
-          @if (!ordenFile()) {
-            <div class="cb-drop" [class.drag]="dragging()"
+          <!-- PASO 1 — identificar la entrada por los últimos 4 dígitos del folio (OE opcional) -->
+          <div class="cb-step-head"><span class="cb-step-n">1</span><span>Identificá la orden de entrada por los <strong>últimos 4 dígitos</strong> de su folio (buscala abajo). En el paso 2 subís la <strong>factura</strong>.</span></div>
+          @if (!ordenFile() && !attachTarget()) {
+            <div class="cb-drop cb-drop-opt" [class.drag]="dragging()"
                  (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
               <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
-              <div class="cb-drop-main">Arrastrá aquí el <strong>PDF de la Aplica Orden Entrada</strong></div>
+              <div class="cb-drop-main"><span class="cb-opt-tag">opcional</span> Arrastrá el <strong>PDF de la orden de entrada</strong> para enlazarla sola</div>
               <div class="cb-drop-or">o</div>
               <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
                 <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden />
               </label>
-              <div class="cb-drop-hint">La leo con OCR y enlazo la entrada sola.</div>
+              <div class="cb-drop-hint">Si prefieres, mejor identifícala por el folio abajo — es más rápido.</div>
             </div>
           }
           @if (ordenFile(); as f) {
@@ -191,9 +191,9 @@ interface AttachFile {
               @if (matching()) {
                 <span class="cb-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando la entrada…</span>
               } @else if (matchCandidates() === null) {
-                <p class="cb-link-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> Subí la <strong>Aplica Orden Entrada</strong> arriba y la enlazo sola. Si no, buscala acá:</p>
+                <p class="cb-link-hint"><i class="pi pi-search" aria-hidden="true"></i> Escribí los <strong>últimos 4 dígitos</strong> del folio de la orden de entrada (o proveedor):</p>
                 <div class="cb-link-search">
-                  <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
+                  <input pInputText [(ngModel)]="manualSearch" placeholder="Últimos 4 del folio (ej. 0397), o proveedor…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
                   <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
                 </div>
               } @else {
@@ -202,7 +202,7 @@ interface AttachFile {
                   @else { No la reconocí automáticamente — buscala por folio o proveedor: }
                 </div>
                 <div class="cb-link-search">
-                  <input pInputText [(ngModel)]="manualSearch" placeholder="Folio, proveedor, OC…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
+                  <input pInputText [(ngModel)]="manualSearch" placeholder="Últimos 4 del folio (ej. 0397), o proveedor…" (keyup.enter)="runManualSearch()" aria-label="Buscar entrada" />
                   <button pButton type="button" size="small" (click)="runManualSearch()" ariaLabel="Buscar entrada"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
                 </div>
                 @for (e of matchCandidates()!; track e.sucursal + '/' + e.folio) {
@@ -225,12 +225,12 @@ interface AttachFile {
               <div class="ta-r"><span class="cb-lbl">Valor de la entrada</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
             </div>
           }
-          <div class="cb-step-head">@if (photoFirst()) { <span class="cb-step-n">2</span> }<span>Agregá <strong>remisión/factura</strong> y <strong>vale de recepción</strong> (ticket si hay) — una por una; cada PDF se sube al momento.</span></div>
+          <div class="cb-step-head">@if (photoFirst()) { <span class="cb-step-n">2</span> }<span>Subí la <strong>factura del proveedor</strong> — es lo único obligatorio; la comparo contra el total de Kepler. Puedes agregar la orden de entrada u otra evidencia (opcional).</span></div>
           @if (!attachFiles().length) {
             <div class="cb-drop" [class.drag]="dragging()"
                  (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
               <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
-              <div class="cb-drop-main">Arrastrá aquí los <strong>PDF</strong> (remisión, vale, ticket…)</div>
+              <div class="cb-drop-main">Arrastrá aquí la <strong>factura del proveedor</strong> (PDF)</div>
               <div class="cb-drop-or">o</div>
               <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
                 <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden multiple />
@@ -334,7 +334,7 @@ interface AttachFile {
       <ng-template #footer>
         @if (photoFirst() && attachStep() === 1) {
           <button pButton type="button" text (click)="closeAttach()"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [disabled]="!attachTarget() || !ordenFile()" (click)="continuar()"><span class="p-button-label">Continuar</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></button>
+          <button pButton type="button" [disabled]="!attachTarget()" (click)="continuar()"><span class="p-button-label">Continuar</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></button>
         } @else {
           @if (photoFirst()) {
             <button pButton type="button" text (click)="backToStep1()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Atrás</span></button>
@@ -650,6 +650,8 @@ interface AttachFile {
     .cb-drop-main { font-size: .88rem; color: var(--text-main); }
     .cb-drop-or { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
     .cb-drop-hint { font-size: .74rem; color: var(--text-muted); }
+    .cb-drop-opt { border-style: dotted; opacity: .82; }
+    .cb-opt-tag { display: inline-block; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, .3rem); padding: 0 .3rem; margin-right: .35rem; vertical-align: middle; }
     /* OCR por-archivo + duplicados */
     .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
@@ -758,15 +760,17 @@ export class ComprasEntradasComponent {
   // RE (#4) — completitud CONSCIENTE DE FUENTE + packet-aware. La fuente (Kepler CEDIS /
   // Wincaja sucursal) define qué documentos exige la recepción; los tipos se detectan por OCR
   // (documents_present) ∪ el rol asignado → si subís TODO en un solo PDF también cumple.
+  // El ENFOQUE es la FACTURA del proveedor: es lo único obligatorio (se compara contra
+  // lo que ya trae Kepler). La orden de entrada queda OPCIONAL (solo para identificar).
   readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string; optional?: boolean }[]> = {
     kepler: [
-      { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
       { keys: ['factura', 'remision'], label: 'Factura' },
+      { keys: ['aplica_orden_entrada'], label: 'Orden de entrada', optional: true },
     ],
     wincaja: [
-      { keys: ['ticket'], label: 'Ticket', optional: true }, // el ticket de compra es OPCIONAL: no bloquea Guardar
-      { keys: ['orden_recepcion'], label: 'Orden de recepción' },
-      { keys: ['aplica_orden_entrada'], label: 'Aplica Orden Entrada' },
+      { keys: ['factura', 'remision'], label: 'Factura' },
+      { keys: ['aplica_orden_entrada'], label: 'Orden de entrada', optional: true },
+      { keys: ['ticket'], label: 'Ticket', optional: true },
     ],
   };
   private readonly ROLE_TO_TYPE: Record<string, string> = {
@@ -989,8 +993,8 @@ export class ComprasEntradasComponent {
     this.showAttach.set(true);
   }
 
-  /** Paso 1 → 2: la orden ya está enlazada; ahora se suman remisión/vale/ticket. */
-  continuar() { if (this.attachTarget() && this.ordenFile()) this.attachStep.set(2); }
+  /** Paso 1 → 2: basta con la entrada IDENTIFICADA (por folio). La orden de entrada es opcional. */
+  continuar() { if (this.attachTarget()) this.attachStep.set(2); }
   backToStep1() { this.attachStep.set(1); }
 
   private resetAttach() {
@@ -1042,17 +1046,18 @@ export class ComprasEntradasComponent {
     }
     const kind: 'image' | 'pdf' = dataUri.startsWith('data:application/pdf') ? 'pdf' : 'image';
     const id = ++this.fileSeq;
-    // Rol/primary atómico: 1ª = Aplica Orden Entrada (★, se lee y ENLAZA). El default del resto sigue
-    // el orden de docs de la FUENTE (Kepler: factura · Wincaja: ticket → orden recepción) → cae en una
-    // opción válida del <select> de esa fuente (si no, el select quedaba en blanco). OCR + override afinan.
+    // El ENFOQUE es la FACTURA: el 1er archivo default = factura/remisión (★, la que cuadra
+    // contra Kepler). La orden de entrada queda como slot opcional posterior. EXCEPCIÓN: el drop
+    // del PASO 1 (foto-primero) es específicamente la orden de entrada → rol orden_entrada + auto-enlace.
+    const step1Oe = this.photoFirst() && this.attachStep() === 1;
     const roleSeq = this.srcKind() === 'wincaja'
-      ? ['orden_entrada', 'ticket', 'orden_recepcion']
-      : ['orden_entrada', 'factura'];
+      ? ['remision', 'orden_entrada', 'ticket']
+      : ['factura', 'orden_entrada'];
     this.attachFiles.update((l) => {
       const primary = !l.some((f) => f.primary);
       const af: AttachFile = {
         id, name: file.name, dataUri, kind,
-        role: roleSeq[l.length] || 'evidencia',
+        role: step1Oe ? 'orden_entrada' : (roleSeq[l.length] || 'evidencia'),
         uploaded: null, uploading: false, failed: false, primary,
         sha256: hash || undefined, ocrLoading: true,
       };
