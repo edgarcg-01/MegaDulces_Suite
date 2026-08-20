@@ -1027,6 +1027,7 @@ export class ComprasService {
     if (q.comprobante) p.set('comprobante', q.comprobante);
     if (q.monto_min != null) p.set('monto_min', String(q.monto_min));
     if (q.monto_max != null) p.set('monto_max', String(q.monto_max));
+    if (q.sort) { p.set('sort', q.sort); p.set('dir', q.dir || 'desc'); }
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.all) p.set('all', '1');
@@ -1133,9 +1134,12 @@ export interface LandedCostResponse { summary: { compras: number; descuento: num
 export type Compras360AjusteMode = 'con' | 'sin';
 export type Compras360OcMode = 'con' | 'sin';
 export type Compras360CompMode = 'sin' | 'con' | 'validado' | 'por_validar' | 'rechazado';
-export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; comprobante?: Compras360CompMode; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean }
-export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
-export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; con_comprobante: number }; rows: Compras360Row[] }
+export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; comprobante?: Compras360CompMode; monto_min?: number; monto_max?: number; sort?: string; dir?: 'asc' | 'desc'; page?: number; pageSize?: number; all?: boolean }
+export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number;
+  /** Parte del ajuste que es beneficio negociado (descuento/pronto pago/apoyo) vs la que es un problema. */
+  ajuste_comercial: number; ajuste_operativo: number;
+  neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
+export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
 export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }
 export interface ReceiptEvidenceDeposit { id: string; files: ReceiptEvidenceFile[]; ocr_folio: string | null; ocr_fecha: string | null; ocr_proveedor: string | null; ocr_rfc: string | null; ocr_subtotal: number | null; ocr_iva: number | null; ocr_monto: number | null; ocr_status: string | null; monto_match: boolean | null; discrepancy_kind: string | null; discrepancy_amount: number | null; status: string; comentarios: string | null; validated_by: string | null; validated_at: string | null; motivo_rechazo: string | null; created_by: string | null; created_at: string }
