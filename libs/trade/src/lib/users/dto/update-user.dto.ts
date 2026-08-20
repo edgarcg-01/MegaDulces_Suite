@@ -59,6 +59,18 @@ export class UpdateUserDto {
   @IsUUID()
   supervisor_id?: string;
 
+  @ApiProperty({ description: 'Departamento del organigrama (identity.departments.code)', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  department_code?: string | null;
+
+  @ApiProperty({ description: 'Puesto del organigrama (identity.positions.code)', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  position_code?: string | null;
+
   @ApiProperty({ description: "Sucursal Kepler ('00'..'05'). Vacío = ve todas (rol global).", required: false })
   @IsOptional()
   @IsString()

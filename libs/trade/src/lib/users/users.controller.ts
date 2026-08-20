@@ -97,6 +97,20 @@ export class UsersController {
     return this.usersService.getZones();
   }
 
+  @Get('departments')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Catálogo de departamentos del organigrama (eje organizacional)' })
+  getDepartments() {
+    return this.usersService.getDepartments();
+  }
+
+  @Get('positions')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Catálogo de puestos canonicalizados del ORGANIGRAMA 2026' })
+  getPositions() {
+    return this.usersService.getPositions();
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.USUARIOS_VER)
   findOne(

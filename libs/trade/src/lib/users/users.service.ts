@@ -27,10 +27,20 @@ export class UsersService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  /**
+   * Tenant del request. TODAS las queries de este service lo necesitan
+   * EXPLÍCITO: `KNEX_CONNECTION` conecta como superusuario de Postgres, y un
+   * superusuario bypassea RLS incluso con FORCE ROW LEVEL SECURITY. Sin el
+   * filtro, este service veía y escribía el padrón de todos los tenants.
+   */
+  private get tenantId(): string {
+    return this.tenantCtx.requireTenantId();
+  }
+
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
     const zone = await this.knex('zones')
-      .where({ name: zonaName })
+      .where({ name: zonaName, tenant_id: this.tenantId })
       .select('id')
       .first();
     return zone ? zone.id : null;
@@ -53,7 +63,7 @@ export class UsersService {
     if (!ELEVATED_ROLES.has(normalized)) return;
 
     const requesterRow = await this.knex('users')
-      .where({ id: requester.sub })
+      .where({ id: requester.sub, tenant_id: this.tenantId })
       .select('role_name')
       .first();
     const requesterRole = (requesterRow?.role_name ?? '').toLowerCase();
@@ -74,7 +84,7 @@ export class UsersService {
     nextRole: string | undefined,
   ): Promise<void> {
     const current = await this.knex('users')
-      .where({ id: userId })
+      .where({ id: userId, tenant_id: this.tenantId })
       .select('role_name', 'activo')
       .first();
     if (!current) return;
@@ -93,7 +103,7 @@ export class UsersService {
     // El cambio degradaría/desactivaría a un superadmin. Verificar que
     // queda al menos otro superadmin activo.
     const otherActive = await this.knex('users')
-      .where({ role_name: 'superadmin', activo: true })
+      .where({ role_name: 'superadmin', activo: true, tenant_id: this.tenantId })
       .andWhereNot({ id: userId })
       .count<{ count: string }>('id as count')
       .first();
@@ -102,6 +112,40 @@ export class UsersService {
       throw new BadRequestException(
         'No puedes desactivar o degradar al último superadmin activo del sistema.',
       );
+    }
+  }
+
+  /**
+   * Valida los ejes organizacionales contra su catálogo ANTES de escribir. Sin
+   * esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
+   * admin veía "Error al actualizar usuario" sin motivo y quedaba un error de
+   * servidor en el log por un dato de entrada inválido.
+   */
+  private async assertOrgCodes(
+    departmentCode?: string | null,
+    positionCode?: string | null,
+  ): Promise<void> {
+    if (departmentCode) {
+      const dep = await this.knex('identity.departments')
+        .where({ tenant_id: this.tenantId, code: departmentCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!dep) {
+        throw new BadRequestException(
+          `El departamento "${departmentCode}" no existe.`,
+        );
+      }
+    }
+    if (positionCode) {
+      const pos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId, code: positionCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!pos) {
+        throw new BadRequestException(`El puesto "${positionCode}" no existe.`);
+      }
     }
   }
 
@@ -116,11 +160,15 @@ export class UsersService {
     } = createUserDto;
 
     await this.assertCanAssignRole(role_name, requester);
+    await this.assertOrgCodes(
+      createUserDto.department_code,
+      createUserDto.position_code,
+    );
 
     const normalizedUsername = this.normalizeUsername(username);
 
     const existing = await this.knex('users')
-      .where({ username: normalizedUsername })
+      .where({ username: normalizedUsername, tenant_id: this.tenantId })
       .select('id')
       .first();
     if (existing) {
@@ -167,6 +215,7 @@ export class UsersService {
 
     const knex = this.knex;
     const query = knex('users as u')
+      .where('u.tenant_id', this.tenantId)
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .leftJoin('daily_assignments as da', function () {
         this.on('da.user_id', '=', 'u.id');
@@ -175,6 +224,16 @@ export class UsersService {
       .leftJoin('catalogs as cr', function () {
         this.on('cr.id', '=', 'da.route_id');
         this.on('cr.catalog_id', '=', knex.raw("'rutas'"));
+      })
+      // Ejes organizacionales (Fase UN): el departamento y el puesto son dato
+      // real de la fila, ya no se infieren del role_name en el frontend.
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
       })
       .select(
         'u.id',
@@ -186,6 +245,10 @@ export class UsersService {
         'u.activo',
         'u.supervisor_id',
         'u.warehouse_code',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
         'u.finance_expense_area_ids',
         'u.created_at',
         'u.last_login_at',
@@ -221,7 +284,16 @@ export class UsersService {
   async findOne(id: string, requester: RequesterContext) {
     const user = await this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
+      })
       .where('u.id', id)
+      .where('u.tenant_id', this.tenantId)
       .select(
         'u.id',
         'u.username',
@@ -233,6 +305,10 @@ export class UsersService {
         'u.supervisor_id',
         'u.supervisor_id as parent_supervisor',
         'u.warehouse_code',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
         'u.finance_expense_area_ids',
         'u.created_at',
       )
@@ -295,6 +371,10 @@ export class UsersService {
     if (role_name !== undefined) {
       await this.assertCanAssignRole(role_name, requester);
     }
+    await this.assertOrgCodes(
+      updateUserDto.department_code,
+      updateUserDto.position_code,
+    );
 
     // Defensa contra dejar al sistema sin superadmins activos.
     if (role_name !== undefined || activo !== undefined) {
@@ -310,7 +390,7 @@ export class UsersService {
     if (username) {
       const normalized = this.normalizeUsername(username);
       const conflict = await this.knex('users')
-        .where({ username: normalized })
+        .where({ username: normalized, tenant_id: this.tenantId })
         .andWhereNot({ id })
         .select('id')
         .first();
@@ -340,7 +420,7 @@ export class UsersService {
     updateData['updated_by'] = requester.sub;
 
     const [user] = await this.knex('users')
-      .where({ id })
+      .where({ id, tenant_id: this.tenantId })
       .update(updateData)
       .returning([
         'id',
@@ -362,7 +442,7 @@ export class UsersService {
         ? zona
         : (
             await this.knex('zones')
-              .where({ id: user.zona_id })
+              .where({ id: user.zona_id, tenant_id: this.tenantId })
               .select('name')
               .first()
           )?.name;
@@ -379,7 +459,7 @@ export class UsersService {
     await this.assertNotLastSuperadmin(id, false, undefined);
 
     return this.knex.transaction(async (trx) => {
-      const count = await trx('users').where({ id }).update({
+      const count = await trx('users').where({ id, tenant_id: this.tenantId }).update({
         activo: false,
         deleted_at: trx.fn.now(),
         deleted_by: requester.sub,
@@ -391,7 +471,7 @@ export class UsersService {
       }
 
       const orphans = await trx('users')
-        .where({ supervisor_id: id })
+        .where({ supervisor_id: id, tenant_id: this.tenantId })
         .update({ supervisor_id: null });
 
       return {
@@ -402,7 +482,13 @@ export class UsersService {
   }
 
   async getRoles() {
+    // Filtro de tenant EXPLÍCITO: `KNEX_CONNECTION` conecta como superusuario, y
+    // un superusuario bypassea RLS incluso con FORCE ROW LEVEL SECURITY. Sin
+    // este WHERE el endpoint devolvía los roles de TODOS los tenants (verificado:
+    // 47 filas para 30 roles reales).
     return this.knex('role_permissions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
       .select('role_name')
       .orderBy('role_name', 'asc');
   }
@@ -411,7 +497,7 @@ export class UsersService {
     const query = this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .where('u.role_name', 'like', '%supervisor%')
-      .where({ 'u.activo': true })
+      .where({ 'u.activo': true, 'u.tenant_id': this.tenantId })
       .select('u.id', 'u.nombre', 'u.username', 'z.name as zona');
 
     if (zona) query.where('z.name', zona);
@@ -422,7 +508,7 @@ export class UsersService {
     const query = this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .whereNotIn('u.role_name', ['supervisor_v', 'admin', 'superadmin'])
-      .where({ 'u.activo': true })
+      .where({ 'u.activo': true, 'u.tenant_id': this.tenantId })
       .select(
         'u.id',
         'u.nombre',
@@ -441,13 +527,41 @@ export class UsersService {
   async findBySupervisor(supervisorId: string) {
     return this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
-      .where({ 'u.supervisor_id': supervisorId, 'u.activo': true })
+      .where({ 'u.supervisor_id': supervisorId, 'u.activo': true, 'u.tenant_id': this.tenantId })
       .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name');
   }
 
   async getZones() {
     return this.knex('zones')
+      .where({ tenant_id: this.tenantId })
       .orderBy('orden', 'asc')
       .select('id', 'name as value', 'orden');
+  }
+
+  /**
+   * Catálogo de departamentos del organigrama (eje organizacional, Fase UN).
+   * No confundir con los roles: el departamento describe dónde trabaja la
+   * persona, el rol describe qué puede hacer en la app.
+   */
+  async getDepartments() {
+    return this.knex('identity.departments')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .orderBy('orden', 'asc')
+      .select('code', 'name', 'orden');
+  }
+
+  /**
+   * Catálogo plano de puestos canonicalizados del ORGANIGRAMA 2026.
+   * `org_labels` trae las etiquetas literales del PDF que se colapsaron en cada
+   * puesto — útil para que el admin reconozca el puesto por como se llama en el
+   * organigrama impreso.
+   */
+  async getPositions() {
+    return this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .orderBy('orden', 'asc')
+      .select('code', 'name', 'org_labels', 'orden');
   }
 }
