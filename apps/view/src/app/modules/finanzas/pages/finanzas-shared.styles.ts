@@ -1,13 +1,14 @@
 /**
- * Vocabulario visual del CUADRE de Finanzas — fuente única para la pestaña Cuadre de
- * `/finanzas/bancos` y la vista Cuadre de `/finanzas/caja`.
+ * Vocabulario visual compartido de Finanzas — fuente única para `/finanzas/bancos` y
+ * `/finanzas/caja`: el chrome de la página (segmentado de vistas, skeleton) y los organismos
+ * del cuadre (veredicto, control-total, tags, drill).
  *
  * Las dos pantallas responden la misma pregunta con la misma forma: enfrentar N fuentes que
  * deberían decir lo mismo, declarar si cuadran, y dejar abrir el renglón que no cuadra. El
  * diseño de referencia es el de **Bancos** (veredicto arriba, cards `card-premium card-flat`,
  * control-total en `table.tw-tbl`, tags, drill); Caja lo adopta.
  *
- * Uso:  styles: [CUADRE_STYLES, `…lo propio de esta vista…`]
+ * Uso:  styles: [FINANZAS_SHARED_STYLES, `…lo propio de esta vista…`]
  *
  * Solo lleva selectores con prefijo (`tw-`, `fb-`, `*-tag`). NADA de clases genéricas
  * (`.muted`, `.num`, `.strong`, `.ta-r`): cada pantalla ya define las suyas y redefinirlas
@@ -16,7 +17,45 @@
  * Regla: una clase que necesiten las dos vistas va acá — no se copia.
  * Tokens en libs/design-tokens/tokens.css. Cero hex crudo.
  */
-export const CUADRE_STYLES = `
+export const FINANZAS_SHARED_STYLES = `
+
+  /* ── Chrome de la página: segmentado de vistas + skeleton ─────────────────
+     Las dos pantallas de Finanzas navegan entre vistas con el MISMO control. Caja lo hacía
+     con pestañas subrayadas y Bancos con un segmentado en píldora: la misma app se leía como
+     dos productos. Manda el de Bancos. */
+  /* Quiet-luxury (Linear/Stripe): hairline, cero gloss, cero sombra difusa. La regla de
+     elevación in-page es borde 1px O sombra, nunca ambas — antes llevaba borde + doble
+     sombra + gloss iOS, que encima necesitaba un override de dark aparte porque el brillo
+     blanco no sobrevive el tema. El desborde se ANUNCIA con fade en los bordes: 9 destinos
+     con scrollbar oculto dejaban vistas invisibles en pantalla mediana. */
+  .fb-viewseg {
+    display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 3px;
+    background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -ms-overflow-style: none;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
+  }
+  .fb-viewseg::-webkit-scrollbar { display: none; }
+  .fb-viewseg button {
+    display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none; border-radius: var(--r-pill);
+    color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500;
+    padding: var(--sp-1) var(--sp-3); cursor: pointer; white-space: nowrap;
+    transition: background-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard);
+  }
+  .fb-viewseg button:not(.active):hover { color: var(--text-main); }
+  /* Activo = superficie + ring 1px tokenizado (no sombra): se lee igual en light y dark. */
+  .fb-viewseg button.active {
+    color: var(--action); background: var(--card-bg);
+    box-shadow: 0 0 0 1px var(--border-color);
+  }
+  .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .fb-seg-config { margin-left: auto; }
+  .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
+  .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
+  @keyframes fb-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
+  @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
+  .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
+
   /* ── Veredicto: la conclusión, arriba de todo ──────────────────────────────
      Borde izquierdo de 3px como portador de estado además del icono. Elevación =
      borde, nunca sombra (regla del design system para superficies in-page). */

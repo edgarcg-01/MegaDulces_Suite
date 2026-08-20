@@ -9,12 +9,11 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
-import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
-import { CUADRE_STYLES } from './cuadre.styles';
+import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
@@ -74,7 +73,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
   selector: 'app-finanzas-caja',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -88,11 +87,15 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         </div>
       </header>
 
-      <nav class="cg-views" role="tablist" aria-label="Vistas de caja">
+      <!-- Mismo segmentado que Bancos (fb-viewseg): la misma app no puede navegar de dos
+           formas distintas según la pantalla. Lo propio de Caja es el badge "histórico". -->
+      <div class="fb-viewseg" role="tablist" aria-label="Vistas de caja">
         @for (v of VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" class="cg-view" [class.on]="view()===v.key" [class.legacy]="v.legacy" (click)="setView(v.key)"><span class="pi {{v.icon}}" aria-hidden="true"></span>&nbsp;{{ v.label }}@if (v.legacy) { <span class="cg-hist" title="Fuente histórica (Base Movimientos, ≤ ene-2026)">histórico</span> }</button>
+          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" [class.legacy]="v.legacy" (click)="setView(v.key)">
+            <span class="pi {{v.icon}}" aria-hidden="true"></span> {{ v.label }}@if (v.legacy) { <span class="cg-hist" title="Fuente histórica (Base Movimientos, ≤ ene-2026)">histórico</span> }
+          </button>
         }
-      </nav>
+      </div>
 
       @if (isLegacy()) {
         <div class="cg-legacy-note" role="note">
@@ -109,7 +112,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <p-select [options]="['Ingreso','Gasto']" [ngModel]="cgTipo()" (onChange)="onCgTipo($event.value)" placeholder="Tipo" [showClear]="true" styleClass="cg-sel" ariaLabel="Tipo" />
           <p-iconfield styleClass="cg-search"><p-inputicon styleClass="pi pi-search" /><input pInputText type="text" placeholder="Cuenta/cliente/concepto…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar" /></p-iconfield>
         </div>
-        @if (loading() && !cg()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !cg()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (cg(); as d) {
           <app-metric-strip [items]="cgKpis(d)" ariaLabel="Totales de caja general" />
           <div class="cg-two">
@@ -168,7 +171,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <!-- ===== CUADRE (conciliación 3 fuentes: .mdb operativo vs Manual vs Kepler) ===== -->
       @if (view()==='cuadre') {
-        @if (loading() && !wbc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !wbc()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (wbc(); as d) {
 
           <!-- Veredicto answer-first (mismo organismo que el Cuadre de Bancos) -->
@@ -334,7 +337,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <!-- ===== RESUMEN ===== -->
       @if (view()==='resumen') {
-        @if (loading() && !ov()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !ov()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (ov(); as d) {
           <app-metric-strip [items]="ovKpis(d)" ariaLabel="Totales de caja" />
           <div class="cg-tenders">
@@ -376,7 +379,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <p-iconfield styleClass="cg-search"><p-inputicon styleClass="pi pi-search" /><input pInputText type="text" placeholder="Banco/cuenta/obs…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar" /></p-iconfield>
           @if (banco() || search().trim()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearDep()"><span class="pi pi-filter-slash" aria-hidden="true"></span>&nbsp;Limpiar</button> }
         </div>
-        @if (loading() && !dep()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !dep()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (dep(); as d) {
           <app-metric-strip [items]="depKpis(d)" ariaLabel="Totales de depósitos" />
           <div class="cg-bd">
@@ -408,7 +411,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <p-select [options]="tipoOpts" [ngModel]="tipo()" (onChange)="onFilter('tipo',$event.value)" placeholder="Tipo" [showClear]="true" styleClass="cg-sel" ariaLabel="Tipo" />
           <p-select [options]="f().cajas" [ngModel]="caja()" (onChange)="onFilter('caja',$event.value)" placeholder="Caja" [showClear]="true" styleClass="cg-sel" ariaLabel="Caja" />
         </div>
-        @if (loading() && !arq()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !arq()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (arq(); as d) {
           <div class="cg-bd">
             <span class="cg-bd-title">Por tipo</span>
@@ -436,7 +439,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <!-- ===== CONCILIACION ===== -->
       @if (view()==='conciliacion') {
-        @if (loading() && !conc()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !conc()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (conc(); as d) {
           <app-metric-strip [items]="concKpis(d)" ariaLabel="Conciliación 3 vías caja/workbook/kepler" />
           <p-table [value]="d.por_banco" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
@@ -497,7 +500,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <!-- ===== ENLACE DE CUENTAS ===== -->
       @if (view()==='enlace') {
-        @if (loading() && !xw()) { <div class="cg-skel">@for (i of skel; track i) { <p-skeleton height="2rem" styleClass="cg-skel-row" /> }</div> }
+        @if (loading() && !xw()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (xw(); as rows) {
           <p class="cg-note" style="margin:.2rem 0 .8rem">Mapea cada <b>cuenta interna de Caja</b> a su <b>cuenta de banco real</b> (account_label, la llave que comparten Bancos y Kepler). La sugerencia se deriva <b>vía Kepler</b> (match de depósitos por monto+fecha, mismo banco) — es dispersa, por eso se <b>confirma a mano</b>. Confirmar habilita la conciliación exacta por cuenta (en vez de por nombre de banco).</p>
           <p-table [value]="rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
@@ -534,7 +537,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       }
     </div>
   `,
-  styles: [CUADRE_STYLES, `
+  styles: [FINANZAS_SHARED_STYLES, `
     /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
        igual que un día sin movimientos: un 404 del API, un 403 o el 22007 por una
        fecha mal formada eran indistinguibles de "no hubo nada". */
@@ -545,11 +548,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .cg-head-actions { display:flex; gap:.5rem; align-items:center; }
     :host ::ng-deep .cg-sel { min-width:8.5rem; }
-    .cg-views { display:flex; gap:.3rem; flex-wrap:wrap; margin:1rem 0 .8rem; border-bottom:1px solid var(--border-color); }
-    .cg-view { background:none; border:none; border-bottom:2px solid transparent; padding:.5rem .8rem; font-size:.85rem; color:var(--text-muted); cursor:pointer; }
-    .cg-view:hover { color:var(--text-main); }
-    .cg-view.on { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
-    .cg-view.legacy { color:var(--text-faint); }
+    .fb-viewseg button.legacy { color: var(--text-faint); }
     .cg-hist { margin-left:.35rem; font-size:.58rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 .28rem; vertical-align:middle; }
     .cg-legacy-note { display:flex; align-items:center; gap:.55rem; padding:.55rem .8rem; margin:.1rem 0 .7rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:.78rem; color:var(--text-muted); line-height:1.45; }
     .cg-legacy-note .pi { color:var(--warn-fg); }
@@ -614,7 +613,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-errbox .pi { color:var(--bad-fg); } .cg-errbox-txt { flex:1; font-size:.84rem; }
     .cg-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2rem 1rem; text-align:center; color:var(--text-muted); }
     .cg-empty .pi { font-size:1.6rem; color:var(--text-faint); }
-    .cg-skel { display:flex; flex-direction:column; gap:.4rem; margin-top:1rem; }
   `],
 })
 export class FinanzasCajaComponent implements OnInit {
