@@ -61,7 +61,7 @@ Todo lo Kepler-derivado lee el ODS; los 17 `prod`-transforms se quedan (no son o
 
 ### Fase 1 — repuntar los lectores de KP_CONCENTRADA a `kepler_ods` (1-2 sem)
 KP_CONCENTRADA @4h cross-LAN → ODS @min same-DB. Todas las tablas confirmadas en el ODS.
-- [ ] **CANON.1.1** — `import-cash-sessions` (`kp.kdpv_folio_caja` → `kepler_ods.kdpv_folio_caja`). *Pattern-setter, bajo blast-radius.*
+- [x] **CANON.1.1** — `import-cash-sessions` → `kepler_ods.kdpv_folio_caja` (same-DB prod). ✅ 2026-08-20. Dry-run compare: ODS superset (0 faltantes vs KP) y MÁS preciso (ODS 9 abiertas vs KP 13, con ~6 cierres de hoy que KP @4h no veía). `source=ods` default; `kp`/`branches` quedan de fallback. Límite R2 visto: 1 sesión con lag del carril hash (se cierra en el próximo ciclo). Toma efecto en la próxima corrida `live`/`livefast`.
 - [ ] **CANON.1.2** — `import-label-data` (`kp.kdii`+`kdpv_prod_util` → ODS).
 - [ ] **CANON.1.3** — `repoint-catalog-presence` / `repoint-catalog-names` / `repoint-catalog-prices` (`kp.kdii` → `kepler_ods.kdii`).
       Al repuntar names, **quitar el gate "el nombre debe diferir"** (corrige 1,685 barcodes) — se hace JUNTO al repunte

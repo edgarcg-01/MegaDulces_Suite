@@ -25,10 +25,10 @@ const knexLib = require('knex');
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
-// Fuente por default = KP_CONCENTRADA (un solo read del consolidado local .245, fresco y
-// barato → apto para el grupo `live` cada 15-30 min). Fallback: `--source=branches` lee
-// las 6 DBs por sucursal directo (útil si no hay consolidado a mano).
-const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'kp';
+// Fuente por default = `ods` (CANON.1.1): lee kepler_ods.kdpv_folio_caja en el MISMO Postgres de
+// prod (fresco al minuto, same-DB, sin cross-LAN — reemplaza KP_CONCENTRADA @4h). Fallbacks:
+// `--source=kp` (KP_CONCENTRADA .245) · `--source=branches` (6 DBs por sucursal directo).
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
 const KP_SRC = process.env.KP_SRC_URL || process.env.KP_DEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const BRANCH_NAMES = { '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8ESQ', '04': 'Yurécuaro', '05': 'Zamora Centro' };
@@ -70,12 +70,14 @@ async function readBranch(b) {
 }
 
 /**
- * Fuente KP_CONCENTRADA: lee TODAS las sucursales live (01..05) de un solo golpe
- * desde `kp.kdpv_folio_caja` (discriminador `sucursal`). El centinela de cierre aquí
- * es un timestamp `1800-01-01 …` (no el texto '1800-01-01') → open = año 1800.
+ * Fuente CONSOLIDADA de una sola conexión (discriminador `sucursal`): sirve para `ods`
+ * (`kepler_ods.kdpv_folio_caja` en el MISMO Postgres de prod, fresco al minuto, same-DB
+ * sin cross-LAN — CANON.1.1) y para `kp` (`kp.kdpv_folio_caja` en KP_CONCENTRADA @4h,
+ * fallback). Centinela de cierre = `1800-…` (texto o timestamp) → open. Verificado 2026-08-20:
+ * el ODS cubre TODO lo de KP (superset) y es más preciso (KP arrastra ~6 cierres stale @4h).
  */
-async function readFromKp() {
-  const c = new Client({ connectionString: KP_SRC, connectionTimeoutMillis: 8000, statement_timeout: 60000 });
+async function readFromConsolidated({ connStr, schema, ssl }) {
+  const c = new Client({ connectionString: connStr, connectionTimeoutMillis: 8000, statement_timeout: 60000, ssl });
   await c.connect();
   try {
     const codes = ['01', '02', '03', '04', '05'];
@@ -87,7 +89,7 @@ async function readFromKp() {
               CASE WHEN c10 IS NULL OR c10::text LIKE '1800-%' THEN NULL
                    ELSE (c10::timestamp AT TIME ZONE 'America/Mexico_City') END AS closed_at,
               c7 AS cajero_ap, c8 AS cajero_cierre
-         FROM kp.kdpv_folio_caja
+         FROM ${schema}.kdpv_folio_caja
         WHERE sucursal = ANY($1) AND c5::date >= (CURRENT_DATE - INTERVAL '2 days')`,
       [codes],
     );
@@ -129,12 +131,16 @@ async function upsert(db, rows) {
 
 (async () => {
   const all = [];
-  if (SOURCE === 'kp') {
-    console.log(`Fuente: KP_CONCENTRADA (${KP_SRC.replace(/:[^@/]*@/, ':****@')})`);
-    const rows = await readFromKp();
+  if (SOURCE === 'ods' || SOURCE === 'kp') {
+    const isOds = SOURCE === 'ods';
+    const connStr = isOds ? process.env.DATABASE_URL_NEW : KP_SRC;
+    if (!connStr) { console.error('ERROR: source=ods requiere DATABASE_URL_NEW (kepler_ods vive en prod)'); process.exit(1); }
+    const ssl = /@(localhost|127\.0\.0\.1|192\.168\.)/.test(connStr) ? false : { rejectUnauthorized: false };
+    console.log(`Fuente: ${isOds ? 'kepler_ods (same-DB prod, @min)' : 'KP_CONCENTRADA .245 (@4h)'}`);
+    const rows = await readFromConsolidated({ connStr, schema: isOds ? 'kepler_ods' : 'kp', ssl });
     all.push(...rows);
     const abiertas = rows.filter((r) => r.status === 'open').length;
-    console.log(`[kp] ${rows.length} sesiones (${abiertas} ABIERTAS)`);
+    console.log(`[${SOURCE}] ${rows.length} sesiones (${abiertas} ABIERTAS)`);
   } else {
     for (const b of BRANCHES) {
       try {
