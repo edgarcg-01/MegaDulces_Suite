@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * RR/catálogo — REPOINT de identidad: corrige el NOMBRE (y marca/barcode) de las claves que
+ * RR/catálogo — REPOINT de identidad: corrige el NOMBRE (y la marca de esa clave) de las claves que
  * Kepler REUSA por campaña, que quedaban stale en `catalog.products` porque `catalog-bulk`
  * lee el snapshot EXTERNO `Mega_Dulces.catalogo_completo` (se atrasa) y su INSERT salta las
  * claves ya existentes (guard por sku). Fuente FRESCA = `KP_CONCENTRADA.kp.kdii` (la refresca
@@ -90,9 +90,12 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
       await dst.query(`INSERT INTO tmp_fresh (sku, nombre, barcode, brand_id) VALUES ${vals.join(',')}`, params);
     }
 
-    // predicado común: fila activa cuya identidad difiere y que NO colisiona con la unique
-    // Guard anti-colisión que ESPEJA la unique FULL (tenant, brand_id, nombre) — mira TODAS las
-    // filas (incl. borradas) y compara `nombre` RAW (igual que la constraint), no normalizado.
+    // predicado: fila activa cuyo NOMBRE difiere y NO colisiona con la unique (tenant, brand_id, nombre).
+    // CANON.1.3b — el gate se mantiene por NOMBRE (el brand_id se actualiza junto al nombre por COALESCE;
+    // reasignar marca en cambios name-igual movía ~500 filas sin validar → diferido a análisis propio).
+    // NO se escribe barcode aquí: es único-escritor de import-label-data (valida c7 + rescata c95); el
+    // c7 crudo de este feed es basura para ~1184 SKUs → escribirlo REGRESARÍA barcodes buenos (medido).
+    // Guard anti-colisión que ESPEJA la unique FULL (tenant, brand_id, nombre) — mira TODAS las filas.
     const WHERE = `
       p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=t.sku
       AND btrim(upper(p.nombre)) <> btrim(upper(t.nombre))
@@ -110,12 +113,11 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
     const res = await dst.query(`
       UPDATE catalog.products p SET
         nombre = t.nombre,
-        barcode = COALESCE(NULLIF(t.barcode,''), p.barcode),
         brand_id = COALESCE(t.brand_id, p.brand_id),
         updated_at = now()
       FROM tmp_fresh t WHERE ${WHERE}`, [M]);
     await dst.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${res.rowCount} nombres corregidos (UPDATE-only, sin insert/delete).`);
+    console.log(`\n[APPLY] COMMIT — ${res.rowCount} identidades corregidas (nombre/marca; UPDATE-only). Barcode = label-data.`);
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
