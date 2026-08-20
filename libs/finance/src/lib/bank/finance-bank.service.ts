@@ -2313,14 +2313,15 @@ export class FinanceBankService {
       const kepler = (await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).where('account_label', accountLabel)
         .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).whereRaw('signo <> 0')
-        .select('doc_tipo', 'folio', 'importe', 'signo', 'fecha_valor', 'beneficiario', 'metodo'))
+        .select('sucursal', 'clave_banco', 'doc_tipo', 'folio', 'importe', 'signo', 'fecha_valor', 'beneficiario', 'metodo'))
         .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, fecha: p.fecha_valor, concepto: p.beneficiario, metodo: p.metodo,
+          key: `${p.sucursal}|${p.doc_tipo}|${p.folio}|${p.clave_banco}`,
           dir: Number(p.signo) > 0 ? 'in' : 'out', importe: n(p.importe), used: false }));
 
       const contpaqi = acct.contpaqi_cuenta ? (await trx('analytics.contpaqi_bank_movements')
         .where({ tenant_id: tenantId, anio_mes: period, cuenta: acct.contpaqi_cuenta })
         .select('id_movimiento', 'fecha', 'flujo', 'importe', 'poliza_tipo', 'poliza_folio', 'concepto'))
-        .map((c: any) => ({ id: c.id_movimiento, fecha: c.fecha, poliza: `${c.poliza_tipo || ''} ${c.poliza_folio || ''}`.trim(), concepto: c.concepto,
+        .map((c: any) => ({ id: c.id_movimiento, key: String(c.id_movimiento), fecha: c.fecha, poliza: `${c.poliza_tipo || ''} ${c.poliza_folio || ''}`.trim(), concepto: c.concepto,
           dir: c.flujo === 'deposito' ? 'in' : 'out', importe: n(c.importe), used: false })) : [];
 
       const buildIdx = (arr: any[]) => {
@@ -2347,12 +2348,13 @@ export class FinanceBankService {
 
       const excelRows = excel.map((e: any) => {
         const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
-        return { ...e, kepler: !!k, contpaqi: !!c,
+        return { ...e, source: 'workbook', key: String(e.id), kepler: !!k, contpaqi: !!c,
           kepler_importe: k ? n(k.importe) : null, contpaqi_importe: c ? n(c.importe) : null,
-          kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null };
+          kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null,
+          kepler_key: k ? k.key : null, contpaqi_key: c ? c.key : null };
       });
-      const keplerOnly = kepler.filter((x) => !x.used).map((x) => ({ doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo }));
-      const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
+      const keplerOnly = kepler.filter((x) => !x.used).map((x) => ({ source: 'kepler', key: x.key, doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo }));
+      const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
 
       const sum = (a: any[]) => r2(a.reduce((s, r) => s + r.importe, 0));
       return {
@@ -2368,6 +2370,63 @@ export class FinanceBankService {
           contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
         },
       };
+    });
+  }
+
+  /**
+   * CB.40 — Detalle COMPLETO de un movimiento del cuadre 3-vías (click en el drill). Devuelve
+   * todos los campos del registro crudo de la fuente como {label,value} ordenados. `key` = PK
+   * codificada que arma threeWayDetail: workbook=id · kepler=`suc|doc_tipo|folio|clave_banco` ·
+   * contpaqi=id_movimiento. Espejo del /finance/caja/movement.
+   */
+  async movementDetail(source: string, key: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const money = (v: any) => (v == null || v === '' ? null : Number(v));
+    const d10 = (v: any) => (v == null ? null : String(v instanceof Date ? v.toISOString() : v).slice(0, 10));
+    if (!key) throw new BadRequestException('key requerido');
+    return this.tk.run(async (trx) => {
+      if (source === 'workbook') {
+        const r: any = await trx('finance.bank_movements as bm')
+          .leftJoin('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+          .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+          .where('bm.id', key).andWhere('bm.tenant_id', tenantId)
+          .first('bm.*', trx.raw('ba.alias as cuenta_alias'), trx.raw('mc.name as categoria'));
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Estado de cuenta · ${r.cuenta_alias || ''} ${d10(r.movement_date)}`, fields: [
+          { label: 'Fecha', value: d10(r.movement_date) }, { label: 'Cuenta', value: r.cuenta_alias },
+          { label: 'Tipo (M)', value: r.raw_type }, { label: 'Código (C)', value: r.raw_code },
+          { label: 'Sucursal', value: r.sucursal }, { label: 'Concepto', value: r.concept },
+          { label: 'Categoría', value: r.categoria }, { label: 'Clasificado por', value: r.classified_by },
+          { label: 'Depósito', value: money(r.amount_in) }, { label: 'Retiro', value: money(r.amount_out) },
+          { label: 'Saldo', value: money(r.running_balance) }, { label: 'Origen sync', value: r.sync_source },
+          { label: 'Archivo', value: r.source_file }, { label: 'Conciliación', value: r.recon_status },
+        ] };
+      }
+      if (source === 'kepler') {
+        const [sucursal, doc_tipo, folio, clave_banco] = String(key).split('|');
+        const r: any = await trx('analytics.kepler_bank_movements').where({ tenant_id: tenantId, sucursal, doc_tipo, folio, clave_banco }).first();
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Kepler · ${r.doc_tipo} ${r.folio}`, fields: [
+          { label: 'Fecha valor', value: d10(r.fecha_valor) }, { label: 'Fecha captura', value: d10(r.fecha_captura) },
+          { label: 'Documento', value: `${r.doc_tipo} ${r.folio}` }, { label: 'Sucursal', value: r.sucursal },
+          { label: 'Clave banco', value: r.clave_banco }, { label: 'Banco', value: r.banco_nombre },
+          { label: 'Cuenta contable', value: r.cuenta_contable }, { label: 'Cuenta (label)', value: r.account_label },
+          { label: 'Flujo', value: r.flujo }, { label: 'Importe', value: money(r.importe) }, { label: 'Signo', value: r.signo },
+          { label: 'Concepto', value: r.concepto }, { label: 'Método', value: r.metodo }, { label: 'Beneficiario', value: r.beneficiario },
+          { label: 'Traspaso', value: r.es_traspaso ? `sí (contra ${r.contra_clave || '—'}${r.pierna ? ', ' + r.pierna : ''})` : 'no' },
+        ] };
+      }
+      if (source === 'contpaqi') {
+        const r: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, id_movimiento: key }).first();
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `ContPAQi · ${(r.poliza_tipo || '')} ${(r.poliza_folio || '')}`.trim(), fields: [
+          { label: 'Fecha', value: d10(r.fecha) }, { label: 'Cuenta', value: r.cuenta },
+          { label: 'Póliza', value: `${r.poliza_tipo || ''} ${r.poliza_folio || ''}`.trim() },
+          { label: 'Flujo', value: r.flujo }, { label: 'Importe', value: money(r.importe) },
+          { label: 'Concepto', value: r.concepto }, { label: 'Periodo', value: r.anio_mes },
+        ] };
+      }
+      throw new BadRequestException('source inválido (workbook|kepler|contpaqi)');
     });
   }
 

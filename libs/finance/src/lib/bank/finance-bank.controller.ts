@@ -299,6 +299,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'CB.33 — Drill 3 vías por cuenta a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi) + huérfanos.' })
   threeWayDetail(@Query('period') period?: string, @Query('account_label') accountLabel?: string) { return this.svc.threeWayDetail(period, accountLabel); }
 
+  @Get('movement')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CB.40 — Detalle COMPLETO de un movimiento del cuadre (click). source=workbook|kepler|contpaqi + key (PK codificada).' })
+  movement(@Query('source') source: string, @Query('key') key: string) { return this.svc.movementDetail(source, key); }
+
   @Get('cheques-transito')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'CB.30 — Cheques Kepler del periodo: cobrados vs en tránsito (gap de timing banco↔Kepler).' })
