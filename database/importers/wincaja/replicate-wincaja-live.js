@@ -179,10 +179,24 @@ async function cycle() {
 (async () => {
   const mode = DRY ? 'DRY' : WATCH_MS ? `WATCH ${WATCH_MS / 60000}min` : ONCE ? 'ONCE' : 'ONCE (default)';
   console.log(`=== WR.3 réplica cruda Wincaja (${mode}) · batch ${BATCH} ===`);
-  await cycle();
+  // Heartbeat SOLO en modo watch (proceso largo bajo PM2, reemplaza el wrapper PS1/Task Scheduler).
+  // Keyed por carril → FeedGuardian/db-health ve cada carril con su propio umbral (inc ~2min / hash ~1h).
+  const hb = (WATCH_MS && !DRY) ? require('../lib/cron-heartbeat') : null;
+  const HB_KEY = `wincaja_replica_${CARRIL}`;
+  const runCycle = async () => {
+    if (hb) await hb.begin(HB_KEY, `Wincaja réplica cruda (${CARRIL})`).catch(() => {});
+    try {
+      await cycle();
+      if (hb) await hb.end(HB_KEY, { status: 'ok' }).catch(() => {});
+    } catch (e) {
+      if (hb) await hb.end(HB_KEY, { status: 'error', error: e.message }).catch(() => {});
+      throw e;
+    }
+  };
+  await runCycle();
   if (WATCH_MS && !DRY) {
     console.log(`\n(loop cada ${WATCH_MS / 60000} min — Ctrl+C para salir)`);
-    setInterval(() => { cycle().catch((e) => console.error('ciclo falló:', e.message)); }, WATCH_MS);
+    setInterval(() => { runCycle().catch((e) => console.error('ciclo falló:', e.message)); }, WATCH_MS);
   } else {
     console.log('\nlisto.');
   }
