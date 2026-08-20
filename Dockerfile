@@ -71,13 +71,23 @@ COPY database ./database
 # sobrevive entre builds de Docker → sin esto recompila todo cada deploy. Con
 # el mount, un commit que solo toca backend saca `view` del cache (restaura
 # dist/ sin recompilar Angular) y viceversa.
-# `run-many --parallel=2`: si ambos son cache-miss, api compila junto a view.
-# El heap 4096 es techo, no reserva (view ~3-4GB + api <1GB ≈ 5-6GB de 8GB).
+# `run-many --parallel=1`: SERIE, a propósito.
+# `--max-old-space-size` es por PROCESO, y Nx le da uno a cada proyecto: con
+# parallel=2 el techo real son 2×4GB = 8GB, justo la RAM del contenedor. Ahí no
+# muere V8 con "heap out of memory" (que se ve en el log) sino el contenedor con
+# OOM-kill: el proceso se corta seco y el log queda a media compilación, sin
+# ninguna línea de error. Ese modo de falla es intermitente porque depende de en
+# qué instante coinciden los dos picos.
+# El paralelismo casi no compra nada acá: gracias al cache mount de Nx, un deploy
+# normal toca UN solo proyecto y el otro se restaura del cache. Los dos compilan
+# a la vez únicamente cuando ambos son cache-miss — que es exactamente el caso en
+# el que la memoria se duplica. Serializar quita el riesgo justo donde existe, y
+# cuesta wall-clock sólo en ese caso.
 # Una sola instancia Nx coordina el cache; NO usar `&` de shell (dos procesos
 # nx se pisarían el cache).
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx2,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    npx nx run-many -t build -p view,api --configuration=production --parallel=2
+    npx nx run-many -t build -p view,api --configuration=production --parallel=1
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
 # `npm ci --omit=dev` fresco, NO `npm prune` sobre el node_modules de `deps`.
