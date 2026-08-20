@@ -211,6 +211,14 @@ const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
         ok(Number(oc.recibido) >= 0, 'el avance de surtido se calcula sin romperse cuando no hay recepciones ligadas');
       }
 
+      // El guard del resolvedor: si el espejo no existe en ESTA base, la ficha de la entrada
+      // tiene que abrir igual y declararlo — no reventar con 42P01 y llevarse la vista entera.
+      const guard = (await c.query(
+        `SELECT to_regclass('analytics.erp_purchase_docs') IS NOT NULL AS presente,
+                to_regclass('analytics.no_existe_esta_tabla') IS NOT NULL AS fantasma`)).rows[0];
+      ok(guard.presente === true && guard.fantasma === false,
+        'el guard to_regclass distingue el espejo presente del ausente (sin lanzar 42P01)');
+
       const lin = Number((await c.query(`SELECT count(*)::int n FROM analytics.erp_purchase_doc_lines WHERE tenant_id=$1`, [TENANT])).rows[0].n);
       const huerf = Number((await c.query(
         `SELECT count(*)::int n FROM analytics.erp_purchase_doc_lines l
