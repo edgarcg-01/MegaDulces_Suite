@@ -112,7 +112,8 @@ const STEPS = {
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
     path.join(K, 'import-purchase-velocity.js'), // RA-PRO.17 velocidad de compra real (entrada X-A-40) → analytics.purchase_velocity — TRAS stock-movements (ancla del sugerido)
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
-    path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
+    // RETIRADO 2026-08-20: import-erp-customers — analytics.erp_customers es VISTA derive-no-copy
+    // sobre kepler_ods.kdud (mig 20260820150000). Correrlo pegaría INSERT contra la vista → error.
     path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado) → analytics.customer_product_sales (fuente RFM de customer_360, CT-C.1b)
     path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
     path.join(K, 'import-erp-shipments.js'), // KV.8 embarques reales (kdpord)

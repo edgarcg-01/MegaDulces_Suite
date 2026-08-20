@@ -22,7 +22,6 @@ const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
 const ERP_PROMOS_SCRIPT = 'database/importers/kepler/import-erp-promos.js';
-const ERP_CUSTOMERS_SCRIPT = 'database/importers/kepler/import-erp-customers.js';
 const CUSTOMER_SALES_SCRIPT = 'database/importers/kepler/import-customer-sales.js';
 const LOGISTICS_DIMS_SCRIPT = 'database/importers/kepler/import-logistics-dims.js';
 const ERP_SHIPMENTS_SCRIPT = 'database/importers/kepler/import-erp-shipments.js';
@@ -39,7 +38,6 @@ export class KeplerConsolidadoService {
   private salesStatsRunning = false;
   private invHealthRunning = false;
   private promosRunning = false;
-  private custRunning = false;
   private custSalesRunning = false;
   private logDimsRunning = false;
   private shipmentsRunning = false;
@@ -246,19 +244,13 @@ export class KeplerConsolidadoService {
   }
 
   /**
-   * Dim de clientes Kepler → analytics.erp_customers (KV.3). Nightly 05:05.
-   * Lee kdud de las 6 sucursales (no toca commercial.customers).
+   * RETIRADO 2026-08-20 (mig 20260820150000): `analytics.erp_customers` es ahora VISTA
+   * derive-no-copy sobre kepler_ods.kdud → se deriva EN VIVO del ODS (fresco vía CDC), sin
+   * importer que se atrase (y correrlo pegaría INSERT contra una vista → error). Se deja el
+   * método como no-op (sin @Cron) por si algo lo referencia; el script queda como fallback.
    */
-  @Cron('0 5 5 * * *')
   async customersFeed(): Promise<void> {
-    if (!this.db) return;
-    if (this.custRunning) { this.logger.warn('Skip customersFeed: corrida anterior aún activa'); return; }
-    this.custRunning = true;
-    try {
-      await this.runScript(ERP_CUSTOMERS_SCRIPT, 'Dim clientes ERP', /clientes en erp_customers|COMMIT|ERROR/);
-    } finally {
-      this.custRunning = false;
-    }
+    this.logger.log('customersFeed: no-op — erp_customers es VISTA derive-no-copy (mig 20260820150000).');
   }
 
   /**
