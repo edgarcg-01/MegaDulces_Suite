@@ -2,7 +2,8 @@
 /**
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
- * Fuente = CONCENTRADA `kp.*` en .245 (todas las sucursales). Reconcilia precios entre sucursales:
+ * Fuente = `kepler_ods.*` en prod (same-DB, @min; CANON.1.2). Une las 6 sucursales (col `sucursal`).
+ * Fallback `--source=kp` = CONCENTRADA `kp.*` en .245. Reconcilia precios entre sucursales:
  * algunas traen placeholders ($6/$0.01 debajo del costo) → por SKU se toma la sucursal con el
  * precio de pieza (c90) MÁS ALTO (el real; los placeholders son bajos). Ver SKU 20804 (2026-07-20).
  *
@@ -29,7 +30,12 @@ const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-// Fuente = CONCENTRADA kp.* (todas las sucursales) para poder reconciliar precios entre sucursales.
+// CANON.1.2 — fuente por default `ods`: kepler_ods.kdii/kdpv_prod_util en el MISMO Postgres de prod.
+// El ODS une las 6 sucursales (columna `sucursal`) → la misma reconciliación DISTINCT ON (sku) por
+// c90 MÁS ALTO aplica igual; fresco al minuto y sin cross-LAN. Verificado 2026-08-20: cubre TODOS los
+// SKUs de KP (0 faltantes) y es más fresco. Fallback `--source=kp`: KP_CONCENTRADA kp.* en .245 (@4h).
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+const KSCHEMA = SOURCE === 'ods' ? 'kepler_ods' : 'kp';
 const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
@@ -103,20 +109,25 @@ function resolveUnits(slots) {
 
 (async () => {
   const db = new Client({ connectionString: DST });
-  const src = new Client({ connectionString: SRC });
   await db.connect();
-  try {
-    await src.connect();
-  } catch (e) {
-    console.error(`ERROR: sin conexión a Kepler (${SRC}): ${e.message}`);
-    await db.end();
-    process.exitCode = 1;
-    return;
+  // source=ods → lee kepler_ods en la MISMA conexión de prod (sin src aparte). source=kp → conecta .245.
+  const useOds = SOURCE === 'ods';
+  const src = useOds ? null : new Client({ connectionString: SRC });
+  if (!useOds) {
+    try {
+      await src.connect();
+    } catch (e) {
+      console.error(`ERROR: sin conexión a Kepler (${SRC}): ${e.message}`);
+      await db.end();
+      process.exitCode = 1;
+      return;
+    }
   }
+  const readSrc = useOds ? db : src;
 
   try {
     console.log(`\n=== Etiquetas Kepler → commercial.product_label_prices (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
-    console.log(`  fuente: ${SRC.replace(/:[^:@/]+@/, ':***@')}\n`);
+    console.log(`  fuente: ${useOds ? 'kepler_ods (same-DB prod, @min)' : SRC.replace(/:[^:@/]+@/, ':***@')}\n`);
 
     // Catálogo: índices por SKU y por BARCODE. El barcode es fallback para productos
     // que llegaron al catálogo SIN sku (ej. OJILOCOS): Kepler los tiene por SKU pero el
@@ -144,23 +155,23 @@ function resolveUnits(slots) {
     // catálogo-wide, pero hay sucursales con placeholders ($6/$0.01 debajo del costo). Reconciliamos:
     // por SKU tomamos la sucursal con el precio de pieza (c90) MÁS ALTO (los placeholders son bajos).
     // `DISTINCT ON (sku) … ORDER BY sku, c90 DESC` = una fila por SKU, la de mayor precio real.
-    const kdii = (await src.query(`
+    const kdii = (await readSrc.query(`
       SELECT DISTINCT ON (btrim(c1))
              c1 AS sku, c2 AS name, c7 AS barcode, c95 AS barcode_alt, c11 AS unit_base,
              btrim(c80) AS u1, c81 AS f1, c91 AS p1,
              btrim(c83) AS u2, c84 AS f2, c92 AS p2,
              c90 AS piece_price
-        FROM kp.kdii
+        FROM ${KSCHEMA}.kdii
        WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0
        ORDER BY btrim(c1), c90::numeric DESC`)).rows;
 
     // Diagnóstico on-prem: DEBUG_SKU=44360 imprime lo que Kepler trae para ese SKU en TODAS las
     // sucursales (sin filtro de precio) → revela por qué un producto no llega a la etiquetera.
     if (process.env.DEBUG_SKU) {
-      const dbg = (await src.query(
+      const dbg = (await readSrc.query(
         `SELECT btrim(c1) sku, c90 piece_c90, btrim(c80) u1, c81 f1, c91 p1_c91,
                 btrim(c83) u2, c84 f2, c92 p2_c92, c11 unit_base
-           FROM kp.kdii WHERE btrim(c1)=$1 ORDER BY c90::numeric DESC`,
+           FROM ${KSCHEMA}.kdii WHERE btrim(c1)=$1 ORDER BY c90::numeric DESC`,
         [String(process.env.DEBUG_SKU).trim()])).rows;
       console.log(`\n[DEBUG ${process.env.DEBUG_SKU}] filas en kp.kdii (todas las sucursales, SIN filtro de precio):`);
       console.table(dbg);
@@ -169,9 +180,9 @@ function resolveUnits(slots) {
     // Tiers de mayoreo — concentrada. Guardamos el MÁS BARATO por presentación (con umbral real,
     // min_qty>1) → sku → Map(present → {price, minQty}). El tier de la unidad de venta se elige
     // luego por unit_base (basePresentKey), no hardcodeado a 'PZA'.
-    const kdpv = (await src.query(`
+    const kdpv = (await readSrc.query(`
       SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
-        FROM kp.kdpv_prod_util WHERE c7 > 0`)).rows;
+        FROM ${KSCHEMA}.kdpv_prod_util WHERE c7 > 0`)).rows;
     const wholesale = new Map(); // sku → Map(present → { price, minQty })
     for (const r of kdpv) {
       const present = String(r.present || '').trim().toUpperCase();
@@ -329,6 +340,6 @@ function resolveUnits(slots) {
     process.exitCode = 1;
   } finally {
     await db.end();
-    await src.end();
+    if (src) await src.end().catch(() => {});
   }
 })();
