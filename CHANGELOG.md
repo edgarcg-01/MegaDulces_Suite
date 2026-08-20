@@ -18,11 +18,19 @@
 - **Ficha de proveedor** desde `analytics.erp_*` + `commercial.supplier_discount_policy` + cruce **69-B** por RFC contra `fiscal.sat_list_rfcs` (badge rojo). Reemplaza el drill a Descuentos que navegaba **por nombre en texto** teniendo el código al lado.
 - Smoke `test-newdb-entity-ref.js` (16/16, en la regression): codec real vía ts-node + identidad única de `ent`/`lin`/`adj`/`pay` contra 11,405 recepciones.
 
+### Added — ER.7: la orden de compra y el vale de entrada ya se pueden abrir (2026-08-20)
+- **`analytics.erp_purchase_docs` + `_lines`** (mig `20260820140000`): espejo de **X-A-35 (OC)** y **X-A-37 (vale)**. UNA tabla para los dos: verificado en vivo que comparten shape en `kdm1`/`kdm2` — el vale es la OC aterrizada, con `c37`='35' y `c39`=folio de su OC. `doctype` va en la PK, así que sumar la requisición (X-A-30) es una fila más, no una migración.
+- **Importer `import-purchase-docs.js`** (multi-sucursal 00–06, anti-réplica por `c1`, UPSERT-solo-cambios) + handler `erp-purchase-docs` en `feeds-ingest`. Cargado local: **21,344 documentos / 185,746 líneas** (OC $791M · vales $570M).
+- **Ref nuevo `pdoc:<doctype>|<sucursal>|<folio>`.** Desde la recepción, OC y vale dejan de ser texto y abren su documento; desde la OC se ve **lo que se pidió**, sus vales, sus recepciones y un badge de **avance de surtido**; desde el producto, las OCs que lo pidieron.
+- En Compras 360 el clic en la OC **abre el documento** en vez de filtrar la lista — la ficha ya lista sus recepciones, que era para lo que servía el filtro.
+- **Cobertura total:** 11,405/11,405 `vale_folio` y 8,950/8,950 `oc_folio` de las recepciones resuelven a un documento real; la liga vale→OC resuelve 9,457/9,457 y es **estructural**, no estimada.
+
 ### Changed
 - `analytics.erp_purchase_adjustments` ahora expone `sucursal` en `list()` y `forEntrada()` (la necesitaba el ref del ajuste; `AdjustmentRow.sucursal` en el DTO del front).
 
 ### Pending — huecos declarados, no disimulados
-- **OC sin ficha**: no existe `analytics.erp_purchase_orders` (X-A-35 nunca se importó). El clic en la OC sigue **filtrando** la lista y el panel lo dice.
+- **Prod**: aplicar mig `20260820140000` a Railway + correr `import-purchase-docs.js` **desde la LAN** (Railway no alcanza las DBs de sucursal) + agendar junto al importer de recepciones + redeploy api/view.
+- **El avance de surtido compara importes, no piezas** — la OC puede estar en cajas y la recepción en piezas; restarlas daría un número falso. El panel lo dice.
 - **Pago↔entrada heurístico** (RE.8): Kepler no liga X-D-26 a la recepción → se listan "pagos candidatos" del mismo proveedor en 30 días, marcados como estimados.
 - **Lead time / mínimo de pedido fuera de la ficha**: `catalog.suppliers.code` (inventario) y `proveedor_code` (contabilidad) son espacios de códigos distintos — **0 de 328** empatan. Falta crosswalk; el panel lo declara en vez de cruzar por nombre.
 

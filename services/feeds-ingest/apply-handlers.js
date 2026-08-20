@@ -324,6 +324,75 @@ async function applyErpGoodsReceipts(client, tenantId, rows) {
 }
 
 /**
+ * feed 'erp-purchase-docs' — OC (X-A-35) y Vales (X-A-37) → analytics.erp_purchase_docs (+ _lines).
+ * rows: cada fila lleva `k`: 'h' (cabecera) o 'l' (línea). Mismo SQL que import-purchase-docs
+ *   (una sola fuente de verdad de columnas/conflictos). Ledger append-only, upsert por PK sin delete.
+ *   Los dos doctypes van en la MISMA tabla — comparten shape en kdm1/kdm2 — y `doctype` es parte de la PK.
+ */
+const PD_COLS = ['doctype', 'sucursal', 'folio', 'doc_date', 'due_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'concepto', 'condicion_pago', 'referencia', 'monto', 'ref_doctype', 'ref_folio', 'source_branch'];
+const PDL_COLS = ['doctype', 'sucursal', 'folio', 'linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe'];
+
+async function applyErpPurchaseDocs(client, tenantId, rows) {
+  assertTenant(tenantId);
+  const headers = [], lines = [];
+  for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'h') headers.push(r); else if (r.k === 'l') lines.push(r); }
+  if (!headers.length && !lines.length) return 0;
+
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    let up = 0, upl = 0;
+
+    if (headers.length) {
+      await client.query(`CREATE TEMP TABLE stg_pd (doctype text, sucursal text, folio text, doc_date date, due_date date, proveedor_code text, proveedor_nombre text, proveedor_rfc text, concepto text, condicion_pago text, referencia text, monto numeric, ref_doctype text, ref_folio text, source_branch text) ON COMMIT DROP`);
+      await copyIntoTemp(client, 'stg_pd', PD_COLS, headers);
+      up = (await client.query(
+        `INSERT INTO analytics.erp_purchase_docs AS t
+           (tenant_id, doctype, sucursal, folio, doc_date, due_date, proveedor_code, proveedor_nombre,
+            proveedor_rfc, concepto, condicion_pago, referencia, monto, ref_doctype, ref_folio, source_branch, computed_at)
+         SELECT $1, doctype, sucursal, folio, doc_date, due_date, proveedor_code, proveedor_nombre,
+                proveedor_rfc, concepto, condicion_pago, referencia, monto, ref_doctype, ref_folio, source_branch, now() FROM stg_pd
+         ON CONFLICT (tenant_id, doctype, sucursal, folio) DO UPDATE SET
+           doc_date=EXCLUDED.doc_date, due_date=EXCLUDED.due_date,
+           proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
+           proveedor_rfc=EXCLUDED.proveedor_rfc, concepto=EXCLUDED.concepto,
+           condicion_pago=EXCLUDED.condicion_pago, referencia=EXCLUDED.referencia, monto=EXCLUDED.monto,
+           ref_doctype=EXCLUDED.ref_doctype, ref_folio=EXCLUDED.ref_folio,
+           source_branch=EXCLUDED.source_branch, computed_at=now()
+         WHERE (t.doc_date, t.due_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.concepto,
+                t.condicion_pago, t.referencia, t.monto, t.ref_doctype, t.ref_folio)
+               IS DISTINCT FROM
+               (EXCLUDED.doc_date, EXCLUDED.due_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre,
+                EXCLUDED.proveedor_rfc, EXCLUDED.concepto, EXCLUDED.condicion_pago, EXCLUDED.referencia,
+                EXCLUDED.monto, EXCLUDED.ref_doctype, EXCLUDED.ref_folio)`,
+        [tenantId])).rowCount;
+    }
+
+    if (lines.length) {
+      await client.query(`CREATE TEMP TABLE stg_pdl (doctype text, sucursal text, folio text, linea text, sku text, nombre text, cantidad numeric, unidad text, costo_unitario numeric, importe numeric) ON COMMIT DROP`);
+      await copyIntoTemp(client, 'stg_pdl', PDL_COLS, lines);
+      upl = (await client.query(
+        `INSERT INTO analytics.erp_purchase_doc_lines AS t
+           (tenant_id, doctype, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, computed_at)
+         SELECT $1, doctype, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, now() FROM stg_pdl
+         ON CONFLICT (tenant_id, doctype, sucursal, folio, linea) DO UPDATE SET
+           sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, cantidad=EXCLUDED.cantidad, unidad=EXCLUDED.unidad,
+           costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
+         WHERE (t.sku, t.nombre, t.cantidad, t.unidad, t.costo_unitario, t.importe)
+               IS DISTINCT FROM
+               (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.cantidad, EXCLUDED.unidad, EXCLUDED.costo_unitario, EXCLUDED.importe)`,
+        [tenantId])).rowCount;
+    }
+
+    await client.query('COMMIT');
+    return up + upl;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
  * feed 'raw-upsert' — CDC genérico Kepler → kepler_ods.<tabla> (SYNC.2).
  *
  * TABLA-AGNÓSTICO: replica cualquier tabla `md.*` de Kepler sin código por tabla. El replicador
@@ -527,7 +596,8 @@ const HANDLERS = {
   'wincaja-stock': applyWincajaStock,
   'wincaja-sales-bronze': applyWincajaSalesBronze,
   'erp-goods-receipts': applyErpGoodsReceipts,
+  'erp-purchase-docs': applyErpPurchaseDocs,
   'raw-upsert': applyRawUpsert,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyRawUpsert, normalizeProductsFromOds, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, normalizeProductsFromOds, UUID_RE };

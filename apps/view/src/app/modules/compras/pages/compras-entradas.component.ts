@@ -111,7 +111,12 @@ interface AttachFile {
                 } @else { {{ c.proveedor_nombre || '—' }} }
                 <div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div>
               </td>
-              <td class="mono muted">{{ c.oc_folio || '—' }}</td>
+              <td class="mono muted">
+                @if (c.oc_folio) {
+                  <button type="button" class="cb-reflink mono" (click)="inspect.set(refOc(c.sucursal, c.oc_folio))"
+                          [attr.aria-label]="'Abrir la orden de compra ' + c.oc_folio">{{ c.oc_folio }}</button>
+                } @else { — }
+              </td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
               <td class="cb-comp-cell" (click)="openDetail(c)" [title]="c.deposits > 0 ? 'Ver remisión adjunta + detalle por línea' : 'Ver detalle por línea'">
                 @if (c.deposits > 0) {
@@ -384,7 +389,17 @@ interface AttachFile {
             } @else { <strong>{{ d.entrada.proveedor_nombre || '—' }}</strong> }
             <div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
           <div><span class="cb-lbl">Fecha</span><strong>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</strong></div>
-          <div><span class="cb-lbl">OC / Vale</span><strong class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</strong></div>
+          <div><span class="cb-lbl">OC / Vale</span><strong class="mono">
+            @if (d.entrada.oc_folio) {
+              <button type="button" class="cb-reflink mono" (click)="inspect.set(refOc(d.entrada.sucursal, d.entrada.oc_folio))"
+                      title="Abrir la orden de compra: lo pedido, sus vales y qué tanto se surtió">{{ d.entrada.oc_folio }}</button>
+            } @else { — }
+            /
+            @if (d.entrada.vale_folio) {
+              <button type="button" class="cb-reflink mono" (click)="inspect.set(refVale(d.entrada.sucursal, d.entrada.vale_folio))"
+                      title="Abrir el vale de entrada y su orden de compra">{{ d.entrada.vale_folio }}</button>
+            } @else { — }
+          </strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
         </div>
         @if (d.cedis_twins?.length) {
@@ -908,6 +923,8 @@ export class ComprasEntradasComponent {
   refLin(sucursal: string, folio: string, linea: string): string { return entityRef('lin', sucursal, folio, linea); }
   refSku(sku: string): string { return entityRef('sku', sku); }
   refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
+  refOc(sucursal: string, folio: string): string { return entityRef('pdoc', 'XA3501', sucursal, folio); }
+  refVale(sucursal: string, folio: string): string { return entityRef('pdoc', 'XA3701', sucursal, folio); }
 
   readonly showDetail = signal(false);
   readonly detailLoading = signal(false);

@@ -12,7 +12,7 @@ import { environment } from '../../../../environments/environment';
  * para eso está `entityRef()`.
  */
 
-export type EntityKind = 'ent' | 'lin' | 'adj' | 'pay' | 'prov' | 'sku';
+export type EntityKind = 'ent' | 'lin' | 'adj' | 'pay' | 'prov' | 'sku' | 'pdoc';
 
 export interface RefField {
   label: string;

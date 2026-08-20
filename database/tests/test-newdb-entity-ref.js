@@ -150,10 +150,75 @@ const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
     ok(ligaReal === 0,
       'no existe columna de liga pago→entrada: el panel tiene razón en llamarlo "candidato" y no "el pago"');
 
-    const ocTable = Number((await c.query(
-      `SELECT count(*)::int n FROM information_schema.tables WHERE table_schema='analytics' AND table_name='erp_purchase_orders'`)).rows[0].n);
-    ok(ocTable === 0,
-      'no existe analytics.erp_purchase_orders: el panel avisa que la OC no tiene ficha en vez de ofrecer un enlace muerto');
+
+    // ── 5b. OC y Vale abribles (ER.7) ─────────────────────────────────────
+    console.log('');
+    console.log('  5b) Orden de compra (X-A-35) y Vale (X-A-37) — ER.7');
+    const nDocs = Number((await c.query(`SELECT count(*)::int n FROM analytics.erp_purchase_docs WHERE tenant_id=$1`, [TENANT])).rows[0].n);
+    if (nDocs === 0) {
+      console.log('     ⚠️  espejo vacío — correr import-purchase-docs.js desde la LAN');
+      ok(true, 'sin documentos de compra cargados (skip)');
+    } else {
+      const byDt = (await c.query(
+        `SELECT doctype, count(*)::int n FROM analytics.erp_purchase_docs WHERE tenant_id=$1 GROUP BY 1 ORDER BY 1`, [TENANT])).rows;
+      console.log(`     · ${byDt.map((r) => `${r.doctype}:${r.n}`).join('  ')}`);
+
+      const dupDoc = Number((await c.query(
+        `SELECT count(*)::int n FROM (SELECT 1 FROM analytics.erp_purchase_docs WHERE tenant_id=$1
+           GROUP BY doctype, sucursal, folio HAVING count(*) > 1) x`, [TENANT])).rows[0].n);
+      ok(dupDoc === 0, `pdoc: (doctype, sucursal, folio) identifica UN documento (${dupDoc} repetidas)`);
+
+      // El folio SOLO no alcanza: OC y vale comparten rango de folios dentro de la misma sucursal.
+      const clash = Number((await c.query(
+        `SELECT count(*)::int n FROM (SELECT 1 FROM analytics.erp_purchase_docs WHERE tenant_id=$1
+           GROUP BY sucursal, folio HAVING count(DISTINCT doctype) > 1) x`, [TENANT])).rows[0].n);
+      console.log(`     · (sucursal, folio) compartido entre OC y vale: ${clash} → doctype es obligatorio en el ref`);
+
+      // Lo que hace utilizable el enlace: que el folio de la recepción RESUELVA a un documento.
+      const cov = async (doctype, col) => (await c.query(
+        `SELECT count(*)::int total, count(d.folio)::int resuelto
+           FROM analytics.erp_goods_receipts g
+           LEFT JOIN analytics.erp_purchase_docs d
+             ON d.tenant_id=g.tenant_id AND d.doctype=$2 AND d.sucursal=g.sucursal AND d.folio=g.${col}
+          WHERE g.tenant_id=$1 AND g.${col} IS NOT NULL`, [TENANT, doctype])).rows[0];
+      const cv = await cov('XA3701', 'vale_folio');
+      const co = await cov('XA3501', 'oc_folio');
+      console.log(`     · vale: ${cv.resuelto}/${cv.total} resuelven · OC: ${co.resuelto}/${co.total}`);
+      ok(Number(cv.resuelto) === Number(cv.total), `TODO vale_folio de una recepción abre su documento (${cv.resuelto}/${cv.total})`);
+      ok(Number(co.resuelto) === Number(co.total), `TODO oc_folio de una recepción abre su documento (${co.resuelto}/${co.total})`);
+
+      // La liga vale→OC es ESTRUCTURAL (kdm1 c37/c39), no una estimación por fecha.
+      const link = (await c.query(
+        `SELECT count(*)::int total, count(o.folio)::int resuelto
+           FROM analytics.erp_purchase_docs v
+           LEFT JOIN analytics.erp_purchase_docs o
+             ON o.tenant_id=v.tenant_id AND o.doctype='XA3501' AND o.sucursal=v.sucursal AND o.folio=v.ref_folio
+          WHERE v.tenant_id=$1 AND v.doctype='XA3701' AND v.ref_folio IS NOT NULL`, [TENANT])).rows[0];
+      ok(Number(link.resuelto) === Number(link.total),
+        `la liga vale→OC (c37='35' + c39) resuelve entera (${link.resuelto}/${link.total}) — estructural, no heurística`);
+
+      // Avance de surtido: se compara sobre IMPORTES a propósito (unidades distintas).
+      const oc = (await c.query(
+        `SELECT d.doctype, d.sucursal, d.folio, d.monto::numeric,
+                (SELECT COALESCE(sum(g.monto),0)::numeric FROM analytics.erp_goods_receipts g
+                  WHERE g.tenant_id=d.tenant_id AND g.sucursal=d.sucursal AND g.oc_folio=d.folio) AS recibido
+           FROM analytics.erp_purchase_docs d
+          WHERE d.tenant_id=$1 AND d.doctype='XA3501' AND d.monto > 0
+          ORDER BY d.doc_date DESC NULLS LAST LIMIT 1`, [TENANT])).rows[0];
+      if (oc) {
+        const pct = Number(oc.monto) ? (Number(oc.recibido) / Number(oc.monto)) * 100 : 0;
+        console.log(`     · OC ${oc.sucursal}/${oc.folio}: pedido ${money(oc.monto)} · recibido ${money(oc.recibido)} (${pct.toFixed(0)}%)`);
+        ok(Number(oc.recibido) >= 0, 'el avance de surtido se calcula sin romperse cuando no hay recepciones ligadas');
+      }
+
+      const lin = Number((await c.query(`SELECT count(*)::int n FROM analytics.erp_purchase_doc_lines WHERE tenant_id=$1`, [TENANT])).rows[0].n);
+      const huerf = Number((await c.query(
+        `SELECT count(*)::int n FROM analytics.erp_purchase_doc_lines l
+          WHERE l.tenant_id=$1 AND NOT EXISTS (
+            SELECT 1 FROM analytics.erp_purchase_docs d
+             WHERE d.tenant_id=l.tenant_id AND d.doctype=l.doctype AND d.sucursal=l.sucursal AND d.folio=l.folio)`, [TENANT])).rows[0].n);
+      ok(huerf === 0, `las ${lin.toLocaleString('es-MX')} líneas cuelgan de un documento existente (${huerf} huérfanas)`);
+    }
 
     // ── 6. SKU ────────────────────────────────────────────────────────────
     console.log('\n  6) Producto');
