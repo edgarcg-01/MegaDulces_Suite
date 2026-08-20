@@ -48,7 +48,7 @@ exports.up = async function (knex) {
     const refComposite = (await knex.raw(`
       SELECT 1 FROM pg_constraint con
        WHERE con.conrelid=to_regclass(?) AND con.contype IN ('p','u')
-         AND (SELECT array_agg(a.attname ORDER BY a.attname) FROM unnest(con.conkey) k(attnum)
+         AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text) FROM unnest(con.conkey) k(attnum)
                 JOIN pg_attribute a ON a.attrelid=con.conrelid AND a.attnum=k.attnum) = ARRAY['id','tenant_id']`,
       [s.ref])).rows.length > 0;
     const childHasTenant = (await knex.raw(
