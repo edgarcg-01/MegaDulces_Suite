@@ -53,11 +53,27 @@ Todo lo Kepler-derivado lee el ODS; los 17 `prod`-transforms se quedan (no son o
 
 ### Fase 0 — parar el sangrado (días, bajo riesgo)
 - [x] **CANON.0** — sacar `import-erp-shipments` del modo `logistics` (ya es vista → error latente). ✅ 2026-08-20 (`5c47d6b3`)
-- [ ] **CANON.0.1** — construir el reemplazo ODS de lo que hoy SOLO escribe Mega_Dulces .245 (`cost_base` desde
-      `kepler_ods.kdik.c16`; tiers P1-P4/MAYOREO desde `kepler_ods.kdpv_prod_util`) — **ANTES** de matar los feeds
-      Mega_Dulces (§7-R6: matarlos sin reemplazo deja `cost_base`/tiers sin escritor).
-- [ ] **CANON.0.2** — con el reemplazo listo: sacar `import-catalog-bulk` + `import-prices-bulk` del modo `catalog`
-      y repuntar `thot-build-features` (lee .245) → mata reversión de identidad @02:00 + split-brain de tiers.
+- [x] **CANON.0.1** — reemplazo ODS del **COSTO**: `repoint-catalog-cost.js` (kepler_ods.kdik.c16 → cost_base/
+      with_tax/per_case), wired en `nightly` tras presence. ✅ 2026-08-20 (`bf3e49db`). Regla: **mediana retail**
+      de c16 (excl CEDIS '00') anclada al c90-implícito; UPDATE-only churn-free same-DB. **Descubrimiento clave:**
+      la unidad per-pza/per-caja de c16 y c90 es **inconsistente por SKU y en AMBOS sentidos** (91059 16KG: ODS
+      $152/pza correcto vs actual $5002 per-caja MAL; 96910: ODS $4034 per-caja MAL vs actual $136 correcto) — no
+      hay ancla universal. Solución robusta: **CLAMP [1/3,3]×** al costo actual → refresca el drift en banda (dry-run:
+      2,879 cambios, **−2% valuación, balanceado 1302↓/1349↑**, 76% ≤10%) y **RECHAZA+registra** los 126 saltos ~30×
+      (backlog DQ de normalización de unidad; quedan intactos — 91059 ya estaba MAL hoy, pre-existente). ODS cubre
+      **8,627/8,797 (98.1%)** del cost_base; 170 residuales sin kdik ni c90 quedan como están. El costo per-caja de
+      kdik ya lo leía catalog-bulk desde las 6 sucursales (no de .245) → matarlo NO amenaza la frescura del costo.
+- [ ] **CANON.0.2** — retirar los dos escritores .245 del modo `catalog`:
+      - **`import-prices-bulk` (tiers P1-P4/MAYOREO)** → **DATO MUERTO**: verificado 2026-08-20 que **los 282 clientes
+        están en BASE-MXN; CERO usan MAYOREO/P1-P4**. Retirarlo = impacto CERO. Pendiente: reubicar el recálculo de
+        `is_promo` (hoy vive en prices-bulk) antes de sacarlo. Si algún día se necesita mayoreo real, se construye
+        desde `kepler_ods.kdpv_prod_util` (qty-break nativo: c4/c5=rango, c6=precio, c7=costo) como feature deliberada
+        — NO se arrastra la dependencia .245 para data sin consumidores.
+      - **`import-catalog-bulk` (costo ya cubierto por CANON.0.1)** → falta dar hogar ODS a los campos ESTÁTICOS que
+        hoy SOLO él escribe del snapshot: `category_id`, `description`, `location`/`location_warehouse`, `loyalty_points`,
+        `factor_purchase`, `unit_purchase`, `iva_purchase_rate`/`ieps_purchase_rate`. Cambian poco → backfill ODS único
+        o congelar en el valor actual. `presence` ya cubre alta de SKUs nuevos; falta que herede `category_id`.
+      - repuntar `thot-build-features` (lee .245) → mata reversión de identidad @02:00.
 
 ### Fase 1 — repuntar los lectores de KP_CONCENTRADA a `kepler_ods` (1-2 sem)
 KP_CONCENTRADA @4h cross-LAN → ODS @min same-DB. Todas las tablas confirmadas en el ODS.

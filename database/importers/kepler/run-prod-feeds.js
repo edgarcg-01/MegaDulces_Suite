@@ -129,6 +129,7 @@ const STEPS = {
     path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
     path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
     path.join(K, 'repoint-catalog-prices.js'), // catálogo — SYNC precio base (KP_CONCENTRADA c90 → BASE-MXN, Kepler autoridad, churn-free; piso anti-promo c90>0.05)
+    path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
     path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)
