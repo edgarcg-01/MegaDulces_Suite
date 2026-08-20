@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
@@ -368,8 +368,9 @@ export class CajaGeneralService {
     const cents = (v: any) => Math.round(n(v) * 100);
     const AMT_TOL = 100; // ±$1 absorbe centavos de captura
 
-    // Etiqueta uniforme de un movimiento huérfano (para render idéntico en el frontend).
-    type Lbl = { id: string; fecha: string; importe: number; concepto: string | null; extra: string | null };
+    // Etiqueta uniforme de un movimiento (para render idéntico en el frontend). `source` + `key`
+    // (PK completa codificada) habilitan el click → detalle completo del movimiento (movementDetail).
+    type Lbl = { id: string; source: 'control' | 'workbook' | 'kepler'; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null };
     // Casa greedy por importe: consume del otro lado; lo que sobra son los huérfanos.
     const matchDir = (caja: { amt: number; lbl: Lbl }[], other: { amt: number; lbl: Lbl }[]) => {
       const byAmt = new Map<number, { amt: number; lbl: Lbl }[]>();
@@ -409,7 +410,7 @@ export class CajaGeneralService {
     return this.tk.run(async (trx) => {
       const mdb = await trx('analytics.caja_general_movimientos')
         .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
-        .select('mov_id', 'fecha', 'concepto', 'cuenta_nombre', 'nombre_cliente', 'ingreso', 'gasto');
+        .select('tipo_dto', 'mov_id', 'fecha', 'concepto', 'cuenta_nombre', 'nombre_cliente', 'ingreso', 'gasto');
       const man = await trx('finance.bank_movements as bm').join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
         .whereBetween('bm.movement_date', [from, to])
@@ -417,15 +418,15 @@ export class CajaGeneralService {
       const kep = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).andWhere('account_label', 'CG').andWhere('sucursal', '00')
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
-        .select('folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+        .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
 
       const key = (f: any) => String(f).slice(0, 10);
       const mdbSide = (dir: 'ingreso' | 'gasto') => (mdb as any[]).filter((r) => n(r[dir]) > 0).map((r) => ({
-        amt: n(r[dir]), lbl: { id: String(r.mov_id), fecha: key(r.fecha), importe: r2(n(r[dir])), concepto: r.concepto || null, extra: r.cuenta_nombre || r.nombre_cliente || null } }));
+        amt: n(r[dir]), lbl: { id: String(r.mov_id), source: 'control' as const, key: `${r.tipo_dto}|${r.mov_id}`, fecha: key(r.fecha), importe: r2(n(r[dir])), concepto: r.concepto || null, extra: r.cuenta_nombre || r.nombre_cliente || null } }));
       const manSide = (col: 'amount_in' | 'amount_out') => (man as any[]).filter((r) => n(r[col]) > 0).map((r) => ({
-        amt: n(r[col]), lbl: { id: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [r.sucursal, r.raw_code].filter(Boolean).join(' · ') || null } }));
+        amt: n(r[col]), lbl: { id: String(r.id), source: 'workbook' as const, key: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [r.sucursal, r.raw_code].filter(Boolean).join(' · ') || null } }));
       const kepSide = (sign: 1 | -1) => (kep as any[]).filter((r) => (n(r.signo) > 0 ? 1 : -1) === sign).map((r) => ({
-        amt: n(r.importe), lbl: { id: String(r.folio), fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
+        amt: n(r.importe), lbl: { id: String(r.folio), source: 'kepler' as const, key: `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
 
       const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
       const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
@@ -446,10 +447,10 @@ export class CajaGeneralService {
         const hit = (v: typeof vs_manual) => side(v).pairs.find((p) => p.caja.id === m.lbl.id) ?? null;
         const man = hit(vs_manual), kep2 = hit(vs_kepler);
         return {
-          id: m.lbl.id, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
+          id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
           concepto: m.lbl.concepto, extra: m.lbl.extra,
-          manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null,
-          kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null,
+          manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null, manual_key: man ? man.other.key : null,
+          kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null, kepler_key: kep2 ? kep2.other.key : null,
         };
       }).sort((a, b) => (a.fecha === b.fecha ? b.importe - a.importe : a.fecha.localeCompare(b.fecha)));
 
@@ -465,6 +466,66 @@ export class CajaGeneralService {
       };
 
       return { period: { from, to }, vs_manual, vs_kepler, rows, totals };
+    });
+  }
+
+  /**
+   * CG.18 — Detalle COMPLETO de un movimiento del Cuadre (click en el drill de las 3 vías).
+   * Devuelve TODOS los campos del registro crudo de la fuente como pares {label,value}
+   * ordenados (render genérico). `key` = PK codificada que arma conciliacionDia (partes '|').
+   */
+  async movementDetail(source: string, key: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const money = (v: any) => (v == null || v === '' ? null : Number(v));
+    if (!key) throw new BadRequestException('key requerido');
+    return this.tk.run(async (trx) => {
+      if (source === 'control') {
+        const [tipo_dto, mov_id] = String(key).split('|');
+        const r: any = await trx('analytics.caja_general_movimientos').where({ tenant_id: tenantId, tipo_dto, mov_id }).first();
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Control · ${r.tipo || r.tipo_dto} ${r.mov_id}`, fields: [
+          { label: 'Fecha', value: ymd(r.fecha) }, { label: 'Hora', value: r.hora },
+          { label: 'Tipo', value: r.tipo }, { label: 'Documento', value: `${r.tipo_dto}-${r.mov_id}` },
+          { label: 'Cuenta', value: `${r.cuenta_nombre || ''} (#${r.cuenta})` }, { label: 'Cliente', value: r.nombre_cliente },
+          { label: 'Concepto', value: r.concepto }, { label: 'Usuario', value: r.usuario },
+          { label: 'Ingreso', value: money(r.ingreso) }, { label: 'Gasto', value: money(r.gasto) },
+          { label: 'Depósito', value: money(r.deposito) }, { label: 'Efectivo', value: money(r.efectivo) },
+          { label: 'Saldo', value: money(r.saldo) }, { label: 'Corte', value: r.corte },
+          { label: 'Dólar', value: money(r.dolar) }, { label: 'Tipo cambio', value: money(r.tipo_cambio) },
+        ] };
+      }
+      if (source === 'workbook') {
+        const r: any = await trx('finance.bank_movements as bm')
+          .leftJoin('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+          .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+          .where('bm.id', key).andWhere('bm.tenant_id', tenantId)
+          .first('bm.*', trx.raw('ba.alias as cuenta_alias'), trx.raw('mc.name as categoria'));
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Workbook · ${r.cuenta_alias || ''} ${ymd(r.movement_date)}`, fields: [
+          { label: 'Fecha', value: ymd(r.movement_date) }, { label: 'Cuenta', value: r.cuenta_alias },
+          { label: 'Tipo (M)', value: r.raw_type }, { label: 'Código (C)', value: r.raw_code },
+          { label: 'Sucursal', value: r.sucursal }, { label: 'Concepto', value: r.concept },
+          { label: 'Categoría', value: r.categoria }, { label: 'Clasificado por', value: r.classified_by },
+          { label: 'Ingreso', value: money(r.amount_in) }, { label: 'Gasto', value: money(r.amount_out) },
+          { label: 'Saldo', value: money(r.running_balance) }, { label: 'Origen sync', value: r.sync_source },
+          { label: 'Archivo', value: r.source_file }, { label: 'Conciliación', value: r.recon_status },
+        ] };
+      }
+      if (source === 'kepler') {
+        const [sucursal, doc_tipo, folio, clave_banco] = String(key).split('|');
+        const r: any = await trx('analytics.kepler_bank_movements').where({ tenant_id: tenantId, sucursal, doc_tipo, folio, clave_banco }).first();
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Kepler · ${r.doc_tipo} ${r.folio}`, fields: [
+          { label: 'Fecha valor', value: ymd(r.fecha_valor) }, { label: 'Fecha captura', value: ymd(r.fecha_captura) },
+          { label: 'Documento', value: `${r.doc_tipo} ${r.folio}` }, { label: 'Sucursal', value: r.sucursal },
+          { label: 'Clave banco', value: r.clave_banco }, { label: 'Banco', value: r.banco_nombre },
+          { label: 'Cuenta contable', value: r.cuenta_contable }, { label: 'Cuenta (label)', value: r.account_label },
+          { label: 'Flujo', value: r.flujo }, { label: 'Importe', value: money(r.importe) }, { label: 'Signo', value: r.signo },
+          { label: 'Concepto', value: r.concepto }, { label: 'Método', value: r.metodo }, { label: 'Beneficiario', value: r.beneficiario },
+          { label: 'Traspaso', value: r.es_traspaso ? `sí (contra ${r.contra_clave || '—'}${r.pierna ? ', ' + r.pierna : ''})` : 'no' },
+        ] };
+      }
+      throw new BadRequestException('source inválido (control|workbook|kepler)');
     });
   }
 

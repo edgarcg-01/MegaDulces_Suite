@@ -63,6 +63,13 @@ export class CajaGeneralController {
     return this.svc.conciliacionDia(this.q(month, from, to));
   }
 
+  @Get('movement')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Detalle COMPLETO de un movimiento del Cuadre (click en el drill). source=control|workbook|kepler + key (PK codificada).' })
+  movement(@Query('source') source: string, @Query('key') key: string) {
+    return this.svc.movementDetail(source, key);
+  }
+
   @Get('overview')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })
