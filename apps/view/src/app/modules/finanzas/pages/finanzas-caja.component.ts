@@ -15,6 +15,9 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from './finanzas-sort';
+import { money, dmy } from './finanzas-format';
+import { exportXlsx, XlsxSheet } from '../../../shared/export/xlsx-export';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
@@ -34,7 +37,22 @@ interface CajaWb {
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
 interface OrphanMov { id: string; fecha: string; importe: number; concepto: string | null; extra: string | null }
 interface ReconSide { caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number; caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number }
-interface ConcDia { period: { from: string; to: string }; vs_manual: { ingresos: ReconSide; gastos: ReconSide }; vs_kepler: { ingresos: ReconSide; gastos: ReconSide } }
+/** Una fila del detalle del día: un movimiento del Control con lo que casó en cada fuente. */
+interface DiaRow {
+  id: string; fecha: string; dir: 'in' | 'out'; importe: number; concepto: string | null; extra: string | null;
+  manual: boolean; manual_importe: number | null; manual_ref: string | null;
+  kepler: boolean; kepler_importe: number | null; kepler_ref: string | null;
+}
+interface DiaTotals {
+  control_n: number; control_monto: number; en_manual: number; en_kepler: number;
+  manual_only_n: number; manual_only_monto: number; kepler_only_n: number; kepler_only_monto: number;
+}
+interface ConcDia {
+  period: { from: string; to: string };
+  vs_manual: { ingresos: ReconSide; gastos: ReconSide };
+  vs_kepler: { ingresos: ReconSide; gastos: ReconSide };
+  rows: DiaRow[]; totals: DiaTotals;
+}
 interface CajaGeneral {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
@@ -489,57 +507,99 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       }
     </div>
 
-    <!-- Detalle del día — ventana, igual que el drill por cuenta del Cuadre de Bancos.
-         Antes era una fila expandible: con 30 días en pantalla, abrir dos y compararlos
-         empujaba la tabla y se perdía el renglón de referencia. La ventana deja la tabla
-         quieta y da ancho real a las dos columnas enfrentadas. -->
+    <!-- Detalle del día — misma ventana y mismo formato que el drill del Cuadre de Bancos:
+         lead → tira de conteos → filtros → una fila por movimiento del Control con una
+         columna por fuente → huérfanos abajo. -->
     <p-dialog [visible]="dayOpen()" (visibleChange)="dayOpen.set($event)" [modal]="true" [dismissableMask]="true"
               [style]="{ width: '64rem', maxWidth: '96vw' }" [draggable]="false" [header]="dayTitle()">
-                    @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
-                    @else if (wbDayErr()[dayKey()]?.dia; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
-                    @else if (wbDayDia()[dayKey()]; as cd) {
-                      <p class="dlg-lead">Cada movimiento del <b>Control (caja real)</b> se enfrenta a cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b>: a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente registra y el Control no movió.</p>
-                      @for (p of pairings(cd); track p.key) {
-                        @for (s of p.sides; track s.key) {
-                          <div class="cg-side">
-                            <div class="tw-drill-kpis">
-                              <span><b>{{ s.name }}</b></span>
-                              @if (abs(s.data.delta) <= 1) { <span class="tw-tag ok-tag">cuadra</span> }
-                              @else { <span class="tw-tag warn-tag">Δ {{ money(s.data.delta) }}</span> }
-                              <span>Control <b>{{ money(s.data.caja_total) }}</b></span>
-                              <span>{{ p.short }} <b>{{ money(s.data.other_total) }}</b></span>
-                              <span><b>{{ s.data.matched_count }}</b> casados</span>
-                            </div>
-                            @if (!s.data.caja_only.length && !s.data.other_only.length) {
-                              <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
-                            } @else {
-                              <div class="tw-orphans">
-                                <div class="tw-orphan">
-                                  <h4><i class="pi pi-wallet"></i> En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</h4>
-                                  @if (s.data.caja_only.length) {
-                                    <table class="tw-tbl"><tbody>
-                                      @for (m of s.data.caja_only; track m.id) {
-                                        <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
-                                      }
-                                    </tbody></table>
-                                  } @else { <p class="cg-drill-none muted">— nada —</p> }
-                                </div>
-                                <div class="tw-orphan">
-                                  <h4><i class="pi pi-database"></i> En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</h4>
-                                  @if (s.data.other_only.length) {
-                                    <table class="tw-tbl"><tbody>
-                                      @for (m of s.data.other_only; track m.id) {
-                                        <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
-                                      }
-                                    </tbody></table>
-                                  } @else { <p class="cg-drill-none muted">— nada —</p> }
-                                </div>
-                              </div>
-                            }
-                          </div>
-                        }
-                      }
+      @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
+      @else if (wbDayErr()[dayKey()]?.dia; as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
+      @else if (wbDayDia()[dayKey()]; as cd) {
+        <p class="dlg-lead">Cada movimiento del <b>Control</b> (caja real) marca si <b>Workbook</b> (copia manual)
+          y <b>Kepler</b> (ERP) lo tienen, casando por importe ±$1 dentro de su dirección. Abajo, lo que esas
+          fuentes registran y el Control no movió (huérfanos).</p>
+
+        <div class="tw-drill-kpis">
+          <span><b>{{ cd.totals.control_n }}</b> movs Control</span>
+          <span class="ok"><b>{{ cd.totals.en_manual }}</b> en Workbook</span>
+          <span class="ok"><b>{{ cd.totals.en_kepler }}</b> en Kepler</span>
+          @if (cd.totals.manual_only_n) { <span class="warn"><b>{{ cd.totals.manual_only_n }}</b> solo Workbook ({{ money(cd.totals.manual_only_monto) }})</span> }
+          @if (cd.totals.kepler_only_n) { <span class="warn"><b>{{ cd.totals.kepler_only_n }}</b> solo Kepler ({{ money(cd.totals.kepler_only_monto) }})</span> }
+        </div>
+
+        <div class="tw-drill-filters">
+          <div class="tw-fg" role="group" aria-label="Dirección">
+            <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
+            <button type="button" [class.on]="dfDir()==='in'" (click)="dfDir.set('in')">Ingresos</button>
+            <button type="button" [class.on]="dfDir()==='out'" (click)="dfDir.set('out')">Gastos</button>
+          </div>
+          <div class="tw-fg" role="group" aria-label="Estado">
+            <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
+            <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">En las 3</button>
+            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Falta en alguna</button>
+          </div>
+          <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
+          <span class="muted tw-fcount">{{ dayRows(cd).length }} de {{ cd.rows.length }}</span>
+          <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportDay(cd)"
+                  title="Descarga lo que estás viendo: con los filtros y el orden puestos">
+            <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
+          </button>
+        </div>
+
+        <div class="tw-wrap">
+          <table class="tw-tbl tw-drill-tbl">
+            <thead><tr>
+              @for (c of DAY_COLS; track c.field) {
+                <th [class]="c.cls" [attr.aria-sort]="ariaSort(daySort(), c.field)">
+                  <button type="button" class="tw-sort" (click)="sortDay(c.field)" [attr.aria-label]="'Ordenar por ' + c.label">
+                    {{ c.label }}<i [class]="sortIcon(daySort(), c.field)" aria-hidden="true"></i>
+                  </button>
+                </th>
+              }
+            </tr></thead>
+            <tbody>
+              @for (e of dayRows(cd); track e.id + e.dir) {
+                <tr>
+                  <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
+                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="e.dir === 'in' ? 'Ingreso' : 'Gasto'"></i></td>
+                  <td class="ta-r num">{{ money(e.importe) }}</td>
+                  <td class="ta-r num">@if (e.manual) { <span [title]="e.manual_ref || ''" [class.tw-cent]="e.manual_importe !== e.importe">{{ money(e.manual_importe) }}</span> } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
+                  <td class="ta-r num tw-kep">@if (e.kepler) { <span [title]="e.kepler_ref || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ money(e.kepler_importe) }}</span> } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
+                  <td class="tw-concept" [title]="(e.extra || '') + ' ' + (e.concepto || '')">{{ e.concepto || e.extra || '—' }}</td>
+                </tr>
+              }
+              @if (!dayRows(cd).length) { <tr><td colspan="6" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
+            </tbody>
+          </table>
+        </div>
+
+        @if (dayOrphans(cd); as orp) {
+          @if (orp.manual.length || orp.kepler.length) {
+            <div class="tw-orphans">
+              @if (orp.manual.length) {
+                <div class="tw-orphan">
+                  <h4><i class="pi pi-file-excel"></i> En Workbook, sin Control ({{ orp.manual.length }})</h4>
+                  <table class="tw-tbl"><tbody>
+                    @for (m of orp.manual; track m.id) {
+                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}</td></tr>
                     }
+                  </tbody></table>
+                </div>
+              }
+              @if (orp.kepler.length) {
+                <div class="tw-orphan">
+                  <h4><i class="pi pi-database"></i> En Kepler, sin Control ({{ orp.kepler.length }})</h4>
+                  <table class="tw-tbl"><tbody>
+                    @for (m of orp.kepler; track m.id) {
+                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                    }
+                  </tbody></table>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
     </p-dialog>
 
   `,
@@ -547,8 +607,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
        igual que un día sin movimientos: un 404 del API, un 403 o el 22007 por una
        fecha mal formada eran indistinguibles de "no hubo nada". */
-    .cg-dayerr { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--warn-fg); }
-    .cg-dayerr i { margin-top: 2px; flex: none; }
 
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
@@ -597,9 +655,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
     .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
-    .cg-side { margin-bottom:.6rem; }
-    .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
-    .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .strong { font-weight:700; }
     /* Alineado con Bancos (BANCOS_STYLES): antes era --text-faint y el mismo organismo se
@@ -767,6 +822,8 @@ export class FinanzasCajaComponent implements OnInit {
       { label: 'Neto (quedó/faltó)', value: d.totals.neto, format: 'currency-short', tone: d.totals.cuadra ? 'ok' : 'warn' },
     ];
   }
+  readonly money = money;
+  readonly dmy = dmy;
   abs(n: number): number { return Math.abs(n || 0); }
 
   /**
@@ -818,6 +875,88 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   /** Desglose de un día: corre el match server-side (.mdb↔Manual y .mdb↔Kepler). */
+  // ── Detalle del día: filtros, orden y export (mismo contrato que el drill de Bancos) ──
+  readonly dfDir = signal<'' | 'in' | 'out'>('');
+  readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
+  readonly dfSearch = signal('');
+  readonly daySort = signal<SortState | null>(null);
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+  sortDay(field: string): void { this.daySort.set(toggleSort(this.daySort(), field)); }
+
+  /** Columnas del detalle: etiqueta + campo por el que ordena. */
+  readonly DAY_COLS = [
+    { field: 'fecha',          label: 'Fecha',    cls: '' },
+    { field: 'dir',            label: 'Dir',      cls: 'ta-c' },
+    { field: 'importe',        label: 'Control',  cls: 'ta-r' },
+    { field: 'manual_importe', label: 'Workbook', cls: 'ta-r' },
+    { field: 'kepler_importe', label: 'Kepler',   cls: 'ta-r' },
+    { field: 'concepto',       label: 'Concepto', cls: '' },
+  ];
+
+  /** Filas visibles: filtros + orden. Sin orden elegido manda el del backend (fecha, monto). */
+  dayRows(cd: ConcDia): DiaRow[] {
+    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase();
+    const filtered = cd.rows.filter((e) => {
+      if (dir && e.dir !== dir) return false;
+      if (est === 'casado' && !(e.manual && e.kepler)) return false;
+      if (est === 'descuadre' && e.manual && e.kepler) return false;
+      if (q && !`${e.concepto || ''} ${e.extra || ''} ${e.importe}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    return sortRows(filtered, this.daySort(), (r, f) => (r as unknown as Record<string, unknown>)[f]);
+  }
+
+  /**
+   * Huérfanos de cada fuente, juntando ingresos y gastos. El backend los devuelve partidos por
+   * dirección porque el casado corre por dirección; para leerlos da igual de qué lado vinieron.
+   */
+  dayOrphans(cd: ConcDia): { manual: OrphanMov[]; kepler: OrphanMov[] } {
+    const join = (v: { ingresos: ReconSide; gastos: ReconSide }) =>
+      [...v.ingresos.other_only, ...v.gastos.other_only].sort((a, b) => b.importe - a.importe);
+    return { manual: join(cd.vs_manual), kepler: join(cd.vs_kepler) };
+  }
+
+  // Se exporta LO QUE SE VE: dayRows() ya trae filtros y orden. Los importes van como número
+  // con formato de moneda, no como texto: en Excel se suman.
+  readonly exporting = signal(false);
+
+  async exportDay(cd: ConcDia): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const f: string[] = [];
+      if (this.dfDir()) f.push(this.dfDir() === 'in' ? 'solo ingresos' : 'solo gastos');
+      if (this.dfEstado()) f.push(this.dfEstado() === 'casado' ? 'solo los que estan en las 3' : 'solo los que faltan en alguna');
+      if (this.dfSearch().trim()) f.push('busqueda "' + this.dfSearch().trim() + '"');
+      const rows = this.dayRows(cd);
+      const base = `${this.dayKey()} - ${rows.length} de ${cd.rows.length} movimientos del Control`;
+      const orp = this.dayOrphans(cd);
+      const sheets: XlsxSheet<any>[] = [{
+        name: 'Detalle del dia',
+        subtitle: f.length ? base + ' - filtros: ' + f.join(', ') : base,
+        rows,
+        cols: [
+          { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
+          { header: 'Direccion', get: (r: any) => (r.dir === 'in' ? 'Ingreso' : 'Gasto'), width: 11 },
+          { header: 'Control', get: (r: any) => r.importe, type: 'money', total: true },
+          { header: 'Workbook', get: (r: any) => r.manual_importe, type: 'money', total: true },
+          { header: 'Ref Workbook', get: (r: any) => r.manual_ref, width: 20 },
+          { header: 'Kepler', get: (r: any) => r.kepler_importe, type: 'money', total: true },
+          { header: 'Ref Kepler', get: (r: any) => r.kepler_ref, width: 20 },
+          { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+        ],
+      }];
+      const orphanCols = [
+        { header: 'Importe', get: (r: any) => r.importe, type: 'money' as const, total: true },
+        { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+        { header: 'Referencia', get: (r: any) => r.extra, width: 24 },
+      ];
+      if (orp.manual.length) sheets.push({ name: 'En Workbook sin Control', rows: orp.manual, cols: orphanCols });
+      if (orp.kepler.length) sheets.push({ name: 'En Kepler sin Control', rows: orp.kepler, cols: orphanCols });
+      await exportXlsx('Detalle del dia ' + this.dayKey(), sheets);
+    } finally { this.exporting.set(false); }
+  }
+
   /** Día abierto en la ventana de detalle (clave YYYY-MM-DD). */
   readonly dayOpen = signal(false);
   readonly dayKey = signal('');
@@ -830,6 +969,7 @@ export class FinanzasCajaComponent implements OnInit {
   openDay(r: { fecha: string }): void {
     const dk = this.key(r);
     this.dayKey.set(dk);
+    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set(''); this.daySort.set(null);
     this.dayOpen.set(true);
     if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
@@ -897,17 +1037,11 @@ export class FinanzasCajaComponent implements OnInit {
   }
   tLabel(t: string): string { return TENDER_LABEL[t] || t; }
   tipoSev(t: string | null): 'warn' | 'info' | 'success' | 'secondary' { return t === 'Retiro' ? 'warn' : t === 'Corte' ? 'info' : t === 'Deposito' ? 'success' : 'secondary'; }
-  money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   /**
    * Fecha SIN voltear de TZ. El API serializa las columnas `date` como ISO a
    * medianoche UTC (contenedor UTC) → el pipe `| date` las mueve un día atrás en
    * el navegador MX. Extraemos la parte de fecha del string (o del Date) directo.
    */
-  dmy(v: any): string {
-    if (v instanceof Date && !isNaN(v.getTime())) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${String(v.getFullYear()).slice(2)}`;
-    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-    return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : (v ? String(v) : '—');
-  }
   dmyLong(v: any): string {
     if (v instanceof Date && !isNaN(v.getTime())) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
     const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
