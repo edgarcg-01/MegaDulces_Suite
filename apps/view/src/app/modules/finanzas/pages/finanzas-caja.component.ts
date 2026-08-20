@@ -37,14 +37,17 @@ interface CajaWb {
   eps: number;
 }
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
-interface OrphanMov { id: string; fecha: string; importe: number; concepto: string | null; extra: string | null }
+type MovSource = 'control' | 'workbook' | 'kepler';
+interface OrphanMov { id: string; source: MovSource; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null }
 interface ReconSide { caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number; caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number }
 /** Una fila del detalle del día: un movimiento del Control con lo que casó en cada fuente. */
 interface DiaRow {
-  id: string; fecha: string; dir: 'in' | 'out'; importe: number; concepto: string | null; extra: string | null;
-  manual: boolean; manual_importe: number | null; manual_ref: string | null;
-  kepler: boolean; kepler_importe: number | null; kepler_ref: string | null;
+  id: string; key: string; fecha: string; dir: 'in' | 'out'; importe: number; concepto: string | null; extra: string | null;
+  manual: boolean; manual_importe: number | null; manual_ref: string | null; manual_key: string | null;
+  kepler: boolean; kepler_importe: number | null; kepler_ref: string | null; kepler_key: string | null;
 }
+/** Detalle completo de un movimiento (modal al clickear una vía). */
+interface MovDetail { source: MovSource; title: string; fields: { label: string; value: string | number | null }[] }
 interface DiaTotals {
   control_n: number; control_monto: number; en_manual: number; en_kepler: number;
   manual_only_n: number; manual_only_monto: number; kepler_only_n: number; kepler_only_monto: number;
@@ -558,9 +561,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <tr>
                   <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="e.dir === 'in' ? 'Ingreso' : 'Gasto'"></i></td>
-                  <td class="ta-r num">{{ money(e.importe) }}</td>
-                  <td class="ta-r num">@if (e.manual) { <span [title]="e.manual_ref || ''" [class.tw-cent]="e.manual_importe !== e.importe">{{ money(e.manual_importe) }}</span> } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
-                  <td class="ta-r num tw-kep">@if (e.kepler) { <span [title]="e.kepler_ref || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ money(e.kepler_importe) }}</span> } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
+                  <td class="ta-r num"><button type="button" class="tw-mlink" (click)="openMovement('control', e.key)" title="Ver detalle del movimiento (Control)">{{ money(e.importe) }}</button></td>
+                  <td class="ta-r num">@if (e.manual) { <button type="button" class="tw-mlink" [class.tw-cent]="e.manual_importe !== e.importe" [title]="'Ver detalle (Workbook) · ' + (e.manual_ref || '')" (click)="openMovement('workbook', e.manual_key)">{{ money(e.manual_importe) }}</button> } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
+                  <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [class.tw-cent]="e.kepler_importe !== e.importe" [title]="'Ver detalle (Kepler) · ' + (e.kepler_ref || '')" (click)="openMovement('kepler', e.kepler_key)">{{ money(e.kepler_importe) }}</button> } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
                   <td class="tw-concept" [title]="(e.extra || '') + ' ' + (e.concepto || '')">{{ e.concepto || e.extra || '—' }}</td>
                 </tr>
               }
@@ -577,7 +580,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <h4><i class="pi pi-file-excel"></i> En Workbook, sin Control ({{ orp.manual.length }})</h4>
                   <table class="tw-tbl"><tbody>
                     @for (m of orp.manual; track m.id) {
-                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Workbook)"><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
                     }
                   </tbody></table>
                 </div>
@@ -587,7 +590,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <h4><i class="pi pi-database"></i> En Kepler, sin Control ({{ orp.kepler.length }})</h4>
                   <table class="tw-tbl"><tbody>
                     @for (m of orp.kepler; track m.id) {
-                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Kepler)"><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
                     }
                   </tbody></table>
                 </div>
@@ -595,6 +598,22 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </div>
           }
         }
+      }
+    </p-dialog>
+
+    <!-- CG.18 — Detalle completo de un movimiento (click en cualquier vía) -->
+    <p-dialog [visible]="movOpen()" (visibleChange)="movOpen.set($event)" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '34rem', maxWidth: '94vw' }" [draggable]="false" [header]="mov()?.title || 'Movimiento'">
+      @if (movLoad()) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Cargando detalle…</span></div> }
+      @else if (movErr(); as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
+      @else if (mov(); as m) {
+        <dl class="cg-movd">
+          @for (f of m.fields; track f.label) {
+            @if (f.value !== null && f.value !== '') {
+              <div class="cg-movd-row"><dt>{{ f.label }}</dt><dd>{{ f.value }}</dd></div>
+            }
+          }
+        </dl>
       }
     </p-dialog>
 
@@ -674,6 +693,16 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     /* Mismos valores que .surf-empty de Bancos, para que el estado vacio se lea igual. */
     .cg-empty { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); padding:var(--sp-8); text-align:center; color:var(--text-muted); }
     .cg-empty .pi { font-size:1.5rem; }
+    /* CG.18 — importe clickable (abre el detalle del movimiento) */
+    .tw-mlink { font:inherit; font-variant-numeric:tabular-nums; color:inherit; background:none; border:none; padding:0; cursor:pointer; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px; }
+    .tw-mlink:hover { color:var(--action); }
+    .tw-mlink:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm,4px); }
+    /* CG.18 — grid de detalle del movimiento */
+    .cg-movd { margin:0; }
+    .cg-movd-row { display:grid; grid-template-columns:11rem 1fr; gap:.5rem; padding:.3rem .1rem; border-bottom:1px solid var(--border-color); }
+    .cg-movd-row:last-child { border-bottom:none; }
+    .cg-movd-row dt { color:var(--text-muted); font-size:.78rem; }
+    .cg-movd-row dd { margin:0; font-weight:600; font-variant-numeric:tabular-nums; word-break:break-word; }
   `],
 })
 export class FinanzasCajaComponent implements OnInit {
@@ -1001,6 +1030,22 @@ export class FinanzasCajaComponent implements OnInit {
       next: (d) => { this.wbDayDia.set({ ...this.wbDayDia(), [dk]: d }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
       error: (err) => { this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { dia: this.httpMsg(err, '/caja/conciliacion-dia') } }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
     });
+  }
+
+  // CG.18 — Detalle completo de UN movimiento (click en cualquier vía del drill). El backend
+  // devuelve todos los campos del registro crudo según la fuente (control/workbook/kepler).
+  readonly movOpen = signal(false);
+  readonly movLoad = signal(false);
+  readonly movErr = signal<string | null>(null);
+  readonly mov = signal<MovDetail | null>(null);
+  openMovement(source: MovSource, key: string | null): void {
+    if (!key) return;
+    this.mov.set(null); this.movErr.set(null); this.movOpen.set(true); this.movLoad.set(true);
+    this.http.get<MovDetail>(`${this.base}/movement?source=${source}&key=${encodeURIComponent(key)}`)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.mov.set(d); this.movLoad.set(false); },
+        error: (e) => { this.movErr.set(this.httpMsg(e, '/caja/movement')); this.movLoad.set(false); },
+      });
   }
 
   toggleCqDay(r: { fecha: string }): void {
