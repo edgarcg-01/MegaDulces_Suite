@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Fixed — FKJ: doble conteo CEDIS $9.87M + doble conteo réplicas embarques (2026-08-20)
+- **`erp_goods_receipts` doble-contaba la copia CEDIS `'00'`**: al volverse vista (20260819140000), `dup_of_folio` quedó NULL hardcodeado → el filtro `dup_of_folio IS NULL` de 5 consumidores (RE.12) dejó de ocultar las gemelas → **1,240 recepciones / $9.87M** infladas en KPIs. Fix: tabla `analytics.erp_goods_receipt_dedup` leída por LEFT JOIN + detector reescrito a UPSERT. `warehouse_id` del CEDIS ahora resuelve (`code` en vez de `kepler_code`).
+- **`erp_shipments` sumaba réplicas de `kdpord`** (replicado entre sucursales): al volverse vista se aplicó anti-réplica `c19=sucursal` → **units −2% (2,751,475→2,697,236)**, 1 fila por (folio,sku).
+
+### Changed — FKJ: integridad referencial + copias→vista (2026-08-20)
+- **7 FK faltantes** con regla `ON DELETE` deliberada (antes se dejaba el `NO ACTION` default): `purchase_requisition_lines.supplier_id` + 5 columnas `match` → **SET NULL** compuestas, 0 huérfanos, validadas. `matched_store_id → trade.stores` (no a la VIEW `public.stores`).
+- **3 copias PURAS → vista derive-no-copy** sobre `kepler_ods` (fresco vía CDC): `erp_customers` (kdud), `erp_promotions` (kdpv_*, paridad exacta), `erp_shipments` (kdpord). Importers retirados (`@Cron` → no-op). `erp_purchase_adjustments` **se queda tabla** (carga 144 categorías LLM no derivables del ODS).
+- `erpShipments`/`erpPromotions` (analytics) ahora hacen JOIN a `commercial.warehouses` (nombre vivo) en vez de `warehouse_code` denorm.
+
 ### Fixed — Barrido completo del spread de iterador: 53 sitios, el bundle queda en cero (2026-08-18)
 - El bundle de webpack del API baja `[...iterable]` a **`[].concat(iterable)`**, que mete el **iterador como único elemento** del array. Efecto: dedups que no deduplican, totales en cero, títulos con `undefined` y —lo peor— **Sets bindeados a Postgres** (`whereIn('id', [...set])` serializa a `'{}'` → `22P02` al castear a `uuid[]`). Es un bug de **datos silencioso**: responde 200 con resultados mal.
 - **53 sitios corregidos en 35 archivos** (`Array.from(...)`, que es una llamada de función y sobrevive el downlevel): 12 commercial · 6 logistics · 6 trade · 5 fiscal · 2 finance · 2 api · platform-core · whatsapp. Verificado sobre `dist/apps/api/main.js`: **cero ofensores reales** (los 3 matches que quedan son texto de comentario).
