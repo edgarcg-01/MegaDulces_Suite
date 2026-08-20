@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
  * de departamentos del módulo de reembolsos (mismo endpoint).
  */
 
-export type ComprobacionStatus = 'recibida' | 'validada' | 'rechazada' | 'revision';
+export type ComprobacionStatus = 'recibida' | 'validada' | 'rechazada' | 'revision' | 'correccion';
 export type ComprobacionFileRole = 'comprobacion' | 'evidencia_1' | 'evidencia_2';
 export interface ProofFile { role: ComprobacionFileRole | string; url: string; public_id?: string; kind?: string; name?: string; }
 export interface Departamento { code: string; nombre: string; sucursal: string; }
@@ -41,6 +41,9 @@ export interface Comprobacion {
   files: ProofFile[];
   comentarios: string | null;
   status: ComprobacionStatus;
+  monto_ocr?: number | null;
+  monto_match?: boolean | null;
+  revision_nota?: string | null;
   validated_by: string | null;
   validated_at: string | null;
   motivo_rechazo: string | null;
@@ -161,6 +164,8 @@ export class ComprobacionGastosService {
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+  /** Devuelve la comprobación al capturista para que la re-suba (con motivo). */
+  requestCorrection(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/request-correction`, { motivo }); }
   /** Reusa el catálogo de departamentos del módulo de reembolsos. */
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.proofsBase}/departamentos`); }
   /** Mapa folio_solicitud → estado, para el overlay de comprobación en /finanzas/solicitudes. */

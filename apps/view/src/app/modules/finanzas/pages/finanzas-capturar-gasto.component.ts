@@ -49,7 +49,7 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
           <label class="cap-f"><span>1 · Folio del gasto (Kepler)</span>
             <p-autocomplete [(ngModel)]="sel" [suggestions]="sug()" (completeMethod)="buscar($event)"
               (onSelect)="pick($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-              placeholder="Ej. 7243, o nombre del proveedor…" appendTo="body" styleClass="w-full" [minLength]="2" />
+              placeholder="Ej. 7243, o nombre del proveedor…" appendTo="body" styleClass="w-full" />
             <em class="cap-hint">Escribe el folio que te dieron; te muestro el gasto para confirmar.</em>
           </label>
         } @else {
@@ -128,7 +128,8 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
                   <p-tag [value]="statusLabel(m.status)" [severity]="statusSev(m.status)" />
                   <span class="cap-it-date">{{ m.created_at | date:'dd/MM HH:mm' }}</span>
                 </div>
-                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle"></i> {{ m.motivo_rechazo }}</div> }
+                @if (m.status === 'correccion' && m.motivo_rechazo) { <div class="cap-it-note warn"><i class="pi pi-undo"></i> Corrección: {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_gasto }}.</div> }
+                @else if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle"></i> {{ m.motivo_rechazo }}</div> }
                 @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle"></i> {{ m.revision_nota }}</div> }
               </div>
             }
@@ -322,7 +323,7 @@ export class FinanzasCapturarGastoComponent {
     });
   }
 
-  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s] || s; }
-  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
+  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión', correccion: 'Corrección solicitada' } as Record<string, string>)[s] || s; }
+  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn', correccion: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }

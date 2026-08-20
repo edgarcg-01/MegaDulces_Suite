@@ -1,5 +1,6 @@
-import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+import { ComprobacionGastosGateway } from './comprobacion-gastos.gateway';
 
 /** Datos del usuario del request usados para acotar por departamento (área). */
 export interface ScopeUser { sub?: string; role_name?: string; permissions?: Record<string, boolean>; }
@@ -76,7 +77,22 @@ export class ExpenseComprobacionesService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    @Optional() private readonly gateway?: ComprobacionGastosGateway,
   ) {}
+
+  /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
+  private emit(action: 'captured' | 'validated' | 'rejected' | 'correction_requested',
+    row: { sucursal?: string | null; folio_gasto: string; status?: string | null; proveedor?: string | null; importe?: number | null },
+    actor?: string): void {
+    try {
+      const tenantId = this.tenantCtx.requireTenantId();
+      this.gateway?.emitChange(tenantId, {
+        action, sucursal: row.sucursal ?? null, folio_gasto: row.folio_gasto,
+        status: row.status ?? null, proveedor: row.proveedor ?? null,
+        importe: row.importe == null ? null : Number(row.importe), actor: actor ?? null,
+      });
+    } catch { /* el aviso no debe tumbar la operación */ }
+  }
 
   /**
    * Áreas (norm_keys) que el usuario puede VER. `null` = sin restricción (ve todo):
@@ -360,6 +376,7 @@ export class ExpenseComprobacionesService {
         })
         .returning(['id', 'folio_gasto', 'folio_solicitud', 'status']);
       this.logger.log(`comprobación gasto ${row.folio_gasto} → ${status} [vision:${srv.source}]${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
+      this.emit('captured', { sucursal, folio_gasto: folioGasto, status, proveedor, importe }, actor);
       return row;
     });
   }
@@ -569,30 +586,55 @@ export class ExpenseComprobacionesService {
   /** El contador valida la comprobación. */
   async validate(id: string, actor?: string, user?: ScopeUser) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento');
+    const res = await this.tk.run(async (trx) => {
+      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento', 'folio_gasto', 'sucursal', 'proveedor', 'importe');
       if (!cur) throw new BadRequestException('comprobación no encontrada');
       await this.assertAreaAllowed(trx, user, cur.departamento); // no validar áreas ajenas
-      const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision'])
+      const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision', 'correccion'])
         .update({ status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now() })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('comprobación no encontrada o ya validada');
-      return row;
+      return { row, cur };
     });
+    this.emit('validated', { sucursal: res.cur.sucursal, folio_gasto: res.cur.folio_gasto, status: 'validada', proveedor: res.cur.proveedor, importe: res.cur.importe }, actor);
+    return res.row;
   }
 
   /** Rechaza (con motivo). */
   async reject(id: string, actor?: string, motivo?: string, user?: ScopeUser) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento');
+    const res = await this.tk.run(async (trx) => {
+      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento', 'folio_gasto', 'sucursal', 'proveedor', 'importe');
       if (!cur) throw new BadRequestException('comprobación no encontrada');
       await this.assertAreaAllowed(trx, user, cur.departamento); // no rechazar áreas ajenas
-      const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'validada', 'revision'])
+      const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'validada', 'revision', 'correccion'])
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('comprobación no encontrada o ya rechazada');
-      return row;
+      return { row, cur };
     });
+    this.emit('rejected', { sucursal: res.cur.sucursal, folio_gasto: res.cur.folio_gasto, status: 'rechazada', proveedor: res.cur.proveedor, importe: res.cur.importe }, actor);
+    return res.row;
+  }
+
+  /**
+   * Devuelve la comprobación al capturista para que la RE-SUBA (estado 'correccion' +
+   * motivo). No es un rechazo en firme: el capturista la ve en "Mis capturas" con la
+   * nota y vuelve a capturar el mismo folio (nueva comprobación que supersede).
+   */
+  async requestCorrection(id: string, actor?: string, motivo?: string, user?: ScopeUser) {
+    this.tenantCtx.requireTenantId();
+    const res = await this.tk.run(async (trx) => {
+      const cur = await trx('finance.expense_comprobaciones').where({ id }).first('id', 'departamento', 'folio_gasto', 'sucursal', 'proveedor', 'importe');
+      if (!cur) throw new BadRequestException('comprobación no encontrada');
+      await this.assertAreaAllowed(trx, user, cur.departamento);
+      const [row] = await trx('finance.expense_comprobaciones').where({ id }).whereIn('status', ['recibida', 'validada', 'revision', 'rechazada'])
+        .update({ status: 'correccion', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'Se solicitó corrección', updated_at: trx.fn.now() })
+        .returning(['id', 'status']);
+      if (!row) throw new BadRequestException('comprobación no encontrada o ya en corrección');
+      return { row, cur };
+    });
+    this.emit('correction_requested', { sucursal: res.cur.sucursal, folio_gasto: res.cur.folio_gasto, status: 'correccion', proveedor: res.cur.proveedor, importe: res.cur.importe }, actor);
+    return res.row;
   }
 }
