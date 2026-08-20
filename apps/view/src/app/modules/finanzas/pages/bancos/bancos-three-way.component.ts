@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
-import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
+import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, BankMovDetail, BankMovSource } from '../../bank.service';
 import { money, dmShort } from './bancos-shared';
 import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../finanzas-sort';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
@@ -391,9 +391,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <tr>
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'"></i></td>
-                  <td class="ta-r mono">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="ta-r mono">@if (e.kepler) { <span [title]="e.kepler_doc || ''" [class.tw-cent]="e.kepler_importe !== e.importe">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
-                  <td class="ta-r mono">@if (e.contpaqi) { <span [title]="e.contpaqi_poliza || ''" [class.tw-cent]="e.contpaqi_importe !== e.importe">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono"><button type="button" class="tw-dlink" (click)="openMov('workbook', e.key)" title="Ver detalle (estado de cuenta)">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button></td>
+                  <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
                 </tr>
               }
@@ -407,7 +407,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}</td></tr> }
+                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }
@@ -415,7 +415,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }
@@ -423,8 +423,27 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         }
       }
     </p-dialog>
+
+    <!-- CB.40 — Detalle completo de un movimiento (click en cualquier vía del drill) -->
+    <p-dialog [visible]="movOpen()" (visibleChange)="movOpen.set($event)" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '34rem', maxWidth: '94vw' }" [draggable]="false" [header]="mov()?.title || 'Movimiento'">
+      @if (movLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando detalle…</p></div> }
+      @else if (movErr()) { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ movErr() }}</p></div> }
+      @else if (mov(); as m) {
+        <dl class="bmv">
+          @for (f of m.fields; track f.label) {
+            @if (f.value !== null && f.value !== '') { <div class="bmv-row"><dt>{{ f.label }}</dt><dd>{{ f.value }}</dd></div> }
+          }
+        </dl>
+      }
+    </p-dialog>
   `,
   styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
+    .bmv { margin: 0; }
+    .bmv-row { display: grid; grid-template-columns: 11rem 1fr; gap: var(--sp-2); padding: var(--sp-2) 2px; border-bottom: 1px solid var(--border-color); }
+    .bmv-row:last-child { border-bottom: none; }
+    .bmv-row dt { color: var(--text-muted); font-size: var(--fs-xs); }
+    .bmv-row dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; word-break: break-word; }
 
     /* Columna Diferencia: cifra + fuente en una línea, alineadas a la derecha como el resto
        de los números. El ancho fijo evita que la tabla salte al cambiar de periodo. */
@@ -517,6 +536,19 @@ export class BancosThreeWayComponent {
   readonly drillErr = signal<string | null>(null);
   readonly drill = signal<ThreeWayDetail | null>(null);
   private drillAcct = '';
+  // CB.40 — detalle completo de UN movimiento (click en cualquier vía del drill).
+  readonly movOpen = signal(false);
+  readonly movLoading = signal(false);
+  readonly movErr = signal<string | null>(null);
+  readonly mov = signal<BankMovDetail | null>(null);
+  openMov(source: BankMovSource, key: string | null): void {
+    if (!key) return;
+    this.mov.set(null); this.movErr.set(null); this.movOpen.set(true); this.movLoading.set(true);
+    this.api.bankMovement(source, key).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.mov.set(d); this.movLoading.set(false); },
+      error: (e) => { this.movErr.set(e?.status === 404 ? 'El API no tiene /bank/movement (404) — falta redeploy.' : 'No se pudo cargar el detalle.'); this.movLoading.set(false); },
+    });
+  }
   // CB.37 — filtros del detalle 3 vías.
   readonly dfDir = signal<'' | 'in' | 'out'>('');
   readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
