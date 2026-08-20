@@ -19,6 +19,11 @@
  * Skip-on-fail: la sucursal que no conecta se reporta y sus filas quedan intactas.
  * LAN: correr desde la máquina de feeds (Railway no alcanza las DBs de sucursal).
  *
+ * RETIRADO donde el espejo ya es VISTA (mig 20260820200000, derive-no-copy sobre kepler_ods):
+ * ahí no hay nada que copiar y este script sale sin hacer nada. Se conserva para las bases
+ * sin ODS y como carga inicial. Motivo del retiro, medido: entre la corrida del importer y
+ * dos horas después, Kepler ya tenía 12 documentos nuevos ($1.05M) que la copia no reflejaba.
+ *
  * Idempotente: UPSERT-solo-cambios, sin DELETE.
  *
  *   node database/importers/kepler/import-purchase-docs.js            # dry-run
@@ -155,6 +160,15 @@ async function readBranch(m) {
 
   const db = new Client({ connectionString: DST });
   await db.connect();
+  // Si el destino ya es una VISTA sobre el ODS, no hay copia que mantener: escribirle
+  // fallaría, y aunque no fallara sería volver a introducir el desfase que la vista quitó.
+  const kind = await db.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.erp_purchase_docs')`);
+  if (kind.rows[0] && kind.rows[0].relkind === 'v') {
+    console.log('');
+    console.log('[SKIP] analytics.erp_purchase_docs ya es una vista en vivo sobre kepler_ods — no hay nada que importar.');
+    await db.end();
+    return;
+  }
   try {
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);

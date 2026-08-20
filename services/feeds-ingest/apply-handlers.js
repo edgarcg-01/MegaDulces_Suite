@@ -338,6 +338,11 @@ async function applyErpPurchaseDocs(client, tenantId, rows) {
   for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'h') headers.push(r); else if (r.k === 'l') lines.push(r); }
   if (!headers.length && !lines.length) return 0;
 
+  // Espejo convertido a vista en vivo (mig 20260820200000): el feed queda sin efecto a
+  // proposito — la vista ya trae los documentos al segundo desde kepler_ods.
+  const kind = await client.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.erp_purchase_docs')`);
+  if (kind.rows[0] && kind.rows[0].relkind === 'v') return 0;
+
   await client.query('BEGIN');
   try {
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
