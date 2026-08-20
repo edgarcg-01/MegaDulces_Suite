@@ -61,6 +61,11 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
       <div class="cp-filters card-premium card-flat">
         <div class="cp-field"><label>Estado</label>
           <app-segmented [options]="statusOpts" [value]="statusSel()" (valueChange)="setStatus($event)" ariaLabel="Estado" /></div>
+        <div class="cp-field"><label>Desde</label>
+          <div class="cp-desde">
+            <p-datepicker [(ngModel)]="desde" (onSelect)="load()" dateFormat="dd/M/y" [maxDate]="today" placeholder="Todo el histórico" appendTo="body" styleClass="cp-date" />
+            @if (desde) { <button type="button" class="cp-linkbtn cp-verall" (click)="verTodo()" title="Ver el histórico completo">Ver todo</button> }
+          </div></div>
         <div class="cp-field cp-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio gasto, folio comprob., proveedor, solicitante…" (keyup.enter)="load()" (blur)="queue()" /></div>
       </div>
@@ -257,6 +262,8 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
     .cp-field { display: flex; flex-direction: column; gap: .3rem; }
     .cp-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cp-field.cp-grow { flex: 1 1 18rem; }
+    .cp-desde { display: flex; align-items: center; gap: .5rem; }
+    .cp-verall { margin-left: 0; font-size: .72rem; white-space: nowrap; }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     .cp-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cp-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
@@ -394,6 +401,10 @@ export class FinanzasComprobacionGastosComponent {
 
   readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
   search = '';
+  // Por defecto solo carga de AYER en adelante (la vista trae todo el histórico del ODS).
+  // Ajustable: elegir otra fecha, o limpiar (X) para ver el histórico completo.
+  readonly today = new Date();
+  desde: Date | null = (() => { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(0, 0, 0, 0); return d; })();
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   // form
@@ -436,13 +447,15 @@ export class FinanzasComprobacionGastosComponent {
   }
 
   setStatus(v: string) { this.statusSel.set(v); this.load(); }
+  /** Quita el filtro de fecha (carga el histórico completo). */
+  verTodo() { this.desde = null; this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
 
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.listGastos({ estado: this.statusSel() || undefined, search: this.search || undefined })
+    this.svc.listGastos({ estado: this.statusSel() || undefined, search: this.search || undefined, from: this.desde ? this.fmtDate(this.desde) : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
