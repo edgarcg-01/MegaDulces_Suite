@@ -230,11 +230,16 @@
     }
 
     <div class="au-field">
-      <label for="department_code">Departamento</label>
+      <label for="department_code">Departamento @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
       <p-select id="department_code" [options]="departmentOptions()" formControlName="department_code"
-                placeholder="Sin departamento" [showClear]="true"
+                [placeholder]="isEditing() ? 'Sin departamento' : 'Elige el departamento'"
+                [showClear]="isEditing()"
                 optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+      @if (userForm.get('department_code')?.invalid && userForm.get('department_code')?.touched) {
+        <small class="au-err">Todo usuario nuevo tiene que quedar en un departamento existente.</small>
+      } @else {
+        <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+      }
     </div>
 
     <div class="au-field">
