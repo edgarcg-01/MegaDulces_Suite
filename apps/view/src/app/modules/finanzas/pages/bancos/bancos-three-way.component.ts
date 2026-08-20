@@ -11,7 +11,7 @@ import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, T
 import { money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
-import { CUADRE_STYLES } from '../cuadre.styles';
+import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
          explainAccounts, explainMovements, totalDelta } from './three-way-explain';
 
@@ -423,7 +423,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       }
     </p-dialog>
   `,
-  styles: [BANCOS_STYLES, CUADRE_STYLES, `
+  styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
     /* Encabezado ordenable de tabla cruda: el th completo es el objetivo de clic. */
     .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
       font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }

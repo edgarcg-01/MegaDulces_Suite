@@ -38,6 +38,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 import { BANCOS_STYLES } from './bancos/bancos.styles';
+import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -203,7 +204,7 @@ import { BANCOS_STYLES } from './bancos/bancos.styles';
       }
     </div>
   `,
-  styles: [BANCOS_STYLES, `
+  styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
     .fb-head-actions { display: flex; align-items: center; gap: var(--sp-3); }
     .fb-period { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
 
@@ -211,33 +212,6 @@ import { BANCOS_STYLES } from './bancos/bancos.styles';
     :host ::ng-deep .fb-sel .p-select-label { padding: var(--sp-1) var(--sp-2); }
     :host ::ng-deep .fb-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
 
-    /* Quiet-luxury (Linear/Stripe): hairline, cero gloss, cero sombra difusa. La regla de
-       elevación in-page es borde 1px O sombra, nunca ambas — antes llevaba borde + doble
-       sombra + gloss iOS, que encima necesitaba un override de dark aparte porque el brillo
-       blanco no sobrevive el tema. El desborde se ANUNCIA con fade en los bordes: 9 destinos
-       con scrollbar oculto dejaban vistas invisibles en pantalla mediana. */
-    .fb-viewseg {
-      display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 3px;
-      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
-      overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -ms-overflow-style: none;
-      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
-      mask-image: linear-gradient(to right, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-4)), transparent 100%);
-    }
-    .fb-viewseg::-webkit-scrollbar { display: none; }
-    .fb-viewseg button {
-      display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none; border-radius: var(--r-pill);
-      color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500;
-      padding: var(--sp-1) var(--sp-3); cursor: pointer; white-space: nowrap;
-      transition: background-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard);
-    }
-    .fb-viewseg button:not(.active):hover { color: var(--text-main); }
-    /* Activo = superficie + ring 1px tokenizado (no sombra): se lee igual en light y dark. */
-    .fb-viewseg button.active {
-      color: var(--action); background: var(--card-bg);
-      box-shadow: 0 0 0 1px var(--border-color);
-    }
-    .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .fb-seg-config { margin-left: auto; }
     .fb-title-row { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
     .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
@@ -265,12 +239,7 @@ import { BANCOS_STYLES } from './bancos/bancos.styles';
 
     .fb-colored > td { background: color-mix(in srgb, var(--g, transparent) 8%, transparent); }
     .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
-    .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
-    .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
-    @keyframes fb-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
-    @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
-    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
     .fb-match-rate.warn { color: var(--warn-fg); }
     .fb-adminseg button.active { color: var(--action); border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
   `],
