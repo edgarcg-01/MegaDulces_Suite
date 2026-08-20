@@ -112,7 +112,7 @@ exports.up = async function (knex) {
     )`);
   await knex.raw('GRANT SELECT, INSERT, UPDATE, DELETE ON analytics.erp_goods_receipt_dedup TO app_runtime');
   await knex.raw(`COMMENT ON TABLE analytics.erp_goods_receipt_dedup IS
-    'Marcas de dedup CEDIS (RE.12): cedis_folio '00' -> (dup_of_sucursal,dup_of_folio) canónica. La vista erp_goods_receipts la lee por LEFT JOIN para poblar dup_of_*. La mantiene detect-goods-receipt-duplicates.js (UPSERT). Reemplaza el UPDATE directo a la ex-tabla.'`);
+    'Marcas de dedup CEDIS (RE.12): cedis_folio del CEDIS 00 -> (dup_of_sucursal,dup_of_folio) canónica. La vista erp_goods_receipts la lee por LEFT JOIN para poblar dup_of_*. La mantiene detect-goods-receipt-duplicates.js (UPSERT). Reemplaza el UPDATE directo a la ex-tabla.'`);
 
   // 2) redefinir la vista: dup_of_* via JOIN al agregado + warehouse por code (no kepler_code)
   await knex.raw(VIEW_WITH_DEDUP);
