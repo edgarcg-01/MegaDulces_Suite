@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Added — "Todo es clickeable": resolvedor de referencias + panel de ficha (2026-08-20)
+- **`GET /entity-ref/:ref`** (`libs/commercial/src/lib/entity-ref/`, ruta neutral — no `/compras/*` — para que Finanzas lo reuse). Un ref (`ent:<suc>|<doc_prefix>|<folio>`, `lin`, `adj`, `pay`, `prov`, `sku`) resuelve a `{ title, badges, fields[], relations[], notes[] }`. Cada `field` nombra **su columna de origen** (`kdm2.c8`, `kdmm.c31`); cada `relation` trae **su propio ref** → el front navega sin saber de tablas.
+- **`<app-entity-inspector [(ref)]>`** sobre el side-peek canónico, con pila de navegación (proveedor → recepción → renglón → producto → volver) y `?ref=` en la URL (`merge` + `replaceUrl`, convive con los filtros). Se eleva a z-index 1200 para abrirse **desde** un diálogo sin apilar modales.
+- **`/compras/compras-360`**: proveedor clickeable en la tabla y en el detalle; el tipo de ajuste abre su documento; "Abrir ficha de la entrada" (renglones, pagos candidatos, copia CEDIS).
+- **`/compras/entradas`**: proveedor en la lista y en el detalle; folio de entrada; cada renglón y cada SKU; los gemelos CEDIS; el folio de cada ajuste.
+- **Ficha de proveedor** desde `analytics.erp_*` + `commercial.supplier_discount_policy` + cruce **69-B** por RFC contra `fiscal.sat_list_rfcs` (badge rojo). Reemplaza el drill a Descuentos que navegaba **por nombre en texto** teniendo el código al lado.
+- Smoke `test-newdb-entity-ref.js` (16/16, en la regression): codec real vía ts-node + identidad única de `ent`/`lin`/`adj`/`pay` contra 11,405 recepciones.
+
+### Changed
+- `analytics.erp_purchase_adjustments` ahora expone `sucursal` en `list()` y `forEntrada()` (la necesitaba el ref del ajuste; `AdjustmentRow.sucursal` en el DTO del front).
+
+### Pending — huecos declarados, no disimulados
+- **OC sin ficha**: no existe `analytics.erp_purchase_orders` (X-A-35 nunca se importó). El clic en la OC sigue **filtrando** la lista y el panel lo dice.
+- **Pago↔entrada heurístico** (RE.8): Kepler no liga X-D-26 a la recepción → se listan "pagos candidatos" del mismo proveedor en 30 días, marcados como estimados.
+- **Lead time / mínimo de pedido fuera de la ficha**: `catalog.suppliers.code` (inventario) y `proveedor_code` (contabilidad) son espacios de códigos distintos — **0 de 328** empatan. Falta crosswalk; el panel lo declara en vez de cruzar por nombre.
+
+
 ### Fixed — FKJ: doble conteo CEDIS $9.87M + doble conteo réplicas embarques (2026-08-20)
 - **`erp_goods_receipts` doble-contaba la copia CEDIS `'00'`**: al volverse vista (20260819140000), `dup_of_folio` quedó NULL hardcodeado → el filtro `dup_of_folio IS NULL` de 5 consumidores (RE.12) dejó de ocultar las gemelas → **1,240 recepciones / $9.87M** infladas en KPIs. Fix: tabla `analytics.erp_goods_receipt_dedup` leída por LEFT JOIN + detector reescrito a UPSERT. `warehouse_id` del CEDIS ahora resuelve (`code` en vez de `kepler_code`).
 - **`erp_shipments` sumaba réplicas de `kdpord`** (replicado entre sucursales): al volverse vista se aplicó anti-réplica `c19=sucursal` → **units −2% (2,751,475→2,697,236)**, 1 fila por (folio,sku).

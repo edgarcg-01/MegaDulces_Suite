@@ -121,7 +121,7 @@ export class PurchaseAdjustmentsService {
       const b = this.base(trx, tenantId, q);
       const [{ count }]: any = await b.clone().count({ count: '*' });
       const rows: any[] = await b
-        .select('doctype', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
+        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
         .orderBy('adjustment_date', 'desc').orderBy('monto', 'desc')
         .limit(pageSize).offset((page - 1) * pageSize);
       return { total: Number(count), page, pageSize, rows: rows.map((r) => ({ ...r, grupo: grupoOf(r.categoria) })) };
@@ -194,7 +194,7 @@ export class PurchaseAdjustmentsService {
         }
       });
       const rows: any[] = await b
-        .select('doctype', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
+        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
         .orderBy('adjustment_date', 'desc').limit(50);
       const out = rows.map((r) => ({
         ...r, grupo: grupoOf(r.categoria),

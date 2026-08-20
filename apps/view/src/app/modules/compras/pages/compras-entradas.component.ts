@@ -20,6 +20,8 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence } from '../entradas.service';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
+import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 
@@ -52,7 +54,7 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -102,7 +104,13 @@ interface AttachFile {
             <tr>
               <td>{{ c.receipt_date | date:'dd/MM/yy' }}</td>
               <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
-              <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
+              <td>
+                @if (c.proveedor_code) {
+                  <button type="button" class="cb-reflink" (click)="inspect.set(refProv(c.proveedor_code))"
+                          [attr.aria-label]="'Ver ficha de ' + (c.proveedor_nombre || c.proveedor_code)">{{ c.proveedor_nombre || c.proveedor_code }}</button>
+                } @else { {{ c.proveedor_nombre || '—' }} }
+                <div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div>
+              </td>
               <td class="mono muted">{{ c.oc_folio || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
               <td class="cb-comp-cell" (click)="openDetail(c)" [title]="c.deposits > 0 ? 'Ver remisión adjunta + detalle por línea' : 'Ver detalle por línea'">
@@ -366,8 +374,15 @@ interface AttachFile {
       } @else if (detailData(); as d) {
         <div class="cb-review"><div class="cb-review-main">
         <div class="cb-cobro">
-          <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ d.entrada.sucursal }}/{{ d.entrada.folio }}</strong></div>
-          <div><span class="cb-lbl">Proveedor</span><strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong><div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
+          <div><span class="cb-lbl">Entrada</span>
+            <button type="button" class="cb-reflink mono strong" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
+                    title="Ficha completa: renglones, ajustes, pagos candidatos y copia CEDIS">{{ d.entrada.sucursal }}/{{ d.entrada.folio }}</button></div>
+          <div><span class="cb-lbl">Proveedor</span>
+            @if (d.entrada.proveedor_code) {
+              <button type="button" class="cb-reflink strong" (click)="inspect.set(refProv(d.entrada.proveedor_code))"
+                      title="Ficha del proveedor: compras, ajustes, pagos y listas del SAT">{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</button>
+            } @else { <strong>{{ d.entrada.proveedor_nombre || '—' }}</strong> }
+            <div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
           <div><span class="cb-lbl">Fecha</span><strong>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</strong></div>
           <div><span class="cb-lbl">OC / Vale</span><strong class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
@@ -375,7 +390,10 @@ interface AttachFile {
         @if (d.cedis_twins?.length) {
           <div class="cb-twin"><i class="pi pi-clone" aria-hidden="true"></i>
             <span>Incluye la copia de <strong>CEDIS</strong> (misma recepción, otra póliza) — no requiere evidencia aparte:</span>
-            @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) { <span class="cb-twin-folio mono">{{ t.sucursal }}/{{ t.folio }}</span> }
+            @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) {
+              <button type="button" class="cb-twin-folio cb-reflink mono" (click)="inspect.set(refEnt(t.sucursal, t.folio))"
+                      [attr.aria-label]="'Abrir la copia CEDIS ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+            }
           </div>
         }
         <p-table [value]="d.lineas" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="44vh"
@@ -393,8 +411,16 @@ interface AttachFile {
           </ng-template>
           <ng-template #body let-l>
             <tr>
-              <td class="muted">{{ l.linea }}</td>
-              <td class="mono">{{ l.sku || '—' }}</td>
+              <td class="muted">
+                <button type="button" class="cb-reflink" (click)="inspect.set(refLin(d.entrada.sucursal, d.entrada.folio, l.linea))"
+                        [attr.aria-label]="'Abrir el renglón ' + l.linea">{{ l.linea }}</button>
+              </td>
+              <td class="mono">
+                @if (l.sku) {
+                  <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.sku))"
+                          [attr.aria-label]="'Abrir el producto ' + l.sku">{{ l.sku }}</button>
+                } @else { <span class="muted">—</span> }
+              </td>
               <td>{{ l.nombre || '—' }}</td>
               <td class="ta-r">{{ l.cantidad | number:'1.0-2' }}</td>
               <td class="muted">{{ l.unidad || '' }}</td>
@@ -427,7 +453,8 @@ interface AttachFile {
               @for (a of explains(); track a.doctype + a.folio) {
                 <li class="cb-explains-item">
                   <p-tag [value]="adjDoctypeLabel(a.doctype)" [severity]="a.doctype === 'XD40' ? 'warn' : 'info'" />
-                  <span class="cb-explains-folio mono">{{ a.folio }}</span>
+                  <button type="button" class="cb-explains-folio cb-reflink mono" (click)="inspect.set(refAdj(a))"
+                          [attr.aria-label]="'Abrir el ajuste ' + a.doctype + ' ' + a.folio">{{ a.folio }}</button>
                   <span class="cb-explains-fecha muted">{{ a.adjustment_date | date:'dd/MM/yy' }}</span>
                   <span class="cb-explains-motivo" [title]="a.motivo || ''">{{ a.motivo || '—' }}</span>
                   <p-tag [value]="adjGrupoLabel(a.grupo)" [severity]="adjGrupoSev(a.grupo)" />
@@ -512,9 +539,18 @@ interface AttachFile {
         <button pButton type="button" (click)="closeImage()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cerrar</span></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Panel de ficha: proveedor, entrada, renglón, producto y ajuste se abren acá y
+         se navegan entre sí sin salir de la pantalla ni apilar diálogos. -->
+    <app-entity-inspector [(ref)]="inspect" />
   `,
   styles: [`
     :host { display: block; }
+    /* Cualquier dato que lleva a una ficha. Discreto en reposo: la tabla ya tiene
+       suficiente color y esto aparece en muchas celdas a la vez. */
+    .cb-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
+    .cb-reflink:hover { color:var(--action); text-decoration:underline; }
+    .cb-reflink:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -864,6 +900,15 @@ export class ComprasEntradasComponent {
   rejectMotivo = '';
 
   // detail dialog (auditoría por línea + remisión adjunta)
+  /** Ficha abierta en el panel lateral (`null` = cerrado). Hace clickeable la vista entera. */
+  readonly inspect = signal<string | null>(null);
+
+  refProv(code: string | null): string { return entityRef('prov', code); }
+  refEnt(sucursal: string, folio: string): string { return entityRef('ent', sucursal, 'XA2001', folio); }
+  refLin(sucursal: string, folio: string, linea: string): string { return entityRef('lin', sucursal, folio, linea); }
+  refSku(sku: string): string { return entityRef('sku', sku); }
+  refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
+
   readonly showDetail = signal(false);
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);

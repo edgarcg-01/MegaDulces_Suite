@@ -55,6 +55,8 @@ import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule } from '@megadulces/commercial';
+// Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
+import { EntityRefModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
 // Fase LM.1 — cobros sobre pedidos (multi-método)
 import { CommercialPaymentsModule } from '@megadulces/commercial';
@@ -161,6 +163,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialReplenishmentModule,
+      EntityRefModule,
       CommercialMovementsModule,
       CommercialLabelsModule,
       CommercialAlertsModule,

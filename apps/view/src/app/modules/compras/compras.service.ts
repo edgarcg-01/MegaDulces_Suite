@@ -562,7 +562,7 @@ export interface AdjustmentsSummary {
   by_categoria: AdjustmentsBucket[];
 }
 export interface AdjustmentRow {
-  doctype: AdjustmentDoctype; folio: string; adjustment_date: string | null;
+  doctype: AdjustmentDoctype; sucursal: string; folio: string; adjustment_date: string | null;
   proveedor_code: string | null; proveedor_nombre: string | null; proveedor_rfc: string | null;
   factura_ref: string | null; entrada_folio: string | null;
   monto: number; iva: number; motivo: string | null; categoria: string | null; grupo: AdjustmentGrupo;
