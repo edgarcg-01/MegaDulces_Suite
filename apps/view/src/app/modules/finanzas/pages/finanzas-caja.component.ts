@@ -118,7 +118,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <div class="cg-two">
             <div class="cg-bd cg-bd-wide">
               <span class="cg-bd-title">Por cuenta (ingreso / gasto) — top 40</span>
-              <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm surf-table" [rowHover]="true" [scrollable]="true" scrollHeight="22rem" [paginator]="d.por_cuenta.length>40" [rows]="40">
+              <p-table [value]="d.por_cuenta" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="46vh" [paginator]="d.por_cuenta.length>40" [rows]="40">
                 <ng-template #header><tr><th>Cuenta</th><th class="ta-r">Ingreso</th><th class="ta-r">Gasto</th><th class="ta-c cg-w-d">#</th></tr></ng-template>
                 <ng-template #body let-r>
                   <tr>
@@ -131,7 +131,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               </p-table>
             </div>
           </div>
-          <p-table [value]="d.movimientos" dataKey="uid" [expandedRowKeys]="expanded()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.movimientos.length>100" [rows]="100">
+          <p-table [value]="d.movimientos" dataKey="uid" [expandedRowKeys]="expanded()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.movimientos.length>100" [rows]="100">
             <ng-template #header><tr><th class="cg-w-x"></th><th class="cg-w-date">Fecha</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></ng-template>
             <ng-template #body let-r>
               <tr class="cg-row-click" (click)="toggleRow(r)" [class.cg-row-open]="isExp(r)">
@@ -212,28 +212,28 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 <tbody>
                   <tr>
                     <th scope="row"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingresos <span class="muted">(entra)</span></th>
-                    <td class="ta-r num strong">{{ money(d.totals.mdb_ingreso) }}</td>
+                    <td class="ta-r num">{{ money(d.totals.mdb_ingreso) }}</td>
                     <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
                     <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
-                    <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
+                    <td class="ta-r num" [class.bad]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
                     <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_ingreso)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_ingreso) : '—' }}</td>
                     <td class="ta-c">
                       @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
-                      @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
-                      @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — revisa el detalle por día"></i> }
+                      @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                      @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
                     </td>
                   </tr>
                   <tr>
                     <th scope="row"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gastos <span class="muted">(sale)</span></th>
-                    <td class="ta-r num strong">{{ money(d.totals.mdb_gasto) }}</td>
+                    <td class="ta-r num">{{ money(d.totals.mdb_gasto) }}</td>
                     <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
                     <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
-                    <td class="ta-r num" [class.warn]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
+                    <td class="ta-r num" [class.bad]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
                     <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_gasto)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_gasto) : '—' }}</td>
                     <td class="ta-c">
                       @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
-                      @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
-                      @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — revisa el detalle por día"></i> }
+                      @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                      @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
                     </td>
                   </tr>
                 </tbody>
@@ -247,7 +247,8 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <!-- Nivel 2 — por día: clic en una fila abre qué movimientos no casan -->
           <div class="card-premium card-flat tw-tablewrap">
             <h3 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h3>
-            <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.por_dia.length>60" [rows]="60">
+            <div class="tw-wrap">
+            <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.por_dia.length>60" [rows]="60">
               <ng-template #header>
                 <tr>
                   <th class="cg-w-x" rowspan="2"></th>
@@ -257,26 +258,26 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <th class="cg-w-e ta-c" rowspan="2">Estado</th>
                 </tr>
                 <tr>
-                  <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub tw-kep">Kepler</th><th class="ta-r cg-sub">Δ C–W</th>
-                  <th class="ta-r cg-sub">Control</th><th class="ta-r cg-sub">Workbook</th><th class="ta-r cg-sub tw-kep">Kepler</th><th class="ta-r cg-sub">Δ C–W</th>
+                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th>
+                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr class="tw-clickable" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
                   <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
                   <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span><i class="pi pi-search-plus tw-drill-ico"></i></td>
-                  <td class="ta-r num strong">{{ money(r.mdb_ingreso) }}</td>
+                  <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
                   <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
                   <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                  <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
-                  <td class="ta-r num strong">{{ money(r.mdb_gasto) }}</td>
+                  <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
+                  <td class="ta-r num">{{ money(r.mdb_gasto) }}</td>
                   <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
                   <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                  <td class="ta-r num" [class.warn]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
+                  <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
                   <td class="cg-w-e ta-c">
                     @if (r.wb_vacio) { <span class="tw-tag muted-tag">sin workbook</span> }
-                    @else if (r.cuadra) { <i class="pi pi-check-circle cg-ok-i" title="Cuadra"></i> }
-                    @else { <i class="pi pi-exclamation-triangle cg-bad-i" title="No cuadra — abre el día"></i> }
+                    @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                    @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — abre el día"></i> }
                   </td>
                 </tr>
               </ng-template>
@@ -306,7 +307,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                                 @if (s.data.caja_only.length) {
                                   <table class="tw-tbl"><tbody>
                                     @for (m of s.data.caja_only; track m.id) {
-                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
                                     }
                                   </tbody></table>
                                 } @else { <p class="cg-drill-none muted">— nada —</p> }
@@ -316,7 +317,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                                 @if (s.data.other_only.length) {
                                   <table class="tw-tbl"><tbody>
                                     @for (m of s.data.other_only; track m.id) {
-                                      <tr><td class="ta-r num strong">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
                                     }
                                   </tbody></table>
                                 } @else { <p class="cg-drill-none muted">— nada —</p> }
@@ -331,6 +332,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="11"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
             </p-table>
+            </div>
           </div>
         }
       }
@@ -353,7 +355,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <p class="cg-note">El <b>depositado</b> por forma de pago viene de las columnas de captura; el <b>ledger de depósitos</b> (pestaña Depósitos) tiene {{ money(d.depositos.total_real) }} reales ({{ d.depositos.n }}). Que las tres vistas —venta, columnas y ledger— no coincidan es <b>la señal</b>, no un error.</p>
           </div>
           @if (suc(); as rows) {
-            <p-table [value]="rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
+            <p-table [value]="rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
               <ng-template #header><tr><th>Sucursal</th><th>Empresa</th><th class="ta-c cg-w-d">Días</th><th class="ta-r">Venta</th><th class="ta-r">Depositado</th><th class="ta-r">Descuadre</th><th class="ta-c cg-w-p">% dep</th><th class="cg-w-u">Última</th></tr></ng-template>
               <ng-template #body let-r>
                 <tr>
@@ -386,7 +388,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <span class="cg-bd-title">Por banco (real)</span>
             @for (b of d.by_bank; track b.banco) { <div class="cg-bd-row"><span class="cg-bd-k">{{ b.banco || '—' }}</span><span class="cg-bd-v">{{ money(b.total_real) }}</span><span class="cg-bd-n">{{ b.n }}</span></div> }
           </div>
-          <p-table [value]="d.rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.rows.length>200" [rows]="200">
+          <p-table [value]="d.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.rows.length>200" [rows]="200">
             <ng-template #header><tr><th class="cg-w-date">Depósito</th><th class="cg-w-date">Real</th><th>Banco</th><th class="cg-w-suc">Suc</th><th class="cg-w-met">Método</th><th class="ta-r">Depósito</th><th class="ta-r">Real</th><th class="ta-r cg-w-com">Comisión</th></tr></ng-template>
             <ng-template #body let-r>
               <tr>
@@ -417,7 +419,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <span class="cg-bd-title">Por tipo</span>
             @for (t of d.by_tipo; track t.tipo) { <div class="cg-bd-row"><span class="cg-bd-k">{{ t.tipo || '—' }}</span><span class="cg-bd-v">{{ money(t.monto) }}</span><span class="cg-bd-n">{{ t.n }}</span></div> }
           </div>
-          <p-table [value]="d.rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.rows.length>200" [rows]="200">
+          <p-table [value]="d.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.rows.length>200" [rows]="200">
             <ng-template #header><tr><th class="cg-w-date">Fecha</th><th class="cg-w-fol">Folio</th><th>Tipo</th><th class="cg-w-suc">Caja</th><th class="ta-r">Efectivo</th><th class="ta-r">Cheques</th><th class="ta-r">Tarjeta</th><th class="ta-r">Total</th><th class="cg-w-e">Estado</th></tr></ng-template>
             <ng-template #body let-r>
               <tr [class.cg-cancel]="r.cancelado">
@@ -442,22 +444,22 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         @if (loading() && !conc()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (conc(); as d) {
           <app-metric-strip [items]="concKpis(d)" ariaLabel="Conciliación 3 vías caja/workbook/kepler" />
-          <p-table [value]="d.por_banco" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
+          <p-table [value]="d.por_banco" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
             <ng-template #header>
               <tr>
                 <th rowspan="2">Banco</th>
-                <th class="ta-r" colspan="2">Caja <span class="cg-sub">(operativo)</span></th>
-                <th class="ta-r" colspan="2">Workbook</th>
-                <th class="ta-r" colspan="2">Kepler</th>
-                <th class="ta-r" colspan="2">ContPAQi <span class="cg-sub">(fiscal)</span></th>
+                <th class="ta-c tw-grp" colspan="2" title="Caja operativa">Caja</th>
+                <th class="ta-c tw-grp" colspan="2">Workbook</th>
+                <th class="ta-c tw-grp tw-kep" colspan="2">Kepler</th>
+                <th class="ta-c tw-grp" colspan="2" title="Libros fiscales">ContPAQi</th>
                 <th class="ta-r" rowspan="2">Δ caja–wb</th>
-                <th class="cg-w-e" rowspan="2">Cuadre</th>
+                <th class="cg-w-e ta-c" rowspan="2">Cuadre</th>
               </tr>
               <tr>
-                <th class="ta-r cg-sub">Depositado</th><th class="ta-c cg-w-d cg-sub">#</th>
-                <th class="ta-r cg-sub">Ingresos</th><th class="ta-c cg-w-d cg-sub">#</th>
-                <th class="ta-r cg-sub">Entradas</th><th class="ta-c cg-w-d cg-sub">#</th>
-                <th class="ta-r cg-sub">Libros</th><th class="ta-c cg-w-d cg-sub">#</th>
+                <th class="ta-r">Depositado</th><th class="ta-c cg-w-d">#</th>
+                <th class="ta-r">Ingresos</th><th class="ta-c cg-w-d">#</th>
+                <th class="ta-r tw-kep">Entradas</th><th class="ta-c cg-w-d tw-kep">#</th>
+                <th class="ta-r">Libros</th><th class="ta-c cg-w-d">#</th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
@@ -482,7 +484,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <app-metric-strip [items]="cdetKpis(cd)" ariaLabel="Conciliación de ingresos por movimiento" />
             @if (cd.caja_only.length) {
               <p class="cg-note" style="margin:.4rem 0 .3rem"><b>Depósitos de Caja sin ingreso en el banco</b> (posible fuga o rezago) — lo accionable:</p>
-              <p-table [value]="cd.caja_only" styleClass="p-datatable-sm surf-table" [rowHover]="true" [scrollable]="true" scrollHeight="18rem" [paginator]="cd.caja_only.length>100" [rows]="100">
+              <p-table [value]="cd.caja_only" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh" [paginator]="cd.caja_only.length>100" [rows]="100">
                 <ng-template #header><tr><th class="cg-w-date">Fecha</th><th>Banco</th><th class="cg-w-suc">Suc</th><th class="ta-r">Monto</th></tr></ng-template>
                 <ng-template #body let-r>
                   <tr>
@@ -503,7 +505,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         @if (loading() && !xw()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
         @else if (xw(); as rows) {
           <p class="cg-note" style="margin:.2rem 0 .8rem">Mapea cada <b>cuenta interna de Caja</b> a su <b>cuenta de banco real</b> (account_label, la llave que comparten Bancos y Kepler). La sugerencia se deriva <b>vía Kepler</b> (match de depósitos por monto+fecha, mismo banco) — es dispersa, por eso se <b>confirma a mano</b>. Confirmar habilita la conciliación exacta por cuenta (en vez de por nombre de banco).</p>
-          <p-table [value]="rows" styleClass="p-datatable-sm surf-table surf-table--sticky" [rowHover]="true" [scrollable]="true" scrollHeight="flex">
+          <p-table [value]="rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
             <ng-template #header><tr><th>Cuenta Caja</th><th>Banco</th><th class="ta-r">Depósitos</th><th class="ta-c cg-w-d">#</th><th>Sugerencia (Kepler)</th><th class="cg-w-sel">Cuenta banco</th><th class="cg-w-e"></th></tr></ng-template>
             <ng-template #body let-r>
               <tr>
@@ -591,15 +593,19 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
     .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
-    .cg-sub { font-weight:500 !important; font-size:.68rem !important; color:var(--text-faint) !important; }
     .cg-kep { color:var(--text-faint); font-style:italic; }
     .cg-side { margin-bottom:.6rem; }
     .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
     .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
-    .cg-ok-i { color:var(--ok-fg, #16a34a); }
-    .cg-bad-i { color:var(--bad-fg, #dc2626); }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
-    .strong { font-weight:700; } .muted { color:var(--text-faint); } .warn { color:var(--warn-fg); font-weight:700; }
+    .strong { font-weight:700; }
+    /* Alineado con Bancos (BANCOS_STYLES): antes era --text-faint y el mismo organismo se
+       veia mas apagado en Caja que en Bancos. */
+    .muted { color:var(--text-muted); }
+    .warn { color:var(--warn-fg); font-weight:700; }
+    /* Semanticos de celda, mismos que Bancos: color sin peso extra. */
+    .ok { color:var(--ok-fg); }
+    .bad { color:var(--bad-fg); }
     .cg-emp { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-cancel { opacity:.5; text-decoration:line-through; }
     .cg-w-d { width:3.5rem; } .cg-w-p { width:4rem; } .cg-w-u { width:5rem; } .cg-w-date { width:6rem; } .cg-w-suc { width:3.4rem; }
@@ -611,8 +617,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-note { margin-top:.6rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     .cg-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .cg-errbox .pi { color:var(--bad-fg); } .cg-errbox-txt { flex:1; font-size:.84rem; }
-    .cg-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2rem 1rem; text-align:center; color:var(--text-muted); }
-    .cg-empty .pi { font-size:1.6rem; color:var(--text-faint); }
+    /* Mismos valores que .surf-empty de Bancos, para que el estado vacio se lea igual. */
+    .cg-empty { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); padding:var(--sp-8); text-align:center; color:var(--text-muted); }
+    .cg-empty .pi { font-size:1.5rem; }
   `],
 })
 export class FinanzasCajaComponent implements OnInit {
