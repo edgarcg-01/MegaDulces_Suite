@@ -31,6 +31,8 @@ interface CajaCuadre {
 interface CajaWb {
   period: { from: string; to: string };
   totals: { mdb_ingreso: number; mdb_gasto: number; wb_ingreso: number; wb_gasto: number; kp_ingreso: number; kp_gasto: number; delta_ingreso: number; delta_gasto: number; delta_kep_ingreso: number; delta_kep_gasto: number; dias: number; dias_wb: number; dias_descuadre: number; wb_disponible: boolean; kep_disponible: boolean };
+  /** ±$ por DÍA (captura exacta) y ±$ de TOTALES (absorbe el redondeo de ~30 días). */
+  eps_total: number;
   por_dia: { fecha: string; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; wb_ingreso: number; wb_gasto: number; wb_n: number; kp_ingreso: number; kp_gasto: number; kp_n: number; delta_ingreso: number; delta_gasto: number; delta_kep_ingreso: number; delta_kep_gasto: number; wb_vacio: boolean; cuadra: boolean }[];
   eps: number;
 }
@@ -212,9 +214,11 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </div>
           }
 
-          <!-- Nivel 1 — control-total: las 3 fuentes del periodo -->
+          <!-- Nivel 1 — control-total: las 3 fuentes del periodo.
+               Las dos filas salen de ctRows(d) y no escritas a mano: duplicadas eran 20
+               líneas donde cada arreglo había que hacerlo dos veces. Mismo patrón que Bancos. -->
           <div class="card-premium card-flat tw-card">
-            <h3 class="tw-card-title">Control-total <span class="muted">— las 3 fuentes en {{ month() }} (tolerancia ±{{ money(d.eps) }}/día)</span></h3>
+            <h3 class="tw-card-title">Control-total <span class="muted">— las 3 fuentes en {{ month() }} (tolerancia ±{{ money(d.eps_total) }})</span></h3>
             <div class="tw-wrap">
               <table class="tw-tbl">
                 <thead>
@@ -225,43 +229,35 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                     <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler</th>
                     <th scope="col" class="ta-r" title="Control − Workbook">Δ C–W</th>
                     <th scope="col" class="ta-r" title="Control − Kepler">Δ C–K</th>
+                    <th scope="col" class="ta-r" title="Workbook − Kepler">Δ W–K</th>
                     <th scope="col" class="ta-c">Estado</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <th scope="row"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingresos <span class="muted">(entra)</span></th>
-                    <td class="ta-r num">{{ money(d.totals.mdb_ingreso) }}</td>
-                    <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_ingreso) : '—' }}</td>
-                    <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_ingreso) : '—' }}</td>
-                    <td class="ta-r num" [class.bad]="d.totals.wb_disponible && abs(d.totals.delta_ingreso)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_ingreso) : '—' }}</td>
-                    <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_ingreso)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_ingreso) : '—' }}</td>
-                    <td class="ta-c">
-                      @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
-                      @else if (abs(d.totals.delta_ingreso)<=1) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
-                      @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gastos <span class="muted">(sale)</span></th>
-                    <td class="ta-r num">{{ money(d.totals.mdb_gasto) }}</td>
-                    <td class="ta-r num">{{ d.totals.wb_disponible ? money(d.totals.wb_gasto) : '—' }}</td>
-                    <td class="ta-r num tw-kep">{{ d.totals.kep_disponible ? money(d.totals.kp_gasto) : '—' }}</td>
-                    <td class="ta-r num" [class.bad]="d.totals.wb_disponible && abs(d.totals.delta_gasto)>1">{{ d.totals.wb_disponible ? money(d.totals.delta_gasto) : '—' }}</td>
-                    <td class="ta-r num tw-kep" [class.warn]="d.totals.kep_disponible && abs(d.totals.delta_kep_gasto)>1">{{ d.totals.kep_disponible ? money(d.totals.delta_kep_gasto) : '—' }}</td>
-                    <td class="ta-c">
-                      @if (!d.totals.wb_disponible) { <span class="tw-tag muted-tag">s/manual</span> }
-                      @else if (abs(d.totals.delta_gasto)<=1) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
-                      @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
-                    </td>
-                  </tr>
+                  @for (row of ctRows(d); track row.label) {
+                    <tr>
+                      <th scope="row"><i class="pi" [class.pi-arrow-down-left]="row.dir==='in'" [class.tw-in-ico]="row.dir==='in'" [class.pi-arrow-up-right]="row.dir==='out'" [class.tw-out-ico]="row.dir==='out'" aria-hidden="true"></i> {{ row.label }} <span class="muted">({{ row.dir==='in' ? 'entra' : 'sale' }})</span></th>
+                      <td class="ta-r num">{{ money(row.control) }}</td>
+                      <td class="ta-r num">{{ row.wb_ok ? money(row.workbook) : '—' }}</td>
+                      <td class="ta-r num">{{ row.kep_ok ? money(row.kepler) : '—' }}</td>
+                      <td class="ta-r num" [class.bad]="row.wb_ok && !cuadT(row.d_cw, d)" [class.ok]="row.wb_ok && cuadT(row.d_cw, d)">{{ row.wb_ok ? money(row.d_cw) : '—' }}</td>
+                      <td class="ta-r num" [class.bad]="row.kep_ok && !cuadT(row.d_ck, d)" [class.ok]="row.kep_ok && cuadT(row.d_ck, d)">{{ row.kep_ok ? money(row.d_ck) : '—' }}</td>
+                      <td class="ta-r num" [class.bad]="row.wb_ok && row.kep_ok && !cuadT(row.d_wk, d)" [class.ok]="row.wb_ok && row.kep_ok && cuadT(row.d_wk, d)">{{ row.wb_ok && row.kep_ok ? money(row.d_wk) : '—' }}</td>
+                      <td class="ta-c">
+                        @if (!row.wb_ok && !row.kep_ok) { <span class="tw-tag muted-tag">sin comparar</span> }
+                        @else if (row.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra contra las fuentes disponibles"></i> }
+                        @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
+                      </td>
+                    </tr>
+                  }
                 </tbody>
               </table>
             </div>
             <p class="tw-note muted"><i class="pi pi-info-circle"></i>
-              <b>Control</b> = caja viva de Comisionistas (Doctos), lo que de verdad se movió. <b>Workbook</b> = copia manual del Excel; el <b>Δ C–W</b> es la comparación exacta y caza errores de captura. <b>Kepler</b> = CAJA GENERAL del ERP, más grueso (registra lo capturado, no cada movimiento) → su diferencia es informativa.@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }
+              <b>Control</b> = caja viva de Comisionistas (Doctos), lo que de verdad se movió. <b>Workbook</b> = copia manual del Excel; el <b>Δ C–W</b> es la comparación exacta y caza errores de captura. <b>Kepler</b> = CAJA GENERAL del ERP, más grueso (registra lo capturado, no cada movimiento) → su diferencia es informativa. Semáforo ±{{ money(d.eps_total) }} sobre el total del mes; el cuadre día por día usa ±{{ money(d.eps) }}.@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> }
             </p>
           </div>
+
 
           <!-- Nivel 2 — por día: clic en una fila abre qué movimientos no casan -->
           <div class="card-premium card-flat tw-tablewrap">
@@ -825,6 +821,34 @@ export class FinanzasCajaComponent implements OnInit {
   readonly money = money;
   readonly dmy = dmy;
   abs(n: number): number { return Math.abs(n || 0); }
+
+  /**
+   * Tolerancia del CONTROL-TOTAL: la manda el servidor (`eps_total`). Antes el título imprimía
+   * `eps` (la del día, ±$1) mientras las celdas comparaban contra un 1 hardcodeado: un mes
+   * entero salía "no cuadra" por el redondeo acumulado de 30 días aunque cada día cuadrara.
+   */
+  cuadT(delta: number, d: CajaWb): boolean { return Math.abs(delta || 0) < (d.eps_total ?? 1000); }
+
+  /**
+   * Las dos filas del control-total, armadas acá y no duplicadas en el template.
+   *
+   * `cuadra` mira TODAS las fuentes disponibles, no sólo el Workbook: antes una fila con
+   * Kepler desviado salía con palomita verde porque el semáforo era de 2 vías en una tabla
+   * de 3 — el mismo defecto que ya se corrigió en el "Por cuenta" de Bancos.
+   */
+  ctRows(d: CajaWb) {
+    const t = d.totals, wb = t.wb_disponible, kep = t.kep_disponible;
+    const mk = (label: string, dir: 'in' | 'out', control: number, workbook: number, kepler: number,
+                d_cw: number, d_ck: number) => ({
+      label, dir, control, workbook, kepler, wb_ok: wb, kep_ok: kep,
+      d_cw, d_ck, d_wk: Math.round((workbook - kepler) * 100) / 100,
+      cuadra: (!wb || this.cuadT(d_cw, d)) && (!kep || this.cuadT(d_ck, d)),
+    });
+    return [
+      mk('Ingresos', 'in', t.mdb_ingreso, t.wb_ingreso, t.kp_ingreso, t.delta_ingreso, t.delta_kep_ingreso),
+      mk('Gastos', 'out', t.mdb_gasto, t.wb_gasto, t.kp_gasto, t.delta_gasto, t.delta_kep_gasto),
+    ];
+  }
 
   /**
    * Lectura del cuadre en una línea. Mismo rol que `verdict()` del Cuadre de Bancos: la

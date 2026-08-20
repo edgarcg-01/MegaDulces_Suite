@@ -290,7 +290,12 @@ export class CajaGeneralService {
           wb_disponible: (wb as any[]).length > 0,
           kep_disponible: (kp as any[]).length > 0,
         },
-        por_dia, eps: EPS,
+        por_dia,
+        // Dos tolerancias distintas y nombradas: el DÍA se compara al peso (una captura
+        // manual o cuadra o no), pero el TOTAL DEL MES acumula el redondeo de ~30 días y con
+        // ±$1 marcaría descuadre aunque cada día cuadre. `CUADRE_EPS` es la de totales, la
+        // misma que usa el Cuadre de Bancos.
+        eps: EPS, eps_total: CUADRE_EPS,
       };
     });
   }
