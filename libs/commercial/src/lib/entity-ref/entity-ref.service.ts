@@ -64,6 +64,26 @@ export class EntityRefService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  /**
+   * ¿Está el espejo de OC/vales en ESTA base?
+   *
+   * La migración que lo crea puede no haber corrido todavía en un ambiente (prod va por
+   * delante del código en un deploy, y la cola de knex se traba con facilidad). Sin esta
+   * comprobación, la consulta tira 42P01 y se lleva puesta la ficha ENTERA de la entrada
+   * —no solo el enlace a la OC—, que es un 500 en la cara del usuario por una tabla que
+   * simplemente todavía no existe. Con esto, la ficha abre igual y lo declara en `notes`.
+   *
+   * Se cachea solo el SÍ: si todavía no está, se vuelve a preguntar (`to_regclass` es
+   * trivial) para que aparezca sola en cuanto la migración corra, sin reiniciar la api.
+   */
+  private purchaseDocsReady = false;
+  private async hasPurchaseDocs(trx: any): Promise<boolean> {
+    if (this.purchaseDocsReady) return true;
+    const [r]: any[] = await trx.select(trx.raw(`to_regclass('analytics.erp_purchase_docs') IS NOT NULL AS ok`));
+    this.purchaseDocsReady = r?.ok === true;
+    return this.purchaseDocsReady;
+  }
+
   private can(kind: EntityKind, caller: RefCaller): boolean {
     if (caller.isAdmin) return true;
     return KIND_PERMS[kind].some((p) => caller.perms?.[p] === true);
@@ -140,10 +160,14 @@ export class EntityRefService {
     // ER.7 — la OC y el vale ya son documentos, no texto. Se resuelven contra el espejo
     // (misma sucursal) y solo se ofrece el enlace si la fila EXISTE: un enlace muerto es
     // peor que ningún enlace.
-    for (const [folio, doctype, group] of [
+    const pdocsReady = await this.hasPurchaseDocs(trx);
+    if (!pdocsReady && (e.oc_folio || e.vale_folio)) {
+      notes.push('El espejo de órdenes de compra y vales todavía no está en esta base (falta correr su importer/migración), así que la OC y el vale se muestran como texto y no se pueden abrir.');
+    }
+    for (const [folio, doctype, group] of pdocsReady ? [
       [e.oc_folio, 'XA3501', 'Orden de compra'],
       [e.vale_folio, 'XA3701', 'Vale de entrada'],
-    ] as [string | null, string, string][]) {
+    ] as [string | null, string, string][] : []) {
       if (!folio) continue;
       const [d]: any[] = await trx('analytics.erp_purchase_docs')
         .select('folio', 'monto', trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`))
@@ -490,6 +514,9 @@ export class EntityRefService {
 
   // -- OC / Vale (analytics.erp_purchase_docs) -------------------------------
   private async purchaseDoc(trx: any, tenantId: string, doctype: string, sucursal: string, folio: string): Promise<RefResult> {
+    if (!(await this.hasPurchaseDocs(trx))) {
+      throw new NotFoundException('El espejo de órdenes de compra y vales todavía no existe en esta base — falta correr su migración e importer.');
+    }
     const [d]: any[] = await trx('analytics.erp_purchase_docs')
       .select('doctype', 'sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
         'concepto', 'condicion_pago', 'referencia', 'monto', 'ref_doctype', 'ref_folio', 'source_branch',
@@ -633,7 +660,7 @@ export class EntityRefService {
     }
 
     // Lo que se PIDIÓ de este producto (OC/vale), no solo lo que llegó.
-    const pedidos: any[] = await trx('analytics.erp_purchase_doc_lines as pl')
+    const pedidos: any[] = !(await this.hasPurchaseDocs(trx)) ? [] : await trx('analytics.erp_purchase_doc_lines as pl')
       .join('analytics.erp_purchase_docs as pd', function (this: any) {
         this.on('pd.tenant_id', 'pl.tenant_id').andOn('pd.doctype', 'pl.doctype')
           .andOn('pd.sucursal', 'pl.sucursal').andOn('pd.folio', 'pl.folio');
