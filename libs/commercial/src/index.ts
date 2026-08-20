@@ -48,3 +48,5 @@ export * from './lib/commercial-push/commercial-push.service';
 export * from './lib/commercial-orders/commercial-orders.service';
 export * from './lib/commercial-customers/commercial-customers.service';
 export * from './lib/commercial-alerts/alerts.service';
+export * from './lib/entity-ref/entity-ref.module';
+export * from './lib/entity-ref/entity-ref.types';

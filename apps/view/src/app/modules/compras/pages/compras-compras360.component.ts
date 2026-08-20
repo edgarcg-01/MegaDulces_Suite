@@ -15,6 +15,8 @@ import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
+import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeLazyLoad, type LazyTableEvent, DATE_PRESET_OPTIONS, datePresetRange, money, moneyShort } from '../../../shared/util';
 import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt, ReceiptEvidenceDeposit, ReceiptEvidenceFile } from '../compras.service';
@@ -33,6 +35,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, TagModule, DatePickerModule, SelectModule, InputNumberModule, DialogModule, MetricStripComponent, ContextHelpComponent,
+    EntityInspectorComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -126,7 +129,12 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <tr class="c3-row" [class.has-adj]="r.ajuste_operativo !== 0" (click)="openDetail(r)">
             <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
             <td [title]="r.sucursal">{{ sucNames().get(r.sucursal) || r.sucursal }}</td>
-            <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
+            <td class="c3-prov" [title]="r.proveedor_nombre">
+              @if (r.proveedor_code) {
+                <button type="button" class="c3-provlink" (click)="$event.stopPropagation(); inspect.set(refProv(r.proveedor_code))"
+                        [attr.aria-label]="'Ver ficha de ' + (r.proveedor_nombre || r.proveedor_code)">{{ r.proveedor_nombre || r.proveedor_code }}</button>
+              } @else { <span class="muted">—</span> }
+            </td>
             <td class="c3-mono">
               @if (r.oc_folio) {
                 <button type="button" class="c3-oclink" (click)="$event.stopPropagation(); filterByOc(r.oc_folio)" [title]="'Ver todas las recepciones de la OC ' + r.oc_folio">{{ r.oc_folio }}</button>
@@ -185,12 +193,18 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         <div class="c3-review"><div class="c3-review-main">
         <div class="c3-dt">
           <div class="c3-dt-grid">
-            <div><span class="c3-dt-l">Proveedor</span><span class="c3-dt-v">{{ r.proveedor_nombre || r.proveedor_code }}</span></div>
+            <div><span class="c3-dt-l">Proveedor</span><span class="c3-dt-v">
+              @if (r.proveedor_code) { <button type="button" class="c3-linkbtn" (click)="inspect.set(refProv(r.proveedor_code))">{{ r.proveedor_nombre || r.proveedor_code }}</button> }
+              @else { {{ r.proveedor_nombre || '—' }} }
+            </span></div>
             <div><span class="c3-dt-l">OC</span><span class="c3-dt-v c3-mono">{{ r.oc_folio || '—' }}</span></div>
             <div><span class="c3-dt-l">Vale</span><span class="c3-dt-v c3-mono">{{ r.vale_folio || '—' }}</span></div>
             <div><span class="c3-dt-l">Factura</span><span class="c3-dt-v c3-num">{{ money(r.factura) }}</span></div>
             <div><span class="c3-dt-l">Ajuste (exacto)</span><span class="c3-dt-v c3-num">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</span></div>
             <div><span class="c3-dt-l">Neto</span><span class="c3-dt-v c3-num c3-strong">{{ money(r.neto) }}</span></div>
+            <div><span class="c3-dt-l">Ficha</span><span class="c3-dt-v">
+              <button type="button" class="c3-linkbtn" (click)="inspect.set(refEnt(r))" title="Renglones, pagos candidatos y copia CEDIS de esta recepción">Abrir ficha de la entrada</button>
+            </span></div>
           </div>
 
           <h4 class="c3-dt-h">Póliza contable (Kepler)</h4>
@@ -241,7 +255,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
               <ng-template #body let-a>
                 <tr>
                   <td class="c3-mono">{{ a.adjustment_date ? a.adjustment_date.slice(0,10) : '—' }}</td>
-                  <td class="c3-mono">{{ a.doctype }}</td>
+                  <td class="c3-mono">
+                    <button type="button" class="c3-foliolink" (click)="inspect.set(refAdj(a))"
+                            [attr.aria-label]="'Ver el ajuste ' + a.doctype + ' ' + a.folio">{{ a.doctype }}</button>
+                  </td>
                   <td [title]="a.motivo">{{ a.categoria || a.motivo || '—' }}</td>
                   <td class="ta-r c3-num">{{ money(a.monto) }}</td>
                   <td><p-tag [value]="a.match" [severity]="a.match === 'exacto' ? 'success' : 'warn'" /></td>
@@ -315,6 +332,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         </div><!-- /.c3-review -->
       }
     </p-dialog>
+
+    <!-- Panel de ficha: cualquier celda con ref lo abre; adentro se navega la cadena
+         (proveedor -> recepción -> renglón -> producto) sin salir de la pantalla. -->
+    <app-entity-inspector [(ref)]="inspect" />
   `,
   styles: [`
     :host { display:block; }
@@ -343,6 +364,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .muted { color:var(--text-faint); }
     /* OC clickable + claridad de ajuste */
     .c3-oclink { border:0; background:transparent; color:var(--action); cursor:pointer; padding:0; font:inherit; font-family:var(--font-mono); }
+    .c3-provlink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left;
+      max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .c3-provlink:hover { color:var(--action); text-decoration:underline; }
+    .c3-provlink:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .c3-oclink:hover { text-decoration:underline; }
     /* El folio abre el detalle: es el objetivo de teclado de la fila. */
     .c3-foliolink { border:0; background:transparent; color:var(--text-muted); cursor:pointer; padding:0; font:inherit; font-family:var(--font-mono); }
@@ -482,6 +507,13 @@ export class ComprasCompras360Component implements OnInit {
   /** Igual que la póliza: sin esto, un 500 se leía como "sin comprobante adjunto". */
   readonly evidenceErr = signal(false);
   readonly selectedDoc = signal<{ url: string; safeUrl: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
+
+  /** Ficha abierta en el panel lateral (`null` = cerrado). Es lo que hace clickeable la vista. */
+  readonly inspect = signal<string | null>(null);
+
+  refProv(code: string | null): string { return entityRef('prov', code); }
+  refEnt(r: Compras360Row): string { return entityRef('ent', r.sucursal, 'XA2001', r.folio); }
+  refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
 
   /** Orden pedido por el usuario. Viaja al backend: la tabla es server-paginada y ordenar en
    *  el cliente ordenaría sólo los 50 registros visibles, que es peor que no ordenar. */

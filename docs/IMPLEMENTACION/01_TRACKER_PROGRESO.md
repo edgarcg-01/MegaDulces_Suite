@@ -752,6 +752,29 @@ Builds api verde con exit code real; typecheck limpio. **Sin migraciones.** Los 
 
 ---
 
+## ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20
+
+Ámbito pedido por Edgar: `/compras/entradas` y `/compras/compras-360`.
+
+| Item | Estado | Detalle |
+|---|---|---|
+| ER.0 Esquema de refs | ✅ | `entity-ref.types.ts`: `makeRef`/`parseRef`, 6 tipos, partes URL-encodeadas. `doc_prefix` va en el ref de `ent` y `pay` aunque hoy entradas sean 100% XA2001 — **verificado: 196 pagos comparten (sucursal, folio) entre doctypes**. |
+| ER.1 Resolvedor | ✅ | `EntityRefService` + `GET /entity-ref/:ref` (ruta neutral). Fechas con `to_char` (las columnas `date` volvían como `Date` y se corrían un día en MX). `analytics.*` sin RLS → tenant explícito. |
+| ER.2 Permisos por entidad | ✅ | `@RequireAnyPermission` de entrada + chequeo **por tipo** adentro: `pay`→`FINANCE_PAYMENTS_VER`, `adj`→`COMPRAS_DESCUENTOS_VER`. Las relaciones que el rol no puede abrir **se filtran** y se avisa en `notes` — nunca un enlace que revienta en 403. |
+| ER.3 Panel inspector | ✅ | `<app-entity-inspector>` sobre el side-peek canónico: pila de navegación + `?ref=` en la URL. z-index 1200 para abrirse desde un diálogo sin apilar modales (seguro acá: adentro no hay overlays de PrimeNG). |
+| ER.4 Cableado Compras 360 | ✅ | Proveedor (tabla + detalle), tipo de ajuste, "Abrir ficha de la entrada". |
+| ER.5 Cableado Entradas | ✅ | Proveedor (lista + detalle), folio de entrada, cada renglón, cada SKU, gemelos CEDIS, folio de ajuste. |
+| ER.6 Smoke | ✅ | `test-newdb-entity-ref.js` 16/16, agregado a la regression. Codec real vía ts-node (`skipProject` + `moduleResolution:'node'` + `ignoreDeprecations`, si no el tsconfig del monorepo tira TS5011/TS5107). |
+| ER.7 OC con ficha | ⬜ | Bloqueado por data: **no existe `analytics.erp_purchase_orders`**. Requiere importer de X-A-35. Hoy el clic en la OC filtra la lista y el panel lo declara. |
+| ER.8 Liga pago→entrada | ⬜ | RE.8. Sin liga estructural en Kepler; hoy "pagos candidatos" ±30 días marcados como estimados. |
+| ER.9 Crosswalk proveedor | ⬜ | `catalog.suppliers.code` (inventario) vs `proveedor_code` (contabilidad): **0 de 328 empatan**. Sin esto la ficha no puede mostrar lead time ni mínimo de pedido. |
+
+**Sin migraciones.** Builds api + view verdes. **Verificación visual pendiente** (no automatizable desde CLI).
+
+Decisión abierta que quedó tomada por defecto: el resolvedor vive en `libs/commercial` pero con **ruta neutral** `/entity-ref` y sin dependencias de compras — mover el archivo a `shared` cuando Finanzas lo consuma es un `git mv`, no un rediseño.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
