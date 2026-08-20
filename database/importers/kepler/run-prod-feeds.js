@@ -168,10 +168,11 @@ const STEPS = {
     path.join(DIR, 'import-prices-bulk.js'),
     path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
   ],
-  // KV.8 — logística sola (on-demand): dims + embarques.
+  // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
+  // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000
+  // → correrlo pegaba INSERT/DEL contra la vista y fallaba. Se derivan en vivo del ODS.)
   logistics: [
     path.join(K, 'import-logistics-dims.js'),
-    path.join(K, 'import-erp-shipments.js'),
   ],
   // CONTPAQi (cada 1 min): pólizas + bancos INCREMENTALES por firma RowVersion — cada corrida
   // lee solo las firmas (ligero) y trae/UPSERTea solo el delta (insert+update). No machaca el SoR.
