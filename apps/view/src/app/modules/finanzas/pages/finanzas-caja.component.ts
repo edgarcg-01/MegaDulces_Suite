@@ -10,6 +10,7 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
@@ -73,7 +74,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
   selector: 'app-finanzas-caja',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, DialogModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -248,10 +249,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <div class="card-premium card-flat tw-tablewrap">
             <h3 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h3>
             <div class="tw-wrap">
-            <p-table [value]="d.por_dia" dataKey="fecha" [expandedRowKeys]="wbExp()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.por_dia.length>60" [rows]="60">
+            <p-table [value]="d.por_dia" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.por_dia.length>60" [rows]="60">
               <ng-template #header>
                 <tr>
-                  <th class="cg-w-x" rowspan="2"></th>
                   <th class="cg-w-date" rowspan="2">Día</th>
                   <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th>
                   <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th>
@@ -263,8 +263,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                 </tr>
               </ng-template>
               <ng-template #body let-r>
-                <tr class="tw-clickable" (click)="toggleWbDay(r)" [class.cg-row-open]="wbIsExp(r)">
-                  <td><i class="pi cg-chev" [class.pi-chevron-right]="!wbIsExp(r)" [class.pi-chevron-down]="wbIsExp(r)" aria-hidden="true"></i></td>
+                <tr class="tw-clickable" (click)="openDay(r)">
                   <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span><i class="pi pi-search-plus tw-drill-ico"></i></td>
                   <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
                   <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
@@ -281,56 +280,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   </td>
                 </tr>
               </ng-template>
-              <ng-template #expandedrow let-r>
-                <tr class="cg-detail-row"><td colspan="11">
-                  @if (wbDayLoad()[key(r)]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
-                  @else if (wbDayErr()[key(r)]?.dia; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
-                  @else if (wbDayDia()[key(r)]; as cd) {
-                    <p class="dlg-lead">Cada movimiento del <b>Control (caja real)</b> se enfrenta a cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b>: a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente registra y el Control no movió.</p>
-                    @for (p of pairings(cd); track p.key) {
-                      @for (s of p.sides; track s.key) {
-                        <div class="cg-side">
-                          <div class="tw-drill-kpis">
-                            <span><b>{{ s.name }}</b></span>
-                            @if (abs(s.data.delta) <= 1) { <span class="tw-tag ok-tag">cuadra</span> }
-                            @else { <span class="tw-tag warn-tag">Δ {{ money(s.data.delta) }}</span> }
-                            <span>Control <b>{{ money(s.data.caja_total) }}</b></span>
-                            <span>{{ p.short }} <b>{{ money(s.data.other_total) }}</b></span>
-                            <span><b>{{ s.data.matched_count }}</b> casados</span>
-                          </div>
-                          @if (!s.data.caja_only.length && !s.data.other_only.length) {
-                            <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
-                          } @else {
-                            <div class="tw-orphans">
-                              <div class="tw-orphan">
-                                <h4><i class="pi pi-wallet"></i> En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</h4>
-                                @if (s.data.caja_only.length) {
-                                  <table class="tw-tbl"><tbody>
-                                    @for (m of s.data.caja_only; track m.id) {
-                                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
-                                    }
-                                  </tbody></table>
-                                } @else { <p class="cg-drill-none muted">— nada —</p> }
-                              </div>
-                              <div class="tw-orphan">
-                                <h4><i class="pi pi-database"></i> En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</h4>
-                                @if (s.data.other_only.length) {
-                                  <table class="tw-tbl"><tbody>
-                                    @for (m of s.data.other_only; track m.id) {
-                                      <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
-                                    }
-                                  </tbody></table>
-                                } @else { <p class="cg-drill-none muted">— nada —</p> }
-                              </div>
-                            </div>
-                          }
-                        </div>
-                      }
-                    }
-                  }
-                </td></tr>
-              </ng-template>
-              <ng-template #emptymessage><tr><td colspan="11"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="10"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
             </p-table>
             </div>
           </div>
@@ -538,6 +488,60 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         }
       }
     </div>
+
+    <!-- Detalle del día — ventana, igual que el drill por cuenta del Cuadre de Bancos.
+         Antes era una fila expandible: con 30 días en pantalla, abrir dos y compararlos
+         empujaba la tabla y se perdía el renglón de referencia. La ventana deja la tabla
+         quieta y da ancho real a las dos columnas enfrentadas. -->
+    <p-dialog [visible]="dayOpen()" (visibleChange)="dayOpen.set($event)" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '64rem', maxWidth: '96vw' }" [draggable]="false" [header]="dayTitle()">
+                    @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
+                    @else if (wbDayErr()[dayKey()]?.dia; as e) { <div class="cg-dayerr"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</div> }
+                    @else if (wbDayDia()[dayKey()]; as cd) {
+                      <p class="dlg-lead">Cada movimiento del <b>Control (caja real)</b> se enfrenta a cada fuente por importe. Lo que casa desaparece; <b>lo que queda es el descuadre</b>: a la izquierda lo que el Control movió y la fuente no tiene, a la derecha lo que la fuente registra y el Control no movió.</p>
+                      @for (p of pairings(cd); track p.key) {
+                        @for (s of p.sides; track s.key) {
+                          <div class="cg-side">
+                            <div class="tw-drill-kpis">
+                              <span><b>{{ s.name }}</b></span>
+                              @if (abs(s.data.delta) <= 1) { <span class="tw-tag ok-tag">cuadra</span> }
+                              @else { <span class="tw-tag warn-tag">Δ {{ money(s.data.delta) }}</span> }
+                              <span>Control <b>{{ money(s.data.caja_total) }}</b></span>
+                              <span>{{ p.short }} <b>{{ money(s.data.other_total) }}</b></span>
+                              <span><b>{{ s.data.matched_count }}</b> casados</span>
+                            </div>
+                            @if (!s.data.caja_only.length && !s.data.other_only.length) {
+                              <p class="cg-drill-clean muted"><i class="pi pi-check-circle" aria-hidden="true"></i> Todo casa.</p>
+                            } @else {
+                              <div class="tw-orphans">
+                                <div class="tw-orphan">
+                                  <h4><i class="pi pi-wallet"></i> En Control, sin {{ p.short }} ({{ s.data.caja_only.length }}) · {{ money(s.data.caja_only_amount) }}</h4>
+                                  @if (s.data.caja_only.length) {
+                                    <table class="tw-tbl"><tbody>
+                                      @for (m of s.data.caja_only; track m.id) {
+                                        <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      }
+                                    </tbody></table>
+                                  } @else { <p class="cg-drill-none muted">— nada —</p> }
+                                </div>
+                                <div class="tw-orphan">
+                                  <h4><i class="pi pi-database"></i> En {{ p.short }}, sin Control ({{ s.data.other_only.length }}) · {{ money(s.data.other_only_amount) }}</h4>
+                                  @if (s.data.other_only.length) {
+                                    <table class="tw-tbl"><tbody>
+                                      @for (m of s.data.other_only; track m.id) {
+                                        <tr><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra||'') + ' ' + (m.concepto||'')">{{ m.concepto || m.extra || '—' }}</td></tr>
+                                      }
+                                    </tbody></table>
+                                  } @else { <p class="cg-drill-none muted">— nada —</p> }
+                                </div>
+                              </div>
+                            }
+                          </div>
+                        }
+                      }
+                    }
+    </p-dialog>
+
   `,
   styles: [FINANZAS_SHARED_STYLES, `
     /* El desglose de un día que falla lo DICE. Antes el catch guardaba [] y se leía
@@ -593,7 +597,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-wbcmp { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem,1fr)); gap:.8rem; }
     .cg-wbside-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:.3rem; }
     .ta-r { text-align:right; } .ta-c { text-align:center; }
-    .cg-kep { color:var(--text-faint); font-style:italic; }
     .cg-side { margin-bottom:.6rem; }
     .cg-drill-clean { font-size:.75rem; margin:.15rem 0; }
     .cg-drill-none { font-size:.72rem; padding:.3rem .5rem; }
@@ -650,7 +653,6 @@ export class FinanzasCajaComponent implements OnInit {
   readonly cg = signal<CajaGeneral | null>(null);
   readonly cq = signal<CajaCuadre | null>(null);
   readonly wbc = signal<CajaWb | null>(null);
-  readonly wbExp = signal<Record<string, boolean>>({});
   readonly wbDayDia = signal<Record<string, ConcDia>>({});
   readonly wbDayLoad = signal<Record<string, boolean>>({});
   /**
@@ -703,7 +705,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbExp.set({}); this.wbDayDia.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbDayDia.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -804,7 +806,6 @@ export class FinanzasCajaComponent implements OnInit {
     return 'cuadra';
   }
   cqIsExp(r: { fecha: string }): boolean { return !!this.cqExp()[r.fecha]; }
-  wbIsExp(r: { fecha: string }): boolean { return !!this.wbExp()[r.fecha]; }
   /** Espejo del drill de Bancos: casa .mdb ↔ Manual y .mdb ↔ Kepler → huérfanos por día. */
   pairings(cd: ConcDia): { key: string; title: string; short: string; sides: { key: string; name: string; data: ReconSide }[] }[] {
     return [
@@ -817,11 +818,19 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   /** Desglose de un día: corre el match server-side (.mdb↔Manual y .mdb↔Kepler). */
-  toggleWbDay(r: { fecha: string }): void {
-    const rk = r.fecha; const e = { ...this.wbExp() };
-    if (e[rk]) { delete e[rk]; this.wbExp.set(e); return; }
-    e[rk] = true; this.wbExp.set(e);
+  /** Día abierto en la ventana de detalle (clave YYYY-MM-DD). */
+  readonly dayOpen = signal(false);
+  readonly dayKey = signal('');
+  dayTitle(): string { return this.dayKey() ? `Detalle del día — ${this.dmy(this.dayKey())}` : 'Detalle del día'; }
+
+  /**
+   * Abre el detalle de un día. El resultado se cachea por fecha: reabrir un día ya visto no
+   * vuelve a pegarle al API, y cambiar de mes limpia el cache (ver `onMonth`).
+   */
+  openDay(r: { fecha: string }): void {
     const dk = this.key(r);
+    this.dayKey.set(dk);
+    this.dayOpen.set(true);
     if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
     this.http.get<ConcDia>(`${this.base}/conciliacion-dia?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -829,6 +838,7 @@ export class FinanzasCajaComponent implements OnInit {
       error: (err) => { this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { dia: this.httpMsg(err, '/caja/conciliacion-dia') } }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
     });
   }
+
   toggleCqDay(r: { fecha: string }): void {
     const rk = r.fecha; const e = { ...this.cqExp() };
     if (e[rk]) { delete e[rk]; this.cqExp.set(e); return; }
