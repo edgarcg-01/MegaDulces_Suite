@@ -23,7 +23,6 @@ const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
 const CUSTOMER_SALES_SCRIPT = 'database/importers/kepler/import-customer-sales.js';
 const LOGISTICS_DIMS_SCRIPT = 'database/importers/kepler/import-logistics-dims.js';
-const ERP_SHIPMENTS_SCRIPT = 'database/importers/kepler/import-erp-shipments.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -38,7 +37,6 @@ export class KeplerConsolidadoService {
   private invHealthRunning = false;
   private custSalesRunning = false;
   private logDimsRunning = false;
-  private shipmentsRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -273,18 +271,12 @@ export class KeplerConsolidadoService {
   }
 
   /**
-   * KV.8 — Embarques reales del ERP (kdpord) → analytics.erp_shipments. Nightly 05:20.
+   * RETIRADO 2026-08-20 (mig 20260820170000): `analytics.erp_shipments` es ahora VISTA derive-no-copy
+   * sobre kepler_ods.kdpord con anti-réplica c19=sucursal (corrige el doble conteo de réplicas
+   * cross-branch del importer). Se deriva EN VIVO; correrlo pegaría INSERT contra la vista → error.
    */
-  @Cron('0 20 5 * * *')
   async shipmentsFeed(): Promise<void> {
-    if (!this.db) return;
-    if (this.shipmentsRunning) { this.logger.warn('Skip shipmentsFeed: corrida anterior aún activa'); return; }
-    this.shipmentsRunning = true;
-    try {
-      await this.runScript(ERP_SHIPMENTS_SCRIPT, 'Embarques ERP', /erp_shipments|COMMIT|ERROR/);
-    } finally {
-      this.shipmentsRunning = false;
-    }
+    this.logger.log('shipmentsFeed: no-op — erp_shipments es VISTA derive-no-copy (mig 20260820170000).');
   }
 
   /** Ejecuta un importer como subprocess y loguea el resumen de sus líneas clave. */
