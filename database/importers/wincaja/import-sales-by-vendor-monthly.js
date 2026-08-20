@@ -24,10 +24,15 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
+// Canindo (branch 50) migró Wincaja→Kepler: kepler_code='06' (→ wincaja_only=false) + almacén MD-50→'06'.
+// Compartida como PH/LP: Wincaja aporta < cutover (histórico), Kepler '06' desde 15-ago (0 solape).
+// Remap 50→'06' + cláusula positiva → su historia resuelve al 06. (Idéntico a sales-daily-projection.js.)
+const CANINDO_CUTOVER = "DATE '2026-08-15'";
 const BLEND = `(vl.wincaja_only = true
    OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01')
-   OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01'))`;
-const WH_MAP = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' ELSE vl.warehouse_code END`;
+   OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01')
+   OR (vl.source_branch = '50' AND vl.business_date < ${CANINDO_CUTOVER}))`;
+const WH_MAP = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' WHEN vl.source_branch='50' THEN '06' ELSE vl.warehouse_code END`;
 
 // INSERT del mes [d0, d1). Se ejecuta con $1=tenant, $2=d0, $3=d1.
 const INSERT_MONTH = `

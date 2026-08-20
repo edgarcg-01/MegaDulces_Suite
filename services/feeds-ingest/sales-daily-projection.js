@@ -19,6 +19,12 @@ const PH_CUTOVER = "DATE '2026-07-01'";
 const LP_CUTOVER = "DATE '2025-10-01'";
 const YURE_CUTOVER = "DATE '2026-02-18'";
 const ZAMORA_CUTOVER = "DATE '2026-03-16'";
+// Canindo (branch 50) migró su POS Wincaja→Kepler. El script de identidad le puso kepler_code='06'
+// (→ wincaja_only pasó a FALSE) y renombró el almacén MD-50→'06'. Queda EXACTO como PH/LP/Yure/Zamora:
+// sucursal COMPARTIDA que Wincaja aporta < cutover (histórico, última venta 13-ago) y Kepler '06' toma
+// desde 15-ago (0 días de solape, verificado). Sin el remap 50→'06' + esta cláusula, su historia se
+// caía (warehouse_code 'MD-50' ya no existe) y el blend la excluía (ya no es wincaja_only).
+const CANINDO_CUTOVER = "DATE '2026-08-15'";
 
 /**
  * @param {object} o
@@ -72,6 +78,7 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
                      WHEN s.source_branch = '42' THEN '02'
                      WHEN s.source_branch = '44' THEN '04'
                      WHEN s.source_branch = '54' THEN '05'
+                     WHEN s.source_branch = '50' THEN '06'
                      ELSE s.warehouse_code END
   LEFT JOIN am ON am.tenant_id = s.tenant_id AND am.articulo = s.sku
   WHERE s.tenant_id = '${tenantId}'
@@ -79,7 +86,8 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
           OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
           OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER})
           OR (s.source_branch = '44' AND s.business_date < ${YURE_CUTOVER})
-          OR (s.source_branch = '54' AND s.business_date < ${ZAMORA_CUTOVER}) )
+          OR (s.source_branch = '54' AND s.business_date < ${ZAMORA_CUTOVER})
+          OR (s.source_branch = '50' AND s.business_date < ${CANINDO_CUTOVER}) )
     ${scope}
   GROUP BY p.id, w.id, s.business_date, channel`;
 }
