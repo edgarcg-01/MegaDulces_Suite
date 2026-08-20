@@ -47,6 +47,17 @@ const GRUPO: Record<string, string> = {
 };
 const grupoOf = (cat: string | null): string => (cat ? (GRUPO[cat] || 'sin_clasificar') : 'sin_clasificar');
 
+/**
+ * Categorías de ajuste que son BENEFICIO NEGOCIADO, no un problema de la recepción.
+ *
+ * El resto (faltante, mal_estado, no_solicitado, diferencia_monto, factura_duplicada,
+ * devolucion_otra, cambiada, saldo_favor, otro y los sin clasificar) es operativo: algo
+ * salió mal y alguien tiene que mirarlo. La distinción importa porque en el universo real
+ * ~3 de cada 4 ajustes son comerciales — pintarlos todos como error convierte $12M de
+ * descuentos ganados en una alarma falsa.
+ */
+const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
+
 @Injectable()
 export class PurchaseAdjustmentsService {
   constructor(
@@ -342,16 +353,35 @@ export class PurchaseAdjustmentsService {
    * en el detalle (`forEntrada`). El join a.entrada_folio=c.folio es 1:0..1 (no infla).
    * analytics.* sin RLS → filtro `tenant_id` explícito.
    */
-  async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number; page?: number; pageSize?: number; all?: boolean } = {}) {
+  async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number; sort?: string; dir?: 'asc' | 'desc'; page?: number; pageSize?: number; all?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, q.page || 1);
     const pageSize = q.all ? 5000 : Math.min(200, Math.max(1, q.pageSize || 50));
     // Ajuste: enum 'con'|'sin' (nuevo), con back-compat del boolean con_ajuste.
     const ajusteMode: 'con' | 'sin' | undefined =
       q.ajuste === 'con' ? 'con' : q.ajuste === 'sin' ? 'sin' : (q.con_ajuste ? 'con' : undefined);
+    const SORTS: Record<string, string> = {
+      receipt_date: 'c.receipt_date', sucursal: 'c.sucursal', proveedor_nombre: 'c.proveedor_nombre',
+      oc_folio: 'c.oc_folio', folio: 'c.folio', factura: 'c.monto',
+      ajuste: 'COALESCE(a.ajuste,0)', neto: '(c.monto - COALESCE(a.ajuste,0))',
+    };
+    const sortCol = SORTS[q.sort || ''] || null;
+    const sortDir = q.dir === 'asc' ? 'ASC' : 'DESC';
+    // Sin orden pedido manda el del negocio (lo más reciente y grande primero); con orden
+    // pedido se desempata igual, para que la paginación sea estable.
+    const orderSql = sortCol
+      ? `${sortCol} ${sortDir} NULLS LAST, c.receipt_date DESC, c.folio DESC`
+      : 'c.receipt_date DESC, c.monto DESC, c.folio DESC';
+
     return this.tk.run(async (trx) => {
+      // Un ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado (descuento
+      // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
+      // mal estado, no solicitado, factura duplicada…). Se parte acá para que la pantalla pueda
+      // dejar de pintar de rojo un apoyo de marca.
       const adj = trx('analytics.erp_purchase_adjustments')
         .select('entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
         .where('tenant_id', tenantId).whereNotNull('entrada_folio')
         .groupBy('entrada_folio').as('a');
       // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
@@ -390,22 +420,34 @@ export class PurchaseAdjustmentsService {
       };
       const [{ count }]: any = await base().count({ count: '*' });
       const [tot]: any = await base().sum({ factura: 'c.monto' })
-        .select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'), trx.raw('COUNT(d.n)::int AS con_comprobante'));
+        .select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'),
+          trx.raw('COALESCE(sum(a.ajuste_comercial),0) AS ajuste_comercial'),
+          trx.raw('COALESCE(sum(a.ajuste_operativo),0) AS ajuste_operativo'),
+          trx.raw('COUNT(d.n)::int AS con_comprobante'));
       const rows: any[] = await base()
         .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre', 'c.oc_folio', 'c.vale_folio',
           trx.raw('c.monto::numeric AS factura'),
           trx.raw('COALESCE(a.ajuste,0)::numeric AS ajuste'),
           trx.raw('COALESCE(a.n_ajuste,0)::int AS n_ajuste'),
+          trx.raw('COALESCE(a.ajuste_comercial,0)::numeric AS ajuste_comercial'),
+          trx.raw('COALESCE(a.ajuste_operativo,0)::numeric AS ajuste_operativo'),
           trx.raw('COALESCE(d.n,0)::int AS deposits'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'))
-        .orderBy('c.receipt_date', 'desc').orderBy('c.monto', 'desc')
+        .orderByRaw(orderSql)
         .limit(pageSize).offset(q.all ? 0 : (page - 1) * pageSize);
       const factura = Number(tot?.factura) || 0, ajuste = Number(tot?.ajuste) || 0;
       return {
         total: Number(count), page, pageSize,
-        totals: { factura, ajuste, neto: factura - ajuste, con_comprobante: Number(tot?.con_comprobante) || 0 },
-        rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true })),
+        totals: {
+          factura, ajuste, neto: factura - ajuste,
+          ajuste_comercial: Number(tot?.ajuste_comercial) || 0,
+          ajuste_operativo: Number(tot?.ajuste_operativo) || 0,
+          con_comprobante: Number(tot?.con_comprobante) || 0,
+        },
+        rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste),
+          ajuste_comercial: Number(r.ajuste_comercial) || 0, ajuste_operativo: Number(r.ajuste_operativo) || 0,
+          neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true })),
       };
     });
   }

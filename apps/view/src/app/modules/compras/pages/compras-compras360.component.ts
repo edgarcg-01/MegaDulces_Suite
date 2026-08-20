@@ -16,7 +16,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { makeLazyLoad, DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
+import { makeLazyLoad, type LazyTableEvent, DATE_PRESET_OPTIONS, datePresetRange, money, moneyShort } from '../../../shared/util';
 import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt, ReceiptEvidenceDeposit, ReceiptEvidenceFile } from '../compras.service';
 
 /**
@@ -38,7 +38,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Compras 360 <app-context-help topic="compras-360" /></h1>
+          <h1 class="c3-title-row">Compras 360 <app-context-help topic="compras-360" /></h1>
           <p class="surf-page-sub">Todas las órdenes de entrada y facturas de compra en una vista, con su OC, ajustes (devoluciones/notas ligadas) y neto. El "Excel" de recepción, vivo y filtrable.</p>
         </div>
         <div class="c3-head-actions">
@@ -75,6 +75,15 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
       }
 
       @if (data(); as d) {
+        <!-- §Q.1 — la lectura del periodo antes del grid. El strip da totales; esto dice
+             qué hay que mirar y cuánto pesa. -->
+        <div class="c3-verdict" [class.ok]="verdictClean(d)" [class.warn]="!verdictClean(d)">
+          <i [class]="verdictClean(d) ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'" aria-hidden="true"></i>
+          <span class="c3-verdict-txt">{{ verdict(d) }}</span>
+          @if (d.total > d.totals.con_comprobante) {
+            <button type="button" class="c3-linkbtn" (click)="onComprobante('sin')">Ver las que faltan</button>
+          }
+        </div>
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales de compras" />
       }
 
@@ -90,22 +99,31 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         (onLazyLoad)="onLazyLoad($event)"
         styleClass="p-datatable-sm surf-table surf-table--sticky c3-table"
         [rowHover]="true"
+        [sortField]="sortField()"
+        [sortOrder]="sortOrder()"
         [scrollable]="true"
-        scrollHeight="flex"
+        scrollHeight="58vh"
         currentPageReportTemplate="{first}–{last} de {totalRecords}"
         [showCurrentPageReport]="true">
         <ng-template #header>
           <tr>
-            <th class="c3-w-date">Fecha</th><th class="c3-w-suc">Suc.</th><th>Proveedor</th><th class="c3-w-oc">OC</th><th class="c3-w-oc">Folio</th>
-            <th class="ta-r c3-w-amt">Factura</th><th class="ta-r c3-w-amt">Ajuste</th><th class="ta-r c3-w-amt">Neto</th><th class="c3-w-comp">Comprobante</th>
+            <th class="c3-w-date" pSortableColumn="receipt_date">Fecha <p-sorticon field="receipt_date" /></th>
+            <th class="c3-w-suc" pSortableColumn="sucursal">Suc. <p-sorticon field="sucursal" /></th>
+            <th pSortableColumn="proveedor_nombre">Proveedor <p-sorticon field="proveedor_nombre" /></th>
+            <th class="c3-w-oc" pSortableColumn="oc_folio">OC <p-sorticon field="oc_folio" /></th>
+            <th class="c3-w-oc" pSortableColumn="folio">Folio <p-sorticon field="folio" /></th>
+            <th class="ta-r c3-w-amt" pSortableColumn="factura">Factura <p-sorticon field="factura" /></th>
+            <th class="ta-r c3-w-amt" pSortableColumn="ajuste">Ajuste <p-sorticon field="ajuste" /></th>
+            <th class="ta-r c3-w-amt" pSortableColumn="neto">Neto <p-sorticon field="neto" /></th>
+            <th class="c3-w-comp">Comprobante</th>
           </tr>
         </ng-template>
         <ng-template #body let-r>
-          <tr class="c3-row" [class.has-adj]="r.ajuste !== 0" role="button" tabindex="0"
-              [attr.aria-label]="'Ver ajustes de la entrada ' + r.folio + ' de ' + (r.proveedor_nombre || r.proveedor_code || '')"
-              (click)="openDetail(r)"
-              (keydown.enter)="openDetail(r)"
-              (keydown.space)="$event.preventDefault(); openDetail(r)">
+          <!-- La fila abre el detalle con el mouse, pero NO lleva role="button": adentro hay
+               otro botón (la OC) y un botón dentro de otro es HTML inválido y confuso para un
+               lector de pantalla. El acceso por teclado va por el botón del folio, que además
+               es lo que identifica la fila. -->
+          <tr class="c3-row" [class.has-adj]="r.ajuste_operativo !== 0" (click)="openDetail(r)">
             <td class="c3-mono">{{ r.receipt_date ? r.receipt_date.slice(0,10) : '—' }}</td>
             <td [title]="r.sucursal">{{ sucNames().get(r.sucursal) || r.sucursal }}</td>
             <td class="c3-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</td>
@@ -114,11 +132,22 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
                 <button type="button" class="c3-oclink" (click)="$event.stopPropagation(); filterByOc(r.oc_folio)" [title]="'Ver todas las recepciones de la OC ' + r.oc_folio">{{ r.oc_folio }}</button>
               } @else { <span class="muted">—</span> }
             </td>
-            <td class="c3-mono muted">{{ r.folio }}</td>
+            <td class="c3-mono">
+              <button type="button" class="c3-foliolink" (click)="$event.stopPropagation(); openDetail(r)"
+                      [attr.aria-label]="'Ver detalle de la entrada ' + r.folio + ' de ' + (r.proveedor_nombre || r.proveedor_code || '')">{{ r.folio }}</button>
+            </td>
             <td class="ta-r c3-num">{{ money(r.factura) }}</td>
-            <td class="ta-r c3-num" [class.c3-neg]="r.ajuste !== 0">
+            <!-- El ajuste se parte: lo COMERCIAL es un beneficio negociado y no se pinta como
+                 error; lo OPERATIVO (faltante, mal estado, factura duplicada…) sí. Antes todo
+                 iba en rojo, y 3 de cada 4 ajustes son descuentos ganados. -->
+            <td class="ta-r c3-num">
               @if (r.ajuste !== 0) {
-                <span class="c3-adj-yes">−{{ money(r.ajuste) }}@if (r.n_ajuste > 1) { <span class="c3-adj-n" [title]="r.n_ajuste + ' ajustes ligados'">×{{ r.n_ajuste }}</span> }</span>
+                <span class="c3-adj" [class.c3-neg]="r.ajuste_operativo !== 0">−{{ money(r.ajuste) }}@if (r.n_ajuste > 1) { <span class="c3-adj-n" [title]="r.n_ajuste + ' ajustes ligados'">×{{ r.n_ajuste }}</span> }</span>
+                <span class="c3-adj-kind">
+                  @if (r.ajuste_operativo !== 0 && r.ajuste_comercial !== 0) { <span class="c3-adj-mix" [title]="'Operativo ' + money(r.ajuste_operativo) + ' · comercial ' + money(r.ajuste_comercial)">mixto</span> }
+                  @else if (r.ajuste_operativo !== 0) { <span class="c3-adj-op" title="Devolución/faltante/mal estado/factura duplicada — algo salió mal">operativo</span> }
+                  @else { <span class="c3-adj-com" title="Descuento comercial, pronto pago o apoyo de marca — beneficio negociado, no un problema">comercial</span> }
+                </span>
               } @else { <span class="c3-adj-no" title="Sin devoluciones ni notas ligadas por folio (puede haber heurísticas — abrí el detalle)">sin</span> }
             </td>
             <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
@@ -167,6 +196,8 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <h4 class="c3-dt-h">Póliza contable (Kepler)</h4>
           @if (polizaLoading()) {
             <p class="c3-empty">Cargando póliza…</p>
+          } @else if (polizaErr()) {
+            <p class="c3-empty c3-dt-err">No se pudo consultar la póliza contable. <button type="button" class="c3-linkbtn" (click)="openDetail(detail()!)">Reintentar</button></p>
           } @else if (poliza(); as pz) {
             @if (!pz.found) {
               <p class="c3-empty">Sin póliza contable localizada (XA2001) para esta recepción.</p>
@@ -223,6 +254,8 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <h4 class="c3-dt-h">Comprobante adjunto (documento vs OCR)</h4>
           @if (evidenceLoading()) {
             <p class="c3-empty">Cargando comprobante…</p>
+          } @else if (evidenceErr()) {
+            <p class="c3-empty c3-dt-err">No se pudo consultar el comprobante adjunto. <button type="button" class="c3-linkbtn" (click)="openDetail(detail()!)">Reintentar</button></p>
           } @else if (!evidence().length) {
             <p class="c3-empty">Sin comprobante adjunto a esta orden de entrada.</p>
           } @else {
@@ -287,6 +320,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .c3-head-actions { display:flex; gap:.5rem; }
+    .c3-title-row { display:inline-flex; align-items:center; gap:.4rem; }
     .c3-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
     .c3-search input { min-width:230px; }
     :host ::ng-deep .c3-sel { min-width:12rem; }
@@ -298,7 +332,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-table { margin-top:.6rem; }
     .c3-row { cursor:pointer; }
     .c3-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
-    /* fila con ajuste = señalar la fila exacta (punto 15) */
+    /* Sólo el ajuste OPERATIVO marca la fila: un apoyo de marca no es una excepción a revisar. */
     .c3-row.has-adj > td:first-child { box-shadow:inset 3px 0 0 var(--warn-fg); }
     .ta-r { text-align:right; }
     .c3-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -310,7 +344,15 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     /* OC clickable + claridad de ajuste */
     .c3-oclink { border:0; background:transparent; color:var(--action); cursor:pointer; padding:0; font:inherit; font-family:var(--font-mono); }
     .c3-oclink:hover { text-decoration:underline; }
-    .c3-adj-yes { color:var(--bad-fg); }
+    /* El folio abre el detalle: es el objetivo de teclado de la fila. */
+    .c3-foliolink { border:0; background:transparent; color:var(--text-muted); cursor:pointer; padding:0; font:inherit; font-family:var(--font-mono); }
+    .c3-foliolink:hover { color:var(--text-main); text-decoration:underline; }
+    .c3-foliolink:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
+    .c3-adj.c3-neg { color:var(--bad-fg); }
+    .c3-adj-kind { display:block; font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; }
+    .c3-adj-op { color:var(--warn-fg); }
+    .c3-adj-com { color:var(--ok-fg); }
+    .c3-adj-mix { color:var(--text-muted); }
     .c3-adj-n { font-size:.72rem; color:var(--text-faint); margin-left:.25rem; }
     .c3-adj-no { color:var(--text-faint); font-size:.78rem; }
     .c3-w-date { width:6rem; } .c3-w-suc { width:4rem; } .c3-w-oc { width:7rem; } .c3-w-amt { width:8rem; } .c3-w-doc { width:5rem; } .c3-w-match { width:6rem; } .c3-w-comp { width:9rem; }
@@ -330,6 +372,14 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-empty-op-title { font-weight:600; color:var(--text-main); }
     .c3-empty-op-sub { font-size:.84rem; color:var(--text-muted); max-width:32rem; }
     app-metric-strip { display:block; margin:.9rem 0; }
+    /* Veredicto: una línea, borde izquierdo de 3px como portador de estado (mismo organismo
+       que el Cuadre de Bancos/Caja). Elevación = borde, nunca sombra. */
+    .c3-verdict { display:flex; align-items:center; gap:.55rem; padding:.6rem .85rem; margin:.9rem 0 0;
+      border:1px solid var(--border-color); border-left:3px solid var(--border-color);
+      border-radius:var(--r-md); background:var(--card-bg); font-size:.85rem; }
+    .c3-verdict.ok { border-left-color:var(--ok-fg); } .c3-verdict.ok .pi { color:var(--ok-fg); }
+    .c3-verdict.warn { border-left-color:var(--warn-fg); } .c3-verdict.warn .pi { color:var(--warn-fg); }
+    .c3-verdict-txt { flex:1; color:var(--text-main); }
     /* detalle */
     .c3-dt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem 1rem; margin-bottom:1rem; }
     .c3-dt-grid > div { display:flex; flex-direction:column; gap:.15rem; }
@@ -358,7 +408,9 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-doc-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.4rem; }
     .c3-doc-name { display:inline-flex; align-items:center; gap:.4rem; min-width:0; font-size:.8rem; color:var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .c3-doc-name .pi-file-pdf { color:var(--bad-fg); }
-    .c3-doc-frame { border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; background:#00000010; height:64vh; min-height:24rem; display:flex; }
+    .c3-doc-frame { border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; background:var(--surface-ground); height:64vh; min-height:24rem; display:flex; }
+    /* El #fff del visor es literal a propósito: representa la HOJA de papel, que es blanca
+       en los dos temas — no es una superficie de la app. */
     .c3-doc-frame iframe { width:100%; height:100%; border:0; background:#fff; }
     .c3-doc-frame img { width:100%; height:100%; object-fit:contain; }
     .c3-doc-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.6rem; height:64vh; min-height:24rem; border:1px dashed var(--border-color); border-radius:var(--r-md); color:var(--text-faint); text-align:center; padding:1rem; background:var(--card-bg); }
@@ -421,14 +473,32 @@ export class ComprasCompras360Component implements OnInit {
   readonly explainsTotal = signal(0);
   readonly poliza = signal<PolizaForReceipt | null>(null);
   readonly polizaLoading = signal(false);
-  readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio} — documento vs OCR` : ''; });
+  /** Un fallo de red NO puede leerse como "esta recepción no tiene póliza": es una conclusión. */
+  readonly polizaErr = signal(false);
+  readonly detailHeader = computed(() => { const r = this.detail(); return r ? `Entrada ${r.folio} — ${r.proveedor_nombre || r.proveedor_code || ''}` : ''; });
   // RE.9b — evidencia (comprobante) + documento en el panel derecho para comparar vs OCR.
   readonly evidence = signal<ReceiptEvidenceDeposit[]>([]);
   readonly evidenceLoading = signal(false);
+  /** Igual que la póliza: sin esto, un 500 se leía como "sin comprobante adjunto". */
+  readonly evidenceErr = signal(false);
   readonly selectedDoc = signal<{ url: string; safeUrl: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
 
-  /** onLazyLoad de p-table → page/pageSize + recarga (helper compartido). */
-  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.reload());
+  /** Orden pedido por el usuario. Viaja al backend: la tabla es server-paginada y ordenar en
+   *  el cliente ordenaría sólo los 50 registros visibles, que es peor que no ordenar. */
+  readonly sortField = signal<string>('');
+  readonly sortOrder = signal<number>(-1);
+  private readonly baseLazy = makeLazyLoad(this.page, this.pageSize, () => this.reload());
+
+  /** onLazyLoad de p-table → page/pageSize (helper compartido) + orden. */
+  onLazyLoad(e: LazyTableEvent): void {
+    const f = (typeof e.sortField === 'string' ? e.sortField : '') || '';
+    const o = e.sortOrder ?? -1;
+    if (f !== this.sortField() || o !== this.sortOrder()) {
+      this.sortField.set(f); this.sortOrder.set(o);
+      this.page.set(1); this.syncUrl();
+    }
+    this.baseLazy(e);
+  }
 
   ngOnInit(): void {
     // Estado en URL: rehidratar filtros + página (F5 y deep-link).
@@ -444,6 +514,7 @@ export class ComprasCompras360Component implements OnInit {
     const cp = q.get('comp'); this.comprobante.set((['con', 'sin', 'validado', 'por_validar', 'rechazado'] as string[]).includes(cp || '') ? (cp as Compras360CompMode) : '');
     this.montoMin.set(this.toNum(q.get('mmin')));
     this.montoMax.set(this.toNum(q.get('mmax')));
+    const sf = q.get('sort'); if (sf) { this.sortField.set(sf); this.sortOrder.set(q.get('dir') === 'asc' ? 1 : -1); }
     const p = parseInt(q.get('page') || '1', 10);
     this.page.set(!Number.isFinite(p) || p < 1 ? 1 : p);
     this.loadFilters();
@@ -489,6 +560,7 @@ export class ComprasCompras360Component implements OnInit {
       comprobante: this.comprobante() || undefined,
       monto_min: this.montoMin() ?? undefined,
       monto_max: this.montoMax() ?? undefined,
+      sort: this.sortField() || undefined, dir: this.sortOrder() === 1 ? 'asc' as const : 'desc' as const,
       page: this.page(), pageSize: this.pageSize(), all,
     };
   }
@@ -509,6 +581,8 @@ export class ComprasCompras360Component implements OnInit {
         adj: null, // limpia el param legado
         mmin: this.montoMin() != null ? this.montoMin() : null,
         mmax: this.montoMax() != null ? this.montoMax() : null,
+        sort: this.sortField() || null,
+        dir: this.sortField() ? (this.sortOrder() === 1 ? 'asc' : 'desc') : null,
         page: this.page() > 1 ? this.page() : null,
       },
       queryParamsHandling: 'merge',
@@ -570,6 +644,7 @@ export class ComprasCompras360Component implements OnInit {
   clearFilters(): void {
     this.search.set(''); this.sucursal.set(''); this.proveedorCode.set(''); this.dateFrom.set(null); this.dateTo.set(null);
     this.conOc.set(''); this.ajusteMode.set(''); this.comprobante.set(''); this.montoMin.set(null); this.montoMax.set(null); this.preset.set('');
+    this.sortField.set(''); this.sortOrder.set(-1);
     this.page.set(1); this.syncUrl(); this.reload();
   }
 
@@ -581,13 +656,13 @@ export class ComprasCompras360Component implements OnInit {
       error: () => { this.explainsLoading.set(false); this.explainsErr.set(true); },
     });
     // CXP.6 — póliza contable (Kepler) de la recepción (XA2001).
-    this.poliza.set(null); this.polizaLoading.set(true);
+    this.poliza.set(null); this.polizaErr.set(false); this.polizaLoading.set(true);
     this.svc.polizaForReceipt({ sucursal: r.sucursal, folio: r.folio }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (pz) => { this.poliza.set(pz); this.polizaLoading.set(false); },
-      error: () => { this.polizaLoading.set(false); this.poliza.set(null); },
+      error: () => { this.polizaLoading.set(false); this.poliza.set(null); this.polizaErr.set(true); },
     });
     // RE.9b — evidencia (comprobante) + auto-selecciona el 1er documento en el panel derecho.
-    this.evidence.set([]); this.selectedDoc.set(null); this.evidenceLoading.set(true);
+    this.evidence.set([]); this.selectedDoc.set(null); this.evidenceErr.set(false); this.evidenceLoading.set(true);
     this.svc.receiptEvidence(r.sucursal, r.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         this.evidence.set(res.deposits || []);
@@ -596,10 +671,10 @@ export class ComprasCompras360Component implements OnInit {
         for (const dep of res.deposits || []) { if (dep.files && dep.files.length) { first = dep.files[0]; break; } }
         if (first) this.selectDoc(first);
       },
-      error: () => { this.evidenceLoading.set(false); },
+      error: () => { this.evidenceLoading.set(false); this.evidenceErr.set(true); },
     });
   }
-  closeDetail(): void { this.detail.set(null); this.poliza.set(null); this.evidence.set([]); this.selectedDoc.set(null); }
+  closeDetail(): void { this.detail.set(null); this.poliza.set(null); this.polizaErr.set(false); this.evidence.set([]); this.evidenceErr.set(false); this.selectedDoc.set(null); }
 
   /** RE.9b — muestra el archivo en el panel derecho (iframe PDF / img) para comparar vs OCR. */
   selectDoc(f: ReceiptEvidenceFile): void {
@@ -641,12 +716,33 @@ export class ComprasCompras360Component implements OnInit {
     });
   }
 
+  /** Sin nada que mirar: todo con comprobante y sin ajuste operativo. */
+  verdictClean(d: Compras360Response): boolean {
+    return d.total > 0 && d.totals.con_comprobante >= d.total && (d.totals.ajuste_operativo || 0) === 0;
+  }
+
+  /**
+   * La lectura del periodo, en llano (§Q.2). Nombra lo que hay que mirar y cuánto pesa; el
+   * strip de KPIs da los totales, pero un total no dice qué hacer.
+   */
+  verdict(d: Compras360Response): string {
+    if (!d.total) return 'Sin recepciones en el periodo.';
+    const sinComp = d.total - d.totals.con_comprobante;
+    const op = d.totals.ajuste_operativo || 0;
+    const partes: string[] = [];
+    if (sinComp > 0) partes.push(`${sinComp} sin comprobante adjunto`);
+    if (op !== 0) partes.push(`${moneyShort(op)} en ajustes operativos`);
+    if (!partes.length) return `Las ${d.total} recepciones tienen comprobante y ningún ajuste operativo.`;
+    return `De ${d.total} recepciones: ${partes.join(' y ')}.`;
+  }
+
   kpiItems(d: Compras360Response): MetricStripItem[] {
     const cov = d.total > 0 ? Math.round((d.totals.con_comprobante / d.total) * 100) : 0;
     return [
       { label: 'Recepciones', value: d.total, format: 'number', tone: 'default' },
       { label: 'Factura total', value: d.totals.factura, format: 'currency-short', tone: 'default' },
-      { label: 'Ajustes ligados', value: d.totals.ajuste, format: 'currency-short', tone: 'warn', sub: 'devoluciones + notas' },
+      { label: 'Ajuste operativo', value: d.totals.ajuste_operativo, format: 'currency-short', tone: 'warn', sub: 'faltante · mal estado · duplicada' },
+      { label: 'Ajuste comercial', value: d.totals.ajuste_comercial, format: 'currency-short', tone: 'ok', sub: 'descuento · pronto pago · apoyo' },
       { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand', sub: 'factura − ajuste' },
       { label: 'Con comprobante', value: d.totals.con_comprobante, format: 'number', tone: 'ok', sub: `${cov}% de ${d.total}` },
     ];
@@ -659,5 +755,11 @@ export class ComprasCompras360Component implements OnInit {
   pzCargos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.cargos) || 0), 0); }
   pzAbonos(pz: PolizaForReceipt): number { return pz.polizas.reduce((s, p) => s + (Number(p.abonos) || 0), 0); }
 
-  money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  /**
+   * 2 decimales, del formateador compartido. La copia local cortaba a pesos enteros y esta
+   * pantalla cuadra Factura − Ajuste = Neto contra el OCR del comprobante: el chip
+   * "cuadra/no cuadra" se calcula CON centavos, así que esconderlos dejaba al usuario viendo
+   * dos cifras idénticas al lado de una alarma, sin manera de entenderla.
+   */
+  readonly money = money;
 }

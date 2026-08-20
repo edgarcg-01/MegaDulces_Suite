@@ -6,16 +6,9 @@
  * pantalla de conciliación — los centavos suelen SER la diferencia que se anda buscando.
  * Una sola definición evita que vuelva a divergir.
  */
-/**
- * Importe en pesos SIN redondear — se muestra tal como viene del origen.
- * (Antes `money0` cortaba a pesos enteros: en una pantalla de conciliación eso
- * escondía los centavos que son justo la diferencia que se anda buscando.)
- */
-// Acepta null: varias columnas del detalle son "el importe de la otra fuente, si lo tiene".
-// El cuerpo ya trataba el nulo (`v || 0`); el tipo era el que no lo decía.
-export function money(v: number | null | undefined): string {
-  return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// `money` vive en shared/util: la usan Finanzas y Compras. Acá sólo se reexporta para
+// no tocar los archivos que ya la importaban de este módulo.
+export { money } from '../../../shared/util';
 
 /** Fecha (Date o 'YYYY-MM-DD') → 'DD/MM' con componentes locales (sin voltear a UTC). */
 export function dmShort(v: any): string {
