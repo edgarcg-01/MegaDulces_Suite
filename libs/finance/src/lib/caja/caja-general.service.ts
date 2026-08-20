@@ -370,15 +370,22 @@ export class CajaGeneralService {
       const byAmt = new Map<number, { amt: number; lbl: Lbl }[]>();
       for (const o of other) { const k = cents(o.amt); (byAmt.get(k) ?? byAmt.set(k, []).get(k)!).push(o); }
       const cajaOnly: Lbl[] = []; let matched = 0, matchedAmt = 0;
+      /**
+       * Pares que SÍ casaron. Antes se descartaban (sólo se contaban) y por eso el detalle
+       * del día únicamente podía pintar los huérfanos: no había forma de armar la tabla
+       * "un movimiento del Control × una columna por fuente" que sí tiene el Cuadre de
+       * Bancos. Guardar el par cuesta un push y habilita esa vista.
+       */
+      const pairs: { caja: Lbl; other: Lbl }[] = [];
       for (const c of caja) {
-        const t = cents(c.amt); let hit = false;
+        const t = cents(c.amt); let hit: Lbl | null = null;
         for (let d = 0; d <= AMT_TOL && !hit; d++) {
           for (const cand of d === 0 ? [t] : [t - d, t + d]) {
             const bucket = byAmt.get(cand);
-            if (bucket && bucket.length) { bucket.shift(); hit = true; break; }
+            if (bucket && bucket.length) { hit = bucket.shift()!.lbl; break; }
           }
         }
-        if (hit) { matched++; matchedAmt += c.amt; } else cajaOnly.push(c.lbl);
+        if (hit) { matched++; matchedAmt += c.amt; pairs.push({ caja: c.lbl, other: hit }); } else cajaOnly.push(c.lbl);
       }
       const otherOnly: Lbl[] = [];
       for (const arr of byAmt.values()) for (const o of arr) otherOnly.push(o.lbl);
@@ -387,7 +394,7 @@ export class CajaGeneralService {
       const otherTotal = r2(other.reduce((s, r) => s + r.amt, 0));
       return {
         caja_total: cajaTotal, other_total: otherTotal, delta: r2(cajaTotal - otherTotal),
-        matched_count: matched, matched_amount: r2(matchedAmt),
+        matched_count: matched, matched_amount: r2(matchedAmt), pairs,
         caja_only: cajaOnly, other_only: otherOnly,
         caja_only_amount: r2(cajaOnly.reduce((s, r) => s + r.importe, 0)),
         other_only_amount: r2(otherOnly.reduce((s, r) => s + r.importe, 0)),
@@ -416,11 +423,43 @@ export class CajaGeneralService {
         amt: n(r.importe), lbl: { id: String(r.folio), fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
 
       const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
-      return {
-        period: { from, to },
-        vs_manual: { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) },
-        vs_kepler: { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) },
+      const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
+      const vs_kepler = { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) };
+
+      /**
+       * Modelo de fila único: UN movimiento del Control por renglón, con lo que casó en cada
+       * fuente. Es el mismo shape que el detalle del Cuadre de Bancos (un movimiento del
+       * banco + banderas/importes de Kepler y ContPAQi), y sale de unir los cuatro matchings
+       * —que corren por separado porque cada uno casa dentro de su dirección— sobre la lista
+       * de movimientos del Control, que es la misma para ambas fuentes.
+       */
+      const rows = [
+        ...mdbIn.map((m) => ({ m, dir: 'in' as const })),
+        ...mdbGas.map((m) => ({ m, dir: 'out' as const })),
+      ].map(({ m, dir }) => {
+        const side = (v: typeof vs_manual) => (dir === 'in' ? v.ingresos : v.gastos);
+        const hit = (v: typeof vs_manual) => side(v).pairs.find((p) => p.caja.id === m.lbl.id) ?? null;
+        const man = hit(vs_manual), kep2 = hit(vs_kepler);
+        return {
+          id: m.lbl.id, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
+          concepto: m.lbl.concepto, extra: m.lbl.extra,
+          manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null,
+          kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null,
+        };
+      }).sort((a, b) => (a.fecha === b.fecha ? b.importe - a.importe : a.fecha.localeCompare(b.fecha)));
+
+      const totals = {
+        control_n: rows.length,
+        control_monto: r2(rows.reduce((s, r) => s + r.importe, 0)),
+        en_manual: rows.filter((r) => r.manual).length,
+        en_kepler: rows.filter((r) => r.kepler).length,
+        manual_only_n: vs_manual.ingresos.other_only.length + vs_manual.gastos.other_only.length,
+        manual_only_monto: r2(vs_manual.ingresos.other_only_amount + vs_manual.gastos.other_only_amount),
+        kepler_only_n: vs_kepler.ingresos.other_only.length + vs_kepler.gastos.other_only.length,
+        kepler_only_monto: r2(vs_kepler.ingresos.other_only_amount + vs_kepler.gastos.other_only_amount),
       };
+
+      return { period: { from, to }, vs_manual, vs_kepler, rows, totals };
     });
   }
 

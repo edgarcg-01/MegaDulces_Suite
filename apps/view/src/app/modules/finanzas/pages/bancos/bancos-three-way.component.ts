@@ -8,7 +8,8 @@ import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail } from '../../bank.service';
-import { money, dmShort, SortState, toggleSort, sortIcon, ariaSort, sortRows } from './bancos-shared';
+import { money, dmShort } from './bancos-shared';
+import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../finanzas-sort';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
@@ -424,16 +425,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
-    /* Encabezado ordenable de tabla cruda: el th completo es el objetivo de clic. */
-    .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
-      font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }
-    .ta-r .tw-sort { justify-content: flex-end; }
-    .ta-c .tw-sort { justify-content: center; }
-    .tw-sort i { font-size: .65rem; opacity: .45; }
-    .tw-sort:hover i { opacity: .9; }
-    .tw-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
-    th[aria-sort]:not([aria-sort='none']) .tw-sort { color: var(--action); }
-    th[aria-sort]:not([aria-sort='none']) .tw-sort i { opacity: 1; }
 
     /* Columna Diferencia: cifra + fuente en una línea, alineadas a la derecha como el resto
        de los números. El ancho fijo evita que la tabla salte al cambiar de periodo. */
@@ -474,16 +465,6 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-chq-l { font-size: var(--fs-xs); color: var(--text-muted); }
     .tw-chq-tbl th, .tw-chq-tbl td { padding: var(--sp-1) var(--sp-3); }
     /* CB.33 — dialog drill */
-    /* CB.37 — filtros del detalle */
-    .tw-drill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
-    .tw-fg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
-    .tw-fg button { background: var(--card-bg); border: none; border-right: 1px solid var(--border-color); padding: 3px var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; }
-    .tw-fg button:last-child { border-right: none; }
-    .tw-fg button:hover { color: var(--text-main); }
-    .tw-fg button.on { background: color-mix(in srgb, var(--action) 10%, transparent); color: var(--action); font-weight: 600; }
-    .tw-fsearch { padding: 3px var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-xs); min-width: 12rem; }
-    .tw-fcount { font-size: var(--fs-xs); margin-left: auto; }
-    .tw-cent { color: var(--warn-fg); } /* monto de la fuente ≠ workbook (centavos/tolerancia) */
     /* CB.38 — el Δ que no cuadra es un botón: el número que evidencia algo lleva a su arreglo */
     .tw-dlink { font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: var(--sp-1); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
     .tw-dlink i { font-size: .7rem; opacity: 0; transition: opacity 120ms ease; }
