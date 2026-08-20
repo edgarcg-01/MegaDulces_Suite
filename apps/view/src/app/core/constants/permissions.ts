@@ -183,6 +183,8 @@ export enum Permission {
   FINANCE_EXPENSES_VER_ALL = 'FINANCE_EXPENSES_VER_ALL',
   // GX.8 — comprobar (validar/rechazar) un gasto (separado de la captura).
   FINANCE_EXPENSES_COMPROBAR = 'FINANCE_EXPENSES_COMPROBAR',
+  // GX.8 — capturar (subir folio + comprobante) sin la bandeja de revisión (rol capturista).
+  FINANCE_EXPENSES_CAPTURAR = 'FINANCE_EXPENSES_CAPTURAR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',

@@ -66,6 +66,8 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
             <p-datepicker [(ngModel)]="desde" (onSelect)="load()" dateFormat="dd/M/y" [maxDate]="today" placeholder="Todo el histórico" appendTo="body" styleClass="cp-date" />
             @if (desde) { <button type="button" class="cp-linkbtn cp-verall" (click)="verTodo()" title="Ver el histórico completo">Ver todo</button> }
           </div></div>
+        <div class="cp-field"><label>Cuadre solicitud</label>
+          <app-segmented [options]="cuadreOpts" [value]="cuadreSel()" (valueChange)="setCuadre($event)" ariaLabel="Cuadre con la solicitud" /></div>
         <div class="cp-field cp-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio gasto, folio comprob., proveedor, solicitante…" (keyup.enter)="load()" (blur)="queue()" /></div>
       </div>
@@ -400,6 +402,8 @@ export class FinanzasComprobacionGastosComponent {
   readonly verAll = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true);
 
   readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
+  readonly cuadreOpts = [{ label: 'Todos', value: '' }, { label: 'Cuadra', value: 'si' }, { label: 'Descuadre', value: 'no' }];
+  readonly cuadreSel = signal<string>('');
   search = '';
   // Por defecto solo carga de AYER en adelante (la vista trae todo el histórico del ODS).
   // Ajustable: elegir otra fecha, o limpiar (X) para ver el histórico completo.
@@ -447,6 +451,7 @@ export class FinanzasComprobacionGastosComponent {
   }
 
   setStatus(v: string) { this.statusSel.set(v); this.load(); }
+  setCuadre(v: string) { this.cuadreSel.set(v); this.load(); }
   /** Quita el filtro de fecha (carga el histórico completo). */
   verTodo() { this.desde = null; this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
@@ -455,7 +460,7 @@ export class FinanzasComprobacionGastosComponent {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.listGastos({ estado: this.statusSel() || undefined, search: this.search || undefined, from: this.desde ? this.fmtDate(this.desde) : undefined })
+    this.svc.listGastos({ estado: this.statusSel() || undefined, search: this.search || undefined, from: this.desde ? this.fmtDate(this.desde) : undefined, cuadre: this.cuadreSel() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },

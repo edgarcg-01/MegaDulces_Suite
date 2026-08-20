@@ -68,6 +68,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Capturar gasto',
+    route: '/finanzas/capturar-gasto',
+    icon: 'pi pi-upload',
+    permission: Permission.FINANCE_EXPENSES_CAPTURAR,
+  },
+  {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
     icon: 'pi pi-sparkles',
