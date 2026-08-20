@@ -14,6 +14,12 @@ export interface User {
   supervisor_id?: string;
   /** Sucursal Kepler asignada ('00'..'05'). NULL = ve todas (rol global). */
   warehouse_code?: string | null;
+  /** Departamento del organigrama (Fase UN). NULL = sin asignar. */
+  department_code?: string | null;
+  department_name?: string | null;
+  /** Puesto canonicalizado del ORGANIGRAMA 2026. NULL = sin asignar. */
+  position_code?: string | null;
+  position_name?: string | null;
   created_at?: string;
   has_route_today?: boolean;
   route_name_today?: string;
@@ -41,6 +47,8 @@ export interface UserCreatePayload {
   role_name: string;
   supervisor_id?: string | null;
   warehouse_code?: string | null;
+  department_code?: string | null;
+  position_code?: string | null;
 }
 
 export interface UserUpdatePayload {
@@ -53,6 +61,8 @@ export interface UserUpdatePayload {
   supervisor_id?: string | null;
   activo?: boolean;
   warehouse_code?: string | null;
+  department_code?: string | null;
+  position_code?: string | null;
   finance_expense_area_ids?: string[] | null;
 }
 
@@ -66,6 +76,22 @@ export interface SupervisorOption {
 export interface ZoneOption {
   id: string;
   value: string;
+  orden?: number;
+}
+
+/** Departamento del organigrama (identity.departments). Eje ORGANIZACIONAL. */
+export interface DepartmentOption {
+  code: string;
+  name: string;
+  orden?: number;
+}
+
+/** Puesto canonicalizado del ORGANIGRAMA 2026 (identity.positions). */
+export interface PositionOption {
+  code: string;
+  name: string;
+  /** Etiquetas literales del PDF que se colapsaron en este puesto. */
+  org_labels?: string[];
   orden?: number;
 }
 
@@ -125,5 +151,13 @@ export class UsersService {
 
   getZones(): Observable<ZoneOption[]> {
     return this.http.get<ZoneOption[]>(`${this.apiUrl}/zones`);
+  }
+
+  getDepartments(): Observable<DepartmentOption[]> {
+    return this.http.get<DepartmentOption[]>(`${this.apiUrl}/departments`);
+  }
+
+  getPositions(): Observable<PositionOption[]> {
+    return this.http.get<PositionOption[]>(`${this.apiUrl}/positions`);
   }
 }

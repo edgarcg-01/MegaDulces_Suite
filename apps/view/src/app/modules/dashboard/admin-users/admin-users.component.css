@@ -151,12 +151,16 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
 }
 .au-u-sup i { font-size: 0.6rem; }
 
+.au-puesto,
 .au-role,
 .au-zona,
 .au-act,
 .au-ruta { display: block; }
+/* Jerarquia de la celda: el puesto es lo que identifica a la persona; el rol es
+   el dato tecnico de permisos y la zona el scope. */
+.au-puesto { font-size: var(--fs-sm); font-weight: 500; color: var(--text-main); }
 .au-role { font-size: var(--fs-micro); color: var(--text-muted); }
-.au-zona { font-size: var(--fs-sm); font-weight: 500; color: var(--text-main); }
+.au-zona { font-size: var(--fs-micro); color: var(--text-faint); }
 .au-act {
   display: flex;
   align-items: center;

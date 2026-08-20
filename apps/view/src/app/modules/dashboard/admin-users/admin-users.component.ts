@@ -45,13 +45,36 @@ import {
   SupervisorOption as SupervisorRow,
   ZoneOption as ZoneRow,
   FinanceAreaOption,
+  DepartmentOption,
+  PositionOption,
 } from './users.service';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
-import { AREAS, AreaMeta, roleAreaSlug } from '../../../core/constants/role-presets';
+import { AreaMeta } from '../../../core/constants/role-presets';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+
+/**
+ * Icono por departamento. El catálogo `identity.departments` guarda code/name/
+ * orden pero no icono: la presentación vive en el frontend, la taxonomía en DB.
+ */
+const DEPT_ICON: Record<string, string> = {
+  direccion_zona: 'pi pi-sitemap',
+  tienda: 'pi pi-shop',
+  cajas: 'pi pi-calculator',
+  ruta_directa: 'pi pi-truck',
+  ruta_vecinal: 'pi pi-directions',
+  telemarketing: 'pi pi-headphones',
+  mayoreo: 'pi pi-shopping-bag',
+  almacen: 'pi pi-box',
+  logistica: 'pi pi-send',
+  operaciones: 'pi pi-cog',
+  administracion: 'pi pi-briefcase',
+  sistemas: 'pi pi-desktop',
+  externo: 'pi pi-globe',
+};
+const SIN_DEPT = '__sin__';
 
 /** Departamento con su conteo y su higiene de accesos (lo que decide a dónde entrar). */
 export interface DeptRow {
@@ -161,9 +184,10 @@ export class AdminUsersComponent implements OnInit {
   });
 
   // ── Master-detail por departamento ─────────────────────────────────────────
-  // El "departamento" NO es un campo: se deriva del rol con `roleAreaSlug` sobre
-  // las 15 áreas de role-presets. Por eso el rediseño no necesitó migración.
-  // '' = todos.
+  // El departamento ES un campo (`users.department_code`, Fase UN). Antes se
+  // derivaba del role_name con `roleAreaSlug`, y salía mal: los 19 colaboradores
+  // caían en "Mercadotecnia" cuando son de ruta, y `cajera` no estaba mapeada
+  // así que las 28 cajeras caían en "Otros / heredados". '' = todos.
   readonly selectedDept = signal<string>('');
 
   /** Días sin entrar. `null` = nunca entró. */
@@ -179,8 +203,18 @@ export class AdminUsersComponent implements OnInit {
    */
   readonly departments = computed<DeptRow[]>(() => {
     const all = this.users();
-    return AREAS.map((area) => {
-      const list = all.filter((u) => roleAreaSlug(u.role_name) === area.slug);
+    // El catálogo manda el orden y la etiqueta; se agrega al final un cajón
+    // "Sin departamento" para las cuentas todavía sin asignar.
+    const areas: AreaMeta[] = [
+      ...this.departmentOptions().map((d) => ({
+        slug: d.code,
+        label: d.name,
+        icon: DEPT_ICON[d.code] ?? 'pi pi-users',
+      })),
+      { slug: SIN_DEPT, label: 'Sin departamento', icon: 'pi pi-question-circle' },
+    ];
+    return areas.map((area) => {
+      const list = all.filter((u) => (u.department_code || SIN_DEPT) === area.slug);
       const activos = list.filter((u) => u.activo);
       let nunca = 0, dormidos = 0;
       for (const u of activos) {
@@ -218,7 +252,7 @@ export class AdminUsersComponent implements OnInit {
   readonly deptUsers = computed<User[]>(() => {
     const slug = this.selectedDept();
     let list = this.filteredUsers();
-    if (slug) list = list.filter((u) => roleAreaSlug(u.role_name) === slug);
+    if (slug) list = list.filter((u) => (u.department_code || SIN_DEPT) === slug);
     if (this.onlyAlerts()) list = list.filter((u) => this.hasAccessAlert(u));
     return list;
   });
@@ -280,6 +314,10 @@ export class AdminUsersComponent implements OnInit {
   roles = signal<RoleOption[]>([]);
   supervisors = signal<SupervisorOption[]>([]);
   zones = signal<ZoneOption[]>([]);
+  // Ejes organizacionales (Fase UN). `departmentOptions` alimenta además el
+  // aside de departamentos, así que se carga aunque el diálogo esté cerrado.
+  departmentOptions = signal<DepartmentOption[]>([]);
+  positionOptions = signal<PositionOption[]>([]);
   // GX.8 — áreas de gasto visibles asignables al usuario (dimensión canónica).
   financeAreas = signal<FinanceAreaOption[]>([]);
   // Opciones de sucursal para el monitor Tienda (null = ve todas / rol global).
@@ -303,6 +341,8 @@ export class AdminUsersComponent implements OnInit {
       role_name: ['', Validators.required],
       supervisor_id: [null],
       warehouse_code: [null],
+      department_code: [null],
+      position_code: [null],
       finance_expense_area_ids: [[] as string[]],
       activo: [true],
     });
@@ -390,6 +430,23 @@ export class AdminUsersComponent implements OnInit {
       });
   }
 
+  loadOrgCatalogs(): void {
+    this.usersService
+      .getDepartments()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => this.departmentOptions.set(data),
+        error: () => this.departmentOptions.set([]),
+      });
+    this.usersService
+      .getPositions()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => this.positionOptions.set(data),
+        error: () => this.positionOptions.set([]),
+      });
+  }
+
   loadRoles(): void {
     this.catalogsService
       .getCatalog('roles')
@@ -429,6 +486,7 @@ export class AdminUsersComponent implements OnInit {
     this.loadRoles();
     this.loadSupervisors();
     this.loadZones();
+    this.loadOrgCatalogs();
   }
 
   loadUsers(): void {
@@ -438,7 +496,13 @@ export class AdminUsersComponent implements OnInit {
   openNewDialog(): void {
     this.isEditing.set(false);
     this.currentUserId.set(null);
-    this.userForm.reset({ activo: true, role_name: '', finance_expense_area_ids: [] });
+    this.userForm.reset({
+      activo: true,
+      role_name: '',
+      department_code: this.selectedDept() && this.selectedDept() !== SIN_DEPT ? this.selectedDept() : null,
+      position_code: null,
+      finance_expense_area_ids: [],
+    });
     this.userForm.get('username')?.enable();
     this.userForm
       .get('password')
@@ -465,6 +529,8 @@ export class AdminUsersComponent implements OnInit {
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       warehouse_code: user.warehouse_code ?? null,
+      department_code: user.department_code ?? null,
+      position_code: user.position_code ?? null,
       finance_expense_area_ids: user.finance_expense_area_ids ?? [],
       activo: user.activo,
     });

@@ -102,7 +102,7 @@
             <ng-template #header>
               <tr>
                 <th pSortableColumn="nombre">Usuario <p-sorticon field="nombre" /></th>
-                <th pSortableColumn="role_name">Rol · Zona <p-sorticon field="role_name" /></th>
+                <th pSortableColumn="position_name">Puesto · Rol · Zona <p-sorticon field="position_name" /></th>
                 <th pSortableColumn="last_login_at">Actividad · Ruta <p-sorticon field="last_login_at" /></th>
                 <th class="au-col-act"></th>
               </tr>
@@ -131,6 +131,7 @@
                 </td>
 
                 <td>
+                  <span class="au-puesto">{{ user.position_name || 'Sin puesto' }}</span>
                   <span class="au-role mono">{{ user.role_name }}</span>
                   <span class="au-zona">{{ user.zona || '—' }}</span>
                 </td>
@@ -213,7 +214,7 @@
       <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
                 placeholder="Selecciona el rol" optionLabel="label" optionValue="value"
                 appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">El rol define además el departamento en el que aparece.</small>
+      <small class="au-hint">Define qué puede hacer en la app. El departamento y el puesto se asignan aparte.</small>
     </div>
 
     @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {
@@ -227,6 +228,22 @@
         }
       </div>
     }
+
+    <div class="au-field">
+      <label for="department_code">Departamento</label>
+      <p-select id="department_code" [options]="departmentOptions()" formControlName="department_code"
+                placeholder="Sin departamento" [showClear]="true"
+                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+      <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+    </div>
+
+    <div class="au-field">
+      <label for="position_code">Puesto</label>
+      <p-select id="position_code" [options]="positionOptions()" formControlName="position_code"
+                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name"
+                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+      <small class="au-hint">Puesto del ORGANIGRAMA 2026.</small>
+    </div>
 
     <div class="au-field">
       <label for="zona">Zona</label>
