@@ -30,12 +30,16 @@ const KIND_PERMS: Record<EntityKind, string[]> = {
   pay: [Permission.FINANCE_PAYMENTS_VER],
   prov: [Permission.COMPRAS_PROVEEDORES_VER, Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER],
   sku: [Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER],
+  pdoc: [Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_ORDENES_VER],
 };
 
 const KIND_LABEL: Record<EntityKind, string> = {
   ent: 'Orden de entrada', lin: 'Renglón', adj: 'Ajuste de compra',
-  pay: 'Pago a proveedor', prov: 'Proveedor', sku: 'Producto',
+  pay: 'Pago a proveedor', prov: 'Proveedor', sku: 'Producto', pdoc: 'Documento de compra',
 };
+
+/** Los dos papeles de arriba de la cadena, que ahora SÍ tienen documento detrás. */
+const PDOC_LABEL: Record<string, string> = { XA3501: 'Orden de compra', XA3701: 'Vale de entrada' };
 
 /** Ventana (días) para los vínculos que Kepler no codifica y hay que estimar. */
 const HEURISTIC_WINDOW = 30;
@@ -78,6 +82,7 @@ export class EntityRefService {
         case 'adj': return this.ajuste(trx, tenantId, parts[0], parts[1], parts[2]);
         case 'pay': return this.pago(trx, tenantId, parts[0], parts[1], parts[2]);
         case 'prov': return this.proveedor(trx, tenantId, parts[0]);
+        case 'pdoc': return this.purchaseDoc(trx, tenantId, parts[0], parts[1], parts[2]);
         default: return this.producto(trx, tenantId, parts[0]);
       }
     });
@@ -132,8 +137,23 @@ export class EntityRefService {
       relations.push({ ref: makeRef('prov', e.proveedor_code), group: 'Proveedor',
         label: e.proveedor_nombre || e.proveedor_code, sub: e.proveedor_rfc || e.proveedor_code });
     }
-    if (e.oc_folio) {
-      notes.push(`La OC ${e.oc_folio} no tiene ficha propia: no existe una tabla de órdenes de compra importada (X-A-35). En Compras 360 el clic en la OC filtra la lista, no abre un documento.`);
+    // ER.7 — la OC y el vale ya son documentos, no texto. Se resuelven contra el espejo
+    // (misma sucursal) y solo se ofrece el enlace si la fila EXISTE: un enlace muerto es
+    // peor que ningún enlace.
+    for (const [folio, doctype, group] of [
+      [e.oc_folio, 'XA3501', 'Orden de compra'],
+      [e.vale_folio, 'XA3701', 'Vale de entrada'],
+    ] as [string | null, string, string][]) {
+      if (!folio) continue;
+      const [d]: any[] = await trx('analytics.erp_purchase_docs')
+        .select('folio', 'monto', trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`))
+        .where({ tenant_id: tenantId, doctype, sucursal, folio }).limit(1);
+      if (d) {
+        relations.push({ ref: makeRef('pdoc', doctype, sucursal, folio), group,
+          label: `${group} ${folio}`, sub: d.doc_date, amount: n(d.monto) });
+      } else {
+        notes.push(`El folio ${folio} de ${group.toLowerCase()} no está en el espejo de documentos de compra — puede ser de otra sucursal o faltar en el feed.`);
+      }
     }
 
     // Renglones (kdm2) — cada uno con su ref.
@@ -468,6 +488,117 @@ export class EntityRefService {
     return { ref: '', kind: 'prov', title: nombre, subtitle: rfc || code, badges, fields, relations, notes };
   }
 
+  // -- OC / Vale (analytics.erp_purchase_docs) -------------------------------
+  private async purchaseDoc(trx: any, tenantId: string, doctype: string, sucursal: string, folio: string): Promise<RefResult> {
+    const [d]: any[] = await trx('analytics.erp_purchase_docs')
+      .select('doctype', 'sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
+        'concepto', 'condicion_pago', 'referencia', 'monto', 'ref_doctype', 'ref_folio', 'source_branch',
+        trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`),
+        trx.raw(`to_char(due_date,'YYYY-MM-DD') AS due_date`))
+      .where({ tenant_id: tenantId, doctype, sucursal, folio }).limit(1);
+    const kindLabel = PDOC_LABEL[doctype] ?? 'Documento de compra';
+    if (!d) throw new NotFoundException(`No existe ${kindLabel.toLowerCase()} ${sucursal}/${folio}.`);
+
+    const notes: string[] = [];
+    const relations: RefRelation[] = [];
+
+    if (d.proveedor_code) {
+      relations.push({ ref: makeRef('prov', d.proveedor_code), group: 'Proveedor',
+        label: d.proveedor_nombre || d.proveedor_code, sub: d.proveedor_rfc || d.proveedor_code });
+    }
+
+    // Hacia arriba: el vale apunta a SU orden de compra (liga estructural c37/c39, no estimada).
+    if (d.ref_folio && d.ref_doctype === '35') {
+      const [oc]: any[] = await trx('analytics.erp_purchase_docs')
+        .select('folio', 'monto', trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`))
+        .where({ tenant_id: tenantId, doctype: 'XA3501', sucursal, folio: d.ref_folio }).limit(1);
+      if (oc) {
+        relations.push({ ref: makeRef('pdoc', 'XA3501', sucursal, oc.folio), group: 'Orden de compra',
+          label: `Orden de compra ${oc.folio}`, sub: oc.doc_date, amount: n(oc.monto) });
+      } else {
+        notes.push(`El vale apunta a la orden de compra ${d.ref_folio}, que no está en el espejo.`);
+      }
+    }
+
+    // Hacia abajo: los vales que aterrizaron esta OC.
+    if (doctype === 'XA3501') {
+      const vales: any[] = await trx('analytics.erp_purchase_docs')
+        .select('folio', 'monto', trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`))
+        .where({ tenant_id: tenantId, doctype: 'XA3701', sucursal, ref_folio: folio })
+        .orderBy('doc_date', 'asc').limit(REL_LIMIT);
+      for (const v of vales) {
+        relations.push({ ref: makeRef('pdoc', 'XA3701', sucursal, v.folio), group: 'Vales de esta orden',
+          label: `Vale ${v.folio}`, sub: v.doc_date, amount: n(v.monto) });
+      }
+      if (!vales.length) notes.push('Ningún vale de entrada referencia esta orden de compra: puede estar pendiente de recibir, o haberse cancelado.');
+    }
+
+    // Las recepciones que citan este documento — cierra la cadena hasta el papel firmado.
+    const col = doctype === 'XA3501' ? 'oc_folio' : 'vale_folio';
+    const ents: any[] = await trx('analytics.erp_goods_receipts')
+      .select('sucursal', 'folio', 'doc_prefix', 'monto', trx.raw(`to_char(receipt_date,'YYYY-MM-DD') AS receipt_date`))
+      .where({ tenant_id: tenantId, sucursal }).where(col, folio)
+      .orderBy('receipt_date', 'desc').limit(REL_LIMIT);
+    let recibido = 0;
+    for (const e of ents) {
+      recibido += n(e.monto);
+      relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Recepciones',
+        label: `Entrada ${e.folio}`, sub: e.receipt_date, amount: n(e.monto), date: e.receipt_date });
+    }
+
+    // Renglones: el salto útil es al producto, no a una ficha del renglón de la OC.
+    const lineas: any[] = await trx('analytics.erp_purchase_doc_lines')
+      .select('linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe')
+      .where({ tenant_id: tenantId, doctype, sucursal, folio })
+      .orderByRaw('linea::text ASC').limit(REL_LIMIT);
+    const [lagg]: any[] = await trx('analytics.erp_purchase_doc_lines')
+      .where({ tenant_id: tenantId, doctype, sucursal, folio })
+      .select(trx.raw('count(*)::int AS nlin'), trx.raw('COALESCE(sum(importe),0)::numeric AS sumlin'));
+    for (const l of lineas) {
+      if (!l.sku) continue;
+      relations.push({ ref: makeRef('sku', l.sku), group: 'Lo que se pidió',
+        label: l.nombre || l.sku, sub: `${n(l.cantidad)} ${l.unidad ?? ''} × ${n(l.costo_unitario).toFixed(4)}`.trim(), amount: n(l.importe) });
+    }
+    if (n(lagg?.nlin) > REL_LIMIT) notes.push(`Se listan ${REL_LIMIT} de ${n(lagg.nlin)} renglones.`);
+
+    const fields: RefField[] = [
+      { label: 'Fecha', value: d.doc_date, kind: 'date', source: 'kdm1.c9' },
+      { label: 'Vence', value: d.due_date, kind: 'date', source: 'kdm1.c18' },
+      { label: 'Sucursal', value: d.sucursal, kind: 'mono' },
+      { label: 'Proveedor', value: d.proveedor_nombre || d.proveedor_code },
+      { label: 'RFC', value: d.proveedor_rfc, kind: 'mono' },
+      { label: 'Condición de pago', value: d.condicion_pago, source: 'kdm1.c30' },
+      { label: 'Referencia', value: d.referencia, kind: 'mono', source: 'kdm1.c11' },
+      { label: 'Concepto', value: d.concepto },
+      { label: 'Importe del documento', value: n(d.monto), kind: 'money', source: 'kdm1.c16' },
+      { label: 'Renglones', value: n(lagg?.nlin), kind: 'qty' },
+      { label: 'Σ renglones', value: n(lagg?.sumlin), kind: 'money', source: 'Σ erp_purchase_doc_lines.importe' },
+      { label: 'Origen del feed', value: d.source_branch, kind: 'mono' },
+    ];
+
+    // Pedido vs recibido: la razón de ser de poder abrir la OC. Solo cuando hay recepciones
+    // ligadas; el avance se calcula sobre IMPORTES, que es lo que se puede comparar sin
+    // resolver unidades (una OC en cajas y una entrada en piezas no se restan).
+    const badges: RefResult['badges'] = [{ text: kindLabel, tone: 'muted' }];
+    if (ents.length) {
+      fields.push({ label: 'Recibido contra este documento', value: recibido, kind: 'money', source: `${ents.length} recepción(es)` });
+      const pct = n(d.monto) ? (recibido / n(d.monto)) * 100 : 0;
+      const cerrado = Math.abs(recibido - n(d.monto)) <= 1;
+      badges.push({ text: cerrado ? 'Surtida' : `${pct.toFixed(0)}% surtido`,
+        tone: cerrado ? 'ok' : (pct > 100 ? 'danger' : 'warn'),
+        title: `Recibido ${recibido.toFixed(2)} contra ${n(d.monto).toFixed(2)} del documento` });
+      if (pct > 100) notes.push('Se recibió MÁS de lo que dice el documento. Puede ser una recepción parcial mal ligada, o una entrega de más que nadie ajustó.');
+      notes.push('El avance compara IMPORTES, no piezas: el documento y la recepción pueden estar en unidades distintas (caja vs pieza) y restarlas daría un número falso.');
+    }
+
+    return {
+      ref: '', kind: 'pdoc',
+      title: `${kindLabel} ${d.folio}`,
+      subtitle: `${d.sucursal} · ${d.proveedor_nombre || d.proveedor_code || 's/proveedor'}`,
+      badges, fields, relations, notes,
+    };
+  }
+
   // -- Producto (inventory.products + compras) -------------------------------
   private async producto(trx: any, tenantId: string, sku: string): Promise<RefResult> {
     const [p]: any[] = await trx('inventory.products')
@@ -499,6 +630,22 @@ export class EntityRefService {
       relations.push({ ref: makeRef('lin', l.sucursal, l.folio, l.linea), group: 'Compras de este producto',
         label: `${l.receipt_date ?? ''} · ${l.proveedor_nombre ?? ''}`.trim(),
         sub: `${n(l.cantidad)} pz · costo ${n(l.costo_unitario).toFixed(4)}`, amount: n(l.costo_unitario), date: l.receipt_date });
+    }
+
+    // Lo que se PIDIÓ de este producto (OC/vale), no solo lo que llegó.
+    const pedidos: any[] = await trx('analytics.erp_purchase_doc_lines as pl')
+      .join('analytics.erp_purchase_docs as pd', function (this: any) {
+        this.on('pd.tenant_id', 'pl.tenant_id').andOn('pd.doctype', 'pl.doctype')
+          .andOn('pd.sucursal', 'pl.sucursal').andOn('pd.folio', 'pl.folio');
+      })
+      .select('pd.doctype', 'pd.sucursal', 'pd.folio', 'pd.proveedor_nombre', 'pl.cantidad', 'pl.unidad', 'pl.importe',
+        trx.raw(`to_char(pd.doc_date,'YYYY-MM-DD') AS doc_date`))
+      .where('pl.tenant_id', tenantId).where('pl.sku', sku).where('pd.doctype', 'XA3501')
+      .orderBy('pd.doc_date', 'desc').limit(10);
+    for (const o of pedidos) {
+      relations.push({ ref: makeRef('pdoc', o.doctype, o.sucursal, o.folio), group: 'Órdenes de compra que lo pidieron',
+        label: `${o.doc_date ?? ''} · ${o.proveedor_nombre ?? ''}`.trim(),
+        sub: `OC ${o.folio} · ${n(o.cantidad)} ${o.unidad ?? ''}`.trim(), amount: n(o.importe), date: o.doc_date });
     }
 
     return {

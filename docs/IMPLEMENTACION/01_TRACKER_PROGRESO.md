@@ -765,11 +765,13 @@ Builds api verde con exit code real; typecheck limpio. **Sin migraciones.** Los 
 | ER.4 Cableado Compras 360 | ✅ | Proveedor (tabla + detalle), tipo de ajuste, "Abrir ficha de la entrada". |
 | ER.5 Cableado Entradas | ✅ | Proveedor (lista + detalle), folio de entrada, cada renglón, cada SKU, gemelos CEDIS, folio de ajuste. |
 | ER.6 Smoke | ✅ | `test-newdb-entity-ref.js` 16/16, agregado a la regression. Codec real vía ts-node (`skipProject` + `moduleResolution:'node'` + `ignoreDeprecations`, si no el tsconfig del monorepo tira TS5011/TS5107). |
-| ER.7 OC con ficha | ⬜ | Bloqueado por data: **no existe `analytics.erp_purchase_orders`**. Requiere importer de X-A-35. Hoy el clic en la OC filtra la lista y el panel lo declara. |
+| ER.7 OC y vale con ficha | ✅ 2026-08-20 | Desbloqueado: la data SÍ estaba en Kepler, faltaba traerla. Mig `20260820140000` (`erp_purchase_docs` + `_lines`, una tabla para X-A-35 y X-A-37 — mismo shape) + `import-purchase-docs.js` (7 sucursales, 21,344 docs / 185,746 líneas) + handler `erp-purchase-docs`. Ref `pdoc`. Cobertura 11,405/11,405 vales y 8,950/8,950 OCs. **9,273 pares (sucursal, folio) se comparten entre OC y vale → `doctype` en el ref era obligatorio.** Bonus: avance de surtido (pedido vs recibido, sobre importes). |
 | ER.8 Liga pago→entrada | ⬜ | RE.8. Sin liga estructural en Kepler; hoy "pagos candidatos" ±30 días marcados como estimados. |
 | ER.9 Crosswalk proveedor | ⬜ | `catalog.suppliers.code` (inventario) vs `proveedor_code` (contabilidad): **0 de 328 empatan**. Sin esto la ficha no puede mostrar lead time ni mínimo de pedido. |
 
-**Sin migraciones.** Builds api + view verdes. **Verificación visual pendiente** (no automatizable desde CLI).
+**1 migración** (`20260820140000`, solo local — la cola de knex está trabada por una migración ajena pendiente que pide `kepler_ods.kdm1`, vacío en local; la mía es idempotente por `hasTable` y se registra sola cuando la cola se destrabe). Builds api + view verdes. Smoke 22/22. **Verificación visual pendiente** (no automatizable desde CLI).
+
+**Pendiente prod:** mig a Railway + `import-purchase-docs.js` desde la LAN + agendarlo junto al importer de recepciones + redeploy api/view.
 
 Decisión abierta que quedó tomada por defecto: el resolvedor vive en `libs/commercial` pero con **ruta neutral** `/entity-ref` y sin dependencias de compras — mover el archivo a `shared` cuando Finanzas lo consuma es un `git mv`, no un rediseño.
 

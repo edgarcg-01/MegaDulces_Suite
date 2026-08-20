@@ -137,7 +137,8 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             </td>
             <td class="c3-mono">
               @if (r.oc_folio) {
-                <button type="button" class="c3-oclink" (click)="$event.stopPropagation(); filterByOc(r.oc_folio)" [title]="'Ver todas las recepciones de la OC ' + r.oc_folio">{{ r.oc_folio }}</button>
+                <button type="button" class="c3-oclink" (click)="$event.stopPropagation(); inspect.set(refOc(r))"
+                        [title]="'Abrir la orden de compra ' + r.oc_folio + ': lo pedido, sus vales y qué tanto se surtió'">{{ r.oc_folio }}</button>
               } @else { <span class="muted">—</span> }
             </td>
             <td class="c3-mono">
@@ -197,8 +198,12 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
               @if (r.proveedor_code) { <button type="button" class="c3-linkbtn" (click)="inspect.set(refProv(r.proveedor_code))">{{ r.proveedor_nombre || r.proveedor_code }}</button> }
               @else { {{ r.proveedor_nombre || '—' }} }
             </span></div>
-            <div><span class="c3-dt-l">OC</span><span class="c3-dt-v c3-mono">{{ r.oc_folio || '—' }}</span></div>
-            <div><span class="c3-dt-l">Vale</span><span class="c3-dt-v c3-mono">{{ r.vale_folio || '—' }}</span></div>
+            <div><span class="c3-dt-l">OC</span><span class="c3-dt-v c3-mono">
+              @if (r.oc_folio) { <button type="button" class="c3-linkbtn c3-mono" (click)="inspect.set(refOc(r))">{{ r.oc_folio }}</button> } @else { — }
+            </span></div>
+            <div><span class="c3-dt-l">Vale</span><span class="c3-dt-v c3-mono">
+              @if (r.vale_folio) { <button type="button" class="c3-linkbtn c3-mono" (click)="inspect.set(refVale(r))">{{ r.vale_folio }}</button> } @else { — }
+            </span></div>
             <div><span class="c3-dt-l">Factura</span><span class="c3-dt-v c3-num">{{ money(r.factura) }}</span></div>
             <div><span class="c3-dt-l">Ajuste (exacto)</span><span class="c3-dt-v c3-num">{{ r.ajuste ? '−' + money(r.ajuste) : '—' }}</span></div>
             <div><span class="c3-dt-l">Neto</span><span class="c3-dt-v c3-num c3-strong">{{ money(r.neto) }}</span></div>
@@ -514,6 +519,8 @@ export class ComprasCompras360Component implements OnInit {
   refProv(code: string | null): string { return entityRef('prov', code); }
   refEnt(r: Compras360Row): string { return entityRef('ent', r.sucursal, 'XA2001', r.folio); }
   refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
+  refOc(r: Compras360Row): string { return entityRef('pdoc', 'XA3501', r.sucursal, r.oc_folio); }
+  refVale(r: Compras360Row): string { return entityRef('pdoc', 'XA3701', r.sucursal, r.vale_folio); }
 
   /** Orden pedido por el usuario. Viaja al backend: la tabla es server-paginada y ordenar en
    *  el cliente ordenaría sólo los 50 registros visibles, que es peor que no ordenar. */
@@ -660,7 +667,7 @@ export class ComprasCompras360Component implements OnInit {
   onAjuste(v: Compras360AjusteMode | null): void { this.ajusteMode.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   onComprobante(v: Compras360CompMode | null): void { this.comprobante.set(v || ''); this.page.set(1); this.syncUrl(); this.reload(); }
   /** Clic en la OC: filtra la tabla a todas las recepciones de esa orden de compra. */
-  filterByOc(oc: string): void { if (!oc) return; this.search.set(oc); this.page.set(1); this.syncUrl(); this.reload(); }
+
 
   /** Monto min/max con debounce (evita un request por dígito tecleado). */
   onMonto(which: 'min' | 'max', v: number | null): void {
