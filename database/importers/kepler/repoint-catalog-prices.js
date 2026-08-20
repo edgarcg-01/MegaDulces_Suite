@@ -25,6 +25,12 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_lists BASE-MXN (is_default)
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// CANON.1.3 — fuente por default `ods`: kepler_ods.kdii en el MISMO Postgres de prod (same-DB, @min).
+// Reconciliación decidida (Edgar 2026-08-20): EXCLUIR CEDIS (sucursal 00, cotiza mayoreo más alto) +
+// MODA retail (01-06); fallback a CEDIS solo si el SKU no tiene retail. Verificado: 99% de los BASE-MXN
+// vivos quedan idénticos; los 90 que cambian son correcciones al consenso. Fallback `--source=kp` = .245.
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+const KSCHEMA = SOURCE === 'ods' ? 'kepler_ods' : 'kp';
 const APPLY = process.argv.includes('--apply');
 // Kepler es la AUTORIDAD del precio de venta → SYNC (ACTUALIZA los existentes a c90 fresco,
 // churn-free) es el DEFAULT. Opt-out: --gap-fill-only restaura el viejo comportamiento (solo
@@ -35,19 +41,34 @@ const SYNC = !process.argv.includes('--gap-fill-only');
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
-  const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+  const useOds = SOURCE === 'ods';                    // ods → lee kepler_ods en la misma conexión de prod
+  const src = useOds ? null : new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+  const readSrc = useOds ? dst : src;
   try {
-    console.log(`\n=== Precio base KP_CONCENTRADA c90 → BASE-MXN (${SYNC ? 'SYNC: actualiza todos' : 'solo faltantes'}) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
-    try { await src.connect(); }
-    catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
+    console.log(`\n=== Precio base ${useOds ? 'kepler_ods' : 'KP_CONCENTRADA'} c90 (excl CEDIS + moda retail) → BASE-MXN (${SYNC ? 'SYNC: actualiza todos' : 'solo faltantes'}) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    if (!useOds) {
+      try { await src.connect(); }
+      catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
+    }
 
-    // precio fresco por sku (dedupe, la carga más reciente). Piso c90 > 0.05: los $0.01/$0.05
-    // son marcadores de PROMO (solo rutas, NO precio público) → nunca entran al precio base.
-    const rows = (await src.query(
-      `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, c90::numeric AS precio
-         FROM kp.kdii WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05
-        ORDER BY btrim(c1), _loaded_at DESC`)).rows;
-    console.log(`  KP_CONCENTRADA kp.kdii: ${rows.length} SKUs con c90 > 0.05 (promos excluidas)`);
+    // Precio retail robusto (regla Edgar 2026-08-20): EXCLUIR CEDIS (sucursal '00' = mayoreo, cotiza
+    // más alto) + MODA de c90 entre retail (01-06); fallback a CEDIS solo si el SKU NO tiene retail.
+    // Piso c90 > 0.05: los $0.01/$0.05 son marcadores de PROMO (solo rutas) → nunca entran al base.
+    const rows = (await readSrc.query(`
+      WITH retail AS (
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS precio
+          FROM ${KSCHEMA}.kdii
+         WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00'
+         GROUP BY btrim(c1)),
+      cedis AS (
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS precio
+          FROM ${KSCHEMA}.kdii
+         WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05 AND btrim(sucursal) = '00'
+         GROUP BY btrim(c1))
+      SELECT sku, precio FROM retail
+      UNION ALL
+      SELECT c.sku, c.precio FROM cedis c WHERE NOT EXISTS (SELECT 1 FROM retail r WHERE r.sku=c.sku)`)).rows;
+    console.log(`  ${KSCHEMA}.kdii: ${rows.length} SKUs con precio retail (excl CEDIS, promos excluidas)`);
     if (!rows.length) { console.log('  nada que hacer.'); return; }
 
     await dst.query('BEGIN');
@@ -103,7 +124,7 @@ const SYNC = !process.argv.includes('--gap-fill-only');
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
-    await src.end().catch(() => {});
+    if (src) await src.end().catch(() => {});
     await dst.end().catch(() => {});
   }
 })();
