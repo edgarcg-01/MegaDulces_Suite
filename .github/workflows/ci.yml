@@ -3,11 +3,18 @@ name: CI
 # Gate de build/typecheck. Compila las 4 apps deployables (api, view, portal,
 # vendor) con la MISMA config que los Dockerfiles de prod (--configuration=
 # production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
-# Angular ANTES de que Railway deploye un build roto — clave en este flujo
-# single-dev con auto-push a main.
+# Angular ANTES de que Railway deploye un build roto.
+#
+# Flujo de equipo (3 devs): este workflow es el GATE OBLIGATORIO de todo PR a
+# main. `main` está protegida (branch protection) — no se mergea con el CI en
+# rojo. Ver ONBOARDING.md §8.
 #
 # NO publica imágenes: Railway construye desde el repo en cada push. Este job
 # es puramente un gate de calidad.
+#
+# PENDIENTE (follow-up): agregar un job que corra la regression suite
+# (database/run-all-tests.js) contra un Postgres de servicio + API en background.
+# Hoy queda como gate LOCAL/manual porque necesita multi-DB sembrada.
 
 on:
   push:
@@ -62,8 +69,12 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
+      # --parallel=1: el heap de 4096 es por PROCESO y acá hay TRES apps Angular
+      # (view, portal, vendor). Con parallel=2 dos de ellas pican a la vez y el
+      # runner se queda sin RAM; el job muere sin imprimir error de TypeScript.
+      # Mismo criterio que el Dockerfile raíz.
       - name: Build all deployables
-        run: npx nx run-many -t build -p api view portal vendor --configuration=production --parallel=2
+        run: npx nx run-many -t build -p api view portal vendor --configuration=production --parallel=1
         env:
           NX_DAEMON: 'false'
           # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
