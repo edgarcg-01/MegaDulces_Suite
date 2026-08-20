@@ -67,6 +67,26 @@ const INSERT_MONTH = `
         IS DISTINCT FROM
         (EXCLUDED.vendor_name, EXCLUDED.unit_kind, EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.tickets)`;
 
+// DELETE-huérfanos por mes: la fuente `v_sales_lines` puede ENCOGER (reproceso de la réplica
+// Wincaja, Fase WR) y el UPSERT solo actualiza/inserta combos vigentes — nunca borra los que
+// desaparecieron → quedaban filas fantasma que sobre-declaraban el rollup (+30%). Borra toda fila
+// del mes cuya CLAVE (product×almacén×canal×vendedor) ya no produce la fuente viva. Reproduce EXACTO
+// el mapeo del INSERT (mismo WH_MAP, BLEND y vendor_code) → cero falsos borrados. Espejo del
+// DELETE-huérfanos de import-sales-boxes-monthly (por eso el rollup Kepler sí cuadra al peso).
+const DELETE_ORPHAN = `
+  DELETE FROM analytics.sales_by_vendor_monthly t
+   WHERE t.tenant_id = $1 AND t.year_month = $2
+     AND NOT EXISTS (
+       SELECT 1
+         FROM wincaja.v_sales_lines vl
+         JOIN catalog.products p ON p.tenant_id = vl.tenant_id AND p.sku = vl.sku AND p.deleted_at IS NULL AND p.is_promo = false
+         JOIN commercial.warehouses w ON w.tenant_id = vl.tenant_id AND w.deleted_at IS NULL AND w.code = ${WH_MAP}
+        WHERE vl.tenant_id = $1 AND vl.business_date >= $3 AND vl.business_date < $4 AND ${BLEND}
+          AND p.id = t.product_id
+          AND w.id = t.warehouse_id
+          AND vl.sale_channel = t.sale_channel
+          AND (vl.source_branch || ':' || COALESCE(NULLIF(btrim(vl.vendedor),''), '·')) = t.vendor_code)`;
+
 const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; };
 
 (async () => {
@@ -83,19 +103,30 @@ const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m =
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 
-    let totalRows = 0;
+    let totalRows = 0, totalDel = 0;
     for (const ym of months) {
       const d0 = `${ym}-01`, d1 = nextMonth(ym), t = Date.now();
       await db.query('BEGIN');
       await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-      // UPSERT solo-cambios (sin DELETE por mes): un mes cerrado queda idéntico → 0 escrituras.
+      // UPSERT solo-cambios (no reescribe filas iguales → sin bloat) + DELETE-huérfanos (borra los
+      // combos que la fuente viva ya no produce). Ambos en la MISMA trx → atómico, el lector ve el
+      // mes viejo o el nuevo, nunca a medias. Corrige el drift cuando `v_sales_lines` encoge.
       const ins = await db.query(INSERT_MONTH, [M, d0, d1]);
+      const del = await db.query(DELETE_ORPHAN, [M, ym, d0, d1]);
       await db.query('COMMIT');
-      totalRows += ins.rowCount;
-      console.log(`  ${ym}: ${ins.rowCount} escritas (nuevas/cambiadas) (${Date.now() - t}ms)`);
+      totalRows += ins.rowCount; totalDel += del.rowCount;
+      console.log(`  ${ym}: +${ins.rowCount} / -${del.rowCount} huérfanos (${Date.now() - t}ms)`);
+    }
+    // Barrido de meses que DESAPARECIERON por completo de la fuente (no vuelven en `months` → el
+    // DELETE por-mesde arriba nunca los toca). Solo puede borrar meses sin ninguna venta viva.
+    if (months.length) {
+      const sweep = await db.query(
+        `DELETE FROM analytics.sales_by_vendor_monthly WHERE tenant_id = $1 AND year_month <> ALL($2::text[])`, [M, months]);
+      if (sweep.rowCount) console.log(`  barrido de meses ausentes: -${sweep.rowCount}`);
+      totalDel += sweep.rowCount;
     }
     await db.query(`ANALYZE analytics.sales_by_vendor_monthly`);
-    console.log(`\n[APPLY] OK — ${totalRows} filas en ${months.length} meses.`);
+    console.log(`\n[APPLY] OK — +${totalRows} / -${totalDel} filas en ${months.length} meses.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
