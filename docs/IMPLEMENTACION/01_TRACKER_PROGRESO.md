@@ -809,6 +809,13 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
   - Las dos peores no eran de lectura: **`assertNotLastSuperadmin` contaba superadmins de todos los tenants** (un tenant vecino te habilitaba a degradar al último superadmin del tuyo), y **`update`/`remove` operaban por UUID sin verificar tenant**.
   - Fix: helper `private get tenantId()` + filtro explícito en las 15. Verificado: `/users` 57, `departments` 13, `positions` 43, `roles` 30, `zones` 8, `supervisors` 3 — cero duplicados cross-tenant.
 
+- [x] **[UN.6d]** ✅ 2026-08-20 — **Departamento obligatorio al crear** usuario, y tiene que ser uno EXISTENTE. Sin esto las cuentas nuevas nacían en el cajón "Sin departamento" y el padrón se volvía a desordenar solo.
+  - `CreateUserDto.department_code` pasa de opcional a requerido. Los 3 decoradores (`IsString`/`IsNotEmpty`/`MaxLength`) comparten el MISMO mensaje: `ValidationPipe` devuelve un array con todos los que fallan y con mensajes distintos el toast mostraba el menos útil ("department_code must be a string").
+  - La existencia la valida `assertOrgCodes` contra `identity.departments` del tenant → **400** con el motivo, no 500 por la FK.
+  - Frontend: `Validators.required` en el form SOLO al crear (en edición se limpia, si no bloquearía guardar cualquier cambio de las cuentas heredadas sin departamento), marca `*` en el label, mensaje de error propio, placeholder "Elige el departamento" y sin botón de limpiar al crear. Helper `apiError()` toma el primer mensaje cuando el API devuelve array.
+  - Verificado contra API viva: ausente→400, vacío→400, inexistente→400 ("El departamento \"no_existe\" no existe."), válido→201. Usuario de prueba limpiado. Builds api+view OK.
+  - Nadie más crea usuarios: `POST /users` solo lo consume el admin (verificado — las otras referencias a `/users` son GET, y ningún test crea usuarios por HTTP).
+
 - [ ] **[UN.5]** ⬜ Archivar los 22 roles sin usuarios. Necesita fix de código: `catalogs.service.ts` lista roles **sin filtrar `deleted_at`**, así que el soft-delete solo no los oculta.
 - [ ] **[UN.6]** ⬜ Colapsar el enum `Permission` a fuente única (borrar el de `shared-auth`, generar portal/vendor desde `platform-core`).
 - [ ] **[UN.7]** ⬜ Reset de contraseña de los **11 usuarios que comparten el mismo hash bcrypt**. No hay flujo de cambio obligatorio.

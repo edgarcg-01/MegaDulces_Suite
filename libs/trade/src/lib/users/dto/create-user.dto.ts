@@ -9,6 +9,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+const DEPARTMENT_REQUIRED = 'Hay que asignar un departamento existente.';
+
 export class CreateUserDto {
   @ApiProperty({ description: 'Nombre de usuario único (3-64 caracteres)' })
   @IsString()
@@ -52,11 +54,21 @@ export class CreateUserDto {
   @IsUUID()
   supervisor_id?: string;
 
-  @ApiProperty({ description: 'Departamento del organigrama (identity.departments.code)', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  department_code?: string | null;
+  /**
+   * OBLIGATORIO al crear: un usuario nuevo tiene que nacer en un departamento
+   * que exista. Sin esto las cuentas caían en el cajón "Sin departamento" del
+   * admin y el padrón volvía a desordenarse solo. La existencia del code la
+   * valida `UsersService.assertOrgCodes` contra `identity.departments` del
+   * tenant (400 si no existe, no 500 por la FK).
+   */
+  @ApiProperty({ description: 'Departamento del organigrama (identity.departments.code). Obligatorio.' })
+  // Mismo mensaje en los 3 decoradores: `ValidationPipe` devuelve un ARRAY con
+  // todos los que fallan, y si cada uno dice algo distinto el toast del admin
+  // muestra el menos útil ("department_code must be a string").
+  @IsString({ message: DEPARTMENT_REQUIRED })
+  @IsNotEmpty({ message: DEPARTMENT_REQUIRED })
+  @MaxLength(50, { message: DEPARTMENT_REQUIRED })
+  department_code!: string;
 
   @ApiProperty({ description: 'Puesto del organigrama (identity.positions.code)', required: false })
   @IsOptional()

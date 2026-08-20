@@ -508,6 +508,10 @@ export class AdminUsersComponent implements OnInit {
       .get('password')
       ?.setValidators([Validators.required, Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
+    // Un usuario nuevo tiene que nacer en un departamento existente: si no, cae
+    // en el cajón "Sin departamento" y el padrón se desordena solo.
+    this.userForm.get('department_code')?.setValidators([Validators.required]);
+    this.userForm.get('department_code')?.updateValueAndValidity();
     this.refreshLookups();
     this.displayDialog.set(true);
   }
@@ -519,6 +523,10 @@ export class AdminUsersComponent implements OnInit {
     this.userForm.get('password')?.clearValidators();
     this.userForm.get('password')?.setValidators([Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
+    // En edición NO se exige: obligarlo bloquearía guardar cualquier cambio en
+    // las cuentas heredadas que todavía no tienen departamento.
+    this.userForm.get('department_code')?.clearValidators();
+    this.userForm.get('department_code')?.updateValueAndValidity();
 
     this.userForm.patchValue({
       username: user.username,
@@ -548,6 +556,17 @@ export class AdminUsersComponent implements OnInit {
     this.displayDialog.set(false);
   }
 
+  /**
+   * Motivo legible del error del API. `ValidationPipe` de NestJS devuelve
+   * `message` como ARRAY cuando el DTO no valida; mostrarlo tal cual concatena
+   * todos los mensajes del campo y tapa el que importa.
+   */
+  private apiError(err: unknown, fallback: string): string {
+    const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
+    if (Array.isArray(msg)) return msg[0] || fallback;
+    return msg || fallback;
+  }
+
   saveUser(): void {
     if (this.saving()) return;
     // Nunca fallar en silencio: si el form es inválido, marcar y avisar el motivo.
@@ -556,7 +575,9 @@ export class AdminUsersComponent implements OnInit {
       this.messageService.add({
         severity: 'warn',
         summary: 'Revisa el formulario',
-        detail: 'Faltan campos obligatorios (usuario y rol son requeridos).',
+        detail: this.isEditing()
+          ? 'Faltan campos obligatorios (usuario y rol son requeridos).'
+          : 'Faltan campos obligatorios (usuario, rol y departamento son requeridos).',
       });
       return;
     }
@@ -593,7 +614,7 @@ export class AdminUsersComponent implements OnInit {
             this.messageService.add({
               severity: 'error',
               summary: 'Error',
-              detail: err?.error?.message || 'Error al actualizar usuario.',
+              detail: this.apiError(err, 'Error al actualizar usuario.'),
             });
           },
         });
@@ -619,7 +640,7 @@ export class AdminUsersComponent implements OnInit {
             this.messageService.add({
               severity: 'error',
               summary: 'Error',
-              detail: err?.error?.message || 'Error al crear usuario.',
+              detail: this.apiError(err, 'Error al crear usuario.'),
             });
           },
         });
@@ -659,7 +680,7 @@ export class AdminUsersComponent implements OnInit {
           this.messageService.add({
             severity: 'error',
             summary: 'Error',
-            detail: err?.error?.message || 'No se pudo eliminar el usuario.',
+            detail: this.apiError(err, 'No se pudo eliminar el usuario.'),
           });
         },
       });
