@@ -231,16 +231,31 @@ CREATE PUBLICATION ods_pub FOR TABLES IN SCHEMA md;   -- mirror completo (como l
 host   md_00   ods_repl   <IP_DEL_SUBSCRIBER>/32   scram-sha-256
 ```
 
-### 8.B En el subscriber @:5433 (pgvector-md) — la DB DEBE llamarse `kepler_md_00`
-> El normalizer mapea `localDbName('00') = 'kepler_md_00'` (replicate-ods-live.js) — el nombre es obligatorio.
+### 8.B En el subscriber @:5433 (pgvector-md) — ✅ DB + DDL YA HECHOS 2026-08-20
+`setup-branch-subscriber.js --branch=00 --apply` creó **`kepler_md_00` + 348 tablas VACÍAS** (DDL clonado por
+introspección `format_type`+PK; `pg_dump` no está en PATH → se usa el script, reusable para futuras ramas).
+Verificado: md_00 = **348 tablas, TODAS con PK** → full-schema logical replication segura. El nombre `kepler_md_00`
+es obligatorio (`localDbName('00')`). **Falta SOLO** (tras el POS §8.A):
 ```bash
-pg_dump -h 192.168.9.95 -U platform_ro -d md_00 -n md --schema-only > md_00_schema.sql
-psql -p 5433 -c "CREATE DATABASE kepler_md_00"
-psql -p 5433 -d kepler_md_00 -f md_00_schema.sql        # crea schema md + todas las tablas con PK
 psql -p 5433 -d kepler_md_00 -c "CREATE SUBSCRIPTION sub_md_00 \
   CONNECTION 'host=192.168.9.95 port=5432 dbname=md_00 user=ods_repl password=<secreto-00>' \
-  PUBLICATION ods_pub"                                  # dispara la COPIA inicial (~300MB)
+  PUBLICATION ods_pub"                                  # dispara la COPIA inicial (~300MB); luego streaming
 ```
+Rerun de `setup-branch-subscriber.js` es idempotente (reusa la DB, salta tablas existentes).
+
+### 8.E Full-mirror del SHIP a prod (para que las tablas de finanzas de 00 lleguen a `kepler_ods`)
+La subscription trae las 348 tablas de 00 al **replica local** `kepler_md_00`. Pero `replicate-ods-live` (OdsLiveLoop)
+solo **shippea a prod** las tablas de `KP_ODS_TABLES` (hoy 11 en el launcher) → las de finanzas (`kdc2*` pólizas,
+`kdco`, `kdc3`, `kdpv_folio_caja`) NO llegan a prod `kepler_ods`. **Medido 2026-08-20:** un pase full-mirror
+(`--tables=*`, 348 tablas) tarda <100s/rama → **NO meterlo en el loop caliente** (×6 = ~10min/ciclo, degradaría
+la frescura @10s de venta/stock). **Solución = pase full-mirror SEPARADO y más lento** (paralelo al OdsLiveLoop):
+```bash
+# nueva tarea (clonar el bloque env de run-ods-live-loop.cmd: FEEDS_SINK=http + FEEDS_INGEST_*):
+FEEDS_SINK=http KP_ODS_TABLES=* node database/importers/kepler/replicate-ods-live.js --apply --watch=300
+```
+Steady-state el hash-delta shippea solo el delta (≈0) → barato. El primer pase siembra el resto. Cadencia 5-15min
+para finanzas es de sobra. (Alternativa mínima: `KP_ODS_TABLES=kdm1,kdm2,…,kdco,kdc3,kdpv_folio_caja,kdc2*` — pero
+`kdc2YYMM` rota por mes → `*` lo auto-cubre; el explícito requiere editar cada mes.)
 
 ### 8.C Código — ✅ YA HECHO
 `ODS_LIVE_BRANCHES` default ahora `00,01,02,03,04,05,06` (replicate-ods-live.js). Hasta que exista `kepler_md_00` el ciclo la **salta** (`⚠ replica 00: no conecta — skip`, inofensivo); al crear la subscription **se activa sola** — sin tocar el launcher `run-ods-live-loop.cmd` (no setea `ODS_LIVE_BRANCHES`).
