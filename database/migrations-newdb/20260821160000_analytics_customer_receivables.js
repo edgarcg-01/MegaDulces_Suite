@@ -28,6 +28,8 @@ exports.up = async function (knex) {
         folio         text NOT NULL,            -- kdue.c6
         folio_digital text,                     -- c1 || doc_code || '-' || c6  ('01UD0801-0000687')
         cliente_code  text,                     -- kdue.c2 (→ analytics.erp_customers / kdud)
+        grupo         text,                     -- kdud.c13 (ej '1M001' TELEMARKETING LA PIEDAD)
+        zona          text,                     -- kdud.c14 (ej '01')
         fecha         date,                     -- kdue.c7
         vencimiento   date,                     -- kdue.c10 (solo cargo; aging)
         importe       numeric NOT NULL DEFAULT 0,   -- kdue.c11
@@ -47,6 +49,14 @@ exports.up = async function (knex) {
     await knex.raw(`CREATE INDEX ix_cxc_fecha ON analytics.customer_receivables (tenant_id, fecha DESC)`);
     await knex.raw(`GRANT SELECT ON analytics.customer_receivables TO app_runtime`);
   }
+
+  // Idempotente: grupo/zona (kdud.c13/c14) por si la tabla ya existía sin ellas.
+  for (const col of ['grupo', 'zona']) {
+    if (!(await knex.schema.withSchema('analytics').hasColumn('customer_receivables', col))) {
+      await knex.raw(`ALTER TABLE analytics.customer_receivables ADD COLUMN ${col} text`);
+    }
+  }
+  await knex.raw(`CREATE INDEX IF NOT EXISTS ix_cxc_grupo_zona ON analytics.customer_receivables (tenant_id, sucursal, grupo, zona)`);
 };
 
 exports.down = async function (knex) {

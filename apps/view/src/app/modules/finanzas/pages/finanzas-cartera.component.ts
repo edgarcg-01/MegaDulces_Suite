@@ -7,7 +7,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucket } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, AgingBucket } from '../cartera.service';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -33,6 +33,8 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucke
 
       <div class="ct-filters">
         <p-select [options]="sucursales" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
+        <p-select [options]="grupoOpts()" [(ngModel)]="grupo" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Grupo" [showClear]="true" styleClass="ct-sel" ariaLabel="Grupo" />
+        <p-select [options]="zonaOpts()" [(ngModel)]="zona" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Zona" [showClear]="true" styleClass="ct-sel" ariaLabel="Zona" />
         <span class="p-input-icon-left ct-search">
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Cliente, código o RFC…" aria-label="Buscar cliente" />
         </span>
@@ -63,7 +65,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucke
           <table class="ct-table">
             <thead>
               <tr>
-                <th>Cliente</th><th>Suc</th><th>Vend</th><th class="ta-r">Partidas</th>
+                <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
                 <th class="ta-r">Por vencer</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th></th>
               </tr>
             </thead>
@@ -72,6 +74,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucke
                 <tr (click)="openDetalle(c)" class="ct-row" [class.ct-row-venc]="c.vencido > 0">
                   <td><b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span></td>
                   <td>{{ c.sucursal }}</td>
+                  <td>{{ c.zona || '—' }}</td>
                   <td>{{ c.vendedor || '—' }}</td>
                   <td class="ta-r">{{ c.n_partidas }}</td>
                   <td class="ta-r">{{ c.saldo - c.vencido | number:'1.2-2' }}</td>
@@ -80,7 +83,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucke
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="8" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+                <tr><td colspan="9" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
               }
             </tbody>
           </table>
@@ -174,8 +177,14 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly detalle = signal<CarteraDetalle | null>(null);
 
   sucursal: string | null = '01';
+  grupo: string | null = null;
+  zona: string | null = null;
   search = '';
   incluirSaldados = false;
+
+  readonly filtros = signal<CarteraFiltros | null>(null);
+  readonly grupoOpts = computed(() => (this.filtros()?.grupos || []).map((g) => ({ label: g, value: g })));
+  readonly zonaOpts = computed(() => (this.filtros()?.zonas || []).map((z) => ({ label: z, value: z })));
 
   readonly sucursales = [
     { label: 'Todas', value: null },
@@ -187,12 +196,17 @@ export class FinanzasCarteraComponent implements OnInit {
     { label: '06 · Canindo', value: '06' },
   ];
 
-  ngOnInit() { this.load(); }
+  ngOnInit() {
+    this.svc.filtros().subscribe({ next: (f) => this.filtros.set(f), error: () => {} });
+    this.load();
+  }
 
   load() {
     this.loading.set(true); this.error.set(null);
     this.svc.cartera({
       sucursal: this.sucursal || undefined,
+      grupo: this.grupo || undefined,
+      zona: this.zona || undefined,
       search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
     }).subscribe({
