@@ -1,9 +1,36 @@
 # Traspaso — "se cuelga /comercial" (2026-08-20/21)
 
-Documento para quien retome el problema. **No está resuelto.** Lo que sigue es lo medido,
-lo descartado con evidencia, lo que cambié y lo que quedó abierto. La razón de escribirlo
-es concreta: yo quemé cuatro hipótesis equivocadas por medir del lado que no era, y
-repetirlas cuesta un deploy y una espera del usuario cada vez.
+> **RESUELTO 2026-08-21 — commit `bdfeba36`.** Era el **side-peek cerrado comiéndose todos
+> los clics de la página**, no el Centro de control ni el servidor. `.sp-root` es una capa
+> `position: fixed; inset: 0` con el backdrop en `opacity: 0`; `visibility: hidden` y
+> `pointer-events: none` habían quedado **dentro** del bloque `.is-above-modals` al
+> insertarlo en `6b4146c9` (2026-08-20, 18:13) — una llave mal puesta. Con el default
+> `aboveModals=false`, lámina invisible sobre toda la pantalla. Afectaba **8 de las 10**
+> pantallas con side-peek; el Centro de control monta **dos** (cliente y producto).
+>
+> **Por qué nadie lo vio en dos días:** la página estaba sana. Peticiones 200, fps 41+,
+> cero long tasks, cero navegaciones abiertas, sonda de control a 128 ms durante la ráfaga,
+> service worker descartado en incógnito. Todas las señales verdes y la pantalla
+> inservible: **ninguna sonda de red, cuadros, pool ni tareas largas ve un bloqueador de
+> punteros.** Se cargaba la pantalla y se medía — nunca se intentó **hacer clic**.
+>
+> **Lo que lo destrabó** fueron dos respuestas de Edgar: "se ve pintada, no responde a
+> clics" + "en incógnito igual, y les pasa a todos los usuarios". Esa es la pregunta que
+> este documento dejó abierta (abajo) y que había que hacer el primer día.
+>
+> **Cómo se confirmó, en un minuto y sin deploy:** `document.elementFromPoint` en cinco
+> puntos del viewport devolvía `div.sp-backdrop` en TODOS; Playwright, al intentar el clic,
+> lo dice literal: `<div class="sp-backdrop"> from <app-side-peek> subtree intercepts
+> pointer events`. Inyectando la regla corregida con un `<style>` en la misma pestaña, el
+> mismo punto pasa a devolver `article.cell` y el clic entra.
+>
+> El resto del documento se conserva como está: las mediciones y las hipótesis descartadas
+> siguen siendo válidas, y el registro de **por dónde NO ir** es la parte que costó.
+
+Documento para quien retome el problema. Lo que sigue es lo medido, lo descartado con
+evidencia, lo que cambié y lo que quedó abierto. La razón de escribirlo es concreta: se
+quemaron cuatro hipótesis equivocadas por medir del lado que no era, y repetirlas cuesta
+un deploy y una espera del usuario cada vez.
 
 ---
 
@@ -145,10 +172,12 @@ En Git Bash, sin `MSYS_NO_PATHCONV=1` la ruta se convierte en un path de Windows
 
 ## Lo que queda abierto
 
-**La pregunta sin responder:** ¿"colgado" significa esperar ~6 s con esqueletos, o algo que
-nunca termina? Nunca lo aclaramos, y las dos lecturas llevan a lugares distintos. Ninguna
-captura mostró jamás la falla, así que o el síntoma es la espera, o es intermitente y
-depende de un estado del navegador de Edgar que no reprodujo el mío.
+**La pregunta sin responder** (contestada el 2026-08-21, y era la clave): ¿"colgado"
+significa esperar ~6 s con esqueletos, o algo que nunca termina? La respuesta fue una
+TERCERA opción que nadie puso sobre la mesa: **se ve pintada y no responde a clics**. Y
+le pasaba a todos los usuarios, también en incógnito. Con eso, el diagnóstico tomó un
+minuto. **Lección: preguntar qué está congelado —con opciones concretas, incluida "se ve
+bien pero no responde"— antes de medir cualquier cosa.**
 
 **Si es la espera** (lo más probable con lo medido), lo que falta es:
 
