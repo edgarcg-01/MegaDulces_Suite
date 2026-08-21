@@ -507,6 +507,9 @@ export class CommercialPricingService {
           count(PRICE_HEALTH_SQL.below_cost, 'below_cost'),
           count(PRICE_HEALTH_SQL.thin, 'thin'),
           count(PRICE_HEALTH_SQL.no_cost, 'no_cost'),
+          // Frescura: el precio lo sincroniza Kepler, así que "cuándo se movió
+          // esta lista por última vez" es lo que dice si está viva o congelada.
+          trx.raw('MAX(pp.updated_at) AS last_price_update'),
         );
 
       // Mismo criterio anti-leak que listPrices: los contadores de margen son

@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Changed — `/comercial/pricing` pasa a solo lectura: el precio lo pone Kepler (2026-08-21)
+- La celda de precio era **editable en sitio** y el botón de la última columna **quitaba** el precio de la lista. Ambas escrituras eran contra `commercial.product_prices`, que es lo que sincroniza el feed: en `BASE-MXN` (la `is_default`, y la lista de los **282 clientes**) `repoint-catalog-prices --apply` actualiza *todos* los precios desde `kepler_ods.kdii.c90` → lo que se teclee se revierte en la corrida siguiente (790 filas tocadas en las últimas 48h). En `P1–P4`/`MAYOREO` se quedaba pegado, porque su importer está retirado.
+- La tabla queda de diagnóstico: salud del precio, cobertura, rotación, margen, exportar. Se fue la columna de acciones y el wrapper de `bulkUpsertPrices`/`deletePrice` del frontend (los endpoints siguen en la API para uso administrativo).
+- **Procedencia visible** en el encabezado del detalle: qué feed escribe la lista, hace cuánto se movió y un tag `congelada` si nadie le escribe en ≥14 días — derivado de dato (`MAX(pp.updated_at)`, nuevo en `/price-lists/health`), no de una etiqueta escrita a mano, así que se auto-corrige cuando el feed vuelva.
+- El empty state deja de decir "poné uno desde la columna Precio" y nombra el importer de esa lista.
+
 ### Fixed — Pricing: editar un precio ya no borra el quiebre por volumen del SKU (2026-08-21)
 - `bulkUpsertPrices` (`commercial-pricing.service.ts`) metía `min_qty ?? 1` y `tax_rate ?? 0.16` en el `MERGE` del upsert. La celda editable de `/comercial/pricing` manda sólo `{ product_id, price }`, así que **cada precio editado a mano reseteaba el mínimo de compra a 1 y el IVA a 16%** — sin toast, sin verse en la tabla (el optimistic UI sólo superpone el precio).
 - **No era cosmético:** `resolvePriceForQty` —el que cobran `commercial-orders` y `stock-reservation`— elige el precio **más bajo con `min_qty <= qty`**. Bajar un `min_qty` a 1 libera el precio de volumen para compras de 1 pieza. Medido en la base: **33,876 de 42,759 precios (79%) tienen `min_qty > 1`** y 7,372 tienen `tax_rate = 0`; 2,735 productos tienen descuento por volumen real, **9.4% promedio**. Ejemplo del smoke FIQ.3: `AMPER KALACA 473 ML` cobra $168.67 suelto y $14.05 desde 3 piezas.
