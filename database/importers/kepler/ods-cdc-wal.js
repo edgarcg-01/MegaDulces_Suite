@@ -36,6 +36,16 @@ const WARN_LAG_MB = Number(process.env.ODS_CDC_WARN_LAG_MB) || 500; // lag del s
 const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
 const localCfg = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return { connectionString: u.toString() }; };
 const mapType = (dt) => ({ 'timestamp without time zone': 'timestamp', 'timestamp with time zone': 'timestamptz' }[dt] || (['numeric','double precision','real','integer','bigint','smallint','boolean','date'].includes(dt) ? dt : 'text'));
+// pgoutput NO resuelve nombres de tipos builtin (typeName=null) → trae typeOid. Mapear el OID al
+// nombre pg (alineado al whitelist de odsType en apply-handlers) es CLAVE: si mandáramos todo 'text',
+// el INSERT..SELECT contra el destino ya tipado (numeric/date) truena ("column X is of type numeric
+// but expression is of type text"). El valor ya viene parseado por el typeParser del OID → casa.
+const OID_TYPE = {
+  16: 'boolean', 20: 'bigint', 21: 'smallint', 23: 'integer',
+  700: 'real', 701: 'double precision', 1700: 'numeric',
+  1082: 'date', 1114: 'timestamp', 1184: 'timestamptz',
+};
+const pgTypeOf = (c) => (c && c.typeName ? mapType(c.typeName) : (OID_TYPE[c && c.typeOid] || 'text'));
 
 /** publication FOR ALL TABLES + slot pgoutput (idempotente). */
 async function ensurePubSlot(code) {
@@ -70,7 +80,7 @@ function rowOf(log) {
 function shipMetaOf(log) {
   const cols = log.relation?.columns || [];
   const pk = cols.filter((c) => c.flags & 1 /* key */).map((c) => c.name);
-  return { table: log.relation.name, pk, columns: [{ name: 'sucursal', type: 'text' }, ...cols.map((c) => ({ name: c.name, type: mapType(c.dataTypeName || 'text') }))] };
+  return { table: log.relation.name, pk, columns: [{ name: 'sucursal', type: 'text' }, ...cols.map((c) => ({ name: c.name, type: pgTypeOf(c) }))] };
 }
 
 async function run(code) {
