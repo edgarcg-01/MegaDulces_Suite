@@ -9,7 +9,8 @@
  * `recibida → validada | rechazada` (el contador revisa/autoriza).
  *
  * Archivos = `files jsonb` array de { role, url, public_id, kind, name }, con
- * roles fijos: comprobante_1 (req), comprobante_2, solicitud_kepler (req),
+ * roles: comprobante_1 (req), comprobante_2, solicitud_kepler (retirado del
+ * formulario 2026-08-21 — la solicitud ya vive en Kepler XA1501),
  * evidencia_1, evidencia_2, evidencia_3.
  *
  * Convención A.0mt: tenant_id + RLS forzado + grants app_runtime + audit fields.
