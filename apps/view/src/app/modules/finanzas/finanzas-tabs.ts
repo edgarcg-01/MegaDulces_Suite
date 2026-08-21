@@ -62,12 +62,6 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
-    label: 'Comprobación de gastos',
-    route: '/finanzas/comprobacion-gastos',
-    icon: 'pi pi-check-circle',
-    permission: Permission.FINANCE_EXPENSES_VER,
-  },
-  {
     label: 'Capturar gasto',
     route: '/finanzas/capturar-gasto',
     icon: 'pi pi-upload',

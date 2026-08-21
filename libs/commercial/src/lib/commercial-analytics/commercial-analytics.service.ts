@@ -2066,13 +2066,32 @@ export class CommercialAnalyticsService {
    * XA1001). KPIs + filas para la página "Solicitudes de gasto". Filtros: from/to,
    * sucursal[], estado (F/A/C/N), solicitante (ILIKE), aplicada (bool), search.
    */
+  /**
+   * Columnas de `analytics.expense_requests` presentes en ESTA base.
+   *
+   * La vista pasó de 13 a 23 columnas (mig 20260821200000). Sondear en vez de asumir
+   * deja que el código y la migración se desplieguen en cualquier orden: sin la
+   * migración simplemente no se piden los campos nuevos, en vez de tirar un 500.
+   * Se cachea: el esquema no cambia en caliente.
+   */
+  private erCols: Set<string> | null = null;
+  private async expenseRequestCols(trx: any): Promise<Set<string>> {
+    if (this.erCols) return this.erCols;
+    const r = await trx.raw(`SELECT column_name FROM information_schema.columns
+                              WHERE table_schema='analytics' AND table_name='expense_requests'`);
+    this.erCols = new Set((r.rows || []).map((x: any) => x.column_name));
+    return this.erCols;
+  }
+
   async expenseRequests(q: {
     from?: string; to?: string; sucursal?: string[]; estado?: string;
-    solicitante?: string; aplicada?: boolean; search?: string; limit?: number;
+    solicitante?: string; aplicada?: boolean; search?: string;
+    grupo?: string[]; min_importe?: number; limit?: number;
   }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(5000, Math.max(1, Number(q.limit) || 2000));
     return this.tk.run(async (trx) => {
+      const enriquecida = (await this.expenseRequestCols(trx)).has('cuenta_grupo');
       const applyFilters = (b: any) => {
         b.where('r.tenant_id', tenantId);
         if (q.from) b.andWhere('r.fecha', '>=', q.from);
@@ -2081,6 +2100,9 @@ export class CommercialAnalyticsService {
         if (q.estado) b.where('r.estado', q.estado);
         if (q.solicitante?.trim()) b.whereRaw('r.solicitante ILIKE ?', [`%${q.solicitante.trim()}%`]);
         if (q.aplicada != null) b.where('r.aplicada', q.aplicada);
+        // Filtros del autorizador (sólo si la vista enriquecida ya está aplicada).
+        if (q.grupo?.length && enriquecida) b.whereIn('r.cuenta_grupo', q.grupo);
+        if (q.min_importe != null && Number.isFinite(q.min_importe)) b.where('r.importe', '>=', q.min_importe);
         if (q.search?.trim()) {
           const s = `%${q.search.trim()}%`;
           b.andWhere((w: any) => w.whereRaw('r.folio ILIKE ?', [s]).orWhereRaw('r.beneficiario ILIKE ?', [s]).orWhereRaw('r.concepto ILIKE ?', [s]));
@@ -2105,7 +2127,12 @@ export class CommercialAnalyticsService {
         .select('r.folio', 'r.sucursal', 'w.name as sucursal_nombre', 'r.fecha',
           trx.raw('r.importe::numeric AS importe'), 'r.solicitante', 'r.beneficiario', 'r.concepto',
           'r.estado', 'r.aplicada', 'g.doc_folio as gasto_folio', 'g.fecha as gasto_fecha',
-          trx.raw('(g.fecha - r.fecha) AS lead_days'))
+          trx.raw('(g.fecha - r.fecha) AS lead_days'),
+          // Campos de Kepler que la vista dejó de esconder (mig 20260821200000).
+          ...(enriquecida
+            ? ['r.cuenta_clave', 'r.cuenta_grupo', 'r.acreedor', 'r.acreedor_rfc', 'r.rfc',
+               'r.forma_pago', 'r.autoriza', 'r.referencia', trx.raw('r.iva::numeric AS iva')]
+            : []))
         .orderBy('r.fecha', 'desc')
         .limit(limit);
 
@@ -2117,7 +2144,12 @@ export class CommercialAnalyticsService {
           pendientes_importe: Number(k?.pendientes_importe || 0),
           aplicadas: Number(k?.aplicadas || 0),
         },
-        rows: rows.map((x: any) => ({ ...x, importe: Number(x.importe), lead_days: x.lead_days != null ? Number(x.lead_days) : null })),
+        rows: rows.map((x: any) => ({
+          ...x,
+          importe: Number(x.importe),
+          iva: x.iva == null ? null : Number(x.iva),
+          lead_days: x.lead_days != null ? Number(x.lead_days) : null,
+        })),
       };
     });
   }

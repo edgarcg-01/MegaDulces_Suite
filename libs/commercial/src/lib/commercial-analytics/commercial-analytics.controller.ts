@@ -428,7 +428,7 @@ export class CommercialAnalyticsController {
 
   @Get('expenses/requests')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'GX.6 — Solicitudes de gasto (XA1501) con estado y aplicada/pendiente + KPIs. Filtros: from,to, sucursal=csv, estado=F|A|C|N, solicitante, aplicada=true|false, search.' })
+  @ApiOperation({ summary: 'GX.6 — Solicitudes de gasto (XA1501) con estado y aplicada/pendiente + KPIs. Filtros: from,to, sucursal=csv, estado=F|A|C|N, solicitante, aplicada=true|false, search, grupo=csv (cuenta_grupo), min_importe.' })
   expenseRequests(
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -437,6 +437,8 @@ export class CommercialAnalyticsController {
     @Query('solicitante') solicitante?: string,
     @Query('aplicada') aplicada?: string,
     @Query('search') search?: string,
+    @Query('grupo') grupo?: string,
+    @Query('min_importe') min_importe?: string,
     @Query('limit') limit?: string,
   ) {
     return this.service.expenseRequests({
@@ -447,6 +449,8 @@ export class CommercialAnalyticsController {
       solicitante,
       aplicada: aplicada === 'true' ? true : aplicada === 'false' ? false : undefined,
       search,
+      grupo: grupo ? grupo.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      min_importe: min_importe ? Number(min_importe) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
   }

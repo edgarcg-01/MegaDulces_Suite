@@ -1356,6 +1356,8 @@ export class ComercialService {
     if (p.solicitante?.trim()) params = params.set('solicitante', p.solicitante.trim());
     if (p.aplicada != null) params = params.set('aplicada', String(p.aplicada));
     if (p.search?.trim()) params = params.set('search', p.search.trim());
+    if (p.grupo?.length) params = params.set('grupo', p.grupo.join(','));
+    if (p.min_importe) params = params.set('min_importe', String(p.min_importe));
     return this.http.get<ExpenseRequestsReport>(`${this.base}/analytics/expenses/requests`, { params });
   }
   expenseDocument(sucursal: string, doc_tipo: string, folio: string) {
@@ -2168,6 +2170,10 @@ export interface ExpenseDocChain {
 export interface ExpenseRequestsParams {
   from?: string; to?: string; sucursal?: string[]; estado?: string;
   solicitante?: string; aplicada?: boolean; search?: string;
+  /** Grupo de gasto (prefijo de la cuenta Kepler c10): GN nómina, GG caja chica, GF combustible… */
+  grupo?: string[];
+  /** Piso de importe: el autorizador mira primero lo grande. */
+  min_importe?: number;
 }
 export interface ExpenseRequestRow {
   folio: string;
@@ -2183,6 +2189,17 @@ export interface ExpenseRequestRow {
   gasto_folio: string | null;
   gasto_fecha: string | null;
   lead_days: number | null;
+  // Campos que Kepler siempre tuvo y la vista dejó de esconder (mig 20260821200000).
+  // Opcionales: si la migración todavía no corrió, el backend no los manda.
+  cuenta_clave?: string | null;
+  cuenta_grupo?: string | null;
+  acreedor?: string | null;
+  acreedor_rfc?: string | null;
+  rfc?: string | null;
+  iva?: number | null;
+  forma_pago?: string | null;
+  autoriza?: string | null;
+  referencia?: string | null;
 }
 export interface ExpenseRequestsReport {
   kpis: { total: number; importe: number; pendientes: number; pendientes_importe: number; aplicadas: number };
