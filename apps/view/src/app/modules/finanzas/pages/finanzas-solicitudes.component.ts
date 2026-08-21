@@ -63,9 +63,15 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
         <div class="surf-page-head-text">
           <div class="so-title"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
           <p class="surf-page-sub">Solicitudes (XA1501) y su aplicación a gasto (XA1001) · estado, solicitante y días de proceso · fuente Kepler</p>
+          @if (mias() && !sinAnclas()) { <p class="so-scope"><i class="pi pi-user" aria-hidden="true"></i> Mías = <strong>{{ miScopeTexto() }}</strong></p> }
+          @if (mias() && sinAnclas()) { <p class="so-scope is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué saber cuáles son tuyas — pedí que te asignen tus áreas de gasto en Usuarios.</p> }
         </div>
         <div class="so-head-right">
           @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
+          <!-- Alcance: de quién es lo que estoy viendo. Va antes del periodo porque
+               cambia el universo, no lo recorta. -->
+          <app-segmented [options]="alcanceOpts" [value]="mias() ? 'mias' : 'todas'"
+                         (valueChange)="setAlcance($event)" ariaLabel="Alcance" />
           <app-segmented [options]="periodoOpts" [value]="periodo()" (valueChange)="setPeriodo($event)" ariaLabel="Periodo" />
           @if (periodo() === 'rango') {
             <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
@@ -243,6 +249,9 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     /* ── Head ───────────────────────────────────────────────────────────── */
     .so-title { display: inline-flex; align-items: center; gap: var(--sp-2); }
     .so-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-1); }
+    .so-scope { display: inline-flex; align-items: center; gap: var(--sp-1); margin: var(--sp-1) 0 0;
+      font-size: var(--fs-xs); color: var(--fg-2); }
+    .so-scope.is-warn { color: var(--warn-fg); }
     .so-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }
     .so-live i { font-size: var(--fs-nano); }
 
@@ -390,7 +399,22 @@ export class FinanzasSolicitudesComponent {
   grupo: string[] = [];
   minImporte: number | null = null;
   readonly periodo = signal<Periodo>('hoy');
+  /** Alcance: mías o de toda la empresa. Es una lente, no un filtro más. */
+  readonly mias = signal(false);
+  /** Contra qué resuelve "mío" este usuario, según el backend. */
+  readonly miScope = computed(() => this.report()?.mi_scope ?? { keys: [], areas: 0, nombre: null });
+  /** Sin anclas no hay "mío" posible: el control se apaga y se dice por qué. */
+  readonly sinAnclas = computed(() => !this.miScope().keys.length);
+  /** Qué está tomando como "mío", en llano — para que nadie adivine qué está viendo. */
+  miScopeTexto(): string {
+    const m = this.miScope();
+    const partes: string[] = [];
+    if (m.nombre) partes.push(m.nombre);
+    if (m.areas) partes.push(`${m.areas} ${m.areas === 1 ? 'área asignada' : 'áreas asignadas'}`);
+    return partes.join(' + ');
+  }
 
+  readonly alcanceOpts = [{ label: 'Mías', value: 'mias' }, { label: 'Todas', value: 'todas' }];
   readonly periodoOpts = [
     { label: 'Hoy', value: 'hoy' }, { label: '7 días', value: 'd7' },
     { label: '30 días', value: 'd30' }, { label: 'Rango', value: 'rango' },
@@ -431,6 +455,7 @@ export class FinanzasSolicitudesComponent {
     if (p === 'hoy' || p === 'd7' || p === 'd30' || p === 'rango') this.periodo.set(p);
     const ap = qp.get('aplicada');
     if (ap === 'pend' || ap === 'apl') this.aplicadaSel.set(ap);
+    if (qp.get('mias') === '1') this.mias.set(true);
 
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
@@ -452,13 +477,14 @@ export class FinanzasSolicitudesComponent {
   }
 
   // ── Periodo ────────────────────────────────────────────────────────────
+  setAlcance(v: string) { this.mias.set(v === 'mias'); this.syncUrl(); this.load(); }
   setPeriodo(v: string) { this.periodo.set(v as Periodo); this.syncUrl(); this.load(); }
   setAplicada(v: string) { this.aplicadaSel.set(v); this.syncUrl(); this.load(); }
 
   private syncUrl(): void {
     this.router.navigate([], {
       relativeTo: this.route, replaceUrl: true, queryParamsHandling: 'merge',
-      queryParams: { periodo: this.periodo(), aplicada: this.aplicadaSel() || null },
+      queryParams: { periodo: this.periodo(), aplicada: this.aplicadaSel() || null, mias: this.mias() ? '1' : null },
     });
   }
 
@@ -500,13 +526,24 @@ export class FinanzasSolicitudesComponent {
     return (this.evidenciaOpts.find((o) => o.value === this.evidenciaSel())?.label || '').toLowerCase();
   }
   emptyTitle(): string {
+    if (this.mias() && this.sinAnclas()) return 'No sabemos cuáles son tuyas';
     return this.vacioPorEvidencia() ? `Ninguna con evidencia "${this.evidenciaLabel()}"` : `Sin solicitudes ${this.periodoEn()}`;
   }
-  emptyCta(): string | null { return this.vacioPorEvidencia() ? 'Ver toda la evidencia' : this.ampliarLabel(); }
-  onEmptyCta(): void { if (this.vacioPorEvidencia()) this.evidenciaSel.set(''); else this.ampliar(); }
+  emptyCta(): string | null {
+    if (this.mias() && this.sinAnclas()) return 'Ver todas';
+    return this.vacioPorEvidencia() ? 'Ver toda la evidencia' : this.ampliarLabel();
+  }
+  onEmptyCta(): void {
+    if (this.mias() && this.sinAnclas()) { this.setAlcance('todas'); return; }
+    if (this.vacioPorEvidencia()) this.evidenciaSel.set(''); else this.ampliar();
+  }
 
   /** Empty ≠ error: el periodo puede estar limpio. La salida es ampliar, no reintentar. */
   emptyHint(): string {
+    if (this.mias() && this.sinAnclas()) {
+      return 'Nadie te asignó áreas de gasto y tu nombre no aparece como solicitante en Kepler. ' +
+        'Un administrador puede configurarlo en Usuarios → áreas de gasto visibles.';
+    }
     if (this.vacioPorEvidencia()) {
       return `Las ${this.rows().length} solicitudes ${this.periodoEn()} están en otro estado de evidencia.`;
     }
@@ -540,6 +577,7 @@ export class FinanzasSolicitudesComponent {
       from, to,
       sucursal: this.sucursal, estado: this.estado || undefined,
       solicitante: this.solicitante || undefined, search: this.search || undefined,
+      mias: this.mias() || undefined,
       grupo: this.grupo.length ? this.grupo : undefined,
       min_importe: this.minImporte || undefined,
       aplicada: ap === 'pend' ? false : ap === 'apl' ? true : undefined,

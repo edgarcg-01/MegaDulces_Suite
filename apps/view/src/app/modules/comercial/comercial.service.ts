@@ -1358,6 +1358,7 @@ export class ComercialService {
     if (p.search?.trim()) params = params.set('search', p.search.trim());
     if (p.grupo?.length) params = params.set('grupo', p.grupo.join(','));
     if (p.min_importe) params = params.set('min_importe', String(p.min_importe));
+    if (p.mias) params = params.set('mias', 'true');
     return this.http.get<ExpenseRequestsReport>(`${this.base}/analytics/expenses/requests`, { params });
   }
   expenseDocument(sucursal: string, doc_tipo: string, folio: string) {
@@ -2174,6 +2175,8 @@ export interface ExpenseRequestsParams {
   grupo?: string[];
   /** Piso de importe: el autorizador mira primero lo grande. */
   min_importe?: number;
+  /** Sólo las mías (áreas asignadas al usuario + su propio nombre como solicitante). */
+  mias?: boolean;
 }
 export interface ExpenseRequestRow {
   folio: string;
@@ -2204,6 +2207,8 @@ export interface ExpenseRequestRow {
 export interface ExpenseRequestsReport {
   kpis: { total: number; importe: number; pendientes: number; pendientes_importe: number; aplicadas: number };
   rows: ExpenseRequestRow[];
+  /** Contra qué resuelve "mío" este usuario. `keys` vacío = no hay con qué resolverlo. */
+  mi_scope?: { keys: string[]; areas: number; nombre: string | null };
 }
 /** GX.6 — solicitud (XA1501) que originó un gasto (XA1001). */
 export interface ExpenseRequest {
