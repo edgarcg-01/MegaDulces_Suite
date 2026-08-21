@@ -138,6 +138,7 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.20.0",
     "pg-boss": "^12.27.0",
+    "pg-logical-replication": "^2.5.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "pino-opentelemetry-transport": "^4.0.2",
