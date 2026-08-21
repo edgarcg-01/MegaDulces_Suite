@@ -8,7 +8,10 @@
  * Ahora lee TODO del mismo Postgres de prod (same-DB, sin egress externo):
  *   · affinity  ← `kepler_ods.kdm1`/`kdm2` (venta real U/D/10; basket = documento (suc,c4,c5,c6),
  *                 join verificado h.c1=d.c1 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6; sku=d.c8).
- *                 Ventana 180d, co>=15 (mismo umbral que la versión .245). Único uso del crudo ODS.
+ *                 Ventana 365d, co>=15. Único uso del crudo ODS. El filtro U/D/10 excluye al CEDIS '00'
+ *                 por diseño: NO es tienda mostrador (0 tickets POS), vende MAYOREO vía U-A-5 → sus
+ *                 patrones de compra al por mayor sesgarían la afinidad RETAIL. Guard c9<=hoy (una venta
+ *                 no es futura; blinda contra fechas futuras legítimas de doctypes no-venta en 00/02).
  *   · zone_demand ← prod-local `analytics.product_sales_monthly` (units por almacén×producto, ya
  *                 derivado de Kepler) + `zonaOf(code)` (mapa sucursal→ciudad, best-effort — el mapeo
  *                 cliente→zona real nunca existió; el peso de zona en el score es 0.5, opcional).
@@ -121,7 +124,7 @@ function zonaOf(code) {
         from kepler_ods.kdm2 d
         join kepler_ods.kdm1 h on h.c1=d.c1 and h.c4=d.c4 and h.c5=d.c5 and h.c6=d.c6
        where h.c2='U' and h.c3='D' and h.c4::text='10'
-         and h.c9::date > current_date - ${AFFINITY_DAYS}
+         and h.c9::date > current_date - ${AFFINITY_DAYS} and h.c9::date <= current_date
          and btrim(coalesce(d.c8,'')) <> ''`);
     await app.raw(`create index on _bk (suc,c4,c5,c6)`);
     const pairs = (
