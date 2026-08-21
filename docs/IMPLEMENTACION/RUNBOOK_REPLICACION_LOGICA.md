@@ -140,7 +140,7 @@ CREATE SUBSCRIPTION sub_md_00
 
 Estado co-locado en cada replica (schema `ods`: `ctl` watermark + `shadow` hashes) → no depende de `.245`, no colisiona con `kp.ods_fast_control` del normalizer remoto. El ship es **idéntico** (handler `raw-upsert`, UPSERT sin churn, `sucursal` agregada) → **el destino prod `kepler_ods` no cambia**, y el hop-2 (`feeds-ingest` → Railway) tampoco.
 
-Config por env: `ODS_HASH_TABLES` (carril hash), `ODS_LIVE_BRANCHES` (default `01,02,03,04,05,06`; **CEDIS 00 NO está en replicación lógica** → se queda en su feed actual), `KP_DEST_URL` (solo modo pg on-prem/test). Flags: `--apply`, `--watch[=seg]`, `--prime` (fija watermark ctid al máx sin shipear), `--branch=`, `--tables=`, `--full`.
+Config por env: `ODS_HASH_TABLES` (carril hash), `ODS_LIVE_BRANCHES` (default `00,01,02,03,04,05,06` — **CEDIS/oficinas 00 SÍ está en replicación lógica desde 2026-08-20** (§8); su kdm1/kdm2 fluyen, pero sus tablas de FINANZAS necesitan estar en `KP_ODS_TABLES` — ver §8.E), `KP_DEST_URL` (solo modo pg on-prem/test). Flags: `--apply`, `--watch[=seg]`, `--prime` (fija watermark ctid al máx sin shipear), `--branch=`, `--tables=`, `--full`.
 
 Verificado local **sin tocar prod** (2026-08-17): ruteo de carriles, hash-delta (detecta UPDATE/nuevo/sin-cambio), pipeline `--apply` end-to-end ambos carriles vía el handler real (auto-create `kepler_ods.<tabla>` + UPSERT + `_sync_status` + shadow). Estado de prueba limpiado.
 
@@ -255,9 +255,17 @@ finanzas son CHICAS (kdco 371 / kdpv_folio_caja 916 / kdc2YYMM ~611 filas) → s
 **soporte de patrón `*`** en `replicate-ods-live` (`KP_ODS_TABLES`/`ODS_HASH_TABLES`): `kdc2*` expande a todas las
 pólizas mensuales por-rama y **auto-cubre la rotación** de `kdc2YYMM`. En `run-ods-live-loop.cmd` (Edgar):
 ```bat
-set "KP_ODS_TABLES=kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdco,kdc3,kdpv_folio_caja,kdc2*"
-set "ODS_HASH_TABLES=kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdc2*"
+set "KP_ODS_TABLES=kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*"
+set "ODS_HASH_TABLES=kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*"
 ```
+> ⚠️ **CORRECCIÓN 2026-08-21 — `kdb1` faltaba en `KP_ODS_TABLES`** (estaba solo en `ODS_HASH_TABLES`, que es un
+> SUBSET-filtro de la lista maestra → nunca embarcaba). El launcher real medido 2026-08-21 traía solo 11 tablas
+> (`…,kdib,kdid,kduv`), sin ninguna de finanzas. **Efecto medido en prod:** `kepler_ods` para **sucursal 00** tenía
+> **0 filas** en kdb1/kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* → `import-kepler-bank-movements` (conciliación CB, lee
+> `kepler_ods.kdb1 WHERE sucursal='00'`) hacía **SKIP silencioso** (guard sin escribir). Regla: una tabla debe estar en
+> `KP_ODS_TABLES` (lista maestra) para embarcar; `ODS_HASH_TABLES` solo decide el CARRIL (hash vs ctid) de las que YA
+> están en la maestra. Se agregaron kdb1/kdxd/kdxe/kdud a la maestra. **Tras editar el launcher: reiniciar el loop ODS.**
+
 Verificado (dry-run branch 03): `kdc2*` → kdc22501…kdc22608… todas ruteadas **hash** (mutable-safe). Steady-state el
 hash-delta shippea solo el delta (≈0) → costo despreciable. (Si algún día se quiere el espejo COMPLETO real, `KP_ODS_TABLES=*`
 en una **tarea separada** `--watch=300`, no en el loop caliente.)
