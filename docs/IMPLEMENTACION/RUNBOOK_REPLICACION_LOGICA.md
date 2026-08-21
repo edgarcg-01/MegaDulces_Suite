@@ -203,4 +203,53 @@ DROP PUBLICATION ods_pub;
 
 ## 7. Recomendación honesta
 La replicación lógica nativa resuelve la pérdida de UPDATEs, **pero** el precio es: reinicios en cajas de terceros + `ALTER REPLICA IDENTITY` en tablas del ERP + el riesgo permanente de slot-que-llena-disco + un subscriber nuevo con 6 databases + normalizer. Para un solo síntoma (los UPDATE in-place de catálogos que el `ctid` pierde), **arreglar el watermark del replicador actual** (cambiar `ctid` → `xmin`, o full-scan nocturno de los ~4 catálogos chicos) logra lo mismo **sin tocar los POS**. Native repl vale la pena si se quiere realtime de verdad en TODAS las tablas (incl. `kdm1/kdm2`) y el equipo puede administrar los 6 servidores con seguridad.
+
+---
+
+## 8. Sucursal 00 (oficinas / CEDIS-finanzas @192.168.9.95) — activación 2026-08-20
+
+**Por qué faltaba.** La 00 estaba en la topología (§1) y fue la rama que se VERIFICÓ lista (§2.4), pero se **excluyó del rollout** por una creencia — "su Postgres solo tiene pruebas". **Desmentido 2026-08-20:** `md_00@9.95` tiene **107k filas actuales** y la **conciliación de finanzas depende de él** (es el Kepler vivo de oficinas; el CEDIS-almacén sobre Access es Fase CA, aparte). Síntoma que lo destapó: el movimiento `X-D-26` folio `0017742` (12-ago) estaba en el source pero NO en `kepler_ods` (el ODS suc-00 congelado en folio `0017736`/18-ago) → las vistas derive-no-copy (`erp_supplier_payments`, `kepler_bank_movements`) salían stale para 00. Decisión de Edgar: **todo debe vivir en el ODS** → la 00 entra con réplica lógica propia (no el parche remoto).
+
+**Readiness re-verificado 2026-08-20 (`md_00@9.95`):** PG **16.4** · `wal_level=replica` (⚠ **exige RESTART**) · `max_replication_slots=10`/`max_wal_senders=10` (OK) · `max_slot_wal_keep_size=-1` (⚠ **poner tope**) · `archive_mode=off` · **0 slots/pubs/walsenders** (limpio) · **las 11 tablas a publicar TIENEN PK** (cero `ALTER TABLE`) · copia inicial `kdm2 170MB + kdm1 129MB` (~300MB, trivial).
+
+### 8.A En el POS @9.95 (lo hace Edgar — superuser + OS)
+```conf
+# postgresql.conf:
+wal_level = logical
+max_slot_wal_keep_size = '20GB'     # ← OBLIGATORIO (hoy -1=ilimitado → riesgo de llenar disco)
 ```
+→ **RESTART** del servicio Postgres de 9.95 (única indisponibilidad; horario cerrado).
+```sql
+CREATE ROLE ods_repl WITH REPLICATION LOGIN PASSWORD '<secreto-00>';
+GRANT USAGE ON SCHEMA md TO ods_repl;
+GRANT SELECT ON ALL TABLES IN SCHEMA md TO ods_repl;
+ALTER DEFAULT PRIVILEGES IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;
+CREATE PUBLICATION ods_pub FOR TABLES IN SCHEMA md;   -- mirror completo (como las otras ramas)
+```
+```conf
+# pg_hba.conf (recargar con SELECT pg_reload_conf(); NO requiere restart):
+host   md_00   ods_repl   <IP_DEL_SUBSCRIBER>/32   scram-sha-256
+```
+
+### 8.B En el subscriber @:5433 (pgvector-md) — la DB DEBE llamarse `kepler_md_00`
+> El normalizer mapea `localDbName('00') = 'kepler_md_00'` (replicate-ods-live.js) — el nombre es obligatorio.
+```bash
+pg_dump -h 192.168.9.95 -U platform_ro -d md_00 -n md --schema-only > md_00_schema.sql
+psql -p 5433 -c "CREATE DATABASE kepler_md_00"
+psql -p 5433 -d kepler_md_00 -f md_00_schema.sql        # crea schema md + todas las tablas con PK
+psql -p 5433 -d kepler_md_00 -c "CREATE SUBSCRIPTION sub_md_00 \
+  CONNECTION 'host=192.168.9.95 port=5432 dbname=md_00 user=ods_repl password=<secreto-00>' \
+  PUBLICATION ods_pub"                                  # dispara la COPIA inicial (~300MB)
+```
+
+### 8.C Código — ✅ YA HECHO
+`ODS_LIVE_BRANCHES` default ahora `00,01,02,03,04,05,06` (replicate-ods-live.js). Hasta que exista `kepler_md_00` el ciclo la **salta** (`⚠ replica 00: no conecta — skip`, inofensivo); al crear la subscription **se activa sola** — sin tocar el launcher `run-ods-live-loop.cmd` (no setea `ODS_LIVE_BRANCHES`).
+
+### 8.D Verificación
+```sql
+-- publisher 9.95:  slot activo, retenido chico, streaming
+SELECT slot_name, active, wal_status, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) retenido FROM pg_replication_slots;
+-- subscriber :5433: lag ~0
+SELECT subname, received_lsn, latest_end_lsn FROM pg_stat_subscription WHERE subname='sub_md_00';
+```
+**Prueba de negocio:** en `kepler_ods.kdm1 WHERE sucursal='00'` el máx folio `X-D-26` debe pasar de `0017736` → aparecer `0017742` (el movimiento que la conciliación marcaba faltante). Rollback = `DROP SUBSCRIPTION sub_md_00` + limpiar slot en 9.95 (§5); el código soporta 00 ausente (skip).
