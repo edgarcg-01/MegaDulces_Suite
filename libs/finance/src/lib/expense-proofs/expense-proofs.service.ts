@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService } from '@megadulces/platform-core';
 
 /**
@@ -60,7 +61,22 @@ export class ExpenseProofsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    @Optional() private readonly gateway?: ExpenseProofsGateway,
   ) {}
+
+  /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
+  private emit(action: 'captured' | 'validated' | 'rejected',
+    row: { folio_solicitud: string; status?: string | null; solicitante?: string | null; importe?: number | null; sucursal?: string | null },
+    actor?: string): void {
+    try {
+      const tenantId = this.tenantCtx.requireTenantId();
+      this.gateway?.emitChange(tenantId, {
+        action, folio_solicitud: row.folio_solicitud, status: row.status ?? null,
+        solicitante: row.solicitante ?? null, sucursal: row.sucursal ?? null,
+        importe: row.importe == null ? null : Number(row.importe), actor: actor ?? null,
+      });
+    } catch { /* el aviso no debe tumbar la operación */ }
+  }
 
   /**
    * Catálogo canónico de departamentos = dimensión `dpto` del ERP
@@ -257,6 +273,7 @@ export class ExpenseProofsService {
         })
         .returning(['id', 'folio_solicitud', 'status']);
       this.logger.log(`solicitud de reembolso folio ${row.folio_solicitud} → ${status} [vision:${srv.source}]${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
+      this.emit('captured', { folio_solicitud: row.folio_solicitud, status: row.status, solicitante, importe: dto.importe, sucursal: dto.sucursal }, actor);
       return row;
     });
   }
@@ -320,6 +337,9 @@ export class ExpenseProofsService {
         .update({ status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now() })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
+      const [full] = await trx('finance.expense_proofs').where({ id })
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+      if (full) this.emit('validated', full, actor);
       return row;
     });
   }
@@ -332,6 +352,9 @@ export class ExpenseProofsService {
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya rechazada');
+      const [full] = await trx('finance.expense_proofs').where({ id })
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+      if (full) this.emit('rejected', full, actor);
       return row;
     });
   }

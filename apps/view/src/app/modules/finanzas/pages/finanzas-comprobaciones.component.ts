@@ -15,6 +15,8 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { ExpenseProofsSocketService } from '../expense-proofs-socket.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -50,6 +52,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         <div class="surf-page-head-text">
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de reembolso</h1><app-context-help topic="reembolsos" /></div>
           <p class="surf-page-sub">Adjunta los comprobantes de una solicitud de gasto (Kepler XA1501) · recibida → validada/rechazada</p>
+          @if (!verAll()) {
+            <span class="cg-scope" title="Solo ves las solicitudes de las áreas que se te asignaron. Pedí 'Ver gastos de todos los departamentos' para ver todo."><i class="pi pi-filter" aria-hidden="true"></i> Viendo solo tus áreas asignadas</span>
+          }
+          @if (liveConnected()) { <span class="cg-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
         </div>
         <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva solicitud</span></button>
       </header>
@@ -181,6 +187,11 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     </p-dialog>
   `,
   styles: [`
+    /* Mismos indicadores que la pantalla de comprobación de gastos: alcance recortado
+       (el usuario ve solo sus áreas) y conexión en vivo. */
+    .cg-scope { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .74rem; color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 25%, transparent); border-radius: var(--r-sm); padding: .15rem .5rem; }
+    .cg-live { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; margin-left: .5rem; font-size: .72rem; color: var(--ok-fg); }
+    .cg-live i { font-size: .55rem; }
     :host { display: block; }
     .cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
     .cp-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
@@ -224,6 +235,12 @@ export class FinanzasComprobacionesComponent {
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(MessageService);
+  private readonly perms = inject(PermissionsService);
+  private readonly socket = inject(ExpenseProofsSocketService);
+  readonly liveConnected = this.socket.connected;
+  /** Sin este permiso la bandeja viene recortada a las áreas del usuario: hay que decirlo. */
+  readonly verAll = computed(() => this.perms.can('manage', 'all')
+    || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly fileSlots: FileSlot[] = [
@@ -284,6 +301,18 @@ export class FinanzasComprobacionesComponent {
       this.openNew(false);
     }
     this.load();
+    // Realtime: el capturista sube y el autorizador se entera sin refrescar. Es la misma
+    // necesidad que ya resolvía la comprobación de gastos; esta mitad del ciclo se había
+    // quedado sin el aviso y la bandeja envejecía en pantalla.
+    this.socket.connect();
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.action === 'captured') {
+        this.toast.add({ severity: 'info', summary: 'Nueva solicitud',
+          detail: `Folio ${e.folio_solicitud}${e.solicitante ? ' · ' + e.solicitante : ''}` });
+      }
+      this.load();
+    });
+    this.destroyRef.onDestroy(() => this.socket.disconnect());
   }
 
   kpiItems(r: ExpenseProofsReport): MetricStripItem[] {
