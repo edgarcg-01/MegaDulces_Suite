@@ -21,7 +21,9 @@
  * Limitaciones (heredadas, aceptadas): hard-DELETE en origen no se propaga (UPSERT no borra).
  *
  * Env: DATABASE_URL_NEW (base del contenedor de replicas) · KP_ODS_TABLES · ODS_HASH_TABLES
- *      ODS_LIVE_BRANCHES (default 01,02,03,04,05,06 — CEDIS 00 no está en replicación lógica)
+ *      ODS_LIVE_BRANCHES (default 00,01,02,03,04,05,06; 00=oficinas/CEDIS-finanzas @192.168.9.95.
+ *        Su réplica local kepler_md_00 está PENDIENTE (runbook §8) → hasta que exista, el ciclo la
+ *        SALTA con "no conecta — skip" (inofensivo). Al crear la subscription, se activa sola.)
  *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY · CRON_TENANT_ID
  *      ODS_READ_BATCH (5000) · ODS_SHIP_BATCH (5000)
  * Flags: --apply (default dry-run) · --tables=kdii,kdil · --branch=03 · --full (ignora watermark ctid)
@@ -97,7 +99,9 @@ const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, m
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
+// 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local
+// kepler_md_00 todavía → cycleAll la salta ("no conecta — skip"); al crearla se activa sola.
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 const BRANCHES = BRANCH_CODES.map((code) => ({ code, url: localUrl(code) }));
 
 function mapType(dt) {
