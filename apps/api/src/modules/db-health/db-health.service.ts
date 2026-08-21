@@ -145,6 +145,16 @@ const APP_SOURCES: SourceCfg[] = [
             FROM finance.bank_statements`,
     warnH: 720, critH: 1080, cadence: 'mensual manual (CLI por workbook)',
   },
+  // ── P1 (auditoría 2026-08-20): frescura por DATO de las tablas que alimentan `@Cron` in-process SIN
+  //    heartbeat propio. Un sensor por-tabla detecta "no avanzó" — superset de "el cron murió" (también
+  //    caza un cron que corre pero no escribe). Todas usan computed_at/last_seen_at → avanzan cada corrida.
+  //    (abc_classification apareció CONGELADA desde 2026-06-20 en el primer scan — justo el modo de falla.)
+  { key: 'customer_360',           label: 'Customer 360 (RFM/Thot)',        table: 'commercial.customer_360',           tsCandidates: ['computed_at', 'updated_at'],               warnH: 30, critH: 50, cadence: 'nightly' },
+  { key: 'recommended_baskets',    label: 'Canastas sugeridas (portal)',    table: 'commercial.recommended_baskets',    tsCandidates: ['computed_at', 'updated_at'],               warnH: 30, critH: 50, cadence: 'nightly 3AM MX' },
+  { key: 'execution_360',          label: 'Execution 360 (Horus)',          table: 'commercial.execution_360',          tsCandidates: ['computed_at', 'updated_at'],               warnH: 30, critH: 50, cadence: 'nightly' },
+  { key: 'abc_classification',     label: 'Clasificación ABC',              table: 'commercial.abc_classification',     tsCandidates: ['computed_at'],                             warnH: 50, critH: 96, cadence: 'nightly' },
+  { key: 'replenishment_findings', label: 'Hallazgos de reabasto',          table: 'commercial.replenishment_findings', tsCandidates: ['last_seen_at', 'updated_at', 'created_at'], warnH: 50, critH: 96, cadence: 'nightly' },
+  { key: 'maat_findings',          label: 'Hallazgos Maat (finanzas)',      table: 'finance.findings',                  tsCandidates: ['updated_at', 'created_at'],                warnH: 30, critH: 50, cadence: 'nightly 3AM (MaatScanner)' },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
