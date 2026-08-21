@@ -16,6 +16,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { GlobalErrorHandler } from './core/errors/global-error-handler';
 import { authInterceptor } from './core/http/auth.interceptor';
+import { diagnosticsInterceptor } from './core/http/diagnostics.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
 import { providePrimeNG } from 'primeng/config';
@@ -40,7 +41,7 @@ export const appConfig: ApplicationConfig = {
       withRouterConfig({ paramsInheritanceStrategy: 'emptyOnly' }),
     ),
     provideHttpClient(withXhr(), 
-      withInterceptors([authInterceptor])
+      withInterceptors([authInterceptor, diagnosticsInterceptor])
     ),
     providePrimeNG({
       // PrimeNG 22 (PrimeUI) exige license key offline; Community tier (dev).

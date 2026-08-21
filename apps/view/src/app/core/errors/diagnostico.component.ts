@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AppErrorService } from './app-error.service';
+import { DiagnosticsRecorderService } from './diagnostics-recorder.service';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -27,8 +28,10 @@ import { environment } from '../../../environments/environment';
       <header class="dg-head">
         <h1>Diagnóstico</h1>
         <p class="dg-sub">
-          Abrí esta pantalla <strong>justo después</strong> de que algo se quede colgado, en la
-          misma pestaña. Mide lo que pasó en el navegador y lo deja listo para pegar.
+          Abrí esta pantalla <strong>después</strong> de que algo se quede colgado. La grabación
+          corre desde que arranca la app y sobrevive a la recarga, así que lo importante
+          —navegaciones y peticiones que nunca terminaron— queda registrado igual.
+          Tocá <strong>Copiar diagnóstico</strong> y mandá el texto.
         </p>
       </header>
 
@@ -82,6 +85,7 @@ import { environment } from '../../../environments/environment';
 export class DiagnosticoComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly errors = inject(AppErrorService);
+  private readonly rec = inject(DiagnosticsRecorderService);
 
   readonly report = signal<string | null>(null);
   readonly running = signal(false);
@@ -96,6 +100,12 @@ export class DiagnosticoComponent implements OnInit {
       const [sw, ping, server] = await Promise.all([this.swState(), this.pingApi(), this.serverInfo()]);
       const res = this.resources();
       const nav = this.navigation();
+      // Lo grabado EN VIVO: es lo unico que sobrevive a la navegacion y a la recarga.
+      // Una entrada sin duracion es, literalmente, lo que se quedo colgado.
+      const snap = this.rec.snapshot();
+      const stuckNav = snap.events.filter((e) => e.t === 'nav' && e.ms === null);
+      const stuckReq = snap.events.filter((e) => e.t === 'req' && e.ms === null);
+      const slowReq = snap.events.filter((e) => e.t === 'req' && (e.ms ?? 0) > 3000);
 
       // El desfase entre lo que sirve el servidor y lo que ejecuta esta pestaña es el
       // dato que más veces nos hizo perder tiempo: si no coinciden, se está probando
@@ -111,7 +121,9 @@ export class DiagnosticoComponent implements OnInit {
         { k: 'Peticiones de esta página', v: `${res.count} · ${res.mb} MB` },
         { k: 'Sin terminar', v: String(res.pending), bad: res.pending > 0 },
         { k: 'Recurso más lento', v: `${res.slowest.dur} · ${res.slowest.name}`, bad: res.slowest.ms > 5000 },
-        { k: 'Bloqueo del hilo', v: `${this.longTaskMs} ms en ${this.longTaskN} tareas`, bad: this.longTaskMs > 2000 },
+        { k: 'Bloqueo del hilo', v: `${snap.longTaskMs} ms en ${snap.longTaskN} (mayor ${snap.longTaskMax} ms)`, bad: snap.longTaskMax > 1000 },
+        { k: 'Navegaciones sin terminar', v: String(stuckNav.length), bad: stuckNav.length > 0 },
+        { k: 'Peticiones sin responder', v: String(stuckReq.length), bad: stuckReq.length > 0 },
         { k: 'Ping a la API (mediana)', v: ping.median, bad: ping.medianMs > 1500 },
         { k: 'Conexión', v: this.connection() },
       ]);
@@ -135,10 +147,22 @@ export class DiagnosticoComponent implements OnInit {
         `  navegación      : ${nav}`,
         `  peticiones      : ${res.count} (${res.mb} MB transferidos)`,
         `  sin terminar    : ${res.pending}`,
-        `  bloqueo de hilo : ${this.longTaskMs} ms en ${this.longTaskN} tareas largas`,
         '',
         `LAS 12 MÁS LENTAS`,
         ...res.top.map((t) => `  ${t.dur.padStart(9)}  ${t.size.padStart(9)}  ${t.name}`),
+        '',
+        `GRABADO EN VIVO (desde ${snap.since})`,
+        `  navegaciones SIN TERMINAR : ${stuckNav.length}`,
+        ...stuckNav.map((e) => `    ⚠ ${e.at}  ${e.url}`),
+        `  peticiones SIN RESPONDER  : ${stuckReq.length}`,
+        ...stuckReq.map((e) => `    ⚠ ${e.at}  ${e.url}`),
+        `  peticiones lentas (>3s)   : ${slowReq.length}`,
+        ...slowReq.slice(-10).map((e) => `    ${String(e.ms).padStart(6)} ms  ${e.out ?? ''}  ${e.url}`),
+        `  bloqueo del hilo          : ${snap.longTaskMs} ms en ${snap.longTaskN} tareas (la mayor ${snap.longTaskMax} ms)`,
+        '',
+        `ÚLTIMAS ${Math.min(20, snap.events.length)} OPERACIONES`,
+        ...snap.events.slice(-20).map((e) =>
+          `  ${e.at.slice(11, 23)}  ${e.t === 'nav' ? 'NAV ' : 'HTTP'}  ${(e.ms === null ? 'COLGADA' : e.ms + ' ms').padStart(9)}  ${e.out ?? ''}  ${e.url}`),
         '',
         `PING A LA API (5 intentos)`,
         `  ${ping.detail}`,
@@ -246,14 +270,6 @@ export class DiagnosticoComponent implements OnInit {
     return c ? `${c.effectiveType ?? '?'} · ${c.downlink ?? '?'} Mbps · rtt ${c.rtt ?? '?'} ms` : 'no informada';
   }
 
-  // Tareas largas: lo que congela la interfaz. Se observan desde que carga el módulo.
-  private longTaskMs = 0;
-  private longTaskN = 0;
-  constructor() {
-    try {
-      new PerformanceObserver((l) => {
-        for (const e of l.getEntries()) { this.longTaskMs += Math.round(e.duration); this.longTaskN++; }
-      }).observe({ type: 'longtask', buffered: true });
-    } catch { /* Safari no lo soporta */ }
-  }
+  // Las tareas largas las cuenta la grabadora, que arranca con la app. Medirlas acá
+  // solo veía las de esta pantalla — que es justamente la que NO se cuelga.
 }
