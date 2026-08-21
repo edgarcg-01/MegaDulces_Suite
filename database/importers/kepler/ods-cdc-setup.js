@@ -19,6 +19,10 @@
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
+// --teardown: retira TODO el piloto por triggers (drop triggers + cola + fn). Superseded por
+// CDC WAL-decode (ADR-047): el approach por triggers se descartó (600+ triggers huérfanos + impuesto
+// de escritura). Idempotente; `--teardown --apply` limpia; el setup normal lo re-crea si hiciera falta.
+const TEARDOWN = process.argv.includes('--teardown');
 const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
@@ -64,6 +68,18 @@ const DDL_FN = `
     const c = new Client({ connectionString: localUrl(code), connectionTimeoutMillis: 8000, statement_timeout: 120000 });
     try { await c.connect(); } catch (e) { console.log(`⚠ ${code} (${localDbName(code)}): no conecta — skip`); continue; }
     try {
+      if (TEARDOWN) {
+        const trigd = (await c.query(
+          `SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE t.tgname='ods_cdc' AND n.nspname='md'`)).rows.map((r) => r.relname);
+        console.log(`\n### ${code} (${localDbName(code)}): ${trigd.length} triggers ods_cdc a retirar`);
+        if (!APPLY) { console.log('  [DRY-RUN] no se aplicó'); continue; }
+        for (const t of trigd) await c.query(`DROP TRIGGER IF EXISTS ods_cdc ON md.${qid(t)}`);
+        await c.query(`DROP TABLE IF EXISTS ods.change_queue`);
+        await c.query(`DROP FUNCTION IF EXISTS ods.capture_change() CASCADE`);
+        console.log(`  ✓ ${trigd.length} triggers + cola + fn retirados`);
+        continue;
+      }
       const tabs = (await c.query(
         `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE' ORDER BY 1`)).rows.map((r) => r.table_name);
       const mut = tabs.filter((t) => !CTID_TABLES.has(t));
