@@ -51,6 +51,7 @@ import { DbHealthModule } from './modules/db-health/db-health.module';
 import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
+import { CommercialProfitabilityModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
@@ -109,7 +110,7 @@ import { LogisticsTrackingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceBankModule, FinancePolizasModule, FinanceCollectionDepositsModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceFeedNotifyModule } from '@megadulces/finance';
+import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceBankModule, FinancePolizasModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceFeedNotifyModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -153,6 +154,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialCustomersModule,
       CommercialWarehousesModule,
       CommercialPricingModule,
+      CommercialProfitabilityModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
@@ -208,6 +210,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FinanceBankModule,
       FinancePolizasModule,
       FinanceCollectionDepositsModule,
+      FinanceCustomerLedgerModule,
       FinanceSupplierPaymentProofsModule,
       FinanceGoodsReceiptProofsModule,
       FinancePaymentProgramModule,
