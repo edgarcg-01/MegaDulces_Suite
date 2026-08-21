@@ -77,16 +77,32 @@ const TABLE_LITS = _lits(TABLES);
 const HASH_GLOBS = _globs([...HASH_TABLES]);
 const matchesGlob = (name, globs) => globs.some((re) => re.test(name));
 
+// EXCLUDE (blocklist, glob-capable): tablas que ESTA corrida NO debe tocar. Uso principal: la tarea de
+// ESPEJO COMPLETO LENTO (`KP_ODS_TABLES=*` @5min) excluye el set del HOT loop (kdm1/kdm2/… + kdc2*) para
+// NO pelear el estado compartido en el mismo replica (watermark ctid `ods.ctl` + hashes `ods.shadow`);
+// así el hot loop @15s mantiene venta/stock frescos y el lento barre el resto (catálogos + las que un
+// full-mirror viejo dejó CONGELADAS: kdmx*/orglog*/bitacora) sin doble-ship ni carrera de watermark.
+const EXCLUDE = (process.env.ODS_EXCLUDE_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+const EXCLUDE_GLOBS = _globs(EXCLUDE);
+const EXCLUDE_LITS = new Set(_lits(EXCLUDE));
+const isExcluded = (table) => EXCLUDE_LITS.has(table) || matchesGlob(table, EXCLUDE_GLOBS);
+
 /** Lista de tablas a sincronizar para un replica dado (ALL_MODE = todo el schema; con globs, se expanden). */
 async function tablesFor(p) {
-  if (ALL_MODE) return (await p.query(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE' ORDER BY 1`)).rows.map((r) => r.table_name);
-  if (!TABLE_GLOBS.length) return TABLES;
-  const all = (await p.query(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE'`)).rows.map((r) => r.table_name);
-  const out = new Set(TABLE_LITS);
-  for (const t of all) if (matchesGlob(t, TABLE_GLOBS)) out.add(t);
-  return [...out].sort();
+  let list;
+  if (ALL_MODE) {
+    list = (await p.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE' ORDER BY 1`)).rows.map((r) => r.table_name);
+  } else if (!TABLE_GLOBS.length) {
+    list = TABLES;
+  } else {
+    const all = (await p.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE'`)).rows.map((r) => r.table_name);
+    const out = new Set(TABLE_LITS);
+    for (const t of all) if (matchesGlob(t, TABLE_GLOBS)) out.add(t);
+    list = [...out].sort();
+  }
+  return EXCLUDE.length ? list.filter((t) => !isExcluded(t)) : list;
 }
 /** ¿tabla va por carril hash? ALL_MODE: todo hash salvo whitelist ctid. Si no: set HASH (literal o glob). */
 const isHashTable = (table) => (ALL_MODE ? !CTID_TABLES.has(table) : (HASH_TABLES.has(table) || matchesGlob(table, HASH_GLOBS)));
