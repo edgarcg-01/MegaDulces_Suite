@@ -51,6 +51,11 @@ const RESOLVE = `w.tenant_id = t.tenant_id AND w.deleted_at IS NULL AND (
   for (const [sch, tbl] of TABLES) {
     const reg = await p.query(`SELECT to_regclass($1) t`, [`${sch}.${tbl}`]);
     if (!reg.rows[0].t) { console.log(`  ${sch}.${tbl}: tabla no existe — skip`); continue; }
+    // derive-no-copy: varias analytics.* pasaron a VISTA sobre kepler_ods (erp_promotions/erp_shipments/…).
+    // Una vista ya deriva warehouse_id en vivo → no se puede (ni hace falta) UPDATE. Saltar (antes tiraba el script).
+    if ((await p.query(`SELECT relkind='v' v FROM pg_class WHERE oid = to_regclass($1)`, [`${sch}.${tbl}`])).rows[0]?.v) {
+      console.log(`  ${(`${sch}.${tbl}`).padEnd(28)} vista derive-no-copy — warehouse_id en vivo, skip`); continue;
+    }
     // cobertura
     const cov = (await p.query(`SELECT count(*) FILTER (WHERE w.id IS NOT NULL)::bigint ok,
              count(*) FILTER (WHERE w.id IS NULL AND t.warehouse_code IS NOT NULL)::bigint miss,
