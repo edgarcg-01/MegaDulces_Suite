@@ -32,7 +32,11 @@ export class ComprobacionGastosSocketService {
   readonly change$ = new Subject<ComprobacionGastoEvent>();
 
   connect(): void {
-    if (this.socket?.connected) return;
+    // Idempotente por EXISTENCIA, no por estado. Con `?.connected` un segundo connect()
+    // durante el handshake veia false, creaba OTRO socket y pisaba la referencia: el
+    // primero quedaba huerfano, reconectando solo y fuera del alcance de disconnect().
+    // Si el socket existe pero se cayo, se reabre el mismo en vez de crear otro.
+    if (this.socket) { if (!this.socket.connected) this.socket.connect(); return; }
     const token = this.auth.token();
     if (!token) return;
     this.socket = io(`${this.baseUrl()}/comprobacion-gastos`, {
