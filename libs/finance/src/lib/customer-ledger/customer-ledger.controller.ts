@@ -21,15 +21,23 @@ export class CustomerLedgerController {
     @Query('sucursal') sucursal?: string,
     @Query('cliente') cliente?: string,
     @Query('vendedor') vendedor?: string,
+    @Query('grupo') grupo?: string,
+    @Query('zona') zona?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('incluir_saldados') incluir_saldados?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
   ) {
-    const q: CarteraQuery = { sucursal, cliente, vendedor, from, to, incluir_saldados, search, limit: limit ? Number(limit) : undefined };
+    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, from, to, incluir_saldados, search, limit: limit ? Number(limit) : undefined };
     return this.svc.cartera(q);
   }
+
+  // 'filtros' (1 segmento) declarado ANTES de ':sucursal/:cliente' (2 segmentos) — sin colisión.
+  @Get('filtros')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Valores distintos para los selects (sucursal/grupo/zona/vendedor).' })
+  filtros() { return this.svc.filtros(); }
 
   @Get(':sucursal/:cliente')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)

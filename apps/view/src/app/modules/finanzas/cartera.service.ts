@@ -8,8 +8,10 @@ import { environment } from '../../../environments/environment';
 export interface AgingBucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number }
 export interface CarteraCliente {
   sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null;
+  grupo: string | null; zona: string | null;
   saldo: number; vencido: number; n_partidas: number; aging: AgingBucket;
 }
+export interface CarteraFiltros { sucursales: string[]; grupos: string[]; zonas: string[]; vendedores: string[] }
 export interface CarteraResp {
   hoy: string;
   kpi: { total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number; aging: AgingBucket };
@@ -30,7 +32,7 @@ export interface CarteraDetalle {
 }
 
 export interface CarteraQuery {
-  sucursal?: string; cliente?: string; vendedor?: string; from?: string; to?: string;
+  sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; from?: string; to?: string;
   incluir_saldados?: string; search?: string; limit?: number;
 }
 
@@ -44,6 +46,9 @@ export class CarteraService {
     for (const [k, v] of Object.entries(q)) if (v != null && v !== '') p.set(k, String(v));
     const qs = p.toString();
     return this.http.get<CarteraResp>(`${this.base}${qs ? '?' + qs : ''}`);
+  }
+  filtros(): Observable<CarteraFiltros> {
+    return this.http.get<CarteraFiltros>(`${this.base}/filtros`);
   }
   detalle(sucursal: string, cliente: string): Observable<CarteraDetalle> {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);

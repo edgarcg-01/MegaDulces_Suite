@@ -62,6 +62,12 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
     const src = new Client(clientConfig(b, { statement_timeout: 120000 }));
     try {
       await src.connect();
+      // Atributos de cliente (kdud): c13=grupo (ej '1M001'), c14=zona. Mapa code→{grupo,zona}.
+      const cust = new Map();
+      try {
+        const kd = await src.query(`SELECT c2 code, c13 grupo, c14 zona FROM md.kdud`);
+        for (const r of kd.rows) cust.set(String(r.code || '').trim(), { grupo: (r.grupo || '').trim() || null, zona: (r.zona || '').trim() || null });
+      } catch (e) { console.error(`  ${b.code}: kdud no disponible (${e.message}) — grupo/zona en null`); }
       const q = await src.query(
         `SELECT c1 suc, c2 cliente, c4 grupo, c5 serie, c6 folio, c7::date fecha,
                 CASE WHEN c29='C' THEN c10::date END vence,
@@ -77,16 +83,19 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
         const folio = String(r.folio || '').trim();
         if (!suc || !folio) continue;
         const importe = Number(r.importe) || 0;
+        const cliente = (r.cliente || '').trim() || null;
+        const attr = cust.get(cliente || '') || {};
         staged.push([
           suc, docCode, tipo, label, folio,
           `${suc}${docCode}-${folio}`,
-          (r.cliente || '').trim() || null,
+          cliente,
           r.fecha || null, r.vence || null,
           importe, r.ca, r.ca === 'C' ? importe : -importe,
           (r.referencia || '').trim() || null,
           (r.vendedor || '').trim() || null,
           (r.moneda || '').trim() || null,
           b.db || `md_${b.code}`,
+          attr.grupo || null, attr.zona || null,
         ]);
       }
       console.log(`  ${b.code} (${b.name}): ${q.rows.length} filas`);
@@ -114,34 +123,36 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
     await db.query(`CREATE TEMP TABLE stg_cxc (
       sucursal text, doc_code text, doc_tipo text, doc_label text, folio text, folio_digital text,
       cliente_code text, fecha date, vencimiento date, importe numeric, cargo_abono char(1),
-      signed_amount numeric, referencia text, vendedor text, moneda text, source_branch text
+      signed_amount numeric, referencia text, vendedor text, moneda text, source_branch text,
+      grupo text, zona text
     ) ON COMMIT DROP`);
-    const NC = 16;
+    const NC = 18;
     for (let i = 0; i < staged.length; i += 1000) {
       const chunk = staged.slice(i, i + 1000);
       const vals = chunk.map((_, ri) => `(${Array.from({ length: NC }, (_, k) => `$${ri * NC + k + 1}`).join(',')})`);
       const params = [];
       chunk.forEach((row) => params.push(...row));
       await db.query(
-        `INSERT INTO stg_cxc (sucursal,doc_code,doc_tipo,doc_label,folio,folio_digital,cliente_code,fecha,vencimiento,importe,cargo_abono,signed_amount,referencia,vendedor,moneda,source_branch) VALUES ${vals.join(',')}`,
+        `INSERT INTO stg_cxc (sucursal,doc_code,doc_tipo,doc_label,folio,folio_digital,cliente_code,fecha,vencimiento,importe,cargo_abono,signed_amount,referencia,vendedor,moneda,source_branch,grupo,zona) VALUES ${vals.join(',')}`,
         params);
     }
     const up = await db.query(
       `INSERT INTO analytics.customer_receivables AS t
          (tenant_id, sucursal, doc_code, doc_tipo, doc_label, folio, folio_digital, cliente_code,
-          fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch, computed_at)
+          grupo, zona, fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch, computed_at)
        SELECT $1, sucursal, doc_code, doc_tipo, doc_label, folio, folio_digital, cliente_code,
-              fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch, now()
+              grupo, zona, fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch, now()
          FROM stg_cxc
        ON CONFLICT (tenant_id, sucursal, doc_code, folio) DO UPDATE SET
          doc_tipo=EXCLUDED.doc_tipo, doc_label=EXCLUDED.doc_label, folio_digital=EXCLUDED.folio_digital,
-         cliente_code=EXCLUDED.cliente_code, fecha=EXCLUDED.fecha, vencimiento=EXCLUDED.vencimiento,
+         cliente_code=EXCLUDED.cliente_code, grupo=EXCLUDED.grupo, zona=EXCLUDED.zona,
+         fecha=EXCLUDED.fecha, vencimiento=EXCLUDED.vencimiento,
          importe=EXCLUDED.importe, cargo_abono=EXCLUDED.cargo_abono, signed_amount=EXCLUDED.signed_amount,
          referencia=EXCLUDED.referencia, vendedor=EXCLUDED.vendedor, moneda=EXCLUDED.moneda,
          source_branch=EXCLUDED.source_branch, computed_at=now()
-       WHERE (t.cliente_code, t.fecha, t.vencimiento, t.importe, t.signed_amount, t.referencia, t.vendedor)
+       WHERE (t.cliente_code, t.grupo, t.zona, t.fecha, t.vencimiento, t.importe, t.signed_amount, t.referencia, t.vendedor)
              IS DISTINCT FROM
-             (EXCLUDED.cliente_code, EXCLUDED.fecha, EXCLUDED.vencimiento, EXCLUDED.importe, EXCLUDED.signed_amount, EXCLUDED.referencia, EXCLUDED.vendedor)`,
+             (EXCLUDED.cliente_code, EXCLUDED.grupo, EXCLUDED.zona, EXCLUDED.fecha, EXCLUDED.vencimiento, EXCLUDED.importe, EXCLUDED.signed_amount, EXCLUDED.referencia, EXCLUDED.vendedor)`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) de ${staged.length}. Sin DELETE (ledger append-only).`);

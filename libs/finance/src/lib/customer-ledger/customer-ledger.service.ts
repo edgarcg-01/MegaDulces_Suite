@@ -20,6 +20,8 @@ export interface CarteraQuery {
   sucursal?: string;
   cliente?: string;
   vendedor?: string;
+  grupo?: string;   // kdud.c13 (ej '1M001' TELEMARKETING LA PIEDAD)
+  zona?: string;    // kdud.c14
   from?: string;
   to?: string;
   incluir_saldados?: string; // '1' = incluir clientes con saldo 0
@@ -66,6 +68,8 @@ export class CustomerLedgerService {
         .where('r.tenant_id', tenantId);
       if (q.sucursal) qb = qb.where('r.sucursal', q.sucursal);
       if (q.vendedor) qb = qb.where('r.vendedor', q.vendedor);
+      if (q.grupo) qb = qb.where('r.grupo', q.grupo);
+      if (q.zona) qb = qb.where('r.zona', q.zona);
       if (q.cliente) qb = qb.where('r.cliente_code', q.cliente);
       if (q.from) qb = qb.where('r.fecha', '>=', q.from);
       if (q.to) qb = qb.where('r.fecha', '<=', q.to);
@@ -74,7 +78,7 @@ export class CustomerLedgerService {
         qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
       }
       const rows = await qb.select(
-        'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.cargo_abono',
+        'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona', 'r.cargo_abono',
         'r.importe', 'r.signed_amount',
         trx.raw('r.vencimiento::text as vencimiento'),
         trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'),
@@ -85,7 +89,7 @@ export class CustomerLedgerService {
       for (const r of rows) {
         const k = `${r.sucursal}||${r.cliente_code}`;
         let g = map.get(k);
-        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, cargos: [], abono: 0 }; map.set(k, g); }
+        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, cargos: [], abono: 0 }; map.set(k, g); }
         if (r.cargo_abono === 'C') g.cargos.push({ importe: M2(r.importe), venc: r.vencimiento ? String(r.vencimiento).slice(0, 10) : null });
         else g.abono += M2(r.importe);
         if (!g.cliente_nombre && r.cliente_nombre) g.cliente_nombre = r.cliente_nombre;
@@ -110,7 +114,7 @@ export class CustomerLedgerService {
         if (saldo <= 0.005 && q.incluir_saldados !== '1') continue;
         clientes.push({
           sucursal: g.sucursal, cliente_code: g.cliente_code, cliente_nombre: g.cliente_nombre || g.cliente_code,
-          rfc: g.rfc || null, vendedor: g.vendedor || null,
+          rfc: g.rfc || null, vendedor: g.vendedor || null, grupo: g.grupo || null, zona: g.zona || null,
           saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, aging,
         });
         kpi.total_saldo += saldo; kpi.total_vencido += vencido; kpi.n_clientes += 1; kpi.n_partidas += nPartidas;
@@ -121,6 +125,19 @@ export class CustomerLedgerService {
       kpi.total_vencido = Math.round(kpi.total_vencido * 100) / 100;
       (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = Math.round(kpi.aging[k] * 100) / 100; });
       return { hoy, kpi, clientes: clientes.slice(0, limit), total_clientes: clientes.length };
+    });
+  }
+
+  /** Valores distintos para los selects del reporte (sucursal/grupo/zona/vendedor). */
+  async filtros() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const distinct = async (col: string) => (await trx('analytics.customer_receivables')
+        .where('tenant_id', tenantId).whereNotNull(col).distinct(col).orderBy(col)).map((r: any) => r[col]);
+      const [sucursales, grupos, zonas, vendedores] = await Promise.all([
+        distinct('sucursal'), distinct('grupo'), distinct('zona'), distinct('vendedor'),
+      ]);
+      return { sucursales, grupos, zonas, vendedores };
     });
   }
 
