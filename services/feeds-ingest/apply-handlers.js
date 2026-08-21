@@ -17,6 +17,7 @@
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -499,13 +500,13 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
-    const normalizers = ODS_NORMALIZERS[table];
-    if (normalizers && Array.isArray(rows) && rows.length) {
-      const keyCol = pk[0];
-      const keys = Array.from(new Set(rows.map((r) => (r[keyCol] == null ? '' : String(r[keyCol]).trim())).filter(Boolean)));
+    const cfg = ODS_NORMALIZERS[table];
+    if (cfg && Array.isArray(rows) && rows.length) {
+      const skuCol = cfg.skuCol || pk[0];
+      const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
       if (keys.length) {
-        for (const norm of normalizers) {
-          // cada normalizador en su PROPIA tx → si uno falla, NO tumba al otro ni al CDC (lo toma el barrido).
+        for (const norm of cfg.fns) {
+          // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
           try { const nz = await norm(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
           catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
         }
@@ -703,10 +704,13 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
   }
 }
 
-// Una tabla puede tener VARIOS normalizadores (se corren en orden, cada uno en su propia tx).
+// Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
+// kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
+// Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
-  kdii: [normalizeProductsFromOds, normalizeLabelsFromOds],
-  kdpv_prod_util: [normalizeLabelsFromOds],
+  kdii: { fns: [normalizeProductsFromOds, normalizeLabelsFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
+  kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
+  kdpv_prod_util: { fns: [normalizeLabelsFromOds, normalizeBoxPrice] },
 };
 
 const HANDLERS = {
