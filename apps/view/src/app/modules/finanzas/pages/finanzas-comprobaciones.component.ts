@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
@@ -240,9 +240,16 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               @if (d.importe) { <div><dt>Importe</dt><dd>{{ money(d.importe) }}</dd></div> }
               @if (d.concepto) { <div class="cp-fromsol-wide"><dt>Concepto</dt><dd>{{ d.concepto }}</dd></div> }
             </dl>
-            <button type="button" class="cp-fromsol-edit" (click)="desdeSolicitud.set(null)">
-              ¿Algo no coincide? Editar a mano
-            </button>
+            <div class="cp-fromsol-acts">
+              <button type="button" class="cp-fromsol-edit" (click)="desdeSolicitud.set(null)">
+                ¿Algo no coincide? Editar a mano
+              </button>
+              @if (volverA()) {
+                <button type="button" class="cp-fromsol-edit" (click)="volverAtras()">
+                  <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a Solicitudes
+                </button>
+              }
+            </div>
           </div>
         } @else {
         <label class="cp-f"><span>Solicitud de gasto (Kepler XA1501) *</span>
@@ -421,6 +428,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     .cp-file { gap: .2rem; }
     .cp-suc { font-size: .82rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; margin-top: -.35rem; }
     .cp-suc strong { color: var(--text-main); }
+    .cp-fromsol-acts { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
     .cp-filepick { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cp-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
@@ -432,6 +440,7 @@ export class FinanzasComprobacionesComponent {
   private readonly comercial = inject(ComercialService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly perms = inject(PermissionsService);
   private readonly socket = inject(ExpenseProofsSocketService);
@@ -476,6 +485,10 @@ export class FinanzasComprobacionesComponent {
   readonly statusSel = signal<string>('');
   readonly departamentos = signal<Departamento[]>([]);
   readonly sucursalDerivada = signal<string>('');
+  /** Ruta a la que se regresa al terminar, si esta pantalla se abrió como desvío. */
+  readonly volverA = signal<string | null>(null);
+  volverAtras() { const b = this.volverA(); this.volverA.set(null); this.showForm.set(false); if (b) this.router.navigate([b]); }
+
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
 
   // ── Visor de quien revisa ────────────────────────────────────────────────
@@ -600,6 +613,9 @@ export class FinanzasComprobacionesComponent {
           importe: this.form.importe ?? null, concepto: qp.get('concepto'),
         });
       }
+      // Llegar acá desde /finanzas/solicitudes es un DESVÍO, no un destino: al terminar
+      // se vuelve a la lista donde estaba trabajando, no se lo deja en "Reembolsos".
+      if (folio) this.volverA.set('/finanzas/solicitudes');
       this.openNew(false);
     }
     this.load();
@@ -798,7 +814,14 @@ export class FinanzasComprobacionesComponent {
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => { this.saving.set(false); this.uploaded = {}; this.showForm.set(false); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: `Folio ${this.form.folio_solicitud}` }); this.load(); },
+        next: () => {
+          this.saving.set(false); this.uploaded = {}; this.showForm.set(false);
+          const folio = this.form.folio_solicitud;
+          this.toast.add({ severity: 'success', summary: 'Evidencia adjuntada', detail: `Solicitud ${folio}` });
+          const back = this.volverA();
+          if (back) { this.volverA.set(null); this.router.navigate([back]); return; }
+          this.load();
+        },
         error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la solicitud.'); },
       });
   }
