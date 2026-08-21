@@ -17,6 +17,39 @@ Sí. Es exactamente **CDC (Change Data Capture)**. Hoy el shipper **escanea** ta
 propuesta es **leer el WAL del `:5433`** (que ya trae los cambios de Kepler por la replicación lógica) y
 enviar solo eso. El `:5433` es *subscriber* de Kepler → es *cascading logical replication*.
 
+## ⭐ CDC.0 — RESULTADO (2026-08-21) + hallazgo que reencuadra la fase
+
+**El spike PASÓ (definitivo).** `wal_level=logical` + restart aplicados; un slot `test_decoding` en
+`kepler_pilot` capturó **119 cambios en 20s** con las **3 operaciones — INSERT 28 / UPDATE 15 / DELETE 16**
+— de tablas Kepler reales (kdm2/kdil/kdik/kdij/kdii/kdue) que **la subscription APLICA**. Confirma:
+**subscriber-as-publisher funciona + el DELETE viaja en el WAL** (el win #1). Slot dropeado (sin retener WAL).
+
+**HALLAZGO — ya existe un CDC por TRIGGERS, medio construido y ABANDONADO:** `ods-cdc-setup.js` +
+`ods-cdc-forward.js` (en `database/importers/kepler/`). El setup instala `ods.change_queue` + triggers
+`ods_cdc` **ENABLE ALWAYS** (truco: normalmente no disparan durante el apply) en las tablas MUTABLES →
+encolan `(table_name, op, row_json)` con **OLD para DELETE**; el forwarder drena la cola y empuja el delta
+por feeds-ingest (I/U upsert; **DELETE lo DIFIERE — no lo aplica**). Estado medido 2026-08-21:
+- **md_03 = 312 triggers ALWAYS · md_02 = 315 · resto (00,01,04,05,06) = 0.** change_queue existe en 02/03.
+- **El forwarder NO corre** (ni tarea, ni proceso, ni PM2) → **piloto abandonado**: 600+ triggers vivos
+  cobrando impuesto de escritura en cada apply, sin drenador. Cola en 0 (bajo churn; benigno HOY, 72kB) pero
+  es estado inconsistente **a resolver sí o sí** (terminar el forwarder O dropear los triggers).
+
+**Dos caminos PROBADOS ahora — decisión (§6):**
+| | Trigger-outbox (60% built, abandonado) | WAL-decode (spike ✅) |
+|---|---|---|
+| Estado | setup+forward codeados; triggers en 2/6 ramas; forwarder sin agendar | mecanismo probado; consumidor por construir |
+| Superficie | **300+ triggers × 6 ramas + cola + forwarder** (estado disperso) | **1 slot + 1 consumidor por rama** (centralizado) |
+| Costo runtime | **impuesto de escritura** en cada apply (trigger + INSERT extra) | pasivo (lee WAL) |
+| Riesgo | cola crece si el forwarder se atrasa; **fácil de dejar a medias** (ya pasó) | slot retiene WAL si el consumidor muere (**monitorable** en pg_replication_slots) |
+| DELETE | capturado (OLD) pero **el forwarder lo difiere** (no lo aplica) | capturado y aplicable |
+
+**Recomendación:** **WAL-decode** — el piloto abandonado acaba de demostrar la fragilidad operativa del
+approach por triggers (600+ triggers huérfanos, sin consumidor, impuesto de escritura), y el WAL tiene una
+superficie más chica y monitorable; `wal_level=logical` ya quedó hecho. **Y retirar los triggers huérfanos**
+de md_02/md_03 (cleanup, quitar el impuesto + el estado inconsistente). Alternativa legítima: **terminar el
+piloto por triggers** (wire forwarder + 4 ramas + aplicar DELETEs) si se prefiere la cola-tabla visible sobre
+el slot. **Decisión de Edgar pendiente.**
+
 ## 1. Tesis
 
 `kepler_ods.*` (prod) se alimenta hoy con **2 loops de polling** (`OdsLiveLoop` @15s + `OdsFullMirror` @5min):
