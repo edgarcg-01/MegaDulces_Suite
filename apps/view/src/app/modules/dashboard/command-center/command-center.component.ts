@@ -14,8 +14,8 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { forkJoin, of, type Observable } from 'rxjs';
+import { catchError, timeout } from 'rxjs/operators';
 
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
@@ -212,8 +212,29 @@ export class CommandCenterComponent implements OnInit {
     this.loadAll();
   }
 
+  /**
+   * Tope de espera por panel. El tablero arranca 11 consultas en paralelo y `forkJoin`
+   * SOLO emite cuando terminan todas: un endpoint que no responde deja la pantalla
+   * cargando para siempre. El `catchError` de cada llamada no alcanzaba — atrapa
+   * errores, no silencio. Con esto un panel lento se rinde, se pinta el resto y se dice
+   * cuántos faltaron, en vez de colgar el módulo entero.
+   */
+  private static readonly PANEL_TIMEOUT_MS = 20_000;
+
+  /** Paneles que no alcanzaron a cargar en esta corrida (tiempo agotado o error). */
+  readonly degraded = signal(0);
+
+  /** Cada panel es opcional: si tarda de más o falla, devuelve su valor por defecto. */
+  private panel<T>(src: Observable<T>, fallback: T): Observable<T> {
+    return src.pipe(
+      timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
+      catchError(() => { this.degraded.update((n) => n + 1); return of(fallback); }),
+    );
+  }
+
   loadAll(): void {
     this.loading.set(true);
+    this.degraded.set(0);
     const today = new Date();
     const from = new Date(today.getTime() - 29 * 86400_000);
     const fromIso = from.toISOString().slice(0, 10);
@@ -221,19 +242,19 @@ export class CommandCenterComponent implements OnInit {
 
     forkJoin({
       // Venta real de la red — best-effort: si analytics.* está vacío/caído, no rompe.
-      ov: this.api.networkOverview().pipe(catchError(() => of(null))),
-      tp: this.api.networkTopProducts(8).pipe(catchError(() => of([] as NetworkTopProductRow[]))),
-      sbb: this.api.networkSalesByBrand().pipe(catchError(() => of([] as SalesByBrandRow[]))),
-      cust: this.api.erpCustomers(6).pipe(catchError(() => of([] as ErpCustomerRow[]))),
-      ds: this.api.networkDailySeries(fromIso, toIso).pipe(catchError(() => of([] as NetworkDailyRow[]))),
+      ov: this.panel(this.api.networkOverview(), null),
+      tp: this.panel(this.api.networkTopProducts(8), [] as NetworkTopProductRow[]),
+      sbb: this.panel(this.api.networkSalesByBrand(), [] as SalesByBrandRow[]),
+      cust: this.panel(this.api.erpCustomers(6), [] as ErpCustomerRow[]),
+      ds: this.panel(this.api.networkDailySeries(fromIso, toIso), [] as NetworkDailyRow[]),
       // Operacional (commercial.* / ERP FDW) — best-effort.
-      ls: this.api.lowStock(200).pipe(catchError(() => of(null))),
-      ic: this.api.inactiveCustomers(30, 5).pipe(catchError(() => of(null))),
-      oos: this.api.rankingOutOfStock(10, 200).pipe(catchError(() => of([] as RankingOutOfStockRow[]))),
+      ls: this.panel(this.api.lowStock(200), null),
+      ic: this.panel(this.api.inactiveCustomers(30, 5), null),
+      oos: this.panel(this.api.rankingOutOfStock(10, 200), [] as RankingOutOfStockRow[]),
       // Motor de Inteligencia (Fase M) — best-effort.
-      conv: this.api.conversionSummary(30).pipe(catchError(() => of(null))),
-      convDaily: this.api.conversionDaily(30).pipe(catchError(() => of([] as ConversionDailyRow[]))),
-      due: this.api.nbaDue(100).pipe(catchError(() => of([] as Array<{ customer_id: string }>))),
+      conv: this.panel(this.api.conversionSummary(30), null),
+      convDaily: this.panel(this.api.conversionDaily(30), [] as ConversionDailyRow[]),
+      due: this.panel(this.api.nbaDue(100), [] as Array<{ customer_id: string }>),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
