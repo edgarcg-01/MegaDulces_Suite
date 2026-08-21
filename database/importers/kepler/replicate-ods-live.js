@@ -99,7 +99,14 @@ const isHashTable = (table) => (ALL_MODE ? !CTID_TABLES.has(table) : (HASH_TABLE
 // ventana es chica) y no toca el camino ctid. Throttle por tabla×sucursal para acotar egress.
 const SAFETY_DAYS = Number(process.env.ODS_SAFETY_DAYS || 3);
 const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 1000;
-const RECENT_COL = { kdm1: 'c9', kdm2: 'c9', kdpord: 'c9', kdue: 'c9', kdij: 'c9' }; // fecha de negocio del ctid table
+// Columna de FECHA DE NEGOCIO por tabla ctid (la red de seguridad re-envía la ventana reciente por
+// ella). OJO: NO es c9 en todas — c9 solo es fecha en kdm1; en kdm2 c9=CANTIDAD (double), en
+// kdij/kdue/kdpord c9=numérico/varchar. Verificado 2026-08-21: kdm2.c32 ≡ fecha del header
+// (76846/76847 = 99.999% mismo día, 0 nulls), kdij.c10, kdue.c7, kdpord.c6 = timestamps de negocio.
+// BUG PREVIO (c9 en todas): la red hacía `c9 >= current_date-N` → "operator does not exist:
+// double precision/numeric/varchar >= date" (150k veces en el log) → kdm2/kdij/kdue quedaban SIN
+// red de seguridad, expuestas al skip silencioso del ctid (líneas de venta faltantes).
+const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
 const _lastSafety = new Map();
 
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
@@ -217,7 +224,10 @@ async function syncCtid(p, code, table, meta, { apply, full }) {
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
   const rcol = RECENT_COL[table];
-  if (rcol && meta.cols.some((c) => c.column_name === rcol)) {
+  const rcolMeta = rcol && meta.cols.find((c) => c.column_name === rcol);
+  // Type-guard: solo si la columna es fecha/timestamp. Si RECENT_COL apunta mal, la tabla se queda
+  // SIN red de seguridad (degradación limpia) en vez de spamear "operator does not exist: X >= date".
+  if (rcolMeta && /date|timestamp/.test(rcolMeta.data_type)) {
     const key = `${code}/${table}`;
     const nowMs = Date.now();
     if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
