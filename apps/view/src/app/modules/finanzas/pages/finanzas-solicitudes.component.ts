@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -14,6 +14,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
+import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
@@ -26,11 +27,21 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { ComprobacionGastosService } from '../comprobacion-gastos.service';
+import { datePresetRange, money, moneyShort } from '../../../shared/util';
+import { dmy } from './finanzas-format';
+
+/** Periodos que ofrece el head. `rango` revela el datepicker. */
+type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
  * y si ya se aplicaron a un gasto (XA1001). Foco de control: las pendientes (pedidas/
- * aprobadas y no ejecutadas). Fuente analytics.expense_requests (feed import-expense-requests).
+ * aprobadas y no ejecutadas). Fuente analytics.expense_requests (hoy vista viva sobre ODS).
+ *
+ * Arranca en **hoy**. Antes abría con 90 días contra una vista viva y un tope de 2000
+ * filas: el costo de la consulta y el scroll no los pedía nadie — la pregunta diaria es
+ * "qué entró hoy y qué sigue sin aplicarse". Los periodos salen de `datePresetRange`
+ * compartido para que "Hoy" signifique lo mismo en toda la app.
  */
 @Component({
   selector: 'app-finanzas-solicitudes',
@@ -42,113 +53,169 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
     <div class="surf-page in">
       <p-toast />
       <app-page-tabs [tabs]="tabs" />
+
+      <!-- El rango vive en el head del apartado (patrón Operations #6), no en una banda
+           mid-page: es el control que gobierna TODA la pantalla, no un filtro más. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
+          <div class="so-title"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
           <p class="surf-page-sub">Solicitudes (XA1501) y su aplicación a gasto (XA1001) · estado, solicitante y días de proceso · fuente Kepler</p>
+        </div>
+        <div class="so-head-right">
           @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
+          <app-segmented [options]="periodoOpts" [value]="periodo()" (valueChange)="setPeriodo($event)" ariaLabel="Periodo" />
+          @if (periodo() === 'rango') {
+            <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
+                          [showIcon]="true" appendTo="body" (onClose)="load()" ariaLabel="Rango de fechas" />
+          }
         </div>
       </header>
 
-      <!-- Filtros -->
-      <div class="so-filters card-premium card-flat">
-        <div class="so-field"><label>Rango</label>
-          <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="queue()" /></div>
-        <div class="so-field"><label>Sucursales</label>
-          <p-multiselect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
-        <div class="so-field"><label>Estado</label>
-          <app-segmented [options]="aplicadaOpts" [value]="aplicadaSel()" (valueChange)="setAplicada($event)" ariaLabel="Aplicación" /></div>
-        <div class="so-field"><label>Estatus doc</label>
-          <p-select [options]="estadoOpts" [(ngModel)]="estado" optionLabel="label" optionValue="value" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queue()" styleClass="w-full" /></div>
-        <div class="so-field"><label>Solicitante</label>
-          <p-select [options]="solicitantes()" [(ngModel)]="solicitante" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queue()" styleClass="w-full" [filter]="true" /></div>
-        <div class="so-field so-grow"><label>Buscar</label>
-          <input pInputText [(ngModel)]="search" placeholder="Folio, beneficiario, concepto…" (keyup.enter)="load()" (blur)="queue()" /></div>
-      </div>
-
-      <!-- KPIs -->
-      @if (report(); as r) {
-        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de solicitudes" />
-      }
-
-      <!-- Tabla -->
-      @if (error()) {
-        <app-load-state [error]="error()" (retry)="load()"></app-load-state>
-      } @else {
-      <div class="card-premium card-flat">
-        <p-table [value]="rows()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
-                 [paginator]="rows().length > 100" [rows]="100" [loading]="loading()"
-                 sortField="fecha" [sortOrder]="-1">
-          <ng-template #header>
-            <tr>
-              <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sorticon field="fecha" /></th>
-              <th pSortableColumn="folio" style="width:6rem">Folio <p-sorticon field="folio" /></th>
-              <th>Sucursal</th>
-              <th pSortableColumn="solicitante">Solicitante <p-sorticon field="solicitante" /></th>
-              <th>Beneficiario</th>
-              <th>Concepto</th>
-              <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
-              <th style="width:7rem">Estatus</th>
-              <th style="width:9rem">Aplicación</th>
-              <th class="ta-r" pSortableColumn="lead_days" style="width:5rem">Días <p-sorticon field="lead_days" /></th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-r>
-            <tr>
-              <td>{{ r.fecha | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ r.folio }}</td>
-              <td>{{ r.sucursal_nombre || r.sucursal }}</td>
-              <td>{{ r.solicitante || '—' }}</td>
-              <td>{{ r.beneficiario || '—' }}</td>
-              <td class="muted">{{ r.concepto || '—' }}</td>
-              <td class="ta-r strong">{{ money(r.importe) }}</td>
-              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" /></td>
-              <td>
-                @if (r.aplicada) {
-                  <button type="button" class="so-link" (click)="verGasto(r)" [title]="'Ver gasto ' + r.gasto_folio">
-                    <i class="pi pi-check-circle"></i> {{ r.gasto_folio || 'Aplicada' }}
-                  </button>
-                } @else if (!proofStatus()[r.folio]) {
-                  <button type="button" class="so-link so-comprobar" (click)="comprobar(r)" title="Subir comprobantes de esta solicitud">
-                    <i class="pi pi-upload"></i> Comprobar
-                  </button>
-                }
-                @if (proofStatus()[r.folio]; as ps) {
-                  <div class="so-proof" [ngClass]="'ps-' + ps.status"><i class="pi" [ngClass]="proofIcon(ps.status)"></i> Comprobante {{ proofLabel(ps.status) }}</div>
-                  <!-- Se resuelve donde se ve. Antes el estado era solo texto y para
-                       validarlo había que irse a otra pantalla y buscar el folio de nuevo. -->
-                  @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
-                    <div class="so-acts">
-                      <button type="button" class="so-act so-ok" [disabled]="actingId() === ps.id"
-                              (click)="validar(r, ps.id)" [attr.aria-label]="'Validar el comprobante de ' + r.folio">
-                        <i class="pi pi-check" aria-hidden="true"></i> Validar
-                      </button>
-                      <button type="button" class="so-act so-no" [disabled]="actingId() === ps.id"
-                              (click)="rechazar(r, ps.id)" [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
-                        <i class="pi pi-times" aria-hidden="true"></i> Rechazar
-                      </button>
-                    </div>
+      @if (primeraCarga()) {
+        <div class="so-sk-head" aria-hidden="true"></div>
+      } @else if (report(); as r) {
+        @if (r.kpis.total > 0) {
+          <!-- Q.1 — la conclusión del periodo antes que el grid. Q.2 — con su lectura
+               en llano. Q.4 — el número que evidencia el problema lleva a filtrarlo. -->
+          <div class="tw-verdict" [class.ok]="r.kpis.pendientes === 0" [class.bad]="r.kpis.pendientes > 0">
+            <i class="pi" [class.pi-check-circle]="r.kpis.pendientes === 0" [class.pi-exclamation-circle]="r.kpis.pendientes > 0" aria-hidden="true"></i>
+            <div>
+              <h3>{{ r.kpis.pendientes === 0 ? 'Todo aplicado' : (moneyShort(r.kpis.pendientes_importe) + ' sin aplicar') }}</h3>
+              <p class="so-read">
+                @if (r.kpis.pendientes === 0) {
+                  Las {{ r.kpis.total }} {{ r.kpis.total === 1 ? 'solicitud' : 'solicitudes' }} {{ periodoDe() }}
+                  ({{ money(r.kpis.importe) }}) ya se aplicaron a un gasto en Kepler.
+                } @else {
+                  De {{ r.kpis.total }} {{ r.kpis.total === 1 ? 'solicitud' : 'solicitudes' }} por {{ money(r.kpis.importe) }} {{ periodoEn() }},
+                  @if (aplicadaSel() !== 'pend') {
+                    <button type="button" class="so-drill" (click)="setAplicada('pend')">
+                      {{ r.kpis.pendientes }} {{ r.kpis.pendientes === 1 ? 'sigue' : 'siguen' }} sin aplicarse</button>
+                  } @else {
+                    <strong>{{ r.kpis.pendientes }} {{ r.kpis.pendientes === 1 ? 'sigue' : 'siguen' }} sin aplicarse</strong>
                   }
+                  ({{ money(r.kpis.pendientes_importe) }}). Las canceladas no cuentan.
                 }
-                @if (compStatus()[r.folio]; as cs) {
-                  <div class="so-proof" [ngClass]="'ps-' + cs"><i class="pi" [ngClass]="proofIcon(cs)"></i> Comprobación {{ proofLabel(cs) }}</div>
-                }
-              </td>
-              <td class="ta-r muted">{{ r.lead_days != null ? r.lead_days : '—' }}</td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage><tr><td colspan="10" class="so-empty">Sin solicitudes para el filtro. (¿corrió el feed?)</td></tr></ng-template>
-        </p-table>
-      </div>
+              </p>
+            </div>
+          </div>
+          <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de solicitudes" />
+        }
       }
+
+      <div class="card-premium card-flat so-card">
+        <!-- Filtros secundarios pegados a la tabla que filtran, no flotando mid-page. -->
+        <div class="so-tools">
+          <div class="so-field"><label for="so-f-suc">Sucursales</label>
+            <p-multiselect inputId="so-f-suc" [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code"
+                           placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
+          <div class="so-field"><span class="so-lbl" aria-hidden="true">Aplicación</span>
+            <app-segmented [options]="aplicadaOpts" [value]="aplicadaSel()" (valueChange)="setAplicada($event)" ariaLabel="Aplicación" /></div>
+          <div class="so-field"><label for="so-f-est">Estatus doc</label>
+            <p-select inputId="so-f-est" [options]="estadoOpts" [(ngModel)]="estado" optionLabel="label" optionValue="value" [showClear]="true"
+                      placeholder="Todos" appendTo="body" (onChange)="queue()" styleClass="w-full" /></div>
+          <div class="so-field"><label for="so-f-sol">Solicitante</label>
+            <p-select inputId="so-f-sol" [options]="solicitantes()" [(ngModel)]="solicitante" [showClear]="true" placeholder="Todos"
+                      appendTo="body" (onChange)="queue()" styleClass="w-full" [filter]="true" /></div>
+          <div class="so-field so-grow"><label for="so-f-q">Buscar</label>
+            <input id="so-f-q" pInputText [(ngModel)]="search" placeholder="Folio, beneficiario, concepto…" (keyup.enter)="load()" (blur)="queue()" /></div>
+          @if (!loading() && rows().length) {
+            <span class="so-count">{{ rows().length }} {{ rows().length === 1 ? 'fila' : 'filas' }}</span>
+          }
+        </div>
+
+        <!-- §2 matriz de estados: cargando (filas skeleton) / vacío (con salida) / error
+             son tres cosas distintas. Un periodo sin movimiento NO es una falla. -->
+        <app-load-state [class.is-busy]="loading() && !primeraCarga()" [attr.aria-busy]="loading() || null"
+                        [loading]="primeraCarga()" [error]="error()" [isEmpty]="!rows().length"
+                        [skeletonRows]="8" emptyIcon="pi-inbox"
+                        [emptyTitle]="'Sin solicitudes ' + periodoEn()"
+                        [emptyHint]="emptyHint()" [emptyCta]="ampliarLabel()" emptyCtaIcon="pi pi-arrows-h"
+                        (retry)="load()" (cta)="ampliar()">
+          <p-table [value]="rows()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
+                   [paginator]="rows().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                   sortField="fecha" [sortOrder]="-1">
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="folio" style="width:7rem">Folio <p-sorticon field="folio" /></th>
+                <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sorticon field="fecha" /></th>
+                <th style="width:9rem">Sucursal</th>
+                <th pSortableColumn="solicitante" style="width:10rem">Solicitante <p-sorticon field="solicitante" /></th>
+                <th style="width:12rem">Beneficiario</th>
+                <th>Concepto</th>
+                <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
+                <th style="width:7rem">Estatus</th>
+                <th pSortableColumn="lead_days" style="width:10rem" title="Gasto XA1001 al que se aplicó, y en cuántos días">Aplicación <p-sorticon field="lead_days" /></th>
+                <th style="width:13rem">Evidencia</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="num strong">{{ r.folio }}</td>
+                <td class="num muted">{{ dmy(r.fecha) }}</td>
+                <td>{{ r.sucursal_nombre || r.sucursal }}</td>
+                <td>{{ r.solicitante || '—' }}</td>
+                <td>{{ r.beneficiario || '—' }}</td>
+                <td class="muted"><span class="so-trunc" [title]="r.concepto || ''">{{ r.concepto || '—' }}</span></td>
+                <td class="ta-r num strong">{{ money(r.importe) }}</td>
+                <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" /></td>
+
+                <!-- Lo que dice Kepler. El lead time va como meta del folio, no como
+                     columna aparte: es la lectura de ESE número, no otro dato. -->
+                <td>
+                  @if (r.aplicada) {
+                    <button type="button" class="so-link" (click)="verGasto(r)" [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
+                      <i class="pi pi-check-circle" aria-hidden="true"></i> {{ r.gasto_folio || 'Aplicada' }}
+                    </button>
+                    @if (r.lead_days != null) {
+                      <span class="so-cell-meta num">{{ leadTexto(r.lead_days) }}</span>
+                    }
+                  } @else {
+                    <span class="faint">Sin aplicar</span>
+                  }
+                </td>
+
+                <!-- Lo que tenemos nosotros. Se resuelve donde se ve: antes el estado era
+                     solo texto y para validarlo había que irse a otra pantalla y buscar
+                     el folio de nuevo. -->
+                <td>
+                  @if (proofStatus()[r.folio]; as ps) {
+                    <div class="so-proof" [ngClass]="'ps-' + ps.status"><i class="pi" [ngClass]="proofIcon(ps.status)" aria-hidden="true"></i> Comprobante {{ proofLabel(ps.status) }}</div>
+                    @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
+                      <div class="so-acts">
+                        <button type="button" class="so-act so-ok" [disabled]="actingId() === ps.id"
+                                (click)="validar(r, ps.id)" [attr.aria-label]="'Validar el comprobante de ' + r.folio">
+                          <i class="pi pi-check" aria-hidden="true"></i> Validar
+                        </button>
+                        <button type="button" class="so-act so-no" [disabled]="actingId() === ps.id"
+                                (click)="rechazar(r, ps.id)" [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
+                          <i class="pi pi-times" aria-hidden="true"></i> Rechazar
+                        </button>
+                      </div>
+                    }
+                  } @else if (!r.aplicada) {
+                    <button type="button" class="so-link so-comprobar" (click)="comprobar(r)" [attr.aria-label]="'Subir la evidencia de ' + r.folio">
+                      <i class="pi pi-upload" aria-hidden="true"></i> Adjuntar evidencia
+                    </button>
+                  } @else {
+                    <span class="faint">—</span>
+                  }
+                  @if (compStatus()[r.folio]; as cs) {
+                    <div class="so-proof" [ngClass]="'ps-' + cs"><i class="pi" [ngClass]="proofIcon(cs)" aria-hidden="true"></i> Comprobación {{ proofLabel(cs) }}</div>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </app-load-state>
+      </div>
     </div>
 
     <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
               [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobante">
-      <p class="so-empty" style="text-align:left;padding:0 0 .6rem">
+      <p class="so-dlg-hint">
         Solicitud <strong>{{ rejectTarget?.r?.folio }}</strong>. El motivo lo lee quien capturó, así que decí qué corregir.
       </p>
-      <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" style="width:100%"
+      <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" class="so-dlg-txt"
                 placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
@@ -157,42 +224,93 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
       </ng-template>
     </p-dialog>
   `,
-  styles: [`
+  styles: [FINANZAS_SHARED_STYLES, `
     :host { display: block; }
-    .so-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
-    .so-field { display: flex; flex-direction: column; gap: .3rem; }
-    .so-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .so-field.so-grow { flex: 1 1 16rem; }
-    app-metric-strip { display:block; margin-bottom: 1rem; }
-    .so-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
-    .so-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
-    .so-table .strong { font-weight: 600; color: var(--text-main); }
-    .so-table .muted { color: var(--text-muted); }
-    .mono { font-family: var(--font-mono); font-size: .85em; }
-    .so-link { border: none; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .2rem; display: inline-flex; align-items: center; gap: .3rem; font-size: .82rem; }
+
+    /* ── Head ───────────────────────────────────────────────────────────── */
+    .so-title { display: inline-flex; align-items: center; gap: var(--sp-2); }
+    .so-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-1); }
+    .so-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }
+    .so-live i { font-size: var(--fs-nano); }
+
+    /* ── Veredicto + KPIs ───────────────────────────────────────────────── */
+    .tw-verdict p.so-read { font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
+    .so-drill { border: 0; background: none; padding: 0; font: inherit; font-weight: var(--fw-bold);
+      color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .so-drill:hover { color: var(--action-hover); }
+    .so-drill:active { color: var(--action-press); }
+    .so-drill:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    app-metric-strip { display: block; margin-bottom: var(--sp-3); }
+    /* Reserva el alto del veredicto mientras carga: sin esto la tabla salta (CLS). */
+    .so-sk-head { height: 4.4rem; border-radius: var(--r-md); background: var(--hover-bg);
+      margin-bottom: var(--sp-3); animation: fb-pulse 1.4s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .so-sk-head { animation: none; } }
+
+    /* ── Barra de herramientas de la tabla ──────────────────────────────── */
+    /* .card-premium global trae padding + box-shadow; in-page la elevación es SOLO
+       el borde (datos densos 1). La clase card-flat no está definida globalmente,
+       así que la sombra se apaga acá con la especificidad suficiente para ganarle. */
+    .card-premium.so-card { padding: 0; overflow: hidden; box-shadow: none; }
+    .card-premium.so-card:hover { box-shadow: none; }
+    .so-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3);
+      padding: var(--sp-3); border-bottom: 1px solid var(--border-color); }
+    .so-field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+    .so-field > label, .so-field > .so-lbl { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .so-field.so-grow { flex: 1 1 14rem; }
+    .so-count { margin-left: auto; align-self: center; font-size: var(--fs-xs); color: var(--fg-3);
+      font-variant-numeric: tabular-nums; }
+    app-load-state { display: block; padding: var(--sp-2) var(--sp-3) var(--sp-3);
+      transition: opacity var(--dur-short) var(--ease-standard); }
+    app-load-state.is-busy { opacity: .55; }
+
+    /* ── Tabla ──────────────────────────────────────────────────────────── */
+    .so-table th { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .04em; color: var(--fg-3); white-space: nowrap; }
+    .so-table td { font-size: var(--fs-sm); color: var(--fg-1); line-height: 1.3; }
+    /* tabular-nums en TODA celda de cifra/folio/fecha: si no, las columnas no se leen
+       como columnas (§datos densos 10). */
+    .so-table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .so-table .ta-r { text-align: right; }
+    .so-table .strong { font-weight: var(--fw-bold); color: var(--fg-1); }
+    .so-table .muted { color: var(--fg-2); }
+    .so-table .faint { color: var(--fg-3); }
+    .so-cell-meta { display: block; margin-top: 1px; font-size: var(--fs-xs); color: var(--fg-3); }
+    .so-trunc { display: block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Acciones de celda ──────────────────────────────────────────────── */
+    .so-link { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--tap-min, 24px);
+      padding: 0 2px; border: 0; background: transparent; color: var(--action); font: inherit;
+      font-size: var(--fs-xs); cursor: pointer; }
     .so-link:hover { text-decoration: underline; }
-    .so-link i { font-size: .78rem; color: var(--ok-fg); }
-    .so-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
-    .so-proof { font-size: .72rem; display: inline-flex; align-items: center; gap: .3rem; margin-top: .15rem; }
-    /* Acciones de fila: ghost, reveladas en la celda, con area tactil de 24px minimo.
-       El color no es el unico portador — cada boton lleva icono y texto. */
-    .so-acts { display: inline-flex; gap: .3rem; margin-top: .25rem; }
-    .so-act { display: inline-flex; align-items: center; gap: .25rem; min-height: 24px; padding: .1rem .4rem;
-      font: inherit; font-size: .72rem; cursor: pointer; background: transparent;
-      border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--text-muted); }
+    .so-link:active { color: var(--action-press); }
+    .so-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; border-radius: var(--r-sm); }
+    .so-link i { font-size: var(--fs-xs); color: var(--ok-fg); }
+    .so-comprobar i { color: var(--action); }
+    /* Ghost, con área táctil mínima. El color no es único portador — cada botón
+       lleva icono y texto. */
+    .so-acts { display: inline-flex; gap: var(--sp-1); margin-top: var(--sp-1); }
+    .so-act { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--tap-min, 24px);
+      padding: 0 var(--sp-2); font: inherit; font-size: var(--fs-xs); cursor: pointer; background: transparent;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--fg-2); }
     .so-act:hover:not(:disabled) { background: var(--overlay-hover); }
+    .so-act:active:not(:disabled) { background: var(--overlay-active); }
     .so-act:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .so-act:disabled { opacity: .45; cursor: default; }
-    .so-act i { font-size: .68rem; }
+    .so-act i { font-size: var(--fs-nano); }
     .so-ok:hover:not(:disabled) { color: var(--ok-fg); border-color: var(--ok-fg); }
     .so-no:hover:not(:disabled) { color: var(--bad-fg); border-color: var(--bad-fg); }
-    /* Mismo indicador que el resto de las bandejas de Finanzas. */
-    .so-live { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .72rem; color: var(--ok-fg); }
-    .so-live i { font-size: .55rem; }
-    .so-proof i { font-size: .72rem; }
-    .so-proof.ps-recibida { color: var(--warn-fg); }
+
+    /* ── Estado de la evidencia ─────────────────────────────────────────── */
+    .so-proof { display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: 1px; font-size: var(--fs-xs); }
+    .so-proof i { font-size: var(--fs-xs); }
+    .so-proof.ps-recibida, .so-proof.ps-revision { color: var(--warn-fg); }
     .so-proof.ps-validada { color: var(--ok-fg); }
     .so-proof.ps-rechazada { color: var(--bad-fg); }
+
+    /* ── Diálogo ────────────────────────────────────────────────────────── */
+    .so-dlg-hint { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
+    .so-dlg-txt { width: 100%; font-size: var(--fs-sm); }
   `],
 })
 export class FinanzasSolicitudesComponent {
@@ -201,28 +319,29 @@ export class FinanzasSolicitudesComponent {
   private readonly comprobaciones = inject(ComprobacionesService);
   private readonly compGastos = inject(ComprobacionGastosService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
   readonly proofStatus = signal<Record<string, ProofByFolio>>({});
-  /** Fila en curso: el boton se apaga en el 1er clic, sincrono, para que no se dispare dos veces. */
+  /** Fila en curso: el botón se apaga en el 1er clic, síncrono, para que no se dispare dos veces. */
   readonly actingId = signal<string | null>(null);
   readonly compStatus = signal<Record<string, string>>({});
 
-  kpiItems(r: ExpenseRequestsReport): MetricStripItem[] {
-    return [
-      { label: 'Solicitudes', value: r.kpis.total, sub: this.money(r.kpis.importe) },
-      { label: 'Sin aplicar', value: r.kpis.pendientes, tone: 'bad', sub: this.money(r.kpis.pendientes_importe) },
-      { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}%` },
-    ];
-  }
   readonly rows = computed(() => this.report()?.rows || []);
+  /** Primera carga = cargando y todavía sin nada en pantalla. Un refresh no vacía la vista. */
+  readonly primeraCarga = computed(() => this.loading() && !this.report());
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly solicitantes = signal<string[]>([]);
   readonly aplicadaSel = signal<string>('');
+  readonly periodo = signal<Periodo>('hoy');
 
+  readonly periodoOpts = [
+    { label: 'Hoy', value: 'hoy' }, { label: '7 días', value: 'd7' },
+    { label: '30 días', value: 'd30' }, { label: 'Rango', value: 'rango' },
+  ];
   readonly aplicadaOpts = [{ label: 'Todas', value: '' }, { label: 'Sin aplicar', value: 'pend' }, { label: 'Aplicadas', value: 'apl' }];
   readonly estadoOpts = [
     { label: 'Finalizada', value: 'F' }, { label: 'Autorizada', value: 'A' },
@@ -239,40 +358,114 @@ export class FinanzasSolicitudesComponent {
   estado: string | null = null;
   solicitante: string | null = null;
   search = '';
-  rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d; })(), new Date()];
+  /** Solo se usa cuando `periodo() === 'rango'`. Arranca en los últimos 90 días. */
+  rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 89); return d; })(), new Date()];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
+  readonly money = money;
+  readonly moneyShort = moneyShort;
+  readonly dmy = dmy;
+
   constructor() {
+    // Estado en la URL (§Ing.UI 9): recargar o compartir el link conserva lo que se veía.
+    const qp = this.route.snapshot.queryParamMap;
+    const p = qp.get('periodo');
+    if (p === 'hoy' || p === 'd7' || p === 'd30' || p === 'rango') this.periodo.set(p);
+    const ap = qp.get('aplicada');
+    if (ap === 'pend' || ap === 'apl') this.aplicadaSel.set(ap);
+
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((f) => this.solicitantes.set(f.areas || []));
-    this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((m) => this.proofStatus.set(m || {}));
+    this.refreshProofs();
     this.compGastos.statusBySolicitud().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((m) => this.compStatus.set(m || {}));
     this.load();
     // Realtime: si otro sube o resuelve un comprobante, esta lista se entera sola.
     this.socket.connect();
-    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe((m) => this.proofStatus.set(m || {}));
-    });
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refreshProofs());
     this.destroyRef.onDestroy(() => this.socket.disconnect());
   }
 
-  setAplicada(v: string) { this.aplicadaSel.set(v); this.load(); }
+  private refreshProofs(): void {
+    this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((m) => this.proofStatus.set(m || {}));
+  }
+
+  // ── Periodo ────────────────────────────────────────────────────────────
+  setPeriodo(v: string) { this.periodo.set(v as Periodo); this.syncUrl(); this.load(); }
+  setAplicada(v: string) { this.aplicadaSel.set(v); this.syncUrl(); this.load(); }
+
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route, replaceUrl: true, queryParamsHandling: 'merge',
+      queryParams: { periodo: this.periodo(), aplicada: this.aplicadaSel() || null },
+    });
+  }
+
+  /** Rango efectivo: preset compartido, o lo que diga el datepicker en modo `rango`. */
+  private rango(): { from?: string; to?: string } {
+    const fmt = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
+    if (this.periodo() === 'rango') {
+      const [a, b] = this.rangeDates || [];
+      return { from: fmt(a), to: fmt(b) };
+    }
+    const r = datePresetRange(this.periodo());
+    return { from: fmt(r?.from), to: fmt(r?.to) };
+  }
+
+  /** "de <periodo>" — para "las 5 solicitudes DE hoy". */
+  periodoDe(): string {
+    const { from, to } = this.rango();
+    switch (this.periodo()) {
+      case 'hoy': return `de hoy (${dmy(from)})`;
+      case 'd7': return 'de los últimos 7 días';
+      case 'd30': return 'de los últimos 30 días';
+      default: return from && to ? `del ${dmy(from)} al ${dmy(to)}` : 'del rango elegido';
+    }
+  }
+  /** "en <periodo>" — para "ninguna solicitud registrada EN los últimos 7 días". */
+  periodoEn(): string {
+    const { from, to } = this.rango();
+    switch (this.periodo()) {
+      case 'hoy': return `hoy (${dmy(from)})`;
+      case 'd7': return 'en los últimos 7 días';
+      case 'd30': return 'en los últimos 30 días';
+      default: return from && to ? `del ${dmy(from)} al ${dmy(to)}` : 'en el rango elegido';
+    }
+  }
+
+  /** Empty ≠ error: el periodo puede estar limpio. La salida es ampliar, no reintentar. */
+  emptyHint(): string {
+    const base = `Ninguna solicitud registrada ${this.periodoEn()}`;
+    const filtros = this.aplicadaSel() || this.estado || this.solicitante || this.search.trim() || this.sucursal.length;
+    return filtros ? `${base} con los filtros puestos.` : `${base}. El feed de Kepler las carga conforme se capturan.`;
+  }
+  /** Escalera de salida del vacío: hoy → 7 → 30 → 90 días. */
+  ampliarLabel(): string | null {
+    return ({ hoy: 'Ampliar a 7 días', d7: 'Ampliar a 30 días', d30: 'Ampliar a 90 días' } as Record<string, string>)[this.periodo()] || null;
+  }
+  ampliar(): void {
+    if (this.periodo() === 'd30') {
+      const d = new Date(); const from = new Date(); from.setDate(d.getDate() - 89);
+      this.rangeDates = [from, d];
+      this.setPeriodo('rango');
+      return;
+    }
+    this.setPeriodo(this.periodo() === 'hoy' ? 'd7' : 'd30');
+  }
+
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
 
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    const [a, b] = this.rangeDates || [];
-    const fmt = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
+    const { from, to } = this.rango();
     const ap = this.aplicadaSel();
     this.loading.set(true);
     this.error.set(null);
     this.svc.expenseRequests({
-      from: fmt(a), to: fmt(b),
+      from, to,
       sucursal: this.sucursal, estado: this.estado || undefined,
       solicitante: this.solicitante || undefined, search: this.search || undefined,
       aplicada: ap === 'pend' ? false : ap === 'apl' ? true : undefined,
@@ -283,7 +476,29 @@ export class FinanzasSolicitudesComponent {
       });
   }
 
-  /** Atajo a Reembolsos con el folio de la solicitud + proveedor pre-llenados. */
+  /**
+   * KPIs. `computed`, no método de template: recorre las filas, y llamarlo en cada ciclo
+   * de detección devolvía un array nuevo que invalidaba el strip sin que cambiara nada.
+   *
+   * El 4º (días de proceso) aparece SOLO si hay solicitudes ya aplicadas en el periodo —
+   * inventar una métrica que casi siempre sale en cero es peor que no tenerla.
+   */
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const r = this.report();
+    if (!r) return [];
+    const items: MetricStripItem[] = [
+      { label: 'Solicitudes', value: r.kpis.total, sub: moneyShort(r.kpis.importe) },
+      { label: 'Sin aplicar', value: r.kpis.pendientes, tone: r.kpis.pendientes ? 'bad' : 'default', sub: moneyShort(r.kpis.pendientes_importe) },
+      { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}% del periodo` },
+    ];
+    const leads = this.rows().map((x) => x.lead_days).filter((d): d is number => d != null);
+    if (leads.length) {
+      const avg = leads.reduce((a, b) => a + b, 0) / leads.length;
+      items.push({ label: 'Días de proceso', value: avg, format: 'decimal1', sub: 'promedio solicitud → gasto' });
+    }
+    return items;
+  });
+
   /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas. */
   readonly puedeResolver = computed(() => this.perms.can('manage', 'all')
     || this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
@@ -348,8 +563,9 @@ export class FinanzasSolicitudesComponent {
     });
   }
 
-  proofLabel(s: string): string { return ({ recibida: 'recibido', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
-  proofIcon(s: string): string { return ({ recibida: 'pi-clock', validada: 'pi-check-circle', rechazada: 'pi-times-circle' } as Record<string, string>)[s] || 'pi-file'; }
+  proofLabel(s: string): string { return ({ recibida: 'recibido', revision: 'en revisión', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
+  proofIcon(s: string): string { return ({ recibida: 'pi-clock', revision: 'pi-eye', validada: 'pi-check-circle', rechazada: 'pi-times-circle' } as Record<string, string>)[s] || 'pi-file'; }
+  leadTexto(d: number): string { return d === 0 ? 'el mismo día' : `en ${d} ${d === 1 ? 'día' : 'días'}`; }
 
   /** Abre el gasto ligado en el detalle de egresos. */
   verGasto(r: ExpenseRequestRow) {
@@ -366,6 +582,5 @@ export class FinanzasSolicitudesComponent {
   estadoSev(e: string | null): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
     return ({ F: 'success', A: 'info', C: 'danger', N: 'warn' } as Record<string, 'success' | 'info' | 'warn' | 'danger'>)[e || ''] || 'secondary';
   }
-  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   pct(a: number, b: number): number { return b ? Math.round((a / b) * 100) : 0; }
 }
