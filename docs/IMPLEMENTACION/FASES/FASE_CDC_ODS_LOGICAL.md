@@ -48,7 +48,21 @@ approach por triggers (600+ triggers huérfanos, sin consumidor, impuesto de esc
 superficie más chica y monitorable; `wal_level=logical` ya quedó hecho. **Y retirar los triggers huérfanos**
 de md_02/md_03 (cleanup, quitar el impuesto + el estado inconsistente). Alternativa legítima: **terminar el
 piloto por triggers** (wire forwarder + 4 ramas + aplicar DELETEs) si se prefiere la cola-tabla visible sobre
-el slot. **Decisión de Edgar pendiente.**
+el slot.
+
+**✅ Edgar eligió WAL-decode 2026-08-21. Construido en esta sesión:**
+- **Cleanup**: `--teardown` en `ods-cdc-setup.js` → **1,800 triggers huérfanos retirados** (estaban en las 6
+  ramas, no solo 02/03) + cola + fn. Verificado 0 restantes, 0 slots.
+- **CDC.1**: `wal_level=logical`+restart (Edgar) · pub `ods_cdc_pub FOR ALL TABLES` + slot `ods_cdc` pgoutput
+  (create/drop idempotente en el consumidor).
+- **CDC.2** ✅: **`ods-cdc-wal.js`** — consumidor `LogicalReplicationService`+`PgoutputPlugin` (structured,
+  cero parseo de texto). `--verify` probado: 55 cambios/20s decodificados, slot dropeado limpio.
+- **CDC.3** ✅: handler **`raw-delete`** en `apply-handlers.js` (gemelo de raw-upsert; borra por (sucursal,PK))
+  + consumidor con buffer last-op-wins por PK + ship-then-ack. Verificado local: upsert 3→delete B→[A,C];
+  delete inexistente=0. **El hard-delete que el poll nunca propagó ya fluye** (pg mode).
+- **Pendiente**: CDC.2b correr `--watch` en sombra (requiere **redeploy feeds-ingest** para el path http del
+  delete + **`max_slot_wal_keep_size`** en :5433 como backstop de disco ANTES de dejar el slot persistente);
+  CDC.5 heartbeat del consumidor→cron_runs (dead-man's switch); CDC.4/6 snapshot+cutover→retiro del poll.
 
 ## 1. Tesis
 
