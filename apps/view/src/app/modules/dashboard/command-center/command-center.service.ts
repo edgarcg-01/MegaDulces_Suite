@@ -126,7 +126,9 @@ export interface NetworkTopProductRow {
   margin?: number;
   margin_pct?: number;
   abc_class: string | null;
-  share_pct: number;
+  /** Participación sobre la venta total de la red. `null` cuando el backend no tenía el total
+   *  fresco (evita una segunda pasada por sales_daily); `?share=true` lo fuerza. */
+  share_pct: number | null;
   rank_by_revenue: number;
 }
 

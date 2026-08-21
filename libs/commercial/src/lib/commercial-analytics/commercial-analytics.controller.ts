@@ -71,9 +71,12 @@ export class CommercialAnalyticsController {
 
   @Get('network/top-products')
   @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
-  @ApiOperation({ summary: 'Top productos por venta real 30d (analytics.product_sales_stats + ABC)' })
-  networkTopProducts(@Query('limit') limit?: string) {
-    return this.service.networkTopProducts(limit);
+  @ApiOperation({
+    summary:
+      'Top productos por venta real 30d (analytics.product_sales_stats + ABC). `share_pct` = participación sobre la venta total de la red: sale del total que ya calculó network/overview (memo 60 s) y viene `null` si no hay uno fresco. `?share=true` lo fuerza a costa de una pasada extra por sales_daily (~1.3 s).',
+  })
+  networkTopProducts(@Query('limit') limit?: string, @Query('share') share?: string) {
+    return this.service.networkTopProducts(limit, { share: share === 'true' });
   }
 
   @Get('network/sales-by-brand')

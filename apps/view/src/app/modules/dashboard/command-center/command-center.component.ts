@@ -6,6 +6,7 @@ import {
   computed,
   inject,
   signal,
+  type WritableSignal,
 } from '@angular/core';
 
 import { ButtonModule } from 'primeng/button';
@@ -14,7 +15,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, type Observable } from 'rxjs';
+import { of, type Observable } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
 
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -80,12 +81,10 @@ export class CommandCenterComponent implements OnInit {
   readonly analyticsTabs = ANALYTICS_TABS;
 
   private readonly api = inject(CommandCenterService);
-  private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
   // Señales — TODO sobre VENTA REAL de la red (analytics.*, feeds Kepler),
   // excepto el pipeline B2B (netOverview.pipeline, de commercial.orders).
-  readonly loading = signal(true);
   readonly refreshing = signal(false);
   readonly overview = signal<NetworkOverviewResponse | null>(null);
   readonly topProducts = signal<NetworkTopProductRow[]>([]);
@@ -98,6 +97,31 @@ export class CommandCenterComponent implements OnInit {
   readonly conversion = signal<ConversionSummary | null>(null);
   readonly conversionSeries = signal<ConversionDailyRow[]>([]);
   readonly dueCount = signal<number | null>(null);
+
+  // ── Un "cargando" por panel, no uno para todo el tablero ────────────────
+  // Medido en prod: de las 11 llamadas, 9 cierran en ≤1.8 s y la peor a 3.6 s. Con un
+  // `loading()` único, esos 9 paneles se quedaban invisibles esperando al último y la
+  // pantalla se veía muerta ~4 s — que es el "se queda congelado" que reportó Edgar.
+  // Ahora cada panel se pinta en cuanto llega SU dato.
+  readonly ovLoading = signal(true);
+  readonly dsLoading = signal(true);
+  readonly tpLoading = signal(true);
+  readonly sbbLoading = signal(true);
+  readonly custLoading = signal(true);
+  readonly lsLoading = signal(true);
+  readonly icLoading = signal(true);
+  readonly convLoading = signal(true);
+
+  /** Hero de venta: KPIs (overview) + sparkline (serie diaria). */
+  readonly heroLoading = computed(() => this.ovLoading() || this.dsLoading());
+  /** Sheet de top productos + mejores clientes de la red. */
+  readonly productsLoading = computed(() => this.tpLoading() || this.custLoading());
+  /** Sheet operacional: bajo stock + clientes inactivos. */
+  readonly opsLoading = computed(() => this.lsLoading() || this.icLoading());
+  /** ¿Queda algún panel en vuelo? (deshabilita "Recargar", retiene el aviso de degradado). */
+  readonly anyLoading = computed(() =>
+    this.heroLoading() || this.productsLoading() || this.opsLoading() ||
+    this.sbbLoading() || this.convLoading());
 
   // Reveal escalonado SOLO en el primer paint (nunca en refresh — DESIGN.md motion #5).
   readonly stagger = signal(false);
@@ -213,86 +237,73 @@ export class CommandCenterComponent implements OnInit {
   }
 
   /**
-   * Tope de espera por panel. El tablero arranca 11 consultas en paralelo y `forkJoin`
-   * SOLO emite cuando terminan todas: un endpoint que no responde deja la pantalla
-   * cargando para siempre. El `catchError` de cada llamada no alcanzaba — atrapa
-   * errores, no silencio. Con esto un panel lento se rinde, se pinta el resto y se dice
-   * cuántos faltaron, en vez de colgar el módulo entero.
+   * Tope de espera por panel. Un endpoint que no responde tiene que rendirse solo: antes,
+   * con `forkJoin` sin timeout, dejaba la pantalla cargando para siempre. El `catchError`
+   * de cada llamada no alcanzaba — atrapa errores, no silencio.
    */
   private static readonly PANEL_TIMEOUT_MS = 20_000;
 
   /** Paneles que no alcanzaron a cargar en esta corrida (tiempo agotado o error). */
   readonly degraded = signal(0);
 
-  /** Cada panel es opcional: si tarda de más o falla, devuelve su valor por defecto. */
-  private panel<T>(src: Observable<T>, fallback: T): Observable<T> {
-    return src.pipe(
-      timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
-      catchError(() => { this.degraded.update((n) => n + 1); return of(fallback); }),
-    );
+  /**
+   * Dispara UNA llamada de panel y la escribe en cuanto llega — sin esperar a las otras
+   * diez. Si tarda de más o falla: valor por defecto, se cuenta como degradado y el panel
+   * deja de estar en "cargando" igual (no se queda colgado).
+   */
+  private panel<T>(src: Observable<T>, fallback: T, flag: WritableSignal<boolean> | null, apply: (v: T) => void): void {
+    flag?.set(true);
+    src
+      .pipe(
+        timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
+        catchError(() => { this.degraded.update((n) => n + 1); return of(fallback); }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((v) => {
+        apply(v);
+        flag?.set(false);
+        this.markEntered();
+      });
+  }
+
+  /** El reveal escalonado arranca con el PRIMER panel que pinta, no con el último. */
+  private markEntered(): void {
+    if (this.hasEntered) return;
+    this.hasEntered = true;
+    this.stagger.set(true);
+    setTimeout(() => this.stagger.set(false), 1200);
   }
 
   loadAll(): void {
-    this.loading.set(true);
     this.degraded.set(0);
     const today = new Date();
     const from = new Date(today.getTime() - 29 * 86400_000);
     const fromIso = from.toISOString().slice(0, 10);
     const toIso = today.toISOString().slice(0, 10);
 
-    forkJoin({
-      // Venta real de la red — best-effort: si analytics.* está vacío/caído, no rompe.
-      ov: this.panel(this.api.networkOverview(), null),
-      tp: this.panel(this.api.networkTopProducts(8), [] as NetworkTopProductRow[]),
-      sbb: this.panel(this.api.networkSalesByBrand(), [] as SalesByBrandRow[]),
-      cust: this.panel(this.api.erpCustomers(6), [] as ErpCustomerRow[]),
-      ds: this.panel(this.api.networkDailySeries(fromIso, toIso), [] as NetworkDailyRow[]),
-      // Operacional (commercial.* / ERP FDW) — best-effort.
-      ls: this.panel(this.api.lowStock(200), null),
-      ic: this.panel(this.api.inactiveCustomers(30, 5), null),
-      oos: this.panel(this.api.rankingOutOfStock(10, 200), [] as RankingOutOfStockRow[]),
-      // Motor de Inteligencia (Fase M) — best-effort.
-      conv: this.panel(this.api.conversionSummary(30), null),
-      convDaily: this.panel(this.api.conversionDaily(30), [] as ConversionDailyRow[]),
-      due: this.panel(this.api.nbaDue(100), [] as Array<{ customer_id: string }>),
-    })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: ({ ov, tp, sbb, cust, ds, ls, ic, oos, conv, convDaily, due }) => {
-          this.overview.set(ov);
-          this.topProducts.set(tp);
-          this.salesByBrand.set(sbb);
-          this.netCustomers.set(cust);
-          this.dailySeries.set(ds);
-          this.lowStock.set(ls);
-          this.inactiveCustomers.set(ic);
-          this.rankingOOS.set(oos);
-          this.conversion.set(conv);
-          this.conversionSeries.set(convDaily);
-          this.dueCount.set(conv ? due.length : null);
-          if (!this.hasEntered) {
-            this.hasEntered = true;
-            this.stagger.set(true);
-            setTimeout(() => this.stagger.set(false), 1200);
-          }
-          this.loading.set(false);
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.toast.add({
-            severity: 'error',
-            summary: 'Error cargando Command Center',
-            detail: err.message || 'No se pudo conectar al backend',
-          });
-        },
-      });
+    // Venta real de la red — best-effort: si analytics.* está vacío/caído, no rompe.
+    this.panel(this.api.networkOverview(), null, this.ovLoading, (v) => this.overview.set(v));
+    this.panel(this.api.networkDailySeries(fromIso, toIso), [] as NetworkDailyRow[], this.dsLoading, (v) => this.dailySeries.set(v));
+    this.panel(this.api.networkTopProducts(8), [] as NetworkTopProductRow[], this.tpLoading, (v) => this.topProducts.set(v));
+    this.panel(this.api.networkSalesByBrand(), [] as SalesByBrandRow[], this.sbbLoading, (v) => this.salesByBrand.set(v));
+    this.panel(this.api.erpCustomers(6), [] as ErpCustomerRow[], this.custLoading, (v) => this.netCustomers.set(v));
+    // Operacional (commercial.* / ERP FDW) — best-effort.
+    this.panel(this.api.lowStock(200), null, this.lsLoading, (v) => this.lowStock.set(v));
+    this.panel(this.api.inactiveCustomers(30, 5), null, this.icLoading, (v) => this.inactiveCustomers.set(v));
+    // El ranking de quiebres ya se oculta solo cuando viene vacío → no necesita esqueleto.
+    this.panel(this.api.rankingOutOfStock(10, 200), [] as RankingOutOfStockRow[], null, (v) => this.rankingOOS.set(v));
+    // Motor de Inteligencia (Fase M) — best-effort. La sheet entera se muestra sólo si hay
+    // `conversion()`, así que las tres llamadas comparten su bandera.
+    this.panel(this.api.conversionSummary(30), null, this.convLoading, (v) => this.conversion.set(v));
+    this.panel(this.api.conversionDaily(30), [] as ConversionDailyRow[], null, (v) => this.conversionSeries.set(v));
+    this.panel(this.api.nbaDue(100), [] as Array<{ customer_id: string }>, null, (v) => this.dueCount.set(v.length));
   }
 
   /** Recarga los datos (los feeds Kepler corren server-side; acá solo re-fetch). */
   reload(): void {
     this.refreshing.set(true);
     this.loadAll();
-    // loadAll pone loading; liberamos refreshing en el mismo microtask del subscribe.
+    // loadAll deja cada panel en "cargando"; el spinner del botón es sólo el acuse del clic.
     setTimeout(() => this.refreshing.set(false), 400);
   }
 

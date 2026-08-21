@@ -3,7 +3,7 @@
 
   <app-page-tabs [tabs]="analyticsTabs" />
 
-  @if (degraded() > 0 && !loading()) {
+  @if (degraded() > 0 && !anyLoading()) {
     <div class="cc-degraded" role="status">
       <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
       <span>{{ degraded() }} panel(es) no cargaron a tiempo — lo que ves está incompleto.</span>
@@ -34,7 +34,7 @@
         severity="secondary"
         [text]="true"
         size="small"
-        [disabled]="refreshing() || loading()"
+        [disabled]="refreshing() || anyLoading()"
         [loading]="refreshing()"
         [pTooltip]="refreshing() ? 'Actualizando…' : 'Recargar'"
         tooltipPosition="left"
@@ -44,17 +44,15 @@
     </div>
   </header>
 
-  @if (loading()) {
+  @if (heroLoading()) {
     <div class="cc-skeletons" aria-hidden="true">
       <p-skeleton height="190px" borderRadius="12px"></p-skeleton>
       <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
-      <p-skeleton height="320px" borderRadius="12px"></p-skeleton>
-      <p-skeleton height="280px" borderRadius="12px"></p-skeleton>
     </div>
   }
 
   <!-- SHEET 1: Hero Ventas + Margen + Tickets + Clientes + Pipeline -->
-  @if (!loading()) {
+  @if (!heroLoading()) {
     <div class="sheet cols-12">
       <article class="cell cell-span-6 cell-row-2 cc-hero">
         <span class="cell-icon" aria-hidden="true">
@@ -162,7 +160,7 @@
   }
 
   <!-- SHEET 1.4: Ventas por canal (ruta vs mostrador vs preventa) -->
-  @if (!loading() && channels().length > 0) {
+  @if (channels().length > 0) {
     <div class="sheet cols-12">
       <article class="cell cell-span-12 is-flush">
         <div class="cell-head">
@@ -190,7 +188,7 @@
   }
 
   <!-- SHEET 1.5: Motor de Inteligencia — reorden + conversión (Fase M) -->
-  @if (!loading() && conversion(); as conv) {
+  @if (conversion(); as conv) {
     <div class="sheet cols-12">
       <article class="cell cell-span-3">
         <span class="cell-icon" aria-hidden="true"><i class="pi pi-refresh"></i></span>
@@ -247,7 +245,10 @@
   }
 
   <!-- SHEET 2: Mix por marca (venta real) -->
-  @if (!loading()) {
+  @if (sbbLoading()) {
+    <div class="cc-skeletons" aria-hidden="true"><p-skeleton height="320px" borderRadius="12px"></p-skeleton></div>
+  }
+  @if (!sbbLoading()) {
     <div class="sheet cols-12">
       <article class="cell cell-span-12 is-flush">
         <div class="cell-head">
@@ -283,7 +284,10 @@
   }
 
   <!-- SHEET 3: Top productos (venta real) + Top clientes (red) -->
-  @if (!loading()) {
+  @if (productsLoading()) {
+    <div class="cc-skeletons" aria-hidden="true"><p-skeleton height="280px" borderRadius="12px"></p-skeleton></div>
+  }
+  @if (!productsLoading()) {
     <div class="sheet cols-12">
       <article class="cell cell-span-6 is-flush">
         <div class="cell-head">
@@ -388,7 +392,10 @@
   }
 
   <!-- SHEET 5: Stock bajo + Inactivos B2B -->
-  @if (!loading()) {
+  @if (opsLoading()) {
+    <div class="cc-skeletons" aria-hidden="true"><p-skeleton height="280px" borderRadius="12px"></p-skeleton></div>
+  }
+  @if (!opsLoading()) {
     <div class="sheet cols-12">
       <article class="cell cell-span-6 is-flush">
         <div class="cell-head">
@@ -513,7 +520,7 @@
   }
 
   <!-- M.6.3 — Ranking ERP × stock 0: oportunidad de venta perdida -->
-  @if (!loading() && rankingOOS().length > 0) {
+  @if (rankingOOS().length > 0) {
     <div class="sheet cols-12">
       <article class="cell cell-span-12 is-flush">
         <div class="cell-head">
