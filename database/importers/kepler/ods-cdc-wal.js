@@ -28,7 +28,11 @@ const SECONDS = Number((process.argv.find((a) => a.startsWith('--seconds=')) || 
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const PUB = 'ods_cdc_pub';
-const SLOT = 'ods_cdc';
+// OJO: los nombres de replication slot son ÚNICOS POR CLUSTER (no por DB). Las 7 ramas viven en el
+// MISMO postmaster :5433 → hay que usar un slot por rama (ods_cdc_<code>); si todas usaran 'ods_cdc'
+// solo 1 puede existir cluster-wide y las otras 6 chocan ("slot ods_cdc is active for PID ..."). Las
+// publications SÍ son por-DB → PUB puede repetir nombre. (Con 1 sola rama el bug no se ve.)
+const slotName = (code) => `ods_cdc_${code}`;
 const FLUSH_MS = Math.max(1000, Number(process.env.ODS_CDC_FLUSH_MS) || 3000);
 const HEARTBEAT_MS = Math.max(10000, Number(process.env.ODS_CDC_HEARTBEAT_MS) || 30000);
 const WARN_LAG_MB = Number(process.env.ODS_CDC_WARN_LAG_MB) || 500; // lag del slot > esto → status error (visible)
@@ -54,8 +58,8 @@ async function ensurePubSlot(code) {
   try {
     const hasPub = (await c.query(`SELECT 1 FROM pg_publication WHERE pubname=$1`, [PUB])).rowCount > 0;
     if (!hasPub) await c.query(`CREATE PUBLICATION ${PUB} FOR ALL TABLES`);
-    const hasSlot = (await c.query(`SELECT 1 FROM pg_replication_slots WHERE slot_name=$1`, [SLOT])).rowCount > 0;
-    if (!hasSlot) await c.query(`SELECT pg_create_logical_replication_slot($1,'pgoutput')`, [SLOT]);
+    const hasSlot = (await c.query(`SELECT 1 FROM pg_replication_slots WHERE slot_name=$1`, [slotName(code)])).rowCount > 0;
+    if (!hasSlot) await c.query(`SELECT pg_create_logical_replication_slot($1,'pgoutput')`, [slotName(code)]);
     return { hasPub, hasSlot };
   } finally { await c.end(); }
 }
@@ -63,7 +67,7 @@ async function dropSlot(code) {
   const c = new Client(localCfg(code));
   await c.connect();
   try {
-    await c.query(`SELECT pg_drop_replication_slot($1) WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)`, [SLOT]);
+    await c.query(`SELECT pg_drop_replication_slot($1) WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)`, [slotName(code)]);
     await c.query(`DROP PUBLICATION IF EXISTS ${PUB}`);
   } finally { await c.end(); }
 }
@@ -126,7 +130,7 @@ async function run(code) {
   });
   service.on('error', (e) => console.error(`[${code}] error:`, e.message));
 
-  service.subscribe(plugin, SLOT).catch((e) => console.error(`[${code}] subscribe:`, e.message));
+  service.subscribe(plugin, slotName(code)).catch((e) => console.error(`[${code}] subscribe:`, e.message));
 
   // CDC.5 — latido → cron_runs (via feeds-ingest). Lee el lag del slot del :5433 (una conexión
   // aparte; la de replicación la tiene el service). db-health hace dead-man's switch: si el
@@ -136,7 +140,7 @@ async function run(code) {
     const c = new Client(localCfg(code));
     try {
       await c.connect();
-      const r = (await c.query(`SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS lag FROM pg_replication_slots WHERE slot_name=$1`, [SLOT])).rows[0];
+      const r = (await c.query(`SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS lag FROM pg_replication_slots WHERE slot_name=$1`, [slotName(code)])).rows[0];
       if (r) {
         const mb = (Number(r.lag) || 0) / 1048576;
         note = `lag ${mb.toFixed(1)}MB · ↑U${stats.shipU} ↑D${stats.shipD} · slot ${r.active ? 'activo' : 'INACTIVO'}`;
