@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, Req, UseGuards, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -439,7 +439,9 @@ export class CommercialAnalyticsController {
     @Query('search') search?: string,
     @Query('grupo') grupo?: string,
     @Query('min_importe') min_importe?: string,
+    @Query('mias') mias?: string,
     @Query('limit') limit?: string,
+    @Req() req?: { user?: { sub?: string; username?: string; nombre?: string } },
   ) {
     return this.service.expenseRequests({
       from,
@@ -451,6 +453,8 @@ export class CommercialAnalyticsController {
       search,
       grupo: grupo ? grupo.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
       min_importe: min_importe ? Number(min_importe) : undefined,
+      mias: mias === 'true',
+      userId: req?.user?.sub,
       limit: limit ? Number(limit) : undefined,
     });
   }

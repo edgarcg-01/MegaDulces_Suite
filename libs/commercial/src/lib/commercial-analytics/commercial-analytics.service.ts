@@ -2083,15 +2083,48 @@ export class CommercialAnalyticsService {
     return this.erCols;
   }
 
+  /**
+   * Con qué se identifica "lo mío" en las solicitudes de gasto.
+   *
+   * Kepler NO guarda quién pidió: `c48` es texto libre con 693 variantes que mezclan
+   * personas y áreas, y `c67` es quien CAPTURÓ (un solo código llega a teclear 2,250
+   * documentos de 91 solicitantes distintos). No hay identidad de usuario que heredar.
+   *
+   * Así que "mío" se ancla en dos cosas, y se dicen las dos para que quien mira entienda
+   * por qué ve lo que ve:
+   *   1. Las áreas de gasto asignadas al usuario (`users.finance_expense_area_ids` →
+   *      `finance.expense_areas.norm_key`). Es el mecanismo que ya existe y administra
+   *      /admin/users; hoy no lo tiene configurado nadie.
+   *   2. Su propio nombre (`users.nombre`) como solicitante. Cubre 19 de 111 usuarios sin
+   *      configurar nada, y no puede mostrar de más salvo homónimos exactos.
+   */
+  private async misClavesDeGasto(trx: any, userId?: string): Promise<{ keys: string[]; areas: number; nombre: string | null }> {
+    const vacio = { keys: [] as string[], areas: 0, nombre: null as string | null };
+    if (!userId) return vacio;
+    const u = await trx('users').where({ id: userId }).first('nombre', 'finance_expense_area_ids');
+    if (!u) return vacio;
+    const norm = (v: any) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
+    const nombre = norm(u.nombre);
+    const ids: string[] = Array.isArray(u.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
+    const areaKeys: string[] = ids.length
+      ? (await trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key')).map(norm).filter(Boolean)
+      : [];
+    // Dedup sin Set: el spread de iteradores se transpila mal en el bundle del API.
+    const keys: string[] = [];
+    for (const k of [...areaKeys, ...(nombre ? [nombre] : [])]) if (k && keys.indexOf(k) === -1) keys.push(k);
+    return { keys, areas: areaKeys.length, nombre };
+  }
+
   async expenseRequests(q: {
     from?: string; to?: string; sucursal?: string[]; estado?: string;
     solicitante?: string; aplicada?: boolean; search?: string;
-    grupo?: string[]; min_importe?: number; limit?: number;
+    grupo?: string[]; min_importe?: number; mias?: boolean; userId?: string; limit?: number;
   }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(5000, Math.max(1, Number(q.limit) || 2000));
     return this.tk.run(async (trx) => {
       const enriquecida = (await this.expenseRequestCols(trx)).has('cuenta_grupo');
+      const mi = await this.misClavesDeGasto(trx, q.userId);
       const applyFilters = (b: any) => {
         b.where('r.tenant_id', tenantId);
         if (q.from) b.andWhere('r.fecha', '>=', q.from);
@@ -2103,6 +2136,12 @@ export class CommercialAnalyticsService {
         // Filtros del autorizador (sólo si la vista enriquecida ya está aplicada).
         if (q.grupo?.length && enriquecida) b.whereIn('r.cuenta_grupo', q.grupo);
         if (q.min_importe != null && Number.isFinite(q.min_importe)) b.where('r.importe', '>=', q.min_importe);
+        // "Mis solicitudes". Sin anclas no se devuelve nada: mostrar todo sería mentir
+        // sobre de quién es, y el frontend ya explica que faltan áreas por asignar.
+        if (q.mias) {
+          if (!mi.keys.length) b.whereRaw('1=0');
+          else b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [mi.keys]);
+        }
         if (q.search?.trim()) {
           const s = `%${q.search.trim()}%`;
           b.andWhere((w: any) => w.whereRaw('r.folio ILIKE ?', [s]).orWhereRaw('r.beneficiario ILIKE ?', [s]).orWhereRaw('r.concepto ILIKE ?', [s]));
@@ -2137,6 +2176,9 @@ export class CommercialAnalyticsService {
         .limit(limit);
 
       return {
+        // El alcance viaja SIEMPRE: la pantalla tiene que poder decir contra qué está
+        // resolviendo "mío", y avisar cuando no hay nada con qué resolverlo.
+        mi_scope: { keys: mi.keys, areas: mi.areas, nombre: mi.nombre },
         kpis: {
           total: Number(k?.total || 0),
           importe: Number(k?.importe || 0),
