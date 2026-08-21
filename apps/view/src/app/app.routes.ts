@@ -21,6 +21,13 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: ProjectsComponent
   },
+  // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
+  // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
+  {
+    path: 'diagnostico',
+    canActivate: [authGuard],
+    loadComponent: () => import('./core/errors/diagnostico.component').then(m => m.DiagnosticoComponent),
+  },
   // ── Proyecto Trade Marketing / Exhibidores ──────────────────────────
   // Captura PdV, scoring, reportes, seguimiento, planograma, catálogos.
   {
