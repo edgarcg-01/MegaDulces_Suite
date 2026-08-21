@@ -34,10 +34,18 @@ const OUT = process.argv.includes('--out')
   : 'C:/Users/Sistemas/Downloads/CREDENCIALES-captura-gastos.csv';
 
 // [username, nombre tal como vino del Excel]
-// TERE RD y TOÑO LOGISTICA quedan FUERA: probablemente ya existen
-// (maria_rocha = MARIA TERESA ROCHA FUENTES, colaborador — ya cubierta por rol;
-//  44jaec = JOSE ANTONIO ESPINOZA CASTELLANOS, pero es cajera en Yurécuaro).
+//
+// TERE RD queda FUERA: es `maria_rocha` (MARIA TERESA ROCHA FUENTES, rol
+// colaborador) y el rol ya recibe el permiso, así que no hay nada que crear.
+// JUAN TLMK CANINDO queda FUERA: hay 4 Juan en prod y no se puede desambiguar
+// sin Edgar (jlh_lopez, juan_lopez, juan_elizarraras, jesus_carrillo).
+//
+// Los 12 del segundo lote se verificaron por NOMBRE DE PILA contra prod, no por
+// apellido: los candidatos que había sugerido el matcher eran homónimos de
+// apellido (Vázquez pero Ángel, Hernández pero Guillermo, Berber pero María
+// Dolores…). Ninguno de los 12 existe.
 const NUEVOS = [
+  // primer lote
   ['andrea_cardenas', 'Andrea Cardenas'],
   ['jorge_rubio', 'Jorge Rubio'],
   ['julissa_alvarez', 'Julissa Alvarez'],
@@ -48,6 +56,19 @@ const NUEVOS = [
   ['rosy_madero', 'Rosy Madero'],
   ['viviana_kepler', 'Viviana (Kepler)'],
   ['yadira_abastos', 'Yadira (Morelia Abastos)'],
+  // segundo lote: verificados inexistentes por nombre de pila
+  ['alberto_moreno', 'Alberto Moreno'],
+  ['edgar_luna', 'Edgar Luna'],
+  ['felipe_galvan', 'Felipe Galvan'],
+  ['isabel_vera', 'Isabel Vera'],
+  ['joana_tafoya', 'Joana Tafoya'],
+  ['lesly_berber', 'Lesly Berber'],
+  ['lucia_garcia', 'Lucia Garcia'],
+  ['luis_vazquez', 'Luis Vazquez'],
+  ['patricia_bolanos', 'Patricia Bolaños'],
+  ['patricia_hernandez', 'Patricia Hernandez'],
+  ['tania_solorio', 'Tania Solorio'],
+  ['tono_logistica', 'Toño (Logística)'],
 ];
 
 const ROLE = 'captura_gastos';

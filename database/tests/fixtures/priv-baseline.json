@@ -265,6 +265,13 @@
       "STORE_ARQUEO_VER"
     ]
   },
+  "00000000-0000-0000-0000-00000000d01c::6dc72cbd-e454-431e-b0fe-0bca01aa0bfb": {
+    "username": "alberto_moreno",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
   "00000000-0000-0000-0000-00000000d01c::71272041-b9d1-4843-9bf3-563ef44a087b": {
     "username": "andrea_cardenas",
     "role_name": "captura_gastos",
@@ -506,6 +513,13 @@
       "PORTAL_B2B_ACCESS"
     ]
   },
+  "00000000-0000-0000-0000-00000000d01c::de50b042-1989-4784-9b70-07d4d8589374": {
+    "username": "edgar_luna",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
   "00000000-0000-0000-0000-00000000d01c::9c02c60a-be89-4313-9a9a-f863bd8849c1": {
     "username": "eduardo_miranda",
     "role_name": "colaborador",
@@ -614,6 +628,13 @@
       "VISITAS_VER"
     ]
   },
+  "00000000-0000-0000-0000-00000000d01c::9d237779-56d3-4f18-bbff-699f7d6dc475": {
+    "username": "felipe_galvan",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
   "00000000-0000-0000-0000-00000000d01c::f5ca24b4-4c08-473e-8991-c8a5377a26ed": {
     "username": "francisco_martinez",
     "role_name": "supervisor_ventas",
@@ -700,6 +721,20 @@
       "VER_SEGUIMIENTO",
       "VISITAS_REGISTRAR",
       "VISITAS_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::46d8d78e-1bf1-4bf4-aed2-3f02b29725aa": {
+    "username": "isabel_vera",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::ed4dfc7c-035a-42df-8783-c9fd030d9002": {
+    "username": "joana_tafoya",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::413e02ec-0691-464c-ad11-d3e5cfe2113f": {
@@ -992,6 +1027,27 @@
       "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
+  "00000000-0000-0000-0000-00000000d01c::b13ffcdb-3815-4c25-92c2-036e71d7717a": {
+    "username": "lesly_berber",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::d88d5953-1e4c-43dd-8be2-85f4c8635e89": {
+    "username": "lucia_garcia",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::fa4d0c09-f229-473c-b199-43d0cb43e529": {
+    "username": "luis_vazquez",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
   "00000000-0000-0000-0000-00000000d01c::2a48fbc2-874f-4546-ab4b-189b8353d5f6": {
     "username": "lupita_macias",
     "role_name": "captura_gastos",
@@ -1109,6 +1165,20 @@
   },
   "00000000-0000-0000-0000-00000000d01c::0f6f341c-64be-4782-a164-2062c32d69a1": {
     "username": "omar_garnica",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::8e3aae7d-b2fb-4842-85b7-6ef2dc22c396": {
+    "username": "patricia_bolanos",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::0852cce5-8114-4c49-97b0-2b0a7f4ba0ca": {
+    "username": "patricia_hernandez",
     "role_name": "captura_gastos",
     "permissions": [
       "FINANCE_EXPENSES_CAPTURAR"
@@ -1468,6 +1538,20 @@
       "VISITAS_VER",
       "WHATSAPP_BOT_GESTIONAR",
       "WHATSAPP_BOT_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::03610cdf-44ff-4f39-9d31-0ece5b32bc88": {
+    "username": "tania_solorio",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::994a82f5-0f7a-45b7-a111-aa993924b93a": {
+    "username": "tono_logistica",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::42d13dd6-ca03-4c94-80f2-00d0043d83d4": {
