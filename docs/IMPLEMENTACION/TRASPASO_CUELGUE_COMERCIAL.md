@@ -152,15 +152,17 @@ depende de un estado del navegador de Edgar que no reprodujo el mío.
 
 **Si es la espera** (lo más probable con lo medido), lo que falta es:
 
-1. Partir el `loading()` único del template para que cada panel pinte cuando llega su dato.
-   Hoy 9 paneles listos a 1.8 s esperan al que tarda 3 s. Es el cambio de mayor efecto
-   percibido y no lo hice: toca las 10 apariciones de `loading()` en el HTML y no quise
-   meter un refactor de template en medio de un incidente.
-2. `networkTopProducts` (3,057 ms) hace dos pasadas por `sales_daily`: el join agrupado y
-   otra para el total de la red. Ese total es el mismo número que devuelve `networkOverview`
-   y que probablemente recalcula `sales-by-brand`. Un memo en proceso de ~60 s lo quitaría
-   de dos endpoints. **Ojo:** no se puede sacar con una función de ventana sobre el conjunto
-   agrupado — ese total excluye promos y productos con revenue 0, y cambiaría `share_pct`.
+1. ~~Partir el `loading()` único del template.~~ **HECHO 2026-08-21.** Una bandera por panel
+   (`ovLoading`, `dsLoading`, `tpLoading`, `sbbLoading`, `custLoading`, `lsLoading`,
+   `icLoading`, `convLoading`) + `heroLoading`/`productsLoading`/`opsLoading`/`anyLoading`
+   derivadas. `loadAll()` dejó de usar `forkJoin`: cada llamada se escribe en cuanto llega, y
+   el reveal escalonado arranca con el PRIMER panel, no con el último.
+2. ~~La segunda pasada de `networkTopProducts`.~~ **HECHO 2026-08-21.** Memo en proceso
+   (`netRevenue30d`, TTL 60 s) que llena `networkOverview` con la suma de sus canales — mismo
+   WHERE, mismo número, sin filtro de promo — y lee `networkTopProducts`. Sin memo fresco,
+   `share_pct` viene `null` en vez de costar otra pasada; `?share=true` lo fuerza. Ningún
+   consumidor lo lee: el Centro de control calcula su share sobre el top-N y Ventas Generales
+   sólo usa revenue/margen/unidades.
 3. `analytics.sales_daily` son 400 MB / ~900k filas con índice `(tenant_id, sale_date)`. Una
    pasada de 30 días cuesta ~1.3 s en prod. Si hace falta bajar más, el camino es una vista
    materializada (el proyecto ya tiene `analytics.mv_*` de la Fase C.1, refrescadas cada

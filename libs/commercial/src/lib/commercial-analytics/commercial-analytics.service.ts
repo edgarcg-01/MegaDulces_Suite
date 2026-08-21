@@ -385,6 +385,27 @@ export class CommercialAnalyticsService {
   ) {}
 
   /**
+   * Venta bruta de la red en los últimos 30 días, por tenant. La calcula
+   * `networkOverview` como subproducto de su desglose por canal, y la usa
+   * `networkTopProducts` para el `share_pct` — que antes le costaba una SEGUNDA
+   * pasada completa por `analytics.sales_daily` (400 MB, ~900k filas, ~1.3 s en
+   * prod) para llegar al MISMO número. Con TTL de 60 s la ventana móvil de 30
+   * días no alcanza a moverse.
+   */
+  private readonly netRevenue30d = new Map<string, { revenue: number; at: number }>();
+  private static readonly NET_REVENUE_TTL_MS = 60_000;
+
+  private netRevenue30dCached(tenantId: string): number | null {
+    const hit = this.netRevenue30d.get(tenantId);
+    if (!hit) return null;
+    if (Date.now() - hit.at > CommercialAnalyticsService.NET_REVENUE_TTL_MS) {
+      this.netRevenue30d.delete(tenantId);
+      return null;
+    }
+    return hit.revenue;
+  }
+
+  /**
    * Las queries `analytics_external.*` leen el ERP vía FDW (server
    * `mega_dulces_srv` en la LAN 192.168.0.245). Ese host NO es alcanzable desde
    * Railway, así que en prod el FDW da timeout (08001 / "could not connect to
@@ -1516,6 +1537,9 @@ export class CommercialAnalyticsService {
       const margin = revenue - cost;
       const tickets = Number(tot?.tickets || 0);
 
+      // Se lo dejamos servido a networkTopProducts (mismo WHERE, mismo número).
+      this.netRevenue30d.set(tenantId, { revenue, at: Date.now() });
+
       const revWithCost = Number(tot?.revenue_with_cost || 0);
       return {
         source: 'network',
@@ -1562,7 +1586,7 @@ export class CommercialAnalyticsService {
    * Top productos por venta real 30d MÓVIL. Fuente = `analytics.sales_daily` (misma que el KPI
    * total) para traer COSTO→MARGEN consistente; `abc_class` desde product_sales_stats (KV.2).
    */
-  async networkTopProducts(limitParam?: number | string) {
+  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
     return this.tk.run(async (trx) => {
@@ -1589,12 +1613,22 @@ export class CommercialAnalyticsService {
         .orderByRaw('SUM(s.revenue) DESC')
         .limit(limit);
       // share sobre el revenue total de la red 30d (no sobre el top-N) → coherente con by_channel/marca.
-      const [tot] = await trx('analytics.sales_daily')
-        .where('tenant_id', tenantId)
-        .andWhere('sale_date', '>=', this.since30d(trx))
-        .andWhere('sale_date', '<=', this.untilToday(trx))
-        .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
-      const netTotal = Number(tot?.revenue || 0);
+      // Ese total es EXACTAMENTE el que ya calculó networkOverview (mismo WHERE, sin filtro de
+      // promo), así que se toma del memo. Recalcularlo costaba una segunda pasada por
+      // sales_daily — ~1.3 s en prod, en la misma conexión, o sea sumados: el tablero esperaba
+      // 3.6 s por un dato que ningún consumidor lee (el Centro de control calcula su propio
+      // share sobre el top-N, y Ventas Generales solo usa revenue/margen/unidades).
+      // Sin memo fresco → `share_pct: null` ("no lo sé sin otra pasada"), salvo `?share=true`.
+      let netTotal = this.netRevenue30dCached(tenantId);
+      if (netTotal === null && opts?.share) {
+        const [tot] = await trx('analytics.sales_daily')
+          .where('tenant_id', tenantId)
+          .andWhere('sale_date', '>=', this.since30d(trx))
+          .andWhere('sale_date', '<=', this.untilToday(trx))
+          .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
+        netTotal = Number(tot?.revenue || 0);
+        this.netRevenue30d.set(tenantId, { revenue: netTotal, at: Date.now() });
+      }
       return rows.map((r, i) => {
         const revenue = Number(r.revenue);
         const margin = revenue - Number(r.cost);
@@ -1609,7 +1643,7 @@ export class CommercialAnalyticsService {
           margin,
           margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
           abc_class: r.abc_class || null,
-          share_pct: netTotal > 0 ? +((revenue / netTotal) * 100).toFixed(2) : 0,
+          share_pct: netTotal === null ? null : netTotal > 0 ? +((revenue / netTotal) * 100).toFixed(2) : 0,
           rank_by_revenue: i + 1,
         };
       });
