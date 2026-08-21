@@ -88,13 +88,14 @@ export class AppComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe(() => {
-        if (!this.updatePending) return;
-        this.updatePending = false;
-        this.updateReady.set(false);
-        this.swUpdate
-          .activateUpdate()
-          .then(() => document.location.reload())
-          .catch(() => { this.updatePending = true; this.updateReady.set(true); });
+        // Al navegar con una version nueva lista se OFRECE, no se aplica.
+        // Antes hacia activateUpdate() + location.reload() aca mismo: recargaba encima de
+        // la navegacion que el usuario acababa de pedir. La pantalla alcanzaba a montar y
+        // a lanzar sus peticiones, y se tiraba todo a la basura — desde la silla del
+        // usuario es indistinguible de un cuelgue, y pasa justo despues de cada deploy.
+        // El aviso ya existe y recarga con un clic (applyUpdate); esto solo lo adelanta
+        // en vez de esperar el minuto de gracia.
+        if (this.updatePending) this.updateReady.set(true);
       });
 
     // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
