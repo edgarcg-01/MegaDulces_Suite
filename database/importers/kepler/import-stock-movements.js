@@ -2,23 +2,29 @@
 /**
  * DM.0 — Diario de movimientos Kepler → analytics.stock_movements (BULK, line-level).
  *
- * Replica/mejora el reporte Kepler "Diario de movimientos" (Almacenes → Reportes →
- * Existencia → Movimientos), que lee md.kdm1 (cabecera) ⋈ md.kdm2 (líneas).
+ * FUENTE: kepler_ods.* (single-DB, en la MISMA prod). Antes leía PER-BRANCH
+ * (md.kdm1⋈kdm2 en las 6 sucursales + CEDIS) con fan-out de conexiones + traía 3.4M
+ * líneas a JS para reinsertarlas → el pase 120d NO cabía en el timeout del nightly
+ * (lo mataban a los 10 min, exit 124). Ahora todo el pesado corre SERVER-SIDE en un
+ * solo INSERT...SELECT sobre kepler_ods (que el CDC WAL mantiene al momento) → sin
+ * red per-branch, sin STOCK_BRANCH_MAP, misma salida.
  *
- * Qué mueve inventario lo decide el catálogo AUTORITATIVO md.doctype (k_binv=1) — NO se
- * adivina. El signo sale de la naturaleza del documento (kdm1.c3 / doc7 pos2):
+ * Replica el reporte Kepler "Diario de movimientos" (Almacenes → Reportes → Existencia →
+ * Movimientos): kdm1 (cabecera) ⋈ kdm2 (líneas). Qué mueve inventario lo decide el catálogo
+ * AUTORITATIVO doctype (k_binv=1). El signo sale de la naturaleza (kdm1.c3 / doc7 pos2):
  *   'A' (Acreedora) → ENTRADA (+qty)   [InvIn, Compra, Orden entrada, Devol. de venta]
  *   'D' (Deudora)   → SALIDA  (-qty)   [Venta, Remisión, Traspaso, Devol. a proveedor, InvOut, Físico]
  * La factura U/D/10 NO está en k_binv → se excluye (si no, duplicaría la salida de venta).
  * Validado 2026-07-10: Σ signed ≈ md.kdil existencia (48≈47 / 98≈84 / 18≈15).
  *
- * Grano: una fila por línea. Windowed por fecha (kdm1.c9). Merge = borra la ventana de los
- * almacenes tocados y reinserta (idempotente). analytics.* sin RLS → tenant_id explícito.
- * kdm1 arrastra réplicas de otras sucursales → se filtra c1 = nº sucursal propia.
+ * Grano: una fila por línea. Windowed por fecha (kdm1.c9). Merge = solo reprocesa los BLOQUES
+ * (almacén×día) cuyo contenido cambió (fingerprint md5) → churn-free. analytics.* sin RLS →
+ * tenant_id explícito. kepler_ods arrastra la RÉPLICA de cada rama en las demás → se dedupe con
+ * `c1 = sucursal` (la copia propia de cada rama = exactamente el viejo filtro per-branch c1=suc).
  *
  *   node database/importers/kepler/import-stock-movements.js               # dry-run, 120d
  *   node database/importers/kepler/import-stock-movements.js --days 90 --apply
- *   STOCK_BRANCH_MAP='[{"code":"KEPLER-03","url":"postgresql://.../md_03","suc":"03"}]' node ... --apply
+ *   STOCK_MOVEMENTS_DAYS=7 node database/importers/kepler/import-stock-movements.js --apply  # intradía rodante
  */
 
 const { Client } = require('pg');
@@ -26,7 +32,6 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
-const BATCH = 1000;
 // Ventana: --days N > STOCK_MOVEMENTS_DAYS (modo intradía, rodante corta) > 120 (nightly, backfill/correcciones).
 const daysArg = (() => {
   const i = process.argv.indexOf('--days');
@@ -34,19 +39,6 @@ const daysArg = (() => {
   const env = Number(process.env.STOCK_MOVEMENTS_DAYS);
   return Number.isFinite(env) && env > 0 ? env : 120;
 })();
-
-// Mismo map que import-in-transit / stock: código de almacén = nº sucursal Kepler (00–05).
-// En prod lo sobreescribe STOCK_BRANCH_MAP (runner on-prem con los hosts reales).
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Con CEDIS '00'.
-const { stockMap } = require('../lib/kepler-branches');
-const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap({ cedis: true });
-
-// Nº de sucursal Kepler (kdm1.c1). Explícito en el map, o derivado del md_NN de la URL.
-function branchNum(m) {
-  if (m.suc) return String(m.suc);
-  const x = /md_(\d+)/i.exec(m.url || '');
-  return x ? x[1] : null;
-}
 
 // Etiqueta legible ES por k_code (fallback: k_dscr del catálogo).
 const LABELS = {
@@ -57,9 +49,8 @@ const LABELS = {
   RtrnPur1: 'Devolución de compra',
 };
 
-// Fallback estable del catálogo (Kepler system catalog, idéntico entre sucursales) —
-// para fuentes que no traen la tabla doctype (p.ej. el consolidado, que solo sincroniza
-// kdm1/kdm2). key = 'GENERO|NATURALEZA|TIPO_INT'. dir por naturaleza (A=+ / D=−).
+// Fallback estable del catálogo (Kepler system catalog, idéntico entre sucursales) — si por lo
+// que sea no hay tabla doctype. key = 'GENERO|NATURALEZA|TIPO_INT'. dir por naturaleza (A=+ / D=−).
 const INV_DOCTYPES_FALLBACK = [
   ['N', 'A', 20, 'InvIn1'], ['U', 'A', 10, 'RtrnEn1'], ['U', 'A', 20, 'Rtrn1'],
   ['X', 'A', 5, 'Purchas1'], ['X', 'A', 40, 'EntryOr1'],
@@ -111,13 +102,15 @@ function addCustomTypes(map) {
 
 // Catálogo autoritativo: doctypes que afectan inventario, con dirección + etiqueta.
 // key = 'GENERO|NATURALEZA|TIPO_INT'  →  { code, label, dir(+1/-1) }. Fallback si no hay tabla.
-async function loadDoctypeMap(src, schema) {
+// kepler_ods.doctype trae una copia por sucursal (col `sucursal`) del MISMO catálogo → el Map
+// dedupe por key (todas las ramas escriben el mismo valor).
+async function loadDoctypeMap(src) {
   let rows;
   try {
     rows = (await src.query(
       `SELECT k_code, k_dscr,
               substr(k_doc7,1,1) g, substr(k_doc7,2,1) nat, (substr(k_doc7,3,2))::int tipo
-       FROM ${schema}.doctype
+       FROM kepler_ods.doctype
        WHERE k_binv IS NOT NULL AND k_binv::numeric = 1 AND coalesce(k_doc7,'') <> ''`
     )).rows;
   } catch { rows = []; }
@@ -133,7 +126,81 @@ async function loadDoctypeMap(src, schema) {
   return addCustomTypes(map);
 }
 
-(async () => {
+// EXTRACT server-side: kepler_ods.kdm1 ⋈ kdm2 (dedupe c1=sucursal) ⋈ dt_map (decode) ⋈ warehouses
+// (code=sucursal → mismos warehouse_id que ya usa la tabla, incl. CEDIS '00'='Cedis Oficinas')
+// → prod (sku→id, prefiere el producto vivo). Todo el signo/costo/importe se calcula en SQL con
+// la MISMA semántica que la versión JS (abs; c13=importe o c12×qty; unit=c12 o importe/qty).
+const EXTRACT_SQL = `
+INSERT INTO stg_mov (warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,
+                     movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,
+                     parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label)
+WITH prod AS (
+  SELECT DISTINCT ON (btrim(sku)) btrim(sku) sku, id
+  FROM catalog.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''
+  ORDER BY btrim(sku), (deleted_at IS NULL) DESC
+),
+dd AS (  -- destino del traspaso: kdud c2=code → c3=label (una fila por code)
+  SELECT DISTINCT ON (btrim(c2::text)) btrim(c2::text) code, c3::text label
+  FROM kepler_ods.kdud ORDER BY btrim(c2::text)
+),
+-- NOTA de tipos (kepler_ods preserva el tipo del origen): c4/c5/c37/c38 son NUMERIC en kdm1;
+-- c4/c12/c13 NUMERIC y c9 DOUBLE en kdm2; c9 de kdm1 es TIMESTAMP. Por eso el tipo (c4) se joinea
+-- como int, los importes se usan crudos (sin btrim), y serie/pgrp/pserie van ::text a las cols text.
+hdr AS MATERIALIZED (  -- cabeceras de la ventana, SOLO la copia propia de cada rama (c1=sucursal)
+  SELECT btrim(h.sucursal) suc, btrim(h.c1) c1, btrim(h.c2) g, btrim(h.c3) nat,
+         (h.c4)::int tipo, NULLIF(h.c5::text,'') serie, h.c6 folio,
+         h.c9::date doc_date, btrim(h.c10) dest_code,
+         NULLIF(h.c37::text,'') pgrp, NULLIF(h.c38::text,'') pserie, h.c39 pfol
+  FROM kepler_ods.kdm1 h
+  WHERE btrim(h.c1)=btrim(h.sucursal)
+    AND h.c9::date >= $2
+    AND h.c4 IS NOT NULL
+),
+j AS (  -- une líneas + decode + almacén; costos crudos (u=c12, t13=c13) para calcular abajo
+  SELECT hd.suc, hd.g, hd.nat, hd.tipo, hd.serie, hd.folio, hd.doc_date,
+         hd.dest_code, hd.pgrp, hd.pserie, hd.pfol,
+         w.id warehouse_id, dm.code, dm.label, dm.dir, dd.label dest_label,
+         btrim(l.c8) sku,
+         abs(coalesce((l.c9)::numeric,0)) qty,
+         abs(coalesce(l.c12,0)) u,
+         abs(coalesce(l.c13,0)) t13
+  FROM hdr hd
+  JOIN dt_map dm ON dm.g=hd.g AND dm.nat=hd.nat AND dm.tipo=hd.tipo
+  JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.deleted_at IS NULL AND w.code=hd.suc
+  JOIN kepler_ods.kdm2 l ON btrim(l.sucursal)=hd.suc AND btrim(l.c1)=hd.c1
+        AND btrim(l.c2)=hd.g AND btrim(l.c3)=hd.nat AND (l.c4)::int=hd.tipo AND l.c6=hd.folio
+  LEFT JOIN dd ON dd.code=hd.dest_code
+  WHERE coalesce(btrim(l.c11),'')<>'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto
+),
+k AS (  -- importe efectivo t = c13 o (c12×qty); resuelve unit_cost/amount sin repetir el CASE
+  SELECT j.*, CASE WHEN j.t13<>0 THEN j.t13 WHEN j.u<>0 THEN j.u*j.qty ELSE 0 END t FROM j
+)
+SELECT
+  k.warehouse_id, prod.id, k.sku, k.doc_date, k.g, k.nat, k.tipo::text, k.serie, k.code,
+  CASE WHEN k.dir=0 THEN 'info' WHEN k.dir>0 THEN 'entrada' ELSE 'salida' END,
+  k.label, k.folio,
+  k.dir * k.qty, k.qty,
+  CASE WHEN k.u<>0 THEN k.u WHEN k.t<>0 THEN k.t/k.qty ELSE NULL END,
+  NULLIF(k.t,0),
+  k.pgrp, k.pserie, k.pfol, k.suc,
+  CASE WHEN k.code='TrsfShip' THEN k.dest_code ELSE NULL END,
+  CASE WHEN k.code='TrsfShip' THEN COALESCE(k.dest_label, k.dest_code) ELSE NULL END
+FROM k LEFT JOIN prod ON prod.sku=k.sku
+WHERE k.qty > 0`;
+
+// Crea + puebla la TEMP dt_map (decode) desde el Map de doctypes. Reutilizable por el harness de paridad.
+async function buildDtMap(db, dt) {
+  await db.query(`CREATE TEMP TABLE dt_map (g char(1), nat char(1), tipo int, code text, label text, dir int) ON COMMIT DROP`);
+  const dtRows = [...dt.entries()].map(([key, v]) => { const [g, nat, tipo] = key.split('|'); return [g, nat, parseInt(tipo, 10), v.code, v.label, v.dir]; });
+  for (let i = 0; i < dtRows.length; i += 200) {
+    const chunk = dtRows.slice(i, i + 200);
+    const vals = [], params = [];
+    chunk.forEach((row, ri) => { vals.push(`($${ri * 6 + 1},$${ri * 6 + 2},$${ri * 6 + 3},$${ri * 6 + 4},$${ri * 6 + 5},$${ri * 6 + 6})`); params.push(...row); });
+    await db.query(`INSERT INTO dt_map (g,nat,tipo,code,label,dir) VALUES ${vals.join(',')}`, params);
+  }
+}
+
+async function main() {
   const db = new Client({ connectionString: DST });
   await db.connect();
   // Guard anti-pile-up: el merge + auto-ligado toman lock de la tabla; dos corridas a la vez
@@ -146,16 +213,19 @@ async function loadDoctypeMap(src, schema) {
     return;
   }
   try {
-    console.log(`\n=== Diario de movimientos Kepler → analytics.stock_movements (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ${daysArg}d) ===\n`);
+    console.log(`\n=== Diario de movimientos Kepler → analytics.stock_movements (kepler_ods, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ${daysArg}d) ===\n`);
 
-    const prods = (await db.query(`SELECT id, sku FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
-    const skuToId = new Map(prods.map((p) => [p.sku, p.id]));
-    console.log(`  catálogo prod con sku: ${skuToId.size}`);
-
+    const dt = await loadDoctypeMap(db);
+    console.log(`  doctypes que afectan inventario: ${dt.size}`);
     const cutoff = new Date(Date.now() - daysArg * 864e5).toISOString().slice(0, 10);
     console.log(`  ventana: doc_date >= ${cutoff}\n`);
 
     await db.query('BEGIN');
+    // El EXTRACT hashea kdm2 (~3.6M filas, ~226MB). Con el work_mem default (4MB) spillea a
+    // decenas de batches en disco → 217s. Con 128MB spillea a ≤2 batches → ~18s (medido, 7d≈120d
+    // porque el costo es el hash de kdm2, no la ventana). SET LOCAL = solo esta transacción, una
+    // sola conexión efímera (nightly/intradía) → footprint acotado en la prod de Railway.
+    await db.query(`SET LOCAL work_mem = '128MB'`);
     await db.query(`CREATE TEMP TABLE stg_mov (
       warehouse_id uuid, product_id uuid, sku text, doc_date date, genero char(1), naturaleza char(1),
       doc_type text, doc_serie text, doc_code text, movement_kind text, movement_label text, folio text,
@@ -163,96 +233,24 @@ async function loadDoctypeMap(src, schema) {
       parent_group text, parent_serie text, parent_folio text, source_branch text,
       dest_code text, dest_label text) ON COMMIT DROP`);
 
-    const touched = [];
-    const summary = [];
-    let sampleShown = false;
+    // dt_map: el decode (genero|nat|tipo → code/label/dir) como TABLA para joinear server-side.
+    await buildDtMap(db, dt);
 
-    for (const m of MAP) {
-      const whr = (await db.query(`SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2`, [M, m.code])).rows;
-      if (!whr.length) { console.log(`  ⚠ warehouse ${m.code} no existe — skip`); continue; }
-      const warehouseId = whr[0].id;
-      const suc = branchNum(m);
-      if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal — skip`); continue; }
+    // EXTRACT: un solo INSERT...SELECT server-side (sin traer filas a JS).
+    const ex = await db.query(EXTRACT_SQL, [M, cutoff]);
+    console.log(`  líneas staged: ${ex.rowCount}`);
 
-      let src;
-      try { src = new Client({ connectionString: m.url }); await src.connect(); }
-      catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
-
-      const schema = m.schema || 'md';
-      let matched = 0, unmatched = 0, lines = 0;
-      try {
-        const dt = await loadDoctypeMap(src, schema);
-        if (!dt.size) { console.log(`  ⚠ ${m.code}: doctype sin tipos de inventario — skip`); await src.end(); continue; }
-        // tuplas (genero,naturaleza,tipo) para filtrar en SQL
-        const tuples = [...dt.keys()].map((k) => { const [g, n, t] = k.split('|'); return `('${g}','${n}',${t})`; }).join(',');
-        // CTE MATERIALIZED: primero reduce cabeceras (pocos miles) y recién ahí joinea kdm2.
-        // Sin esto el planner (schemas sync SIN índices) elige nested-loop 182k×2M → 30+ min.
-        // DM.11 — destino del traspaso: kdm1.c10 (código de contraparte) resuelto por md.kdud
-        // (c2=code → c3=label). Solo se estampa como destino en TrsfShip (ver más abajo).
-        const SQL = `
-          WITH hh AS MATERIALIZED (
-            SELECT c1, c2, c3, c4, c5::text serie, c6, c9::date doc_date, c10, c37, c38::text pserie, c39
-            FROM ${schema}.kdm1 h
-            WHERE h.c1=$1 AND h.c9::date >= $2
-              AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})
-          )
-          SELECT hh.c2 g, hh.c3 nat, hh.c4 tipo, hh.serie, hh.c6 folio, hh.doc_date,
-                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, hh.c10 dest_code, dd.c3 dest_label,
-                 l.c8 sku, l.c9::numeric qty, l.c12::numeric unit_val, l.c13::numeric total_val
-          FROM hh
-          JOIN ${schema}.kdm2 l ON l.c1=hh.c1 AND l.c2=hh.c2 AND l.c3=hh.c3 AND l.c4=hh.c4 AND l.c6=hh.c6
-          LEFT JOIN (SELECT DISTINCT ON (c2) c2, c3 FROM ${schema}.kdud ORDER BY c2) dd ON dd.c2 = hh.c10
-          WHERE coalesce(l.c11,'') <> 'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto`;
-        const rows = (await src.query(SQL, [suc, cutoff])).rows;
-
-        const staged = [];
-        for (const r of rows) {
-          const info = dt.get(`${r.g}|${r.nat}|${parseInt(r.tipo, 10)}`);
-          if (!info) continue;
-          // SKU fuera de catálogo NO se descarta (rompería los totales del doc y la
-          // validación salida↔recepción): product_id NULL + sku denormalizado.
-          const pid = skuToId.get(r.sku) || null;
-          if (!pid) unmatched++;
-          const qty = Math.abs(Number(r.qty) || 0);
-          if (qty === 0) continue;
-          // kdm2: c12 = precio/costo UNITARIO, c13 = IMPORTE de la línea (c13 = c9×c12,
-          // verificado 100% en 18 tipos × 4 sucursales 2026-07-13). NO usar c12 como importe.
-          const unit = Math.abs(Number(r.unit_val) || 0);
-          const total = Math.abs(Number(r.total_val) || 0) || (unit ? unit * qty : 0);
-          // DM.11 — destino solo en el "Traspaso a sucursal" (TrsfShip); c10 es contraparte
-          // genérica (cliente/etc.) en el resto, ahí no significa destino.
-          const isShip = info.code === 'TrsfShip';
-          const destCode = isShip ? (r.dest_code || null) : null;
-          const destLabel = isShip ? (r.dest_label || r.dest_code || null) : null;
-          staged.push([
-            warehouseId, pid, r.sku || null, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
-            info.dir === 0 ? 'info' : info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
-            info.dir * qty, qty, unit || (total ? total / qty : null), total || null,
-            r.pgrp || null, r.pserie || null, r.pfol || null, suc, destCode, destLabel,
-          ]);
-          matched++; lines++;
-        }
-
-        if (!sampleShown && staged.length) {
-          console.log(`  muestra ${m.code}:`);
-          for (const s of staged.slice(0, 4)) console.log(`    ${s[2].toISOString?.().slice(0,10)||s[2]} ${s[10].padEnd(20)} folio=${s[11]} qty=${s[13]} signed=${s[12]} costo/u=${s[14]?Number(s[14]).toFixed(2):'-'} importe=${s[15]?Number(s[15]).toFixed(2):'-'}`);
-          sampleShown = true;
-        }
-
-        for (let i = 0; i < staged.length; i += BATCH) {
-          const chunk = staged.slice(i, i + BATCH);
-          const vals = [], params = [];
-          const N = 22;
-          chunk.forEach((row, ri) => { vals.push(`(${Array.from({ length: N }, (_, k) => `$${ri * N + k + 1}`).join(',')})`); params.push(...row); });
-          await db.query(`INSERT INTO stg_mov (warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label) VALUES ${vals.join(',')}`, params);
-        }
-        touched.push(warehouseId);
-        summary.push({ code: m.code, suc, matched, unmatched, lines });
-      } catch (e) {
-        console.log(`  ⚠ ${m.code}: error leyendo kdm1/kdm2/doctype (${e.message}) — skip`);
-      } finally { await src.end(); }
-    }
+    const summary = (await db.query(`
+      SELECT source_branch suc, count(*)::int lines,
+             count(*) FILTER (WHERE product_id IS NOT NULL)::int matched,
+             count(*) FILTER (WHERE product_id IS NULL)::int unmatched
+      FROM stg_mov GROUP BY source_branch ORDER BY source_branch`)).rows;
     console.table(summary);
+    const sample = (await db.query(`SELECT to_char(doc_date,'YYYY-MM-DD') d, doc_code, movement_label, folio, qty, signed_qty, unit_cost, amount, source_branch
+      FROM stg_mov ORDER BY doc_date DESC, source_branch LIMIT 5`)).rows;
+    if (sample.length) { console.log('  muestra:'); for (const s of sample) console.log(`    ${s.d} ${String(s.movement_label).padEnd(22)} ${s.source_branch} folio=${s.folio} qty=${s.qty} signed=${s.signed_qty} costo/u=${s.unit_cost ? Number(s.unit_cost).toFixed(2) : '-'} importe=${s.amount ? Number(s.amount).toFixed(2) : '-'}`); }
+
+    const touched = (await db.query(`SELECT DISTINCT warehouse_id FROM stg_mov`)).rows.map((r) => r.warehouse_id);
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!touched.length) { await db.query('ROLLBACK'); console.log('\nSin almacenes tocados — nada que hacer.'); return; }
@@ -341,10 +339,13 @@ async function loadDoctypeMap(src, schema) {
       WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL`, [M, cutoff]);
     if (linked.rowCount) console.log(`[DM.11d] auto-ligados ${linked.rowCount} dest_code → almacén por recepción.`);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas (${summary.length} almacenes). Días sin cambio: intactos.`);
+    console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas. Días sin cambio: intactos.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally { await db.end(); }
-})();
+}
+
+if (require.main === module) main();
+module.exports = { loadDoctypeMap, buildDtMap, EXTRACT_SQL, M };
