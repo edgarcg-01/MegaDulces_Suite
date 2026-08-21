@@ -66,5 +66,10 @@
 | **Re-seed `movement_categories`(0)+`knowledge`(0)** | ⏸️ Edgar (dato prod) | Escritura a prod (bloqueada para Claude). `movement_categories` debería sembrarla la mig `20260722140000`; investigar por qué quedó en 0. `classify()` de bancos cae a fallback silencioso mientras. |
 | **Fase CA (CEDIS Access→ODS)** | ⏸️ fase aparte | Cura de fondo del gap estructural 00. No es parte de esta remediación. |
 
+**Cerrados por investigación (2026-08-21, solo lectura):**
+- **stock CEDIS '00' (131 SKUs)** — el sensor queda VERDE (fresco, updated hoy); no era frescura sino **cobertura**: el CEDIS real vive en Access (`md_00@9.95` es parcial) → traza a **Fase CA**, no a un feed roto. El sensor lo destapó correctamente.
+- **`warehouses.source_warehouse_id`** — poblado y correcto (01/03/06/MD-30→00, MD-32→MD-30, 02/04→01, 05→06). El CEDIS '00' = raíz (null correcto: se planea por demanda de red, RA-PRO.6). Sin acción.
+- **`trade.stores_route_audit`** (946 filas) — sin escritor vivo (solo la mig FK `20260820190000` lo tocó) = snapshot congelado a propósito (audit trail backfilleado). No es feed roto; sin pérdida de dato.
+
 **Correcciones al plan del audit** (verificado contra el esquema real): las 2 FK "needs-fk" NO aplican (columnas inexistentes). El resto del plan se sostuvo.
 **Pendiente de Edgar:** (1) redeploy api → activa los 10 sensores + arregla el freeze de abc going-forward; (2) deploy corre la migración de drops; (3) decidir escritor de top_sellers_live; (4) re-seed finance; (5) opcional: disparar el endpoint de ABC para refrescar la data ya (sino se arregla sola esta noche).
