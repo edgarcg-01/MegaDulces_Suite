@@ -492,7 +492,7 @@ interface AttachFile {
         <!-- Los totales ya se leyeron arriba, en el bloque de tres cifras. Repetirlos acá
              obligaba a comparar de memoria entre dos puntos de la misma pantalla. -->
         <div class="cb-detail-total">
-          <span class="muted">{{ d.lineas.length }} renglones · Σ {{ money(lineasTotal(d.lineas)) }}</span>
+          <span class="muted">{{ plural(d.lineas.length, 'renglón', 'renglones') }} · Σ {{ money(lineasTotal(d.lineas)) }}</span>
         </div>
 
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
@@ -1503,6 +1503,9 @@ export class ComprasEntradasComponent {
   /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
   private static readonly IVA = 0.16;
 
+  /** "1 renglón" / "2 renglones". Un plural mal puesto es de lo primero que se nota. */
+  plural(n: number, sing: string, plur: string): string { return `${n} ${n === 1 ? sing : plur}`; }
+
   /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
   private depForCuadre(d: EntradaDetail) {
     const deps = d.deposits || [];
@@ -1530,9 +1533,10 @@ export class ComprasEntradasComponent {
     const ocrMeta = !dep ? 'sin remisión adjunta'
       : ocr == null ? 'el OCR no leyó el total'
       : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
-    const lineasMeta = conIva ? `${d.lineas.length} renglones · sin IVA (Kepler suma el 16%)`
-      : this.lineasCuadra(d) ? `${d.lineas.length} renglones · igual al total`
-      : `${d.lineas.length} renglones`;
+    const nLin = this.plural(d.lineas.length, 'renglón', 'renglones');
+    const lineasMeta = conIva ? `${nLin} · sin IVA (Kepler suma el 16%)`
+      : this.lineasCuadra(d) ? `${nLin} · igual al total`
+      : nLin;
 
     if (!dep) {
       return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
