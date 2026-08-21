@@ -136,23 +136,24 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                    sortField="fecha" [sortOrder]="-1">
             <ng-template #header>
               <tr>
-                <th pSortableColumn="folio" style="width:7rem">Folio <p-sorticon field="folio" /></th>
+                <th pSortableColumn="folio" style="width:9rem">Folio <p-sorticon field="folio" /></th>
                 <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sorticon field="fecha" /></th>
-                <th style="width:9rem">Sucursal</th>
-                <th pSortableColumn="solicitante" style="width:10rem">Solicitante <p-sorticon field="solicitante" /></th>
-                <th style="width:12rem">Beneficiario</th>
+                <th pSortableColumn="solicitante" style="width:9rem">Solicitante <p-sorticon field="solicitante" /></th>
+                <th style="width:11rem">Beneficiario</th>
                 <th>Concepto</th>
                 <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
                 <th style="width:7rem">Estatus</th>
                 <th pSortableColumn="lead_days" style="width:10rem" title="Gasto XA1001 al que se aplicó, y en cuántos días">Aplicación <p-sorticon field="lead_days" /></th>
-                <th style="width:13rem">Evidencia</th>
+                <th style="width:12rem">Evidencia</th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
               <tr>
-                <td class="num strong">{{ r.folio }}</td>
+                <td>
+                  <span class="num strong">{{ r.folio }}</span>
+                  <span class="so-cell-meta">{{ r.sucursal_nombre || r.sucursal }}</span>
+                </td>
                 <td class="num muted">{{ dmy(r.fecha) }}</td>
-                <td>{{ r.sucursal_nombre || r.sucursal }}</td>
                 <td>{{ r.solicitante || '—' }}</td>
                 <td>{{ r.beneficiario || '—' }}</td>
                 <td class="muted"><span class="so-trunc" [title]="r.concepto || ''">{{ r.concepto || '—' }}</span></td>
@@ -167,7 +168,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                       <i class="pi pi-check-circle" aria-hidden="true"></i> {{ r.gasto_folio || 'Aplicada' }}
                     </button>
                     @if (r.lead_days != null) {
-                      <span class="so-cell-meta num">{{ leadTexto(r.lead_days) }}</span>
+                      <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span>
                     }
                   } @else {
                     <span class="faint">Sin aplicar</span>
@@ -271,6 +272,8 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     /* tabular-nums en TODA celda de cifra/folio/fecha: si no, las columnas no se leen
        como columnas (§datos densos 10). */
     .so-table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    /* Números embebidos en texto: tabular sí, mono no (§datos densos 10). */
+    .so-table .tnum { font-variant-numeric: tabular-nums; }
     .so-table .ta-r { text-align: right; }
     .so-table .strong { font-weight: var(--fw-bold); color: var(--fg-1); }
     .so-table .muted { color: var(--fg-2); }
@@ -329,9 +332,9 @@ export class FinanzasSolicitudesComponent {
   readonly compStatus = signal<Record<string, string>>({});
 
   readonly rows = computed(() => this.report()?.rows || []);
+  readonly loading = signal(false);
   /** Primera carga = cargando y todavía sin nada en pantalla. Un refresh no vacía la vista. */
   readonly primeraCarga = computed(() => this.loading() && !this.report());
-  readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly solicitantes = signal<string[]>([]);
@@ -358,8 +361,9 @@ export class FinanzasSolicitudesComponent {
   estado: string | null = null;
   solicitante: string | null = null;
   search = '';
-  /** Solo se usa cuando `periodo() === 'rango'`. Arranca en los últimos 90 días. */
-  rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 89); return d; })(), new Date()];
+  /** Solo se usa cuando el periodo es `rango`. Arranca en 30 días: entrar al modo
+   *  manual no debería costar más que el preset del que venís. */
+  rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 29); return d; })(), new Date()];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   readonly money = money;
