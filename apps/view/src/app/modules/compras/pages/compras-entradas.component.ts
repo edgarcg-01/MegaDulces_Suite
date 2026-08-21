@@ -20,6 +20,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence } from '../entradas.service';
+import { money, moneyShort } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
@@ -375,9 +376,52 @@ interface AttachFile {
     <!-- Diálogo: detalle por línea (auditoría) + comparación documento vs OCR (RE.8) -->
     <p-dialog [(visible)]="showDetail" [modal]="true" [style]="{ width: '72rem', maxWidth: '96vw' }" [draggable]="false" [maximizable]="true" header="Detalle de la orden de entrada — documento vs OCR">
       @if (detailLoading()) {
-        <div class="cb-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando detalle…</div>
+        <!-- Esqueleto con la FORMA del contenido (veredicto + 3 cifras + ficha + renglones):
+             sin salto de layout al llegar los datos. Regla de datos densos: skeleton de
+             filas, no spinner de bloque. -->
+        <div class="cb-detail-skel" aria-busy="true" aria-label="Cargando detalle">
+          <span class="cb-sk cb-sk-verdict"></span>
+          <span class="cb-sk cb-sk-tri"></span>
+          <span class="cb-sk cb-sk-head"></span>
+          @for (i of [1,2,3,4,5,6]; track i) { <span class="cb-sk cb-sk-row"></span> }
+        </div>
       } @else if (detailData(); as d) {
         <div class="cb-review"><div class="cb-review-main">
+
+        <!-- Q.1 answer-first: la pregunta de esta pantalla es si el papel del proveedor
+             cuadra con lo que Kepler registró. Va primero y en llano; la ficha y el grid
+             de renglones son la evidencia, y van después. -->
+        @if (cuadre(d); as q) {
+          <div class="cb-verdict" [class]="'cb-verdict is-' + q.tone" role="status">
+            <i class="pi" [ngClass]="q.icon" aria-hidden="true"></i>
+            <div class="cb-verdict-txt">
+              <p class="cb-verdict-t">{{ q.titulo }}</p>
+              <p class="cb-verdict-s">{{ q.lectura }}</p>
+            </div>
+          </div>
+
+          <!-- Las tres cifras comparables, juntas y alineadas a la misma columna.
+               Vivían en tres bloques distintos del diálogo, que es exactamente lo que
+               impedía compararlas de un vistazo. -->
+          <dl class="cb-tri">
+            <div class="cb-tri-c">
+              <dt>Kepler</dt>
+              <dd>{{ money(q.kepler) }}</dd>
+              <p>total registrado, con IVA</p>
+            </div>
+            <div class="cb-tri-c">
+              <dt>Σ renglones</dt>
+              <dd>{{ money(q.lineas) }}</dd>
+              <p>{{ q.lineasMeta }}</p>
+            </div>
+            <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'">
+              <dt>Documento (OCR)</dt>
+              <dd>{{ q.ocr != null ? money(q.ocr) : '—' }}</dd>
+              <p>{{ q.ocrMeta }}</p>
+            </div>
+          </dl>
+        }
+
         <div class="cb-cobro">
           <div><span class="cb-lbl">Entrada</span>
             <button type="button" class="cb-reflink mono strong" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
@@ -445,11 +489,10 @@ interface AttachFile {
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin líneas de detalle para esta entrada.</td></tr></ng-template>
         </p-table>
+        <!-- Los totales ya se leyeron arriba, en el bloque de tres cifras. Repetirlos acá
+             obligaba a comparar de memoria entre dos puntos de la misma pantalla. -->
         <div class="cb-detail-total">
-          <span class="muted">{{ d.lineas.length }} renglones</span>
-          <span>Σ líneas (subtotal) <strong>{{ money(lineasTotal(d.lineas)) }}</strong> · Total doc <strong>{{ money(d.entrada.monto) }}</strong>
-            @if (lineasCuadra(d)) { <p-tag value="Cuadra (sin IVA)" severity="success" /> }
-            @else { <p-tag [value]="'IVA/dif ' + money(lineasDiff(d))" severity="info" /> }</span>
+          <span class="muted">{{ d.lineas.length }} renglones · Σ {{ money(lineasTotal(d.lineas)) }}</span>
         </div>
 
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
@@ -608,6 +651,58 @@ interface AttachFile {
     .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
+
+    /* ── Detalle: veredicto + tres cifras ────────────────────────────────
+       Jerarquia explicita en tres niveles y por TIPO+CONTRASTE, no por color
+       (regla Q.5): primario = el veredicto y las tres cifras; secundario = las
+       etiquetas y la ficha; terciario = el pie de cada cifra. El color solo
+       refuerza el estado, nunca lo porta solo — siempre hay icono y texto. */
+    .cb-verdict { display: flex; align-items: flex-start; gap: .6rem; padding: .7rem .9rem;
+      border: 1px solid var(--border-color); border-left: 3px solid var(--border-color);
+      border-radius: var(--r-md); background: var(--card-bg); }
+    .cb-verdict > .pi { font-size: 1rem; margin-top: .1rem; color: var(--text-muted); }
+    .cb-verdict.is-ok { border-left-color: var(--ok-fg); }
+    .cb-verdict.is-ok > .pi { color: var(--ok-fg); }
+    .cb-verdict.is-warn { border-left-color: var(--warn-fg); }
+    .cb-verdict.is-warn > .pi { color: var(--warn-fg); }
+    .cb-verdict.is-bad { border-left-color: var(--bad-fg); }
+    .cb-verdict.is-bad > .pi { color: var(--bad-fg); }
+    .cb-verdict-txt { min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+    .cb-verdict-t { margin: 0; font-size: var(--fs-h3); font-weight: 700; color: var(--text-main);
+      font-variant-numeric: tabular-nums; }
+    .cb-verdict-s { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5;
+      font-variant-numeric: tabular-nums; }
+
+    .cb-tri { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: .6rem 0 0;
+      border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+    /* Separacion por hairline, sin caja por cifra: mismo criterio que MetricStrip. */
+    .cb-tri-c + .cb-tri-c { border-left: 1px solid var(--border-color); }
+    .cb-tri-c { padding: .6rem .8rem; display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+    .cb-tri-c dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-faint); }
+    .cb-tri-c dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-lg); font-weight: 600; color: var(--text-main); }
+    .cb-tri-c p { margin: 0; font-size: var(--fs-micro); color: var(--text-faint); line-height: 1.4; }
+    /* La cifra que NO cuadra se marca en el borde, no tiñendo el numero. */
+    .cb-tri-c.is-off { box-shadow: inset 0 -2px 0 var(--bad-fg); }
+    .cb-tri-c.is-off dd { color: var(--bad-fg); }
+    @media (max-width: 46rem) {
+      .cb-tri { grid-template-columns: 1fr; }
+      .cb-tri-c + .cb-tri-c { border-left: 0; border-top: 1px solid var(--border-color); }
+    }
+
+    /* Esqueleto con la forma del contenido (sin salto de layout al llegar los datos). */
+    .cb-detail-skel { display: flex; flex-direction: column; gap: .5rem; padding: .2rem 0 1rem; }
+    .cb-sk { display: block; border-radius: var(--r-sm); background: var(--surface-ground);
+      border: 1px solid var(--border-color); }
+    .cb-sk-verdict { height: 3.4rem; }
+    .cb-sk-tri { height: 4rem; }
+    .cb-sk-head { height: 2.2rem; margin-top: .4rem; }
+    .cb-sk-row { height: 1.9rem; border-style: dashed; }
+    @media (prefers-reduced-motion: no-preference) {
+      .cb-sk { animation: cb-sk-pulse 1.4s ease-in-out infinite; }
+      @keyframes cb-sk-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+    }
     .cb-detail-total { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-color); font-size: .85rem; }
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
@@ -975,7 +1070,7 @@ export class ComprasEntradasComponent {
       { label: 'Entradas', value: r.kpis.entradas },
       { label: 'Con remisión', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validadas', value: r.kpis.validados, tone: 'ok' },
-      { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
+      { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
     ];
   }
 
@@ -1401,7 +1496,71 @@ export class ComprasEntradasComponent {
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
   lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
-  lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= 1; }
+  lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= ComprasEntradasComponent.EPS; }
+
+  /** Dos importes son el mismo por debajo de esto (centavos de redondeo del OCR). */
+  private static readonly EPS = 1;
+  /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
+  private static readonly IVA = 0.16;
+
+  /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
+  private depForCuadre(d: EntradaDetail) {
+    const deps = d.deposits || [];
+    return deps.find((x) => x.status === 'validado') ?? deps[0] ?? null;
+  }
+
+  /**
+   * La respuesta de esta pantalla, en llano.
+   *
+   * El diálogo se llama "documento vs OCR" pero las tres cifras comparables —lo que Kepler
+   * registró, la suma de los renglones y lo que dice el papel del proveedor— vivían en tres
+   * bloques distintos, así que no se podían comparar. Esto las junta y, sobre todo, dice qué
+   * significa la diferencia: un descuadre que resulta ser exactamente el IVA no es un
+   * problema, y un delta crudo de $1,234.56 no le dice eso a nadie.
+   */
+  cuadre(d: EntradaDetail) {
+    const E = ComprasEntradasComponent.EPS;
+    const kepler = Number(d.entrada.monto) || 0;
+    const lineas = this.lineasTotal(d.lineas);
+    const dep = this.depForCuadre(d);
+    const ocr = dep?.ocr_monto != null ? Number(dep.ocr_monto) : null;
+    const delta = ocr == null ? null : Number((ocr - kepler).toFixed(2));
+    const conIva = Math.abs(lineas * (1 + ComprasEntradasComponent.IVA) - kepler) <= E;
+    // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
+    const ocrMeta = !dep ? 'sin remisión adjunta'
+      : ocr == null ? 'el OCR no leyó el total'
+      : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
+    const lineasMeta = conIva ? `${d.lineas.length} renglones · sin IVA (Kepler suma el 16%)`
+      : this.lineasCuadra(d) ? `${d.lineas.length} renglones · igual al total`
+      : `${d.lineas.length} renglones`;
+
+    if (!dep) {
+      return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+        titulo: 'Falta la remisión del proveedor',
+        lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
+    }
+    if (ocr == null) {
+      return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+        titulo: 'El documento está, pero no se pudo leer su total',
+        lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
+    }
+    if (Math.abs(delta as number) <= E) {
+      return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+        titulo: 'El documento cuadra con Kepler',
+        lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
+    }
+    const dif = Math.abs(delta as number);
+    const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
+    // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
+    const pista = Math.abs(dif - lineas * ComprasEntradasComponent.IVA) <= E
+      ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
+      : this.explains().length
+        ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
+        : '';
+    return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+      titulo: `${sentido} ${money(dif)}`,
+      lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
+  }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
@@ -1416,5 +1575,15 @@ export class ComprasEntradasComponent {
   discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
-  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  /**
+   * Dinero CON centavos, del formateador compartido.
+   *
+   * Antes esta pantalla tenía el suyo con `maximumFractionDigits: 0`. En una vista de
+   * cuadre eso es grave: la tolerancia es de $1, así que una diferencia de $0.40 se
+   * pintaba como dos cifras idénticas al lado de un tag que dice "No cuadra". El
+   * semáforo mira centavos; la pantalla los escondía.
+   */
+  readonly money = money;
+  /** Redondeado a pesos: SOLO para KPIs de cabecera, donde el centavo es ruido. */
+  readonly moneyShort = moneyShort;
 }
