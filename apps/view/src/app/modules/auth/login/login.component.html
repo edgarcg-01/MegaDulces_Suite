@@ -77,6 +77,11 @@
             </div>
           }
 
+          <!-- `name` en los campos, además de formControlName: Angular NO emite el atributo
+               `name` a partir de formControlName, y sin él Safari/iOS y varios gestores de
+               contraseñas no ofrecen guardar ni autocompletar. Con name + id + autocomplete
+               + un <form> real con botón submit, el navegador reconoce el formulario de
+               acceso en cualquier dispositivo. -->
           <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="space-y-6">
 
             <!-- Username Input - Modern rounded style -->
@@ -86,6 +91,7 @@
               </label>
               <input
                 id="username"
+                name="username"
                 type="text"
                 formControlName="username"
                 (input)="onUsernameInput()"
@@ -118,6 +124,7 @@
                 </label>
                 <input
                   id="password"
+                  name="password"
                   type="password"
                   formControlName="password"
                   placeholder="Mínimo 6 caracteres"
