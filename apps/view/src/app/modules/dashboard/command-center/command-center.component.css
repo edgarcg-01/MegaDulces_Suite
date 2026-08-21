@@ -238,3 +238,18 @@ app-metric-strip { display: block; }
 
 /* Badge ABC junto al nombre del producto (Top productos venta real). */
 .cc-abc { margin-left: .4rem; font-size: .68rem; font-weight: 700; letter-spacing: .02em; }
+
+/* Aviso de carga parcial: el tablero prefiere mostrarse incompleto y decirlo antes que
+   esperar indefinidamente a un panel lento. Borde izquierdo como portador de estado. */
+.cc-degraded {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .6rem .85rem; margin: 0 0 .9rem;
+  border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg);
+  border-radius: var(--r-md); background: var(--card-bg); font-size: .85rem;
+}
+.cc-degraded .pi { color: var(--warn-fg); }
+.cc-degraded-btn {
+  margin-left: auto; background: none; border: 0; padding: 0;
+  color: var(--action); cursor: pointer; font: inherit; text-decoration: underline;
+}
+.cc-degraded-btn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }

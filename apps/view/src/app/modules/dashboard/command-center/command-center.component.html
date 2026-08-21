@@ -3,6 +3,14 @@
 
   <app-page-tabs [tabs]="analyticsTabs" />
 
+  @if (degraded() > 0 && !loading()) {
+    <div class="cc-degraded" role="status">
+      <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+      <span>{{ degraded() }} panel(es) no cargaron a tiempo — lo que ves está incompleto.</span>
+      <button type="button" class="cc-degraded-btn" (click)="loadAll()">Reintentar</button>
+    </div>
+  }
+
   <header class="surf-page-head">
     <div class="surf-page-head-text">
       <h1>Centro de control</h1>
