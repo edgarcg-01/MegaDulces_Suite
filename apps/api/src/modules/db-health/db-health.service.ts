@@ -122,6 +122,19 @@ const APP_SOURCES: SourceCfg[] = [
            WHERE sucursal='00' AND c9::date <= current_date AND c9::date > current_date - 30`,
     warnH: 48, critH: 120, cadence: 'continuo (replica lógica md_00 → OdsLiveLoop)',
   },
+  // (AUDIT 2026-08-21) Cobertura de FINANZAS de oficinas '00' en el ODS. El ship a prod usa un whitelist
+  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), import-kepler-bank-movements hace SKIP MUDO
+  //   y la columna Kepler de /finanzas/bancos + Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   Este sensor lo hace RUIDOSO: kdb1 suc-00 en 0 → crítico. Es el canario de toda la capa finanzas-00
+  //   (kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* viajan en el mismo whitelist).
+  {
+    key: 'ods_finance_00', label: 'Kepler ODS — cuentas banco oficinas 00 (kdb1)', table: 'kepler_ods.kdb1', tsCandidates: [],
+    sql: `SELECT CASE WHEN count(*) > 0 THEN now() ELSE now() - interval '100 days' END::timestamp AS last_update,
+                 CASE WHEN count(*) > 0 THEN count(*)::text || ' cuentas banco (00) en ODS'
+                      ELSE 'kdb1 oficinas 00 VACÍA — bank feed en SKIP; falta kdb1 en KP_ODS_TABLES del runner' END AS note_extra
+            FROM kepler_ods.kdb1 WHERE btrim(sucursal)='00'`,
+    warnH: 24, critH: 48, cadence: 'continuo (OdsLiveLoop carril hash)',
+  },
   // (P0-2) Flota GPS: vehicle_positions es FUENTE ÚNICA; el FleetPoller @1min no late en cron_runs → si
   //        el poller muere (o faltan creds MAGNI en prod) el mapa sigue verde con datos viejos. Verde si
   //        no hay trackers vinculados (fleet no configurada en este env); alarma si los hay y no llega posición.
