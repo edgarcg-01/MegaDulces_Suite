@@ -556,6 +556,30 @@ async function applyRawDelete(client, tenantId, rows, meta) {
   }
 }
 
+/**
+ * feed 'cdc-heartbeat' — latido del consumidor CDC on-prem → analytics.cron_runs (CDC.5).
+ * El consumidor (ods-cdc-wal.js) corre en la LAN y shipea por feeds-ingest; no puede escribir
+ * cron_runs directo (su DATABASE_URL apunta al :5433). Este handler lo hace del lado prod.
+ * rows[0]: { job_key, label?, status?, note? (lag del slot + shipped), host? }.
+ * Con esto db-health hace dead-man's switch: si el consumidor muere (y el slot empieza a
+ * retener WAL en el :5433), cron_runs se congela → ROJO antes de llenar disco.
+ */
+async function applyCdcHeartbeat(client, tenantId, rows) {
+  assertTenant(tenantId);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  const r = rows[0] || {};
+  const jobKey = String(r.job_key || '').slice(0, 60);
+  if (!/^[a-z0-9_]+$/i.test(jobKey)) throw new Error(`cdc-heartbeat: job_key inválido '${jobKey}'`);
+  await client.query(
+    `INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
+     VALUES ($1,$2,$3, now(), now(), $4, $5, $6, now())
+     ON CONFLICT (tenant_id, job_key) DO UPDATE
+       SET label=COALESCE(EXCLUDED.label, analytics.cron_runs.label), last_finish=now(),
+           status=EXCLUDED.status, note=EXCLUDED.note, host=EXCLUDED.host, updated_at=now()`,
+    [tenantId, jobKey, String(r.label || jobKey).slice(0, 120), String(r.status || 'ok').slice(0, 20), r.note ? String(r.note).slice(0, 500) : null, String(r.host || 'cdc-lan').slice(0, 80)]);
+  return 1;
+}
+
 // ---- Normalize-al-llegar (hop 2): kepler_ods.<tabla> → tablas que la app LEE ----
 // Cuando llega un cambio crudo a kepler_ods, se normaliza SOLO esas llaves a las tablas de la app.
 // El mismo single-source que el barrido (sync-product-master) pero dirigido y en tx aparte.
@@ -646,6 +670,7 @@ const HANDLERS = {
   'erp-purchase-docs': applyErpPurchaseDocs,
   'raw-upsert': applyRawUpsert,
   'raw-delete': applyRawDelete,
+  'cdc-heartbeat': applyCdcHeartbeat,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, applyRawDelete, normalizeProductsFromOds, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE };

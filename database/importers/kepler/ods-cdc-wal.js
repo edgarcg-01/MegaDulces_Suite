@@ -30,6 +30,8 @@ const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot
 const PUB = 'ods_cdc_pub';
 const SLOT = 'ods_cdc';
 const FLUSH_MS = Math.max(1000, Number(process.env.ODS_CDC_FLUSH_MS) || 3000);
+const HEARTBEAT_MS = Math.max(10000, Number(process.env.ODS_CDC_HEARTBEAT_MS) || 30000);
+const WARN_LAG_MB = Number(process.env.ODS_CDC_WARN_LAG_MB) || 500; // lag del slot > esto → status error (visible)
 
 const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
 const localCfg = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return { connectionString: u.toString() }; };
@@ -116,10 +118,31 @@ async function run(code) {
 
   service.subscribe(plugin, SLOT).catch((e) => console.error(`[${code}] subscribe:`, e.message));
 
+  // CDC.5 — latido → cron_runs (via feeds-ingest). Lee el lag del slot del :5433 (una conexión
+  // aparte; la de replicación la tiene el service). db-health hace dead-man's switch: si el
+  // consumidor muere y cron_runs se congela → ROJO antes de que el slot llene el disco.
+  async function heartbeat() {
+    let note = 'sin slot', status = 'ok';
+    const c = new Client(localCfg(code));
+    try {
+      await c.connect();
+      const r = (await c.query(`SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS lag FROM pg_replication_slots WHERE slot_name=$1`, [SLOT])).rows[0];
+      if (r) {
+        const mb = (Number(r.lag) || 0) / 1048576;
+        note = `lag ${mb.toFixed(1)}MB · ↑U${stats.shipU} ↑D${stats.shipD} · slot ${r.active ? 'activo' : 'INACTIVO'}`;
+        if (mb > WARN_LAG_MB) status = 'error';
+      }
+    } catch (e) { note = `lag n/d: ${String(e.message).slice(0, 40)}`; } finally { await c.end().catch(() => {}); }
+    try { await sink.ship('cdc-heartbeat', { rows: [{ job_key: `cdc_wal_${code}`, label: `CDC WAL sucursal ${code}`, status, note, host: 'cdc-lan' }], tenantId: TENANT }); }
+    catch (e) { console.error(`[${code}] heartbeat: ${String(e.message).slice(0, 60)}`); }
+  }
+
   if (WATCH) {
     const timer = setInterval(() => flush().catch((e) => console.error('flush:', e.message)), FLUSH_MS);
-    process.on('SIGINT', async () => { clearInterval(timer); await service.stop(); process.exit(0); });
-    console.log(`[${code}] --watch: streaming (flush cada ${FLUSH_MS}ms). Ctrl-C para parar.`);
+    heartbeat();
+    const hbTimer = setInterval(() => heartbeat(), HEARTBEAT_MS);
+    process.on('SIGINT', async () => { clearInterval(timer); clearInterval(hbTimer); await service.stop().catch(() => {}); process.exit(0); });
+    console.log(`[${code}] --watch: streaming (flush ${FLUSH_MS}ms · heartbeat ${HEARTBEAT_MS}ms). Ctrl-C para parar.`);
     return; // corre indefinido
   }
 

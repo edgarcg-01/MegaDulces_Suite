@@ -356,6 +356,11 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_catalog',        label: 'Feed catálogo',                     cadence: 'diario 02:00', warnH: 30,  critH: 50, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
+  // CDC WAL-decode (ADR-047): el consumidor on-prem (ods-cdc-wal.js --watch) late cada ~30s POR
+  // sucursal. Dead-man's switch: si un consumidor muere, su slot empieza a RETENER WAL en el :5433
+  // → cron_runs se congela → ROJO antes de que llene disco. Per-sucursal a propósito (uno global
+  // enmascararía un branch caído — la lección de la 00). Sin heartbeat aún = 'unknown' = no alarma.
+  ...['00', '01', '02', '03', '04', '05', '06'].map((c) => ({ key: `cdc_wal_${c}`, label: `CDC WAL sucursal ${c}`, cadence: 'continuo ~30s', warnH: 0.25, critH: 1 })),
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
