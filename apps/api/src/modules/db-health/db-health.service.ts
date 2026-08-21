@@ -310,32 +310,50 @@ const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 }
  * (por cadencia del job). Un job en `error` = critical inmediato. Un job del registro que aún no
  * reportó = 'unknown' (no alarma hasta que se cablee). El heartbeat lo escribe cron-heartbeat.js.
  */
-interface CronCfg { key: string; label: string; cadence: string; warnH: number; critH: number; }
+interface CronCfg {
+  key: string; label: string; cadence: string; warnH: number; critH: number;
+  /**
+   * Horas que una corrida puede tardar antes de considerarla COLGADA. Presupuesto de
+   * DURACIÓN, distinto del de frescura (`critH`).
+   *
+   * Antes el colgado se medía contra `critH` y solo daba `warn`: `wincaja_sync` (critH 50)
+   * llevaba 28 h en 'running' —arrancó y nunca cerró— y el tablero lo pintaba **ok**,
+   * mientras los sensores por-dato (`wincaja_feed`, `wincaja_branch_stale`) sí gritaban que
+   * la venta estaba pegada en 19/08 y la sucursal 50 en 13/08. Un latido que empezó y no
+   * cerró es la firma exacta del cuelgue de feeds on-prem (node huérfano) y tiene que verse
+   * como tal.
+   *
+   * Sin definir → conducta anterior (nunca crítico por duración). Se pone SOLO en jobs por
+   * lote con duración conocida; los loops continuos (`--watch` bajo PM2) viven en 'running'
+   * por diseño y marcarlos sería ruido.
+   */
+  maxRunH?: number;
+}
 // NOTA: Consolidado (mart.refresh_state) y KP-Concentrate (kp.sync_control) YA se monitorean
 // en el grupo 'source' (EXT_SOURCES) con su heartbeat nativo → no se duplican aquí.
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
-  { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50 },
+  { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50, maxRunH: 3 },
   // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
   { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 2 min',  warnH: 3,  critH: 12 },
   { key: 'wincaja_live',        label: 'Wincaja live (existencia+ventas+movimientos)', cadence: 'cada 10 min', warnH: 3, critH: 12 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
-  { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384 },
+  { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384, maxRunH: 3 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
-  { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400 },
+  { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400, maxRunH: 3 },
   // ── Latido por MODO del runner on-prem (run-prod-feeds.js) — dead-man's switch por batch.
   // Cada tarea de Windows corre un modo; si deja de correr (zombie/apagado/deshabilitada), su
   // último latido envejece y salta en rojo aquí, aunque el dato downstream aún se vea fresco.
   // Umbral = ~2-4× la cadencia de su tarea. Los modos MANUALES (finance/logistics/all) NO se
   // registran a propósito: laten pero se muestran 'ok' sin alarmar (no tienen cadencia esperada).
-  { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6 },
+  { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
-  { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4 },
-  { key: 'feed_receipts',       label: 'Feed recepciones (XA2001)',         cadence: 'cada 1-2 min', warnH: 0.5, critH: 2 },
-  { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8 },
-  { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50 },
-  { key: 'feed_catalog',        label: 'Feed catálogo',                     cadence: 'diario 02:00', warnH: 30,  critH: 50 },
+  { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },
+  { key: 'feed_receipts',       label: 'Feed recepciones (XA2001)',         cadence: 'cada 1-2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
+  { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
+  { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
+  { key: 'feed_catalog',        label: 'Feed catálogo',                     cadence: 'diario 02:00', warnH: 30,  critH: 50, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
   // Internos del API (@Cron NestJS)
@@ -531,10 +549,22 @@ export class DbHealthService {
         status = 'critical';
         note = `última corrida FALLÓ: ${(row.error || '').slice(0, 80)}`;
       } else if (row.status === 'running') {
-        // Corriendo: ok salvo que lleve demasiado (posible colgado) → warn.
+        // Corriendo. Se juzga contra el presupuesto de DURACIÓN (maxRunH), no contra el de
+        // frescura: pasado ese tope el latido no dice "trabajando", dice COLGADO — y eso es
+        // crítico, no un warn. Sin maxRunH (loops --watch, jobs sin duración conocida) se
+        // mantiene la conducta vieja: warn recién al cruzar critH.
         const startAge = this.ageOf(row.last_start ? new Date(row.last_start) : null);
-        status = startAge != null && cfg && startAge / 3600 >= cfg.critH ? 'warn' : 'ok';
-        note = 'en ejecución';
+        const runH = startAge != null ? startAge / 3600 : null;
+        if (runH != null && cfg?.maxRunH != null && runH >= cfg.maxRunH) {
+          status = 'critical';
+          note = `COLGADO: arrancó hace ${this.humanH(runH)} y no cerró (tope ${cfg.maxRunH} h). Revisar node huérfano en la máquina de feeds.`;
+        } else if (runH != null && cfg?.maxRunH == null && cfg && runH >= cfg.critH) {
+          status = 'warn';
+          note = `en ejecución desde hace ${this.humanH(runH)}`;
+        } else {
+          status = 'ok';
+          note = 'en ejecución';
+        }
       } else {
         // ok → clasifica por antigüedad de la última corrida vs cadencia.
         status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
@@ -547,6 +577,11 @@ export class DbHealthService {
       });
     }
     return out;
+  }
+
+  /** "28 h" / "45 min" — para que la nota diga cuánto lleva sin que haya que calcularlo. */
+  private humanH(h: number): string {
+    return h < 1 ? `${Math.round(h * 60)} min` : `${Math.round(h)} h`;
   }
 
   async getReport(): Promise<DbHealthReport> {
