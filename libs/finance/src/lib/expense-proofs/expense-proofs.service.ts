@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService } from '@megadulces/platform-core';
 
@@ -327,6 +327,38 @@ export class ExpenseProofsService {
       return {
         kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         rows,
+      };
+    });
+  }
+
+  /**
+   * Una solicitud con sus adjuntos RE-FIRMADOS al momento de abrirla.
+   *
+   * La lista firma con TTL de 10 min. Quien revisa trabaja la bandeja un rato largo,
+   * así que al abrir la fila 20 minutos después la URL ya venció y el archivo daba
+   * error de firma — se veía como "no existe la imagen". Acá se firma de nuevo, y con
+   * más aire (30 min) porque el visor queda abierto mientras se decide.
+   */
+  async detail(id: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r: any = await trx('finance.expense_proofs')
+        .where({ id })
+        .first('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
+          'fecha_gasto', 'folio_solicitud', 'proveedor',
+          trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
+          'files', 'comentarios', 'status',
+          'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
+      if (!r) throw new NotFoundException('solicitud de reembolso no encontrada');
+      const files = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
+      return {
+        ...r,
+        importe: Number(r.importe),
+        monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
+        files: await this.storage.signFiles(files, 1800),
+        // El front no puede distinguir "no adjuntaron nada" de "hay archivo pero no lo
+        // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
+        storage_ok: this.storage.isConfigured(),
       };
     });
   }

@@ -46,6 +46,15 @@ export class ExpenseProofsController {
     return this.svc.statusByFolio();
   }
 
+  // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
+  // 'departamentos' y 'status-by-folio'.
+  @Get(':id')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Detalle de una solicitud con los adjuntos re-firmados (para el visor de quien revisa).' })
+  detail(@Param('id') id: string) {
+    return this.svc.detail(id);
+  }
+
   @Post('upload')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) al bucket y devuelve su referencia.' })

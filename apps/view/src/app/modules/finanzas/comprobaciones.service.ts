@@ -71,6 +71,9 @@ export interface CreateExpenseProof {
   receipt_legible?: boolean;
 }
 
+/** Detalle + señal de si el bucket está configurado (para no confundir "sin adjunto" con "no lo puedo servir"). */
+export interface ExpenseProofDetail extends ExpenseProof { storage_ok?: boolean; }
+
 @Injectable({ providedIn: 'root' })
 export class ComprobacionesService {
   private readonly http = inject(HttpClient);
@@ -91,6 +94,13 @@ export class ComprobacionesService {
   }
   create(body: CreateExpenseProof): Observable<{ id: string; folio_solicitud: string; status: string }> {
     return this.http.post<{ id: string; folio_solicitud: string; status: string }>(this.base, body);
+  }
+  /**
+   * Detalle con los adjuntos RE-FIRMADOS. La lista los firma con TTL de 10 min; quien
+   * revisa abre la fila mucho después y la URL ya venció (se veía como archivo perdido).
+   */
+  detail(id: string): Observable<ExpenseProofDetail> {
+    return this.http.get<ExpenseProofDetail>(`${this.base}/${id}`);
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }

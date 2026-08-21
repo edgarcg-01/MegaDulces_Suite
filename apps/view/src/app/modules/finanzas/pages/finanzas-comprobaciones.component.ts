@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
@@ -12,6 +13,8 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
+import { FileUploadModule } from 'primeng/fileupload';
+import { TextareaModule } from 'primeng/textarea';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -24,12 +27,17 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComercialService, ExpenseRequestRow } from '../../comercial/comercial.service';
-import { ProofPhotoOcr, ComprobacionesService, ExpenseProof, ExpenseProofsReport, CreateExpenseProof, Departamento, ProofFile, ProofFileRole } from '../comprobaciones.service';
+import { ProofPhotoOcr, ComprobacionesService, ExpenseProof, ExpenseProofDetail, ExpenseProofsReport, CreateExpenseProof, Departamento, ProofFile, ProofFileRole } from '../comprobaciones.service';
+import { dmy } from './finanzas-format';
 
 interface FileSlot { role: ProofFileRole; label: string; required: boolean; accept: string; }
+/** Un adjunto listo para pintar. `safeUrl` se sanitiza UNA vez al abrir: hacerlo en el
+ *  template recrearía el iframe en cada ciclo de detección. */
+interface PeekDoc { role: string; label: string; url: string; isPdf: boolean; safeUrl: SafeResourceUrl | null; failed: boolean; }
 interface SolicitudSug extends ExpenseRequestRow { label: string; }
 
 /**
@@ -43,7 +51,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
 @Component({
   selector: 'app-finanzas-comprobaciones',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, FileUploadModule, TextareaModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -103,9 +111,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               <td>
                 <div class="cp-files">
                   @for (f of r.files; track f.url) {
-                    <a [href]="f.url" target="_blank" rel="noopener" class="cp-fchip" [title]="fileLabel(f.role)">
-                      <i class="pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'"></i>
-                    </a>
+                    <button pButton type="button" class="p-button-sm p-button-text cp-fchip" (click)="openPeek(r)"
+                            [attr.aria-label]="'Ver ' + fileLabel(f.role) + ' de ' + r.folio_solicitud" [title]="fileLabel(f.role)">
+                      <span class="p-button-icon pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'" aria-hidden="true"></span>
+                    </button>
                   } @empty { <span class="muted">—</span> }
                 </div>
               </td>
@@ -116,6 +125,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
                 @if (r.status === 'rechazada' && r.motivo_rechazo) { <div class="cp-motivo" [title]="r.motivo_rechazo">{{ r.motivo_rechazo }}</div> }
               </td>
               <td>
+                <button pButton type="button" size="small" text (click)="openPeek(r)"
+                        [attr.aria-label]="'Ver el comprobante de ' + r.folio_solicitud" title="Ver comprobante y cuadre">
+                  <span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span>
+                </button>
                 @if (canManage()) {
                   @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button> }
                   @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(r)" title="Rechazar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button> }
@@ -128,6 +141,85 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       </div>
       }
     </div>
+
+    <!-- Detalle de quien revisa: el cuadre, la evidencia RENDERIZADA y la decisión, en
+         un solo lugar y sin perder la bandeja. Antes esta pantalla no tenía detalle: el
+         adjunto era un icono de 20px que abría otra pestaña con una URL ya vencida. -->
+    <app-side-peek [open]="peekOpen()" (openChange)="onPeekToggle($event)"
+                   title="Comprobante de reembolso" [subtitle]="peekSub()">
+      @if (peek(); as pk) {
+        <!-- Q.1/Q.2 — el cuadre primero: es la base de aprobar o no. El backend ya lo
+             calcula (monto_ocr / monto_match) y la bandeja lo tiraba a la basura. -->
+        <div class="cpk-verdict" [class.ok]="pk.monto_match === true" [class.warn]="pk.monto_match !== true">
+          <i class="pi" [ngClass]="pk.monto_match === true ? 'pi-check-circle' : 'pi-exclamation-circle'" aria-hidden="true"></i>
+          <div>
+            <h3>{{ cuadreTitulo(pk) }}</h3>
+            <p>{{ cuadreLectura(pk) }}</p>
+          </div>
+        </div>
+
+        <div class="cpk-tri">
+          <div><span class="cpk-k">Solicitud Kepler</span><span class="cpk-v">{{ money(pk.importe) }}</span><span class="cpk-m">{{ pk.folio_solicitud }}</span></div>
+          <div><span class="cpk-k">Leído del comprobante</span><span class="cpk-v">{{ pk.monto_ocr != null ? money(pk.monto_ocr) : '—' }}</span><span class="cpk-m">{{ pk.monto_ocr != null ? 'Claude Vision' : 'sin lectura' }}</span></div>
+          <div><span class="cpk-k">Diferencia</span><span class="cpk-v">{{ diffTxt(pk) }}</span><span class="cpk-m">tolera $1 o 1%</span></div>
+        </div>
+
+        @if (pk.status === 'revision' && pk.revision_nota) { <p class="cpk-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ pk.revision_nota }}</p> }
+        @if (pk.status === 'rechazada' && pk.motivo_rechazo) { <p class="cpk-note is-bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ pk.motivo_rechazo }}</p> }
+
+        <h4 class="cpk-sec">Evidencia</h4>
+        @if (peekLoading()) {
+          <div class="cpk-sk" aria-hidden="true"></div>
+        } @else {
+          @for (d of peekDocs(); track d.url) {
+            <figure class="cpk-doc">
+              <figcaption>{{ d.label }}</figcaption>
+              @if (d.failed) {
+                <!-- Un archivo que no carga NO es un archivo que no existe: decirlo. -->
+                <div class="cpk-broken">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <span>No se pudo cargar el archivo. El enlace se firma al abrir y expira; cerrá y volvé a abrir. Si sigue, hay que volver a subirlo.</span>
+                </div>
+              } @else if (d.isPdf) {
+                <iframe [src]="d.safeUrl" [title]="d.label" class="cpk-frame"></iframe>
+              } @else {
+                <img [src]="d.url" [alt]="d.label" class="cpk-img" (error)="onDocError(d.url)" />
+              }
+              <a [href]="d.url" target="_blank" rel="noopener" class="cpk-open"><i class="pi pi-external-link" aria-hidden="true"></i> Abrir a tamaño completo</a>
+            </figure>
+          } @empty {
+            <div class="cpk-broken">
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <span>{{ pk.storage_ok === false ? 'Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisá a sistemas.' : 'Esta solicitud se envió sin adjuntos.' }}</span>
+            </div>
+          }
+        }
+
+        <h4 class="cpk-sec">Datos</h4>
+        <dl class="cpk-dl">
+          <dt>Solicitante</dt><dd>{{ pk.solicitante || '—' }}</dd>
+          <dt>Proveedor</dt><dd>{{ pk.proveedor || '—' }}</dd>
+          <dt>Departamento</dt><dd>{{ pk.departamento || '—' }}{{ pk.sucursal ? ' · ' + pk.sucursal : '' }}</dd>
+          <dt>Fecha del gasto</dt><dd>{{ pk.fecha_gasto ? dmy(pk.fecha_gasto) : '—' }}</dd>
+          <dt>Capturó</dt><dd>{{ pk.created_by || '—' }}</dd>
+          @if (pk.validated_by) { <dt>Resolvió</dt><dd>{{ pk.validated_by }}</dd> }
+          @if (pk.comentarios) { <dt>Comentarios</dt><dd>{{ pk.comentarios }}</dd> }
+        </dl>
+
+        @if (canManage()) {
+          <div class="cpk-acts">
+            @if (pk.status !== 'validada') {
+              <button pButton type="button" severity="success" [loading]="validatingId() === pk.id" [disabled]="!!validatingId()" (click)="doValidate(pk)">
+                <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button>
+            }
+            @if (pk.status !== 'rechazada') {
+              <button pButton type="button" severity="danger" text (click)="openReject(pk)">
+                <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+            }
+          </div>
+        }
+      }
+    </app-side-peek>
 
     <!-- Diálogo: nueva solicitud de reembolso -->
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva solicitud de reembolso">
@@ -180,9 +272,12 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
 
         <div class="cp-files-head">Comprobantes</div>
         @for (slot of fileSlots; track slot.role) {
-          <label class="cp-f cp-file">
+          <div class="cp-f cp-file">
             <span>{{ slot.label }} @if (slot.required) { <b class="cp-req">*</b> }</span>
-            <input type="file" [accept]="slot.accept" (change)="onFile($event, slot.role)" />
+            <p-fileupload mode="basic" [auto]="true" [customUpload]="true" [accept]="slot.accept"
+                          [maxFileSize]="10485760" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
+                          chooseStyleClass="p-button-sm p-button-outlined"
+                          (onSelect)="onFilePicked($event, slot.role)" />
             @if (fileNames()[slot.role]) { <span class="cp-filepick"><i class="pi pi-paperclip"></i> {{ fileNames()[slot.role] }}</span> }
             @if (vision()[slot.role]; as v) {
               @if (v === 'cargando') {
@@ -194,11 +289,11 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
                 </span>
               }
             }
-          </label>
+          </div>
         }
 
         <label class="cp-f"><span>Comentarios</span>
-          <textarea pInputText [(ngModel)]="form.comentarios" rows="2"></textarea></label>
+          <textarea pTextarea [(ngModel)]="form.comentarios" rows="2"></textarea></label>
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
       <ng-template #footer>
@@ -212,7 +307,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       <div class="cp-form">
         <p class="muted">Folio <strong>{{ rejectTarget()?.folio_solicitud }}</strong> · {{ rejectTarget()?.proveedor }}</p>
         <label class="cp-f"><span>Motivo del rechazo *</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al folio…"></textarea></label>
+          <textarea pTextarea [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al folio…"></textarea></label>
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
@@ -262,8 +357,55 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     .cp-suc-cell { font-size: .7rem; color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cp-files { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
-    .cp-fchip { color: var(--action); font-size: 1rem; }
-    .cp-fchip:hover { opacity: .75; }
+    .cp-fchip { min-width: max(1.75rem, var(--tap-min)); min-height: max(1.75rem, var(--tap-min)); padding: 0; }
+
+    /* ── Visor de quien revisa (side-peek) ───────────────────────────────
+       Elevación por borde, cero sombra: el drawer ya es el overlay. */
+    .cpk-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3);
+      border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-md); }
+    .cpk-verdict.ok { border-left-color: var(--ok-fg); }
+    /* "No cuadra" es atención, no error: warn. */
+    .cpk-verdict.warn { border-left-color: var(--warn-fg); }
+    .cpk-verdict > i { font-size: var(--fs-h3); }
+    .cpk-verdict.ok > i { color: var(--ok-fg); }
+    .cpk-verdict.warn > i { color: var(--warn-fg); }
+    .cpk-verdict h3 { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cpk-verdict p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
+
+    .cpk-tri { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
+    .cpk-tri > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .cpk-k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); }
+    .cpk-v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-h3);
+      font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cpk-m { font-size: var(--fs-xs); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .cpk-note { display: flex; gap: var(--sp-2); margin: var(--sp-3) 0 0; font-size: var(--fs-sm); color: var(--warn-fg); line-height: 1.4; }
+    .cpk-note.is-bad { color: var(--bad-fg); }
+    .cpk-sec { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-micro); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); font-weight: var(--fw-medium); }
+
+    .cpk-doc { margin: 0 0 var(--sp-4); }
+    .cpk-doc figcaption { font-size: var(--fs-xs); color: var(--fg-2); margin-bottom: var(--sp-1); }
+    .cpk-img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain;
+      background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .cpk-frame { display: block; width: 100%; height: 55vh; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--layout-bg); }
+    .cpk-open { display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-1);
+      font-size: var(--fs-xs); color: var(--action); text-decoration: none; }
+    .cpk-open:hover { text-decoration: underline; }
+    .cpk-broken { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-3);
+      font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45;
+      border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
+    .cpk-broken i { color: var(--warn-fg); }
+    .cpk-sk { height: 12rem; border-radius: var(--r-sm); background: var(--hover-bg); animation: cpk-pulse 1.4s ease-in-out infinite; }
+    @keyframes cpk-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
+    @media (prefers-reduced-motion: reduce) { .cpk-sk { animation: none; } }
+
+    .cpk-dl { display: grid; grid-template-columns: 9rem 1fr; gap: var(--sp-1) var(--sp-3); margin: 0; }
+    .cpk-dl dt { font-size: var(--fs-xs); color: var(--fg-3); }
+    .cpk-dl dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
+    .cpk-acts { display: flex; gap: var(--sp-2); margin-top: var(--sp-5);
+      padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .cp-motivo { font-size: .72rem; color: var(--bad-fg); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cp-vision { color: var(--action); margin-left: .35rem; font-size: .75rem; }
     .cp-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
@@ -335,6 +477,74 @@ export class FinanzasComprobacionesComponent {
   readonly departamentos = signal<Departamento[]>([]);
   readonly sucursalDerivada = signal<string>('');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
+
+  // ── Visor de quien revisa ────────────────────────────────────────────────
+  private readonly sanitizer = inject(DomSanitizer);
+  readonly dmy = dmy;
+  readonly peekOpen = signal(false);
+  readonly peek = signal<ExpenseProofDetail | null>(null);
+  readonly peekDocs = signal<PeekDoc[]>([]);
+  readonly peekLoading = signal(false);
+
+  peekSub(): string {
+    const p = this.peek();
+    return p ? `${p.folio_solicitud} · ${p.proveedor || 's/proveedor'} · ${this.statusLabel(p.status)}` : '';
+  }
+
+  /**
+   * Abre el detalle y pide las URLs de nuevo.
+   *
+   * NO se pintan los adjuntos que trajo la lista: esos se firmaron con TTL de 10 min al
+   * cargar la bandeja y para cuando alguien abre la fila suelen estar vencidos. Se espera
+   * la firma fresca; si la llamada falla, se cae a lo de la lista (mejor eso que nada) y
+   * el manejo de error del <img> explica qué pasó.
+   */
+  openPeek(r: ExpenseProof) {
+    this.peek.set(r as ExpenseProofDetail);
+    this.peekDocs.set([]);
+    this.peekOpen.set(true);
+    this.peekLoading.set(true);
+    this.svc.detail(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.peek.set(d); this.buildDocs(d.files || []); this.peekLoading.set(false); },
+      error: () => { this.buildDocs(r.files || []); this.peekLoading.set(false); },
+    });
+  }
+
+  onPeekToggle(v: boolean) {
+    this.peekOpen.set(v);
+    if (!v) { this.peekDocs.set([]); this.peek.set(null); } // suelta los iframes
+  }
+
+  private buildDocs(files: ProofFile[]) {
+    this.peekDocs.set((files || []).filter((f) => f?.url).map((f) => {
+      const isPdf = f.kind === 'pdf' || /\.pdf(\?|$)/i.test(f.url);
+      return {
+        role: String(f.role), label: this.fileLabel(String(f.role)), url: f.url, isPdf,
+        safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
+        failed: false,
+      };
+    }));
+  }
+
+  onDocError(url: string) {
+    this.peekDocs.update((ds) => ds.map((d) => d.url === url ? { ...d, failed: true } : d));
+  }
+
+  /** El cuadre, dicho en llano. El backend ya lo calcula; la bandeja lo tiraba. */
+  cuadreTitulo(p: ExpenseProofDetail): string {
+    if (p.monto_match === true) return 'El comprobante cuadra';
+    if (p.monto_ocr == null) return 'Sin lectura automática';
+    return `Difiere ${money(Math.abs((p.importe || 0) - p.monto_ocr))}`;
+  }
+  cuadreLectura(p: ExpenseProofDetail): string {
+    const sol = money(p.importe || 0);
+    if (p.monto_match === true) return `Claude Vision leyó ${money(p.monto_ocr ?? 0)} en el comprobante y la solicitud ${p.folio_solicitud} pide ${sol}.`;
+    if (p.monto_ocr == null) return `No hay lectura automática del comprobante. Revisalo a ojo contra los ${sol} de la solicitud ${p.folio_solicitud}.`;
+    return `La solicitud ${p.folio_solicitud} pide ${sol} y el comprobante dice ${money(p.monto_ocr)}. Revisá la foto antes de validar.`;
+  }
+  diffTxt(p: ExpenseProofDetail): string {
+    return p.monto_ocr == null ? '—' : money(Math.abs((p.importe || 0) - p.monto_ocr));
+  }
 
   readonly statusOpts = [{ label: 'Todas', value: '' }, { label: 'Recibidas', value: 'recibida' }, { label: 'En revisión', value: 'revision' }, { label: 'Validadas', value: 'validada' }, { label: 'Rechazadas', value: 'rechazada' }];
   search = '';
@@ -461,8 +671,10 @@ export class FinanzasComprobacionesComponent {
     this.sucursalDerivada.set(dep?.sucursal || '');
   }
 
-  onFile(ev: Event, role: string) {
-    const file = (ev.target as HTMLInputElement).files?.[0];
+  /** `p-fileupload` (modo básico) entrega el archivo en el evento. `currentFiles` es
+   *  `File[]` tipado; `files` viene como `FileList | File[]` y no vale la pena destapar. */
+  onFilePicked(ev: { currentFiles?: File[] } | null, role: string) {
+    const file = ev?.currentFiles?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { this.formError.set(`"${file.name}" supera 10 MB.`); return; }
     this.formError.set('');
@@ -596,7 +808,7 @@ export class FinanzasComprobacionesComponent {
     this.validatingId.set(r.id);
     this.svc.validate(r.id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => { this.validatingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Folio ${r.folio_solicitud}` }); this.load(); },
+        next: () => { this.validatingId.set(null); this.onPeekToggle(false); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Folio ${r.folio_solicitud}` }); this.load(); },
         error: () => { this.validatingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
       });
   }
@@ -607,7 +819,7 @@ export class FinanzasComprobacionesComponent {
     if (!r) return;
     this.saving.set(true);
     this.svc.reject(r.id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Folio ${r.folio_solicitud}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.onPeekToggle(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Folio ${r.folio_solicitud}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || this.legacyFileLabels[role] || role; }

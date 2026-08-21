@@ -12,6 +12,8 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
+import { FileUploadModule } from 'primeng/fileupload';
+import { TextareaModule } from 'primeng/textarea';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -41,7 +43,7 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
 @Component({
   selector: 'app-finanzas-comprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, FileUploadModule, TextareaModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -211,15 +213,18 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
 
         <div class="cp-files-head">Fotos adicionales <em class="cp-hint">opcional</em></div>
         @for (slot of evidenciaSlots; track slot.role) {
-          <label class="cp-f cp-file">
+          <div class="cp-f cp-file">
             <span>{{ slot.label }}</span>
-            <input type="file" [accept]="slot.accept" (change)="onFile($event, slot.role)" />
+            <p-fileupload mode="basic" [auto]="true" [customUpload]="true" [accept]="slot.accept"
+                          [maxFileSize]="10485760" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
+                          chooseStyleClass="p-button-sm p-button-outlined"
+                          (onSelect)="onFilePicked($event, slot.role)" />
             @if (fileNames()[slot.role]) { <span class="cp-filepick"><i class="pi pi-paperclip"></i> {{ fileNames()[slot.role] }}</span> }
-          </label>
+          </div>
         }
 
         <label class="cp-f"><span>Comentarios</span>
-          <textarea pInputText [(ngModel)]="form.comentarios" rows="2"></textarea></label>
+          <textarea pTextarea [(ngModel)]="form.comentarios" rows="2"></textarea></label>
         }
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
@@ -235,7 +240,7 @@ interface PreviewFile { url: string; kind: 'pdf' | 'image'; label: string; }
         <p class="muted">Gasto <strong>{{ rejectTarget()?.folio_gasto }}</strong> · {{ rejectTarget()?.proveedor }}</p>
         @if (rejectMode() === 'correction') { <p class="cp-hint">Regresa la comprobación al capturista para que la re-suba. No es un rechazo en firme.</p> }
         <label class="cp-f"><span>{{ rejectMode() === 'correction' ? 'Qué corregir *' : 'Motivo del rechazo *' }}</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" [placeholder]="rejectMode() === 'correction' ? 'Ej. falta el ticket completo, sube una foto más clara…' : 'Ej. comprobante ilegible, no corresponde al gasto…'"></textarea></label>
+          <textarea pTextarea [(ngModel)]="rejectMotivo" rows="3" [placeholder]="rejectMode() === 'correction' ? 'Ej. falta el ticket completo, sube una foto más clara…' : 'Ej. comprobante ilegible, no corresponde al gasto…'"></textarea></label>
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
@@ -535,6 +540,12 @@ export class FinanzasComprobacionGastosComponent {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
+    if (file) this.handleFile(file, role);
+  }
+
+  /** `p-fileupload` (modo básico) entrega el archivo en el evento, ya tipado. */
+  onFilePicked(ev: { currentFiles?: File[] } | null, role: string) {
+    const file = ev?.currentFiles?.[0];
     if (file) this.handleFile(file, role);
   }
 
