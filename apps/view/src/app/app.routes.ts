@@ -280,14 +280,10 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
-        path: 'comprobaciones',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-comprobaciones.component').then(m => m.FinanzasComprobacionesComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
-      },
-      {
         // GX.8 — Captura (capturista): solo folio + subir comprobante. Sin bandeja de revisión.
-        // (La bandeja "Comprobación de gastos" se retiró el 2026-08-21: sólo servía para
-        //  re-capturar datos que Kepler ya tiene. Su seguimiento vive en /finanzas/solicitudes.)
+        // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21:
+        // sólo servían para re-capturar datos que Kepler ya tiene. El tablero del autorizador
+        // es /finanzas/solicitudes, con el expediente y la captura como organismos encima.
         path: 'capturar-gasto',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-capturar-gasto.component').then(m => m.FinanzasCapturarGastoComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_CAPTURAR)]
