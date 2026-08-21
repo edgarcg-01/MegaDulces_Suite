@@ -28,9 +28,11 @@ const MATCH = `
   AND ( (c.proveedor_rfc IS NOT NULL AND s.proveedor_rfc IS NOT NULL AND c.proveedor_rfc = s.proveedor_rfc)
      OR ((c.proveedor_rfc IS NULL OR s.proveedor_rfc IS NULL) AND c.proveedor_nombre = s.proveedor_nombre) )`;
 
+// Fuera del IIFE para que el manejador de error de abajo pueda cerrarla.
+const local = /localhost|127\.0\.0\.1|192\.168\./.test(DB_URL);
+const db = new Client({ connectionString: DB_URL, ssl: local ? false : { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
+
 (async () => {
-  const local = /localhost|127\.0\.0\.1|192\.168\./.test(DB_URL);
-  const db = new Client({ connectionString: DB_URL, ssl: local ? false : { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
   await db.connect();
 
   // Guard: la tabla de marcas debe existir (mig 20260820120000). Desde esa migración
@@ -63,9 +65,14 @@ const MATCH = `
 
   await db.query('BEGIN');
   // Materializa la vista UNA vez (evita evaluarla dos veces en el self-join) y calcula las gemelas.
+  // `tenant_id` va en la copia aunque acá sea una sola: MATCH se comparte con las dos
+  // consultas que corren sobre la vista real (donde el predicado SÍ hace falta, porque el
+  // subselect no está filtrado por su cuenta). Sin esta columna el JOIN sobre la temporal
+  // fallaba con «column s.tenant_id does not exist» y el UPSERT no marcaba nada — la vista
+  // quedaba contando dos veces las gemelas del CEDIS (~1,240 filas / $9.87M).
   await db.query(
     `CREATE TEMP TABLE _gr ON COMMIT DROP AS
-       SELECT sucursal, folio, receipt_date, monto, proveedor_rfc, proveedor_nombre
+       SELECT tenant_id, sucursal, folio, receipt_date, monto, proveedor_rfc, proveedor_nombre
          FROM analytics.erp_goods_receipts WHERE tenant_id=$1 AND monto > 0`, [T]);
   await db.query(`CREATE INDEX ON _gr (receipt_date, monto)`);
   // UPSERT de marcas (última gana, determinista) en la tabla de dedup — NO en la vista.
@@ -87,4 +94,11 @@ const MATCH = `
   await db.query('COMMIT');
   console.log(`\n[APPLY] ${upd.rowCount} marcadas (UPSERT) · ${del.rowCount} marcas obsoletas eliminadas.`);
   await db.end();
-})().catch(async (e) => { console.error('ERR', e.message); process.exit(1); });
+})().catch(async (e) => {
+  // Sin esto el proceso moría con la transacción abierta y el servidor lo registraba como
+  // «SSL error: unexpected eof» + «connection reset by peer», que enmascara el error real.
+  console.error('ERR', e.message);
+  try { await db.query('ROLLBACK'); } catch { /* no había transacción */ }
+  try { await db.end(); } catch { /* ya cerrada */ }
+  process.exit(1);
+});
