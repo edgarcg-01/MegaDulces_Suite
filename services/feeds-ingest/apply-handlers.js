@@ -514,6 +514,48 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
   }
 }
 
+/**
+ * feed 'raw-delete' — CDC DELETE genérico → borra de kepler_ods.<tabla> por llave (sucursal, PK).
+ * Gemelo de 'raw-upsert' para el hard-delete que el poll (UPSERT-only) nunca propagó (ADR-047, CDC.3).
+ * meta: { table, pk:[cols], columns:[{name,type}] (incluye 'sucursal') } (misma que raw-upsert).
+ * rows: objetos con AL MENOS las columnas llave { sucursal, <pk>:val } (el resto se ignora).
+ * Si la tabla no existe → 0 (nada que borrar; no auto-crea en un delete).
+ */
+async function applyRawDelete(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  if (!meta || typeof meta !== 'object') throw new Error('raw-delete: meta requerido');
+  const table = odsIdent(meta.table);
+  const cols = (Array.isArray(meta.columns) ? meta.columns : []).map((c) => ({ name: odsIdent(c && c.name), type: odsType(c && c.type) }));
+  const colType = new Map(cols.map((c) => [c.name, c.type]));
+  const pk = (Array.isArray(meta.pk) ? meta.pk : []).map(odsIdent);
+  if (!pk.length) throw new Error('raw-delete: meta.pk vacío (requerido para el WHERE del borrado)');
+  const keyCols = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
+  for (const k of keyCols) if (k !== 'sucursal' && !colType.has(k)) throw new Error(`raw-delete: PK '${k}' no está en columns`);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  const rel = `kepler_ods.${odsQid(table)}`;
+
+  await client.query('BEGIN');
+  try {
+    const exists = (await client.query(`SELECT to_regclass('kepler_ods.${table.replace(/'/g, "''")}') t`)).rows[0].t;
+    if (!exists) { await client.query('ROLLBACK'); return 0; }
+    const defs = keyCols.map((c) => `${odsQid(c)} ${c === 'sucursal' ? 'text' : colType.get(c)}`).join(', ');
+    await client.query(`CREATE TEMP TABLE stg_del (${defs}) ON COMMIT DROP`);
+    await copyIntoTemp(client, 'stg_del', keyCols, rows, Math.max(1, Math.floor(60000 / keyCols.length)));
+    const on = keyCols.map((c) => `t.${odsQid(c)}=d.${odsQid(c)}`).join(' AND ');
+    const del = await client.query(`DELETE FROM ${rel} t USING stg_del d WHERE ${on}`);
+    // marca de frescura (un batch de solo-deletes igual prueba que el sync corrió)
+    await client.query(
+      `INSERT INTO kepler_ods._sync_status (table_name, last_push_at, rows_last, rows_seen)
+       VALUES ($1, now(), $2, $2)
+       ON CONFLICT (table_name) DO UPDATE SET last_push_at=now()`, [table, del.rowCount]).catch(() => {});
+    await client.query('COMMIT');
+    return del.rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
 // ---- Normalize-al-llegar (hop 2): kepler_ods.<tabla> → tablas que la app LEE ----
 // Cuando llega un cambio crudo a kepler_ods, se normaliza SOLO esas llaves a las tablas de la app.
 // El mismo single-source que el barrido (sync-product-master) pero dirigido y en tx aparte.
@@ -603,6 +645,7 @@ const HANDLERS = {
   'erp-goods-receipts': applyErpGoodsReceipts,
   'erp-purchase-docs': applyErpPurchaseDocs,
   'raw-upsert': applyRawUpsert,
+  'raw-delete': applyRawDelete,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, normalizeProductsFromOds, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, applyRawDelete, normalizeProductsFromOds, UUID_RE };

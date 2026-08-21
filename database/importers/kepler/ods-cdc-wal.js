@@ -78,24 +78,25 @@ async function run(code) {
   const service = new LogicalReplicationService(localCfg(code), { acknowledge: { auto: false, timeoutSeconds: 10 } });
   const plugin = new PgoutputPlugin({ protoVersion: 2, publicationNames: [PUB] });
 
-  const stats = { insert: 0, update: 0, delete: 0, tables: {} };
-  const buf = new Map(); // table → { meta, upserts:Map(pk→row), deletes:[keyRow] }
+  const stats = { insert: 0, update: 0, delete: 0, shipU: 0, shipD: 0, tables: {} };
+  // buf: table → { meta, rows:Map(pkText → {op:'U'|'D', row}) } — última operación por PK gana
+  // (si una llave se borra y re-inserta en la misma ventana, el orden de commit deja la correcta).
+  const buf = new Map();
   let lastLsn = null;
 
   const keyText = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
 
   async function flush() {
-    if (!buf.size) { if (lastLsn && WATCH) service.acknowledge(lastLsn); return; }
-    for (const [table, { meta, upserts, deletes }] of buf) {
-      if (upserts.size && WATCH) {
-        const rows = [...upserts.values()].map((rj) => ({ sucursal: code, ...rj }));
-        await sink.ship('raw-upsert', { rows, tenantId: TENANT, meta });
-      }
-      // DELETE: CDC.3 (falta el handler `delete` en feeds-ingest). Por ahora se cuentan.
-      void deletes;
+    if (!buf.size) { if (lastLsn) service.acknowledge(lastLsn); return; }
+    // Ship-then-ack: si un ship lanza, NO se limpia el buf ni se ackea → reintento (idempotente).
+    for (const [, { meta, rows }] of buf) {
+      const ups = [], dels = [];
+      for (const { op, row } of rows.values()) (op === 'D' ? dels : ups).push({ sucursal: code, ...row });
+      if (ups.length) { await sink.ship('raw-upsert', { rows: ups, tenantId: TENANT, meta }); stats.shipU += ups.length; }
+      if (dels.length) { await sink.ship('raw-delete', { rows: dels, tenantId: TENANT, meta }); stats.shipD += dels.length; }
     }
     buf.clear();
-    if (lastLsn && WATCH) service.acknowledge(lastLsn);
+    if (lastLsn) service.acknowledge(lastLsn);
   }
 
   service.on('data', (lsn, log) => {
@@ -103,13 +104,13 @@ async function run(code) {
     if (log.tag !== 'insert' && log.tag !== 'update' && log.tag !== 'delete') return;
     const t = log.relation?.name; if (!t) return;
     stats[log.tag]++; stats.tables[t] = (stats.tables[t] || 0) + 1;
-    if (!WATCH) return; // verify: solo contar
+    if (!WATCH) return; // verify: solo contar (no bufferea ni shipea)
     const meta = shipMetaOf(log);
     if (!meta.pk.length) return;
-    if (!buf.has(t)) buf.set(t, { meta, upserts: new Map(), deletes: [] });
+    if (!buf.has(t)) buf.set(t, { meta, rows: new Map() });
     const e = buf.get(t);
-    if (log.tag === 'delete') { e.deletes.push(log.key || log.old || {}); }
-    else { const row = rowOf(log); e.upserts.set(keyText(meta.pk, row), row); }
+    if (log.tag === 'delete') { const k = log.key || log.old || {}; e.rows.set(keyText(meta.pk, k), { op: 'D', row: k }); }
+    else { const row = rowOf(log); e.rows.set(keyText(meta.pk, row), { op: 'U', row }); }
   });
   service.on('error', (e) => console.error(`[${code}] error:`, e.message));
 
