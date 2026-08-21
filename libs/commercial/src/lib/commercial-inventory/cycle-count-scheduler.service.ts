@@ -23,6 +23,7 @@ import { InventoryCountService } from './inventory-count.service';
 export class CycleCountSchedulerService {
   private readonly logger = new Logger(CycleCountSchedulerService.name);
   private isRunning = false;
+  private isRecomputingAbc = false;
 
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
@@ -40,6 +41,35 @@ export class CycleCountSchedulerService {
       return;
     }
     await this.generateAll();
+  }
+
+  /**
+   * AUDIT 2026-08-20 — recompute NIGHTLY de la clasificación ABC. Antes NINGÚN cron la escribía
+   * (solo el endpoint manual `computeAbc`) → quedó CONGELADA desde 2026-06-20 (~2 meses), invisible.
+   * Corre SIEMPRE (no gateado: recalcular la clase no es intrusivo, a diferencia de auto-crear folios).
+   * Por tenant en su CLS — `computeAbc` usa `tk.run` RLS-scoped. 3:30 AM MX (tras el nightly de ventas).
+   */
+  @Cron('0 30 3 * * *', { timeZone: 'America/Mexico_City' })
+  async recomputeAbcAll(): Promise<void> {
+    if (this.isRecomputingAbc) { this.logger.warn('Skip: recompute ABC ya corriendo'); return; }
+    this.isRecomputingAbc = true;
+    let tenants = 0, ok = 0, errors = 0;
+    try {
+      const ts = await this.knex('public.tenants').where({ activo: true }).select('id');
+      tenants = ts.length;
+      for (const t of ts) {
+        try {
+          await this.tenantCtx.run({ tenantId: t.id }, () => this.abc.computeAbc());
+          ok++;
+        } catch (e: any) {
+          errors++;
+          this.logger.error(`ABC recompute tenant=${t.id}: ${e?.message}`);
+        }
+      }
+      this.logger.log(`ABC recompute nightly: ${ok}/${tenants} tenants OK (${errors} err)`);
+    } finally {
+      this.isRecomputingAbc = false;
+    }
   }
 
   async generateAll(opts: { maxItemsPerFolio?: number } = {}) {
