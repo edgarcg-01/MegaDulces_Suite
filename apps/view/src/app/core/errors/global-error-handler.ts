@@ -25,7 +25,10 @@ export class GlobalErrorHandler implements ErrorHandler {
 
   handleError(error: unknown): void {
     const message = describe(error);
-    const err = this.errors.report(isStaleChunk(error, message) ? 'stale-version' : 'unexpected', message);
+    const stack = error instanceof Error && error.stack
+      ? error.stack.split('\n').slice(0, 6).join('\n')
+      : undefined;
+    const err = this.errors.report(isStaleChunk(error, message) ? 'stale-version' : 'unexpected', message, stack);
     // El id se imprime junto al error para poder cruzar lo que reporta el
     // usuario con lo que quedó en la consola.
     console.error(`[${err.id}]`, error);

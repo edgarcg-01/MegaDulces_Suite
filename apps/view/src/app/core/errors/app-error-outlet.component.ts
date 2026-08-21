@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { AppErrorService } from './app-error.service';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { AppErrorService, AppError } from './app-error.service';
 
 /**
  * Lo que ve el usuario cuando algo se rompe. Vive en el shell, fuera del router,
@@ -44,6 +44,9 @@ import { AppErrorService } from './app-error.service';
             <p class="ae-toast-t">Algo falló en esta pantalla</p>
             <p class="ae-toast-s">
               Si se repite, reportá el código <code>{{ e.id }}</code>.
+              <button type="button" class="ae-toast-copy" (click)="copy(e)">
+                {{ copied() ? 'Copiado' : 'Copiar detalle' }}
+              </button>
             </p>
           </div>
           <button type="button" class="ae-toast-a" (click)="reload()">Recargar</button>
@@ -143,6 +146,11 @@ import { AppErrorService } from './app-error.service';
       color: var(--c-text-3);
     }
     .ae-toast-s code { font-family: var(--font-mono); color: var(--c-text-2); }
+    /* Copiar el detalle es lo que convierte el código en algo accionable: sin esto el
+       usuario reporta un número y del otro lado no hay con qué cruzarlo. */
+    .ae-toast-copy { background: none; border: 0; padding: 0 0 0 .4rem; font: inherit;
+      color: var(--action, currentColor); text-decoration: underline; cursor: pointer; }
+    .ae-toast-copy:focus-visible { outline: 2px solid var(--action-ring, currentColor); outline-offset: 2px; }
     .ae-toast-a {
       font: inherit;
       font-size: var(--fs-xs);
@@ -185,5 +193,19 @@ export class AppErrorOutletComponent {
 
   dismiss(): void {
     this.svc.dismiss();
+  }
+
+  readonly copied = signal(false);
+
+  /** Deja en el portapapeles código + momento + pantalla + stack, listo para pegar. */
+  copy(e: AppError): void {
+    const txt = this.svc.describe(e);
+    const done = () => { this.copied.set(true); setTimeout(() => this.copied.set(false), 2000); };
+    navigator.clipboard?.writeText(txt).then(done).catch(() => {
+      // Sin permiso de portapapeles (http, o el navegador lo bloquea): al menos
+      // dejarlo en la consola, que es de donde se puede rescatar a mano.
+      console.info(txt);
+      done();
+    });
   }
 }
