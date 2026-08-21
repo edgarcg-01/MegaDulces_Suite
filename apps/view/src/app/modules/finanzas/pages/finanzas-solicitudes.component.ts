@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { TextareaModule } from 'primeng/textarea';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
@@ -48,7 +49,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, TextareaModule, SkeletonModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, TextareaModule, SkeletonModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -97,6 +98,10 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                   }
                   ({{ money(r.kpis.pendientes_importe) }}). Las canceladas no cuentan.
                 }
+                @if (sinEvidencia().n > 0) {
+                  <br />Y <strong>{{ sinEvidencia().n }}</strong> {{ sinEvidencia().n === 1 ? 'no tiene' : 'no tienen' }}
+                  ningún comprobante adjunto ({{ money(sinEvidencia().importe) }}).
+                }
               </p>
             </div>
           </div>
@@ -112,6 +117,17 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                            placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
           <div class="so-field"><span class="so-lbl" aria-hidden="true">Aplicación</span>
             <app-segmented [options]="aplicadaOpts" [value]="aplicadaSel()" (valueChange)="setAplicada($event)" ariaLabel="Aplicación" /></div>
+          <!-- Evidencia: el único eje que NO viene de Kepler, y el que le importa a quien autoriza. -->
+          <div class="so-field"><span class="so-lbl" aria-hidden="true">Evidencia</span>
+            <app-segmented [options]="evidenciaOpts" [value]="evidenciaSel()" (valueChange)="evidenciaSel.set($event)" ariaLabel="Estado de la evidencia" /></div>
+          @if (grupoOpts().length) {
+            <div class="so-field"><label for="so-f-grp">Grupo de gasto</label>
+              <p-multiselect inputId="so-f-grp" [options]="grupoOpts()" [(ngModel)]="grupo" optionLabel="label" optionValue="code"
+                             placeholder="Todos" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
+          }
+          <div class="so-field"><label for="so-f-min">Desde</label>
+            <p-inputnumber inputId="so-f-min" [(ngModel)]="minImporte" mode="currency" currency="MXN" locale="es-MX"
+                           [min]="0" placeholder="$0" styleClass="so-min" (onBlur)="queue()" /></div>
           <div class="so-field"><label for="so-f-est">Estatus doc</label>
             <p-select inputId="so-f-est" [options]="estadoOpts" [(ngModel)]="estado" optionLabel="label" optionValue="value" [showClear]="true"
                       placeholder="Todos" appendTo="body" (onChange)="queue()" styleClass="w-full" /></div>
@@ -120,21 +136,21 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                       appendTo="body" (onChange)="queue()" styleClass="w-full" [filter]="true" /></div>
           <div class="so-field so-grow"><label for="so-f-q">Buscar</label>
             <input id="so-f-q" pInputText [(ngModel)]="search" placeholder="Folio, beneficiario, concepto…" (keyup.enter)="load()" (blur)="queue()" /></div>
-          @if (!loading() && rows().length) {
-            <span class="so-count">{{ rows().length }} {{ rows().length === 1 ? 'fila' : 'filas' }}</span>
+          @if (!loading() && visibles().length) {
+            <span class="so-count">{{ visibles().length }} {{ visibles().length === 1 ? 'fila' : 'filas' }}@if (visibles().length !== rows().length) { <span class="so-count-of"> de {{ rows().length }}</span> }</span>
           }
         </div>
 
         <!-- §2 matriz de estados: cargando (filas skeleton) / vacío (con salida) / error
              son tres cosas distintas. Un periodo sin movimiento NO es una falla. -->
         <app-load-state [class.is-busy]="loading() && !primeraCarga()" [attr.aria-busy]="loading() || null"
-                        [loading]="primeraCarga()" [error]="error()" [isEmpty]="!rows().length"
+                        [loading]="primeraCarga()" [error]="error()" [isEmpty]="!visibles().length"
                         [skeletonRows]="8" emptyIcon="pi-inbox"
-                        [emptyTitle]="'Sin solicitudes ' + periodoEn()"
-                        [emptyHint]="emptyHint()" [emptyCta]="ampliarLabel()" emptyCtaIcon="pi pi-arrows-h"
-                        (retry)="load()" (cta)="ampliar()">
-          <p-table [value]="rows()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
-                   [paginator]="rows().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                        [emptyTitle]="emptyTitle()"
+                        [emptyHint]="emptyHint()" [emptyCta]="emptyCta()" emptyCtaIcon="pi pi-arrows-h"
+                        (retry)="load()" (cta)="onEmptyCta()">
+          <p-table [value]="visibles()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
+                   [paginator]="visibles().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                    sortField="fecha" [sortOrder]="-1">
             <ng-template #header>
               <tr>
@@ -157,7 +173,10 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                 </td>
                 <td class="num muted">{{ dmy(r.fecha) }}</td>
                 <td>{{ r.solicitante || '—' }}</td>
-                <td>{{ r.beneficiario || '—' }}</td>
+                <td>
+                  {{ r.acreedor || r.beneficiario || '—' }}
+                  @if (r.cuenta_grupo) { <span class="so-grp" [title]="'Cuenta Kepler ' + r.cuenta_clave">{{ r.cuenta_grupo }}</span> }
+                </td>
                 <td class="muted"><span class="so-trunc" [title]="r.concepto || ''">{{ r.concepto || '—' }}</span></td>
                 <td class="ta-r num strong">{{ money(r.importe) }}</td>
                 <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" /></td>
@@ -272,6 +291,11 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     .so-field > label, .so-field > .so-lbl { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
       letter-spacing: .06em; color: var(--fg-3); }
     .so-field.so-grow { flex: 1 1 14rem; }
+    /* Chip del grupo de gasto: neutro, no compite con los tags de estado. */
+    .so-grp { display: inline-block; margin-left: var(--sp-1); padding: 0 4px; font-family: var(--font-mono);
+      font-size: var(--fs-nano); color: var(--fg-3); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .so-count-of { color: var(--fg-3); }
+    :host ::ng-deep .so-min input { width: 7rem; }
     .so-count { margin-left: auto; align-self: center; font-size: var(--fs-xs); color: var(--fg-3);
       font-variant-numeric: tabular-nums; }
     app-load-state { display: block; padding: var(--sp-2) var(--sp-3) var(--sp-3);
@@ -337,10 +361,56 @@ export class FinanzasSolicitudesComponent {
   readonly loading = signal(false);
   /** Primera carga = cargando y todavía sin nada en pantalla. Un refresh no vacía la vista. */
   readonly primeraCarga = computed(() => this.loading() && !this.report());
+
+  /** Estado de la evidencia de una solicitud: comprobante propio, o comprobación del gasto. */
+  private evidenciaDe(folio: string): string {
+    return this.proofStatus()[folio]?.status || this.compStatus()[folio] || 'sin';
+  }
+  /** Filas visibles tras el filtro de evidencia (el resto lo aplica el servidor). */
+  readonly visibles = computed(() => {
+    const f = this.evidenciaSel();
+    const rows = this.rows();
+    if (!f) return rows;
+    return rows.filter((r) => {
+      const e = this.evidenciaDe(r.folio);
+      return f === 'sin' ? e === 'sin' : f === 'pend' ? (e === 'recibida' || e === 'revision') : e === f;
+    });
+  });
+  /** Lo que le quita el sueño a quien autoriza: dinero pedido y sin respaldo. */
+  readonly sinEvidencia = computed(() => {
+    const r = this.rows().filter((x) => x.estado !== 'C' && this.evidenciaDe(x.folio) === 'sin');
+    return { n: r.length, importe: r.reduce((a, b) => a + (Number(b.importe) || 0), 0) };
+  });
+  /**
+   * Opciones de grupo derivadas de lo cargado, etiquetadas con el acreedor más común del
+   * grupo: la etiqueta sale del dato, no de una taxonomía inventada.
+   */
+  readonly grupoOpts = computed(() => {
+    const by = new Map<string, Map<string, number>>();
+    for (const r of this.rows()) {
+      const g = r.cuenta_grupo;
+      if (!g) continue;
+      if (!by.has(g)) by.set(g, new Map());
+      const m = by.get(g)!;
+      const k = r.acreedor || r.beneficiario || '';
+      if (k) m.set(k, (m.get(k) || 0) + 1);
+    }
+    return Array.from(by.entries()).map(([g, m]) => {
+      const top = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0];
+      const n = Array.from(m.values()).reduce((a, b) => a + b, 0);
+      return { code: g, label: top ? `${g} · ${top[0].slice(0, 28)} (${n})` : `${g} (${n})` };
+    }).sort((a, b) => a.code.localeCompare(b.code));
+  });
   readonly error = signal<string | null>(null);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly solicitantes = signal<string[]>([]);
   readonly aplicadaSel = signal<string>('');
+  /** Eje de EVIDENCIA: lo único que la plataforma agrega sobre Kepler. Se filtra en el
+   *  cliente porque el mapa folio→estado ya viene completo, no por página. */
+  readonly evidenciaSel = signal<string>('');
+  /** Grupo de gasto (prefijo de la cuenta Kepler) y piso de importe: van al servidor. */
+  grupo: string[] = [];
+  minImporte: number | null = null;
   readonly periodo = signal<Periodo>('hoy');
 
   readonly periodoOpts = [
@@ -348,6 +418,10 @@ export class FinanzasSolicitudesComponent {
     { label: '30 días', value: 'd30' }, { label: 'Rango', value: 'rango' },
   ];
   readonly aplicadaOpts = [{ label: 'Todas', value: '' }, { label: 'Sin aplicar', value: 'pend' }, { label: 'Aplicadas', value: 'apl' }];
+  readonly evidenciaOpts = [
+    { label: 'Toda', value: '' }, { label: 'Sin evidencia', value: 'sin' },
+    { label: 'Por revisar', value: 'pend' }, { label: 'Validada', value: 'validada' }, { label: 'Rechazada', value: 'rechazada' },
+  ];
   readonly estadoOpts = [
     { label: 'Finalizada', value: 'F' }, { label: 'Autorizada', value: 'A' },
     { label: 'Cancelada', value: 'C' }, { label: 'Nueva', value: 'N' },
@@ -442,8 +516,22 @@ export class FinanzasSolicitudesComponent {
     }
   }
 
+  /** ¿Lo vació el filtro de evidencia y no el periodo? La salida es distinta. */
+  private vacioPorEvidencia(): boolean { return !!this.rows().length && !this.visibles().length; }
+  private evidenciaLabel(): string {
+    return (this.evidenciaOpts.find((o) => o.value === this.evidenciaSel())?.label || '').toLowerCase();
+  }
+  emptyTitle(): string {
+    return this.vacioPorEvidencia() ? `Ninguna con evidencia "${this.evidenciaLabel()}"` : `Sin solicitudes ${this.periodoEn()}`;
+  }
+  emptyCta(): string | null { return this.vacioPorEvidencia() ? 'Ver toda la evidencia' : this.ampliarLabel(); }
+  onEmptyCta(): void { if (this.vacioPorEvidencia()) this.evidenciaSel.set(''); else this.ampliar(); }
+
   /** Empty ≠ error: el periodo puede estar limpio. La salida es ampliar, no reintentar. */
   emptyHint(): string {
+    if (this.vacioPorEvidencia()) {
+      return `Las ${this.rows().length} solicitudes ${this.periodoEn()} están en otro estado de evidencia.`;
+    }
     const base = `Ninguna solicitud registrada ${this.periodoEn()}`;
     const filtros = this.aplicadaSel() || this.estado || this.solicitante || this.search.trim() || this.sucursal.length;
     return filtros ? `${base} con los filtros puestos.` : `${base}. El feed de Kepler las carga conforme se capturan.`;
@@ -474,6 +562,8 @@ export class FinanzasSolicitudesComponent {
       from, to,
       sucursal: this.sucursal, estado: this.estado || undefined,
       solicitante: this.solicitante || undefined, search: this.search || undefined,
+      grupo: this.grupo.length ? this.grupo : undefined,
+      min_importe: this.minImporte || undefined,
       aplicada: ap === 'pend' ? false : ap === 'apl' ? true : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -496,6 +586,8 @@ export class FinanzasSolicitudesComponent {
       { label: 'Solicitudes', value: r.kpis.total, sub: moneyShort(r.kpis.importe) },
       { label: 'Sin aplicar', value: r.kpis.pendientes, tone: r.kpis.pendientes ? 'bad' : 'default', sub: moneyShort(r.kpis.pendientes_importe) },
       { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}% del periodo` },
+      { label: 'Sin comprobante', value: this.sinEvidencia().n, tone: this.sinEvidencia().n ? 'warn' : 'ok',
+        sub: moneyShort(this.sinEvidencia().importe) },
     ];
     const leads = this.rows().map((x) => x.lead_days).filter((d): d is number => d != null);
     if (leads.length) {
