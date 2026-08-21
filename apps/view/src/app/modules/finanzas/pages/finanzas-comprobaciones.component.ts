@@ -27,7 +27,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComercialService, ExpenseRequestRow } from '../../comercial/comercial.service';
-import { ComprobacionesService, ExpenseProof, ExpenseProofsReport, CreateExpenseProof, Departamento, ProofFile, ProofFileRole } from '../comprobaciones.service';
+import { ProofPhotoOcr, ComprobacionesService, ExpenseProof, ExpenseProofsReport, CreateExpenseProof, Departamento, ProofFile, ProofFileRole } from '../comprobaciones.service';
 
 interface FileSlot { role: ProofFileRole; label: string; required: boolean; accept: string; }
 interface SolicitudSug extends ExpenseRequestRow { label: string; }
@@ -183,6 +183,16 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
             <span>{{ slot.label }} @if (slot.required) { <b class="cp-req">*</b> }</span>
             <input type="file" [accept]="slot.accept" (change)="onFile($event, slot.role)" />
             @if (fileNames()[slot.role]) { <span class="cp-filepick"><i class="pi pi-paperclip"></i> {{ fileNames()[slot.role] }}</span> }
+            @if (vision()[slot.role]; as v) {
+              @if (v === 'cargando') {
+                <span class="cp-vision is-load"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo con Claude Vision…</span>
+              } @else {
+                <span class="cp-vision" [class.is-ok]="visionTone(v) === 'ok'" [class.is-warn]="visionTone(v) === 'warn'">
+                  <i class="pi" [ngClass]="visionTone(v) === 'ok' ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
+                  {{ visionMsg(v) }}
+                </span>
+              }
+            }
           </label>
         }
 
@@ -210,6 +220,14 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     </p-dialog>
   `,
   styles: [`
+    /* Veredicto de Claude Vision junto al archivo: se ve ANTES de enviar, no despues.
+       Icono + texto; el color solo refuerza. */
+    .cp-vision { display: inline-flex; align-items: flex-start; gap: .35rem; margin-top: .25rem;
+      font-size: var(--fs-micro); line-height: 1.45; color: var(--text-muted); }
+    .cp-vision.is-ok { color: var(--ok-fg); }
+    .cp-vision.is-warn { color: var(--warn-fg); }
+    .cp-vision.is-load { color: var(--text-faint); }
+    .cp-vision i { margin-top: .15rem; }
     /* Resumen de la solicitud ya subida a Kepler: read-only, para que la unica tarea
        visible sea adjuntar. Hairline sin sombra (superficie in-page). */
     .cp-fromsol { border: 1px solid var(--border-color); border-left: 3px solid var(--ok-fg);
@@ -423,7 +441,7 @@ export class FinanzasComprobacionesComponent {
   }
 
   openNew(reset = true) {
-    if (reset) { this.desdeSolicitud.set(null); this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.solicitudSel = null; }
+    if (reset) { this.desdeSolicitud.set(null); this.vision.set({}); this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.solicitudSel = null; }
     else if (!this.form.solicitante) { this.form.solicitante = this.auth.user()?.username || ''; }
     this.sucursalDerivada.set('');
     this.formError.set('');
@@ -442,11 +460,56 @@ export class FinanzasComprobacionesComponent {
     this.formError.set('');
     const reader = new FileReader();
     reader.onload = () => {
-      this.fileData[role] = String(reader.result || ''); // data URI (backend detecta PDF vs imagen)
+      const dataUri = String(reader.result || '');
+      this.fileData[role] = dataUri; // data URI (backend detecta PDF vs imagen)
       delete this.uploaded[role]; // archivo nuevo → re-subir
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
+      this.leerConVision(role, dataUri);
     };
     reader.readAsDataURL(file);
+  }
+
+  /**
+   * Lectura del comprobante con Claude Vision, al adjuntarlo.
+   *
+   * El backend ya leía con Vision al guardar, pero el formulario nunca llamaba al preview:
+   * el capturista enviaba a ciegas y se enteraba después de que "quedó en revisión". Peor,
+   * como tampoco mandaba `monto_ocr`, si Vision no podía correr en el servidor el respaldo
+   * quedaba vacío y TODO caía en revisión.
+   *
+   * Ahora se lee al adjuntar, se muestra el veredicto antes de enviar, y el resultado viaja
+   * en el alta. Solo aplica al comprobante: la solicitud y las evidencias no se cuadran.
+   */
+  readonly vision = signal<Record<string, ProofPhotoOcr | 'cargando' | null>>({});
+
+  /** Importe contra el que se cuadra: el de la solicitud de Kepler manda. */
+  private importeEsperado(): number {
+    return Number(this.desdeSolicitud()?.importe ?? this.form.importe ?? 0) || 0;
+  }
+
+  private leerConVision(role: string, dataUri: string): void {
+    if (!role.startsWith('comprobante')) return;
+    const importe = this.importeEsperado();
+    if (!importe) return;  // sin importe esperado no hay nada que cuadrar
+    this.vision.update((m) => ({ ...m, [role]: 'cargando' }));
+    this.svc.validatePhoto(dataUri, importe).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.vision.update((m) => ({ ...m, [role]: r })),
+      // Que falle la lectura no impide capturar: el backend la reintenta al guardar.
+      error: () => this.vision.update((m) => ({ ...m, [role]: null })),
+    });
+  }
+
+  /** Texto del veredicto de Vision, en llano. */
+  visionMsg(v: ProofPhotoOcr): string {
+    if (v.ocr_status === 'sin_key') return 'Claude Vision no está configurado en el servidor — se validará a mano.';
+    if (v.ocr_status === 'ilegible') return 'Claude Vision no pudo leer el importe en la foto — se validará a mano.';
+    const leido = this.money(v.monto_ocr ?? v.total ?? v.subtotal);
+    if (v.monto_match) return `Claude Vision leyó ${leido} y cuadra con la solicitud (${this.money(v.importe_esperado)}).`;
+    return `Claude Vision leyó ${leido} y la solicitud dice ${this.money(v.importe_esperado)}` +
+      `${v.diff != null ? ` — difieren ${this.money(Math.abs(v.diff))}` : ''}. Entra en revisión.`;
+  }
+  visionTone(v: ProofPhotoOcr): 'ok' | 'warn' {
+    return v.ocr_status === 'ok' && v.monto_match ? 'ok' : 'warn';
   }
 
   private fmtDate(d?: Date | null): string | undefined {
@@ -456,9 +519,14 @@ export class FinanzasComprobacionesComponent {
   submit() {
     const f = this.form;
     const dep = this.departamentos().find((d) => d.code === f.departamento_code);
-    f.departamento = dep?.nombre || '';
-    f.sucursal = dep?.sucursal || undefined;
-    if (!f.solicitante?.trim() || !f.departamento_code || !f.folio_solicitud?.trim() || !f.proveedor?.trim()) {
+    if (dep) { f.departamento = dep.nombre; f.sucursal = dep.sucursal || undefined; }
+    // Viniendo de una solicitud ya cargada en Kepler, la cabecera la deriva el backend
+    // (solicitante, proveedor, sucursal). Acá solo se exige el folio y la evidencia; pedir
+    // departamento sería volver a reclamar lo que el sistema ya sabe.
+    const desde = this.desdeSolicitud();
+    if (desde) {
+      if (!f.folio_solicitud?.trim()) { this.formError.set('Falta el folio de la solicitud.'); return; }
+    } else if (!f.solicitante?.trim() || !f.departamento_code || !f.folio_solicitud?.trim() || !f.proveedor?.trim()) {
       this.formError.set('Completa los campos obligatorios (*).'); return;
     }
     for (const slot of this.fileSlots) {
@@ -497,7 +565,17 @@ export class FinanzasComprobacionesComponent {
   /** Crea la solicitud con los archivos ya subidos OK (todos los slots presentes). */
   private createRequest(present: string[]) {
     const files = present.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
-    this.svc.create({ ...this.form, fecha_gasto: this.fmtDate(this.fechaGasto), files })
+    // Se manda lo que Claude Vision ya leyó en el navegador. El servidor vuelve a leer por
+    // su cuenta (es la lectura autoritativa), pero si allá no puede —sin clave, archivo no
+    // recuperable— esto evita que la captura caiga en revisión por falta de dato.
+    const v = this.vision()['comprobante_1'] ?? this.vision()['comprobante_2'];
+    const ocr = v && v !== 'cargando' ? v : null;
+    this.svc.create({
+      ...this.form, fecha_gasto: this.fmtDate(this.fechaGasto), files,
+      monto_ocr: ocr ? ocr.monto_ocr ?? ocr.total : undefined,
+      subtotal_ocr: ocr ? ocr.subtotal : undefined,
+      receipt_legible: ocr ? ocr.ocr_status === 'ok' : undefined,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => { this.saving.set(false); this.uploaded = {}; this.showForm.set(false); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: `Folio ${this.form.folio_solicitud}` }); this.load(); },
