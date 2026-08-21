@@ -49,3 +49,22 @@
 2. FK en `commercial.route_tickets` (limpiar huérfanos primero).
 3. Consolidar escritor de `catalog.top_sellers_live`.
 4. Acelerar Fase CA (CEDIS Access→ODS) — cura de fondo del gap estructural 00.
+
+---
+
+## ESTADO DE EJECUCIÓN (2026-08-21) — remediación completada
+
+| Item | Estado | Detalle |
+|---|---|---|
+| **10 sensores de frescura** (P0×4 + P1×6) | ✅ código | `db-health.service.ts` (`b2cee2ff`+`bac92dd4`). Verificados vs prod. **Falta redeploy api.** |
+| **abc_classification congelada** | ✅ arreglado | Ningún `@Cron` la escribía → `recomputeAbcAll` @3:30AM MX en CycleCountScheduler (`b2636447`). La data actual sigue en 2026-06-20 hasta el 1er run (o disparar el endpoint manual). |
+| **sales_by_vendor_monthly huérfano** | ✅ agendado | al nightly de run-prod-feeds (`bac92dd4`). |
+| **DROP 11 `*_snapshot_bak`** | ✅ migración | `20260821130000_drop_dead_snapshot_baks.js` (`bd8b0e3c`). Verificado: cero refs en código. Se aplica en el próximo deploy. |
+| **FK `route_push_lines`** | ❌ N/A | El esquema real tiene `sku` (texto) + `route_no`, NO `product_id`/`warehouse_id` → import crudo por clave natural = **legit-no-FK**. |
+| **FK `route_tickets`** | ❌ N/A | No tiene `customer_id`/`store_id` (es ticket de vendedor: `vendor_user_id`+`route_code`+OCR, 1 fila) → **legit-no-FK**. |
+| **top_sellers_live doble escritor** | ⏸️ decisión Edgar | cron in-process 04:15 (`kepler-consolidado.service.ts:131`) + importer nightly. Ambos escriben y el dato está fresco → redundancia benigna, no bug. Retirar uno = elegir cuál manda; bajo riesgo pero es tu call. |
+| **Re-seed `movement_categories`(0)+`knowledge`(0)** | ⏸️ Edgar (dato prod) | Escritura a prod (bloqueada para Claude). `movement_categories` debería sembrarla la mig `20260722140000`; investigar por qué quedó en 0. `classify()` de bancos cae a fallback silencioso mientras. |
+| **Fase CA (CEDIS Access→ODS)** | ⏸️ fase aparte | Cura de fondo del gap estructural 00. No es parte de esta remediación. |
+
+**Correcciones al plan del audit** (verificado contra el esquema real): las 2 FK "needs-fk" NO aplican (columnas inexistentes). El resto del plan se sostuvo.
+**Pendiente de Edgar:** (1) redeploy api → activa los 10 sensores + arregla el freeze de abc going-forward; (2) deploy corre la migración de drops; (3) decidir escritor de top_sellers_live; (4) re-seed finance; (5) opcional: disparar el endpoint de ABC para refrescar la data ya (sino se arregla sola esta noche).
