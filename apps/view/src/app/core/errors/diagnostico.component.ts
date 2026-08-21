@@ -122,6 +122,7 @@ export class DiagnosticoComponent implements OnInit {
         { k: 'Sin terminar', v: String(res.pending), bad: res.pending > 0 },
         { k: 'Recurso más lento', v: `${res.slowest.dur} · ${res.slowest.name}`, bad: res.slowest.ms > 5000 },
         { k: 'Bloqueo del hilo', v: `${snap.longTaskMs} ms en ${snap.longTaskN} (mayor ${snap.longTaskMax} ms)`, bad: snap.longTaskMax > 1000 },
+        { k: 'Segundos con la UI trabada', v: String(snap.freezes.length), bad: snap.freezes.length > 0 },
         { k: 'Navegaciones sin terminar', v: String(stuckNav.length), bad: stuckNav.length > 0 },
         { k: 'Peticiones sin responder', v: String(stuckReq.length), bad: stuckReq.length > 0 },
         { k: 'Ping a la API (mediana)', v: ping.median, bad: ping.medianMs > 1500 },
@@ -159,6 +160,8 @@ export class DiagnosticoComponent implements OnInit {
         `  peticiones lentas (>3s)   : ${slowReq.length}`,
         ...slowReq.slice(-10).map((e) => `    ${String(e.ms).padStart(6)} ms  ${e.out ?? ''}  ${e.url}`),
         `  bloqueo del hilo          : ${snap.longTaskMs} ms en ${snap.longTaskN} tareas (la mayor ${snap.longTaskMax} ms)`,
+        `  segundos con la UI trabada: ${snap.freezes.length}`,
+        ...snap.freezes.slice(-12).map((f) => `    ${f.at.slice(11, 19)}  ${String(f.fps).padStart(2)} fps  salto ${String(f.gapMs).padStart(5)} ms  ${f.url}`),
         '',
         `ÚLTIMAS ${Math.min(20, snap.events.length)} OPERACIONES`,
         ...snap.events.slice(-20).map((e) =>

@@ -1459,21 +1459,12 @@ export class CommercialAnalyticsService {
   async networkOverview() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const [tot] = await trx('analytics.sales_daily')
-        .where('tenant_id', tenantId)
-        .andWhere('sale_date', '>=', this.since30d(trx))
-        .andWhere('sale_date', '<=', this.untilToday(trx))
-        .select(
-          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
-          trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
-          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
-          trx.raw('MAX(sale_date) AS last_sale_date'),
-          trx.raw('MAX(updated_at) AS updated_at'),
-          // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
-          trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
-        );
-
+      // UNA sola pasada por sales_daily, agrupada por canal; los totales salen de sumar
+      // los canales. Antes eran DOS consultas con el mismo WHERE sobre la misma tabla
+      // (400 MB, ~900k filas): el total y el desglose. Cada pasada cuesta ~1.5 s en prod
+      // y todo esto corre en UNA conexión (tk.run abre transacción), así que los tiempos
+      // se suman en vez de solaparse. Medido en prod: este endpoint tardaba 4.4 s y era
+      // el que dejaba el tablero en esqueletos — los otros 9 paneles ya tenían datos.
       const channels = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
         .andWhere('sale_date', '>=', this.since30d(trx))
@@ -1485,8 +1476,27 @@ export class CommercialAnalyticsService {
           trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
           trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
+          trx.raw('MAX(sale_date) AS last_sale_date'),
+          trx.raw('MAX(updated_at) AS updated_at'),
+          // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
+          trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
         )
         .orderByRaw('SUM(revenue) DESC');
+
+      // El total es la suma de los canales, y los MAX son el mayor de los MAX por canal:
+      // exactamente lo mismo que devolvía el agregado global. Sin filas, todo queda en 0 /
+      // null, igual que antes.
+      const maxOf = (k: 'last_sale_date' | 'updated_at') =>
+        channels.reduce((m: any, r: any) => (r[k] && (!m || r[k] > m) ? r[k] : m), null);
+      const tot = {
+        revenue: channels.reduce((a: number, r: any) => a + Number(r.revenue || 0), 0),
+        cost: channels.reduce((a: number, r: any) => a + Number(r.cost || 0), 0),
+        units: channels.reduce((a: number, r: any) => a + Number(r.units || 0), 0),
+        tickets: channels.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0),
+        revenue_with_cost: channels.reduce((a: number, r: any) => a + Number(r.revenue_with_cost || 0), 0),
+        last_sale_date: maxOf('last_sale_date'),
+        updated_at: maxOf('updated_at'),
+      };
 
       const [cust] = await trx('analytics.customer_product_sales')
         .where('tenant_id', tenantId)
