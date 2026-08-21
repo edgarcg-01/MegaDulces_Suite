@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — RE.12: el detector de gemelas CEDIS fallaba en cada corrida (2026-08-21)
+- `detect-goods-receipt-duplicates.js` creaba la tabla temporal `_gr` **sin `tenant_id`**, pero el predicado `MATCH` —compartido con dos consultas que sí corren sobre la vista real, donde el filtro hace falta— lo referencia. Cada corrida moría con `column s.tenant_id does not exist`, visible en los logs de Postgres cada ~50 s.
+- **No era ruido:** el `INSERT` que fallaba es el que marca las copias CEDIS en `analytics.erp_goods_receipt_dedup`, y la vista `erp_goods_receipts` las lee por LEFT JOIN. Sin marcas, la vista **cuenta dos veces** las gemelas (~1,240 filas / $9.87M según el decode de RE.12). Reproducido y verificado contra la base: antes falla, después detecta **669 gemelas en 53 ms**.
+- El proceso además moría con la transacción abierta, y el servidor lo registraba como `SSL error: unexpected eof` + `connection reset by peer`, que tapaba el error real. Ahora hace `ROLLBACK` y cierra la conexión.
+
+
 ### Added — "Todo es clickeable": resolvedor de referencias + panel de ficha (2026-08-20)
 - **`GET /entity-ref/:ref`** (`libs/commercial/src/lib/entity-ref/`, ruta neutral — no `/compras/*` — para que Finanzas lo reuse). Un ref (`ent:<suc>|<doc_prefix>|<folio>`, `lin`, `adj`, `pay`, `prov`, `sku`) resuelve a `{ title, badges, fields[], relations[], notes[] }`. Cada `field` nombra **su columna de origen** (`kdm2.c8`, `kdmm.c31`); cada `relation` trae **su propio ref** → el front navega sin saber de tablas.
 - **`<app-entity-inspector [(ref)]>`** sobre el side-peek canónico, con pila de navegación (proveedor → recepción → renglón → producto → volver) y `?ref=` en la URL (`merge` + `replaceUrl`, convive con los filtros). Se eleva a z-index 1200 para abrirse **desde** un diálogo sin apilar modales.
