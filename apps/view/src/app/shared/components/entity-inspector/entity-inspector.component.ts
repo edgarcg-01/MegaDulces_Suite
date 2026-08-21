@@ -30,7 +30,8 @@ import { money } from '../../util';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ButtonModule, SidePeekComponent],
   template: `
-    <app-side-peek [open]="isOpen()" (openChange)="onOpenChange($event)" [title]="data()?.title || 'Detalle'" [subtitle]="data()?.subtitle ?? null">
+    <app-side-peek [open]="isOpen()" (openChange)="onOpenChange($event)" [aboveModals]="true"
+                   [title]="data()?.title || 'Detalle'" [subtitle]="data()?.subtitle ?? null">
       <div class="ei">
         @if (depth() > 1) {
           <button type="button" class="ei-back" (click)="back()">
@@ -101,12 +102,10 @@ import { money } from '../../util';
   styles: [`
     :host { display:contents; }
 
-    /* El cajón se sube por encima de los diálogos de PrimeNG (modal 1100) para poder
-       abrirse DESDE un diálogo sin quedar atrás — apilar dos modales sería peor.
-       Es seguro acá y no en general: adentro de este panel no hay ningún overlay de
-       PrimeNG (select, tooltip, confirm) que necesite taparlo; sólo botones. */
-    :host ::ng-deep .sp-root { z-index:1200; }
-    :host ::ng-deep .sp-panel { width:min(600px, 100vw); }
+    /* El apilado sobre los diálogos lo resuelve el propio side-peek con [aboveModals]:
+       un override desde acá empataba en especificidad con su regla y ganaba uno u otro
+       segun el orden del bundle. Es seguro pedirlo: adentro de este panel no hay ningun
+       overlay de PrimeNG que necesite taparlo, solo botones. */
 
     .ei { display:flex; flex-direction:column; gap:1rem; padding:1rem 1.25rem 2rem; }
 

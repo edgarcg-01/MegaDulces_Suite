@@ -31,6 +31,10 @@
 - Verificado antes de cambiar: la proyección de la vista, corrida contra el Kepler real, da **0 diferencias en 15,379 filas** contra lo que había cargado el importer — mismo dato, sin el desfase.
 - La migración **es no-op donde no hay ODS** (`to_regclass`): deja la tabla y no traba la cola de knex en máquinas sin replicación. `import-purchase-docs.js` y el handler `erp-purchase-docs` detectan la vista y no hacen nada.
 
+### Fixed — ER.7d: el panel salía detrás del diálogo, y traía ajustes ajenos (2026-08-20)
+- **Colisión de cascada:** `.sp-root` del side-peek compila a `.sp-root[_ngcontent]` (0,2,0) y el override del inspector a `[_nghost] .sp-root` (0,2,0) — **misma especificidad exacta**, así que ganaba uno u otro según el orden en el bundle. Cuando perdía, el cajón quedaba en z-index 900, debajo del diálogo (1100): se abría "en segundo plano". Arreglado en el organismo con `[aboveModals]` (clase propia, regla local `.sp-root.is-above-modals` = 0,3,0) en vez de pelear la cascada desde afuera. Verificado en el bundle.
+- **La ficha de la entrada listaba ajustes que no son suyos:** cuando no había ninguno ligado por folio, caía a una ventana de ±15 días por proveedor y mostraba hasta 20. Eso es el histórico del proveedor dentro de una ficha que dice ser de la entrada, y el lector no tiene cómo saber cuál corresponde. Ahora **solo lo ligado por folio**; los cercanos se cuentan en una nota (cuántos y por cuánto) y se remite a la ficha del proveedor.
+
 ### Fixed
 - `EntityRefService` degrada con `to_regclass` si el espejo de OC/vales no existe en esa base: la ficha de la entrada **abre igual** y lo declara en `notes`, en vez de tirar 42P01 y romper la vista entera.
 
