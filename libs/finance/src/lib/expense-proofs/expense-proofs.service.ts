@@ -9,10 +9,18 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
  * folio). Flujo `recibida → validada | rechazada`.
  */
 
-/** Roles de archivo fijos del formulario (Google Form → plataforma). */
+/**
+ * Roles de archivo fijos (herencia del Google Form).
+ *
+ * `solicitud_kepler` sigue aceptándose para no romper lo ya capturado, pero el
+ * formulario **ya no lo pide**: la solicitud vive en Kepler (XA1501) y de ahí la
+ * leemos por folio. Pedir una foto de un documento que el sistema ya tiene es
+ * papeleo, no evidencia.
+ */
 export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
-const REQUIRED_ROLES: ProofFileRole[] = ['comprobante_1', 'solicitud_kepler'];
+/** Lo único que la plataforma NO puede obtener sola: el comprobante del gasto. */
+const REQUIRED_ROLES: ProofFileRole[] = ['comprobante_1'];
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 

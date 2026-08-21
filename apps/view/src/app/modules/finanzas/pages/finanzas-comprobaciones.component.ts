@@ -35,9 +35,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
 /**
  * GX.7 — "Solicitud de autorización de gastos" (reembolso). Captura ligada a la
  * solicitud de Kepler (XA1501): se elige la solicitud (autocomplete), se auto-
- * rellenan proveedor/fecha/importe/solicitante, y se adjuntan hasta 6 archivos
- * (comprobante h1/h2, solicitud Kepler, 3 evidencias). Flujo recibida→validada/
- * rechazada. No escribe a Kepler; se concilia por folio.
+ * rellenan proveedor/fecha/importe/solicitante, y se adjunta la evidencia
+ * (comprobante h1/h2 + 3 fotos). Solo el comprobante h1 es obligatorio: la
+ * solicitud NO se pide porque ya está en Kepler y se lee por folio. Flujo
+ * recibida→validada/rechazada. No escribe a Kepler; se concilia por folio.
  */
 @Component({
   selector: 'app-finanzas-comprobaciones',
@@ -308,14 +309,21 @@ export class FinanzasComprobacionesComponent {
     || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true);
   private readonly destroyRef = inject(DestroyRef);
 
+  /**
+   * Lo que el formulario pide. Ya NO pide la solicitud de Kepler: existe en el ERP
+   * (XA1501) y la leemos por folio — fotografiar un documento que el sistema ya tiene
+   * es papeleo. Queda solo lo que la plataforma no puede sacar sola: el comprobante.
+   */
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobante_1', label: 'Comprobante físico — Hoja 1', required: true, accept: '.pdf,image/*' },
     { role: 'comprobante_2', label: 'Comprobante físico — Hoja 2', required: false, accept: '.pdf,image/*' },
-    { role: 'solicitud_kepler', label: 'Solicitud de gasto Kepler ERP', required: true, accept: '.pdf,image/*' },
     { role: 'evidencia_1', label: 'Evidencia fotográfica 1', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_2', label: 'Evidencia fotográfica 2', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_3', label: 'Evidencia fotográfica 3', required: false, accept: 'image/*,.pdf' },
   ];
+  /** Roles retirados del formulario que siguen existiendo en registros viejos: sin
+   *  esto sus adjuntos se listaban con el nombre crudo del rol. */
+  private readonly legacyFileLabels: Record<string, string> = { solicitud_kepler: 'Solicitud de gasto Kepler ERP (histórico)' };
 
   readonly report = signal<ExpenseProofsReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -602,7 +610,7 @@ export class FinanzasComprobacionesComponent {
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Folio ${r.folio_solicitud}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
-  fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
+  fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || this.legacyFileLabels[role] || role; }
   statusLabel(s: string): string { return ({ recibida: 'Recibida', revision: 'En revisión', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s] || s; }
   statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', revision: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary'; }
 }
