@@ -48,6 +48,22 @@ export interface DocPresence {
   evidence: string | null;   // prueba corta: folio, título o texto que lo identifica
 }
 
+/**
+ * RE.11.0 — Un RENGLÓN de la remisión/factura, tal cual lo escribe el proveedor.
+ * Es la materia prima de la conciliación por línea (remisión ↔ líneas Kepler): la
+ * `descripcion` + `cantidad` + `unidad` empatan contra el SKU interno que ya registró
+ * Kepler, y el resultado se aprende en `commercial.supplier_item_aliases`.
+ */
+export interface RemisionLine {
+  descripcion: string | null;    // descripción del producto tal cual en la remisión
+  cantidad: number | null;       // cantidad facturada
+  unidad: string | null;         // unidad impresa (CJA/CAJA/PZA/PIEZA/PAQ/KG/DISPLAY…)
+  sku_proveedor: string | null;  // código/clave interna del proveedor, si aparece
+  codigo_barras: string | null;  // EAN/código de barras del renglón, si viene impreso
+  precio_unitario: number | null;
+  importe: number | null;        // importe del renglón (cantidad × precio unitario)
+}
+
 export interface RemisionFields {
   folio: string | null; // número de remisión/factura del proveedor
   fecha: string | null; // ISO YYYY-MM-DD
@@ -60,6 +76,8 @@ export interface RemisionFields {
   // un PDF combinado puede traer varios. Alimenta el checklist de completitud por fuente
   // (Kepler/Wincaja) y muestra la página+prueba de cada uno para que sea verificable.
   documents_present: DocPresence[];
+  // RE.11.0 — renglones extraídos del documento fiscal principal (para conciliación por línea).
+  lines: RemisionLine[];
 }
 
 /** Campos del documento "Gastos" de Kepler (XA1001) — auto-rellena la comprobación de gasto. */
@@ -278,7 +296,7 @@ export class LlmExtractorService implements OnModuleInit {
   ): Promise<RemisionFields> {
     const empty: RemisionFields = {
       folio: null, fecha: null, proveedor: null, rfc: null,
-      subtotal: null, iva: null, total: null, documents_present: [],
+      subtotal: null, iva: null, total: null, documents_present: [], lines: [],
     };
     if (!this.apiKey) {
       this.logger.warn('Remisión OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
@@ -1259,7 +1277,7 @@ export class LlmExtractorService implements OnModuleInit {
     const json = (await this.anthropic.messages(
       {
         model: this.model,
-        maxTokens: 512,
+        maxTokens: 4096,
         toolChoice: { type: 'tool', name: 'extract_remision' },
         tools: [
           {
@@ -1300,8 +1318,29 @@ export class LlmExtractorService implements OnModuleInit {
                     required: ['type', 'page', 'evidence'],
                   },
                 },
+                lines: {
+                  type: 'array',
+                  description: 'TODOS los renglones de producto del documento fiscal principal (factura/remisión), en el ORDEN en que aparecen. ' +
+                    'Un renglón = una línea de la tabla de productos (código/descripción/cantidad/unidad/precio/importe). ' +
+                    'Copiá la descripción TAL CUAL la escribe el proveedor (no la traduzcas ni la normalices). ' +
+                    'Ignorá renglones que NO son producto (subtotales, IVA, totales, leyendas, "GRACIAS POR SU COMPRA"). ' +
+                    '[] si el documento no tiene tabla de productos legible. NO inventes renglones ni cantidades que no ves.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      descripcion: { type: ['string', 'null'], description: 'Descripción del producto tal cual (ej. "COCA COLA 600ML NR", "MAZAPAN DE LA ROSA C/30"). null si no se ve.' },
+                      cantidad: { type: ['number', 'null'], description: 'Cantidad facturada del renglón, solo el número (ej. 12, 2.5). null si no se ve.' },
+                      unidad: { type: ['string', 'null'], description: 'Unidad del renglón tal cual: CJA/CAJA/PZA/PIEZA/PAQ/DISPLAY/KG/BULTO… null si no se ve.' },
+                      sku_proveedor: { type: ['string', 'null'], description: 'Código/clave del producto en el catálogo del PROVEEDOR, si aparece en el renglón. null si no hay.' },
+                      codigo_barras: { type: ['string', 'null'], description: 'Código de barras/EAN del renglón, si viene impreso (12-14 dígitos). null si no hay.' },
+                      precio_unitario: { type: ['number', 'null'], description: 'Precio unitario del renglón en pesos, sin símbolo ni comas. null si no se ve.' },
+                      importe: { type: ['number', 'null'], description: 'Importe del renglón (cantidad × precio) en pesos, sin símbolo ni comas. null si no se ve.' },
+                    },
+                    required: ['descripcion', 'cantidad', 'unidad', 'sku_proveedor', 'codigo_barras', 'precio_unitario', 'importe'],
+                  },
+                },
               },
-              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'documents_present'],
+              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'documents_present', 'lines'],
             },
           },
         ],
@@ -1355,6 +1394,25 @@ export class LlmExtractorService implements OnModuleInit {
       })
       .filter((d): d is DocPresence => d !== null)
       .filter((d, i, arr) => arr.findIndex((x) => x.type === d.type && x.page === d.page) === i);
+    // RE.11.0 — renglones. Descarta lo que no es producto (sin descripción legible).
+    const rawLines = Array.isArray(inp.lines) ? (inp.lines as unknown[]) : [];
+    const lines: RemisionLine[] = rawLines
+      .map((l): RemisionLine | null => {
+        if (!l || typeof l !== 'object') return null;
+        const o = l as Record<string, unknown>;
+        const descripcion = str(o.descripcion);
+        if (!descripcion) return null; // sin descripción no sirve para conciliar
+        return {
+          descripcion,
+          cantidad: num(o.cantidad),
+          unidad: str(o.unidad)?.toUpperCase() ?? null,
+          sku_proveedor: str(o.sku_proveedor),
+          codigo_barras: str(o.codigo_barras),
+          precio_unitario: num(o.precio_unitario),
+          importe: num(o.importe),
+        };
+      })
+      .filter((l): l is RemisionLine => l !== null);
     return {
       folio: str(inp.folio),
       fecha: this.parseTicketDate(inp.fecha),
@@ -1364,6 +1422,7 @@ export class LlmExtractorService implements OnModuleInit {
       iva: num(inp.iva),
       total: num(inp.total),
       documents_present: docs,
+      lines,
     };
   }
 
