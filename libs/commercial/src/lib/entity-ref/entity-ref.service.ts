@@ -54,6 +54,8 @@ export interface RefCaller {
 }
 
 const n = (v: any): number => Number(v) || 0;
+/** Solo para el texto de las notas; los importes de los campos los formatea el front. */
+const money = (v: number): string => v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Injectable()
 export class EntityRefService {
@@ -209,19 +211,19 @@ export class EntityRefService {
         label: a.categoria || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
+    // Solo lo LIGADO por folio. Antes, cuando no había ninguno, se listaban hasta 20 ajustes
+    // del proveedor en una ventana de ±15 días: eso no es "los ajustes de esta entrada", es el
+    // histórico del proveedor puesto en una ficha que dice ser de la entrada. Con un proveedor
+    // activo la lista se llenaba de notas que no tienen nada que ver con este documento, y el
+    // lector no tiene cómo saber cuál sí. Se cuenta y se dice dónde mirarlo, sin listarlo.
     if (!exactos.length && e.proveedor_code && e.receipt_date) {
-      const cerca: any[] = await trx('analytics.erp_purchase_adjustments')
-        .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria',
-          trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
+      const [cerca]: any[] = await trx('analytics.erp_purchase_adjustments')
         .where({ tenant_id: tenantId, proveedor_code: e.proveedor_code })
         .whereRaw(`adjustment_date BETWEEN ?::date - INTERVAL '15 days' AND ?::date + INTERVAL '15 days'`, [e.receipt_date, e.receipt_date])
-        .orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
-      for (const a of cerca) {
-        relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes cercanos (estimado)',
-          label: a.categoria || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
-          amount: n(a.monto), date: a.adjustment_date, heuristic: true });
+        .select(trx.raw('count(*)::int AS n'), trx.raw('COALESCE(sum(monto),0)::numeric AS total'));
+      if (n(cerca?.n)) {
+        notes.push(`Esta entrada no tiene ningún ajuste ligado por folio. Hay ${n(cerca.n)} ajuste(s) del proveedor por ${money(n(cerca.total))} dentro de ±15 días, pero Kepler no los liga a la recepción: no se listan acá porque no se puede afirmar que correspondan a este documento. Se ven en la ficha del proveedor y en Descuentos.`);
       }
-      if (cerca.length) notes.push('Los ajustes cercanos se listan por proveedor y ventana de ±15 días: Kepler no liga la nota a la entrada, así que el vínculo es una estimación.');
     }
 
     // Pago: sin liga estructural (RE.8). Se declara como candidato, nunca como "el pago".

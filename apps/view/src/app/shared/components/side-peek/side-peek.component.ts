@@ -29,7 +29,7 @@ import {
   imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sp-root" [class.is-open]="open()">
+    <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()">
       <div class="sp-backdrop" (click)="close()" aria-hidden="true"></div>
       <aside
         #panel
@@ -71,6 +71,17 @@ import {
         position: fixed;
         inset: 0;
         z-index: 900;
+      }
+      /* Se abre DESDE un diálogo (aboveModals): tiene que taparlo, no quedar debajo.
+         Va acá adentro y no como override desde afuera: un
+         ":host ::ng-deep .sp-root" de otro componente compila con la MISMA
+         especificidad que ".sp-root" de esta hoja, así que quién gana depende del
+         orden en el bundle — el cajón salía arriba o abajo según el día. Con la
+         clase propia la regla es local y determinista. Solo activarlo cuando adentro
+         del cajón NO haya overlays de PrimeNG (select, tooltip, confirm): esos
+         nacen en 1000/1100 y quedarían tapados. */
+      .sp-root.is-above-modals {
+        z-index: 1200;
         visibility: hidden;
         pointer-events: none;
       }
@@ -168,6 +179,8 @@ import {
 })
 export class SidePeekComponent {
   readonly open = model(false);
+  /** Apilar por encima de los diálogos de PrimeNG. Ver la nota de z-index en los estilos. */
+  readonly aboveModals = input(false);
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
 
