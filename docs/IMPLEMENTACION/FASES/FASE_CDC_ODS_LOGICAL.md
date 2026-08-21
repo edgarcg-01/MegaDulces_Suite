@@ -74,9 +74,20 @@ el slot.
     (`typeName=null`, solo `typeOid`) → `shipMetaOf` tipaba TODA columna como `text` → el `INSERT..SELECT` del
     apply contra `kepler_ods` ya tipado tronaba `column cN is of type numeric but expression is of type text`.
     Fix: mapear `typeOid`→nombre pg (numeric/date/int/…). El valor ya viene parseado por el typeParser del OID.
+- **CDC.4 — FLEET 7 RAMAS EN SOMBRA ✅ 2026-08-21**: `pm2 start ecosystem.cdc.config.js` (pm2 7.0.3) →
+  `cdc-wal-00..06` online junto al poll. **7 slots `ods_cdc_<code>` activos por rama**, lag <0.3MB, heartbeats
+  con upserts reales fluyendo. I/D validado vía el fleet (canary `md_00` INSERT→PRESENTE / DELETE→AUSENTE).
+  - **🐞 2º bug encontrado+arreglado (commit `d2968c25`)**: los nombres de **replication slot son únicos por
+    CLUSTER, no por DB**. Las 7 ramas viven en el MISMO postmaster `:5433` → con slot fijo `ods_cdc` solo 1
+    consumidor tenía slot y los otros 6 chocaban `slot ods_cdc is active for PID …`. Con 1 rama (la validación
+    CDC.2b) el bug no se veía. Fix: `slotName(code)=ods_cdc_<code>`.
+  - **Limpieza**: `ods-cdc` (script `ods-cdc-forward.js`, el forwarder por triggers del approach ABANDONADO)
+    quedó zombie —su fuente `ods.change_queue` la dropeó el teardown— → `pm2 stop ods-cdc` (reversible). RAM
+    del box 84% steady (30GB; el 92% fue el spike de arranque) — a vigilar.
 - **Pendiente**: (1) **redeploy api** → activa los 7 sensores `cdc_wal_XX` + `ods_finance_00` (código en
-  `origin/main`, no bloquea); (2) **`npm i -g pm2`** + `pm2 start ecosystem.cdc.config.js` → sombra persistente
-  de las 7 ramas junto al poll; (3) **CDC.6 cutover**: deshabilitar `OdsLiveLoop` + `OdsFullMirror`.
+  `origin/main`, no bloquea); (2) **`pm2 save`** para sombra durable (OJO: hornea `FEEDS_INGEST_KEY` en
+  `~/.pm2/dump.pm2` → otro sitio a rotar; decisión de Edgar); (3) tras horas de sombra estable, **CDC.6
+  cutover**: deshabilitar `OdsLiveLoop` + `OdsFullMirror` (+ `pm2 delete ods-cdc` del zombie).
 
 ## 1. Tesis
 
