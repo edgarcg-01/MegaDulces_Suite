@@ -207,6 +207,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
       },
       {
+        // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
+        path: 'rentabilidad',
+        loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
         path: 'pricing',
         loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
@@ -292,6 +298,11 @@ export const routes: Routes = [
         path: 'cobranza',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cobranza.component').then(m => m.FinanzasCobranzaComponent),
         canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
+      },
+      {
+        path: 'cartera',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_RECEIVABLES_VER)]
       },
       {
         path: 'pagos-comprobantes',

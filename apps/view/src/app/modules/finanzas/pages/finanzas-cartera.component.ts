@@ -1,0 +1,233 @@
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { SelectModule } from 'primeng/select';
+import { InputTextModule } from 'primeng/inputtext';
+import { DialogModule } from 'primeng/dialog';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, AgingBucket } from '../cartera.service';
+
+/**
+ * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
+ * Reproduce el `Reporte de partidas vivas` de Kepler: quién debe, cuánto, desde
+ * cuándo (aging), por sucursal/cliente/vendedor. Read-only sobre Kepler (kdue).
+ * Answer-first Operations: KPIs de saldo/vencido + aging arriba, tabla densa de
+ * clientes ordenada por saldo, drill al auxiliar (partidas vivas) por cliente.
+ */
+@Component({
+  selector: 'app-finanzas-cartera',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, DialogModule, ToggleSwitchModule, MetricStripComponent],
+  template: `
+    <div class="surf-page in">
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Cartera de clientes</h1>
+          <p class="surf-page-sub">Partidas vivas de Cuentas por Cobrar: quién debe, cuánto y desde cuándo. Estado de cuenta read-only de Kepler; el saldo es factura menos cobros y notas.</p>
+        </div>
+        <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+      </header>
+
+      <div class="ct-filters">
+        <p-select [options]="sucursales" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
+        <span class="p-input-icon-left ct-search">
+          <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Cliente, código o RFC…" aria-label="Buscar cliente" />
+        </span>
+        <label class="ct-toggle"><p-toggleswitch [(ngModel)]="incluirSaldados" (onChange)="load()" /> <span>Incluir saldados</span></label>
+        @if (data(); as d) { <span class="ct-hoy muted">saldos al {{ d.hoy }}</span> }
+      </div>
+
+      @if (error()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo cargar la cartera. {{ error() }}</div> }
+
+      @if (data(); as d) {
+        <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de cartera" />
+
+        <section class="card-premium card-flat ct-aging">
+          <h3 class="ct-card-title"><i class="pi pi-hourglass" aria-hidden="true"></i> Antigüedad de saldos</h3>
+          <div class="ct-aging-bar" role="img" [attr.aria-label]="'Aging total ' + money(d.kpi.total_saldo)">
+            @for (b of agingSegs(d.kpi.aging); track b.key) {
+              @if (b.val > 0) { <span class="ct-seg" [class]="'ct-seg-' + b.key" [style.flex]="b.val" [title]="b.label + ': ' + money(b.val)"></span> }
+            }
+          </div>
+          <ul class="ct-aging-legend">
+            @for (b of agingSegs(d.kpi.aging); track b.key) {
+              <li><span class="ct-dot" [class]="'ct-seg-' + b.key"></span>{{ b.label }} <b>{{ money(b.val) }}</b></li>
+            }
+          </ul>
+        </section>
+
+        <section class="card-premium card-flat ct-tablewrap">
+          <table class="ct-table">
+            <thead>
+              <tr>
+                <th>Cliente</th><th>Suc</th><th>Vend</th><th class="ta-r">Partidas</th>
+                <th class="ta-r">Por vencer</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of d.clientes; track c.sucursal + c.cliente_code) {
+                <tr (click)="openDetalle(c)" class="ct-row" [class.ct-row-venc]="c.vencido > 0">
+                  <td><b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span></td>
+                  <td>{{ c.sucursal }}</td>
+                  <td>{{ c.vendedor || '—' }}</td>
+                  <td class="ta-r">{{ c.n_partidas }}</td>
+                  <td class="ta-r">{{ c.saldo - c.vencido | number:'1.2-2' }}</td>
+                  <td class="ta-r" [class.ct-venc-num]="c.vencido > 0">{{ c.vencido | number:'1.2-2' }}</td>
+                  <td class="ta-r"><b>{{ c.saldo | number:'1.2-2' }}</b></td>
+                  <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
+                </tr>
+              } @empty {
+                <tr><td colspan="8" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+              }
+            </tbody>
+          </table>
+          @if (d.total_clientes > d.clientes.length) {
+            <p class="ct-more muted">Mostrando {{ d.clientes.length }} de {{ d.total_clientes }} clientes. Afiná el filtro para ver el resto.</p>
+          }
+        </section>
+      }
+    </div>
+
+    <p-dialog [visible]="!!detalle()" (visibleChange)="!$event && closeDetalle()" [modal]="true" [dismissableMask]="true" [style]="{ width: '820px', maxWidth: '96vw' }" [header]="detalle()?.cliente?.cliente_nombre || 'Auxiliar del cliente'">
+      @if (detalle(); as det) {
+        <div class="ct-det-head">
+          <div><span class="muted">Código</span> {{ det.cliente.cliente_code }} · <span class="muted">Suc</span> {{ det.cliente.sucursal }} @if (det.cliente.rfc) { · <span class="muted">RFC</span> {{ det.cliente.rfc }} }</div>
+          <div class="ct-det-saldos">
+            <span>Saldo <b>{{ money(det.saldo) }}</b></span>
+            @if (det.vencido > 0) { <span class="ct-venc-num">Vencido <b>{{ money(det.vencido) }}</b></span> }
+            @if (det.pagadas > 0) { <span class="muted">{{ det.pagadas }} saldadas</span> }
+          </div>
+        </div>
+        <table class="ct-det-table">
+          <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Días</th></tr></thead>
+          <tbody>
+            @for (p of det.partidas; track p.folio_digital) {
+              <tr [class.ct-row-venc]="p.vencida">
+                <td>{{ p.doc_label }}</td>
+                <td class="ct-mono">{{ p.folio_digital }}</td>
+                <td>{{ p.fecha }}</td>
+                <td>{{ p.vencimiento || '—' }}</td>
+                <td class="ta-r">{{ p.importe | number:'1.2-2' }}</td>
+                <td class="ta-r"><b>{{ p.saldo_documento | number:'1.2-2' }}</b></td>
+                <td>@if (p.vencida) { <span class="ct-tag-venc">{{ p.dias_vencido }}d</span> } @else { <span class="muted">al día</span> }</td>
+              </tr>
+            } @empty { <tr><td colspan="7" class="ct-empty">Sin partidas vivas. Todo cobrado.</td></tr> }
+          </tbody>
+        </table>
+        @if (det.abonos.length) {
+          <details class="ct-abonos"><summary>{{ det.abonos.length }} cobros / notas aplicados</summary>
+            <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
+          </details>
+        }
+        <p class="ct-det-note muted">El saldo por documento se aproxima por antigüedad (FIFO): los cobros del cliente se aplican a las facturas más viejas primero. El saldo total del cliente es exacto.</p>
+      }
+    </p-dialog>
+  `,
+  styles: [`
+    :host { display: block; }
+    .ct-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: .75rem 0 1rem; }
+    .ct-search input { min-width: 240px; }
+    .ct-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
+    .ct-hoy { margin-left: auto; font-size: .8rem; }
+    .ct-error { color: var(--danger, #b42318); display: flex; gap: .5rem; align-items: center; padding: .75rem 0; }
+    .ct-card-title { display: flex; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .6rem; }
+    .ct-aging { padding: 1rem; margin-bottom: 1rem; }
+    .ct-aging-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2, #f0efec); }
+    .ct-seg { display: block; }
+    .ct-seg-por_vencer { background: #6b8f71; } .ct-seg-d0_30 { background: #c9a227; }
+    .ct-seg-d31_60 { background: #d98324; } .ct-seg-d61_90 { background: #c2410c; } .ct-seg-d90_plus { background: #b42318; }
+    .ct-aging-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; margin: .7rem 0 0; padding: 0; font-size: .82rem; }
+    .ct-aging-legend li { display: flex; align-items: center; gap: .35rem; }
+    .ct-aging-legend b { margin-left: .2rem; }
+    .ct-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+    .ct-tablewrap { padding: 0; overflow-x: auto; }
+    .ct-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .ct-table th, .ct-table td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid var(--surface-border, #e7e5e0); white-space: nowrap; }
+    .ct-table th { font-weight: 600; color: var(--text-2, #6b6b6b); position: sticky; top: 0; background: var(--surface-0, #fff); }
+    .ct-row { cursor: pointer; } .ct-row:hover { background: var(--surface-hover, #faf9f7); }
+    .ct-row-venc { background: rgba(180,35,24,.04); }
+    .ct-venc-num { color: #b42318; }
+    .ta-r { text-align: right !important; }
+    .muted { color: var(--text-2, #8a8a8a); font-weight: 400; }
+    .ct-empty { text-align: center; color: var(--text-2, #8a8a8a); padding: 1.5rem !important; }
+    .ct-more { padding: .6rem .7rem; margin: 0; font-size: .8rem; }
+    .ct-det-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .85rem; margin-bottom: .8rem; }
+    .ct-det-saldos { display: flex; gap: 1rem; }
+    .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--surface-border, #eee); white-space: nowrap; }
+    .ct-det-table th { color: var(--text-2, #6b6b6b); font-weight: 600; }
+    .ct-mono { font-family: ui-monospace, monospace; font-size: .78rem; }
+    .ct-tag-venc { background: rgba(180,35,24,.1); color: #b42318; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; font-weight: 600; }
+    .ct-abonos { margin-top: .8rem; font-size: .82rem; } .ct-abonos ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+    .ct-det-note { font-size: .78rem; margin-top: .8rem; }
+  `],
+})
+export class FinanzasCarteraComponent implements OnInit {
+  private readonly svc = inject(CarteraService);
+
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly data = signal<CarteraResp | null>(null);
+  readonly detalle = signal<CarteraDetalle | null>(null);
+
+  sucursal: string | null = '01';
+  search = '';
+  incluirSaldados = false;
+
+  readonly sucursales = [
+    { label: 'Todas', value: null },
+    { label: '01 · Padre Hidalgo', value: '01' },
+    { label: '02 · La Piedad Abastos', value: '02' },
+    { label: '03 · 8 Esquinas', value: '03' },
+    { label: '04 · Yurécuaro', value: '04' },
+    { label: '05 · Zamora Centro', value: '05' },
+    { label: '06 · Canindo', value: '06' },
+  ];
+
+  ngOnInit() { this.load(); }
+
+  load() {
+    this.loading.set(true); this.error.set(null);
+    this.svc.cartera({
+      sucursal: this.sucursal || undefined,
+      search: this.search.trim() || undefined,
+      incluir_saldados: this.incluirSaldados ? '1' : undefined,
+    }).subscribe({
+      next: (d) => { this.data.set(d); this.loading.set(false); },
+      error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
+    });
+  }
+
+  openDetalle(c: CarteraCliente) {
+    this.detalle.set(null);
+    this.svc.detalle(c.sucursal, c.cliente_code).subscribe({
+      next: (d) => this.detalle.set(d),
+      error: () => this.detalle.set(null),
+    });
+  }
+  closeDetalle() { this.detalle.set(null); }
+
+  money(v: number) { return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }); }
+
+  kpiItems(d: CarteraResp): MetricStripItem[] {
+    return [
+      { label: 'Saldo total', value: this.money(d.kpi.total_saldo) },
+      { label: 'Vencido', value: this.money(d.kpi.total_vencido), tone: d.kpi.total_vencido > 0 ? 'warn' : undefined },
+      { label: 'Clientes con saldo', value: String(d.kpi.n_clientes) },
+      { label: 'Partidas vivas', value: String(d.kpi.n_partidas) },
+    ];
+  }
+
+  agingSegs(a: AgingBucket) {
+    return [
+      { key: 'por_vencer', label: 'Por vencer', val: a.por_vencer },
+      { key: 'd0_30', label: '1–30 días', val: a.d0_30 },
+      { key: 'd31_60', label: '31–60 días', val: a.d31_60 },
+      { key: 'd61_90', label: '61–90 días', val: a.d61_90 },
+      { key: 'd90_plus', label: '90+ días', val: a.d90_plus },
+    ];
+  }
+}

@@ -175,6 +175,8 @@ export enum Permission {
   // Comprobantes de Pago a Proveedor (CC ext) — transferencia SPEI + OCR sobre pagos Kepler (XD2501).
   FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
   FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC read-only sobre Kepler.
+  FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": el pool del área de Finanzas.

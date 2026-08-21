@@ -32,6 +32,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_COLLECTIONS_VER,
   },
   {
+    label: 'Cartera',
+    route: '/finanzas/cartera',
+    icon: 'pi pi-address-book',
+    permission: Permission.FINANCE_RECEIVABLES_VER,
+  },
+  {
     label: 'Pagos a proveedor',
     route: '/finanzas/pagos-comprobantes',
     icon: 'pi pi-send',
