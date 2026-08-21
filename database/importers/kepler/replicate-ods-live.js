@@ -65,14 +65,31 @@ const ALL_MODE = ONLY === '*' || process.env.KP_ODS_TABLES === '*';
 const CTID_TABLES = new Set(
   (process.env.ODS_CTID_TABLES || 'kdm1,kdm2,kdij,kdue,kdpord,kdm3,kdm4,kdm5,kdm6,kdm7,kdm8,kdm9,kdmx,kdmx_25,kdmx_26,kdlogmov,orglogtbl_24,orglogtbl_25,orglogtbl_26,pos95historico')
     .split(',').map((s) => s.trim()).filter(Boolean));
-/** Lista de tablas a sincronizar para un replica dado (enumera todo el schema si ALL_MODE). */
+// Soporte GLOB de prefijo (ej. `kdc2*` = todas las pólizas mensuales kdc2YYMM) en KP_ODS_TABLES y
+// ODS_HASH_TABLES. El `*` solo = ALL_MODE (arriba). Permite sumar las tablas de finanzas de oficinas
+// (kdc2*, kdco, kdc3, kdpv_folio_caja) al set del launcher SIN espejo completo → costo acotado, y
+// kdc2YYMM (rota por mes) se auto-cubre. Se expande por-rama (cada replica resuelve sus propios kdc2*).
+const _globs = (arr) => arr.filter((t) => t !== '*' && t.includes('*'))
+  .map((t) => new RegExp('^' + t.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$'));
+const _lits = (arr) => arr.filter((t) => t !== '*' && !t.includes('*'));
+const TABLE_GLOBS = _globs(TABLES);
+const TABLE_LITS = _lits(TABLES);
+const HASH_GLOBS = _globs([...HASH_TABLES]);
+const matchesGlob = (name, globs) => globs.some((re) => re.test(name));
+
+/** Lista de tablas a sincronizar para un replica dado (ALL_MODE = todo el schema; con globs, se expanden). */
 async function tablesFor(p) {
-  if (!ALL_MODE) return TABLES;
-  return (await p.query(
+  if (ALL_MODE) return (await p.query(
     `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE' ORDER BY 1`)).rows.map((r) => r.table_name);
+  if (!TABLE_GLOBS.length) return TABLES;
+  const all = (await p.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema='md' AND table_type='BASE TABLE'`)).rows.map((r) => r.table_name);
+  const out = new Set(TABLE_LITS);
+  for (const t of all) if (matchesGlob(t, TABLE_GLOBS)) out.add(t);
+  return [...out].sort();
 }
-/** ¿tabla va por carril hash? En modo espejo: todo hash salvo la whitelist ctid. Si no: el set HASH. */
-const isHashTable = (table) => (ALL_MODE ? !CTID_TABLES.has(table) : HASH_TABLES.has(table));
+/** ¿tabla va por carril hash? ALL_MODE: todo hash salvo whitelist ctid. Si no: set HASH (literal o glob). */
+const isHashTable = (table) => (ALL_MODE ? !CTID_TABLES.has(table) : (HASH_TABLES.has(table) || matchesGlob(table, HASH_GLOBS)));
 
 // RED DE SEGURIDAD del carril ctid (bug 2026-08-19): el ctid NO es monótono en un SUBSCRIBER de
 // replicación lógica (el heap reusa espacio) → filas nuevas caen por debajo del watermark y

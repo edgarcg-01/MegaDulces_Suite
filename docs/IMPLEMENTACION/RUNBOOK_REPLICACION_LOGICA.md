@@ -243,19 +243,24 @@ psql -p 5433 -d kepler_md_00 -c "CREATE SUBSCRIPTION sub_md_00 \
 ```
 Rerun de `setup-branch-subscriber.js` es idempotente (reusa la DB, salta tablas existentes).
 
-### 8.E Full-mirror del SHIP a prod (para que las tablas de finanzas de 00 lleguen a `kepler_ods`)
+### 8.E SHIP de las tablas de finanzas a prod (`kepler_ods`)
 La subscription trae las 348 tablas de 00 al **replica local** `kepler_md_00`. Pero `replicate-ods-live` (OdsLiveLoop)
 solo **shippea a prod** las tablas de `KP_ODS_TABLES` (hoy 11 en el launcher) → las de finanzas (`kdc2*` pólizas,
-`kdco`, `kdc3`, `kdpv_folio_caja`) NO llegan a prod `kepler_ods`. **Medido 2026-08-20:** un pase full-mirror
-(`--tables=*`, 348 tablas) tarda <100s/rama → **NO meterlo en el loop caliente** (×6 = ~10min/ciclo, degradaría
-la frescura @10s de venta/stock). **Solución = pase full-mirror SEPARADO y más lento** (paralelo al OdsLiveLoop):
-```bash
-# nueva tarea (clonar el bloque env de run-ods-live-loop.cmd: FEEDS_SINK=http + FEEDS_INGEST_*):
-FEEDS_SINK=http KP_ODS_TABLES=* node database/importers/kepler/replicate-ods-live.js --apply --watch=300
+`kdco`, `kdc3`, `kdpv_folio_caja`) NO llegan a prod `kepler_ods`. **Medido 2026-08-20:** un espejo COMPLETO
+(`--tables=*`, 348 tablas) tarda <100s/rama → ×6 = ~10min/ciclo, **NO meterlo en el loop caliente** (degradaría la
+frescura @10s de venta/stock).
+
+**Solución recomendada (2026-08-20) — glob en el set del loop caliente, SIN nueva tarea ni full-mirror:** las tablas de
+finanzas son CHICAS (kdco 371 / kdpv_folio_caja 916 / kdc2YYMM ~611 filas) → sumarlas al hot loop es barato. Se agregó
+**soporte de patrón `*`** en `replicate-ods-live` (`KP_ODS_TABLES`/`ODS_HASH_TABLES`): `kdc2*` expande a todas las
+pólizas mensuales por-rama y **auto-cubre la rotación** de `kdc2YYMM`. En `run-ods-live-loop.cmd` (Edgar):
+```bat
+set "KP_ODS_TABLES=kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdco,kdc3,kdpv_folio_caja,kdc2*"
+set "ODS_HASH_TABLES=kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdc2*"
 ```
-Steady-state el hash-delta shippea solo el delta (≈0) → barato. El primer pase siembra el resto. Cadencia 5-15min
-para finanzas es de sobra. (Alternativa mínima: `KP_ODS_TABLES=kdm1,kdm2,…,kdco,kdc3,kdpv_folio_caja,kdc2*` — pero
-`kdc2YYMM` rota por mes → `*` lo auto-cubre; el explícito requiere editar cada mes.)
+Verificado (dry-run branch 03): `kdc2*` → kdc22501…kdc22608… todas ruteadas **hash** (mutable-safe). Steady-state el
+hash-delta shippea solo el delta (≈0) → costo despreciable. (Si algún día se quiere el espejo COMPLETO real, `KP_ODS_TABLES=*`
+en una **tarea separada** `--watch=300`, no en el loop caliente.)
 
 ### 8.C Código — ✅ YA HECHO
 `ODS_LIVE_BRANCHES` default ahora `00,01,02,03,04,05,06` (replicate-ods-live.js). Hasta que exista `kepler_md_00` el ciclo la **salta** (`⚠ replica 00: no conecta — skip`, inofensivo); al crear la subscription **se activa sola** — sin tocar el launcher `run-ods-live-loop.cmd` (no setea `ODS_LIVE_BRANCHES`).
