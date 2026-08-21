@@ -40,11 +40,27 @@ export class AlertsSocketService {
   readonly lastAlert = signal<CommercialAlert | null>(null);
   readonly alert$ = new Subject<CommercialAlert>();
 
+  /**
+   * Cuántos componentes lo están usando. Este servicio es un singleton de root y lo
+   * comparten la campana de notificaciones, el toast de salud y el Centro de Control:
+   * sin contar referencias, el primero que se destruía cerraba el socket de los otros
+   * dos, que quedaban mudos sin enterarse. Solo se cierra cuando se va el último.
+   */
+  private refs = 0;
+
   connect(): void {
-    if (this.socket?.connected) return;
+    this.refs++;
+    // Idempotente por EXISTENCIA, no por estado. Con `?.connected` un segundo connect()
+    // durante el handshake veía false, creaba OTRO socket y pisaba la referencia: el
+    // primero quedaba huérfano, reconectando solo y ya fuera del alcance de disconnect().
+    if (this.socket) {
+      if (!this.socket.connected) this.socket.connect();
+      return;
+    }
     const token = this.auth.token();
     if (!token) {
       console.warn('[AlertsSocket] sin token, abort connect');
+      this.refs = Math.max(0, this.refs - 1); // no se abrió nada: no reservar referencia
       return;
     }
 
@@ -80,8 +96,10 @@ export class AlertsSocketService {
     });
   }
 
+  /** Libera UNA referencia; cierra de verdad solo cuando no queda ningún consumidor. */
   disconnect(): void {
-    if (!this.socket) return;
+    this.refs = Math.max(0, this.refs - 1);
+    if (this.refs > 0 || !this.socket) return;
     this.socket.removeAllListeners();
     this.socket.disconnect();
     this.socket = null;

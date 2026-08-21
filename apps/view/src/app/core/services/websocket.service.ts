@@ -193,8 +193,14 @@ export class WebSocketService {
   }
 
   connect(token: string): void {
-    if (this.socket?.connected) {
-      console.log('[WS] Already connected');
+    // Idempotente por EXISTENCIA, no por estado. Con `?.connected` una segunda llamada
+    // durante el handshake veia false, creaba OTRO socket y pisaba la referencia: el
+    // primero quedaba huerfano, reconectando solo y ya inalcanzable para disconnect().
+    // Con varios componentes del layout llamando connect() en cada navegacion, los
+    // huerfanos se acumulaban y el servidor terminaba atendiendo un aluvion de
+    // handshakes (>500 logs/s en Railway) hasta quedarse sin aire.
+    if (this.socket) {
+      if (!this.socket.connected) this.socket.connect();
       return;
     }
 
