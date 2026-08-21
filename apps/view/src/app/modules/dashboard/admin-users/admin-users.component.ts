@@ -75,6 +75,12 @@ const DEPT_ICON: Record<string, string> = {
   externo: 'pi pi-globe',
 };
 const SIN_DEPT = '__sin__';
+/**
+ * Los clientes del portal B2B viven en el departamento `externo` y NO tienen
+ * puesto del organigrama: no son empleados. Excluirlos del conteo de pendientes
+ * evita un "2 sin puesto" que nunca se puede bajar a cero.
+ */
+const DEPT_SIN_PUESTO = 'externo';
 
 /** Departamento con su conteo y su higiene de accesos (lo que decide a dónde entrar). */
 export interface DeptRow {
@@ -87,6 +93,8 @@ export interface DeptRow {
   dormidos: number;
   /** Roles distintos conviviendo en el departamento (delata desorden de permisos). */
   roles: number;
+  /** Cuentas sin puesto asignado: lo que queda por capturar del organigrama. */
+  sinPuesto: number;
 }
 
 interface RoleOption {
@@ -178,7 +186,9 @@ export class AdminUsersComponent implements OnInit {
         (user.username ?? '').toLowerCase().includes(query) ||
         (user.nombre ?? '').toLowerCase().includes(query) ||
         (user.role_name ?? '').toLowerCase().includes(query) ||
-        (user.zona ?? '').toLowerCase().includes(query)
+        (user.zona ?? '').toLowerCase().includes(query) ||
+        (user.position_name ?? '').toLowerCase().includes(query) ||
+        (user.department_name ?? '').toLowerCase().includes(query)
       );
     });
   });
@@ -229,6 +239,10 @@ export class AdminUsersComponent implements OnInit {
         nunca,
         dormidos,
         roles: new Set(list.map((u) => u.role_name).filter(Boolean)).size,
+        sinPuesto:
+          area.slug === DEPT_SIN_PUESTO
+            ? 0
+            : list.filter((u) => !u.position_code).length,
       };
     }).filter((d) => d.total > 0);
   });
@@ -240,6 +254,34 @@ export class AdminUsersComponent implements OnInit {
   /** Filtro "sólo con alerta de acceso": el contador del resumen es accionable. */
   readonly onlyAlerts = signal(false);
   toggleAlerts(): void { this.onlyAlerts.update((v) => !v); }
+
+  /**
+   * Total de cuentas sin puesto asignado. Es la lista de pendientes del
+   * organigrama: mientras no sea 0, hay gente cuyo puesto no está capturado.
+   */
+  readonly sinPuestoTotal = computed(() =>
+    this.users().filter((u) => this.needsPosition(u)).length);
+
+  /** ¿A esta cuenta le falta capturar el puesto del organigrama? */
+  needsPosition(u: User): boolean {
+    return !u.position_code && u.department_code !== DEPT_SIN_PUESTO;
+  }
+
+  /** Filtro "sólo sin puesto": el contador de pendientes es accionable. */
+  readonly onlyNoPosition = signal(false);
+  toggleNoPosition(): void { this.onlyNoPosition.update((v) => !v); }
+
+  /**
+   * Salida del vacío: limpia TODOS los filtros. Con dos toggles + buscador +
+   * departamento, un botón que solo limpiara uno dejaba la tabla vacía y sin
+   * explicación de por qué.
+   */
+  clearFilters(): void {
+    this.onSearchChange('');
+    this.onlyAlerts.set(false);
+    this.onlyNoPosition.set(false);
+    this.selectDept('');
+  }
 
   /** ¿Esta cuenta activa nunca entró o lleva +90 días sin entrar? */
   hasAccessAlert(u: User): boolean {
@@ -254,6 +296,7 @@ export class AdminUsersComponent implements OnInit {
     let list = this.filteredUsers();
     if (slug) list = list.filter((u) => (u.department_code || SIN_DEPT) === slug);
     if (this.onlyAlerts()) list = list.filter((u) => this.hasAccessAlert(u));
+    if (this.onlyNoPosition()) list = list.filter((u) => this.needsPosition(u));
     return list;
   });
 
@@ -280,6 +323,7 @@ export class AdminUsersComponent implements OnInit {
   /** Etiqueta de alerta del departamento; '' cuando no hay nada que señalar. */
   deptAlert(d: DeptRow): string {
     const bits: string[] = [];
+    if (d.sinPuesto) bits.push(`${d.sinPuesto} sin puesto`);
     if (d.dormidos) bits.push(`${d.dormidos} sin entrar +90d`);
     if (d.nunca) bits.push(`${d.nunca} nunca`);
     return bits.join(' · ');
@@ -364,6 +408,11 @@ export class AdminUsersComponent implements OnInit {
         supervisorControl?.updateValueAndValidity();
       });
 
+    this.userForm
+      .get('position_code')
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((code: string | null) => this.positionPick.set(code ?? null));
+
     // Al cambiar la zona por nombre, resolver y guardar zona_id.
     this.userForm
       .get('zona')
@@ -429,6 +478,40 @@ export class AdminUsersComponent implements OnInit {
         error: () => this.zones.set([]),
       });
   }
+
+  /**
+   * Etiqueta del puesto en el dropdown. Suma las variantes literales del
+   * ORGANIGRAMA 2026 (`org_labels`) porque al capturar se lee el PDF impreso,
+   * donde el mismo puesto aparece como "ENC. DE SUCURSAL", "ENCARGADO DE
+   * SUCURSAL" o "ENCARGADO PADRE HIDALGO".
+   */
+  readonly positionChoices = computed(() =>
+    this.positionOptions().map((p) => {
+      const labels = (p.org_labels ?? []).filter(
+        (l) => l.toUpperCase() !== p.name.toUpperCase(),
+      );
+      return {
+        code: p.code,
+        // `name` es lo que se ve (corto y en español).
+        name: p.name,
+        // `orgText` NO se muestra en el valor cerrado: existe para que
+        // `filterBy` lo alcance y se pueda teclear como dice el PDF.
+        orgText: labels.join(' / '),
+      };
+    }));
+
+  /**
+   * Variantes del organigrama del puesto ELEGIDO. Confirma que se escogió el
+   * correcto sin meter un template dentro del p-select (el valor cerrado tiene
+   * que quedar corto). Se alimenta desde el constructor: un field initializer
+   * con `this.userForm` explota porque el form se arma ahí (TS2729).
+   */
+  private readonly positionPick = signal<string | null>(null);
+  readonly selectedPositionOrg = computed(() => {
+    const code = this.positionPick();
+    if (!code) return '';
+    return this.positionChoices().find((p) => p.code === code)?.orgText ?? '';
+  });
 
   loadOrgCatalogs(): void {
     this.usersService
@@ -512,6 +595,7 @@ export class AdminUsersComponent implements OnInit {
     // en el cajón "Sin departamento" y el padrón se desordena solo.
     this.userForm.get('department_code')?.setValidators([Validators.required]);
     this.userForm.get('department_code')?.updateValueAndValidity();
+    this.positionPick.set(this.userForm.get('position_code')?.value ?? null);
     this.refreshLookups();
     this.displayDialog.set(true);
   }

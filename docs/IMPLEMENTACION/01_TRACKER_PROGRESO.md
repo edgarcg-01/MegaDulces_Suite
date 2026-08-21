@@ -816,6 +816,16 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
   - Verificado contra API viva: ausente→400, vacío→400, inexistente→400 ("El departamento \"no_existe\" no existe."), válido→201. Usuario de prueba limpiado. Builds api+view OK.
   - Nadie más crea usuarios: `POST /users` solo lo consume el admin (verificado — las otras referencias a `/users` son GET, y ningún test crea usuarios por HTTP).
 
+- [x] **[UN.6e]** ✅ 2026-08-20 — UI lista para que **Edgar capture las asignaciones** (él las decide, la UI solo tiene que no estorbar).
+  - **Contador accionable "N sin puesto"** en el encabezado, junto al de alertas de acceso: filtra a lo que falta capturar del organigrama. `externo` (portal B2B) se excluye del conteo — un cliente no tiene puesto del organigrama, y contarlo dejaba un pendiente que nunca baja a cero.
+  - El aside suma `N sin puesto` por departamento, así el pendiente se ve sin entrar.
+  - **Buscar el puesto como está escrito en el PDF**: `filterBy="name,orgText"` alcanza las `org_labels` (31 de 43 puestos traen variantes), así tecleando «ENC. DE SUCURSAL» o «ENCARGADO PADRE HIDALGO» cae en `Encargado de sucursal`. El valor cerrado del select sigue mostrando el nombre corto; las variantes del puesto elegido se confirman en el hint de abajo. Se descartó un `ng-template #item` dentro del `p-select` a propósito: no era verificable desde CLI y un template que no renderiza dejaba el dropdown en blanco.
+  - El buscador ahora también matchea por puesto y departamento.
+  - `clearFilters()` limpia los 4 filtros (buscador + departamento + 2 toggles) y los vacíos de la tabla explican cuál filtro está activo. Antes el botón limpiaba solo uno y la tabla quedaba vacía sin motivo.
+  - Corregido el subtítulo de la página, que seguía diciendo "El departamento sale del rol, no se captura aparte" — justo lo contrario de como funciona ahora.
+  - Verificado contra API viva: 57 cuentas / 13 departamentos / **2 sin puesto** = `repartidor_smoke` (cuenta de smoke) y `cristian.lopez` (pendiente de decisión). Builds OK.
+  - Gotcha resuelto: un field initializer con `toSignal(this.userForm...)` tira **TS2729** porque el form se arma en el constructor; el signal se alimenta desde la suscripción a `valueChanges` que ya vivía ahí.
+
 - [ ] **[UN.5]** ⬜ Archivar los 22 roles sin usuarios. Necesita fix de código: `catalogs.service.ts` lista roles **sin filtrar `deleted_at`**, así que el soft-delete solo no los oculta.
 - [ ] **[UN.6]** ⬜ Colapsar el enum `Permission` a fuente única (borrar el de `shared-auth`, generar portal/vendor desde `platform-core`).
 - [ ] **[UN.7]** ⬜ Reset de contraseña de los **11 usuarios que comparten el mismo hash bcrypt**. No hay flujo de cambio obligatorio.

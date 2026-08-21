@@ -13,7 +13,8 @@
     <div class="surf-page-head-text">
       <h1>Usuarios</h1>
       <p class="surf-page-sub">
-        Accesos al sistema por departamento. El departamento sale del rol, no se captura aparte.
+        Accesos al sistema por departamento. El departamento y el puesto vienen del organigrama;
+        el rol define aparte qué puede hacer cada uno.
       </p>
     </div>
     @if (canManageUsers()) {
@@ -30,6 +31,15 @@
     <span class="au-sum-item">
       <b class="mono">{{ departments().length }}</b> departamentos
     </span>
+    @if (sinPuestoTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-warn" [class.au-sum-on]="onlyNoPosition()"
+              [attr.aria-pressed]="onlyNoPosition()" (click)="toggleNoPosition()"
+              title="Filtrar a las cuentas sin puesto del organigrama asignado">
+        <i class="pi pi-id-card" aria-hidden="true"></i>
+        <b class="mono">{{ sinPuestoTotal() }}</b> sin puesto
+        @if (onlyNoPosition()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
     @if (alertTotal() > 0) {
       <button type="button" class="au-sum-item au-sum-warn" [class.au-sum-on]="onlyAlerts()"
               [attr.aria-pressed]="onlyAlerts()" (click)="toggleAlerts()"
@@ -170,8 +180,16 @@
                     <i class="pi pi-inbox" aria-hidden="true"></i>
                     @if (searchText()) {
                       <p>Ningún usuario coincide con «{{ searchText() }}»@if (currentDept(); as d) { en {{ d.area.label }}}.</p>
-                      <p-button label="Ver todos los departamentos" icon="pi pi-filter-slash"
-                                styleClass="p-button-sm p-button-text" (onClick)="selectDept(''); onSearchChange(''); onlyAlerts.set(false)"></p-button>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
+                    } @else if (onlyNoPosition()) {
+                      <p>@if (currentDept(); as d) { {{ d.area.label }} no tiene } @else { No hay } cuentas sin puesto: el organigrama está capturado.</p>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
+                    } @else if (onlyAlerts()) {
+                      <p>Sin cuentas con alerta de acceso@if (currentDept(); as d) { en {{ d.area.label }}}.</p>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
                     } @else if (currentDept(); as d) {
                       <p>{{ d.area.label }} no tiene usuarios.</p>
                     } @else {
@@ -244,10 +262,14 @@
 
     <div class="au-field">
       <label for="position_code">Puesto</label>
-      <p-select id="position_code" [options]="positionOptions()" formControlName="position_code"
-                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name"
+      <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
+                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
                 optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">Puesto del ORGANIGRAMA 2026.</small>
+      @if (selectedPositionOrg(); as org) {
+        <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>.</small>
+      } @else {
+        <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
+      }
     </div>
 
     <div class="au-field">

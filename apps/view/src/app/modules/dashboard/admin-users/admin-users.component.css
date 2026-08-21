@@ -206,6 +206,7 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
 /* Marca de campo obligatorio. Decorativa: el label ya nombra el campo y el
    mensaje de error dice el motivo, por eso va aria-hidden en el template. */
 .au-req { color: var(--bad-fg); margin-left: 2px; }
+
 .au-boxed {
   padding: var(--sp-3);
   background: var(--surface-ground);
