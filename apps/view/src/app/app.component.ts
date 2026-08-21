@@ -1,5 +1,6 @@
 import { Component, DestroyRef, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
+import { DiagnosticsRecorderService } from './core/errors/diagnostics-recorder.service';
 import { SwUpdate, VersionReadyEvent, UnrecoverableStateEvent } from '@angular/service-worker';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
@@ -20,6 +21,7 @@ export class AppComponent implements OnInit {
   title = 'frontend';
   private pwaInstallService = inject(PwaInstallService);
   private swUpdate = inject(SwUpdate);
+  private diag = inject(DiagnosticsRecorderService);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
   // Side-effect: StatusBarService se suscribe al ThemeService al instanciarse.
@@ -48,6 +50,8 @@ export class AppComponent implements OnInit {
   }
 
   ngOnInit() {
+    // Primero la grabadora: si algo se cuelga al arrancar, queremos tenerlo registrado.
+    this.diag.start();
     this.setupPwaInstall();
     this.setupAutoUpdate();
   }
