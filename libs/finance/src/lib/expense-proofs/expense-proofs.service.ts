@@ -320,12 +320,15 @@ export class ExpenseProofsService {
       const rows = await trx
         .with('ranked', (qb) => {
           qb.from('finance.expense_proofs')
-            .select('folio_solicitud', 'status',
+            .select('id', 'folio_solicitud', 'status',
               trx.raw('row_number() OVER (PARTITION BY folio_solicitud ORDER BY created_at DESC) AS rn'));
         })
         .from('ranked').where('rn', 1)
-        .select('folio_solicitud', 'status');
-      return Object.fromEntries(rows.map((r: any) => [r.folio_solicitud, r.status]));
+        .select('id', 'folio_solicitud', 'status');
+      // Devuelve el ID además del estado: sin él, la lista de solicitudes solo podía
+      // MOSTRAR en qué va el comprobante, y para validarlo o rechazarlo había que irse a
+      // otra pantalla y buscarlo de nuevo.
+      return Object.fromEntries(rows.map((r: any) => [r.folio_solicitud, { id: r.id, status: r.status }]));
     });
   }
 
