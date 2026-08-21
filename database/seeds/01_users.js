@@ -7,7 +7,7 @@ exports.seed = async function(knex) {
     "LA PIEDAD": "fb136f01-5efe-4c9f-b297-48f06574002c",
     "ZAMORA": "b3e5d1cf-bf7e-419f-9037-b02f070bd2bc",
     "MORELIA": "2107b482-7d3a-4c82-9377-c9f2427e699e",
-    "NACIONAL": "a5f9532e-a836-455c-9c8c-3df906615a5b",
+    "OFICINAS": "a5f9532e-a836-455c-9c8c-3df906615a5b",
     "CANINDO": "f63125c2-025f-4122-89f0-14f3c80ac0ca"
   };
 
@@ -17,7 +17,7 @@ exports.seed = async function(knex) {
       "username": "superoot",
       "password_hash": "$2b$10$R0pQyz8YP4WQvvsFsQEneeLyOCZvIhE88OBQg261LPHqCJENpg.ma",
       "nombre": "SUPER ROOT",
-      "zona": "NACIONAL",
+      "zona": "OFICINAS",
       "role_name": "superadmin",
       "activo": true,
       "created_at": "2026-04-02T20:10:42.689Z",

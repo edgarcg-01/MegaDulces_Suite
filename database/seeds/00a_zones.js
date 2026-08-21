@@ -28,7 +28,7 @@ exports.seed = async function(knex) {
     },
     {
       "id": "a5f9532e-a836-455c-9c8c-3df906615a5b",
-      "name": "NACIONAL",
+      "name": "OFICINAS",
       "orden": 4
     },
     {
