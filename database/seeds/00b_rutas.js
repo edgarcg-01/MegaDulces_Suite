@@ -33,7 +33,7 @@ exports.seed = async function(knex) {
       { value: 'Ruta 4 - Las Americas', orden: 4 },
       { value: 'Ruta 5 - Plaza Sendero', orden: 5 },
     ],
-    'NACIONAL': [
+    'OFICINAS': [
       { value: 'Ruta 1 - Norte', orden: 1 },
       { value: 'Ruta 2 - Sur', orden: 2 },
       { value: 'Ruta 3 - Este', orden: 3 },
