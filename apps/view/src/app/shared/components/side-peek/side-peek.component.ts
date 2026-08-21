@@ -67,10 +67,22 @@ import {
          veía. Todo lo que se lanza desde adentro (desplegables, tooltips, diálogos
          de confirmación) tiene que poder taparlo. Sigue sobrado por encima del
          chrome de la app, que no pasa de 30. NO subirlo sin resolver eso primero. */
+      /* CERRADO = no existe. Ni para el puntero ni para el lector de pantalla.
+         .sp-root es una capa fija a pantalla completa (inset: 0) y el backdrop queda en
+         opacity: 0 — invisible, pero se come TODOS los clics de la página si no se apaga
+         acá. Estas dos declaraciones vivían en .sp-root y el commit 6b4146c9 (2026-08-20)
+         las dejó dentro del bloque nuevo .is-above-modals al insertarlo, o sea el default
+         quedó roto. Resultado: 8 de las 10 pantallas con side-peek se veían pintadas y no
+         respondían a nada ("se queda congelado"). El Centro de control monta DOS, así que
+         eran dos capas. NO mover de acá. */
       .sp-root {
         position: fixed;
         inset: 0;
         z-index: 900;
+        visibility: hidden;
+        pointer-events: none;
+        /* La visibilidad espera a que termine el slide-out; si no, el panel se corta de golpe. */
+        transition: visibility 0s linear 250ms;
       }
       /* Se abre DESDE un diálogo (aboveModals): tiene que taparlo, no quedar debajo.
          Va acá adentro y no como override desde afuera: un
@@ -82,12 +94,11 @@ import {
          nacen en 1000/1100 y quedarían tapados. */
       .sp-root.is-above-modals {
         z-index: 1200;
-        visibility: hidden;
-        pointer-events: none;
       }
       .sp-root.is-open {
         visibility: visible;
         pointer-events: auto;
+        transition-delay: 0s;
       }
       .sp-backdrop {
         position: absolute;
@@ -169,6 +180,7 @@ import {
         padding: 1.25rem;
       }
       @media (prefers-reduced-motion: reduce) {
+        .sp-root,
         .sp-backdrop,
         .sp-panel {
           transition: none;
