@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto } from './goods-receipt-proofs.service';
+import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -66,6 +67,23 @@ export class GoodsReceiptProofsController {
   @ApiOperation({ summary: 'Adjunta la evidencia a la entrada (con archivos ya subidos + OCR). Calcula el cuadre de monto.' })
   attach(@Body() body: AttachReceiptDto, @Req() req: AuthedRequest) {
     return this.svc.attach(body, req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post('reconcile')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: 'RE.11.2 — Concilia los renglones de la remisión (OCR) contra las líneas Kepler de la entrada. Resuelve SKU (alias→barcode→descripción) + cuadra cantidad con box_factor. No guarda.' })
+  reconcile(@Body() body: { sucursal?: string; folio?: string; lines?: RemisionLine[] }) {
+    return this.svc.reconcileLines(body?.sucursal || '', body?.folio || '', body?.lines || []);
+  }
+
+  @Post('confirm-line')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: 'RE.11.4 — Aprende un match: descripción del proveedor → SKU interno (UPSERT en supplier_item_aliases). La próxima remisión del mismo proveedor lo resuelve solo.' })
+  confirmLine(
+    @Body() body: { proveedor_rfc?: string; descripcion?: string; sku?: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.confirmLineMatch(body, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/validate')

@@ -19,7 +19,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
 import { money, moneyShort } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
@@ -495,6 +495,88 @@ interface AttachFile {
           <span class="muted">{{ plural(d.lineas.length, 'renglón', 'renglones') }} · Σ {{ money(lineasTotal(d.lineas)) }}</span>
         </div>
 
+        <!-- RE.11 — Conciliación por línea: remisión del proveedor ↔ líneas Kepler ↔ SKU resuelto. -->
+        @if (reconLoading()) {
+          <div class="cb-recon-load"><i class="pi pi-spin pi-spinner"></i> Conciliando renglones de la remisión…</div>
+        } @else if (recon(); as r) {
+          <div class="cb-recon">
+            <div class="cb-recon-head">
+              <h4>Conciliación por línea <span class="muted">· remisión vs Kepler</span></h4>
+              <div class="cb-recon-kpis">
+                <span class="cb-rk ok">{{ r.totals.cuadran }} cuadran</span>
+                <span class="cb-rk warn">{{ r.totals.difieren }} difieren</span>
+                <span class="cb-rk bad">{{ r.totals.sin_match }} sin match</span>
+                @if (r.totals.revisar) { <span class="cb-rk sec">{{ r.totals.revisar }} revisar</span> }
+                @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
+              </div>
+            </div>
+            <p-table [value]="r.lines" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="40vh">
+              <ng-template #header>
+                <tr>
+                  <th>Remisión (proveedor)</th>
+                  <th class="ta-r" style="width:5.5rem">Cant.</th>
+                  <th style="width:6rem">SKU</th>
+                  <th>Producto (Kepler)</th>
+                  <th class="ta-r" style="width:5.5rem">Cant. Kepler</th>
+                  <th style="width:8rem">Origen</th>
+                  <th style="width:8rem">Estado</th>
+                  <th style="width:8rem">Acción</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-l>
+                <tr>
+                  <td>
+                    <span class="strong">{{ l.remision.descripcion || '—' }}</span>
+                    @if (l.remision.sku_proveedor) { <span class="muted mono"> · {{ l.remision.sku_proveedor }}</span> }
+                  </td>
+                  <td class="ta-r">
+                    {{ (l.remision.cantidad ?? 0) | number:'1.0-2' }}<span class="muted"> {{ l.remision.unidad || '' }}</span>
+                    @if (l.qty_remision_pz != null && l.box_factor > 1) { <div class="muted xs">= {{ l.qty_remision_pz | number:'1.0-0' }} pz</div> }
+                  </td>
+                  <td class="mono">
+                    @if (l.resolved_sku) {
+                      <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.resolved_sku))">{{ l.resolved_sku }}</button>
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                  <td>{{ l.resolved_nombre || (l.kepler?.nombre) || '—' }}</td>
+                  <td class="ta-r">
+                    @if (l.qty_kepler != null) {
+                      <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span>
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                  <td>
+                    @if (l.method !== 'sin_match') {
+                      <span class="cb-method" [class.alias]="l.alias_hit">{{ reconMethodLabel(l.method) }}</span>
+                      @if (!l.alias_hit && l.method === 'descripcion') { <span class="muted xs"> {{ (l.score * 100) | number:'1.0-0' }}%</span> }
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                  <td><p-tag [value]="reconStatusLabel(l.status)" [severity]="reconStatusSev(l.status)" /></td>
+                  <td>
+                    @if (l.resolved_sku && !l.alias_hit) {
+                      <button pButton type="button" size="small" [loading]="reconConfirming() === l.idx" (click)="confirmMatch(l)"
+                              title="Aprender: este proveedor llama a este SKU así">
+                        <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+                        <span class="p-button-label">Aprender</span>
+                      </button>
+                    } @else if (l.alias_hit) {
+                      <span class="cb-learned"><i class="pi pi-bookmark-fill"></i> Aprendido</span>
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="8" class="cb-empty">La remisión no trae renglones legibles.</td></tr></ng-template>
+            </p-table>
+            @if (r.kepler_orphans.length) {
+              <div class="cb-recon-orphans">
+                <span class="muted">En Kepler sin renglón en la remisión:</span>
+                @for (o of r.kepler_orphans; track o.linea) {
+                  <span class="cb-orphan">{{ o.sku || '—' }} · {{ o.nombre || '—' }} <span class="muted">({{ o.cantidad | number:'1.0-2' }} {{ o.unidad || '' }})</span></span>
+                }
+              </div>
+            }
+          </div>
+        }
+
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
         <div class="cb-explains">
           <div class="cb-explains-head">
@@ -818,6 +900,24 @@ interface AttachFile {
     .cb-explains-exact { font-size: .72rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
     .cb-explains-heur { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
     .cb-explains-monto { font-family: var(--font-mono); white-space: nowrap; }
+    /* RE.11 — conciliación por línea */
+    .cb-recon-load { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); font-size: .82rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .5rem; }
+    .cb-recon { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .6rem; }
+    .cb-recon-head { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
+    .cb-recon-head h4 { margin: 0; font-size: .9rem; font-weight: 700; color: var(--text-main); }
+    .cb-recon-kpis { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
+    .cb-rk { font-size: .74rem; padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid var(--border-color); white-space: nowrap; }
+    .cb-rk.ok { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); }
+    .cb-rk.warn { color: var(--warn-fg, #b45309); border-color: color-mix(in srgb, var(--warn-fg, #b45309) 40%, transparent); }
+    .cb-rk.bad { color: var(--danger-fg, #b91c1c); border-color: color-mix(in srgb, var(--danger-fg, #b91c1c) 40%, transparent); }
+    .cb-rk.sec { color: var(--text-muted); }
+    .cb-qty-bad { color: var(--danger-fg, #b91c1c); font-weight: 600; }
+    .cb-method { font-size: .76rem; color: var(--text-muted); }
+    .cb-method.alias { color: var(--action); font-weight: 600; }
+    .cb-learned { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
+    .xs { font-size: .7rem; }
+    .cb-recon-orphans { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; padding-top: .3rem; }
+    .cb-orphan { padding: .1rem .45rem; border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--text-main); }
     /* remisión adjunta en el detalle */
     .cb-view-attachments { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .6rem; }
     .cb-view-att-head { font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -1025,6 +1125,11 @@ export class ComprasEntradasComponent {
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);
   readonly detailTarget = signal<EntradaRow | null>(null);
+
+  // RE.11 — conciliación por línea (remisión ↔ Kepler ↔ SKU resuelto).
+  readonly recon = signal<ReconcileResult | null>(null);
+  readonly reconLoading = signal(false);
+  readonly reconConfirming = signal<number | null>(null); // idx del renglón que se está aprendiendo
 
   // Visor de imagen bajo demanda (no se carga la imagen inline en el detalle).
   readonly viewerOpen = signal(false);
@@ -1417,9 +1522,12 @@ export class ComprasEntradasComponent {
         // Fallback: el form (PDF combinado, o captura manual sin hoja fiscal distinguible).
         const isFiscal = (f: AttachFile) => (f.ocrDocs || []).some((d) => d === 'factura' || d === 'remision') || f.role === 'factura' || f.role === 'remision';
         const fiscalFile = files.find((f) => f.primary && isFiscal(f)) || files.find(isFiscal) || null;
+        // RE.11.0 — los renglones (lines) solo se extraen en el OCR completo del form (ocrForm),
+        // no en el OCR por-hoja. Los persistimos siempre que existan para la conciliación por línea.
+        const ocrLines = this.ocrForm.lines ?? [];
         const ocr: Partial<RemisionOcr> | undefined =
           fiscalFile && !fiscalFile.primary
-            ? { folio: fiscalFile.ocrFolio ?? null, total: fiscalFile.ocrTotal ?? null, subtotal: fiscalFile.ocrSubtotal ?? null, fecha: fiscalFile.ocrFecha ?? null, rfc: fiscalFile.ocrRfc ?? null, ocr_status: 'ok' }
+            ? { folio: fiscalFile.ocrFolio ?? null, total: fiscalFile.ocrTotal ?? null, subtotal: fiscalFile.ocrSubtotal ?? null, fecha: fiscalFile.ocrFecha ?? null, rfc: fiscalFile.ocrRfc ?? null, ocr_status: 'ok', lines: ocrLines }
             : (this.ocrRun() ? this.ocrForm : undefined);
         this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: proofFiles, ocr })
           .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1454,6 +1562,7 @@ export class ComprasEntradasComponent {
   openDetail(c: EntradaRow) {
     this.detailTarget.set(c);
     this.detailData.set(null);
+    this.recon.set(null);
     this.selectedDoc.set(null);
     this.detailLoading.set(true);
     this.showDetail.set(true);
@@ -1467,9 +1576,56 @@ export class ComprasEntradasComponent {
           let first: ProofFile | null = null;
           for (const dep of d.deposits || []) { if (dep.files && dep.files.length) { first = dep.files[0]; break; } }
           if (first) this.selectDoc(first);
+          // RE.11 — si alguna remisión trae renglones OCR, concilia automáticamente por línea.
+          const withLines = (d.deposits || []).find((dep) => (dep.ocr_lines || []).length > 0);
+          if (withLines) this.runReconcile(withLines.ocr_lines || []);
         },
         error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
+  }
+
+  /** RE.11.2 — concilia los renglones de la remisión contra las líneas Kepler de la entrada. */
+  runReconcile(lines: RemisionLine[]) {
+    const c = this.detailTarget();
+    if (!c || !lines.length) { this.recon.set(null); return; }
+    this.reconLoading.set(true);
+    this.svc.reconcile(c.sucursal, c.folio, lines).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.recon.set(r); this.reconLoading.set(false); },
+        error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar por línea' }); },
+      });
+  }
+
+  /** RE.11.4 — aprende el match del renglón (descripción del proveedor → SKU interno). */
+  confirmMatch(line: ReconciledLine) {
+    const r = this.recon();
+    if (!r || !r.proveedor_rfc || !line.resolved_sku || !line.remision.descripcion) {
+      this.toast.add({ severity: 'warn', summary: 'Falta RFC o SKU para aprender este renglón' });
+      return;
+    }
+    this.reconConfirming.set(line.idx);
+    this.svc.confirmLine({
+      proveedor_rfc: r.proveedor_rfc, descripcion: line.remision.descripcion, sku: line.resolved_sku,
+      nombre_interno: line.resolved_nombre || undefined, unidad_proveedor: line.remision.unidad || undefined,
+      box_factor: line.box_factor,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.reconConfirming.set(null);
+        this.recon.update((cur) => cur ? { ...cur, lines: cur.lines.map((l) => l.idx === line.idx ? { ...l, alias_hit: true, method: 'alias', score: 1 } : l) } : cur);
+        this.toast.add({ severity: 'success', summary: 'Aprendido', detail: `"${line.remision.descripcion}" → ${res.sku} (confianza ${Math.round(res.confianza * 100)}%)` });
+      },
+      error: (e) => { this.reconConfirming.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo aprender', detail: e?.error?.message }); },
+    });
+  }
+
+  reconStatusLabel(s: ReconciledLine['status']): string {
+    return ({ cuadra: 'Cuadra', difiere_cantidad: 'Difiere cantidad', difiere_precio: 'Difiere precio', revisar: 'Revisar', sin_match: 'Sin match' } as Record<string, string>)[s] || s;
+  }
+  reconStatusSev(s: ReconciledLine['status']): 'success' | 'warn' | 'danger' | 'secondary' {
+    return ({ cuadra: 'success', difiere_cantidad: 'warn', difiere_precio: 'warn', revisar: 'secondary', sin_match: 'danger' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary';
+  }
+  reconMethodLabel(m: ReconciledLine['method']): string {
+    return ({ alias: 'Aprendido', barcode: 'Código barras', descripcion: 'Descripción', sin_match: '—' } as Record<string, string>)[m] || m;
   }
 
   /**

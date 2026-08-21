@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
-import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
+import { LlmExtractorService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -51,6 +51,30 @@ export interface AttachReceiptDto {
   ocr?: Partial<RemisionFields> & { ocr_status?: string };
   comentarios?: string;
 }
+
+/** RE.11.2 — un renglón conciliado: remisión del proveedor ↔ línea Kepler ↔ SKU resuelto. */
+export interface ReconciledLine {
+  idx: number;                       // orden del renglón de la remisión
+  remision: RemisionLine;            // lo que dijo el proveedor
+  kepler: {                          // la línea Kepler con la que empató (null si sin_match)
+    linea: string; sku: string | null; nombre: string | null; unidad: string | null;
+    cantidad: number; costo_unitario: number; importe: number;
+  } | null;
+  resolved_sku: string | null;       // SKU interno resuelto
+  resolved_nombre: string | null;
+  method: 'alias' | 'barcode' | 'descripcion' | 'sin_match';
+  score: number;                     // 0..1 confianza del match
+  box_factor: number;                // piezas por unidad usadas para normalizar
+  qty_remision_pz: number | null;    // cantidad de la remisión normalizada a piezas
+  qty_kepler: number | null;
+  qty_match: boolean | null;
+  price_match: boolean | null;
+  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'sin_match';
+  alias_hit: boolean;                // ya venía aprendido (no requiere confirmar)
+}
+
+const QTY_TOL = 0.02;   // 2% de tolerancia en cantidad (normalizada a piezas)
+const PRICE_TOL = 0.05; // 5% de tolerancia en precio unitario
 
 @Injectable()
 export class GoodsReceiptProofsService {
@@ -234,7 +258,7 @@ export class GoodsReceiptProofsService {
     let fields: RemisionFields;
     let ocr_status: string;
     if (!process.env.ANTHROPIC_API_KEY) {
-      fields = { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null, documents_present: [] };
+      fields = { folio: null, fecha: null, proveedor: null, rfc: null, subtotal: null, iva: null, total: null, documents_present: [], lines: [] };
       ocr_status = 'sin_key';
     } else {
       fields = await this.ocr.extractRemision(base64, mediaType);
@@ -384,13 +408,20 @@ export class GoodsReceiptProofsService {
         .orderBy('created_at', 'desc')
         .select('id', 'files', 'ocr_folio', 'ocr_fecha', 'ocr_proveedor', 'ocr_rfc',
           trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('ocr_iva::numeric AS ocr_iva'),
-          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match',
+          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'ocr_raw', 'monto_match',
           'discrepancy_kind', trx.raw('discrepancy_amount::numeric AS discrepancy_amount'), 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       // URL de lectura prefirmada (bucket privado). Legacy Cloudinary (url http) se deja como está.
+      // RE.11 — expone los renglones OCR (persistidos en ocr_raw.lines) para la conciliación por línea.
       const depSigned = await Promise.all(deposits.map(async (d: any) => {
         const files = typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []);
-        return { ...d, files: await this.storage.signFiles(files) };
+        let ocr_lines: RemisionLine[] = [];
+        try {
+          const raw = typeof d.ocr_raw === 'string' ? JSON.parse(d.ocr_raw || '{}') : (d.ocr_raw || {});
+          if (Array.isArray(raw?.lines)) ocr_lines = raw.lines;
+        } catch { /* ocr_raw no-JSON legacy → sin líneas */ }
+        const { ocr_raw: _omit, ...rest } = d;
+        return { ...rest, ocr_lines, files: await this.storage.signFiles(files) };
       }));
       // RE.12 — copia(s) CEDIS ('00') que son espejo de esta canónica: se muestran en su vista
       // (misma recepción, otra póliza) para que no se pida evidencia por separado.
@@ -399,6 +430,226 @@ export class GoodsReceiptProofsService {
         .select('sucursal', 'folio', 'receipt_date', 'oc_folio', 'vale_folio', trx.raw('monto::numeric AS monto'));
       const cedis_twins = twins.map((t: any) => ({ ...t, monto: Number(t.monto) }));
       return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins };
+    });
+  }
+
+  /**
+   * RE.11.2 — Conciliación POR LÍNEA: empata cada renglón de la remisión del proveedor
+   * (OCR) contra las líneas de la orden de entrada de Kepler (`erp_goods_receipt_lines`,
+   * que ya traen el SKU interno + nombre + cantidad). Resuelve el SKU en cascada:
+   *
+   *   1. ALIAS aprendido  — descripción ya vista para este proveedor (RFC) → SKU directo.
+   *   2. CÓDIGO DE BARRAS  — EAN impreso en el renglón → catalog.product_barcodes → SKU.
+   *   3. DESCRIPCIÓN       — similitud de tokens contra el `nombre` de las líneas Kepler.
+   *
+   * Asignación greedy (cada línea Kepler se consume una sola vez), priorizando alias/barcode
+   * (certeros) y luego descripción por score. La cantidad se normaliza a PIEZAS con el
+   * box_factor canónico (`analytics.v_product_box_factor`) para que caja↔pieza cuadre.
+   * NO escribe nada; devuelve el resultado para el panel + los sobrantes (huérfanos).
+   */
+  async reconcileLines(sucursal: string, folio: string, ocrLines: RemisionLine[]) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    if (!suc || !fol) throw new BadRequestException('sucursal y folio requeridos');
+    const remLines = Array.isArray(ocrLines) ? ocrLines.filter((l) => l && l.descripcion) : [];
+
+    return this.tk.run(async (trx) => {
+      const entrada = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
+        .first('proveedor_rfc', 'proveedor_nombre');
+      if (!entrada) throw new BadRequestException(`entrada ${suc}/${fol} no existe en el espejo de Kepler`);
+      const rfc = (entrada.proveedor_rfc || '').trim().toUpperCase();
+
+      // Líneas Kepler de ESTA entrada (candidatos del match).
+      const kepRaw = await trx('analytics.erp_goods_receipt_lines')
+        .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
+        .orderByRaw(`NULLIF(regexp_replace(linea, '[^0-9]', '', 'g'), '')::int NULLS LAST, linea`)
+        .select('linea', 'sku', 'nombre', 'unidad',
+          trx.raw('cantidad::numeric AS cantidad'),
+          trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'));
+      const kepler = kepRaw.map((l: any, i: number) => ({
+        _i: i, linea: l.linea, sku: l.sku, nombre: l.nombre, unidad: l.unidad,
+        cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
+        _tokens: this.tokenize(this.normStr(l.nombre || '')),
+        _used: false,
+      }));
+
+      // box_factor canónico por SKU de las líneas (para normalizar cantidad a piezas).
+      const skus = kepler.map((k) => k.sku).filter((s): s is string => !!s);
+      const bfMap = new Map<string, number>();
+      if (skus.length) {
+        const bf = await trx.raw(
+          `SELECT p.sku, COALESCE(vbf.box_factor, 1)::numeric AS box_factor
+             FROM catalog.products p
+             LEFT JOIN analytics.v_product_box_factor vbf
+                    ON vbf.tenant_id = p.tenant_id AND vbf.product_id = p.id
+            WHERE p.tenant_id = ? AND p.sku = ANY(?)`, [tenantId, skus]);
+        for (const r of bf.rows || []) bfMap.set(String(r.sku), Number(r.box_factor) || 1);
+      }
+
+      // Aliases aprendidos para este proveedor.
+      const aliasMap = new Map<string, { sku: string; nombre_interno: string | null; box_factor: number | null }>();
+      if (rfc) {
+        const al = await trx('commercial.supplier_item_aliases')
+          .where({ tenant_id: tenantId, proveedor_rfc: rfc }).whereNull('deleted_at')
+          .select('descripcion_norm', 'sku', 'nombre_interno', trx.raw('box_factor::numeric AS box_factor'));
+        for (const a of al) aliasMap.set(a.descripcion_norm, { sku: a.sku, nombre_interno: a.nombre_interno, box_factor: a.box_factor != null ? Number(a.box_factor) : null });
+      }
+
+      // Barcodes → sku (solo los que aparecen en la remisión).
+      const barcodes = remLines.map((l) => (l.codigo_barras || '').trim()).filter((b) => b.length >= 8);
+      const bcMap = new Map<string, string>();
+      if (barcodes.length) {
+        const bc = await trx('catalog.product_barcodes')
+          .where({ tenant_id: tenantId }).whereNull('deleted_at').whereIn('barcode', barcodes)
+          .select('barcode', 'sku');
+        for (const r of bc) if (!bcMap.has(r.barcode)) bcMap.set(r.barcode, r.sku);
+      }
+
+      const kepBySku = new Map<string, typeof kepler[number]>();
+      for (const k of kepler) if (k.sku && !kepBySku.has(k.sku)) kepBySku.set(k.sku, k);
+
+      // ── Resolver cada renglón de la remisión ────────────────────────────────
+      const results: ReconciledLine[] = remLines.map((rem, idx) => {
+        const descNorm = this.normStr(rem.descripcion || '');
+        const remTokens = this.tokenize(descNorm);
+        let kep: typeof kepler[number] | null = null;
+        let method: ReconciledLine['method'] = 'sin_match';
+        let score = 0;
+        let alias_hit = false;
+        let resolvedSku: string | null = null;
+        let resolvedNombre: string | null = null;
+
+        // 1) Alias aprendido.
+        const alias = aliasMap.get(descNorm);
+        if (alias) {
+          resolvedSku = alias.sku; resolvedNombre = alias.nombre_interno; method = 'alias'; score = 1; alias_hit = true;
+          const k = kepBySku.get(alias.sku);
+          if (k && !k._used) { kep = k; k._used = true; }
+        }
+        // 2) Código de barras.
+        if (!resolvedSku && rem.codigo_barras) {
+          const sku = bcMap.get((rem.codigo_barras || '').trim());
+          if (sku) {
+            resolvedSku = sku; method = 'barcode'; score = 0.95;
+            const k = kepBySku.get(sku);
+            if (k && !k._used) { kep = k; k._used = true; resolvedNombre = k.nombre; }
+          }
+        }
+        // 3) Descripción contra líneas Kepler libres.
+        if (!resolvedSku) {
+          let best: typeof kepler[number] | null = null; let bestScore = 0;
+          for (const k of kepler) {
+            if (k._used) continue;
+            const s = this.lineSimilarity(remTokens, k._tokens);
+            if (s > bestScore) { bestScore = s; best = k; }
+          }
+          if (best && bestScore >= 0.34) {
+            kep = best; best._used = true; method = 'descripcion'; score = Number(bestScore.toFixed(3));
+            resolvedSku = best.sku; resolvedNombre = best.nombre;
+          }
+        }
+
+        // Normalización de cantidad a piezas + comparaciones.
+        const bf = (resolvedSku && bfMap.get(resolvedSku)) || alias?.box_factor || 1;
+        const unidad = (rem.unidad || '').toUpperCase();
+        const isBox = /(CJA|CAJA|CJ|BULTO|PAQ|DISPLAY|MASTER)/.test(unidad);
+        const qtyPz = rem.cantidad != null ? (isBox ? rem.cantidad * bf : rem.cantidad) : null;
+        const qtyKep = kep ? kep.cantidad : null;
+        let qty_match: boolean | null = null;
+        if (qtyPz != null && qtyKep != null) {
+          const denom = Math.max(Math.abs(qtyKep), 1);
+          qty_match = Math.abs(qtyPz - qtyKep) / denom <= QTY_TOL;
+        }
+        let price_match: boolean | null = null;
+        if (rem.precio_unitario != null && kep && kep.costo_unitario > 0) {
+          // Precio de la remisión suele ser por unidad facturada (caja); Kepler por pieza.
+          const remUnitPz = isBox && bf > 1 ? rem.precio_unitario / bf : rem.precio_unitario;
+          const denom = Math.max(kep.costo_unitario, 0.01);
+          price_match = Math.abs(remUnitPz - kep.costo_unitario) / denom <= PRICE_TOL;
+        }
+
+        let status: ReconciledLine['status'];
+        if (!resolvedSku || !kep) status = 'sin_match';
+        else if (qty_match === false) status = 'difiere_cantidad';
+        else if (price_match === false) status = 'difiere_precio';
+        else if (qty_match === true) status = 'cuadra';
+        else status = 'revisar';
+
+        return {
+          idx, remision: rem, kepler: kep ? {
+            linea: kep.linea, sku: kep.sku, nombre: kep.nombre, unidad: kep.unidad,
+            cantidad: kep.cantidad, costo_unitario: kep.costo_unitario, importe: kep.importe,
+          } : null,
+          resolved_sku: resolvedSku, resolved_nombre: resolvedNombre, method, score,
+          box_factor: bf, qty_remision_pz: qtyPz, qty_kepler: qtyKep, qty_match, price_match,
+          status, alias_hit,
+        };
+      });
+
+      const kepler_orphans = kepler.filter((k) => !k._used).map((k) => ({
+        linea: k.linea, sku: k.sku, nombre: k.nombre, unidad: k.unidad,
+        cantidad: k.cantidad, costo_unitario: k.costo_unitario, importe: k.importe,
+      }));
+
+      const totals = {
+        lineas_remision: results.length,
+        lineas_kepler: kepler.length,
+        cuadran: results.filter((r) => r.status === 'cuadra').length,
+        difieren: results.filter((r) => r.status === 'difiere_cantidad' || r.status === 'difiere_precio').length,
+        sin_match: results.filter((r) => r.status === 'sin_match').length,
+        revisar: results.filter((r) => r.status === 'revisar').length,
+        kepler_orphans: kepler_orphans.length,
+      };
+
+      return {
+        sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
+        lines: results, kepler_orphans, totals,
+      };
+    });
+  }
+
+  /**
+   * RE.11.4 — APRENDER un match: el humano confirmó (o corrigió) que la descripción del
+   * proveedor corresponde a un SKU interno. UPSERT en `commercial.supplier_item_aliases`
+   * por `(tenant, proveedor_rfc, descripcion_norm)`: +1 veces_confirmado, confianza sube,
+   * refresca `last_seen`. La próxima remisión del mismo proveedor resuelve sola.
+   */
+  async confirmLineMatch(
+    dto: { proveedor_rfc?: string; descripcion?: string; sku?: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number },
+    actor?: string,
+  ) {
+    this.tenantCtx.requireTenantId();
+    const rfc = (dto.proveedor_rfc || '').trim().toUpperCase();
+    const descRaw = (dto.descripcion || '').trim();
+    const sku = (dto.sku || '').trim();
+    if (!rfc || !descRaw || !sku) throw new BadRequestException('proveedor_rfc, descripcion y sku requeridos');
+    const descNorm = this.normStr(descRaw);
+    if (!descNorm) throw new BadRequestException('descripcion vacía tras normalizar');
+
+    return this.tk.run(async (trx) => {
+      const bf = dto.box_factor != null && isFinite(Number(dto.box_factor)) ? Number(dto.box_factor) : null;
+      const res = await trx.raw(
+        `INSERT INTO commercial.supplier_item_aliases
+           (tenant_id, proveedor_rfc, descripcion_norm, descripcion_raw, sku, nombre_interno, unidad_proveedor, box_factor, veces_confirmado, confianza, last_seen, created_by, updated_by)
+         VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, 1, 0.7, now(), ?, ?)
+         ON CONFLICT (tenant_id, proveedor_rfc, descripcion_norm) WHERE deleted_at IS NULL
+         DO UPDATE SET
+           sku = EXCLUDED.sku,
+           nombre_interno = COALESCE(EXCLUDED.nombre_interno, commercial.supplier_item_aliases.nombre_interno),
+           unidad_proveedor = COALESCE(EXCLUDED.unidad_proveedor, commercial.supplier_item_aliases.unidad_proveedor),
+           box_factor = COALESCE(EXCLUDED.box_factor, commercial.supplier_item_aliases.box_factor),
+           veces_confirmado = commercial.supplier_item_aliases.veces_confirmado + 1,
+           confianza = LEAST(1.0, 0.6 + 0.1 * (commercial.supplier_item_aliases.veces_confirmado + 1)),
+           last_seen = now(), updated_at = now(), updated_by = EXCLUDED.updated_by
+         RETURNING id, sku, veces_confirmado, confianza::numeric AS confianza`,
+        [rfc, descNorm, descRaw, sku, dto.nombre_interno || null, (dto.unidad_proveedor || '').toUpperCase() || null, bf, actor || null, actor || null],
+      );
+      const row = res.rows?.[0];
+      this.logger.log(`alias aprendido: [${rfc}] "${descNorm}" → SKU ${sku} (x${row?.veces_confirmado}) por ${actor || '?'}`);
+      return { id: row?.id, sku: row?.sku, veces_confirmado: Number(row?.veces_confirmado), confianza: Number(row?.confianza) };
     });
   }
 
@@ -446,6 +697,43 @@ export class GoodsReceiptProofsService {
     if (ratio >= 0.14 && ratio <= 0.175) return { kind: 'iva', amount };
     if (ratio > 0.7) return { kind: 'typo', amount };
     return { kind: 'otro', amount };
+  }
+
+  /** Normaliza texto para comparar: lower + sin acentos + puntuación→espacio + colapsa. */
+  private normStr(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** Tokeniza: descarta tokens de 1 char, stopwords y unidades sueltas (ruido para el match). */
+  private tokenize(s: string): string[] {
+    const stop = new Set(['de', 'la', 'el', 'los', 'las', 'un', 'una', 'y', 'o', 'con', 'sin', 'para',
+      'pz', 'pza', 'pzs', 'pzas', 'gr', 'grs', 'kg', 'ml', 'lt', 'cja', 'caja', 'paq', 'c', 'pieza', 'piezas']);
+    return this.normStr(s).split(/\s+/).filter((t) => t.length >= 2 && !stop.has(t));
+  }
+
+  /**
+   * Similitud entre la descripción del proveedor y el nombre Kepler: cobertura de tokens
+   * (fracción de tokens de la remisión presentes en el nombre Kepler) con un pequeño bonus
+   * por el primer token (marca/identidad). 0..1. Universo chico (líneas de UNA entrada) →
+   * token-overlap alcanza; sin embeddings ni costo por recepción.
+   */
+  private lineSimilarity(remTokens: string[], kepTokens: string[]): number {
+    if (!remTokens.length || !kepTokens.length) return 0;
+    const kepSet = new Set(kepTokens);
+    const matched = remTokens.filter((t) => kepSet.has(t)).length;
+    const coverage = matched / remTokens.length;
+    // Jaccard suave para no premiar coincidencias por descripciones muy largas.
+    const union = new Set([...remTokens, ...kepTokens]).size;
+    const jaccard = matched / union;
+    let score = 0.7 * coverage + 0.3 * jaccard;
+    if (remTokens[0] && kepSet.has(remTokens[0])) score = Math.min(1, score + 0.1);
+    return score;
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {

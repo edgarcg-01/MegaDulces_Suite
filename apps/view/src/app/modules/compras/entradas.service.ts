@@ -37,6 +37,17 @@ export interface EntradasReport {
 /** Un archivo ya subido a una entrada (o su duplicado) — para reportar dónde ya vive. */
 export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
 
+/** RE.11.0 — un renglón de producto extraído de la remisión (materia prima del match por línea). */
+export interface RemisionLine {
+  descripcion: string | null;
+  cantidad: number | null;
+  unidad: string | null;
+  sku_proveedor: string | null;
+  codigo_barras: string | null;
+  precio_unitario: number | null;
+  importe: number | null;
+}
+
 /** Campos que devuelve el OCR de la remisión/factura (preview antes de guardar). */
 export interface RemisionOcr {
   folio: string | null;
@@ -51,6 +62,36 @@ export interface RemisionOcr {
   duplicate?: DuplicateHit | null; // ya subida antes (misma hoja o folio)
   // RE (#4/pkt.1) — documentos detectados en el archivo, anclados a evidencia (página + prueba).
   documents_present?: DocPresence[];
+  // RE.11.0 — renglones extraídos (para conciliación por línea).
+  lines?: RemisionLine[];
+}
+
+/** RE.11.2 — un renglón conciliado: remisión ↔ línea Kepler ↔ SKU resuelto. */
+export interface ReconciledLine {
+  idx: number;
+  remision: RemisionLine;
+  kepler: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number } | null;
+  resolved_sku: string | null;
+  resolved_nombre: string | null;
+  method: 'alias' | 'barcode' | 'descripcion' | 'sin_match';
+  score: number;
+  box_factor: number;
+  qty_remision_pz: number | null;
+  qty_kepler: number | null;
+  qty_match: boolean | null;
+  price_match: boolean | null;
+  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'sin_match';
+  alias_hit: boolean;
+}
+
+export interface ReconcileResult {
+  sucursal: string;
+  folio: string;
+  proveedor_rfc: string | null;
+  proveedor_nombre: string | null;
+  lines: ReconciledLine[];
+  kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];
+  totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number };
 }
 
 /** RE.pkt.1 — un documento detectado dentro del paquete, con su página y prueba. */
@@ -88,6 +129,7 @@ export interface ReceiptDeposit {
   ocr_iva: number | null;
   ocr_monto: number | null;
   ocr_status: string;
+  ocr_lines?: RemisionLine[];        // RE.11.0 — renglones OCR persistidos (para conciliar)
   monto_match: boolean | null;
   discrepancy_kind: string | null;   // RE.2 — cuadra/iva/typo/otro (clasificación del descuadre)
   discrepancy_amount: number | null; // RE.2 — |factura − entrada|
@@ -158,4 +200,12 @@ export class EntradasService {
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+  /** RE.11.2 — concilia los renglones de la remisión contra las líneas Kepler de la entrada. */
+  reconcile(sucursal: string, folio: string, lines: RemisionLine[]): Observable<ReconcileResult> {
+    return this.http.post<ReconcileResult>(`${this.base}/reconcile`, { sucursal, folio, lines });
+  }
+  /** RE.11.4 — aprende un match: descripción del proveedor → SKU interno. */
+  confirmLine(body: { proveedor_rfc: string; descripcion: string; sku: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number }): Observable<{ id: string; sku: string; veces_confirmado: number; confianza: number }> {
+    return this.http.post<{ id: string; sku: string; veces_confirmado: number; confianza: number }>(`${this.base}/confirm-line`, body);
+  }
 }
