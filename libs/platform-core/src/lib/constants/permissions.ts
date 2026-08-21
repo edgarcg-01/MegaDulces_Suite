@@ -207,6 +207,9 @@ export enum Permission {
   // GESTIONAR = revisor valida/rechaza.
   FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
   FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
+  // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
+  FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas

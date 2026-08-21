@@ -1145,6 +1145,31 @@ Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). He
 
 ---
 
+## ADR-046 — **Motor de Rentabilidad** (Fase MR): tres márgenes con dueño, no un margen con opinión
+
+**Estado:** Propuesto
+
+**Fecha:** 2026-08-21
+
+**Contexto:** el levantamiento de Compras fijó el problema en números — margen ~**11.5%** contra un objetivo de **15%**, y sin visualización integral de rentabilidad **en el momento de decidir**. Hoy Compras ve costo, inventario y rotación; Marketing trabaja promociones y apoyos; Comercial mueve precio y volumen; Finanzas conoce el resultado después. Las variables existen pero viven separadas, así que las tres áreas discuten opiniones en vez de discutir cómo cerrar 3.5 puntos.
+
+Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambian el alcance: (1) `commercial.order_lines` tiene **18 filas** — la venta real no pasa por la plataforma, vive en el sell-out de Kepler/Wincaja, así que el descuento al cliente es **derivado** (lista vs facturado), no capturado; (2) `catalog.products.cost_base` no tiene definición cerrada neto/bruto — si el motor resta descuentos sobre un costo que ya los trae, los **cuenta dos veces**; (3) la unidad de medida ya produjo un error real y visible: `/comercial/pricing` marcaba `CH ORBIT 4S / 40` como "bajo costo" con **$67.07 de costo contra $2.11 de precio** — costo por caja contra precio por pieza.
+
+**Decisión:**
+
+- **Tres márgenes, no uno**, cada uno con **un solo responsable**: *comercial bruto* (precio − costo → Comercial+Compras), *negociado* (+ descuentos, bonificaciones, apoyos del proveedor → Compras), *integral/contribución* (− descuentos al cliente, promos absorbidas, logística atribuible → Dirección/Finanzas). Publicar un margen único vuelve a mezclar fenómenos de dueños distintos y nadie responde por la desviación.
+- **El diccionario del margen precede al código.** MR.0 no entrega software: entrega la ficha firmada de cada componente (fórmula, fuente, nivel, periodicidad, **regla de atribución**, responsable, signo). Programar antes automatiza ambigüedades.
+- **Toda la cascada se normaliza a la unidad `kepler_ods.kdii.c11`** antes de sumar, usando la escalera `c11` / `c80`+`c81` / `c83`+`c84` (93.5% de cobertura). `catalog.products.unit_sale` **no** es fuente de unidad: dice `PZA` donde Kepler dice `PAQ` en 5,906 de 8,708 productos.
+- **Feature store, no consultas ad-hoc**: `analytics.margin_components` (grano SKU×periodo×componente) → `margin_rollup` (4 niveles) → `margin_gap_bridge` (la brecha descompuesta por palanca y responsable) + `commercial.margin_targets` (la meta es dato capturado, no constante en el código).
+- **La brecha descompuesta y los simuladores son el producto**, no un extra: un tablero que solo dice "11.5%" es BI descriptivo. Cada palanca de la descomposición es navegable a sus documentos vía el resolvedor `entity-ref` existente.
+- **Los componentes sin fuente se declaran visiblemente ausentes** (hoy: promociones propias con `commercial.promotions` en 0 filas, y costo logístico con `logistics.shipment_expenses` en 0). Un margen integral que omite un componente en silencio es peor que uno incompleto y honesto.
+
+**Alternativas consideradas:** *(a)* un único "margen integral" — rechazado: sin dueño por componente, la desviación no es accionable. *(b)* Calcular al vuelo por request — rechazado: multi-fuente y caro, y produce números distintos según quién pregunte. *(c)* Empezar por la pantalla y definir sobre la marcha — rechazado explícitamente: es la forma de automatizar ambigüedades y pagarlas caro después. *(d)* Modelar la venta en `commercial.orders` para capturar el descuento al cliente — fuera de alcance: implicaría mover la operación de venta a la plataforma.
+
+**Consecuencias:** ✅ Compras sabe qué negociar, Marketing cuánto puede invertir, Comercial hasta dónde mover el precio, Finanzas qué contribución se genera — todos sobre la misma cascada. ✅ Reusa lo que ya existe y está vivo: `erp_purchase_adjustments`, `erp_supplier_payments.descuento` (c84), `supplier_discount_policy`, `erp_goods_receipts`, `reorder_policy`, `product_sales_stats`, `entity-ref`. ⚠️ Bloqueado por dos decisiones de negocio (neto/bruto y criterio de atribución de notas de crédito a SKU) que **no** puede tomar Sistemas. ⚠️ La exactitud del descuento al cliente depende de que el sell-out traiga precio de línea — a verificar en MR.2. Hereda **ADR-016** (el motor decide, el agente comunica, el LLM fuera del camino del dinero): ningún número de la cascada lo produce un modelo. Plan en [`FASE_MR_MOTOR_RENTABILIDAD.md`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).
+
+---
+
 ## ADR-045 — **Transportes de comunicación** (cliente↔servidor y in-process): REST + Socket.IO como columna, el resto con compuerta
 
 **Estado:** Aceptado
@@ -1205,3 +1230,19 @@ Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). He
 **Consecuencias:** ✅ **arregla los DELETE** (el ODS pasa a espejo fiel — resuelve el límite #1 de ADR-046); ✅ real-time en TODAS las tablas (un solo pipe, muere el corte 15s/5min); ✅ cero md5-scan (libera CPU/IO del `:5433`). ⚠️ es un **rebuild** del shipper (poll→stream) + `wal_level` restart + manejo de slots (disco) → **fase propia con spike-gate**, no un tweak; ⚠️ correr **en sombra** (CDC vs poll autoridad) y cutover por tabla, no big-bang. `feeds-ingest`, el schema `kepler_ods` y los consumidores aguas abajo **no cambian**.
 
 **Actualización 2026-08-21 (CDC.0):** spike ✅ PASÓ — `wal_level=logical`+restart aplicados; slot `test_decoding` en `kepler_pilot` capturó 119 cambios/20s con INSERT+UPDATE+**DELETE** de tablas Kepler reales que aplica la subscription → subscriber-as-publisher + DELETE confirmados. **Hallazgo:** existe un **CDC por triggers medio construido y abandonado** (`ods-cdc-setup/forward.js`): 312/315 triggers `ENABLE ALWAYS`→`ods.change_queue` en md_03/md_02 (resto 0), **forwarder sin agendar** (piloto abandonado; a resolver). Dos caminos probados → **recomendación: WAL-decode** (el piloto abandonado mostró la fragilidad del approach por triggers: 600+ triggers huérfanos + impuesto de escritura; el WAL tiene superficie menor y monitorable) **+ retirar los triggers huérfanos**. Alternativa: terminar el piloto por triggers. Decisión pendiente. Detalle/tabla comparativa en [`FASE_CDC_ODS_LOGICAL.md`](FASES/FASE_CDC_ODS_LOGICAL.md).
+
+---
+
+### ADR-048: Cartera de clientes (CxC) — el saldo por partida se COMPUTA, no se lee
+
+**Estado:** Propuesto
+
+**Fecha:** 2026-08-21
+
+**Contexto:** replicar la pantalla Kepler *Crédito y cobranza → Estados de cuenta → Partidas vivas* (cartera de CxC: cada documento a crédito con su saldo vivo + aging). Sondeo con datos reales (`kepler_md_01` + `analytics.gl_poliza_lines` @ :5433, 2026-08-21): **ninguna tabla de Kepler materializa el saldo por partida**. `kdue` (registro de documentos) tiene `c11 = c17 = total` **siempre** (0 filas con c11≠c17) y conserva las filas ya cobradas — es el único con **fecha de vencimiento** (c10) y granularidad por documento, pero **sin saldo**. `kdm5` = aplicaciones (doc aplica $ a otro, folio aplicado en c11) pero **no está replicado al ODS**. `gl_115` (cuenta Clientes) da el neto contable por cliente pero con `referencia` texto libre + ruido de contado → solo control agregado. `erp_collections` (UA0501) = los cobros, ya lo tenemos.
+
+**Decisión:** el saldo por partida se **computa** (no se lee de una columna). **VERIFICADO 2026-08-21 contra el PDF real de Kepler (`Reporte de partidas vivas`, suc 01, grupo 1M001): `kdue` es AUTOSUFICIENTE** — guarda las facturas (`c29='C'`: `UD08` crédito, `UD05` contado) y las aplicaciones (`c29='A'`: `UA07` "Cobro CFDI", `UA21` notas, `UA25` devoluciones) como filas separadas con su `c11`. `saldo_cliente = Σ(c11 · signo)`, signo +1 cargo / −1 abono. Reproduce el "Saldo total" del PDF **al peso en 8/8 clientes** probados. `kdm5` solo se necesita para el drill por-factura (qué cobro aplicó a cuál). Cross-check `gl_115` = opcional. Read-only (hereda ADR-016): la plataforma muestra, nunca aplica cobros ni cancela partidas en el ERP.
+
+**Corrección del decode inicial:** el cobro a nivel SUCURSAL es **`UA07` "Cobro CFDI"** (dentro de `kdue`), NO `UA0501` (esa es la representación centralizada en CEDIS = `erp_collections`, que queda **fuera del camino crítico** de este reporte).
+
+**Consecuencias:** ✅ reproduce fielmente "Partidas vivas" (aging real por vencimiento `c10`) leyendo **solo `kdue`** + cierra el 360 de cobranza con la evidencia de la Fase CC. ✅ mucho más simple de lo previsto: sin FIFO, sin `erp_collections`, sin `gl_115` en el camino crítico. ⚠️ `kdm5` se agrega al set de replicación ODS solo para el drill por-factura (no bloquea el saldo). Plan + verificación en [`FASE_CXC_CARTERA_CLIENTES.md`](FASES/FASE_CXC_CARTERA_CLIENTES.md).
