@@ -17,6 +17,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ExpenseProofsSocketService } from '../expense-proofs-socket.service';
+import { money } from '../../../shared/util';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -130,6 +131,27 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     <!-- Diálogo: nueva solicitud de reembolso -->
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva solicitud de reembolso">
       <div class="cp-form">
+        <!-- Llegando desde la lista de solicitudes, la solicitud YA está en Kepler y trae
+             solicitante, beneficiario, sucursal, fecha e importe. Volver a pedirlos era
+             hacer teclear lo que el sistema ya sabe, y habilitaba que la captura
+             contradijera a Kepler. Se muestran de solo lectura y queda una sola tarea:
+             adjuntar la evidencia. -->
+        @if (desdeSolicitud(); as d) {
+          <div class="cp-fromsol">
+            <div class="cp-fromsol-h"><i class="pi pi-link" aria-hidden="true"></i> Solicitud {{ d.folio }} · ya en Kepler</div>
+            <dl class="cp-fromsol-g">
+              @if (d.solicitante) { <div><dt>Solicitante</dt><dd>{{ d.solicitante }}</dd></div> }
+              @if (d.beneficiario) { <div><dt>Beneficiario</dt><dd>{{ d.beneficiario }}</dd></div> }
+              @if (d.sucursal) { <div><dt>Sucursal</dt><dd>{{ d.sucursal }}</dd></div> }
+              @if (d.fecha) { <div><dt>Fecha</dt><dd>{{ d.fecha }}</dd></div> }
+              @if (d.importe) { <div><dt>Importe</dt><dd>{{ money(d.importe) }}</dd></div> }
+              @if (d.concepto) { <div class="cp-fromsol-wide"><dt>Concepto</dt><dd>{{ d.concepto }}</dd></div> }
+            </dl>
+            <button type="button" class="cp-fromsol-edit" (click)="desdeSolicitud.set(null)">
+              ¿Algo no coincide? Editar a mano
+            </button>
+          </div>
+        } @else {
         <label class="cp-f"><span>Solicitud de gasto (Kepler XA1501) *</span>
           <p-autocomplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
             field="label" [forceSelection]="false" [minQueryLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
@@ -153,6 +175,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         </div>
         <label class="cp-f"><span>Importe</span>
           <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+        }
 
         <div class="cp-files-head">Comprobantes</div>
         @for (slot of fileSlots; track slot.role) {
@@ -187,6 +210,20 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     </p-dialog>
   `,
   styles: [`
+    /* Resumen de la solicitud ya subida a Kepler: read-only, para que la unica tarea
+       visible sea adjuntar. Hairline sin sombra (superficie in-page). */
+    .cp-fromsol { border: 1px solid var(--border-color); border-left: 3px solid var(--ok-fg);
+      border-radius: var(--r-md); padding: .6rem .8rem; display: flex; flex-direction: column; gap: .45rem; }
+    .cp-fromsol-h { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .cp-fromsol-h i { color: var(--ok-fg); }
+    .cp-fromsol-g { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .4rem .9rem; margin: 0; }
+    .cp-fromsol-g > div { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
+    .cp-fromsol-wide { grid-column: 1 / -1; }
+    .cp-fromsol-g dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+    .cp-fromsol-g dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .cp-fromsol-edit { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit;
+      font-size: var(--fs-micro); color: var(--action); text-decoration: underline; cursor: pointer; }
+    .cp-fromsol-edit:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
     /* Mismos indicadores que la pantalla de comprobación de gastos: alcance recortado
        (el usuario ve solo sus áreas) y conexión en vivo. */
     .cg-scope { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .74rem; color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 25%, transparent); border-radius: var(--r-sm); padding: .15rem .5rem; }
@@ -238,6 +275,16 @@ export class FinanzasComprobacionesComponent {
   private readonly perms = inject(PermissionsService);
   private readonly socket = inject(ExpenseProofsSocketService);
   readonly liveConnected = this.socket.connected;
+  /** Datos de la solicitud de Kepler cuando se llega desde la lista: si están, el
+   *  formulario se reduce a adjuntar la evidencia. `null` = captura manual completa. */
+  readonly desdeSolicitud = signal<{
+    folio: string; solicitante: string | null; beneficiario: string | null;
+    sucursal: string | null; fecha: string | null; importe: number | null; concepto: string | null;
+  } | null>(null);
+  /** Dinero CON centavos (formateador compartido). Esta pantalla compara el importe de la
+   *  solicitud contra lo que lee el OCR del comprobante: redondear a pesos escondía justo
+   *  la diferencia que el cuadre está mirando. */
+  readonly money = money;
   /** Sin este permiso la bandeja viene recortada a las áreas del usuario: hay que decirlo. */
   readonly verAll = computed(() => this.perms.can('manage', 'all')
     || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true);
@@ -297,7 +344,26 @@ export class FinanzasComprobacionesComponent {
     this.svc.departamentos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((d) => this.departamentos.set(d));
     const qp = this.route.snapshot.queryParamMap;
     if (qp.get('open') === '1') {
-      this.form = { folio_solicitud: qp.get('folio_solicitud') || undefined, proveedor: qp.get('proveedor') || undefined };
+      const folio = qp.get('folio_solicitud') || '';
+      const num = (v: string | null) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : undefined; };
+      this.form = {
+        folio_solicitud: folio || undefined,
+        proveedor: qp.get('proveedor') || undefined,
+        solicitante: qp.get('solicitante') || undefined,
+        sucursal: qp.get('sucursal') || undefined,
+        importe: num(qp.get('importe')),
+        fecha_gasto: qp.get('fecha') || undefined,
+        comentarios: qp.get('concepto') || undefined,
+      };
+      if (this.form.fecha_gasto) this.fechaGasto = new Date(this.form.fecha_gasto + 'T00:00:00');
+      // Con folio hay solicitud real: se colapsa el formulario a "adjuntar evidencia".
+      if (folio) {
+        this.desdeSolicitud.set({
+          folio, solicitante: this.form.solicitante || null, beneficiario: this.form.proveedor || null,
+          sucursal: this.form.sucursal || null, fecha: this.form.fecha_gasto || null,
+          importe: this.form.importe ?? null, concepto: qp.get('concepto'),
+        });
+      }
       this.openNew(false);
     }
     this.load();
@@ -357,7 +423,7 @@ export class FinanzasComprobacionesComponent {
   }
 
   openNew(reset = true) {
-    if (reset) { this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.solicitudSel = null; }
+    if (reset) { this.desdeSolicitud.set(null); this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.solicitudSel = null; }
     else if (!this.form.solicitante) { this.form.solicitante = this.auth.user()?.username || ''; }
     this.sucursalDerivada.set('');
     this.formError.set('');
@@ -461,5 +527,4 @@ export class FinanzasComprobacionesComponent {
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
   statusLabel(s: string): string { return ({ recibida: 'Recibida', revision: 'En revisión', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s] || s; }
   statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', revision: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary'; }
-  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }

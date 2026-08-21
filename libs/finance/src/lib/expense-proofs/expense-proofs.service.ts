@@ -218,15 +218,26 @@ export class ExpenseProofsService {
   async create(dto: CreateExpenseProofDto, actor?: string) {
     this.tenantCtx.requireTenantId();
     const req = (v?: string) => (v || '').trim();
-    const solicitante = req(dto.solicitante) || actor || '';
-    const departamento = req(dto.departamento);
     const folioSolicitud = req(dto.folio_solicitud);
-    const proveedor = req(dto.proveedor);
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
-    if (!solicitante) throw new BadRequestException('solicitante requerido');
-    if (!departamento) throw new BadRequestException('departamento requerido');
     if (!folioSolicitud) throw new BadRequestException('folio de la solicitud requerido');
-    if (!proveedor) throw new BadRequestException('proveedor requerido');
+
+    // La solicitud ya subida a Kepler ES la fuente de verdad: trae solicitante,
+    // beneficiario, sucursal, fecha e importe. Pedirlos otra vez en el formulario era
+    // hacer teclear lo que el sistema ya sabe —y abría la puerta a que la captura
+    // contradiga a Kepler—. Lo que de verdad falta aportar es la evidencia.
+    // Lo que venga en el DTO sigue mandando: permite capturar una solicitud que todavía
+    // no llegó por el feed.
+    const sol = await this.lookupSolicitud(folioSolicitud);
+    const solicitante = req(dto.solicitante) || req(sol?.solicitante) || actor || '';
+    const proveedor = req(dto.proveedor) || req(sol?.beneficiario);
+    // `departamento` solo servía para derivar la sucursal; si la solicitud ya la trae,
+    // exigirlo era un trámite. Se guarda la sucursal, que es el dato que importa.
+    const sucursal = req(dto.sucursal) || req(sol?.sucursal);
+    const departamento = req(dto.departamento) || (sucursal ? `Sucursal ${sucursal}` : '');
+    if (!solicitante) throw new BadRequestException('solicitante requerido (no vino en la solicitud ni en el formulario)');
+    if (!proveedor) throw new BadRequestException('proveedor requerido (no vino en la solicitud ni en el formulario)');
+    if (!departamento) throw new BadRequestException('departamento o sucursal requerido');
     const roles = new Set(files.map((f) => f.role));
     for (const r of REQUIRED_ROLES) {
       if (!roles.has(r)) throw new BadRequestException(`falta el archivo obligatorio: ${r}`);
@@ -257,8 +268,8 @@ export class ExpenseProofsService {
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           solicitante, departamento, departamento_code: req(dto.departamento_code) || null,
-          sucursal: req(dto.sucursal) || null,
-          fecha_gasto: dto.fecha_gasto || null,
+          sucursal: sucursal || null,
+          fecha_gasto: dto.fecha_gasto || sol?.fecha || null,
           folio_solicitud: folioSolicitud, proveedor,
           importe,
           files: JSON.stringify(files),
@@ -330,6 +341,20 @@ export class ExpenseProofsService {
       // otra pantalla y buscarlo de nuevo.
       return Object.fromEntries(rows.map((r: any) => [r.folio_solicitud, { id: r.id, status: r.status }]));
     });
+  }
+
+  /**
+   * La solicitud tal como la subieron a Kepler. Es la fuente de verdad de los datos de
+   * cabecera; el formulario solo aporta la evidencia. Devuelve null si el feed todavía no
+   * la trajo — en ese caso el DTO tiene que traer los datos.
+   */
+  private async lookupSolicitud(folio: string) {
+    return this.tk.run(async (trx) =>
+      trx('analytics.expense_requests')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), folio })
+        .first('solicitante', 'beneficiario', 'sucursal', 'concepto',
+          trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`), trx.raw('importe::numeric AS importe')),
+    ) as Promise<{ solicitante?: string; beneficiario?: string; sucursal?: string; concepto?: string; fecha?: string; importe?: number } | undefined>;
   }
 
   /** El contador valida la solicitud de reembolso. */
