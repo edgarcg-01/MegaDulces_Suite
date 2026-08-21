@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed — Pricing: editar un precio ya no borra el quiebre por volumen del SKU (2026-08-21)
+- `bulkUpsertPrices` (`commercial-pricing.service.ts`) metía `min_qty ?? 1` y `tax_rate ?? 0.16` en el `MERGE` del upsert. La celda editable de `/comercial/pricing` manda sólo `{ product_id, price }`, así que **cada precio editado a mano reseteaba el mínimo de compra a 1 y el IVA a 16%** — sin toast, sin verse en la tabla (el optimistic UI sólo superpone el precio).
+- **No era cosmético:** `resolvePriceForQty` —el que cobran `commercial-orders` y `stock-reservation`— elige el precio **más bajo con `min_qty <= qty`**. Bajar un `min_qty` a 1 libera el precio de volumen para compras de 1 pieza. Medido en la base: **33,876 de 42,759 precios (79%) tienen `min_qty > 1`** y 7,372 tienen `tax_rate = 0`; 2,735 productos tienen descuento por volumen real, **9.4% promedio**. Ejemplo del smoke FIQ.3: `AMPER KALACA 473 ML` cobra $168.67 suelto y $14.05 desde 3 piezas.
+- Ahora los items se agrupan por los campos que traen y cada grupo mergea **sólo eso**: ausente = "no lo toques" (en filas nuevas lo pone el `DEFAULT` de la columna; en existentes queda intacto). Mandarlos explícitamente sigue escribiendo.
+- De paso, el `MERGE` limpia `deleted_at`/`deleted_by`: el unique es `(tenant, lista, producto)` **sin** `deleted_at`, así que quitar un precio y volver a ponerlo escribía la fila y la dejaba invisible para `listPrices` (que joinea con `pp.deleted_at IS NULL`). Latente — hoy hay 0 precios borrados.
+- Smoke nuevo `test-newdb-pricing-upsert-preserve.js` (18/18, en la regression): control del upsert viejo pisando `min_qty`, el nuevo conservándolo, escritura explícita, revivir un precio borrado, `DEFAULT` en fila nueva, y tripwire de fuente que falla si el `MERGE` vuelve a listar `min_qty`/`tax_rate` sin condición. Todo en una transacción con `ROLLBACK`.
+
 ### Fixed — RE.12: el detector de gemelas CEDIS fallaba en cada corrida (2026-08-21)
 - `detect-goods-receipt-duplicates.js` creaba la tabla temporal `_gr` **sin `tenant_id`**, pero el predicado `MATCH` —compartido con dos consultas que sí corren sobre la vista real, donde el filtro hace falta— lo referencia. Cada corrida moría con `column s.tenant_id does not exist`, visible en los logs de Postgres cada ~50 s.
 - **No era ruido:** el `INSERT` que fallaba es el que marca las copias CEDIS en `analytics.erp_goods_receipt_dedup`, y la vista `erp_goods_receipts` las lee por LEFT JOIN. Sin marcas, la vista **cuenta dos veces** las gemelas (~1,240 filas / $9.87M según el decode de RE.12). Reproducido y verificado contra la base: antes falla, después detecta **669 gemelas en 53 ms**.

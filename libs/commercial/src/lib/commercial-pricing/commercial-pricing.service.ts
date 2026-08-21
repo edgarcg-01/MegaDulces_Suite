@@ -34,6 +34,15 @@ export interface BulkUpsertProductPricesDto {
   items: UpsertProductPriceDto[];
 }
 
+/**
+ * Campos del upsert que son OPCIONALES de verdad: ausente = "no lo toques",
+ * no "ponelo en su default". `min_qty` manda el precio por cantidad
+ * (`resolvePriceForQty`) y `tax_rate` el IVA de la línea; pisarlos desde una
+ * pantalla que sólo edita el precio es pérdida silenciosa de datos.
+ */
+export const OPTIONAL_PRICE_FIELDS = ['tax_rate', 'min_qty'] as const;
+export type OptionalPriceField = (typeof OPTIONAL_PRICE_FIELDS)[number];
+
 // ─────────── salud del precio ───────────
 
 /**
@@ -628,23 +637,65 @@ export class CommercialPricingService {
       if (!pl)
         throw new NotFoundException(`PriceList ${dto.price_list_id} no encontrada`);
 
-      const rows = dto.items.map((it) => ({
-        tenant_id: trx.raw('public.current_tenant_id()'),
-        price_list_id: dto.price_list_id,
-        product_id: it.product_id,
-        price: it.price,
-        tax_rate: it.tax_rate ?? 0.16,
-        min_qty: it.min_qty ?? 1,
-        updated_at: trx.fn.now(),
-      }));
+      /**
+       * Un item que NO manda `min_qty`/`tax_rate` pide "cambiá el precio", NO
+       * "reseteá el mínimo a 1 y el IVA a 16%". Antes ambos viajaban con su
+       * default y entraban al MERGE, así que editar una celda de precio en
+       * /comercial/pricing (que sólo manda `{ product_id, price }`) borraba el
+       * quiebre por volumen del SKU. Con `resolvePriceForQty` eligiendo el
+       * precio MÁS BAJO con `min_qty <= qty`, ese reset dejaba el precio de
+       * mayoreo disponible comprando 1 pieza.
+       *
+       * Se agrupa por el set de campos presentes y cada grupo mergea SÓLO lo
+       * que trajo. Los ausentes se omiten de la sentencia: en filas nuevas los
+       * pone el DEFAULT de la columna (1 / 0.16) y en filas existentes quedan
+       * intactos.
+       */
+      const groups = new Map<string, UpsertProductPriceDto[]>();
+      for (const it of dto.items) {
+        const key = OPTIONAL_PRICE_FIELDS.filter((f) => it[f] !== undefined).join(',');
+        const g = groups.get(key);
+        if (g) g.push(it);
+        else groups.set(key, [it]);
+      }
 
-      const inserted = await trx('commercial.product_prices')
-        .insert(rows)
-        .onConflict(['tenant_id', 'price_list_id', 'product_id'])
-        .merge(['price', 'tax_rate', 'min_qty', 'updated_at'])
-        .returning('id');
+      let upserted = 0;
+      for (const [key, items] of groups) {
+        const present = (key ? key.split(',') : []) as OptionalPriceField[];
 
-      return { upserted: inserted.length };
+        const rows = items.map((it) => {
+          const row: Record<string, any> = {
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            price_list_id: dto.price_list_id,
+            product_id: it.product_id,
+            price: it.price,
+            updated_at: trx.fn.now(),
+          };
+          for (const f of present) row[f] = it[f];
+          return row;
+        });
+
+        const merge: Record<string, any> = {
+          price: trx.raw('EXCLUDED.price'),
+          updated_at: trx.fn.now(),
+          // Upsertar un precio es afirmar que existe. Sin esto, quitar un precio
+          // y volver a ponerlo escribía la fila y la dejaba invisible: el unique
+          // es (tenant, lista, producto) sin `deleted_at`, y `listPrices` joinea
+          // con `pp.deleted_at IS NULL`.
+          deleted_at: null,
+          deleted_by: null,
+        };
+        for (const f of present) merge[f] = trx.raw(`EXCLUDED.${f}`);
+
+        const inserted = await trx('commercial.product_prices')
+          .insert(rows)
+          .onConflict(['tenant_id', 'price_list_id', 'product_id'])
+          .merge(merge)
+          .returning('id');
+        upserted += inserted.length;
+      }
+
+      return { upserted };
     });
   }
 
