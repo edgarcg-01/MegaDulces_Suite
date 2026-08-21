@@ -2,17 +2,22 @@
   "00000000-0000-0000-0000-000000002222::00000000-0000-0000-0000-000000002a01": {
     "username": "isouser",
     "role_name": "superadmin",
-    "permissions": []
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
   },
   "00000000-0000-0000-0000-000000004444::00000000-0000-0000-0000-000000004a01": {
     "username": "wsisouser",
     "role_name": "superadmin",
-    "permissions": []
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
   },
   "00000000-0000-0000-0000-00000000d01c::e420e047-ad40-4f54-8a48-e0a0bb3dadd7": {
     "username": "01jzico",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -21,6 +26,7 @@
     "username": "02",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -29,6 +35,7 @@
     "username": "03",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -37,6 +44,7 @@
     "username": "04",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -45,6 +53,7 @@
     "username": "10bant",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -53,6 +62,7 @@
     "username": "10c01",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -61,6 +71,7 @@
     "username": "10c02",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -69,6 +80,7 @@
     "username": "10c03",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -77,6 +89,7 @@
     "username": "10c04",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -85,6 +98,7 @@
     "username": "40ammv",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -93,6 +107,7 @@
     "username": "40mjcc",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -101,6 +116,7 @@
     "username": "40mpnt",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -109,6 +125,7 @@
     "username": "40rmh",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -117,6 +134,7 @@
     "username": "40vmc",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -125,6 +143,7 @@
     "username": "40yscc",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -133,6 +152,7 @@
     "username": "42deve",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -141,6 +161,7 @@
     "username": "42dmar",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -149,6 +170,7 @@
     "username": "42gama",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -157,6 +179,7 @@
     "username": "42gernta",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -165,6 +188,7 @@
     "username": "42mavh",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -173,6 +197,7 @@
     "username": "42pmpb",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -181,6 +206,7 @@
     "username": "44c02",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -189,6 +215,7 @@
     "username": "44jaec",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -197,6 +224,7 @@
     "username": "44mdbt",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -205,6 +233,7 @@
     "username": "5452",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -213,6 +242,7 @@
     "username": "54bcz",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -221,6 +251,7 @@
     "username": "54cpgm",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
     ]
@@ -229,8 +260,16 @@
     "username": "54tysl",
     "role_name": "cajera",
     "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR",
       "STORE_ARQUEO_CAPTURAR",
       "STORE_ARQUEO_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::71272041-b9d1-4843-9bf3-563ef44a087b": {
+    "username": "andrea_cardenas",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::7dc8ef21-8e65-4ffd-a5db-5a31a82b9b37": {
@@ -265,6 +304,7 @@
       "COMMERCIAL_THOT_VER",
       "COMMERCIAL_WAREHOUSES_GESTIONAR",
       "COMMERCIAL_WAREHOUSES_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_EXPORTAR",
       "REPORTES_GESTIONAR",
@@ -308,6 +348,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -343,6 +384,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -393,6 +435,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_EXPORTAR",
       "REPORTES_VER_EQUIPO",
@@ -434,6 +477,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -486,6 +530,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -521,6 +566,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -556,6 +602,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -599,6 +646,7 @@
       "COMMERCIAL_THOT_VER",
       "COMMERCIAL_WAREHOUSES_GESTIONAR",
       "COMMERCIAL_WAREHOUSES_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_EXPORTAR",
       "REPORTES_GESTIONAR",
@@ -642,6 +690,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -690,6 +739,13 @@
       "VISITAS_VER"
     ]
   },
+  "00000000-0000-0000-0000-00000000d01c::cc248752-7222-4b29-8f84-5ce81eddfd4e": {
+    "username": "jorge_rubio",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
   "00000000-0000-0000-0000-00000000d01c::64400165-08be-4487-9ec2-2801006ad410": {
     "username": "jose_garcia",
     "role_name": "colaborador",
@@ -714,6 +770,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -757,6 +814,7 @@
       "COMMERCIAL_THOT_VER",
       "COMMERCIAL_WAREHOUSES_GESTIONAR",
       "COMMERCIAL_WAREHOUSES_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_EXPORTAR",
       "REPORTES_GESTIONAR",
@@ -800,6 +858,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -835,6 +894,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -870,6 +930,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -905,6 +966,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -914,6 +976,27 @@
       "VER_SEGUIMIENTO",
       "VISITAS_REGISTRAR",
       "VISITAS_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::7ec6108d-9695-494b-b82e-2c1b4cc76d54": {
+    "username": "julissa_alvarez",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::34edd73a-9d72-4743-addd-df537fba05ab": {
+    "username": "leo_cazares",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::2a48fbc2-874f-4546-ab4b-189b8353d5f6": {
+    "username": "lupita_macias",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::ebf94b7d-06f1-4e4c-82f0-7ae14cae3d59": {
@@ -940,6 +1023,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -975,6 +1059,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1010,6 +1095,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1019,6 +1105,20 @@
       "VER_SEGUIMIENTO",
       "VISITAS_REGISTRAR",
       "VISITAS_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::0f6f341c-64be-4782-a164-2062c32d69a1": {
+    "username": "omar_garnica",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::5621243c-9c5b-4cfe-a031-68e3c664a1c9": {
+    "username": "pili_damaso",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::52b0756d-b065-4fc8-b761-dd2d22771d7f": {
@@ -1049,6 +1149,13 @@
       "REPARTO_ENTREGAR",
       "ROUTE_TICKET_CAPTURE",
       "VENDOR_APP_ACCESS"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::690ba451-2b4d-412d-86fd-538d8c305106": {
+    "username": "rosy_madero",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   },
   "00000000-0000-0000-0000-00000000d01c::00000000-0000-0000-0000-00000000d0aa": {
@@ -1131,6 +1238,7 @@
       "FINANCE_BANK_VER",
       "FINANCE_COLLECTIONS_GESTIONAR",
       "FINANCE_COLLECTIONS_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "FINANCE_EXPENSES_VER",
       "FINANCE_FINDINGS_GESTIONAR",
       "FINANCE_PAYMENTS_GESTIONAR",
@@ -1286,6 +1394,7 @@
       "FINANCE_BANK_VER",
       "FINANCE_COLLECTIONS_GESTIONAR",
       "FINANCE_COLLECTIONS_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "FINANCE_EXPENSES_VER",
       "FINANCE_FINDINGS_GESTIONAR",
       "FINANCE_PAYMENTS_GESTIONAR",
@@ -1385,6 +1494,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1420,6 +1530,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1455,6 +1566,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1490,6 +1602,7 @@
       "COMMERCIAL_ROUTE_SALES_VER",
       "COMMERCIAL_SALIDAS_VER",
       "COMMERCIAL_SELLOUT_VER",
+      "FINANCE_EXPENSES_CAPTURAR",
       "LOGISTICS_TRANSFERS_VER",
       "REPORTES_VER_PROPIO",
       "SCORING_CONFIG_VER",
@@ -1499,6 +1612,20 @@
       "VER_SEGUIMIENTO",
       "VISITAS_REGISTRAR",
       "VISITAS_VER"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::7163e0fe-cdcb-4aa8-8cbc-1ab067f6b6af": {
+    "username": "viviana_kepler",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
+    ]
+  },
+  "00000000-0000-0000-0000-00000000d01c::29be873d-d644-4dff-80b1-3ea634e85823": {
+    "username": "yadira_abastos",
+    "role_name": "captura_gastos",
+    "permissions": [
+      "FINANCE_EXPENSES_CAPTURAR"
     ]
   }
 }
