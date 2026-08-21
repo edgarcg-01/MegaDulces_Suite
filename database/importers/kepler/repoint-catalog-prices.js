@@ -13,7 +13,8 @@
  * INSERT-SELECT server-side. NO borra nada.
  *
  * OJO: el COSTO casi no se puede rellenar así (Kepler `kdik` es ralo, cubre ~1/6 de los faltantes)
- * → este feed es SOLO precio. `is_promo`: no aplica (c90 real > $0.05).
+ * → este feed es precio + `is_promo`. CANON.0.2: absorbió el recálculo de `is_promo` (marca de
+ * clave promo/regalo Kepler $0.01/$0.05) que vivía en `import-prices-bulk` (.245, retirado).
  *
  *   SRC_URL = KP_CONCENTRADA (default .245)  ·  DST_URL / DATABASE_URL_NEW = destino (prod)
  *   node database/importers/kepler/repoint-catalog-prices.js            # dry-run (cuenta)
@@ -117,8 +118,56 @@ const SYNC = !process.argv.includes('--gap-fill-only');
       SELECT gen_random_uuid(), $1, '${BASE_LIST}', p.id, s.precio, COALESCE(p.iva_rate, 0), 1, now(), now()
       ${FROM}
       ${onConflict}`, [M]);
+
+    // ── CANON.0.2 — recálculo de is_promo (REUBICADO de import-prices-bulk, que se retiró) ──
+    // Los tiers P1-P4/MAYOREO eran DATO MUERTO (0 consumidores). Lo único de prices-bulk con
+    // valor era `is_promo`: la marca de clave promo/regalo Kepler ($0.01/$0.05, NO venta real).
+    // Se recalcula acá desde la MISMA fuente fresca (kdii.c90, no la tabla .245 muerta), 3 pases,
+    // tolerante a prod sin la columna (mig 20260706150000). Corre en el mismo trx del sync.
+    const hasPromo = (await dst.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='catalog' AND table_name='products' AND column_name='is_promo'`)).rowCount > 0;
+    let promoMsg = 'is_promo: columna ausente, skip';
+    if (hasPromo) {
+      // Pase 1 (PRECIO, BIDIRECCIONAL): promo = precio Kepler MÁX (retail, excl CEDIS) ≤ $0.05.
+      // Si el SKU reaparece con precio real (>0.05, reúso de clave para producto real), el flag se
+      // LIMPIA solo. stg_promo = max(c90) por SKU sobre TODO kdii (incl las filas $0.01 de promo).
+      const promoSrc = (await readSrc.query(`
+        SELECT btrim(c1) AS sku, max(c90::numeric) AS maxp
+          FROM ${KSCHEMA}.kdii
+         WHERE btrim(coalesce(c1,'')) <> '' AND btrim(sucursal) <> '00'
+         GROUP BY btrim(c1)`)).rows;
+      await dst.query(`CREATE TEMP TABLE stg_promo (sku text PRIMARY KEY, maxp numeric) ON COMMIT DROP`);
+      for (let i = 0; i < promoSrc.length; i += BATCH) {
+        const chunk = promoSrc.slice(i, i + BATCH);
+        const vals = chunk.map((_, ri) => `($${ri * 2 + 1},$${ri * 2 + 2})`);
+        const params = [];
+        for (const r of chunk) params.push(r.sku, r.maxp);
+        await dst.query(`INSERT INTO stg_promo (sku, maxp) VALUES ${vals.join(',')}
+          ON CONFLICT (sku) DO UPDATE SET maxp=GREATEST(stg_promo.maxp, EXCLUDED.maxp)`, params);
+      }
+      const promo = await dst.query(`
+        UPDATE catalog.products p SET is_promo = (s.maxp <= 0.05), updated_at = now()
+        FROM stg_promo s
+        WHERE p.tenant_id=$1 AND p.sku = s.sku AND p.is_promo IS DISTINCT FROM (s.maxp <= 0.05)`, [M]);
+      // Pase 2 (COSTO): claves promo/regalo Kepler ($0.01 placeholder) SIN precio en kdii → el
+      // pase 1 no las evalúa; costo en (0, 0.05] es la señal precisa. EXCLUYE costo=0 a propósito
+      // (ahí suele ser costo FALTANTE de un producto real, no promo). Solo MARCA true.
+      const promoCost = await dst.query(`
+        UPDATE catalog.products SET is_promo = true, updated_at = now()
+        WHERE tenant_id=$1 AND deleted_at IS NULL AND is_promo = false
+          AND cost_base IS NOT NULL AND cost_base > 0 AND cost_base <= 0.05`, [M]);
+      // Pase 3 (NOMBRE): trade-promo "compra X = GRATIS Y" sin precio ni costo. El '=' es la firma
+      // (— "30% GRATIS"/"+172ML GRATIS" son productos reales SIN '=' → no se tocan). Guard de costo.
+      const promoName = await dst.query(`
+        UPDATE catalog.products SET is_promo = true, updated_at = now()
+        WHERE tenant_id=$1 AND deleted_at IS NULL AND is_promo = false
+          AND upper(nombre) LIKE '%= GRATIS%' AND (cost_base IS NULL OR cost_base <= 0.05)`, [M]);
+      promoMsg = `is_promo recalculado: ${promo.rowCount} (precio c90≤$0.05, bidireccional) + ${promoCost.rowCount} (costo) + ${promoName.rowCount} (nombre "= GRATIS")`;
+    }
+
     await dst.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${res.rowCount} precios base ${SYNC ? 'sincronizados (insert+update churn-free)' : 'insertados (sin pisar)'}.`);
+    console.log(`\n[APPLY] COMMIT — ${res.rowCount} precios base ${SYNC ? 'sincronizados (insert+update churn-free)' : 'insertados (sin pisar)'} · ${promoMsg}.`);
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

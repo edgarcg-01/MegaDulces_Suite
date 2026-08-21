@@ -166,8 +166,14 @@ const STEPS = {
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
-    path.join(DIR, 'import-catalog-bulk.js'),
-    path.join(DIR, 'import-prices-bulk.js'),
+    // CANON.0.2 (2026-08-21) — RETIRADOS los 2 escritores .245 (Mega_Dulces) → mata la fuente .245 (7→6):
+    //   · import-catalog-bulk.js  — su COSTO ya lo cubre repoint-catalog-cost (CANON.0.1); nombre/precio/
+    //     presencia/barcode los cubren los repoints ODS (CANON.1.3). Los campos ESTÁTICOS que solo él
+    //     escribía (category_id/description/unit_purchase/factor_purchase/location/loyalty/iva_purchase) se
+    //     CONGELAN en su valor actual (cambian poco; category_id ya estaba deprecado/inconsistente).
+    //   · import-prices-bulk.js   — tiers P1-P4/MAYOREO = DATO MUERTO (0 clientes fuera de BASE-MXN). Su
+    //     único valor, el recálculo de is_promo, se REUBICÓ a repoint-catalog-prices (misma fuente kdii.c90).
+    // Ambos .js quedan como fallback manual histórico (y semilla de un futuro mayoreo real desde kdpv_prod_util).
     path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
   ],
   // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:

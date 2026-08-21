@@ -63,17 +63,29 @@ Todo lo Kepler-derivado lee el ODS; los 17 `prod`-transforms se quedan (no son o
       (backlog DQ de normalización de unidad; quedan intactos — 91059 ya estaba MAL hoy, pre-existente). ODS cubre
       **8,627/8,797 (98.1%)** del cost_base; 170 residuales sin kdik ni c90 quedan como están. El costo per-caja de
       kdik ya lo leía catalog-bulk desde las 6 sucursales (no de .245) → matarlo NO amenaza la frescura del costo.
-- [ ] **CANON.0.2** — retirar los dos escritores .245 del modo `catalog`:
-      - **`import-prices-bulk` (tiers P1-P4/MAYOREO)** → **DATO MUERTO**: verificado 2026-08-20 que **los 282 clientes
-        están en BASE-MXN; CERO usan MAYOREO/P1-P4**. Retirarlo = impacto CERO. Pendiente: reubicar el recálculo de
-        `is_promo` (hoy vive en prices-bulk) antes de sacarlo. Si algún día se necesita mayoreo real, se construye
-        desde `kepler_ods.kdpv_prod_util` (qty-break nativo: c4/c5=rango, c6=precio, c7=costo) como feature deliberada
-        — NO se arrastra la dependencia .245 para data sin consumidores.
-      - **`import-catalog-bulk` (costo ya cubierto por CANON.0.1)** → falta dar hogar ODS a los campos ESTÁTICOS que
-        hoy SOLO él escribe del snapshot: `category_id`, `description`, `location`/`location_warehouse`, `loyalty_points`,
-        `factor_purchase`, `unit_purchase`, `iva_purchase_rate`/`ieps_purchase_rate`. Cambian poco → backfill ODS único
-        o congelar en el valor actual. `presence` ya cubre alta de SKUs nuevos; falta que herede `category_id`.
-      - repuntar `thot-build-features` (lee .245) → mata reversión de identidad @02:00.
+- [x] **CANON.0.2** ✅ 2026-08-21 — retirados los dos escritores .245 del modo `catalog` + repuntado thot →
+      **`Mega_Dulces` .245 queda con CERO lectores agendados (7→6 orígenes de frescura).**
+      - **`import-prices-bulk`** RETIRADO del `catalog` mode. Los tiers P1-P4/MAYOREO = DATO MUERTO (0 clientes
+        fuera de BASE-MXN). Su único valor, el recálculo de **`is_promo`**, se **REUBICÓ a `repoint-catalog-prices`**
+        (mismo trx del sync, misma fuente fresca `kepler_ods.kdii.c90`, 3 pases precio/costo/nombre). Validado vs prod
+        (solo-lectura): 219 promos por precio + cost/name passes; FLIP sano 25→true / 11→false. El .js queda como
+        fallback histórico + semilla de un mayoreo real futuro desde `kepler_ods.kdpv_prod_util`.
+      - **`import-catalog-bulk`** RETIRADO del `catalog` mode. Costo ya lo cubre CANON.0.1; nombre/precio/presencia/
+        barcode los repoints ODS (CANON.1.3); factor_sale box-factor; el CFDI-facturado (iva_rate/ieps_rate) se
+        **CONGELA**. Los campos ESTÁTICOS que solo él escribía (description/unit_purchase/factor_purchase/location/
+        loyalty/iva_purchase) se congelan en su valor actual (cambian poco). **`category_id` NO se hereda a propósito**:
+        verificado que está deprecado/inconsistente y **sin consumidor vivo** (los `categoria` de libs son de
+        `inventory.products`/ajustes de compra, no de `catalog.products.category_id`) → propagarlo sería arrastrar dato
+        muerto; new-SKU category_id=NULL degrada limpio (los lectores caen a marca/línea). Si algún día se quiere una
+        taxonomía real, se construye fresca desde `kdie`/`kdig`, no del código .245 muerto.
+      - **`thot-build-features` REPUNTADO** (era el ÚLTIMO lector de `Mega_Dulces`, vía `DATABASE_URL_REMOTE_SNAPSHOT`):
+        · **affinity ← `kepler_ods.kdm1`/`kdm2`** (basket = documento (suc,c4,c5,c6); join verificado; U/D/10; 365d;
+        co≥15). Basket físico correcto (sin el folio-reuse cross-día que inflaba el original). Dry-run: 25,072
+        afinidades dirigidas (~1,003 productos) — frescas y más correctas que las 49,751 histórico-.245.
+        · **zone_demand ← prod-local `analytics.product_sales_monthly`** + `zonaOf(code)` (mapa sucursal→ciudad
+        best-effort; el mapeo cliente→zona real nunca existió; peso 0.5, opcional). Dry-run: 16,909 filas / 4 zonas
+        reales (perdió el bucket basura "Desconocida" de .245). revenue = units × precio base (los lectores usan
+        demand_index/rank, no revenue). Corre same-DB en el nightly (sin egress; DATABASE_URL_NEW debe ser prod).
 
 ### Fase 1 — repuntar los lectores de KP_CONCENTRADA a `kepler_ods` (1-2 sem)
 KP_CONCENTRADA @4h cross-LAN → ODS @min same-DB. Todas las tablas confirmadas en el ODS.
