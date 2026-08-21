@@ -13,6 +13,9 @@ export interface ProofFile { role: ProofFileRole | string; url: string; public_i
 
 export interface Departamento { code: string; nombre: string; sucursal: string; }
 
+/** Último comprobante de una solicitud: qué estado tiene y cuál es, para poder actuar. */
+export interface ProofByFolio { id: string; status: ProofStatus | string; }
+
 export interface ExpenseProof {
   id: string;
   solicitante: string;
@@ -93,5 +96,7 @@ export class ComprobacionesService {
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.base}/departamentos`); }
   /** (C) folio_solicitud → estado, para el indicador en Solicitudes. */
-  statusByFolio(): Observable<Record<string, string>> { return this.http.get<Record<string, string>>(`${this.base}/status-by-folio`); }
+  /** Estado + ID del último comprobante por folio de solicitud. El ID permite validar o
+   *  rechazar desde donde se esté viendo, sin saltar a otra pantalla a buscarlo. */
+  statusByFolio(): Observable<Record<string, ProofByFolio>> { return this.http.get<Record<string, ProofByFolio>>(`${this.base}/status-by-folio`); }
 }

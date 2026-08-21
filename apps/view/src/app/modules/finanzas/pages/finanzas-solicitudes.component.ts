@@ -17,7 +17,14 @@ import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
-import { ComprobacionesService } from '../comprobaciones.service';
+import { ComprobacionesService, ProofByFolio } from '../comprobaciones.service';
+import { ExpenseProofsSocketService } from '../expense-proofs-socket.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
+import { MessageService } from 'primeng/api';
 import { ComprobacionGastosService } from '../comprobacion-gastos.service';
 
 /**
@@ -28,15 +35,18 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
+      <p-toast />
       <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
           <p class="surf-page-sub">Solicitudes (XA1501) y su aplicación a gasto (XA1001) · estado, solicitante y días de proceso · fuente Kepler</p>
+          @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
         </div>
       </header>
 
@@ -104,7 +114,21 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
                   </button>
                 }
                 @if (proofStatus()[r.folio]; as ps) {
-                  <div class="so-proof" [ngClass]="'ps-' + ps"><i class="pi" [ngClass]="proofIcon(ps)"></i> Comprobante {{ proofLabel(ps) }}</div>
+                  <div class="so-proof" [ngClass]="'ps-' + ps.status"><i class="pi" [ngClass]="proofIcon(ps.status)"></i> Comprobante {{ proofLabel(ps.status) }}</div>
+                  <!-- Se resuelve donde se ve. Antes el estado era solo texto y para
+                       validarlo había que irse a otra pantalla y buscar el folio de nuevo. -->
+                  @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
+                    <div class="so-acts">
+                      <button type="button" class="so-act so-ok" [disabled]="actingId() === ps.id"
+                              (click)="validar(r, ps.id)" [attr.aria-label]="'Validar el comprobante de ' + r.folio">
+                        <i class="pi pi-check" aria-hidden="true"></i> Validar
+                      </button>
+                      <button type="button" class="so-act so-no" [disabled]="actingId() === ps.id"
+                              (click)="rechazar(r, ps.id)" [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
+                        <i class="pi pi-times" aria-hidden="true"></i> Rechazar
+                      </button>
+                    </div>
+                  }
                 }
                 @if (compStatus()[r.folio]; as cs) {
                   <div class="so-proof" [ngClass]="'ps-' + cs"><i class="pi" [ngClass]="proofIcon(cs)"></i> Comprobación {{ proofLabel(cs) }}</div>
@@ -118,6 +142,20 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
       </div>
       }
     </div>
+
+    <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
+              [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobante">
+      <p class="so-empty" style="text-align:left;padding:0 0 .6rem">
+        Solicitud <strong>{{ rejectTarget?.r?.folio }}</strong>. El motivo lo lee quien capturó, así que decí qué corregir.
+      </p>
+      <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" style="width:100%"
+                placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
+      <ng-template #footer>
+        <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" severity="danger" [disabled]="!rejectMotivo.trim()" (click)="confirmarRechazo()">
+          <span class="p-button-label">Rechazar</span></button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -136,6 +174,21 @@ import { ComprobacionGastosService } from '../comprobacion-gastos.service';
     .so-link i { font-size: .78rem; color: var(--ok-fg); }
     .so-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .so-proof { font-size: .72rem; display: inline-flex; align-items: center; gap: .3rem; margin-top: .15rem; }
+    /* Acciones de fila: ghost, reveladas en la celda, con area tactil de 24px minimo.
+       El color no es el unico portador — cada boton lleva icono y texto. */
+    .so-acts { display: inline-flex; gap: .3rem; margin-top: .25rem; }
+    .so-act { display: inline-flex; align-items: center; gap: .25rem; min-height: 24px; padding: .1rem .4rem;
+      font: inherit; font-size: .72rem; cursor: pointer; background: transparent;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--text-muted); }
+    .so-act:hover:not(:disabled) { background: var(--overlay-hover); }
+    .so-act:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .so-act:disabled { opacity: .45; cursor: default; }
+    .so-act i { font-size: .68rem; }
+    .so-ok:hover:not(:disabled) { color: var(--ok-fg); border-color: var(--ok-fg); }
+    .so-no:hover:not(:disabled) { color: var(--bad-fg); border-color: var(--bad-fg); }
+    /* Mismo indicador que el resto de las bandejas de Finanzas. */
+    .so-live { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; font-size: .72rem; color: var(--ok-fg); }
+    .so-live i { font-size: .55rem; }
     .so-proof i { font-size: .72rem; }
     .so-proof.ps-recibida { color: var(--warn-fg); }
     .so-proof.ps-validada { color: var(--ok-fg); }
@@ -151,7 +204,9 @@ export class FinanzasSolicitudesComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
-  readonly proofStatus = signal<Record<string, string>>({});
+  readonly proofStatus = signal<Record<string, ProofByFolio>>({});
+  /** Fila en curso: el boton se apaga en el 1er clic, sincrono, para que no se dispare dos veces. */
+  readonly actingId = signal<string | null>(null);
   readonly compStatus = signal<Record<string, string>>({});
 
   kpiItems(r: ExpenseRequestsReport): MetricStripItem[] {
@@ -174,6 +229,12 @@ export class FinanzasSolicitudesComponent {
     { label: 'Cancelada', value: 'C' }, { label: 'Nueva', value: 'N' },
   ];
 
+  private readonly toast = inject(MessageService);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+  private readonly socket = inject(ExpenseProofsSocketService);
+  readonly liveConnected = this.socket.connected;
+
   sucursal: string[] = [];
   estado: string | null = null;
   solicitante: string | null = null;
@@ -191,6 +252,13 @@ export class FinanzasSolicitudesComponent {
     this.compGastos.statusBySolicitud().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((m) => this.compStatus.set(m || {}));
     this.load();
+    // Realtime: si otro sube o resuelve un comprobante, esta lista se entera sola.
+    this.socket.connect();
+    this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((m) => this.proofStatus.set(m || {}));
+    });
+    this.destroyRef.onDestroy(() => this.socket.disconnect());
   }
 
   setAplicada(v: string) { this.aplicadaSel.set(v); this.load(); }
@@ -216,6 +284,48 @@ export class FinanzasSolicitudesComponent {
   }
 
   /** Atajo a Reembolsos con el folio de la solicitud + proveedor pre-llenados. */
+  /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas. */
+  readonly puedeResolver = computed(() => this.perms.can('manage', 'all')
+    || this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
+
+  validar(r: ExpenseRequestRow, id: string) { this.resolver(r, id, 'validar'); }
+  /** El motivo se pide en un diálogo, igual que en comprobación de gastos: `prompt()`
+   *  bloquea el hilo, no se puede estilar y se ve como un error del navegador. */
+  readonly showReject = signal(false);
+  rejectTarget: { r: ExpenseRequestRow; id: string } | null = null;
+  rejectMotivo = '';
+
+  rechazar(r: ExpenseRequestRow, id: string) {
+    this.rejectTarget = { r, id }; this.rejectMotivo = ''; this.showReject.set(true);
+  }
+  confirmarRechazo() {
+    const t = this.rejectTarget;
+    const motivo = (this.rejectMotivo || '').trim();
+    // Sin motivo no se rechaza: quien capturó tiene que saber qué corregir.
+    if (!t || !motivo) return;
+    this.showReject.set(false);
+    this.resolver(t.r, t.id, 'rechazar', motivo);
+  }
+
+  private resolver(r: ExpenseRequestRow, id: string, accion: 'validar' | 'rechazar', motivo?: string) {
+    if (this.actingId()) return;
+    this.actingId.set(id);
+    const req = accion === 'validar' ? this.comprobaciones.validate(id) : this.comprobaciones.reject(id, motivo);
+    req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        // Optimista: la fila cambia ya y el WS confirma. Sin esperar una recarga completa.
+        this.proofStatus.update((m) => ({ ...m, [r.folio]: { id, status: accion === 'validar' ? 'validada' : 'rechazada' } }));
+        this.actingId.set(null);
+        this.toast.add({ severity: 'success', summary: accion === 'validar' ? 'Validado' : 'Rechazado', detail: `Solicitud ${r.folio}` });
+      },
+      error: (e) => {
+        this.actingId.set(null);
+        this.toast.add({ severity: 'error', summary: 'No se pudo aplicar',
+          detail: e?.error?.message || 'Reintentá; si sigue, revisá permisos.' });
+      },
+    });
+  }
+
   comprobar(r: ExpenseRequestRow) {
     this.router.navigate(['/finanzas/comprobaciones'], {
       queryParams: { open: '1', folio_solicitud: r.folio || '', proveedor: r.beneficiario || '' },
