@@ -326,9 +326,25 @@ export class FinanzasSolicitudesComponent {
     });
   }
 
+  /**
+   * Adjuntar la evidencia de esta solicitud.
+   *
+   * Viaja TODO lo que la solicitud ya tiene en Kepler (solicitante, beneficiario,
+   * sucursal, fecha, importe, concepto): del otro lado eso colapsa el formulario a una
+   * sola tarea —subir los archivos— en vez de pedir de nuevo lo que el sistema ya sabe.
+   */
   comprobar(r: ExpenseRequestRow) {
     this.router.navigate(['/finanzas/comprobaciones'], {
-      queryParams: { open: '1', folio_solicitud: r.folio || '', proveedor: r.beneficiario || '' },
+      queryParams: {
+        open: '1',
+        folio_solicitud: r.folio || '',
+        proveedor: r.beneficiario || '',
+        solicitante: r.solicitante || '',
+        sucursal: r.sucursal || '',
+        fecha: r.fecha ? String(r.fecha).slice(0, 10) : '',
+        importe: r.importe || '',
+        concepto: r.concepto || '',
+      },
     });
   }
 
