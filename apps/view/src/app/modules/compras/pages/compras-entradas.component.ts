@@ -1533,10 +1533,17 @@ export class ComprasEntradasComponent {
     const ocrMeta = !dep ? 'sin remisión adjunta'
       : ocr == null ? 'el OCR no leyó el total'
       : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
+    // Q.2 también acá: los renglones son el SUBTOTAL (cantidad x costo, kdm2) y el total de
+    // Kepler (c16) va con impuestos, así que casi siempre difieren. Dejar la diferencia a la
+    // vista sin explicarla hace dudar de un dato que está bien — y en dulcería no es solo
+    // IVA: hay IEPS, por eso no se afirma "16%" salvo que el número lo confirme.
     const nLin = this.plural(d.lineas.length, 'renglón', 'renglones');
-    const lineasMeta = conIva ? `${nLin} · sin IVA (Kepler suma el 16%)`
-      : this.lineasCuadra(d) ? `${nLin} · igual al total`
-      : nLin;
+    const dImp = Number((kepler - lineas).toFixed(2));
+    const lineasMeta =
+      Math.abs(dImp) <= E ? `${nLin} · igual al total, sin impuestos`
+      : conIva ? `${nLin} · subtotal; Kepler suma el IVA (+${money(dImp)})`
+      : dImp > 0 ? `${nLin} · subtotal; Kepler suma impuestos (+${money(dImp)})`
+      : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
 
     if (!dep) {
       return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
