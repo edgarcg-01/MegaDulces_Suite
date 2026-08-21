@@ -39,12 +39,36 @@ export interface DiagSnapshot {
   longTaskN: number;
   /** Tarea larga más grande vista (ms): un solo bloqueo enorme cuenta distinto que muchos chicos. */
   longTaskMax: number;
+  /** Segundos con la interfaz trabada. Ver `FreezeSample`. */
+  freezes: FreezeSample[];
   since: string;
+}
+
+/**
+ * Un segundo de vida de la interfaz.
+ *
+ * Mide lo que ninguna otra señal capta: la pantalla congelada. Si los datos llegan, no
+ * hay peticiones colgadas y tampoco tareas largas, pero igual "no responde", lo que suele
+ * pasar es un bucle de render — miles de tareas de 5 ms. Ninguna califica como tarea
+ * larga y el navegador nunca vuelve a pintar a tiempo. Contando cuadros por segundo eso
+ * se ve de inmediato.
+ */
+export interface FreezeSample {
+  at: string;
+  /** Cuadros pintados en ese segundo. Sano ~60; por debajo de 20 la interfaz se siente trabada. */
+  fps: number;
+  /** El salto más grande entre cuadros (ms). Un valor alto = congelada de golpe. */
+  gapMs: number;
+  /** Ruta activa en ese momento: dice DÓNDE se traba. */
+  url: string;
 }
 
 const KEY = 'app_diag';
 const MAX_EVENTS = 60;
 const FLUSH_MS = 1000;
+/** Solo se guardan los segundos MALOS: los buenos no se investigan y llenarían el registro. */
+const FREEZE_FPS = 20;
+const MAX_FREEZES = 40;
 
 @Injectable({ providedIn: 'root' })
 export class DiagnosticsRecorderService {
@@ -54,6 +78,7 @@ export class DiagnosticsRecorderService {
   private longTaskMs = 0;
   private longTaskN = 0;
   private longTaskMax = 0;
+  private freezes: FreezeSample[] = [];
   private since = new Date().toISOString();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
@@ -65,6 +90,7 @@ export class DiagnosticsRecorderService {
     this.restore();
     this.watchRouter();
     this.watchLongTasks();
+    this.watchFrames();
     // Un cuelgue suele terminar en recarga o en cerrar la pestaña: hay que dejar
     // el registro escrito ANTES de eso, no después.
     addEventListener('pagehide', () => this.flush(true));
@@ -96,6 +122,7 @@ export class DiagnosticsRecorderService {
       longTaskMs: Math.max(this.longTaskMs, stored.longTaskMs),
       longTaskN: Math.max(this.longTaskN, stored.longTaskN),
       longTaskMax: Math.max(this.longTaskMax, stored.longTaskMax),
+      freezes: [...(stored.freezes || []), ...this.freezes].slice(-MAX_FREEZES),
       since: stored.since < this.since ? stored.since : this.since,
     };
   }
@@ -103,6 +130,7 @@ export class DiagnosticsRecorderService {
   clear(): void {
     this.events = [];
     this.longTaskMs = this.longTaskN = this.longTaskMax = 0;
+    this.freezes = [];
     this.since = new Date().toISOString();
     try { localStorage.removeItem(KEY); } catch { /* sin storage: se sigue grabando en memoria */ }
   }
@@ -134,6 +162,39 @@ export class DiagnosticsRecorderService {
     } catch { /* Safari no lo soporta */ }
   }
 
+  /**
+   * Cuenta cuadros por segundo. Con la pestaña oculta el navegador deja de pintar a
+   * propósito, así que ese caso se descarta: sería un falso positivo constante.
+   */
+  private watchFrames(): void {
+    let frames = 0;
+    let last = performance.now();
+    let gap = 0;
+    let bucketStart = last;
+    const tick = () => {
+      const now = performance.now();
+      const d = now - last;
+      if (d > gap) gap = d;
+      last = now;
+      frames++;
+      if (now - bucketStart >= 1000) {
+        if (document.visibilityState === 'visible' && frames < FREEZE_FPS) {
+          this.freezes.push({
+            at: new Date().toISOString(),
+            fps: frames,
+            gapMs: Math.round(gap),
+            url: location.pathname,
+          });
+          if (this.freezes.length > MAX_FREEZES) this.freezes.shift();
+          this.schedule();
+        }
+        frames = 0; gap = 0; bucketStart = now;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
   private push(ev: DiagEvent): void {
     this.events.push(ev);
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
@@ -157,7 +218,7 @@ export class DiagnosticsRecorderService {
       const s = raw ? JSON.parse(raw) : null;
       if (s && Array.isArray(s.events)) return s as DiagSnapshot;
     } catch { /* json corrupto: se arranca de cero */ }
-    return { events: [], longTaskMs: 0, longTaskN: 0, longTaskMax: 0, since: this.since };
+    return { events: [], longTaskMs: 0, longTaskN: 0, longTaskMax: 0, freezes: [], since: this.since };
   }
 
   private restore(): void {
