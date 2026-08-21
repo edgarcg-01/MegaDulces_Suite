@@ -1187,3 +1187,19 @@ Plan en [`FASES/FASE_INFRA_WORKER_TIER.md`](FASES/FASE_INFRA_WORKER_TIER.md). He
 **Límites duros (no todo es vista):** (1) el ODS **no propaga hard-DELETE** → las tablas con bajas siguen siendo transform con DELETE; (2) **RLS no aplica a vistas** → `commercial.*`/`catalog.*` tenant-scoped repuntan SRC pero siguen materializadas; (3) el skew per-sucursal es inherente a 6 servidores (se reduce, no se elimina).
 
 **Consecuencias:** ✅ menos eslabones = menos superficie de staleness y de falla. ✅ same-DB (cero egress, sin cross-LAN @4h). ✅ un solo linaje por entidad → mata el split-brain. ⚠️ requiere reemplazo ODS ANTES de matar Mega_Dulces (cost_base/tiers sin escritor si no — §7-R6). ⚠️ ejecución por lotes con dry-run compare (no big-bang). Hereda ADR-016 y la regla derivar-no-copiar del modelo canónico.
+
+---
+
+### ADR-047: ODS por CDC (logical decoding del `:5433`) en vez de poll
+
+**Estado:** Propuesto
+
+**Fecha:** 2026-08-21
+
+**Contexto:** el shipper que alimenta `kepler_ods.*` en prod (`replicate-ods-live`, dos loops: `OdsLiveLoop` @15s + `OdsFullMirror` @5min) trabaja por **polling**: carril ctid (append-only, lee `ctid > watermark`, barato) + carril hash (catálogos mutables, **re-lee la tabla ENTERA + md5 de cada fila** vs un shadow local para hallar el delta). Tres problemas: (1) **no propaga hard-DELETE** — es el límite duro #1 de ADR-046: el `:5433` sí borra (mirror real vía replicación lógica de Kepler) pero prod se queda con SKUs descontinuados/folios cancelados para siempre; (2) quema **CPU/IO local** re-escaneando tablas que no cambiaron; (3) latencia = cadencia del poll (5min el frío). **Hecho habilitador (verificado 2026-08-21):** el `:5433` ya es *subscriber* de los 6+CEDIS (7 subs activas) → el **WAL del `:5433` ya tiene el flujo exacto de cambios** (INSERT/UPDATE/DELETE en orden de commit). Pregunta de Edgar: *"¿no se puede replicación lógica también y solo mandar los cambios en el :5433?"* — sí, es CDC en cascada.
+
+**Decisión:** alimentar el ODS por **Change Data Capture** — un consumidor de **logical decoding** lee el WAL del `:5433` (publication + slot por branch DB) y empuja **solo los cambios reales, incluidos DELETE**, a `feeds-ingest` (ingress gratis, **hereda ADR-035**: el sink y la economía no cambian, solo se agrega el op `delete`). El consumidor vive en la LAN (la nube no puede jalar hacia adentro + hay que fusionar 7→1 con columna `sucursal`), reemplaza el poll de `replicate-ods-live`, y mantiene el transform (`sucursal`, PK `(sucursal,c1)`). El **poll queda como cargador de snapshot inicial y fallback** (no se borra). Consumidor recomendado: `pg-logical-replication` (Node, in-process). Plan y riesgos en [`FASE_CDC_ODS_LOGICAL.md`](FASES/FASE_CDC_ODS_LOGICAL.md).
+
+**Límites / prerequisitos duros:** (1) `:5433` está en `wal_level=replica` → subir a `logical` + **restart** del container pgvector-md (afecta dev + los 7 kepler_md_XX; breve); (2) **retención de WAL**: un slot lógico retiene WAL hasta que el consumidor confirma → si muere/atrasa, **llena disco** → mitigar con `max_slot_wal_keep_size` + sensor de lag del slot; (3) **subscriber-as-publisher**: los cambios que aplica la subscription de Kepler deben re-publicarse en cascada — **gate del spike CDC.0**; (4) TOAST/filas grandes (kdmx/bitácora) pueden requerir `REPLICA IDENTITY FULL`.
+
+**Consecuencias:** ✅ **arregla los DELETE** (el ODS pasa a espejo fiel — resuelve el límite #1 de ADR-046); ✅ real-time en TODAS las tablas (un solo pipe, muere el corte 15s/5min); ✅ cero md5-scan (libera CPU/IO del `:5433`). ⚠️ es un **rebuild** del shipper (poll→stream) + `wal_level` restart + manejo de slots (disco) → **fase propia con spike-gate**, no un tweak; ⚠️ correr **en sombra** (CDC vs poll autoridad) y cutover por tabla, no big-bang. `feeds-ingest`, el schema `kepler_ods` y los consumidores aguas abajo **no cambian**.
