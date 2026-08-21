@@ -602,12 +602,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (!user) return [];
     // Reparto: superficie de personal de tienda; nav propio, sin depender del dashboard completo.
     if (this.currentProject() === 'reparto') {
-      return this.dedupeByRoute(this.repartoNavItems);
+      return this.dedupeByRoute(this.repartoNavItems.filter((i) => this.hasPermFor(i)));
     }
     // Finanzas: superficie contable con nav propio, sin depender del dashboard completo
-    // (un usuario de finanzas puede no tener REPORTES_VER_*). El route-guard ya gatea acceso.
+    // (un usuario de finanzas puede no tener REPORTES_VER_*). Cada item por su permiso:
+    // el route-guard bloquea la navegación pero no oculta el link.
     if (this.currentProject() === 'finanzas') {
-      return this.dedupeByRoute(this.flatOf(this.finanzasNavGroups));
+      return this.dedupeByRoute(this.flatOf(this.finanzasNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Contabilidad: superficie contable/fiscal propia. Un rol contable puede no tener
     // REPORTES_VER_* → early-return para que el sidebar no quede vacío. Cada item por permiso.
@@ -615,8 +616,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
+    // Cada item por su permiso: sin esto, dar COMPRAS_ENTRADAS_VER a un auxiliar le
+    // mostraba las 12 vistas del módulo y al hacer clic rebotaba en el route-guard.
     if (this.currentProject() === 'compras') {
-      return this.dedupeByRoute(this.flatOf(this.comprasNavGroups));
+      return this.dedupeByRoute(this.flatOf(this.comprasNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Tienda: superficie de sucursal (cajeras/encargados). Un rol `sucursal` no tiene
     // REPORTES_VER_* → sin este early-return el nav de tienda no renderizaría. Cada item
@@ -669,18 +672,21 @@ export class LayoutComponent implements OnInit, OnDestroy {
     const user = this.user();
     if (!user) return [];
     // Cada superficie agrupa sus submódulos por dominio (títulos de sección), como
-    // Trade/Comercial. `false` = no filtrar por permiso (acceso ya gateado por el route-guard).
+    // Trade/Comercial. TODAS filtran por permiso: el route-guard bloquea la
+    // navegación pero NO oculta el link, así que sin filtrar el sidebar mostraba
+    // el módulo completo y al hacer clic rebotaba. Efecto reportado: dar
+    // COMPRAS_ENTRADAS_VER a un auxiliar "le daba acceso a todo Compras".
     if (this.currentProject() === 'reparto') {
-      return [{ title: 'Reparto', items: this.dedupeByRoute(this.repartoNavItems) }];
+      return this.mapGroups([{ title: 'Reparto', items: this.repartoNavItems }], true);
     }
     if (this.currentProject() === 'finanzas') {
-      return this.mapGroups(this.finanzasNavGroups, false);
+      return this.mapGroups(this.finanzasNavGroups, true);
     }
     if (this.currentProject() === 'contabilidad') {
       return this.mapGroups(this.contabilidadNavGroups, true);
     }
     if (this.currentProject() === 'compras') {
-      return this.mapGroups(this.comprasNavGroups, false);
+      return this.mapGroups(this.comprasNavGroups, true);
     }
     if (this.currentProject() === 'tienda') {
       return this.mapGroups(this.tiendaNavGroups, true);
