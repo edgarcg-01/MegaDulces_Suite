@@ -9,6 +9,8 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
+import { TextareaModule } from 'primeng/textarea';
+import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -46,7 +48,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, TextareaModule, SkeletonModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -72,7 +74,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
       </header>
 
       @if (primeraCarga()) {
-        <div class="so-sk-head" aria-hidden="true"></div>
+        <p-skeleton height="4.4rem" styleClass="so-sk-head" />
       } @else if (report(); as r) {
         @if (r.kpis.total > 0) {
           <!-- Q.1 — la conclusión del periodo antes que el grid. Q.2 — con su lectura
@@ -164,8 +166,10 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                      columna aparte: es la lectura de ESE número, no otro dato. -->
                 <td>
                   @if (r.aplicada) {
-                    <button type="button" class="so-link" (click)="verGasto(r)" [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
-                      <i class="pi pi-check-circle" aria-hidden="true"></i> {{ r.gasto_folio || 'Aplicada' }}
+                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verGasto(r)"
+                            [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
+                      <span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span>
+                      <span class="p-button-label num">{{ r.gasto_folio || 'Aplicada' }}</span>
                     </button>
                     @if (r.lead_days != null) {
                       <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span>
@@ -180,28 +184,38 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                      el folio de nuevo. -->
                 <td>
                   @if (proofStatus()[r.folio]; as ps) {
-                    <div class="so-proof" [ngClass]="'ps-' + ps.status"><i class="pi" [ngClass]="proofIcon(ps.status)" aria-hidden="true"></i> Comprobante {{ proofLabel(ps.status) }}</div>
-                    @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
-                      <div class="so-acts">
-                        <button type="button" class="so-act so-ok" [disabled]="actingId() === ps.id"
-                                (click)="validar(r, ps.id)" [attr.aria-label]="'Validar el comprobante de ' + r.folio">
-                          <i class="pi pi-check" aria-hidden="true"></i> Validar
+                    <div class="so-ev">
+                      <span class="so-ev-k">Comprobante</span>
+                      <p-tag [value]="proofLabel(ps.status)" [severity]="proofSev(ps.status)" [icon]="'pi ' + proofIcon(ps.status)" styleClass="so-tag" />
+                      <!-- Validar/Rechazar de fila: icon-button ghost, igual que la
+                           bandeja de capturas de bancos, que resuelve lo mismo. -->
+                      @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
+                        <button pButton type="button" class="p-button-sm p-button-text so-rowbtn" [disabled]="actingId() === ps.id"
+                                (click)="validar(r, ps.id)" title="Validar el comprobante"
+                                [attr.aria-label]="'Validar el comprobante de ' + r.folio">
+                          <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
                         </button>
-                        <button type="button" class="so-act so-no" [disabled]="actingId() === ps.id"
-                                (click)="rechazar(r, ps.id)" [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
-                          <i class="pi pi-times" aria-hidden="true"></i> Rechazar
+                        <button pButton type="button" severity="danger" class="p-button-sm p-button-text so-rowbtn" [disabled]="actingId() === ps.id"
+                                (click)="rechazar(r, ps.id)" title="Rechazar el comprobante"
+                                [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
+                          <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
                         </button>
-                      </div>
-                    }
+                      }
+                    </div>
                   } @else if (!r.aplicada) {
-                    <button type="button" class="so-link so-comprobar" (click)="comprobar(r)" [attr.aria-label]="'Subir la evidencia de ' + r.folio">
-                      <i class="pi pi-upload" aria-hidden="true"></i> Adjuntar evidencia
+                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="comprobar(r)"
+                            [attr.aria-label]="'Subir la evidencia de ' + r.folio">
+                      <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
+                      <span class="p-button-label">Adjuntar evidencia</span>
                     </button>
                   } @else {
                     <span class="faint">—</span>
                   }
                   @if (compStatus()[r.folio]; as cs) {
-                    <div class="so-proof" [ngClass]="'ps-' + cs"><i class="pi" [ngClass]="proofIcon(cs)" aria-hidden="true"></i> Comprobación {{ proofLabel(cs) }}</div>
+                    <div class="so-ev">
+                      <span class="so-ev-k">Comprobación</span>
+                      <p-tag [value]="proofLabel(cs)" [severity]="proofSev(cs)" [icon]="'pi ' + proofIcon(cs)" styleClass="so-tag" />
+                    </div>
                   }
                 </td>
               </tr>
@@ -216,7 +230,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
       <p class="so-dlg-hint">
         Solicitud <strong>{{ rejectTarget?.r?.folio }}</strong>. El motivo lo lee quien capturó, así que decí qué corregir.
       </p>
-      <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" class="so-dlg-txt"
+      <textarea pTextarea [(ngModel)]="rejectMotivo" rows="3" class="so-dlg-txt"
                 placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
@@ -243,9 +257,8 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     .so-drill:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     app-metric-strip { display: block; margin-bottom: var(--sp-3); }
     /* Reserva el alto del veredicto mientras carga: sin esto la tabla salta (CLS). */
-    .so-sk-head { height: 4.4rem; border-radius: var(--r-md); background: var(--hover-bg);
-      margin-bottom: var(--sp-3); animation: fb-pulse 1.4s ease-in-out infinite; }
-    @media (prefers-reduced-motion: reduce) { .so-sk-head { animation: none; } }
+    p-skeleton { display: block; }
+    .so-sk-head { margin-bottom: var(--sp-3); }
 
     /* ── Barra de herramientas de la tabla ──────────────────────────────── */
     /* .card-premium global trae padding + box-shadow; in-page la elevación es SOLO
@@ -281,35 +294,24 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     .so-cell-meta { display: block; margin-top: 1px; font-size: var(--fs-xs); color: var(--fg-3); }
     .so-trunc { display: block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    /* ── Acciones de celda ──────────────────────────────────────────────── */
-    .so-link { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--tap-min, 24px);
-      padding: 0 2px; border: 0; background: transparent; color: var(--action); font: inherit;
-      font-size: var(--fs-xs); cursor: pointer; }
-    .so-link:hover { text-decoration: underline; }
-    .so-link:active { color: var(--action-press); }
-    .so-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; border-radius: var(--r-sm); }
-    .so-link i { font-size: var(--fs-xs); color: var(--ok-fg); }
-    .so-comprobar i { color: var(--action); }
-    /* Ghost, con área táctil mínima. El color no es único portador — cada botón
-       lleva icono y texto. */
-    .so-acts { display: inline-flex; gap: var(--sp-1); margin-top: var(--sp-1); }
-    .so-act { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--tap-min, 24px);
-      padding: 0 var(--sp-2); font: inherit; font-size: var(--fs-xs); cursor: pointer; background: transparent;
-      border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--fg-2); }
-    .so-act:hover:not(:disabled) { background: var(--overlay-hover); }
-    .so-act:active:not(:disabled) { background: var(--overlay-active); }
-    .so-act:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .so-act:disabled { opacity: .45; cursor: default; }
-    .so-act i { font-size: var(--fs-nano); }
-    .so-ok:hover:not(:disabled) { color: var(--ok-fg); border-color: var(--ok-fg); }
-    .so-no:hover:not(:disabled) { color: var(--bad-fg); border-color: var(--bad-fg); }
+    /* ── Acciones de celda ──────────────────────────────────────────────
+       El botón es de PrimeNG (.p-button-text): hover, active, disabled, foco y
+       severity ya vienen tokenizados. Acá solo se ajusta la métrica para que
+       entre en una fila densa — override de tamaño, no un botón nuevo. */
+    .so-cellbtn { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
+    /* --tap-min vale 0px en puntero fino (densidad) y 44px en coarse: el fallback de
+       var() NO aplica a un valor definido, así que el piso va con max(). */
+    .so-rowbtn { min-width: max(1.75rem, var(--tap-min)); min-height: max(1.75rem, var(--tap-min)); padding: 0; }
+    .so-rowbtn .p-button-icon { font-size: var(--fs-xs); }
 
-    /* ── Estado de la evidencia ─────────────────────────────────────────── */
-    .so-proof { display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: 1px; font-size: var(--fs-xs); }
-    .so-proof i { font-size: var(--fs-xs); }
-    .so-proof.ps-recibida, .so-proof.ps-revision { color: var(--warn-fg); }
-    .so-proof.ps-validada { color: var(--ok-fg); }
-    .so-proof.ps-rechazada { color: var(--bad-fg); }
+    /* ── Estado de la evidencia ─────────────────────────────────────────
+       El estado es un p-tag con severity, no un texto coloreado a mano: así lo
+       mapea el tema en claro y en oscuro, y el color deja de ser el portador. */
+    .so-ev { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin-top: 1px; }
+    .so-ev-k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3); }
+    /* styleClass aterriza dentro del template de p-tag, fuera del scope del
+       componente: ::ng-deep es como lo hace el resto de Finanzas. */
+    :host ::ng-deep .so-tag { font-size: var(--fs-micro); }
 
     /* ── Diálogo ────────────────────────────────────────────────────────── */
     .so-dlg-hint { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
@@ -569,6 +571,9 @@ export class FinanzasSolicitudesComponent {
 
   proofLabel(s: string): string { return ({ recibida: 'recibido', revision: 'en revisión', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
   proofIcon(s: string): string { return ({ recibida: 'pi-clock', revision: 'pi-eye', validada: 'pi-check-circle', rechazada: 'pi-times-circle' } as Record<string, string>)[s] || 'pi-file'; }
+  proofSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' {
+    return ({ recibida: 'warn', revision: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary';
+  }
   leadTexto(d: number): string { return d === 0 ? 'el mismo día' : `en ${d} ${d === 1 ? 'día' : 'días'}`; }
 
   /** Abre el gasto ligado en el detalle de egresos. */
