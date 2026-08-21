@@ -1,6 +1,7 @@
 # Fase CXC — Cartera de clientes / Partidas vivas (Cuentas por Cobrar)
 
-> **Estado:** 🔨 DISEÑADO (planeación) · 2026-08-21 · fuente de datos **VERIFICADA con datos reales** (sondeos sobre `kepler_md_01` + `analytics.gl_poliza_lines` @ :5433)
+> **Estado:** 🟢 MVP CONSTRUIDO (beta local) · 2026-08-21 · CXC.0–3 ✅ · builds api+view verde · saldo **cuadra al peso vs el PDF real 8/8 clientes**. Commits `0825f91f` (data+backend) + `c9ffc47e` (frontend).
+> **Pendiente prod:** aplicar migs `20260821160000` (tabla) + `20260821160100` (permiso) a Railway · correr `import-customer-receivables.js` desde la LAN (lee POS remotos md_01..06; local le falta md_03) · re-login (permiso en JWT) · agendar el importer (cron). **Diferido:** kdm5 para el drill exacto cobro→factura · decode "grupo"/"zona" · vista live sobre `kepler_ods.kdue` (como evolucionó `erp_collections`) · verificación visual del `/finanzas/cartera`.
 > **Tesis:** replicar la pantalla Kepler **Crédito y cobranza → Estados de cuenta → Partidas vivas** como estado de cuenta de CxC (cada documento a crédito con su **saldo vivo** + aging, por cliente/sucursal/vendedor/zona/grupo). **Read-only sobre Kepler**, espejo exacto del módulo CxP (`supplier-invoice-ledger`, CXP.8): motor computa / humano lee (hereda ADR-016 / ADR-028).
 > **ADR propuesto:** ADR-048 — Cartera de clientes: el saldo por partida **NO se materializa en ninguna tabla de Kepler → se COMPUTA** (documentos `kdue` − aplicaciones `kdm5`/cobros `erp_collections`), con la balanza contable (`gl_115`) como cuadre de control. Mismo patrón que CxP contra la 201.
 
