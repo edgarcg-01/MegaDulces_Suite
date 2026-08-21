@@ -96,6 +96,55 @@ const APP_SOURCES: SourceCfg[] = [
             FROM agg`,
     warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
   },
+  // ── AUDITORÍA FRESCURA 2026-08-20 (lección sucursal 00): dead-man's switches POR-ENTIDAD que el
+  //    max() GLOBAL no ve. Cada uno alarma si UNA fuente se congela mientras el resto avanza. ──
+  // (P0-1) Stock CEDIS '00': el sensor 'stock' usa max(updated_at) GLOBAL → 01-06 enmascaran un freeze
+  //        del '00' (Wincaja Irapuato con guard "no borra si vacío" sirve existencia vieja). El CEDIS es
+  //        alta-actividad → si su stock no se movió en 24-48h es congelamiento real, no falta de venta.
+  {
+    key: 'stock_cedis_00', label: 'Stock CEDIS 00 (no enmascarado por 01-06)', table: 'commercial.stock', tsCandidates: [],
+    sql: `SELECT max(s.updated_at)::timestamp AS last_update,
+                 'CEDIS 00 · última act. ' || coalesce(to_char(max(s.updated_at) AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—') ||
+                 ' · ' || count(*)::text || ' SKUs' AS note_extra
+            FROM commercial.stock s
+            JOIN commercial.warehouses w ON w.id=s.warehouse_id AND w.tenant_id=s.tenant_id
+           WHERE w.code='00'`,
+    warnH: 30, critH: 72, cadence: 'stock @15min + nightly (Wincaja Irapuato)',
+  },
+  // (P0-4/5) Oficinas '00' en el ODS: las vistas erp_supplier_payments/erp_collections derivan de
+  //          kepler_ods.kdm1 sucursal='00'. La 00 entró a la replicación lógica 2026-08-20; este sensor
+  //          detecta si vuelve a congelarse (última fecha de movimiento REAL, sin la basura futura de c9).
+  {
+    key: 'kepler_ods_00_stale', label: 'Kepler ODS — oficinas 00 (finanzas)', table: 'kepler_ods.kdm1', tsCandidates: [],
+    sql: `SELECT max(c9::date)::timestamp AS last_update,
+                 'oficinas 00 · último mov. ' || coalesce(to_char(max(c9::date),'DD/MM'),'—') AS note_extra
+            FROM kepler_ods.kdm1
+           WHERE sucursal='00' AND c9::date <= current_date AND c9::date > current_date - 30`,
+    warnH: 48, critH: 120, cadence: 'continuo (replica lógica md_00 → OdsLiveLoop)',
+  },
+  // (P0-2) Flota GPS: vehicle_positions es FUENTE ÚNICA; el FleetPoller @1min no late en cron_runs → si
+  //        el poller muere (o faltan creds MAGNI en prod) el mapa sigue verde con datos viejos. Verde si
+  //        no hay trackers vinculados (fleet no configurada en este env); alarma si los hay y no llega posición.
+  {
+    key: 'fleet_positions', label: 'Flota GPS (posiciones vivas)', table: 'logistics.vehicle_positions', tsCandidates: [],
+    sql: `WITH linked AS (SELECT count(*) n FROM logistics.trackers WHERE vehicle_id IS NOT NULL AND active AND deleted_at IS NULL)
+          SELECT CASE WHEN (SELECT n FROM linked)=0 THEN now()
+                      ELSE (SELECT max(captured_at) FROM logistics.vehicle_positions) END::timestamp AS last_update,
+                 CASE WHEN (SELECT n FROM linked)=0 THEN 'sin trackers vinculados (fleet inactiva)'
+                      ELSE (SELECT n FROM linked)::text || ' trackers · última posición ' ||
+                           coalesce(to_char((SELECT max(captured_at) FROM logistics.vehicle_positions) AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—') END AS note_extra`,
+    warnH: 3, critH: 12, cadence: 'continuo @1min (FleetPollerService)',
+  },
+  // (P0-3) Conciliación bancaria: bank_statements se carga MANUAL mensual por CLI, sin cron ni latido. Un
+  //        mes olvidado congela la conciliación en silencio. Sensor por MAX(period) → el último mes cargado
+  //        vence a fin de mes + margen (last_update = inicio del mes siguiente al último conciliado).
+  {
+    key: 'bank_recon_period', label: 'Conciliación bancaria (mes cargado)', table: 'finance.bank_statements', tsCandidates: [],
+    sql: `SELECT (to_date(max(period),'YYYY-MM') + interval '1 month')::timestamp AS last_update,
+                 'último mes conciliado ' || coalesce(max(period),'—') AS note_extra
+            FROM finance.bank_statements`,
+    warnH: 720, critH: 1080, cadence: 'mensual manual (CLI por workbook)',
+  },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
