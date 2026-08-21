@@ -33,6 +33,18 @@ const APPLY = process.argv.includes('--apply');
 // mataba a los 20min dejando node huérfanos que bloqueaban las corridas siguientes
 // (incidente 2026-08-05). Con esto, un paso colgado se mata y el batch sigue.
 const STEP_TIMEOUT_MIN = Number(process.env.FEED_STEP_TIMEOUT_MIN) || 10;
+// Override de timeout para importers PESADOS que no caben en el default. import-stock-movements
+// hace el pase 120d de kdm1⋈kdm2 en las 6 sucursales (delete+reinsert por ventana) → tardaba
+// >10 min y el nightly lo mataba (exit 124), dejando /almacen/movimientos sin el backstop de
+// correcciones viejas. Le damos presupuesto propio SIN tocar su lógica ni recortar la ventana
+// 120d. El pase intradía (ventana corta) hereda el override pero termina mucho antes → inocuo.
+// Nota: la versión kepler_ods single-DB (mata el fan-out per-branch) es el fix de fondo pendiente.
+const STEP_TIMEOUT_OVERRIDE_MIN = { 'import-stock-movements.js': 30 };
+const timeoutMinFor = (script) => Math.max(STEP_TIMEOUT_MIN, STEP_TIMEOUT_OVERRIDE_MIN[path.basename(script)] || 0);
+// Techo real de duración de un paso (para el sweep de huérfanos): nunca barrer un paso que
+// legítimamente puede correr hasta su override (si no, un intraday concurrente mataría el
+// stock-movements 120d del nightly a los 13 min).
+const MAX_STEP_MIN = Math.max(STEP_TIMEOUT_MIN, ...Object.values(STEP_TIMEOUT_OVERRIDE_MIN));
 const DIR = path.join('database', 'importers');
 const K = path.join(DIR, 'kepler');
 const SCRIPTS = path.join('database', 'scripts');
@@ -257,11 +269,12 @@ function run(script) {
       if (currentChild === proc) currentChild = null;
       resolve(code);
     };
+    const mins = timeoutMinFor(script);
     const timer = setTimeout(() => {
-      console.error(`⏱️  TIMEOUT ${STEP_TIMEOUT_MIN} min — ${script} colgado, matando y sigo`);
+      console.error(`⏱️  TIMEOUT ${mins} min — ${script} colgado, matando y sigo`);
       killTree(proc);
       finish(124);
-    }, STEP_TIMEOUT_MIN * 60 * 1000);
+    }, mins * 60 * 1000);
     proc.on('close', (code) => finish(code ?? 1));
     proc.on('error', (e) => { console.error(`No se pudo ejecutar ${script}: ${e.message}`); finish(1); });
   });
@@ -276,7 +289,7 @@ function sweepStaleOrphans(steps) {
   const names = [...new Set(steps.map((s) => path.basename(s)))].join(',');
   try {
     const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
-      '-Names', names, '-MaxAgeMin', String(STEP_TIMEOUT_MIN + 3), '-SelfPid', String(process.pid)],
+      '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
       { encoding: 'utf8', timeout: 30000 });
     const out = (r.stdout || '').trim();
     if (out) console.log('🧹 huérfanos previos:\n   ' + out.replace(/\n/g, '\n   '));
