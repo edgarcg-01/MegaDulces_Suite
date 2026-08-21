@@ -451,9 +451,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Gastos',
       items: [
+        // Dos destinos, dos roles: el autorizador trabaja el tablero, el capturista sube.
+        // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
         { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
-        { label: 'Reembolsos', icon: 'pi pi-receipt', route: '/finanzas/comprobaciones', permission: Permission.FINANCE_EXPENSES_VER },
-        { label: 'Comprobación de gastos', icon: 'pi pi-check-circle', route: '/finanzas/comprobacion-gastos', permission: Permission.FINANCE_EXPENSES_VER },
+        { label: 'Capturar gasto', icon: 'pi pi-receipt', route: '/finanzas/capturar-gasto', permission: Permission.FINANCE_EXPENSES_CAPTURAR },
       ],
     },
     {

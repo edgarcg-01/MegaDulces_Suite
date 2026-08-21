@@ -56,12 +56,6 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
-    label: 'Reembolsos',
-    route: '/finanzas/comprobaciones',
-    icon: 'pi pi-receipt',
-    permission: Permission.FINANCE_EXPENSES_VER,
-  },
-  {
     label: 'Capturar gasto',
     route: '/finanzas/capturar-gasto',
     icon: 'pi pi-upload',

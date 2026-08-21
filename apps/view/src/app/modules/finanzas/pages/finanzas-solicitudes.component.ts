@@ -10,7 +10,6 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { TextareaModule } from 'primeng/textarea';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
@@ -20,6 +19,8 @@ import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { ExpenseEvidencePeekComponent } from '../components/expense-evidence-peek.component';
+import { ExpenseEvidenceDialogComponent } from '../components/expense-evidence-dialog.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
 import { ComprobacionesService, ProofByFolio } from '../comprobaciones.service';
 import { ExpenseProofsSocketService } from '../expense-proofs-socket.service';
@@ -27,7 +28,6 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ToastModule } from 'primeng/toast';
-import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { ComprobacionGastosService } from '../comprobacion-gastos.service';
 import { datePresetRange, money, moneyShort } from '../../../shared/util';
@@ -49,7 +49,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, TextareaModule, SkeletonModule, ButtonModule, ToastModule, DialogModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -198,37 +198,21 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                   }
                 </td>
 
-                <!-- Lo que tenemos nosotros. Se resuelve donde se ve: antes el estado era
-                     solo texto y para validarlo había que irse a otra pantalla y buscar
-                     el folio de nuevo. -->
+                <!-- Lo que tenemos nosotros. El estado abre el EXPEDIENTE: validar sin ver
+                     la foto era justo el defecto que tenía la bandeja que se retiró. -->
                 <td>
                   @if (proofStatus()[r.folio]; as ps) {
-                    <div class="so-ev">
+                    <button type="button" class="so-evbtn" (click)="verExpediente(r)"
+                            [attr.aria-label]="'Ver el expediente de ' + r.folio">
                       <span class="so-ev-k">Comprobante</span>
                       <p-tag [value]="proofLabel(ps.status)" [severity]="proofSev(ps.status)" [icon]="'pi ' + proofIcon(ps.status)" styleClass="so-tag" />
-                      <!-- Validar/Rechazar de fila: icon-button ghost, igual que la
-                           bandeja de capturas de bancos, que resuelve lo mismo. -->
-                      @if (puedeResolver() && (ps.status === 'recibida' || ps.status === 'revision')) {
-                        <button pButton type="button" class="p-button-sm p-button-text so-rowbtn" [disabled]="actingId() === ps.id"
-                                (click)="validar(r, ps.id)" title="Validar el comprobante"
-                                [attr.aria-label]="'Validar el comprobante de ' + r.folio">
-                          <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
-                        </button>
-                        <button pButton type="button" severity="danger" class="p-button-sm p-button-text so-rowbtn" [disabled]="actingId() === ps.id"
-                                (click)="rechazar(r, ps.id)" title="Rechazar el comprobante"
-                                [attr.aria-label]="'Rechazar el comprobante de ' + r.folio">
-                          <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
-                        </button>
-                      }
-                    </div>
-                  } @else if (!r.aplicada) {
-                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="comprobar(r)"
-                            [attr.aria-label]="'Subir la evidencia de ' + r.folio">
+                    </button>
+                  } @else {
+                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
+                            [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
                       <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
                       <span class="p-button-label">Adjuntar evidencia</span>
                     </button>
-                  } @else {
-                    <span class="faint">—</span>
                   }
                   @if (compStatus()[r.folio]; as cs) {
                     <div class="so-ev">
@@ -244,19 +228,14 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
       </div>
     </div>
 
-    <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
-              [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobante">
-      <p class="so-dlg-hint">
-        Solicitud <strong>{{ rejectTarget?.r?.folio }}</strong>. El motivo lo lee quien capturó, así que decí qué corregir.
-      </p>
-      <textarea pTextarea [(ngModel)]="rejectMotivo" rows="3" class="so-dlg-txt"
-                placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
-      <ng-template #footer>
-        <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="danger" [disabled]="!rejectMotivo.trim()" (click)="confirmarRechazo()">
-          <span class="p-button-label">Rechazar</span></button>
-      </ng-template>
-    </p-dialog>
+    <!-- Expediente: Kepler + evidencia + decisión, sin perder la lista. -->
+    <app-expense-evidence-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)"
+                               [solicitud]="sel()" [proofId]="selProofId()" [puedeResolver]="puedeResolver()"
+                               (resolved)="trasResolver()" (attach)="adjuntar(sel()!)" />
+
+    <!-- Captura: sólo los archivos. Todo lo demás lo pone Kepler. -->
+    <app-expense-evidence-dialog [open]="dlgOpen()" (openChange)="dlgOpen.set($event)"
+                                 [solicitud]="sel()" (saved)="trasAdjuntar($event)" />
   `,
   styles: [FINANZAS_SHARED_STYLES, `
     :host { display: block; }
@@ -325,8 +304,11 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     .so-cellbtn { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
     /* --tap-min vale 0px en puntero fino (densidad) y 44px en coarse: el fallback de
        var() NO aplica a un valor definido, así que el piso va con max(). */
-    .so-rowbtn { min-width: max(1.75rem, var(--tap-min)); min-height: max(1.75rem, var(--tap-min)); padding: 0; }
-    .so-rowbtn .p-button-icon { font-size: var(--fs-xs); }
+    /* El estado de evidencia ES el botón que abre el expediente. */
+    .so-evbtn { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: max(1.5rem, var(--tap-min));
+      padding: 0 2px; border: 0; background: transparent; font: inherit; cursor: pointer; }
+    .so-evbtn:hover { background: var(--overlay-hover); border-radius: var(--r-sm); }
+    .so-evbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; border-radius: var(--r-sm); }
 
     /* ── Estado de la evidencia ─────────────────────────────────────────
        El estado es un p-tag con severity, no un texto coloreado a mano: así lo
@@ -338,8 +320,6 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     :host ::ng-deep .so-tag { font-size: var(--fs-micro); }
 
     /* ── Diálogo ────────────────────────────────────────────────────────── */
-    .so-dlg-hint { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
-    .so-dlg-txt { width: 100%; font-size: var(--fs-sm); }
   `],
 })
 export class FinanzasSolicitudesComponent {
@@ -353,8 +333,6 @@ export class FinanzasSolicitudesComponent {
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
   readonly proofStatus = signal<Record<string, ProofByFolio>>({});
-  /** Fila en curso: el botón se apaga en el 1er clic, síncrono, para que no se dispare dos veces. */
-  readonly actingId = signal<string | null>(null);
   readonly compStatus = signal<Record<string, string>>({});
 
   readonly rows = computed(() => this.report()?.rows || []);
@@ -601,64 +579,28 @@ export class FinanzasSolicitudesComponent {
   readonly puedeResolver = computed(() => this.perms.can('manage', 'all')
     || this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
 
-  validar(r: ExpenseRequestRow, id: string) { this.resolver(r, id, 'validar'); }
-  /** El motivo se pide en un diálogo, igual que en comprobación de gastos: `prompt()`
-   *  bloquea el hilo, no se puede estilar y se ve como un error del navegador. */
-  readonly showReject = signal(false);
-  rejectTarget: { r: ExpenseRequestRow; id: string } | null = null;
-  rejectMotivo = '';
+  // ── Expediente y captura, en la misma pantalla ───────────────────────────
+  // Antes esto vivía en /finanzas/comprobaciones: una bandeja aparte que volvía a pedir
+  // lo que Kepler ya tiene. Acá la fila ES la bandeja; el detalle y la captura son
+  // organismos que se abren encima.
+  readonly sel = signal<ExpenseRequestRow | null>(null);
+  readonly peekOpen = signal(false);
+  readonly dlgOpen = signal(false);
+  readonly selProofId = computed(() => {
+    const f = this.sel()?.folio;
+    return f ? (this.proofStatus()[f]?.id ?? null) : null;
+  });
 
-  rechazar(r: ExpenseRequestRow, id: string) {
-    this.rejectTarget = { r, id }; this.rejectMotivo = ''; this.showReject.set(true);
-  }
-  confirmarRechazo() {
-    const t = this.rejectTarget;
-    const motivo = (this.rejectMotivo || '').trim();
-    // Sin motivo no se rechaza: quien capturó tiene que saber qué corregir.
-    if (!t || !motivo) return;
-    this.showReject.set(false);
-    this.resolver(t.r, t.id, 'rechazar', motivo);
-  }
+  verExpediente(r: ExpenseRequestRow) { this.sel.set(r); this.peekOpen.set(true); }
+  adjuntar(r: ExpenseRequestRow) { this.sel.set(r); this.peekOpen.set(false); this.dlgOpen.set(true); }
 
-  private resolver(r: ExpenseRequestRow, id: string, accion: 'validar' | 'rechazar', motivo?: string) {
-    if (this.actingId()) return;
-    this.actingId.set(id);
-    const req = accion === 'validar' ? this.comprobaciones.validate(id) : this.comprobaciones.reject(id, motivo);
-    req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        // Optimista: la fila cambia ya y el WS confirma. Sin esperar una recarga completa.
-        this.proofStatus.update((m) => ({ ...m, [r.folio]: { id, status: accion === 'validar' ? 'validada' : 'rechazada' } }));
-        this.actingId.set(null);
-        this.toast.add({ severity: 'success', summary: accion === 'validar' ? 'Validado' : 'Rechazado', detail: `Solicitud ${r.folio}` });
-      },
-      error: (e) => {
-        this.actingId.set(null);
-        this.toast.add({ severity: 'error', summary: 'No se pudo aplicar',
-          detail: e?.error?.message || 'Reintentá; si sigue, revisá permisos.' });
-      },
-    });
+  trasResolver() {
+    this.toast.add({ severity: 'success', summary: 'Resuelto', detail: `Solicitud ${this.sel()?.folio ?? ''}` });
+    this.refreshProofs();
   }
-
-  /**
-   * Adjuntar la evidencia de esta solicitud.
-   *
-   * Viaja TODO lo que la solicitud ya tiene en Kepler (solicitante, beneficiario,
-   * sucursal, fecha, importe, concepto): del otro lado eso colapsa el formulario a una
-   * sola tarea —subir los archivos— en vez de pedir de nuevo lo que el sistema ya sabe.
-   */
-  comprobar(r: ExpenseRequestRow) {
-    this.router.navigate(['/finanzas/comprobaciones'], {
-      queryParams: {
-        open: '1',
-        folio_solicitud: r.folio || '',
-        proveedor: r.beneficiario || '',
-        solicitante: r.solicitante || '',
-        sucursal: r.sucursal || '',
-        fecha: r.fecha ? String(r.fecha).slice(0, 10) : '',
-        importe: r.importe || '',
-        concepto: r.concepto || '',
-      },
-    });
+  trasAdjuntar(folio: string) {
+    this.toast.add({ severity: 'success', summary: 'Evidencia adjuntada', detail: `Solicitud ${folio}` });
+    this.refreshProofs();
   }
 
   proofLabel(s: string): string { return ({ recibida: 'recibido', revision: 'en revisión', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
