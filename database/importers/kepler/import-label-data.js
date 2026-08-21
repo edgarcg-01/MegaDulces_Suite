@@ -2,148 +2,55 @@
 /**
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
- * Fuente = `kepler_ods.*` en prod (same-DB, @min; CANON.1.2). Une las 6 sucursales (col `sucursal`).
- * Fallback `--source=kp` = CONCENTRADA `kp.*` en .245. Reconcilia precios entre sucursales por la MISMA
- * regla que BASE-MXN (CANON.1.2b): EXCLUIR CEDIS (sucursal 00 = mayoreo) + MODA de c90 entre retail
- * (01-06); fallback a CEDIS si el SKU no tiene retail. Así etiqueta = base (landmine #13). El piso
- * c90>0.05 excluye placeholders de promo ($0.01/$0.05).
+ * BACKSTOP RECONCILIADOR nocturno (full-catálogo). La frescura AL-MOMENTO la da el hop-2
+ * `normalizeLabelsFromOds` en services/feeds-ingest/apply-handlers.js (se dispara al llegar un cambio
+ * de kdii/kdpv al ODS). Ambos comparten la MISMA computación: services/feeds-ingest/label-compute
+ * (single source of truth) → sin divergencia. Ver feedback_ods_derived_realtime_no_batch_lag.
  *
- * Fuente (decodificada 2026-07-09; corregida 2026-07-10 — modelo de unidades por ETIQUETA):
- *   kp.kdii             c1=sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza, c11=unidad base.
- *                       UNIDADES = pares (etiqueta, factor): (c80,c81) y (c83,c84), con precios
- *                       c90=pieza, c91=precio de la unidad c80, c92=precio de la unidad c83.
- *                       El factor es PIEZAS por esa unidad. La etiqueta manda (NO la posición):
- *                       PAQ→paquete · CJA→caja · PZA→base(=1) · KG/BTO→granel (se ignoran para
- *                       pack/box). ⚠️ El 75% del catálogo NO tiene paquete: su unidad es CJA
- *                       directo (c80='CJA') → antes se guardaba mal como "pzas por paquete".
- *   md.kdpv_prod_util   c2=presentación (PZA/PAQ/CJA), c4=min_qty (umbral mayoreo),
- *                       c7=precio. PZA con min_qty>1 = mayoreo por pieza; PAQ = mayoreo por paquete.
+ * Fuente (default `ods`): kepler_ods.kdii/kdpv_prod_util en el MISMO Postgres de prod (@min, CANON.1.2;
+ * une las 6 sucursales por `sucursal`). Fallback `--source=kp`: KP_CONCENTRADA kp.* en .245 (@4h).
+ * Reconciliación de precio de pieza = misma regla que BASE-MXN (excl CEDIS + moda retail; piso c90>0.05).
+ * NUNCA pisa filas source='manual'. Churn-free (solo reescribe lo que cambió).
  *
- * Los precios de venta son de catálogo (iguales en toda la cadena) → una sola fuente Kepler
- * (KEPLER_URL), no per-sucursal como el stock/reorden. Prod: apuntar KEPLER_URL a la maestra.
- * NUNCA pisa filas source='manual'.
+ * Este script mapea sku→product_id (con fallback por barcode para productos sin sku, que el hop-2 NO
+ * cubre → por eso el nightly sigue siendo necesario) y hace el backfill de public.products.barcode.
  *
  *   node database/importers/kepler/import-label-data.js          # dry-run
  *   node database/importers/kepler/import-label-data.js --apply  # commit
  */
 
 const { Client } = require('pg');
+const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('../../../services/feeds-ingest/label-compute');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-// CANON.1.2 — fuente por default `ods`: kepler_ods.kdii/kdpv_prod_util en el MISMO Postgres de prod.
-// El ODS une las 6 sucursales (columna `sucursal`) → la misma reconciliación DISTINCT ON (sku) por
-// c90 MÁS ALTO aplica igual; fresco al minuto y sin cross-LAN. Verificado 2026-08-20: cubre TODOS los
-// SKUs de KP (0 faltantes) y es más fresco. Fallback `--source=kp`: KP_CONCENTRADA kp.* en .245 (@4h).
 const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
 const KSCHEMA = SOURCE === 'ods' ? 'kepler_ods' : 'kp';
 const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const APPLY = process.argv.includes('--apply');
-const BATCH = 1000;
-
-/**
- * Extrae gramaje del nombre Kepler. Cubre convenciones vistas en el catálogo:
- *   "50G/8"→"50 g", "5K"→"5 kg" (K sola = kilo), "5KGS"→"5 kg", "2OZ"→"2 oz",
- *   "500ML"→"500 ml", "1LT"→"1 l", "5 LITROS"→"5 l", "1LITRO"→"1 l". Alternativas
- *   largas ANTES que las de 1 letra para que "LITROS"/"KILOGRAMOS" ganen sobre `l`/`k`
- *   (esas se bloqueaban con el lookahead al chocar con la 2ª letra de la palabra).
- *   Lookahead (?![a-z0-9]) evita cazar la 1ª letra de otra palabra ("1 LUCAS"). sin match → null.
- */
-function parseGramaje(name) {
-  if (!name) return null;
-  const m = String(name).match(/(\d+(?:[.,]\d+)?)\s*(kilogramos?|kgs?|kilos?|gramos?|grs?|mililitros?|mls?|litros?|lts?|oz|kg|gr|ml|lt|k|g|l)(?![a-z0-9])/i);
-  if (!m) return null;
-  const num = m[1].replace(',', '.');
-  const raw = m[2].toLowerCase();
-  let u;
-  if (raw === 'oz') u = 'oz';
-  else if (raw[0] === 'k') u = 'kg';
-  else if (raw.startsWith('ml') || raw.startsWith('mili')) u = 'ml';
-  else if (raw[0] === 'g') u = 'g';
-  else u = 'l';
-  return `${num} ${u}`;
-}
-
-/** Simbología válida según longitud (igual que Kepler). Basura (5 díg, letras) → null. */
-function barcodeFormat(code) {
-  const c = String(code || '').trim();
-  if (/^\d{13}$/.test(c)) return 'EAN13';
-  if (/^\d{12}$/.test(c)) return 'UPC';
-  if (/^\d{8}$/.test(c)) return 'EAN8';
-  return null;
-}
-
-const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
-
-/**
- * Presentación de kdpv_prod_util que corresponde a la UNIDAD BASE (kdii.c11).
- * El mayoreo de la unidad de venta vive en el tier `present` == unit_base:
- *   KG→'KG' · 250/500/400→ ese mismo número · PZA→'PZA' · PAQ→'PAQ' · CJA→'CJA'.
- * Antes se leía SIEMPRE 'PZA' → para graneles (KG/250/…) agarraba el tier equivocado
- * (ej. 17064 KG: tomaba PZA $49.88 en vez de KG $63.26).
- */
-function basePresentKey(unitBase) {
-  const ub = String(unitBase || '').trim().toUpperCase();
-  if (ub === 'KG') return 'KG';
-  if (/^\d+$/.test(ub)) return ub;   // 250 / 500 / 400 …
-  if (ub === 'PAQ') return 'PAQ';
-  if (ub === 'CJA') return 'CJA';
-  return 'PZA';                       // PZA, BTO, SER, IND, null → pieza
-}
-
-/**
- * Resuelve paquete/caja desde los 2 pares (etiqueta, factor, precio) de kdii.
- * Por ETIQUETA, no por posición: PAQ→paquete, CJA→caja. Solo cuenta factores >1
- * (un PZA×1 o PAQ×1 es la base, no agrupa). KG/BTO/otros no mapean a pack/box.
- */
-function resolveUnits(slots) {
-  let pack_size = null, pack_price = null, box_size = null, box_price = null;
-  for (const s of slots) {
-    const f = int(s.factor);
-    if (!s.label || !f || f <= 1) continue;
-    if (s.label === 'PAQ') { pack_size = f; pack_price = num(s.price); }
-    else if (s.label === 'CJA') { box_size = f; box_price = num(s.price); }
-  }
-  return { pack_size, pack_price, box_size, box_price };
-}
 
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
-  // source=ods → lee kepler_ods en la MISMA conexión de prod (sin src aparte). source=kp → conecta .245.
   const useOds = SOURCE === 'ods';
   const src = useOds ? null : new Client({ connectionString: SRC });
   if (!useOds) {
-    try {
-      await src.connect();
-    } catch (e) {
-      console.error(`ERROR: sin conexión a Kepler (${SRC}): ${e.message}`);
-      await db.end();
-      process.exitCode = 1;
-      return;
-    }
+    try { await src.connect(); }
+    catch (e) { console.error(`ERROR: sin conexión a Kepler (${SRC}): ${e.message}`); await db.end(); process.exitCode = 1; return; }
   }
   const readSrc = useOds ? db : src;
 
   try {
     console.log(`\n=== Etiquetas Kepler → commercial.product_label_prices (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
-    console.log(`  fuente: ${useOds ? 'kepler_ods (same-DB prod, @min)' : SRC.replace(/:[^:@/]+@/, ':***@')}\n`);
+    console.log(`  fuente: ${useOds ? 'kepler_ods (same-DB prod, @min)' : SRC.replace(/:[^:@/]+@/, ':***@')} · cómputo compartido con el hop-2 (label-compute)\n`);
 
-    // Catálogo: índices por SKU y por BARCODE. El barcode es fallback para productos
-    // que llegaron al catálogo SIN sku (ej. OJILOCOS): Kepler los tiene por SKU pero el
-    // enlace por sku falla, así que los enganchamos por su código de barras (kdii.c7).
-    // ORDER por (deleted_at IS NULL) ASC → las filas ACTIVAS van al final y GANAN el skuToId.set
-    // (last-wins). Sin esto, un SKU duplicado (activo + borrado, ej. 00295) podía colgar la etiqueta
-    // del producto BORRADO y el activo quedaba "sin precio en Kepler".
+    // Catálogo: índices por SKU y por BARCODE (fallback para productos SIN sku). ORDER (deleted_at IS
+    // NULL) ASC → activos al final GANAN el skuToId.set (last-wins, no cuelga del borrado).
     const prods = (await db.query(
       `SELECT id, btrim(coalesce(sku,'')) AS sku, btrim(coalesce(barcode,'')) AS barcode
          FROM public.products WHERE tenant_id=$1
         ORDER BY (deleted_at IS NULL) ASC`, [M])).rows;
-    const skuToId = new Map();
-    const bcToId = new Map();
-    const curBarcodeById = new Map();   // id → barcode actual (para decidir backfill)
-    const eansInUse = new Set();        // EANs válidos ya usados por ALGÚN producto (anti-colisión)
+    const skuToId = new Map(), bcToId = new Map(), curBarcodeById = new Map(), eansInUse = new Set();
     for (const p of prods) {
       if (p.sku) skuToId.set(p.sku, p.id);
       if (p.barcode && !bcToId.has(p.barcode)) bcToId.set(p.barcode, p.id);
@@ -152,194 +59,51 @@ function resolveUnits(slots) {
     }
     console.log(`  catálogo: ${skuToId.size} con sku · ${bcToId.size} con barcode`);
 
-    // Maestro kdii — CONCENTRADA (kp.kdii, todas las sucursales). El precio de venta debe ser
-    // catálogo-wide, pero hay sucursales con placeholders ($6/$0.01 debajo del costo). Reconciliamos:
-    // por SKU tomamos la sucursal con el precio de pieza (c90) MÁS ALTO (los placeholders son bajos).
-    // `DISTINCT ON (sku) … ORDER BY sku, c90 DESC` = una fila por SKU, la de mayor precio real.
-    // CANON.1.2b — precio de PIEZA por la MISMA regla que BASE-MXN (excl CEDIS + moda retail) para que
-    // etiqueta = base (landmine #13). moda = c90 más común entre retail (01-06); fallback a CEDIS si el
-    // SKU no tiene retail. Se elige la FILA a ese precio (pref. retail) → c91/c92/unidades coherentes.
-    const kdii = (await readSrc.query(`
-      WITH moda_retail AS (
-        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
-          FROM ${KSCHEMA}.kdii
-         WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00'
-         GROUP BY btrim(c1)),
-      moda_cedis AS (
-        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
-          FROM ${KSCHEMA}.kdii
-         WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) = '00'
-         GROUP BY btrim(c1)),
-      moda AS (
-        SELECT sku, m FROM moda_retail
-        UNION ALL
-        SELECT c.sku, c.m FROM moda_cedis c WHERE NOT EXISTS (SELECT 1 FROM moda_retail r WHERE r.sku=c.sku))
-      SELECT DISTINCT ON (btrim(k.c1))
-             k.c1 AS sku, k.c2 AS name, k.c7 AS barcode, k.c95 AS barcode_alt, k.c11 AS unit_base,
-             btrim(k.c80) AS u1, k.c81 AS f1, k.c91 AS p1,
-             btrim(k.c83) AS u2, k.c84 AS f2, k.c92 AS p2,
-             md.m AS piece_price
-        FROM ${KSCHEMA}.kdii k
-        JOIN moda md ON md.sku = btrim(k.c1) AND k.c90::numeric = md.m
-       WHERE btrim(coalesce(k.c1,''))<>'' AND k.c90::numeric > 0.05
-       ORDER BY btrim(k.c1), (btrim(k.sucursal)='00'), btrim(k.sucursal)`)).rows;
+    // Cómputo COMPARTIDO (reconciliación moda + tiers kdpv + gramaje/unidades/barcode).
+    const labels = await computeLabels(readSrc, { schema: KSCHEMA });
+    console.log(`  labels computados: ${labels.length}`);
 
-    // Diagnóstico on-prem: DEBUG_SKU=44360 imprime lo que Kepler trae para ese SKU en TODAS las
-    // sucursales (sin filtro de precio) → revela por qué un producto no llega a la etiquetera.
     if (process.env.DEBUG_SKU) {
       const dbg = (await readSrc.query(
         `SELECT btrim(c1) sku, c90 piece_c90, btrim(c80) u1, c81 f1, c91 p1_c91,
                 btrim(c83) u2, c84 f2, c92 p2_c92, c11 unit_base
            FROM ${KSCHEMA}.kdii WHERE btrim(c1)=$1 ORDER BY c90::numeric DESC`,
         [String(process.env.DEBUG_SKU).trim()])).rows;
-      console.log(`\n[DEBUG ${process.env.DEBUG_SKU}] filas en kp.kdii (todas las sucursales, SIN filtro de precio):`);
+      console.log(`\n[DEBUG ${process.env.DEBUG_SKU}] filas en kdii (todas las sucursales):`);
       console.table(dbg);
     }
 
-    // Tiers de mayoreo — concentrada. Guardamos el MÁS BARATO por presentación (con umbral real,
-    // min_qty>1) → sku → Map(present → {price, minQty}). El tier de la unidad de venta se elige
-    // luego por unit_base (basePresentKey), no hardcodeado a 'PZA'.
-    const kdpv = (await readSrc.query(`
-      SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
-        FROM ${KSCHEMA}.kdpv_prod_util WHERE c7 > 0`)).rows;
-    const wholesale = new Map(); // sku → Map(present → { price, minQty })
-    for (const r of kdpv) {
-      const present = String(r.present || '').trim().toUpperCase();
-      const p = Number(r.price);
-      if (!present || !Number.isFinite(p) || p <= 0) continue;
-      const mq = int(r.min_qty);
-      if (!mq || mq <= 1) continue;                 // para mayoreo: solo tiers con umbral real
-      let m = wholesale.get(r.sku);
-      if (!m) { m = new Map(); wholesale.set(r.sku, m); }
-      const cur = m.get(present);
-      if (!cur || p < cur.price) m.set(present, { price: p, minQty: mq });   // el más barato por present
-    }
-
-    // Armar filas
-    let matched = 0, unmatched = 0, noBarcode = 0;
-    const staged = [];
-    // Backfill de products.barcode: el scan Y el barcode impreso salen de products.barcode
-    // (commercial-labels.service). Si ahí quedó el SKU/basura pero Kepler tiene un EAN real,
-    // el lector NUNCA encuentra el producto (ej. 44141 → 7501008766606). Solo tocamos casos
-    // SEGUROS: barcode actual NO-EAN + EAN real libre (no usado por otro producto). Idempotente.
-    const barcodeFixes = [];
-    const claimedEan = new Set();
-    const stagedPids = new Set();   // evita que 2 filas kdii caigan al mismo product_id (ON CONFLICT doble)
-    let dupPid = 0;
-    for (const r of kdii) {
-      // Match por SKU; si no, fallback por barcode (productos sin sku en el catálogo).
-      let pid = skuToId.get(String(r.sku || '').trim());
-      if (!pid) {
-        const bc = String(r.barcode || '').trim();
-        if (bc) pid = bcToId.get(bc);
-      }
+    // map sku→pid (fallback barcode), dedup por pid, decisiones de backfill, tuples staged.
+    let matched = 0, unmatched = 0, noBarcode = 0, dupPid = 0;
+    const staged = [], barcodeFixes = [], claimedEan = new Set(), stagedPids = new Set();
+    for (const lab of labels) {
+      let pid = skuToId.get(lab.sku);
+      if (!pid) { const bc = String(lab.barcode_raw || '').trim(); if (bc) pid = bcToId.get(bc); }
       if (!pid) { unmatched++; continue; }
-      if (stagedPids.has(pid)) { dupPid++; continue; }  // 1ª fila (mayor c90 por DISTINCT ON) gana
+      if (stagedPids.has(pid)) { dupPid++; continue; }  // 1ª (mayor c90 por DISTINCT ON) gana
       stagedPids.add(pid);
-      // Mayoreo de la UNIDAD BASE = tier cuyo present == unit_base. Base agrupada (PAQ/CJA) → va en
-      // pack fields (la etiqueta lo compara vs el precio base); resto (PZA/KG/250/…) → piece fields.
-      // Un paquete REAL de piezas (mayoreo por paquete) solo aplica a base PZA con su tier PAQ.
-      const tiers = wholesale.get(r.sku) || new Map();
-      const bp = basePresentKey(r.unit_base);
-      // ¿Tiene presentación en kilos? SOLO si unit_base='KG' (ahí piece_price ya es $/kg real).
-      // Los de gramos (250/500/400) son BOLSAS de peso fijo, no granel suelto — su tier 'KG' en
-      // Kepler es solo precio de referencia (ej. 75052 ANDINETA 5KG, 68521 PALO). No se deriva $/kg.
-      const soldByKg = bp === 'KG';
-      const grouped = bp === 'PAQ' || bp === 'CJA';
-      const baseTier = tiers.get(bp) || null;
-      const paqTier = tiers.get('PAQ') || null;
-      const w = grouped
-        ? { packPrice: baseTier?.price ?? null, packMinQty: baseTier?.minQty ?? null, piecePrice: null, pieceMinQty: null }
-        : {
-            piecePrice: baseTier?.price ?? null, pieceMinQty: baseTier?.minQty ?? null,
-            packPrice: bp === 'PZA' ? (paqTier?.price ?? null) : null,
-            packMinQty: bp === 'PZA' ? (paqTier?.minQty ?? null) : null,
-          };
-      // EAN real: c7 (barcode) suele traerlo, pero ~1685 productos tienen el SKU ahí; c95 lo rescata.
-      const bcReal = barcodeFormat(r.barcode) ? String(r.barcode).trim() : r.barcode_alt;
-      const fmt = barcodeFormat(bcReal);
-      if (!fmt) noBarcode++;
-      // ¿Backfill de products.barcode? Solo si el actual NO es EAN escaneable y el EAN real
-      // está libre (no lo usa otro producto ni otro fix de esta corrida). Claves reusadas
-      // (2 SKUs → mismo EAN) se saltan: no inventamos unicidad.
-      if (fmt) {
+      if (!lab.barcode_format) noBarcode++;
+      // Backfill products.barcode: actual NO-EAN + EAN real libre (sin colisión). Idempotente.
+      if (lab.barcode_format) {
         const cur = curBarcodeById.get(pid) || '';
-        const ean = String(bcReal).trim();
+        const ean = String(lab.barcode).trim();
         if (cur !== ean && !barcodeFormat(cur) && !eansInUse.has(ean) && !claimedEan.has(ean)) {
-          barcodeFixes.push([pid, ean]);
-          claimedEan.add(ean);
+          barcodeFixes.push([pid, ean]); claimedEan.add(ean);
         }
       }
-      // Unidades por etiqueta (paquete/caja reales, no por posición).
-      const u = resolveUnits([
-        { label: r.u1, factor: r.f1, price: r.p1 },
-        { label: r.u2, factor: r.f2, price: r.p2 },
-      ]);
-      staged.push([
-        pid,
-        parseGramaje(r.name),
-        fmt ? String(bcReal).trim() : null,
-        fmt,
-        num(r.piece_price),
-        w.pieceMinQty || null,
-        w.piecePrice != null ? w.piecePrice : null,
-        u.pack_size,
-        u.pack_price,
-        w.packPrice != null ? w.packPrice : null,
-        u.box_size,
-        u.box_price,
-        (r.unit_base || '').trim().toUpperCase() || null,
-        w.packMinQty || null,
-        soldByKg,
-      ]);
+      staged.push(toStageTuple(lab, pid));
       matched++;
     }
-    console.log(`  kdii filas: ${kdii.length} · match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode} · pid duplicado saltado: ${dupPid}`);
+    console.log(`  match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode} · pid duplicado saltado: ${dupPid}`);
     console.log(`  backfill products.barcode (SKU/basura → EAN real, sin colisión): ${barcodeFixes.length}`);
-    const sample = staged.slice(0, 6).map((s) => ({ gramaje: s[1], barcode: s[2], fmt: s[3], pza: s[4], may_pza: s[6], paq: s[8], box: s[10] }));
-    console.table(sample);
+    console.table(staged.slice(0, 6).map((s) => ({ content: s[1], barcode: s[2], fmt: s[3], pza: s[4], may_pza: s[6], paq: s[8], box: s[10] })));
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply.'); return; }
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`CREATE TEMP TABLE stg_label (
-      product_id uuid, content text, barcode text, barcode_format text,
-      piece_price numeric, wholesale_piece_min_qty int, wholesale_piece_price numeric,
-      pack_size int, pack_price numeric, wholesale_pack_price numeric,
-      box_size int, box_price numeric, unit_base text, wholesale_pack_min_qty int, sold_by_kg boolean) ON COMMIT DROP`);
-    for (let i = 0; i < staged.length; i += BATCH) {
-      const chunk = staged.slice(i, i + BATCH);
-      const vals = [], params = [];
-      chunk.forEach((row, ri) => {
-        const b = ri * 15;
-        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14},$${b+15})`);
-        params.push(...row);
-      });
-      await db.query(`INSERT INTO stg_label VALUES ${vals.join(',')}`, params);
-    }
-    const up = await db.query(`
-      INSERT INTO commercial.product_label_prices
-        (id, tenant_id, product_id, content, barcode, barcode_format, piece_price,
-         wholesale_piece_min_qty, wholesale_piece_price, pack_size, pack_price,
-         wholesale_pack_price, box_size, box_price, unit_base, wholesale_pack_min_qty, sold_by_kg,
-         source, computed_at, updated_at)
-      SELECT gen_random_uuid(), $1, s.product_id, s.content, s.barcode, s.barcode_format, s.piece_price,
-             s.wholesale_piece_min_qty, s.wholesale_piece_price, s.pack_size, s.pack_price,
-             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, s.wholesale_pack_min_qty, s.sold_by_kg,
-             'kepler', now(), now()
-      FROM stg_label s
-      ON CONFLICT (tenant_id, product_id) DO UPDATE SET
-        content=EXCLUDED.content, barcode=EXCLUDED.barcode, barcode_format=EXCLUDED.barcode_format,
-        piece_price=EXCLUDED.piece_price, wholesale_piece_min_qty=EXCLUDED.wholesale_piece_min_qty,
-        wholesale_piece_price=EXCLUDED.wholesale_piece_price, pack_size=EXCLUDED.pack_size,
-        pack_price=EXCLUDED.pack_price, wholesale_pack_price=EXCLUDED.wholesale_pack_price,
-        box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, unit_base=EXCLUDED.unit_base,
-        wholesale_pack_min_qty=EXCLUDED.wholesale_pack_min_qty, sold_by_kg=EXCLUDED.sold_by_kg,
-        source='kepler', computed_at=now(), updated_at=now()
-      WHERE commercial.product_label_prices.source <> 'manual'`, [M]);
-    // Backfill de products.barcode (casos seguros). UPDATE puntual por producto; el guard
-    // WHERE re-valida que el barcode actual siga sin ser EAN (idempotente y anti-carrera).
+    const changed = await upsertLabels(db, M, staged);          // churn-free, source<>'manual'
+    // Backfill products.barcode (casos seguros). Guard re-valida (idempotente + anti-carrera).
     let bcFixed = 0;
     for (const [pid, ean] of barcodeFixes) {
       const res = await db.query(
@@ -352,7 +116,7 @@ function resolveUnits(slots) {
       bcFixed += res.rowCount;
     }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de etiqueta upserted · ${bcFixed} barcodes backfilled.`);
+    console.log(`\n[APPLY] COMMIT — ${changed} filas de etiqueta cambiadas (churn-free) · ${bcFixed} barcodes backfilled.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

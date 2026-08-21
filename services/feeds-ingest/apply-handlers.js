@@ -16,6 +16,7 @@
 
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
+const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -498,13 +499,16 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
-    const normalizer = ODS_NORMALIZERS[table];
-    if (normalizer && Array.isArray(rows) && rows.length) {
+    const normalizers = ODS_NORMALIZERS[table];
+    if (normalizers && Array.isArray(rows) && rows.length) {
       const keyCol = pk[0];
       const keys = Array.from(new Set(rows.map((r) => (r[keyCol] == null ? '' : String(r[keyCol]).trim())).filter(Boolean)));
       if (keys.length) {
-        try { const nz = await normalizer(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}] ${nz} filas app-facing (${keys.length} llaves)`); }
-        catch (e) { console.error(`  [normalize:${table}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+        for (const norm of normalizers) {
+          // cada normalizador en su PROPIA tx → si uno falla, NO tumba al otro ni al CDC (lo toma el barrido).
+          try { const nz = await norm(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
+          catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+        }
       }
     }
     return changed;
@@ -660,7 +664,50 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
   }
 }
 
-const ODS_NORMALIZERS = { kdii: normalizeProductsFromOds };
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii + kdpv_prod_util → commercial.product_label_prices
+ * (etiquetera Tienda). Hop-2 AL-MOMENTO: cuando un cambio de kdii/kdpv llega al ODS, la etiqueta de
+ * anaquel se recomputa al instante (misma lógica que el importer nocturno, vía label-compute — single
+ * source of truth). Churn-free (upsertLabels solo reescribe si algo cambió). NUNCA pisa source='manual'.
+ * El barcode-fallback de productos SIN sku + el backfill de products.barcode los cubre el nightly.
+ * Ver feedback_ods_derived_realtime_no_batch_lag.
+ */
+async function normalizeLabelsFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  const clean = Array.from(new Set((Array.isArray(skus) ? skus : []).map((s) => String(s == null ? '' : s).trim()).filter(Boolean)));
+  if (!clean.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const labels = await computeLabels(client, { schema: 'kepler_ods', skus: clean });
+    if (!labels.length) { await client.query('COMMIT'); return 0; }
+    // sku → product_id (activos). Productos sin sku (match por barcode) los toma el barrido nocturno.
+    const pmap = new Map((await client.query(
+      `SELECT id, btrim(sku) AS sku FROM catalog.products
+        WHERE tenant_id=$1 AND deleted_at IS NULL AND btrim(coalesce(sku,'')) = ANY($2)`,
+      [tenantId, clean])).rows.map((r) => [r.sku, r.id]));
+    const seen = new Set();
+    const tuples = [];
+    for (const lab of labels) {
+      const pid = pmap.get(lab.sku);
+      if (!pid || seen.has(pid)) continue; // 1ª (mayor c90 por DISTINCT ON) gana
+      seen.add(pid);
+      tuples.push(toStageTuple(lab, pid));
+    }
+    const changed = await upsertLabels(client, tenantId, tuples);
+    await client.query('COMMIT');
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+// Una tabla puede tener VARIOS normalizadores (se corren en orden, cada uno en su propia tx).
+const ODS_NORMALIZERS = {
+  kdii: [normalizeProductsFromOds, normalizeLabelsFromOds],
+  kdpv_prod_util: [normalizeLabelsFromOds],
+};
 
 const HANDLERS = {
   'stock-delta': applyStockDelta,
