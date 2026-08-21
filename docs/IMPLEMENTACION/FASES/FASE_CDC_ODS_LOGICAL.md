@@ -60,9 +60,23 @@ el slot.
 - **CDC.3** ✅: handler **`raw-delete`** en `apply-handlers.js` (gemelo de raw-upsert; borra por (sucursal,PK))
   + consumidor con buffer last-op-wins por PK + ship-then-ack. Verificado local: upsert 3→delete B→[A,C];
   delete inexistente=0. **El hard-delete que el poll nunca propagó ya fluye** (pg mode).
-- **Pendiente**: CDC.2b correr `--watch` en sombra (requiere **redeploy feeds-ingest** para el path http del
-  delete + **`max_slot_wal_keep_size`** en :5433 como backstop de disco ANTES de dejar el slot persistente);
-  CDC.5 heartbeat del consumidor→cron_runs (dead-man's switch); CDC.4/6 snapshot+cutover→retiro del poll.
+- **CDC.5** ✅: heartbeat del consumidor (`cdc_wal_<suc>`)→`cron_runs` (dead-man's switch) + 7 sensores en
+  db-health + `ods_finance_00`.
+- **feeds-ingest REDESPLEGADO** ✅ (2026-08-21): handlers `raw-delete`+`cdc-heartbeat` vivos en prod. Lección:
+  `railway redeploy --from-source` re-corre la imagen VIEJA; **`railway up -s feeds-ingest`** fuerza build del
+  código local (la vía confiable).
+- **`max_slot_wal_keep_size=10GB`** ✅ en :5433 (backstop de disco; recargable via `pg_reload_conf`, sin restart).
+- **CDC.2b — VALIDACIÓN EN VIVO (SOMBRA) ✅ 2026-08-21**: `--watch` rama 03, canary `md.kdig` c1='ZZTST'
+  **INSERT→UPDATE→DELETE** propaga a prod `kepler_ods.kdig` por http (feeds-ingest), **incluido el hard DELETE
+  (el win de ADR-047)**. 0 errores en el stream `FOR ALL TABLES` (tráfico POS vivo); slot ack avanzando (WAL
+  retenido ~385 kB, acotado). Slot dropeado + canary limpio tras el test.
+  - **🐞 Bug encontrado+arreglado (commit `c82e50be`)**: pgoutput NO resuelve nombres de tipos builtin
+    (`typeName=null`, solo `typeOid`) → `shipMetaOf` tipaba TODA columna como `text` → el `INSERT..SELECT` del
+    apply contra `kepler_ods` ya tipado tronaba `column cN is of type numeric but expression is of type text`.
+    Fix: mapear `typeOid`→nombre pg (numeric/date/int/…). El valor ya viene parseado por el typeParser del OID.
+- **Pendiente**: (1) **redeploy api** → activa los 7 sensores `cdc_wal_XX` + `ods_finance_00` (código en
+  `origin/main`, no bloquea); (2) **`npm i -g pm2`** + `pm2 start ecosystem.cdc.config.js` → sombra persistente
+  de las 7 ramas junto al poll; (3) **CDC.6 cutover**: deshabilitar `OdsLiveLoop` + `OdsFullMirror`.
 
 ## 1. Tesis
 
