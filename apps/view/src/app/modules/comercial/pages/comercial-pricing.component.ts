@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -32,14 +32,6 @@ interface PriceRow extends ProductPrice {
   _cost: number | null;
   _margin: number | null;
   _flag: PriceHealthFlag | null;
-  /**
-   * Hay una fila en `product_prices` que borrar. NO es `_price !== null`: al
-   * teclear un precio en una fila sin precio, `_price` se llena al instante por
-   * el optimistic UI, pero `id` sigue siendo el del producto — y con ese id
-   * `deletePrice` tira 404. Se apoya en lo que confirmó el server, no en la
-   * pantalla.
-   */
-  _canDelete: boolean;
 }
 
 /** Espejo EXACTO de `PRICE_HEALTH_SQL` del backend. Si uno cambia, cambian los dos. */
@@ -59,6 +51,23 @@ const FLAGS: FlagMeta[] = [
   { key: 'thin', label: 'margen flaco', tone: 'warn', hint: `Margen entre 0% y ${THIN_MARGIN_MAX}%: no pierde, pero no paga la operación.` },
   { key: 'no_cost', label: 'sin costo', tone: 'mute', hint: 'Tiene precio y no hay costo con qué juzgarlo.' },
 ];
+
+/**
+ * Quién escribe cada lista. El precio NO se captura acá: lo sincroniza Kepler, y
+ * lo que se teclee en esta pantalla lo revierte la corrida siguiente del feed.
+ * El fallback deja de mentir cuando aparezca una lista nueva.
+ */
+const FEED_BY_LIST: Record<string, string> = {
+  'BASE-MXN': 'database/importers/kepler/repoint-catalog-prices.js',
+  MAYOREO: 'database/importers/import-prices-bulk.js',
+  P1: 'database/importers/import-prices-bulk.js',
+  P2: 'database/importers/import-prices-bulk.js',
+  P3: 'database/importers/import-prices-bulk.js',
+  P4: 'database/importers/import-prices-bulk.js',
+};
+const FEED_UNKNOWN = '(sin feed declarado)';
+/** Días sin que un feed le escriba a partir de los cuales la lista está congelada. */
+const STALE_DAYS = 14;
 
 @Component({
   selector: 'app-comercial-pricing',
@@ -88,7 +97,7 @@ const FLAGS: FlagMeta[] = [
           <p class="surf-page-sub">
             <b>{{ lists().length }}</b> lista{{ lists().length === 1 ? '' : 's' }}
             <span class="pl-sep" aria-hidden="true">·</span>
-            asignables a clientes para Portal y vendedores
+            el precio lo sincroniza Kepler — acá se revisa, no se edita
           </p>
         </div>
         <div class="pl-head-actions">
@@ -141,6 +150,20 @@ const FLAGS: FlagMeta[] = [
                   @if (health(); as h) {
                     <span><b>{{ h.priced | number }}</b> con precio</span>
                     <span>de {{ h.catalog | number }} del catálogo</span>
+                  }
+                </p>
+                <!-- Procedencia: si el precio viene de un feed, quién lo trae y hace
+                     cuánto se movió es lo que explica por qué la tabla es de lectura. -->
+                <p class="pl-head-src">
+                  <span class="pl-src-lbl">origen</span>
+                  <code class="comm-code">{{ feedOf(sel.code) }}</code>
+                  @if (freshness(); as f) {
+                    <span class="pl-sep" aria-hidden="true">·</span>
+                    <span>{{ f.label }}</span>
+                    @if (f.stale) {
+                      <span class="pl-mark tone-warn"
+                            pTooltip="Ningún feed le escribe desde hace tiempo: los precios que cobra son los de la última corrida.">congelada</span>
+                    }
                   }
                 </p>
               </div>
@@ -235,7 +258,6 @@ const FLAGS: FlagMeta[] = [
                     <th scope="col" class="comm-num pl-c-num" pSortableColumn="margin">Margen <p-sorticon field="margin" /></th>
                     <th scope="col" class="comm-num pl-c-min" pSortableColumn="min_qty"
                         pTooltip="Cantidad mínima de compra">Mín <p-sorticon field="min_qty" /></th>
-                    <th scope="col" class="pl-c-act"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
 
@@ -263,23 +285,11 @@ const FLAGS: FlagMeta[] = [
                       @else { <span class="pl-none">—</span> }
                     </td>
 
-                    <!-- Precio: editable en sitio. Es la única celda que se escribe. -->
-                    <td class="comm-num pl-price-cell">
-                      @if (editingId() === p.product_id) {
-                        <input #priceInput type="number" class="pl-price-input" step="0.01" min="0"
-                               [value]="p._price ?? ''" aria-label="Nuevo precio"
-                               (keydown.enter)="commitPrice(p, $any($event.target).value)"
-                               (keydown.escape)="editingId.set(null)"
-                               (blur)="commitPrice(p, $any($event.target).value)" />
-                      } @else if (canManage()) {
-                        <button type="button" class="pl-price-btn" (click)="editingId.set(p.product_id)"
-                                [attr.aria-label]="'Editar precio de ' + (p.product_name || '')">
-                          @if (p._price !== null) { {{ p._price | currency:'MXN':'symbol-narrow':'1.2-2' }} }
-                          @else { <span class="pl-price-add"><i class="pi pi-plus" aria-hidden="true"></i> precio</span> }
-                        </button>
-                      } @else if (p._price !== null) {
-                        {{ p._price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                      } @else { <span class="pl-none">—</span> }
+                    <!-- Precio: SOLO LECTURA. Lo escribe el feed de Kepler, no esta
+                         pantalla; editarlo acá se perdía en la corrida siguiente. -->
+                    <td class="comm-num">
+                      @if (p._price !== null) { {{ p._price | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                      @else { <span class="pl-none">—</span> }
                     </td>
 
                     <td class="comm-num">
@@ -293,21 +303,12 @@ const FLAGS: FlagMeta[] = [
                       } @else { <span class="pl-none">—</span> }
                     </td>
                     <td class="comm-num">{{ p.min_qty || 1 }}</td>
-                    <td class="pl-c-act">
-                      @if (canManage() && p._canDelete) {
-                        <button pButton size="small" severity="secondary" [text]="true"
-                                (click)="confirmDeletePrice(p)" pTooltip="Quitar de la lista"
-                                [attr.aria-label]="'Quitar ' + (p.product_name || '') + ' de la lista'">
-                          <span class="p-button-icon pi pi-trash" aria-hidden="true"></span>
-                        </button>
-                      }
-                    </td>
                   </tr>
                 </ng-template>
 
                 <ng-template #emptymessage>
                   <tr>
-                    <td colspan="9" class="comm-empty-cell">
+                    <td colspan="8" class="comm-empty-cell">
                       <div class="comm-empty">
                         <div class="comm-empty-icon">
                           <i [class]="hasFilters() ? 'pi pi-filter-slash' : 'pi pi-tag'" aria-hidden="true"></i>
@@ -319,8 +320,8 @@ const FLAGS: FlagMeta[] = [
                             <span class="p-button-label">Quitar filtros</span>
                           </button>
                         } @else {
-                          <p>Esta lista no tiene precios. Poné uno desde la columna Precio, o cargalos en bloque con el importer.</p>
-                          <code class="comm-code pl-cmd">database/importers/mega_dulces_sync.js --scope=prices</code>
+                          <p>Esta lista no tiene precios. Los carga su feed, no esta pantalla.</p>
+                          <code class="comm-code pl-cmd">node {{ feedOf(selected()?.code || '') }} --apply</code>
                         }
                       </div>
                     </td>
@@ -626,7 +627,6 @@ const FLAGS: FlagMeta[] = [
     .pl-c-cat { min-width: 9rem; }
     .pl-c-num { min-width: 6.5rem; }
     .pl-c-min { min-width: 4.5rem; }
-    .pl-c-act { width: 3rem; text-align: right; }
     /* Fila sin precio: presente pero en segundo plano — es trabajo pendiente,
        no un dato con el mismo peso que un precio puesto. */
     .pl-r-unpriced .comm-cell-strong { font-weight: var(--fw-regular); color: var(--c-text-2); }
@@ -656,48 +656,6 @@ const FLAGS: FlagMeta[] = [
       font-weight: var(--fw-bold);
     }
     .pl-mark.tone-warn { color: var(--c-warn); }
-
-    /* ── Edición en sitio del precio ───────────────────────────────────── */
-    .pl-price-cell { padding-top: 0; padding-bottom: 0; vertical-align: middle; }
-    .pl-price-btn {
-      font: inherit;
-      font-size: var(--fs-sm);
-      font-variant-numeric: tabular-nums;
-      color: var(--c-text-1);
-      font-weight: var(--fw-medium);
-      background: none;
-      border: 1px solid transparent;
-      border-radius: var(--r-sm);
-      padding: var(--sp-1) var(--sp-2);
-      width: 100%;
-      text-align: right;
-      cursor: text;
-      transition: border-color var(--dur-micro) var(--ease-standard);
-    }
-    .pl-price-btn:hover { border-color: var(--c-divider); background: var(--c-surface-2); }
-    .pl-price-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    .pl-price-add {
-      color: var(--c-text-3);
-      font-size: var(--fs-micro);
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-    }
-    .pl-price-btn:hover .pl-price-add { color: var(--action); }
-    .pl-price-input {
-      width: 100%;
-      height: var(--row-h-sm);
-      padding: 0 var(--sp-2);
-      text-align: right;
-      font-family: var(--font-mono);
-      font-size: var(--fs-sm);
-      color: var(--c-text-1);
-      background: var(--c-surface-1);
-      border: 1px solid var(--action);
-      border-radius: var(--r-sm);
-      outline: none;
-      box-shadow: 0 0 0 3px var(--focus-ring);
-    }
 
     .pl-blank {
       display: flex;
@@ -833,33 +791,14 @@ export class ComercialPricingComponent {
   readonly total = computed(() => this.pricesRes.value()?.pagination?.total ?? 0);
   readonly loadingPrices = computed(() => this.pricesRes.isLoading());
 
-  /**
-   * Precios guardados en esta sesión, superpuestos sobre lo que vino del server.
-   * Es el "optimistic UI sin spinner" del DS: la celda muestra el valor nuevo al
-   * instante y sólo revierte si el PATCH falla. Se limpia en cada cambio de
-   * filtro, donde el server vuelve a ser la verdad.
-   */
-  private readonly priceEdits = signal<Record<string, number>>({});
-  readonly editingId = signal<string | null>(null);
-  private readonly priceInput = viewChild<ElementRef<HTMLInputElement>>('priceInput');
-
   /** Filas con el diagnóstico ya resuelto — el template no calcula nada. */
   readonly rows = computed<PriceRow[]>(() => {
-    const edits = this.priceEdits();
     return (this.pricesRes.value()?.data ?? []).map((r) => {
-      const edited = edits[r.product_id];
       // numeric de Postgres llega como string: coerción una sola vez, acá.
-      const price = edited ?? (r.price === null || r.price === undefined ? null : Number(r.price));
+      const price = r.price === null || r.price === undefined ? null : Number(r.price);
       const cost = r.cost_base === null || r.cost_base === undefined ? null : Number(r.cost_base);
       const margin = price !== null && price > 0 && cost !== null && cost > 0 ? ((price - cost) / price) * 100 : null;
-      return {
-        ...r,
-        _price: price,
-        _cost: cost,
-        _margin: margin,
-        _flag: this.flagOf(price, cost, margin),
-        _canDelete: r.price !== null && r.price !== undefined,
-      };
+      return { ...r, _price: price, _cost: cost, _margin: margin, _flag: this.flagOf(price, cost, margin) };
     });
   });
 
@@ -877,6 +816,25 @@ export class ComercialPricingComponent {
     if (!h) return [];
     return FLAGS.map((meta) => ({ meta, count: (h as any)[meta.key] as number | undefined }))
       .filter((f): f is { meta: FlagMeta; count: number } => !!f.count);
+  });
+
+  /** Ruta del feed que escribe esta lista. Es la respuesta a "y esto quién lo pone". */
+  feedOf(code: string): string {
+    return FEED_BY_LIST[code] ?? FEED_UNKNOWN;
+  }
+
+  /**
+   * Hace cuánto se movió la lista, en llano (DESIGN §15: cada número no trivial
+   * con su lectura al lado). `stale` = ningún feed le escribe → lo que cobra hoy
+   * es lo de la última corrida.
+   */
+  readonly freshness = computed<{ label: string; stale: boolean } | null>(() => {
+    const ts = this.health()?.last_price_update;
+    if (!ts) return null;
+    const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86_400_000);
+    const label =
+      days <= 0 ? 'actualizada hoy' : days === 1 ? 'actualizada ayer' : `actualizada hace ${days} días`;
+    return { label, stale: days >= STALE_DAYS };
   });
 
   scopeCount(s: PriceScope): number | null {
@@ -919,12 +877,6 @@ export class ComercialPricingComponent {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los precios' });
       }
     });
-    // Al abrir la celda de precio, foco + texto seleccionado: se teclea el valor
-    // nuevo directo, sin borrar antes.
-    effect(() => {
-      const el = this.priceInput()?.nativeElement;
-      if (el) { el.focus(); el.select(); }
-    });
   }
 
   // ── Carga ─────────────────────────────────────────────────────────────
@@ -949,7 +901,6 @@ export class ComercialPricingComponent {
   }
 
   reloadAll(): void {
-    this.priceEdits.set({});
     this.pricesRes.reload();
     this.healthTick.update((t) => t + 1);
     this.load();
@@ -958,15 +909,12 @@ export class ComercialPricingComponent {
   selectList(id: string): void {
     if (id === this.selectedId()) return;
     this.selectedId.set(id);
-    this.editingId.set(null);
-    this.priceEdits.set({});
     this.resetPage();
   }
 
   // ── Filtros ───────────────────────────────────────────────────────────
   private resetPage(): void {
     this.page.set(1);
-    this.priceEdits.set({});
     this.syncUrl();
   }
 
@@ -1012,7 +960,6 @@ export class ComercialPricingComponent {
     this.sort.set(field ? { field, dir } : null);
     this.pageSize.set(rows);
     this.page.set(sortChanged ? 1 : Math.floor((e.first ?? 0) / rows) + 1);
-    this.editingId.set(null);
     this.syncUrl();
   }
 
@@ -1031,65 +978,6 @@ export class ComercialPricingComponent {
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
-    });
-  }
-
-  // ── Edición del precio en sitio ───────────────────────────────────────
-  commitPrice(row: PriceRow, raw: string): void {
-    if (this.editingId() !== row.product_id) return;   // blur después de Enter
-    this.editingId.set(null);
-    const list = this.selectedId();
-    const value = Number(String(raw ?? '').replace(',', '.'));
-    if (!list || !isFinite(value) || value < 0) {
-      if (raw !== '' && raw !== null) {
-        this.toast.add({ severity: 'warn', summary: 'Precio inválido', detail: 'Tiene que ser un número mayor o igual a 0.' });
-      }
-      return;
-    }
-    const rounded = Math.round(value * 100) / 100;
-    if (rounded === row._price) return;
-
-    const previous = this.priceEdits()[row.product_id];
-    this.priceEdits.update((m) => ({ ...m, [row.product_id]: rounded }));
-
-    this.api.bulkUpsertPrices({ price_list_id: list, items: [{ product_id: row.product_id, price: rounded }] }).subscribe({
-      // Sin toast en éxito: la celda ya muestra el valor nuevo. Un toast por
-      // cada precio editado convertiría una sesión de captura en una lluvia.
-      next: () => this.healthTick.update((t) => t + 1),
-      error: (err) => {
-        this.priceEdits.update((m) => {
-          const next = { ...m };
-          if (previous === undefined) delete next[row.product_id]; else next[row.product_id] = previous;
-          return next;
-        });
-        this.toast.add({
-          severity: 'error',
-          summary: 'No se guardó el precio',
-          detail: err?.error?.message || `${row.product_name ?? 'El producto'} quedó como estaba.`,
-        });
-      },
-    });
-  }
-
-  confirmDeletePrice(p: PriceRow): void {
-    this.confirm.confirm({
-      message: `¿Quitar "${p.product_name}" de esta lista? El producto sigue en el catálogo; sólo deja de tener precio acá.`,
-      header: 'Confirmar',
-      icon: 'pi pi-exclamation-triangle',
-      acceptLabel: 'Sí, quitar',
-      rejectLabel: 'Cancelar',
-      acceptButtonStyleClass: 'p-button-danger',
-      accept: () => {
-        this.api.deletePrice(p.id).subscribe({
-          next: () => {
-            this.toast.add({ severity: 'success', summary: 'Precio quitado de la lista' });
-            this.priceEdits.set({});
-            this.pricesRes.reload();
-            this.healthTick.update((t) => t + 1);
-          },
-          error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo quitar' }),
-        });
-      },
     });
   }
 

@@ -206,6 +206,8 @@ export interface PriceListHealth {
   below_cost?: number;
   thin?: number;
   no_cost?: number;
+  /** Último `updated_at` de la lista. Null = nunca se le cargó un precio. */
+  last_price_update?: string | null;
 }
 
 export interface ProductPricesPage {
@@ -688,15 +690,10 @@ export class ComercialService {
     if (opts.sort) params = params.set('sort', opts.sort).set('dir', opts.dir ?? 'asc');
     return this.http.get<ProductPricesPage>(`${this.base}/price-lists/${priceListId}/prices`, { params });
   }
-  // OJO: el backend lee `min_qty`. Antes esta firma decía `min_quantity` y ese
-  // campo se ignoraba en silencio (el upsert dejaba min_qty en 1). No se notó
-  // porque hasta ahora ninguna pantalla llamaba a este método.
-  bulkUpsertPrices(body: { price_list_id: string; items: { product_id: string; price: number; min_qty?: number; tax_rate?: number }[] }) {
-    return this.http.post<{ upserted: number }>(`${this.base}/product-prices/bulk-upsert`, body);
-  }
-  deletePrice(id: string) {
-    return this.http.delete<{ ok: true }>(`${this.base}/product-prices/${id}`);
-  }
+  // El precio de venta lo escribe el feed de Kepler, no el frontend: no hay
+  // wrapper de bulk-upsert ni de delete a propósito. `/comercial/pricing` es
+  // de lectura y lo que se tecleaba ahí lo revertía la corrida siguiente.
+  // Los endpoints siguen existiendo en la API para uso administrativo.
 
   // ── Products (admin catalog) ───────────────────────────────────────
   listProducts(opts: {
