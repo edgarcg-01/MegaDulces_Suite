@@ -42,13 +42,13 @@ export class CommercialSalesDocumentsController {
   // Antes de ':folio' — si no, la ruta genérica se traga '/:folio/anexo.pdf'.
   @Get(':folio/anexo.pdf')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Anexo informativo al CFDI en PDF (carta). `?pagare=true` agrega la hoja desprendible del pagaré. NO es comprobante fiscal.' })
+  @ApiOperation({ summary: 'Anexo informativo al CFDI en PDF (carta). Incluye SIEMPRE la sección de pagaré; `?pagare=false` la omite. NO es comprobante fiscal.' })
   async anexoPdf(
     @Param('folio') folio: string,
     @Query('pagare') pagare: string,
     @Res() res: Response,
   ) {
-    const buf = await this.anexo.pdfDeFolio(folio, { pagare: pagare === 'true' });
+    const buf = await this.anexo.pdfDeFolio(folio, { pagare: pagare !== 'false' });
     res.setHeader('Content-Type', 'application/pdf');
     // inline: el caso normal es verlo/imprimirlo, no bajarlo.
     res.setHeader('Content-Disposition', `inline; filename="anexo-${folio}.pdf"`);

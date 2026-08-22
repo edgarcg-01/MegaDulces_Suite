@@ -72,12 +72,12 @@ export class SalesDocumentsService {
   }
 
   /** URL del PDF. Se abre en pestaña nueva (Content-Disposition: inline) para ver o imprimir. */
-  anexoUrl(folio: string, conPagare = false): string {
-    return `${this.base}/${encodeURIComponent(folio)}/anexo.pdf${conPagare ? '?pagare=true' : ''}`;
+  anexoUrl(folio: string, conPagare = true): string {
+    return `${this.base}/${encodeURIComponent(folio)}/anexo.pdf${conPagare ? '' : '?pagare=false'}`;
   }
 
   /** Descarga el PDF como blob — necesario para imprimir: el <iframe> tiene que llevar el JWT. */
-  anexoBlob(folio: string, conPagare = false): Observable<Blob> {
+  anexoBlob(folio: string, conPagare = true): Observable<Blob> {
     return this.http.get(this.anexoUrl(folio, conPagare), { responseType: 'blob' });
   }
 }

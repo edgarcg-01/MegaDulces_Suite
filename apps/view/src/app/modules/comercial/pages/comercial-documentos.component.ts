@@ -159,9 +159,8 @@ import { REPORTS_TABS } from '../reports-tabs';
       } @else if (det(); as x) {
         <div class="peek">
           <div class="peek-acc">
-            <p-button icon="pi pi-print" label="Imprimir" size="small" (onClick)="imprimirDet(x, false)" />
-            <p-button icon="pi pi-file-edit" label="Con pagaré" size="small" [outlined]="true"
-                      (onClick)="imprimirDet(x, true)" />
+            <p-button icon="pi pi-print" label="Imprimir" size="small" (onClick)="imprimirDet(x)" />
+            <span class="peek-hint">Incluye la sección de pagaré</span>
           </div>
 
           <dl class="peek-kv">
@@ -221,7 +220,8 @@ import { REPORTS_TABS } from '../reports-tabs';
 
     .peek { display: flex; flex-direction: column; gap: .875rem; }
     .peek-msg { color: var(--text-soft); font-size: var(--fs-sm); }
-    .peek-acc { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .peek-acc { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    .peek-hint { font-size: var(--fs-xs, .75rem); color: var(--text-soft); }
     .peek-kv { display: grid; grid-template-columns: auto 1fr; gap: .25rem .75rem; margin: 0; font-size: var(--fs-sm); }
     .peek-kv dt { color: var(--text-soft); font-weight: 600; }
     .peek-kv dd { margin: 0; text-align: right; font-weight: 600; }
@@ -340,16 +340,16 @@ export class ComercialDocumentosComponent {
 
   verPdf(d: SalesDocRow, ev?: Event): void {
     ev?.stopPropagation();
-    this.conBlob(d.folio_digital, false, (url) => window.open(url, '_blank'));
+    this.conBlob(d.folio_digital, true, (url) => window.open(url, '_blank'));
   }
 
   imprimir(d: SalesDocRow, ev?: Event): void {
     ev?.stopPropagation();
-    this.imprimirFolio(d.folio_digital, false);
+    this.imprimirFolio(d.folio_digital, true);
   }
 
-  imprimirDet(d: SalesDocDetail, pagare: boolean): void {
-    this.imprimirFolio(d.folio_digital, pagare);
+  imprimirDet(d: SalesDocDetail): void {
+    this.imprimirFolio(d.folio_digital, true);
   }
 
   /**

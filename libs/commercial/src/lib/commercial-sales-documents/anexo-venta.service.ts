@@ -52,19 +52,54 @@ export class AnexoVentaService {
 
   async pdfDeFolio(folioDigital: string, opts: AnexoOpts = {}): Promise<Buffer> {
     const doc = await this.docs.detail(folioDigital);
-    return this.renderPdf(this.html(doc, opts), this.pie(doc));
+    // El pagaré va SIEMPRE (decisión Edgar 2026-08-22); `pagare:false` lo omite explícitamente.
+    return this.renderPdf(this.html(doc, { pagare: opts.pagare !== false }), this.pie(doc));
+  }
+
+  // ── navegador COMPARTIDO ────────────────────────────────────────────────
+  // Lanzar Chromium por petición costaba ~3-4 s de arranque cada vez (la queja real de
+  // lentitud). Se reusa UNA instancia y cada render abre solo una page (~centenas de ms).
+  // Contrapeso del OOM (ADR-043): un Chromium ocioso son ~100-150 MB, así que un timer lo
+  // cierra tras 3 min sin uso; si crashea, `disconnected` limpia la promesa y el siguiente
+  // render lo relanza.
+  private static browserP: Promise<puppeteer.Browser> | null = null;
+  private static idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly IDLE_MS = 3 * 60 * 1000;
+
+  private static async getBrowser(): Promise<puppeteer.Browser> {
+    if (!AnexoVentaService.browserP) {
+      AnexoVentaService.browserP = puppeteer
+        .launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+          ...(process.env.PUPPETEER_EXECUTABLE_PATH
+            ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+            : {}),
+        })
+        .then((b) => {
+          b.on('disconnected', () => { AnexoVentaService.browserP = null; });
+          return b;
+        })
+        .catch((e) => { AnexoVentaService.browserP = null; throw e; });
+    }
+    return AnexoVentaService.browserP;
+  }
+
+  private static touchIdle(): void {
+    if (AnexoVentaService.idleTimer) clearTimeout(AnexoVentaService.idleTimer);
+    AnexoVentaService.idleTimer = setTimeout(() => {
+      const p = AnexoVentaService.browserP;
+      AnexoVentaService.browserP = null;
+      p?.then((b) => b.close()).catch(() => undefined);
+    }, AnexoVentaService.IDLE_MS);
+    // no retener el proceso vivo solo por este timer
+    (AnexoVentaService.idleTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private async renderPdf(html: string, footer: string): Promise<Buffer> {
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      ...(process.env.PUPPETEER_EXECUTABLE_PATH
-        ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
-        : {}),
-    });
+    const browser = await AnexoVentaService.getBrowser();
+    const page = await browser.newPage();
     try {
-      const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
       const pdf = await page.pdf({
         format: 'Letter',
@@ -76,7 +111,8 @@ export class AnexoVentaService {
       });
       return Buffer.from(pdf);
     } finally {
-      await browser.close();
+      await page.close().catch(() => undefined);
+      AnexoVentaService.touchIdle();
     }
   }
 
@@ -267,33 +303,32 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 .pago .nota{padding:6px 12px;font-size:7.5pt;color:var(--muted);background:var(--soft);border-top:1px solid var(--line-2)}
 .disclaimer{margin-top:8px;font-size:8pt;color:var(--ink-2);line-height:1.5;break-inside:avoid}
 .disclaimer b{color:var(--ink)}
-/* El pagaré es un ANEXO del mismo documento, no una hoja suelta: mismo membrete, misma
-   tipografía y misma jerarquía de sección que "¿Qué compraste?". Arranca en página propia
-   sólo porque necesita espacio para firmar, no porque sea otro documento. */
-.hoja-pagare{break-before:page}
-.pg-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 8px;break-after:avoid}
-.pg-sec .sub{font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.pg-sec h2{font-family:Georgia,"Times New Roman",serif;font-size:19pt;font-weight:700;margin:3px 0 0;line-height:1.1}
-.pg-sec .ref{text-align:right;font-size:8.5pt;color:var(--muted)}
-.pg-sec .ref b{display:block;font-size:11pt;color:var(--ink);font-weight:700}
-.pg-doc{border:1px solid var(--line);border-radius:4px;padding:14px 16px}
-.pg-band{display:flex;gap:14px;margin:0 0 13px;align-items:stretch}
-.pg-bueno{border:1.5px solid var(--ink);border-radius:3px;padding:7px 14px;min-width:52mm}
-.pg-bueno span{display:block;font-size:7.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.pg-bueno b{font-size:19pt;font-weight:800}
-.pg-lugar{flex:1;display:flex;flex-direction:column;justify-content:center;padding:7px 0}
-.pg-lugar span{font-size:7.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.pg-lugar b{font-size:10.5pt;margin-top:2px}
-.pg-cuerpo{font-size:11pt;line-height:1.65;text-align:justify;margin:11px 0}
-.pg-grid{display:flex;gap:16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+/* El pagaré es UNA SECCIÓN MÁS del anexo (misma jerarquía que "¿Qué compraste?"), compacta.
+   Sin membrete repetido y sin salto de página forzado: fluye tras los totales, y solo se
+   mantiene ENTERA (break-inside) porque lleva firma. */
+.hoja-pagare{margin-top:12px;break-inside:avoid;page-break-inside:avoid}
+.pg-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 5px;break-after:avoid}
+.pg-sec h2{font-size:12.5pt;font-weight:700;margin:0}
+.pg-sec .ref{font-size:9pt;color:var(--muted)}
+.pg-sec .ref b{color:var(--ink);font-weight:700}
+.pg-doc{border:1px solid var(--line);border-radius:4px;padding:10px 12px}
+.pg-band{display:flex;gap:12px;margin:0 0 8px;align-items:stretch}
+.pg-bueno{border:1.5px solid var(--ink);border-radius:3px;padding:5px 12px;min-width:44mm}
+.pg-bueno span{display:block;font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pg-bueno b{font-size:14pt;font-weight:800}
+.pg-lugar{flex:1;display:flex;flex-direction:column;justify-content:center}
+.pg-lugar span{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pg-lugar b{font-size:9pt;margin-top:1px}
+.pg-cuerpo{font-size:9pt;line-height:1.45;text-align:justify;margin:7px 0}
+.pg-grid{display:flex;gap:14px;margin-top:8px;padding-top:7px;border-top:1px solid var(--line)}
 .pg-col{flex:1 1 0}
-.pg-col h5{margin:0 0 6px;font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:9.5pt;margin:0}
+.pg-col h5{margin:0 0 4px;font-size:7pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:8pt;margin:0;line-height:1.25}
 .pg-kv dt{color:var(--muted);font-weight:600;white-space:nowrap}.pg-kv dd{margin:0;font-weight:600}
-.pg-firma{margin:34px auto 4px;width:72mm;text-align:center}
+.pg-firma{margin:16px auto 2px;width:64mm;text-align:center}
 .pg-firma .linea{border-bottom:1px solid var(--ink);height:1px}
-.pg-firma .rot{font-size:8pt;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:5px}
-.pg-firma .rot2{font-size:9.5pt;font-weight:700;margin-top:2px}
+.pg-firma .rot{font-size:7pt;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:4px}
+.pg-firma .rot2{font-size:8.5pt;font-weight:700;margin-top:1px}
 </style>
 
 <div class="head">
@@ -372,8 +407,8 @@ ${opts.pagare ? this.pagare(doc) : ''}`;
   }
 
   /**
-   * Pagaré (LGTOC art. 170) — presentado como ANEXO del mismo documento, con su membrete y
-   * su jerarquía de sección, no como hoja suelta. Los 6 requisitos van explícitos: mención,
+   * Pagaré (LGTOC art. 170) — sección COMPACTA del propio anexo (va en TODOS los documentos por
+   * default; `pagare:false` la omite). Sin membrete repetido ni hoja aparte. Los 6 requisitos van explícitos: mención,
    * promesa incondicional + suma, beneficiario, época y lugar de pago, fecha y lugar de
    * suscripción, y espacio de firma. Sin firma autógrafa es sólo un formato: el título de
    * crédito es el PAPEL firmado.
@@ -382,14 +417,9 @@ ${opts.pagare ? this.pagare(doc) : ''}`;
     const total = Number(doc.total);
     return `
 <section class="hoja-pagare">
-  <div class="head">
-    ${this.logo() ? `<img class="logo" src="${this.logo()}" alt="Mega Dulces">` : '<div></div>'}
-    <div class="emisor"><b>${EMISOR.nombre}</b>RFC: ${EMISOR.rfc}<br>Régimen ${EMISOR.regimen}</div>
-  </div>
-  <div class="rule"></div>
   <div class="pg-sec">
-    <div><div class="sub">Anexo al detalle de pedido</div><h2>Pagaré</h2></div>
-    <div class="ref">Factura<b>${this.esc(doc.sucursal)} ${this.esc(doc.doc_prefix)}-${this.esc(doc.folio)}</b></div>
+    <h2>Pagaré</h2>
+    <div class="ref">Anexo de la factura <b>${this.esc(doc.sucursal)} ${this.esc(doc.doc_prefix)}-${this.esc(doc.folio)}</b></div>
   </div>
   <div class="pg-doc">
     <div class="pg-band">
