@@ -501,13 +501,16 @@ export class ExpenseProofsService {
    */
   async validate(id: string, actor?: string, dto?: { tiene_comprobacion?: boolean; comprobacion_nota?: string }) {
     this.tenantCtx.requireTenantId();
+    // El negocio lo llama «solicitud de gasto y/o comprobación»: según el caso el
+    // documento que cierra el gasto en Kepler es uno u otro. La columna se quedó como
+    // `tiene_comprobacion` — renombrarla sería churn sin ganancia.
     if (typeof dto?.tiene_comprobacion !== 'boolean') {
-      throw new BadRequestException('Falta declarar si este gasto tiene comprobación.');
+      throw new BadRequestException('Falta declarar si este gasto tiene su solicitud de gasto y/o comprobación.');
     }
     const nota = (dto.comprobacion_nota || '').trim();
     // Sin comprobación hay que decir por qué: si no, el «no» no se puede auditar.
     if (!dto.tiene_comprobacion && !nota) {
-      throw new BadRequestException('Si el gasto no lleva comprobación, explicá por qué.');
+      throw new BadRequestException('Si el gasto no lleva solicitud de gasto ni comprobación, explicá por qué.');
     }
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');

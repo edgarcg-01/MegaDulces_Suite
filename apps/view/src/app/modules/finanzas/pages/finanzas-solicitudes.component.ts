@@ -166,7 +166,8 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
               </tr>
             </ng-template>
             <ng-template #body let-r>
-              <tr>
+              <tr class="so-row" (click)="$event.stopPropagation(); verExpediente(r)"
+                  [attr.aria-label]="'Abrir el expediente de ' + r.folio">
                 <td>
                   <span class="num strong">{{ r.folio }}</span>
                   <span class="so-cell-meta">{{ r.sucursal_nombre || r.sucursal }}</span>
@@ -188,35 +189,35 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                 <td>
                   @switch (etapaDeFila(r)) {
                     @case ('comprobante') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); adjuntar(r)"
                               [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
                         <span class="p-button-label">Adjuntar evidencia</span>
                       </button>
                     }
                     @case ('validar') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
                               [attr.aria-label]="'Revisar el comprobante de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span>
                         <span class="p-button-label">Revisar</span>
                       </button>
                     }
                     @case ('solicitud') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); adjuntar(r)"
                               [attr.aria-label]="'Adjuntar la solicitud firmada de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span>
                         <span class="p-button-label">Agregar solicitud</span>
                       </button>
                     }
                     @case ('comprobacion') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
                               [attr.aria-label]="'Ver el expediente de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-clock" aria-hidden="true"></span>
-                        <span class="p-button-label">Falta comprobación</span>
+                        <span class="p-button-label">Falta sol. / comprobación</span>
                       </button>
                     }
                     @case ('completo') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
                               [attr.aria-label]="'Ver el expediente de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span>
                         <span class="p-button-label num">{{ r.gasto_folio || 'Ver' }}</span>
@@ -226,7 +227,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                     @default {
                       <!-- Autorizar y ejercer pasan en Kepler, no acá: no se inventa un botón. -->
                       @if (r.aplicada && r.gasto_folio) {
-                        <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verGasto(r)"
+                        <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verGasto(r)"
                                 [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
                           <span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span>
                           <span class="p-button-label num">{{ r.gasto_folio }}</span>
@@ -300,6 +301,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
     app-load-state.is-busy { opacity: .55; }
 
     /* ── Tabla ──────────────────────────────────────────────────────────── */
+    .so-row { cursor: pointer; }
     .so-table th { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
       letter-spacing: .04em; color: var(--fg-3); white-space: nowrap; }
     .so-table td { font-size: var(--fs-sm); color: var(--fg-1); line-height: 1.3; }
@@ -457,8 +459,8 @@ export class FinanzasSolicitudesComponent {
       comprobante: `El gasto se ejerció y falta subir el comprobante. Es la deuda de respaldo.`,
       solicitud: `Tienen comprobante pero falta adjuntar la solicitud firmada — la firma es la evidencia de que se autorizó.`,
       validar: `Expediente completo, esperando que Tesorería lo revise y lo marque validado.`,
-      comprobacion: `Validadas declarando que SÍ llevan comprobación, y la comprobación todavía no aparece en Kepler.`,
-      completo: `Expediente cerrado: validado, y con la comprobación presente o declarada como no aplicable.`,
+      comprobacion: `Validadas declarando que SÍ llevan su solicitud de gasto y/o comprobación, y ese documento todavía no aparece en Kepler.`,
+      completo: `Expediente cerrado: validado, y con su solicitud de gasto y/o comprobación presente, o declarada como no aplicable.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
       todas: `Todas las etapas juntas.`,
     };
@@ -523,7 +525,7 @@ export class FinanzasSolicitudesComponent {
     { value: 'comprobante', label: 'Falta comprobante' },
     { value: 'solicitud', label: 'Falta solicitud' },
     { value: 'validar', label: 'Por validar' },
-    { value: 'comprobacion', label: 'Falta comprobación' },
+    { value: 'comprobacion', label: 'Falta sol. de gasto / comprobación' },
     { value: 'completo', label: 'Completo' },
     { value: 'canceladas', label: 'Canceladas' },
     { value: 'todas', label: 'Todas' },
