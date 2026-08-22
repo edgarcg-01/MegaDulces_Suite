@@ -19,11 +19,12 @@ import {
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
 
+// Producto primero: es el foco de la pantalla. Los agregados son el resumen.
 const LEVELS: { key: MarginLevel; label: string }[] = [
-  { key: 'supplier', label: 'Proveedor' },
+  { key: 'sku', label: 'Producto' },
   { key: 'brand', label: 'Marca' },
   { key: 'category', label: 'Categoría' },
-  { key: 'sku', label: 'SKU' },
+  { key: 'supplier', label: 'Proveedor' },
 ];
 
 const WINDOWS: { key: MarginWindow; label: string }[] = [
@@ -243,15 +244,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
           <ng-template #body let-r>
             <tr [class.rp-r-click]="canDrill()" (click)="drill(r)">
               <td>
-                <div class="comm-cell-strong">{{ r.name }}</div>
+                <div class="rp-prod">{{ r.name }}</div>
                 @if (level() === 'sku') {
                   <div class="rp-sub">
                     @if (r.sku) { <code class="comm-code">{{ r.sku }}</code> }
                     @if (r.brand_name) { <span>{{ r.brand_name }}</span> }
+                    @if (r.supplier_name) { <span class="rp-dim">{{ r.supplier_name }}</span> }
                     @if (r.abc_class) { <span class="rp-abc">{{ r.abc_class }}</span> }
+                    @if (r.units) { <span class="rp-dim">{{ r.units | number }} u vendidas</span> }
                   </div>
                 } @else if (r.skus) {
-                  <div class="rp-sub">{{ r.skus | number }} SKU{{ r.skus === 1 ? '' : 's' }}</div>
+                  <div class="rp-sub">{{ r.skus | number }} producto{{ r.skus === 1 ? '' : 's' }}</div>
                 }
               </td>
               <td class="comm-num">{{ r.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -468,6 +471,12 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
       font-size: var(--fs-micro); color: var(--c-text-3);
       display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-top: 1px;
     }
+    /* El nombre del producto es el ancla visual de la fila. */
+    .rp-prod {
+      font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--c-text-1);
+      line-height: 1.3;
+    }
+    .rp-dim { color: var(--c-text-3); }
     .rp-abc {
       font-family: var(--font-mono); font-size: var(--fs-nano); font-weight: var(--fw-bold);
       border: 1px solid var(--c-divider); border-radius: var(--r-sm); padding: 0 3px;
@@ -625,7 +634,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
       background: var(--c-surface-1); border: 1px solid var(--c-divider);
       border-radius: var(--r-md); overflow: hidden;
     }
-    .rp-c-name { min-width: 220px; }
+    .rp-c-name { min-width: 300px; }
     .rp-c-gap, .rp-c-skus { width: 5.5rem; }
     .rp-r-click { cursor: pointer; }
     .rp-pct, .rp-gap { font-variant-numeric: tabular-nums; font-weight: var(--fw-medium); }
@@ -694,7 +703,7 @@ export class ComercialRentabilidadComponent {
 
   readonly window = signal<MarginWindow>('30d');
   readonly target = signal(15);
-  readonly level = signal<MarginLevel>('supplier');
+  readonly level = signal<MarginLevel>('sku');
   readonly band = signal<MarginBand | null>(null);
   readonly supplierId = signal<string | null>(null);
   readonly supplierName = signal<string | null>(null);
@@ -919,7 +928,7 @@ export class ComercialRentabilidadComponent {
       relativeTo: this.route,
       queryParams: {
         window: this.window() === '30d' ? null : this.window(),
-        level: this.level() === 'supplier' ? null : this.level(),
+        level: this.level() === 'sku' ? null : this.level(),
         target: this.target() === 15 ? null : this.target(),
         band: this.band() || null,
         supplier_id: this.supplierId() || null,
