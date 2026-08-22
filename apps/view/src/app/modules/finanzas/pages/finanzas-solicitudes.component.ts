@@ -12,7 +12,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
@@ -31,6 +31,9 @@ import { MessageService } from 'primeng/api';
 import { ComprobacionGastosService } from '../comprobacion-gastos.service';
 import { datePresetRange, money, moneyShort } from '../../../shared/util';
 import { dmy } from './finanzas-format';
+
+/** Etapas que cuentan como «abierta»: todavía deben algo. Alimenta la lectura del periodo. */
+const ABIERTAS = ['autorizar', 'ejercer', 'comprobante', 'solicitud', 'validar', 'comprobacion'];
 
 /** Periodos que ofrece el head. `rango` revela el datepicker. */
 type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
@@ -55,7 +58,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -73,7 +76,16 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
           @if (mias() && sinAnclas()) { <p class="so-scope is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué saber cuáles son tuyas — pedí que te asignen tus áreas de gasto en Usuarios.</p> }
         </div>
         <div class="so-head-right">
-          @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
+          <!-- Estado del dato: esto es una vista VIVA sobre Kepler, así que hay que poder
+               ver qué tan fresco es lo que se mira y volver a pedirlo (§9 / §13). -->
+          <div class="so-freshness">
+            @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
+            <app-freshness-pill [since]="lastLoaded()" [staleAfterSec]="300" />
+            <button pButton type="button" class="p-button-text p-button-sm so-refresh"
+                    [loading]="loading()" (click)="load()" aria-label="Volver a consultar" title="Volver a consultar">
+              <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
+            </button>
+          </div>
           <!-- Alcance: de quién es lo que estoy viendo. Va antes del periodo porque
                cambia el universo, no lo recorta. -->
           <app-segmented [options]="alcanceOpts" [value]="mias() ? 'mias' : 'todas'"
@@ -87,36 +99,48 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
       </header>
 
       @if (primeraCarga()) {
-        <p-skeleton height="4.4rem" styleClass="so-sk-head" />
-      } @else if (report(); as r) {
-        @if (r.kpis.total > 0) {
-          <!-- Q.1 — la conclusión del periodo antes que el grid. Q.2 — con su lectura
-               en llano. Q.4 — el número que evidencia el problema lleva a filtrarlo. -->
-          <!-- Q.1 — la conclusión de la ETAPA que se está mirando, no del total. -->
-          <div class="tw-verdict" [class.ok]="!hayPendiente()" [class.bad]="hayPendiente()">
-            <i class="pi" [class.pi-check-circle]="!hayPendiente()" [class.pi-exclamation-circle]="hayPendiente()" aria-hidden="true"></i>
-            <div>
-              <h3>{{ tituloEtapa() }}</h3>
-              <p class="so-read">{{ lecturaEtapa() }}</p>
-            </div>
-          </div>
-          <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de solicitudes" />
-        }
+        <p-skeleton height="1.1rem" styleClass="so-sk-lead" />
+        <p-skeleton height="5.5rem" styleClass="so-sk-funnel" />
+      } @else {
+        <!-- Q.1 — la lectura del PERIODO en una frase, antes de cualquier grid. No cambia
+             al moverse de etapa: el embudo de abajo ya dice dónde estás parado. Q.4 — lo
+             añejo es el número que duele, así que es un botón que lleva a verlo. -->
+        <p class="so-lead">
+          {{ lead() }}
+          @if (viejasPeriodo().n) {
+            <button type="button" class="so-drill" (click)="verAnejas()">{{ viejasPeriodo().n }} {{ viejasPeriodo().n === 1 ? 'lleva' : 'llevan' }} más de 90 días</button><span class="so-lead-m"> ({{ money(viejasPeriodo().importe) }}).</span>
+          }
+          @if (leadProceso()) { <span class="so-lead-m">{{ leadProceso() }}</span> }
+        </p>
       }
 
-      <!-- Una etapa a la vez. Antes el estatus del documento, la aplicación y la evidencia
-           convivían como columnas y filtros sueltos: había que componerlos de cabeza para
-           saber en qué punto estaba cada solicitud. -->
-      <nav class="so-etapas" role="tablist" aria-label="Etapa del ciclo">
-        @for (e of etapasDef; track e.value) {
-          <button type="button" role="tab" [attr.aria-selected]="etapa() === e.value"
-                  class="so-etapa" [class.on]="etapa() === e.value" (click)="setEtapa(e.value)">
-            {{ e.label }}
-            <span class="so-etapa-n">{{ conteos()[e.value].n }}</span>
-            @if (conteos()[e.value].importe) { <span class="so-etapa-m">{{ moneyShort(conteos()[e.value].importe) }}</span> }
-          </button>
+      <!-- El embudo ES el encabezado de KPIs y ES la navegación: mismo dato, un organismo.
+           Antes eran dos filas que contaban universos distintos sin avisarlo (el strip, el
+           periodo entero; las pills, la etapa) y un tercer idioma de control segmentado.
+           Va en tres bloques porque son tres cosas distintas —lo que pasa en Kepler, lo que
+           nos toca, y lo cerrado— y nueve opciones planas no se leen (Miller). -->
+      @if (report()) {
+      <nav class="so-funnel" role="radiogroup" aria-label="Etapa del ciclo">
+        @for (g of gruposEtapa; track g.label) {
+          <div class="so-fgroup">
+            <span class="so-fgroup-l">{{ g.label }}</span>
+            <div class="so-fitems">
+              @for (e of g.etapas; track e.value) {
+                <button type="button" role="radio" [attr.aria-checked]="etapa() === e.value"
+                        [attr.aria-label]="g.label + ' — ' + e.label + ': ' + conteos()[e.value].n + ' solicitudes, ' + money(conteos()[e.value].importe)"
+                        class="so-fitem" [class.on]="etapa() === e.value"
+                        [class.is-zero]="!conteos()[e.value].n" (click)="setEtapa(e.value)">
+                  <span class="so-fn">{{ conteos()[e.value].n }}</span>
+                  <span class="so-fl">{{ e.label }}</span>
+                  <span class="so-fm">{{ conteos()[e.value].importe ? moneyShort(conteos()[e.value].importe) : '—' }}</span>
+                </button>
+              }
+            </div>
+          </div>
         }
       </nav>
+      <p class="so-stage-note">{{ notaEtapa() }}</p>
+      }
 
       <div class="card-premium card-flat so-card">
         <!-- Filtros secundarios pegados a la tabla que filtran, no flotando mid-page. -->
@@ -137,6 +161,12 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                       appendTo="body" (onChange)="queue()" styleClass="w-full" [filter]="true" /></div>
           <div class="so-field so-grow"><label for="so-f-q">Buscar</label>
             <input id="so-f-q" pInputText [(ngModel)]="search" placeholder="Folio, beneficiario, concepto…" (keyup.enter)="load()" (blur)="queue()" /></div>
+          @if (soloAnejas()) {
+            <button type="button" class="so-chip" (click)="quitarAnejas()">
+              <i class="pi pi-clock" aria-hidden="true"></i> Sólo +90 días
+              <i class="pi pi-times so-chip-x" aria-hidden="true"></i>
+            </button>
+          }
           @if (!loading() && visibles().length) {
             <span class="so-count">{{ visibles().length }} {{ visibles().length === 1 ? 'fila' : 'filas' }}@if (visibles().length !== rows().length) { <span class="so-count-of"> de {{ rows().length }}</span> }</span>
           }
@@ -161,15 +191,19 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                 <th style="width:11rem">Beneficiario</th>
                 <th>Concepto</th>
                 <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
-                <th class="ta-r" style="width:5rem" title="Días desde la fecha de la solicitud">Días</th>
-                <th style="width:12rem">Acción</th>
+                <th class="ta-r" style="width:4.5rem" title="Días desde la fecha del documento en Kepler">Días</th>
+                <th style="width:7.5rem">Gasto</th>
+                <th class="ta-r" style="width:3.5rem"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
-              <tr class="so-row" (click)="$event.stopPropagation(); verExpediente(r)"
-                  [attr.aria-label]="'Abrir el expediente de ' + r.folio">
+              <!-- La fila entera abre el expediente (atajo de mouse). El acceso real —el
+                   que existe para teclado y lector— es el folio: es el identificador de la
+                   entidad, que es donde el patrón de tabla espera el enlace. -->
+              <tr class="so-row" (click)="verExpediente(r)">
                 <td>
-                  <span class="num strong">{{ r.folio }}</span>
+                  <button type="button" class="so-folio num strong" (click)="$event.stopPropagation(); verExpediente(r)"
+                          [attr.aria-label]="'Abrir el expediente de la solicitud ' + r.folio">{{ r.folio }}</button>
                   <span class="so-cell-meta">{{ r.sucursal_nombre || r.sucursal }}</span>
                 </td>
                 <td class="num muted">{{ dmy(r.fecha) }}</td>
@@ -182,57 +216,41 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                 <td class="ta-r num strong">{{ money(r.importe) }}</td>
                 <!-- Antigüedad. Es aproximada a propósito: Kepler no guarda cuándo cambió
                      de etapa, sólo la fecha del documento. Se marca lo añejo. -->
-                <td class="ta-r num" [class.is-viejo]="esViejo(r)">{{ edad(r) ?? '—' }}</td>
+                <td class="ta-r num" [class.is-viejo]="esViejo(r)" [attr.title]="esViejo(r) ? 'Lleva ' + edad(r) + ' días — más de 90' : null">{{ edad(r) ?? '—' }}</td>
 
-                <!-- Una acción, la de SU etapa. Antes había tres celdas de estado que dentro
-                     de una etapa decían siempre lo mismo. -->
+                <!-- El gasto que ejerció la solicitud es un DATO (y su liga al detalle de
+                     egresos), no una acción. Antes se disfrazaba de botón en la columna de
+                     acciones, que es donde va lo que hay que hacer, no lo que ya pasó. -->
                 <td>
+                  @if (r.gasto_folio) {
+                    <button type="button" class="so-link num" (click)="$event.stopPropagation(); verGasto(r)"
+                            [attr.aria-label]="'Abrir el gasto ' + r.gasto_folio">{{ r.gasto_folio }}</button>
+                    @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }
+                  } @else { <span class="faint">—</span> }
+                </td>
+
+                <!-- Lo único que va acá es lo que HAY QUE HACER, en icono, revelado al pasar
+                     por la fila (§datos densos 5). Ver el expediente ya lo hace la fila, así
+                     que no se repite; y una etapa sin acción propia no inventa un botón. -->
+                <td class="ta-r">
                   @switch (etapaDeFila(r)) {
                     @case ('comprobante') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); adjuntar(r)"
-                              [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
-                        <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
-                        <span class="p-button-label">Adjuntar evidencia</span>
-                      </button>
-                    }
-                    @case ('validar') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
-                              [attr.aria-label]="'Revisar el comprobante de ' + r.folio">
-                        <span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span>
-                        <span class="p-button-label">Revisar</span>
+                      <button type="button" class="so-act" (click)="$event.stopPropagation(); adjuntar(r)"
+                              title="Adjuntar la evidencia" [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
+                        <i class="pi pi-upload" aria-hidden="true"></i>
                       </button>
                     }
                     @case ('solicitud') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); adjuntar(r)"
-                              [attr.aria-label]="'Adjuntar la solicitud firmada de ' + r.folio">
-                        <span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span>
-                        <span class="p-button-label">Agregar solicitud</span>
+                      <button type="button" class="so-act" (click)="$event.stopPropagation(); adjuntar(r)"
+                              title="Adjuntar la solicitud firmada" [attr.aria-label]="'Adjuntar la solicitud firmada de ' + r.folio">
+                        <i class="pi pi-file-edit" aria-hidden="true"></i>
                       </button>
                     }
-                    @case ('comprobacion') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
-                              [attr.aria-label]="'Ver el expediente de ' + r.folio">
-                        <span class="p-button-icon p-button-icon-left pi pi-clock" aria-hidden="true"></span>
-                        <span class="p-button-label">Falta sol. / comprobación</span>
+                    @case ('validar') {
+                      <button type="button" class="so-act is-on" (click)="$event.stopPropagation(); verExpediente(r)"
+                              title="Revisar y resolver" [attr.aria-label]="'Revisar el expediente de ' + r.folio">
+                        <i class="pi pi-check-square" aria-hidden="true"></i>
                       </button>
-                    }
-                    @case ('completo') {
-                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verExpediente(r)"
-                              [attr.aria-label]="'Ver el expediente de ' + r.folio">
-                        <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span>
-                        <span class="p-button-label num">{{ r.gasto_folio || 'Ver' }}</span>
-                      </button>
-                      @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }
-                    }
-                    @default {
-                      <!-- Autorizar y ejercer pasan en Kepler, no acá: no se inventa un botón. -->
-                      @if (r.aplicada && r.gasto_folio) {
-                        <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="$event.stopPropagation(); verGasto(r)"
-                                [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
-                          <span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span>
-                          <span class="p-button-label num">{{ r.gasto_folio }}</span>
-                        </button>
-                      } @else { <span class="faint">—</span> }
                     }
                   }
                 </td>
@@ -264,18 +282,71 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
     .so-scope.is-warn { color: var(--warn-fg); }
     .so-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }
     .so-live i { font-size: var(--fs-nano); }
+    /* Estado del dato: en vivo, qué tan fresco, y recargar. Es un grupo, y se separa de
+       las lentes con un hairline en vez de con más aire (Gestalt, y ahorra ancho). */
+    .so-freshness { display: inline-flex; align-items: center; gap: var(--sp-2);
+      padding-right: var(--sp-3); border-right: 1px solid var(--border-color); }
+    :host ::ng-deep .so-refresh { width: 1.9rem; min-width: 1.9rem; height: 1.9rem; padding: 0; }
+    @media (pointer: coarse) {
+      :host ::ng-deep .so-refresh { width: var(--tap-min); min-width: var(--tap-min); height: var(--tap-min); }
+    }
+    /* Cuando el head se apila, el divisor separa de la nada. */
+    @media (max-width: 760px) { .so-freshness { padding-right: 0; border-right: 0; } }
 
-    /* ── Veredicto + KPIs ───────────────────────────────────────────────── */
-    .tw-verdict p.so-read { font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
+    /* ── Nivel 1: la lectura del periodo ────────────────────────────────
+       Texto, no caja. La jerarquía la dan el tipo y el contraste, no un panel con
+       borde (Q.5). El .tw-verdict con ícono se quedó en las pantallas de cuadre,
+       donde el veredicto SÍ es binario; acá no lo es. */
+    .so-lead { margin: var(--sp-3) 0 0; max-width: 80ch; font-size: var(--fs-body);
+      color: var(--fg-1); line-height: 1.5; }
+    .so-lead-m { color: var(--fg-2); }
     .so-drill { border: 0; background: none; padding: 0; font: inherit; font-weight: var(--fw-bold);
       color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .so-drill:hover { color: var(--action-hover); }
     .so-drill:active { color: var(--action-press); }
     .so-drill:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
-    app-metric-strip { display: block; margin-bottom: var(--sp-3); }
-    /* Reserva el alto del veredicto mientras carga: sin esto la tabla salta (CLS). */
+    /* Reserva el alto de lo que viene mientras carga: sin esto la tabla salta (CLS). */
     p-skeleton { display: block; }
-    .so-sk-head { margin-bottom: var(--sp-3); }
+    .so-sk-lead { margin: var(--sp-3) 0 var(--sp-2); max-width: 46rem; }
+    .so-sk-funnel { margin-bottom: var(--sp-3); border-radius: var(--r-md); }
+
+    /* ── Nivel 2: el embudo. Es el encabezado de KPIs Y la navegación ────
+       Gramática de MetricStrip (ADR-033): cero caja por métrica, hairline entre
+       bloques, cifra Geist mono tabular, etiqueta micro. La elevación es el borde
+       1px del contenedor, sin sombra (datos densos 1). Lleva caja porque además de
+       informar es un control: un radiogroup. */
+    .so-funnel { display: flex; flex-wrap: wrap; margin: var(--sp-3) 0 var(--sp-2);
+      border: 1px solid var(--border-color); border-radius: var(--r-md);
+      background: var(--card-bg); overflow: hidden; }
+    .so-fgroup { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0;
+      border-right: 1px solid var(--border-color); }
+    .so-fgroup:last-child { border-right: 0; }
+    .so-fgroup-l { padding: var(--sp-2) var(--sp-3) 0; font-size: var(--fs-nano);
+      font-weight: var(--fw-medium); text-transform: uppercase; letter-spacing: .08em; color: var(--fg-3); }
+    .so-fitems { display: flex; flex: 1; }
+    .so-fitem { flex: 1 1 0; min-width: 6.75rem; display: flex; flex-direction: column; gap: 1px;
+      padding: var(--sp-1) var(--sp-3) var(--sp-3); border: 0; border-bottom: 2px solid transparent;
+      background: none; font: inherit; text-align: left; cursor: pointer;
+      transition: background-color var(--dur-short) var(--ease-standard); }
+    .so-fitem:hover:not(.on) { background: var(--overlay-hover); }
+    .so-fitem.on { background: var(--overlay-selected); border-bottom-color: var(--action); }
+    .so-fitem:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .so-fn { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--fg-1); line-height: 1.15; }
+    /* Etapa vacía = terciaria: si no hay nada que hacer ahí, no compite (Q.5). */
+    .so-fitem.is-zero .so-fn { color: var(--fg-3); font-weight: var(--fw-medium); }
+    .so-fl { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--fg-2); }
+    .so-fitem.on .so-fl { color: var(--fg-1); font-weight: var(--fw-medium); }
+    .so-fm { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-xs); color: var(--fg-3); }
+    @media (max-width: 900px) {
+      .so-fgroup { flex: 1 1 100%; border-right: 0; border-bottom: 1px solid var(--border-color); }
+      .so-fgroup:last-child { border-bottom: 0; }
+    }
+
+    /* Nivel 3: qué significa la etapa seleccionada. Explica la tabla que sigue (Q.2). */
+    .so-stage-note { margin: 0 0 var(--sp-3); max-width: 96ch;
+      font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }
 
     /* ── Barra de herramientas de la tabla ──────────────────────────────── */
     /* .card-premium global trae padding + box-shadow; in-page la elevación es SOLO
@@ -317,37 +388,42 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
     .so-cell-meta { display: block; margin-top: 1px; font-size: var(--fs-xs); color: var(--fg-3); }
     .so-trunc { display: block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    /* ── Acciones de celda ──────────────────────────────────────────────
-       El botón es de PrimeNG (.p-button-text): hover, active, disabled, foco y
-       severity ya vienen tokenizados. Acá solo se ajusta la métrica para que
-       entre en una fila densa — override de tamaño, no un botón nuevo. */
-    .so-cellbtn { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
-    /* --tap-min vale 0px en puntero fino (densidad) y 44px en coarse: el fallback de
-       var() NO aplica a un valor definido, así que el piso va con max(). */
-    /* ── Barra de etapas: una a la vez ──────────────────────────────────
-       Hairline, sin sombra, activo por superficie + ring (regla de elevación). */
-    .so-etapas { display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 3px;
-      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
-      overflow-x: auto; scrollbar-width: none; }
-    .so-etapas::-webkit-scrollbar { display: none; }
-    .so-etapa { display: inline-flex; align-items: baseline; gap: var(--sp-1); white-space: nowrap;
-      padding: var(--sp-1) var(--sp-3); border: 0; border-radius: var(--r-pill); background: none;
-      font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-2); cursor: pointer;
-      transition: color var(--dur-short) var(--ease-standard), background-color var(--dur-short) var(--ease-standard); }
-    .so-etapa:hover:not(.on) { color: var(--fg-1); }
-    .so-etapa.on { color: var(--fg-1); background: var(--card-bg); box-shadow: 0 0 0 1px var(--border-color); }
-    .so-etapa:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
-    .so-etapa-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
-    .so-etapa-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-micro); color: var(--fg-3); }
-    /* Añejo: el número se marca, con el texto del tooltip como portador extra. */
+    /* Añejo: color + peso + el title de la celda, nunca sólo color. */
     .so-table td.is-viejo { color: var(--warn-fg); font-weight: var(--fw-bold); }
 
-    /* El estado de evidencia ES el botón que abre el expediente. */
-    .so-evbtn { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: max(1.5rem, var(--tap-min));
-      padding: 0 2px; border: 0; background: transparent; font: inherit; cursor: pointer; }
-    .so-evbtn:hover { background: var(--overlay-hover); border-radius: var(--r-sm); }
-    .so-evbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; border-radius: var(--r-sm); }
+    /* El folio es el acceso al expediente: el identificador de la entidad es donde el
+       patrón de tabla pone el enlace, y es el camino de teclado de la fila. */
+    .so-folio { display: block; padding: 0; border: 0; background: none; font: inherit;
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold);
+      color: var(--fg-1); text-align: left; cursor: pointer; }
+    .so-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; color: var(--fg-1);
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .so-folio:hover, .so-link:hover { color: var(--action); text-decoration: underline; text-underline-offset: 2px; }
+    .so-folio:focus-visible, .so-link:focus-visible { outline: 2px solid var(--action-ring);
+      outline-offset: 2px; border-radius: var(--r-sm); }
+
+    /* Acción de fila: icono fantasma a la derecha (datos densos 5). Atenuada en reposo y
+       plena al pasar por la fila — visible siempre, porque en una bandeja de trabajo la
+       acción ES el motivo de la fila; esconderla del todo sería esconder el trabajo. */
+    .so-act { display: inline-flex; align-items: center; justify-content: center;
+      width: max(1.75rem, var(--tap-min)); height: max(1.75rem, var(--tap-min));
+      border: 0; border-radius: var(--r-sm); background: none; color: var(--fg-2); cursor: pointer;
+      opacity: .5; transition: opacity var(--dur-short) var(--ease-standard),
+        background-color var(--dur-short) var(--ease-standard); }
+    .so-row:hover .so-act, .so-row:focus-within .so-act { opacity: 1; }
+    .so-act:hover { background: var(--overlay-hover); color: var(--fg-1); }
+    .so-act:focus-visible { opacity: 1; outline: 2px solid var(--action-ring); outline-offset: -1px; }
+    @media (pointer: coarse) { .so-act { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .so-act { transition: none; } }
+
+    /* Lente activa: se ve, y se quita desde donde se aplicó. */
+    .so-chip { display: inline-flex; align-items: center; gap: var(--sp-1); align-self: center;
+      min-height: max(1.6rem, var(--tap-min)); padding: 2px var(--sp-2);
+      border: 1px solid var(--warn-border); border-radius: var(--r-pill); background: none;
+      font: inherit; font-size: var(--fs-xs); color: var(--warn-fg); cursor: pointer; }
+    .so-chip:hover { background: var(--overlay-hover); }
+    .so-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .so-chip-x { font-size: var(--fs-nano); }
 
   `],
 })
@@ -411,8 +487,10 @@ export class FinanzasSolicitudesComponent {
   /** Sólo la etapa elegida: separar es justamente no entrelazar. */
   readonly visibles = computed(() => {
     const e = this.etapa();
-    const rows = this.rows();
-    return e === 'todas' ? rows : rows.filter((r) => this.etapaDe(r) === e);
+    let rows = this.rows();
+    if (e !== 'todas') rows = rows.filter((r) => this.etapaDe(r) === e);
+    if (this.soloAnejas()) rows = rows.filter((r) => this.esViejo(r));
+    return rows;
   });
 
   /** Antigüedad de la solicitud en días. Aproximada: Kepler no guarda cuándo cambió de etapa. */
@@ -433,26 +511,33 @@ export class FinanzasSolicitudesComponent {
     const d = this.edad(r);
     return d != null && d > 90;
   }
-  /** Cuántas de la etapa actual llevan demasiado tiempo ahí. */
-  readonly viejas = computed(() => {
-    const r = this.visibles().filter((x) => this.esViejo(x));
+  /** Añejas del PERIODO, no de la etapa: es deuda que hay que ver estés donde estés. */
+  readonly viejasPeriodo = computed(() => {
+    const r = this.rows().filter((x) => this.esViejo(x));
     return { n: r.length, importe: r.reduce((a, b) => a + (Number(b.importe) || 0), 0) };
   });
-  readonly hayPendiente = computed(() => {
-    const e = this.etapa();
-    return e !== 'completo' && e !== 'canceladas' && this.visibles().length > 0;
-  });
 
-  tituloEtapa(): string {
-    const c = this.conteos()[this.etapa()];
-    if (!c?.n) return `Nada en ${this.etapaLabel().toLowerCase()}`;
-    const v = this.viejas();
-    if (v.n) return `${v.n} ${v.n === 1 ? 'lleva' : 'llevan'} más de 90 días acá`;
-    return `${c.n} ${c.n === 1 ? 'solicitud' : 'solicitudes'} · ${money(c.importe)}`;
-  }
-  lecturaEtapa(): string {
-    const c = this.conteos()[this.etapa()];
-    const per = this.periodoEn();
+  /**
+   * Nivel 1 de la jerarquía (Q.5): la lectura del periodo, en una frase. Es `computed` y no
+   * método de template a propósito — el mismo error que ya estaba documentado en `kpiItems`.
+   */
+  readonly lead = computed(() => {
+    const c = this.conteos();
+    const tot = c['todas'];
+    if (!tot?.n) return `Sin solicitudes ${this.periodoEn()}.`;
+    const abiertas = ABIERTAS.reduce((a, k) => ({ n: a.n + (c[k]?.n || 0), m: a.m + (c[k]?.importe || 0) }), { n: 0, m: 0 });
+    if (!abiertas.n) return `Las ${tot.n} solicitudes ${this.periodoDe()} (${money(tot.importe)}) están cerradas: no hay nada pendiente.`;
+    return `De ${tot.n} solicitudes ${this.periodoDe()} (${money(tot.importe)}), ${abiertas.n} siguen abiertas por ${money(abiertas.m)}.`;
+  });
+  /** Cola de la lectura: sólo si hay algo ya ejercido de qué promediar. */
+  readonly leadProceso = computed(() => {
+    const leads = this.rows().map((x) => x.lead_days).filter((d): d is number => d != null);
+    if (!leads.length) return '';
+    const avg = leads.reduce((a, b) => a + b, 0) / leads.length;
+    return ` Las ya ejercidas tardaron ${avg.toFixed(1)} días en promedio desde que se pidieron.`;
+  });
+  /** Nivel 3: qué significa la etapa que está seleccionada — explica la tabla de abajo. */
+  readonly notaEtapa = computed(() => {
     const base: Record<string, string> = {
       autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
@@ -462,12 +547,11 @@ export class FinanzasSolicitudesComponent {
       comprobacion: `Validadas declarando que SÍ llevan su solicitud de gasto y/o comprobación, y ese documento todavía no aparece en Kepler.`,
       completo: `Expediente cerrado: validado, y con su solicitud de gasto y/o comprobación presente, o declarada como no aplicable.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
-      todas: `Todas las etapas juntas.`,
+      todas: `Todas las etapas juntas, en orden de fecha.`,
     };
-    const v = this.viejas();
-    const cola = v.n ? ` ${v.n} ${v.n === 1 ? 'lleva' : 'llevan'} más de 90 días (${money(v.importe)}) — la antigüedad se mide desde la fecha del documento, que es lo único que Kepler guarda.` : '';
-    return `${c?.n || 0} de ${per}, ${money(c?.importe || 0)}. ${base[this.etapa()]}${cola}`;
-  }
+    const cola = this.soloAnejas() ? ' Mostrando sólo lo que lleva más de 90 días — la antigüedad se cuenta desde la fecha del documento, que es lo único que Kepler guarda.' : '';
+    return base[this.etapa()] + cola;
+  });
   /**
    * Opciones de grupo derivadas de lo cargado, etiquetadas con el acreedor más común del
    * grupo: la etiqueta sale del dato, no de una taxonomía inventada.
@@ -500,6 +584,10 @@ export class FinanzasSolicitudesComponent {
   readonly periodo = signal<Periodo>('hoy');
   /** Alcance: mías o de toda la empresa. Es una lente, no un filtro más. */
   readonly mias = signal(false);
+  /** Lente sobre lo cargado: sólo lo añejo. Es el destino del número del encabezado (Q.4). */
+  readonly soloAnejas = signal(false);
+  /** Cuándo se trajo esto de Kepler. La vista es viva; hay que poder ver si está fresca. */
+  readonly lastLoaded = signal<Date | null>(null);
   /** Contra qué resuelve "mío" este usuario, según el backend. */
   readonly miScope = computed(() => this.report()?.mi_scope ?? { keys: [], areas: 0, nombre: null });
   /** Sin anclas no hay "mío" posible: el control se apaga y se dice por qué. */
@@ -518,18 +606,29 @@ export class FinanzasSolicitudesComponent {
     { label: 'Hoy', value: 'hoy' }, { label: '7 días', value: 'd7' },
     { label: '30 días', value: 'd30' }, { label: 'Rango', value: 'rango' },
   ];
-  /** Orden = el recorrido del dinero. `todas` queda al final como salida, no como default. */
-  readonly etapasDef: { value: Etapa; label: string }[] = [
-    { value: 'autorizar', label: 'Por autorizar' },
-    { value: 'ejercer', label: 'Por ejercer' },
-    { value: 'comprobante', label: 'Falta comprobante' },
-    { value: 'solicitud', label: 'Falta solicitud' },
-    { value: 'validar', label: 'Por validar' },
-    { value: 'comprobacion', label: 'Falta sol. de gasto / comprobación' },
-    { value: 'completo', label: 'Completo' },
-    { value: 'canceladas', label: 'Canceladas' },
-    { value: 'todas', label: 'Todas' },
+  /**
+   * Orden = el recorrido del dinero, en tres bloques: lo que se resuelve en Kepler, lo que
+   * nos toca a nosotros, y lo cerrado. `todas` va al final como salida, no como default.
+   */
+  readonly gruposEtapa: { label: string; etapas: { value: Etapa; label: string }[] }[] = [
+    { label: 'En Kepler', etapas: [
+      { value: 'autorizar', label: 'Por autorizar' },
+      { value: 'ejercer', label: 'Por ejercer' },
+    ] },
+    { label: 'Expediente', etapas: [
+      { value: 'comprobante', label: 'Falta comprobante' },
+      { value: 'solicitud', label: 'Falta solicitud' },
+      { value: 'validar', label: 'Por validar' },
+      { value: 'comprobacion', label: 'Falta comprobación' },
+    ] },
+    { label: 'Cerradas', etapas: [
+      { value: 'completo', label: 'Completo' },
+      { value: 'canceladas', label: 'Canceladas' },
+      { value: 'todas', label: 'Todas' },
+    ] },
   ];
+  /** Plano, derivado del agrupado: las etapas se declaran UNA vez. */
+  readonly etapasDef: { value: Etapa; label: string }[] = this.gruposEtapa.flatMap((g) => g.etapas);
 
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
@@ -557,6 +656,7 @@ export class FinanzasSolicitudesComponent {
     const et = qp.get('etapa');
     if (et && this.etapasDef.some((x) => x.value === et)) this.etapa.set(et as Etapa);
     if (qp.get('mias') === '1') this.mias.set(true);
+    if (qp.get('anejas') === '1') this.soloAnejas.set(true);
 
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
@@ -581,11 +681,15 @@ export class FinanzasSolicitudesComponent {
   setAlcance(v: string) { this.mias.set(v === 'mias'); this.syncUrl(); this.load(); }
   setPeriodo(v: string) { this.periodo.set(v as Periodo); this.syncUrl(); this.load(); }
   setEtapa(v: Etapa) { this.etapa.set(v); this.syncUrl(); }
+  /** Q.4 — el número añejo del encabezado lleva a verlo, con el filtro ya puesto. */
+  verAnejas() { this.soloAnejas.set(true); this.etapa.set('todas'); this.syncUrl(); }
+  quitarAnejas() { this.soloAnejas.set(false); this.syncUrl(); }
 
   private syncUrl(): void {
     this.router.navigate([], {
       relativeTo: this.route, replaceUrl: true, queryParamsHandling: 'merge',
-      queryParams: { periodo: this.periodo(), etapa: this.etapa(), mias: this.mias() ? '1' : null },
+      queryParams: { periodo: this.periodo(), etapa: this.etapa(), mias: this.mias() ? '1' : null,
+        anejas: this.soloAnejas() ? '1' : null },
     });
   }
 
@@ -680,35 +784,11 @@ export class FinanzasSolicitudesComponent {
       min_importe: this.minImporte || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.lastLoaded.set(new Date()); this.loading.set(false); },
         error: () => { this.error.set('No se pudieron cargar las solicitudes de gasto.'); this.loading.set(false); },
       });
   }
 
-  /**
-   * KPIs. `computed`, no método de template: recorre las filas, y llamarlo en cada ciclo
-   * de detección devolvía un array nuevo que invalidaba el strip sin que cambiara nada.
-   *
-   * El 4º (días de proceso) aparece SOLO si hay solicitudes ya aplicadas en el periodo —
-   * inventar una métrica que casi siempre sale en cero es peor que no tenerla.
-   */
-  readonly kpiItems = computed<MetricStripItem[]>(() => {
-    const r = this.report();
-    if (!r) return [];
-    const items: MetricStripItem[] = [
-      { label: 'Solicitudes', value: r.kpis.total, sub: moneyShort(r.kpis.importe) },
-      { label: 'Sin aplicar', value: r.kpis.pendientes, tone: r.kpis.pendientes ? 'bad' : 'default', sub: moneyShort(r.kpis.pendientes_importe) },
-      { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}% del periodo` },
-      { label: 'Añejas (+90d)', value: this.viejas().n, tone: this.viejas().n ? 'warn' : 'ok',
-        sub: moneyShort(this.viejas().importe) },
-    ];
-    const leads = this.rows().map((x) => x.lead_days).filter((d): d is number => d != null);
-    if (leads.length) {
-      const avg = leads.reduce((a, b) => a + b, 0) / leads.length;
-      items.push({ label: 'Días de proceso', value: avg, format: 'decimal1', sub: 'promedio solicitud → gasto' });
-    }
-    return items;
-  });
 
   /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas:
    *  FINANCE_EXPENSES_COMPROBAR, que hoy tiene una sola persona (Tesorería). */
@@ -754,5 +834,4 @@ export class FinanzasSolicitudesComponent {
     });
   }
 
-  pct(a: number, b: number): number { return b ? Math.round((a / b) * 100) : 0; }
 }

@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   HostListener,
+  computed,
   effect,
   inject,
   input,
@@ -34,6 +35,7 @@ import {
       <aside
         #panel
         class="sp-panel"
+        [style.--sp-w]="widthPx()"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="title()"
@@ -115,7 +117,10 @@ import {
         top: 0;
         right: 0;
         height: 100%;
-        width: min(520px, 100vw);
+        /* 520px es el detalle ligero (regla #8). Un expediente que incluye el DOCUMENTO
+           necesita más: DESIGN.md O.1 prohíbe leer un documento financiero extenso en un
+           overlay apretado, así que quien muestra uno sube el ancho por input. */
+        width: min(var(--sp-w, 520px), 100vw);
         background: var(--card-bg);
         border-left: 1px solid var(--border-color);
         box-shadow: -8px 0 30px -12px rgba(0, 0, 0, 0.25);
@@ -193,6 +198,10 @@ export class SidePeekComponent {
   readonly open = model(false);
   /** Apilar por encima de los diálogos de PrimeNG. Ver la nota de z-index en los estilos. */
   readonly aboveModals = input(false);
+  /** Ancho del panel en px. Default 520 (detalle ligero). Subilo sólo si adentro va un
+   *  documento que se tiene que poder leer (O.1). */
+  readonly width = input(520);
+  protected readonly widthPx = computed(() => `${this.width()}px`);
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
 
