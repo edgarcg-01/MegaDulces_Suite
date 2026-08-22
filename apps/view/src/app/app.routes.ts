@@ -188,6 +188,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
+      {
+        // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
+        path: 'documentos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
       { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },
