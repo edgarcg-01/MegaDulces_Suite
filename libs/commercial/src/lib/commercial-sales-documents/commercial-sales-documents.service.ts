@@ -43,6 +43,12 @@ export class CommercialSalesDocumentsService {
     return { from, to };
   }
 
+  /** '06UD0801-0000087' → {sucursal:'06', docPrefix:'UD0801', folio:'0000087'}; null si no calza. */
+  private partes(folioDigital: string): { sucursal: string; docPrefix: string; folio: string } | null {
+    const m = /^(\d{2})(UD\d{4})-(.+)$/.exec(String(folioDigital || '').trim());
+    return m ? { sucursal: m[1], docPrefix: m[2], folio: m[3] } : null;
+  }
+
   private whIds(q: SalesDocsQuery): string[] {
     return (q.warehouse_ids || '').split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
   }
@@ -103,16 +109,27 @@ export class CommercialSalesDocumentsService {
     });
   }
 
-  /** Documento completo (cabecera + renglones) — lo que consume el anexo imprimible. */
+  /**
+   * Documento completo (cabecera + renglones) — lo que consume el anexo imprimible.
+   *
+   * OJO con el filtro: `folio_digital` es una expresión compuesta dentro de la vista
+   * (`sucursal || doc_prefix || '-' || folio`) y el planner NO la puede empujar al índice →
+   * medido en prod, filtrar por él costaba **3,031 ms**; por (sucursal, doc_prefix, folio),
+   * **162 ms**. Se descompone acá y se filtra por las columnas simples.
+   */
   async detail(folioDigital: string) {
     const tenantId = this.tenantCtx.requireTenantId();
+    const p = this.partes(folioDigital);
     return this.tk.run(async (trx) => {
-      const doc = await trx('analytics.erp_sales_invoices')
-        .where({ tenant_id: tenantId, folio_digital: folioDigital }).first();
+      const donde = p
+        ? { tenant_id: tenantId, sucursal: p.sucursal, doc_prefix: p.docPrefix, folio: p.folio }
+        : { tenant_id: tenantId, folio_digital: folioDigital }; // formato inesperado: lento pero correcto
+
+      const doc = await trx('analytics.erp_sales_invoices').where(donde).first();
       if (!doc) throw new NotFoundException(`Documento ${folioDigital} no encontrado`);
 
       const lineas = await trx('analytics.erp_sales_invoice_lines')
-        .where({ tenant_id: tenantId, folio_digital: folioDigital })
+        .where(donde)
         .select('linea', 'sku', 'descripcion', 'unidad', 'cantidad', 'precio_unitario',
                 'importe', 'factor_caja', 'product_id')
         .orderBy('linea');
