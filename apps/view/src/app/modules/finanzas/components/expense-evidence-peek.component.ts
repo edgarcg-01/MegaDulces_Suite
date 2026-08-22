@@ -63,7 +63,7 @@ const ETIQUETAS: Record<string, string> = {
         @if (proof()?.status === 'validada' && proof()?.tiene_comprobacion != null) {
           <p class="ep-note" [class.is-ok]="proof()!.tiene_comprobacion">
             <i class="pi" [class.pi-check-circle]="proof()!.tiene_comprobacion" [class.pi-minus-circle]="!proof()!.tiene_comprobacion" aria-hidden="true"></i>
-            {{ proof()!.tiene_comprobacion ? 'Declarado CON comprobación' : 'Declarado SIN comprobación' }}{{ proof()!.comprobacion_nota ? ' — ' + proof()!.comprobacion_nota : '' }}
+            {{ proof()!.tiene_comprobacion ? 'Declarado CON solicitud de gasto y/o comprobación' : 'Declarado SIN solicitud de gasto ni comprobación' }}{{ proof()!.comprobacion_nota ? ' — ' + proof()!.comprobacion_nota : '' }}
           </p>
         }
         @if (proof()?.status === 'revision' && proof()?.revision_nota) { <p class="ep-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ proof()!.revision_nota }}</p> }
@@ -80,13 +80,13 @@ const ETIQUETAS: Record<string, string> = {
           </li>
           <li [class.ok]="tieneSolicitud()" [class.warn]="!tieneSolicitud()">
             <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-minus-circle]="!tieneSolicitud()" aria-hidden="true"></i>
-            <span>Solicitud firmada</span>
+            <span>Solicitud firmada<em class="ep-en"> (archivo adjunto)</em></span>
             <em>{{ tieneSolicitud() ? 'adjunta' : 'falta — es la evidencia de la autorización' }}</em>
             @if (!tieneSolicitud()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
           <li [class.ok]="comprobacionOk()" [class.warn]="!comprobacionOk()">
             <i class="pi" [class.pi-check-circle]="comprobacionOk()" [class.pi-minus-circle]="!comprobacionOk()" aria-hidden="true"></i>
-            <span>Comprobación (XA1001)</span>
+            <span>Solicitud de gasto y/o comprobación<em class="ep-en"> en Kepler</em></span>
             <em>{{ comprobacionTxt() }}</em>
           </li>
         </ul>
@@ -154,18 +154,20 @@ const ETIQUETAS: Record<string, string> = {
       }
     </app-side-peek>
 
-    <!-- Validar exige declarar si el gasto lleva comprobación: hay solicitudes que nunca
-         la generan, y sin este dato no se distingue «no llegó» de «no va a llegar». -->
+    <!-- Validar exige declarar si el gasto lleva su documento de cierre en Kepler: hay
+         solicitudes que nunca lo generan, y sin este dato no se distingue «no llegó» de
+         «no va a llegar». El negocio lo llama «solicitud de gasto y/o comprobación»
+         porque según el caso el documento es uno u otro. -->
     <p-dialog [visible]="showValidar()" (visibleChange)="showValidar.set($event)" [modal]="true"
               [style]="{ width: '28rem' }" [draggable]="false" header="Validar el gasto">
-      <p class="ep-dlg-hint">¿Este gasto tiene comprobación en Kepler (XA1001)?</p>
+      <p class="ep-dlg-hint">¿Este gasto tiene su <strong>solicitud de gasto y/o comprobación</strong> en Kepler?</p>
       <p-selectbutton [options]="siNo" [(ngModel)]="tieneComp" optionLabel="label" optionValue="value"
-                      [allowEmpty]="false" ariaLabelledBy="Tiene comprobación" />
+                      [allowEmpty]="false" ariaLabelledBy="Tiene solicitud de gasto y/o comprobación" />
       <p class="ep-dlg-hint ep-dlg-sub">
-        {{ tieneComp === false ? 'Decí por qué no la lleva — es lo que va a leer quien revise esto después.' : 'Opcional: el folio de la comprobación, si lo tenés a mano.' }}
+        {{ tieneComp === false ? 'Decí por qué no lo lleva — es lo que va a leer quien revise esto después.' : 'Opcional: el folio del documento, si lo tenés a mano.' }}
       </p>
       <textarea pTextarea [(ngModel)]="compNota" rows="2" class="ep-dlg-txt"
-                [placeholder]="tieneComp === false ? 'Ej. reembolso de caja chica, no genera comprobación' : 'Ej. folio 0004312'"></textarea>
+                [placeholder]="tieneComp === false ? 'Ej. reembolso de caja chica, no genera documento de cierre' : 'Ej. folio 0004312'"></textarea>
       <ng-template #footer>
         <button pButton type="button" text (click)="showValidar.set(false)"><span class="p-button-label">Cancelar</span></button>
         <button pButton type="button" severity="success" [disabled]="tieneComp === null || (tieneComp === false && !compNota.trim())"
@@ -233,6 +235,8 @@ const ETIQUETAS: Record<string, string> = {
     .ep-check li.warn > i { color: var(--warn-fg); }
     .ep-check li.no > i { color: var(--bad-fg); }
     .ep-check em { font-style: normal; font-size: var(--fs-xs); color: var(--fg-3); }
+    /* Aclara DÓNDE vive cada documento: uno es archivo nuestro, el otro es del ERP. */
+    .ep-en { font-weight: var(--fw-regular); color: var(--fg-3); }
     .ep-add { margin-left: auto; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-xs);
       color: var(--action); cursor: pointer; text-decoration: underline; }
     .ep-add:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
@@ -263,7 +267,8 @@ export class ExpenseEvidencePeekComponent {
   readonly proofId = input<string | null>(null);
   /** Quien puede validar/rechazar. Lo decide la página; acá sólo se respeta. */
   readonly puedeResolver = input(false);
-  /** ¿La comprobación (XA1001) ya existe? Lo sabe el tablero, no este detalle. */
+  /** ¿El documento de cierre (solicitud de gasto y/o comprobación) ya existe en Kepler?
+   *  Lo sabe el tablero, no este detalle. */
   readonly comprobacionEnKepler = input(false);
 
   readonly resolved = output<void>();
@@ -322,14 +327,14 @@ export class ExpenseEvidencePeekComponent {
   }
   readonly tieneComprobante = computed(() => this.docs().some((d) => d.role.startsWith('comprobante')));
   readonly tieneSolicitud = computed(() => this.docs().some((d) => d.role === 'solicitud_kepler'));
-  /** Resuelta = ya existe en Kepler, o quien validó declaró que no lleva. */
+  /** Resuelto = ya existe en Kepler, o quien validó declaró que no lleva. */
   readonly comprobacionOk = computed(() =>
     this.comprobacionEnKepler() || this.proof()?.tiene_comprobacion === false);
   comprobacionTxt(): string {
     if (this.comprobacionEnKepler()) return 'registrada en Kepler';
     const d = this.proof()?.tiene_comprobacion;
     if (d === false) return `no lleva — ${this.proof()?.comprobacion_nota || 'sin motivo'}`;
-    if (d === true) return 'declarada, y todavía no aparece en Kepler';
+    if (d === true) return 'declarado, y todavía no aparece en Kepler';
     return 'sin declarar — se pregunta al validar';
   }
 
