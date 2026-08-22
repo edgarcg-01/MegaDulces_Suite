@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
+import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket } from '../cartera.service';
@@ -21,7 +22,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -204,6 +205,29 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
             <a routerLink="/finanzas/cobranza" class="ct-360-link">Ver cobranza <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
           </div>
         }
+        <div class="ct-promesas">
+          <div class="ct-prom-head">
+            <h4 class="ct-rs-h4"><i class="pi pi-handshake" aria-hidden="true"></i> Compromisos de pago</h4>
+          </div>
+          @for (p of det.compromisos; track p.id) {
+            <div class="ct-prom-row" [class.ct-prom-inc]="p.estado === 'incumplida'">
+              <span class="ct-prom-monto">{{ money(p.monto_prometido) }}</span>
+              <span>para el <b>{{ p.fecha_promesa }}</b></span>
+              @if (p.estado === 'incumplida') { <span class="ct-sobre">incumplida</span> }
+              @if (p.nota) { <span class="muted ct-prom-nota">· {{ p.nota }}</span> }
+              <span class="ct-prom-btns">
+                <button pButton type="button" class="p-button-xs p-button-text p-button-success" (click)="resolvePromise(p.id, 'cumplida')" title="Cumplida"><i class="pi pi-check" aria-hidden="true"></i></button>
+                <button pButton type="button" class="p-button-xs p-button-text p-button-danger" (click)="resolvePromise(p.id, 'cancelada')" title="Cancelar"><i class="pi pi-times" aria-hidden="true"></i></button>
+              </span>
+            </div>
+          } @empty { <p class="muted ct-prom-empty">Sin compromisos abiertos.</p> }
+          <div class="ct-prom-form">
+            <input pInputText type="number" [(ngModel)]="promMonto" placeholder="Monto" class="ct-prom-in" aria-label="Monto prometido" />
+            <p-datepicker [(ngModel)]="promFecha" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Fecha" styleClass="ct-prom-dp" ariaLabel="Fecha de promesa" />
+            <input pInputText type="text" [(ngModel)]="promNota" placeholder="Nota (opcional)" class="ct-prom-in ct-prom-nota-in" aria-label="Nota" />
+            <button pButton type="button" class="p-button-sm" label="Registrar" [disabled]="!promMonto || !promFecha || savingProm()" (click)="savePromise(det)"></button>
+          </div>
+        </div>
         @if (det.abonos.length) {
           <details class="ct-abonos"><summary>{{ det.abonos.length }} cobros / notas aplicados</summary>
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
@@ -287,6 +311,17 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-trend-bar { width: 100%; background: #6b8f71; border-radius: 2px 2px 0 0; position: relative; min-height: 2px; display: flex; align-items: flex-end; }
     .ct-trend-venc { width: 100%; background: #b42318; border-radius: 2px 2px 0 0; }
     .ct-rs-trend-empty { font-size: .78rem; margin: .2rem 0 1rem; }
+    .ct-promesas { margin-top: .9rem; padding: .7rem; border: 1px solid var(--surface-border, #e7e5e0); border-radius: 8px; }
+    .ct-prom-head { display: flex; align-items: center; }
+    .ct-prom-head .ct-rs-h4 { margin: 0; display: flex; align-items: center; gap: .4rem; }
+    .ct-prom-row { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .3rem 0; border-bottom: 1px dashed var(--surface-border, #eee); }
+    .ct-prom-inc { background: rgba(180,35,24,.05); }
+    .ct-prom-monto { font-weight: 700; }
+    .ct-prom-nota { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ct-prom-btns { margin-left: auto; display: flex; gap: .2rem; }
+    .ct-prom-empty { font-size: .8rem; margin: .3rem 0; }
+    .ct-prom-form { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; align-items: center; }
+    .ct-prom-in { width: 110px; } .ct-prom-nota-in { flex: 1; min-width: 140px; width: auto; }
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
@@ -305,6 +340,10 @@ export class FinanzasCarteraComponent implements OnInit {
   sort: 'saldo' | 'vencido' = 'saldo';
   readonly sortOpts = [{ label: 'Mayor saldo', value: 'saldo' }, { label: 'Más vencido (cobrar)', value: 'vencido' }];
   readonly tendencia = signal<CarteraTendencia[]>([]);
+  promMonto: number | null = null;
+  promFecha: Date | null = null;
+  promNota = '';
+  readonly savingProm = signal(false);
 
   readonly filtros = signal<CarteraFiltros | null>(null);
   readonly grupoOpts = computed(() => (this.filtros()?.grupos || []).map((g) => ({ label: g, value: g })));
@@ -392,6 +431,27 @@ export class FinanzasCarteraComponent implements OnInit {
     });
   }
   closeDetalle() { this.detalle.set(null); }
+
+  private reloadDetalle(sucursal: string, cliente: string) {
+    this.svc.detalle(sucursal, cliente).subscribe({ next: (d) => this.detalle.set(d) });
+  }
+
+  savePromise(det: CarteraDetalle) {
+    if (!this.promMonto || !this.promFecha) return;
+    const f = this.promFecha;
+    const fecha = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
+    this.savingProm.set(true);
+    this.svc.createPromise(det.cliente.sucursal, det.cliente.cliente_code, { monto: this.promMonto, fecha, nota: this.promNota.trim() || undefined })
+      .subscribe({
+        next: () => { this.promMonto = null; this.promFecha = null; this.promNota = ''; this.savingProm.set(false); this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code); },
+        error: () => this.savingProm.set(false),
+      });
+  }
+
+  resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada') {
+    const det = this.detalle();
+    this.svc.resolvePromise(id, estado).subscribe({ next: () => { if (det) this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code); } });
+  }
 
   money(v: number) { return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }); }
 

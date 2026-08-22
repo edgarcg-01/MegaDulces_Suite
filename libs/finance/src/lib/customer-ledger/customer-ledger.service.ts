@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -216,6 +216,48 @@ export class CustomerLedgerService {
     });
   }
 
+  /** CXC.13 — compromisos de pago abiertos de un cliente (para el drill). */
+  private async promisesOf(trx: any, tenantId: string, sucursal: string, cliente: string) {
+    const rows = await trx('finance.collection_promises')
+      .where({ tenant_id: tenantId, sucursal, cliente_code: cliente })
+      .whereIn('estado', ['abierta', 'incumplida'])
+      .orderBy('fecha_promesa', 'asc')
+      .select('id', 'monto_prometido', trx.raw('fecha_promesa::text as fecha_promesa'), 'estado', 'nota', 'created_by', trx.raw('created_at::text as created_at'));
+    return rows.map((r: any) => ({ ...r, monto_prometido: M2(r.monto_prometido) }));
+  }
+
+  /** Registra un compromiso de pago (promesa de cobro). Escribe en tabla propia, NO Kepler. */
+  async createPromise(sucursal: string, cliente: string, dto: { monto: number; fecha: string; nota?: string }, username?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!dto?.monto || dto.monto <= 0) throw new BadRequestException('monto inválido');
+    if (!dto?.fecha) throw new BadRequestException('fecha requerida');
+    return this.tk.run(async (trx) => {
+      const snap = (await trx('analytics.customer_receivables as r')
+        .leftJoin('analytics.erp_customers as c', function (this: any) { this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code'); })
+        .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente, 'r.cargo_abono': 'C' })
+        .select(trx.raw('max(c.name) as nombre'), trx.raw('COALESCE(sum(r.saldo_documento),0) as saldo')).first()) || {};
+      const [row] = await trx('finance.collection_promises').insert({
+        tenant_id: trx.raw('current_tenant_id()'),
+        sucursal, cliente_code: cliente, cliente_nombre: snap.nombre || cliente,
+        monto_prometido: dto.monto, fecha_promesa: dto.fecha, saldo_al_registrar: M2(snap.saldo),
+        nota: dto.nota || null, created_by: username || null,
+      }).returning(['id', 'estado']);
+      return row;
+    });
+  }
+
+  /** Resuelve un compromiso: cumplida | incumplida | cancelada. */
+  async resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada', username?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!['cumplida', 'incumplida', 'cancelada'].includes(estado)) throw new BadRequestException('estado inválido');
+    return this.tk.run(async (trx) => {
+      const n = await trx('finance.collection_promises').where({ tenant_id: tenantId, id })
+        .update({ estado, resolved_by: username || null, resolved_at: trx.fn.now(), updated_at: trx.fn.now() });
+      if (!n) throw new BadRequestException('compromiso no encontrado');
+      return { id, estado };
+    });
+  }
+
   /** Valores distintos para los selects del reporte (sucursal/grupo/zona/vendedor). */
   async filtros() {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -286,9 +328,13 @@ export class CustomerLedgerService {
         }
       } catch { /* CC no disponible → sin puente */ }
 
+      let compromisos: any[] = [];
+      try { compromisos = await this.promisesOf(trx, tenantId, sucursal, cliente); } catch { /* tabla no migrada aún */ }
+
       return {
         hoy,
         cobranza,
+        compromisos,
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,
           vendedor: head.vendedor || null, grupo: head.grupo || null, zona: head.zona || null,

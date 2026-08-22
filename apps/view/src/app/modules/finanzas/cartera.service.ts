@@ -41,7 +41,9 @@ export interface CarteraDetalle {
   partidas: Partida[]; pagadas: number;
   abonos: { doc_label: string; folio: string; fecha: string | null; importe: number }[];
   cobranza: { n: number; monto: number; ultimo: string | null; con_ficha: number; validados: number } | null;
+  compromisos: Compromiso[];
 }
+export interface Compromiso { id: string; monto_prometido: number; fecha_promesa: string; estado: string; nota: string | null; created_by: string | null; created_at: string }
 
 export interface CarteraQuery {
   sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; from?: string; to?: string;
@@ -77,5 +79,11 @@ export class CarteraService {
   }
   detalle(sucursal: string, cliente: string): Observable<CarteraDetalle> {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);
+  }
+  createPromise(sucursal: string, cliente: string, body: { monto: number; fecha: string; nota?: string }): Observable<{ id: string; estado: string }> {
+    return this.http.post<{ id: string; estado: string }>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/promise`, body);
+  }
+  resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada'): Observable<{ id: string; estado: string }> {
+    return this.http.post<{ id: string; estado: string }>(`${this.base}/promise/${encodeURIComponent(id)}/resolve`, { estado });
   }
 }
