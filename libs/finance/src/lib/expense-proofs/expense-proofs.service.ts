@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -56,6 +56,8 @@ export interface ListExpenseProofsQuery {
   search?: string;
   from?: string;
   to?: string;
+  /** Sólo lo que capturó este usuario (para la vista del capturista). */
+  mine?: string;
   limit?: number;
 }
 
@@ -311,6 +313,7 @@ export class ExpenseProofsService {
         .orderBy('created_at', 'desc').limit(limit);
       if (q.status) b.where('status', q.status);
       if (q.folio_solicitud) b.where('folio_solicitud', q.folio_solicitud.trim());
+      if (q.mine) b.where('created_by', q.mine);
       if (q.from) b.where('created_at', '>=', q.from);
       if (q.to) b.where('created_at', '<=', `${q.to} 23:59:59`);
       if (q.search) {
@@ -360,6 +363,59 @@ export class ExpenseProofsService {
         // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
         storage_ok: this.storage.isConfigured(),
       };
+    });
+  }
+
+  /**
+   * Busca la SOLICITUD (XA1501) contra la que se va a subir el comprobante.
+   *
+   * Antes el capturista buscaba el GASTO (XA1001) y su captura caía en otra tabla, en
+   * paralelo al tablero. Una sola llave: la solicitud.
+   *
+   * El folio se resuelve por VALOR NUMÉRICO, no por sufijo: el capturista teclea los
+   * últimos dígitos ("23", "8489") y eso casa con `0000023` / `0008489`. Hacerlo con
+   * `right(folio,4)` funcionaría hoy y empezaría a devolver el documento equivocado en
+   * cuanto el consecutivo del CEDIS pase de 9,999 — va en 8,489.
+   *
+   * Alcance: con áreas asignadas se busca dentro de ellas. SIN áreas (hoy: los 113
+   * usuarios) no se devuelve el catálogo entero ni se bloquea todo — se exige folio
+   * EXACTO. Así el capturista sube lo que le dieron sin poder pasear por el gasto ajeno.
+   */
+  async searchSolicitudes(term: string, limit = 20, user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const q = String(term || '').trim();
+    if (q.length < 2) return [];
+    const lim = Math.min(50, Math.max(1, Number(limit) || 20));
+    return this.tk.run(async (trx) => {
+      const veTodo = isPlatformAdminRole(user?.role_name) || user?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true;
+      let claves: string[] = [];
+      if (!veTodo && user?.sub) {
+        const u = await trx('users').where({ id: user.sub }).first('nombre', 'finance_expense_area_ids');
+        const norm = (v: any) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
+        const ids: string[] = Array.isArray(u?.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
+        const areas = ids.length ? (await trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key')).map(norm).filter(Boolean) : [];
+        const n = norm(u?.nombre);
+        for (const k of [...areas, ...(n ? [n] : [])]) if (k && claves.indexOf(k) === -1) claves.push(k);
+      }
+      const soloNumeros = /^\d+$/.test(q);
+      const b = trx('analytics.expense_requests as r').where('r.tenant_id', tenantId).where('r.estado', '<>', 'C');
+      if (soloNumeros) {
+        // Igualdad numérica: '23' encuentra '0000023' y nada más.
+        b.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
+      } else if (veTodo || claves.length) {
+        b.andWhere((w: any) => w.whereILike('r.beneficiario', `%${q}%`).orWhereILike('r.acreedor', `%${q}%`));
+      } else {
+        return []; // sin áreas y sin folio: no se pasea el gasto ajeno
+      }
+      if (!veTodo && claves.length) {
+        b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
+      }
+      const rows = await b
+        .orderBy('r.fecha', 'desc').limit(lim)
+        .select('r.folio', 'r.sucursal', 'r.fecha', 'r.solicitante', 'r.concepto', 'r.estado', 'r.aplicada',
+          trx.raw('r.importe::numeric AS importe'),
+          trx.raw('COALESCE(r.acreedor, r.beneficiario) AS beneficiario'));
+      return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
     });
   }
 
