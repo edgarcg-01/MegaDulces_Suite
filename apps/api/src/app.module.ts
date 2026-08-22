@@ -55,7 +55,7 @@ import { CommercialProfitabilityModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
-import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule } from '@megadulces/commercial';
+import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
@@ -167,6 +167,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialReplenishmentModule,
       EntityRefModule,
       CommercialMovementsModule,
+      CommercialSalesDocumentsModule,
       CommercialLabelsModule,
       CommercialAlertsModule,
       CommercialRecommendationsModule,
