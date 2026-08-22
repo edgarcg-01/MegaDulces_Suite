@@ -26,16 +26,9 @@ export class ExpenseProofsController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('mine') mine?: string,
     @Query('limit') limit?: string,
-    @Req() req?: AuthedRequest,
   ) {
-    const q: ListExpenseProofsQuery = {
-      status, folio_solicitud, search, from, to,
-      // `mine` se resuelve del token, no de un parámetro: nadie pide "lo de otro".
-      mine: mine === 'true' ? (req?.user?.full_name || req?.user?.username || '') : undefined,
-      limit: limit ? Number(limit) : undefined,
-    };
+    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, limit: limit ? Number(limit) : undefined };
     return this.svc.list(q);
   }
 
@@ -51,6 +44,17 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Busca la SOLICITUD (XA1501) contra la que se sube el comprobante. Folio por valor numérico (los últimos dígitos bastan) o beneficiario. Acotado a las áreas del usuario; sin áreas, sólo folio exacto.' })
   searchSolicitudes(@Query('q') q: string, @Query('limit') limit?: string, @Req() req?: AuthedRequest) {
     return this.svc.searchSolicitudes(q, limit ? Number(limit) : undefined, req?.user);
+  }
+
+  @Get('mine')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
+  mine(@Query('limit') limit?: string, @Req() req?: AuthedRequest) {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
+    // empresa a quien solo captura. Se devuelve vacio.
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] };
+    return this.svc.list({ mine: actor, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('status-by-folio')
@@ -70,21 +74,21 @@ export class ExpenseProofsController {
   }
 
   @Post('upload')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) al bucket y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || '');
   }
 
   @Post('validate-photo')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Valida la FOTO del comprobante con Claude Vision contra el importe de la solicitud. Preview (cuadra/en revisión).' })
   validatePhoto(@Body() body: { file_base64?: string; importe?: number }) {
     return this.svc.validatePhoto(body?.file_base64 || '', Number(body?.importe) || 0);
   }
 
   @Post()
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Alta de la solicitud de reembolso (con los archivos ya subidos).' })
   create(@Body() body: CreateExpenseProofDto, @Req() req: AuthedRequest) {
     return this.svc.create(body, req?.user?.full_name || req?.user?.username);

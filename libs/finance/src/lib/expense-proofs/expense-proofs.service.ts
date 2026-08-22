@@ -397,13 +397,19 @@ export class ExpenseProofsService {
         const n = norm(u?.nombre);
         for (const k of [...areas, ...(n ? [n] : [])]) if (k && claves.indexOf(k) === -1) claves.push(k);
       }
+      const cols = await trx.raw(`SELECT 1 FROM information_schema.columns
+        WHERE table_schema='analytics' AND table_name='expense_requests' AND column_name='acreedor'`);
+      const conAcreedor = (cols.rows || []).length > 0;
       const soloNumeros = /^\d+$/.test(q);
       const b = trx('analytics.expense_requests as r').where('r.tenant_id', tenantId).where('r.estado', '<>', 'C');
       if (soloNumeros) {
         // Igualdad numérica: '23' encuentra '0000023' y nada más.
         b.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
       } else if (veTodo || claves.length) {
-        b.andWhere((w: any) => w.whereILike('r.beneficiario', `%${q}%`).orWhereILike('r.acreedor', `%${q}%`));
+        b.andWhere((w: any) => {
+          w.whereILike('r.beneficiario', `%${q}%`);
+          if (conAcreedor) w.orWhereILike('r.acreedor', `%${q}%`);
+        });
       } else {
         return []; // sin áreas y sin folio: no se pasea el gasto ajeno
       }
@@ -414,7 +420,7 @@ export class ExpenseProofsService {
         .orderBy('r.fecha', 'desc').limit(lim)
         .select('r.folio', 'r.sucursal', 'r.fecha', 'r.solicitante', 'r.concepto', 'r.estado', 'r.aplicada',
           trx.raw('r.importe::numeric AS importe'),
-          trx.raw('COALESCE(r.acreedor, r.beneficiario) AS beneficiario'));
+          trx.raw(conAcreedor ? 'COALESCE(r.acreedor, r.beneficiario) AS beneficiario' : 'r.beneficiario AS beneficiario'));
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
     });
   }

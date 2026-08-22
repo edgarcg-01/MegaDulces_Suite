@@ -69,17 +69,17 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 
           <!-- 2) Comprobante -->
           <div class="cap-step">2 · Sube el comprobante</div>
-          @if (!names()['comprobacion']) {
+          @if (!names()['comprobante_1']) {
             <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
               <i class="pi pi-camera cap-drop-ic"></i>
               <div>Arrastra la <strong>foto o PDF</strong> del comprobante</div>
               <label class="cap-pick"><i class="pi pi-upload"></i> Elegir / tomar foto
-                <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobacion')" hidden />
+                <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobante_1')" hidden />
               </label>
             </div>
           } @else {
             <div class="cap-done">
-              <i class="pi pi-check-circle cap-ok"></i> <span class="cap-nm">{{ names()['comprobacion'] }}</span>
+              <i class="pi pi-check-circle cap-ok"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
               @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner"></i> leyendo…</span> }
               <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
             </div>
@@ -210,7 +210,7 @@ export class FinanzasCapturarGastoComponent {
     const q = (ev.query || '').trim();
     if (q.length < 2) { this.sug.set([]); return; }
     this.svc.searchSolicitudes(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
-      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
+      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · suc ${r.sucursal || '?'} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
       this.cdr.markForCheck();
     });
   }
@@ -233,10 +233,10 @@ export class FinanzasCapturarGastoComponent {
   }
   over(e: DragEvent) { e.preventDefault(); e.stopPropagation(); if (!this.drag()) this.drag.set(true); }
   leave(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.drag.set(false); }
-  drop(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.drag.set(false); const f = e.dataTransfer?.files?.[0]; if (f) this.handle(f, 'comprobacion'); }
+  drop(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.drag.set(false); const f = e.dataTransfer?.files?.[0]; if (f) this.handle(f, 'comprobante_1'); }
   clearPhoto() {
-    delete this.fileData['comprobacion']; delete this.uploaded['comprobacion'];
-    this.names.update((m) => { const n = { ...m }; delete n['comprobacion']; return n; });
+    delete this.fileData['comprobante_1']; delete this.uploaded['comprobante_1'];
+    this.names.update((m) => { const n = { ...m }; delete n['comprobante_1']; return n; });
     this.photoResult.set(null);
   }
 
@@ -249,7 +249,7 @@ export class FinanzasCapturarGastoComponent {
       this.fileData[role] = dataUri;
       delete this.uploaded[role];
       this.names.update((m) => ({ ...m, [role]: file.name }));
-      if (role === 'comprobacion') this.validate(dataUri);
+      if (role === 'comprobante_1') this.validate(dataUri);
       this.cdr.markForCheck();
     };
     reader.readAsDataURL(file);
@@ -267,12 +267,12 @@ export class FinanzasCapturarGastoComponent {
   submit() {
     const g = this.gasto();
     if (!g) { this.formError.set('Elige el gasto.'); return; }
-    if (!this.fileData['comprobacion'] && !this.uploaded['comprobacion']) { this.formError.set('Sube el comprobante.'); return; }
+    if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube el comprobante.'); return; }
     if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
     this.saving.set(true);
 
-    const roles = ['comprobacion'];
+    const roles = ['comprobante_1'];
     const toUpload = roles.filter((r) => this.fileData[r] && !this.uploaded[r]);
     if (!toUpload.length) { this.create(); return; }
     const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r as ProofFileRole).pipe(
@@ -288,7 +288,7 @@ export class FinanzasCapturarGastoComponent {
   private create() {
     const g = this.gasto()!;
     const pr = this.photoResult();
-    const files = ['comprobacion'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
+    const files = ['comprobante_1'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,
@@ -304,7 +304,7 @@ export class FinanzasCapturarGastoComponent {
 
   loadMine() {
     this.mineLoading.set(true);
-    this.svc.list({ mine: true }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.mine(50).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.mine.set(r.rows || []); this.mineLoading.set(false); },
       error: () => { this.mineLoading.set(false); },
     });
