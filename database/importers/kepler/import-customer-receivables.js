@@ -65,9 +65,14 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
       // Atributos de cliente (kdud): c13=grupo (ej '1M001'), c14=zona. Mapa code→{grupo,zona}.
       const cust = new Map();
       try {
-        const kd = await src.query(`SELECT c2 code, c13 grupo, c14 zona FROM md.kdud`);
-        for (const r of kd.rows) cust.set(String(r.code || '').trim(), { grupo: (r.grupo || '').trim() || null, zona: (r.zona || '').trim() || null });
-      } catch (e) { console.error(`  ${b.code}: kdud no disponible (${e.message}) — grupo/zona en null`); }
+        const kd = await src.query(`SELECT c2 code, c13 grupo, c14 zona, c15::numeric limite, c16 dias, c7 tel FROM md.kdud`);
+        for (const r of kd.rows) cust.set(String(r.code || '').trim(), {
+          grupo: (r.grupo || '').trim() || null, zona: (r.zona || '').trim() || null,
+          limite: r.limite != null ? Number(r.limite) : null,
+          dias: r.dias != null && String(r.dias).trim() !== '' ? parseInt(r.dias, 10) : null,
+          tel: (r.tel || '').trim() || null,
+        });
+      } catch (e) { console.error(`  ${b.code}: kdud no disponible (${e.message}) — grupo/zona/límite en null`); }
       const q = await src.query(
         `SELECT c1 suc, c2 cliente, c4 grupo, c5 serie, c6 folio, c7::date::text fecha,
                 CASE WHEN c29='C' THEN c10::date::text END vence,
@@ -137,6 +142,7 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
           b.db || `md_${b.code}`,
           attr.grupo || null, attr.zona || null,
           saldoDoc, aplicaciones,
+          attr.limite != null ? attr.limite : null, attr.dias != null ? attr.dias : null, attr.tel || null,
         ]);
       }
       console.log(`  ${b.code} (${b.name}): ${q.rows.length} filas · ${apps.size} facturas con aplicaciones`);
@@ -165,26 +171,27 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
       sucursal text, doc_code text, doc_tipo text, doc_label text, folio text, folio_digital text,
       cliente_code text, fecha date, vencimiento date, importe numeric, cargo_abono char(1),
       signed_amount numeric, referencia text, vendedor text, moneda text, source_branch text,
-      grupo text, zona text, saldo_documento numeric, aplicaciones jsonb
+      grupo text, zona text, saldo_documento numeric, aplicaciones jsonb,
+      limite_credito numeric, dias_credito integer, telefono text
     ) ON COMMIT DROP`);
-    const NC = 20;
+    const NC = 23;
     for (let i = 0; i < staged.length; i += 1000) {
       const chunk = staged.slice(i, i + 1000);
       const vals = chunk.map((_, ri) => `(${Array.from({ length: NC }, (_, k) => `$${ri * NC + k + 1}`).join(',')})`);
       const params = [];
       chunk.forEach((row) => params.push(...row));
       await db.query(
-        `INSERT INTO stg_cxc (sucursal,doc_code,doc_tipo,doc_label,folio,folio_digital,cliente_code,fecha,vencimiento,importe,cargo_abono,signed_amount,referencia,vendedor,moneda,source_branch,grupo,zona,saldo_documento,aplicaciones) VALUES ${vals.join(',')}`,
+        `INSERT INTO stg_cxc (sucursal,doc_code,doc_tipo,doc_label,folio,folio_digital,cliente_code,fecha,vencimiento,importe,cargo_abono,signed_amount,referencia,vendedor,moneda,source_branch,grupo,zona,saldo_documento,aplicaciones,limite_credito,dias_credito,telefono) VALUES ${vals.join(',')}`,
         params);
     }
     const up = await db.query(
       `INSERT INTO analytics.customer_receivables AS t
          (tenant_id, sucursal, doc_code, doc_tipo, doc_label, folio, folio_digital, cliente_code,
           grupo, zona, fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch,
-          saldo_documento, aplicaciones, computed_at)
+          saldo_documento, aplicaciones, limite_credito, dias_credito, telefono, computed_at)
        SELECT $1, sucursal, doc_code, doc_tipo, doc_label, folio, folio_digital, cliente_code,
               grupo, zona, fecha, vencimiento, importe, cargo_abono, signed_amount, referencia, vendedor, moneda, source_branch,
-              saldo_documento, aplicaciones, now()
+              saldo_documento, aplicaciones, limite_credito, dias_credito, telefono, now()
          FROM stg_cxc
        ON CONFLICT (tenant_id, sucursal, doc_code, folio) DO UPDATE SET
          doc_tipo=EXCLUDED.doc_tipo, doc_label=EXCLUDED.doc_label, folio_digital=EXCLUDED.folio_digital,
@@ -192,10 +199,11 @@ const pad2 = (v) => String(v == null ? '' : v).trim().padStart(2, '0');
          fecha=EXCLUDED.fecha, vencimiento=EXCLUDED.vencimiento,
          importe=EXCLUDED.importe, cargo_abono=EXCLUDED.cargo_abono, signed_amount=EXCLUDED.signed_amount,
          referencia=EXCLUDED.referencia, vendedor=EXCLUDED.vendedor, moneda=EXCLUDED.moneda,
-         source_branch=EXCLUDED.source_branch, saldo_documento=EXCLUDED.saldo_documento, aplicaciones=EXCLUDED.aplicaciones, computed_at=now()
-       WHERE (t.cliente_code, t.grupo, t.zona, t.fecha, t.vencimiento, t.importe, t.signed_amount, t.referencia, t.vendedor, t.saldo_documento, t.aplicaciones)
+         source_branch=EXCLUDED.source_branch, saldo_documento=EXCLUDED.saldo_documento, aplicaciones=EXCLUDED.aplicaciones,
+         limite_credito=EXCLUDED.limite_credito, dias_credito=EXCLUDED.dias_credito, telefono=EXCLUDED.telefono, computed_at=now()
+       WHERE (t.cliente_code, t.grupo, t.zona, t.fecha, t.vencimiento, t.importe, t.signed_amount, t.referencia, t.vendedor, t.saldo_documento, t.aplicaciones, t.limite_credito, t.dias_credito, t.telefono)
              IS DISTINCT FROM
-             (EXCLUDED.cliente_code, EXCLUDED.grupo, EXCLUDED.zona, EXCLUDED.fecha, EXCLUDED.vencimiento, EXCLUDED.importe, EXCLUDED.signed_amount, EXCLUDED.referencia, EXCLUDED.vendedor, EXCLUDED.saldo_documento, EXCLUDED.aplicaciones)`,
+             (EXCLUDED.cliente_code, EXCLUDED.grupo, EXCLUDED.zona, EXCLUDED.fecha, EXCLUDED.vencimiento, EXCLUDED.importe, EXCLUDED.signed_amount, EXCLUDED.referencia, EXCLUDED.vendedor, EXCLUDED.saldo_documento, EXCLUDED.aplicaciones, EXCLUDED.limite_credito, EXCLUDED.dias_credito, EXCLUDED.telefono)`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) de ${staged.length}. Sin DELETE (ledger append-only).`);

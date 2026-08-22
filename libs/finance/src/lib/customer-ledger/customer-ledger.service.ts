@@ -80,7 +80,7 @@ export class CustomerLedgerService {
       // Solo cargos: el saldo por documento (kdm5, exacto) ya trae lo aplicado restado.
       const rows = await qb.where('r.cargo_abono', 'C').select(
         'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona',
-        'r.importe', 'r.saldo_documento',
+        'r.importe', 'r.saldo_documento', 'r.limite_credito', 'r.dias_credito', 'r.telefono',
         trx.raw('r.vencimiento::text as vencimiento'),
         trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'),
       );
@@ -89,14 +89,14 @@ export class CustomerLedgerService {
       for (const r of rows) {
         const k = `${r.sucursal}||${r.cliente_code}`;
         let g = map.get(k);
-        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, cargos: [] }; map.set(k, g); }
+        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, limite: r.limite_credito != null ? M2(r.limite_credito) : null, dias_credito: r.dias_credito != null ? Number(r.dias_credito) : null, telefono: r.telefono, cargos: [] }; map.set(k, g); }
         const saldoDoc = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
         g.cargos.push({ saldo: saldoDoc, venc: r.vencimiento || null });
         if (!g.cliente_nombre && r.cliente_nombre) g.cliente_nombre = r.cliente_nombre;
       }
 
       const clientes: any[] = [];
-      const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, aging: emptyBucket() };
+      const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0, aging: emptyBucket() };
       for (const g of map.values()) {
         const aging = emptyBucket();
         let saldo = 0; let vencido = 0; let nPartidas = 0;
@@ -109,12 +109,17 @@ export class CustomerLedgerService {
         }
         saldo = Math.round(saldo * 100) / 100;
         if (saldo <= 0.005 && q.incluir_saldados !== '1') continue;
+        const limite = g.limite && g.limite > 0 ? g.limite : null;
+        const uso_linea = limite ? Math.round((saldo / limite) * 1000) / 10 : null; // %
         clientes.push({
           sucursal: g.sucursal, cliente_code: g.cliente_code, cliente_nombre: g.cliente_nombre || g.cliente_code,
           rfc: g.rfc || null, vendedor: g.vendedor || null, grupo: g.grupo || null, zona: g.zona || null,
+          telefono: g.telefono || null, limite_credito: limite, dias_credito: g.dias_credito || null,
+          uso_linea, sobre_linea: limite != null && saldo > limite + 0.005,
           saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, aging,
         });
         kpi.total_saldo += saldo; kpi.total_vencido += vencido; kpi.n_clientes += 1; kpi.n_partidas += nPartidas;
+        if (limite != null && saldo > limite + 0.005) kpi.n_sobre_linea += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
       }
       clientes.sort((a, b) => b.saldo - a.saldo);
@@ -122,6 +127,59 @@ export class CustomerLedgerService {
       kpi.total_vencido = Math.round(kpi.total_vencido * 100) / 100;
       (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = Math.round(kpi.aging[k] * 100) / 100; });
       return { hoy, kpi, clientes: clientes.slice(0, limit), total_clientes: clientes.length };
+    });
+  }
+
+  /**
+   * Resumen gerencial (lo que Kepler no da): DSO (días cartera), concentración top-10,
+   * cartera por vendedor y por zona. Answer-first para dirección.
+   */
+  async resumen(q: { sucursal?: string; grupo?: string; zona?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const hoy = await this.hoy(trx);
+      let qb = trx('analytics.customer_receivables as r').where({ 'r.tenant_id': tenantId, 'r.cargo_abono': 'C' });
+      if (q.sucursal) qb = qb.where('r.sucursal', q.sucursal);
+      if (q.grupo) qb = qb.where('r.grupo', q.grupo);
+      if (q.zona) qb = qb.where('r.zona', q.zona);
+      const rows = await qb.select('r.cliente_code', 'r.vendedor', 'r.zona', 'r.importe', 'r.saldo_documento',
+        trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'));
+
+      const desde90 = new Date(Date.parse(hoy) - 90 * 86400000).toISOString().slice(0, 10);
+      let saldoTotal = 0; let vencidoTotal = 0; let ventas90 = 0;
+      const porCliente = new Map<string, number>();
+      const porVend = new Map<string, any>();
+      const porZona = new Map<string, any>();
+      for (const r of rows) {
+        const saldo = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
+        const importe = M2(r.importe);
+        if (r.fecha && r.fecha >= desde90) ventas90 += importe;
+        if (saldo <= 0.005) continue;
+        saldoTotal += saldo;
+        const vencido = r.vencimiento && hoy > r.vencimiento ? saldo : 0;
+        vencidoTotal += vencido;
+        porCliente.set(r.cliente_code, (porCliente.get(r.cliente_code) || 0) + saldo);
+        const v = porVend.get(r.vendedor || '—') || { vendedor: r.vendedor || '—', saldo: 0, vencido: 0, clientes: new Set() };
+        v.saldo += saldo; v.vencido += vencido; v.clientes.add(r.cliente_code); porVend.set(r.vendedor || '—', v);
+        const z = porZona.get(r.zona || '—') || { zona: r.zona || '—', saldo: 0, vencido: 0 };
+        z.saldo += saldo; z.vencido += vencido; porZona.set(r.zona || '—', z);
+      }
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const ventasDiarias = ventas90 / 90;
+      const dso = ventasDiarias > 0 ? Math.round(saldoTotal / ventasDiarias) : null;
+      const topCli = [...porCliente.entries()].map(([cliente_code, saldo]) => ({ cliente_code, saldo: r2(saldo) }))
+        .sort((a, b) => b.saldo - a.saldo);
+      const top10 = topCli.slice(0, 10);
+      const top10Suma = top10.reduce((s, c) => s + c.saldo, 0);
+      return {
+        hoy,
+        saldo_total: r2(saldoTotal), vencido_total: r2(vencidoTotal),
+        pct_vencido: saldoTotal > 0 ? Math.round((vencidoTotal / saldoTotal) * 1000) / 10 : 0,
+        dso, ventas_90d: r2(ventas90), n_clientes: porCliente.size,
+        concentracion: { top10_pct: saldoTotal > 0 ? Math.round((top10Suma / saldoTotal) * 1000) / 10 : 0, top10 },
+        por_vendedor: [...porVend.values()].map((v) => ({ vendedor: v.vendedor, saldo: r2(v.saldo), vencido: r2(v.vencido), n_clientes: v.clientes.size })).sort((a, b) => b.saldo - a.saldo),
+        por_zona: [...porZona.values()].map((z) => ({ zona: z.zona, saldo: r2(z.saldo), vencido: r2(z.vencido) })).sort((a, b) => b.saldo - a.saldo),
+      };
     });
   }
 
@@ -155,6 +213,7 @@ export class CustomerLedgerService {
         .select('r.doc_tipo', 'r.doc_label', 'r.folio', 'r.folio_digital',
           trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'),
           'r.importe', 'r.cargo_abono', 'r.referencia', 'r.vendedor', 'r.saldo_documento', 'r.aplicaciones',
+          'r.limite_credito', 'r.dias_credito', 'r.telefono', 'r.grupo', 'r.zona',
           trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'))
         .orderBy([{ column: 'r.fecha', order: 'asc' }, { column: 'r.folio', order: 'asc' }]);
 
@@ -180,7 +239,10 @@ export class CustomerLedgerService {
         hoy,
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,
-          vendedor: head.vendedor || null,
+          vendedor: head.vendedor || null, grupo: head.grupo || null, zona: head.zona || null,
+          telefono: head.telefono || null,
+          limite_credito: head.limite_credito != null && M2(head.limite_credito) > 0 ? M2(head.limite_credito) : null,
+          dias_credito: head.dias_credito != null ? Number(head.dias_credito) : null,
         },
         saldo,
         vencido: Math.round(partidas.filter((p) => p.vencida).reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100,

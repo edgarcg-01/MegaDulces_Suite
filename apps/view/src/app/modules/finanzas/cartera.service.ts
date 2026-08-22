@@ -8,13 +8,20 @@ import { environment } from '../../../environments/environment';
 export interface AgingBucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number }
 export interface CarteraCliente {
   sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null;
-  grupo: string | null; zona: string | null;
+  grupo: string | null; zona: string | null; telefono: string | null;
+  limite_credito: number | null; dias_credito: number | null; uso_linea: number | null; sobre_linea: boolean;
   saldo: number; vencido: number; n_partidas: number; aging: AgingBucket;
 }
 export interface CarteraFiltros { sucursales: string[]; grupos: string[]; zonas: string[]; vendedores: string[] }
+export interface CarteraResumen {
+  hoy: string; saldo_total: number; vencido_total: number; pct_vencido: number; dso: number | null; ventas_90d: number; n_clientes: number;
+  concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
+  por_vendedor: { vendedor: string; saldo: number; vencido: number; n_clientes: number }[];
+  por_zona: { zona: string; saldo: number; vencido: number }[];
+}
 export interface CarteraResp {
   hoy: string;
-  kpi: { total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number; aging: AgingBucket };
+  kpi: { total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number; n_sobre_linea: number; aging: AgingBucket };
   clientes: CarteraCliente[]; total_clientes: number;
 }
 
@@ -27,7 +34,7 @@ export interface Partida {
 }
 export interface CarteraDetalle {
   hoy: string;
-  cliente: { sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null };
+  cliente: { sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null; grupo: string | null; zona: string | null; telefono: string | null; limite_credito: number | null; dias_credito: number | null };
   saldo: number; vencido: number;
   partidas: Partida[]; pagadas: number;
   abonos: { doc_label: string; folio: string; fecha: string | null; importe: number }[];
@@ -51,6 +58,12 @@ export class CarteraService {
   }
   filtros(): Observable<CarteraFiltros> {
     return this.http.get<CarteraFiltros>(`${this.base}/filtros`);
+  }
+  resumen(q: { sucursal?: string; grupo?: string; zona?: string } = {}): Observable<CarteraResumen> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
+    const qs = p.toString();
+    return this.http.get<CarteraResumen>(`${this.base}/resumen${qs ? '?' + qs : ''}`);
   }
   detalle(sucursal: string, cliente: string): Observable<CarteraDetalle> {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);

@@ -56,6 +56,10 @@ exports.up = async function (knex) {
     // Drill exacto por factura (cargo): saldo real = importe − Σ aplicaciones (kdm5), NO FIFO.
     saldo_documento: 'numeric',   // solo cargo; abono = NULL
     aplicaciones: 'jsonb',        // solo cargo: [{tipo,label,folio,fecha,monto}] de kdm5
+    // Atributos de cliente (kdud) para límite de crédito + contacto (CXC.6/CXC.8).
+    limite_credito: 'numeric',    // kdud.c15
+    dias_credito: 'integer',      // kdud.c16
+    telefono: 'text',             // kdud.c7
   };
   for (const [col, type] of Object.entries(cols)) {
     if (!(await knex.schema.withSchema('analytics').hasColumn('customer_receivables', col))) {
