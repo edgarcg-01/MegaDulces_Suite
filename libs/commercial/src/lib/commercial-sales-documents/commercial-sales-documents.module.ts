@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
 import { CommercialSalesDocumentsController } from './commercial-sales-documents.controller';
+import { AnexoVentaService } from './anexo-venta.service';
 
 /**
  * AX — Documentos de venta al cliente (anexo imprimible + pagaré).
@@ -9,7 +10,7 @@ import { CommercialSalesDocumentsController } from './commercial-sales-documents
  */
 @Module({
   controllers: [CommercialSalesDocumentsController],
-  providers: [CommercialSalesDocumentsService],
-  exports: [CommercialSalesDocumentsService],
+  providers: [CommercialSalesDocumentsService, AnexoVentaService],
+  exports: [CommercialSalesDocumentsService, AnexoVentaService],
 })
 export class CommercialSalesDocumentsModule {}
