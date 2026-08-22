@@ -117,10 +117,14 @@ export class ExpenseEvidenceDialogComponent {
   readonly solicitud = input<ExpenseRequestRow | null>(null);
   readonly saved = output<string>();
 
-  /** Ya no se pide la solicitud de Kepler: existe en el ERP y se lee por folio. */
+  /**
+   * La solicitud firmada SÍ se adjunta, pero opcional: sus datos ya los tenemos de Kepler,
+   * lo que aporta el papel es la firma. Lo que no puede faltar es el comprobante del gasto.
+   */
   readonly fileSlots: FileSlot[] = [
     { role: 'comprobante_1', label: 'Comprobante — hoja 1', required: true, accept: '.pdf,image/*' },
     { role: 'comprobante_2', label: 'Comprobante — hoja 2', required: false, accept: '.pdf,image/*' },
+    { role: 'solicitud_kepler', label: 'Solicitud de gasto firmada', required: false, accept: '.pdf,image/*' },
     { role: 'evidencia_1', label: 'Evidencia fotográfica 1', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_2', label: 'Evidencia fotográfica 2', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_3', label: 'Evidencia fotográfica 3', required: false, accept: 'image/*,.pdf' },

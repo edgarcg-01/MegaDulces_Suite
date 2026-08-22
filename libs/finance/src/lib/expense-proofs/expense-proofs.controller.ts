@@ -101,8 +101,8 @@ export class ExpenseProofsController {
   @Post(':id/validate')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Valida la solicitud de reembolso. Auditado.' })
-  validate(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
+  validate(@Param('id') id: string, @Body() body: { tiene_comprobacion?: boolean; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
+    return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body);
   }
 
   @Post(':id/reject')

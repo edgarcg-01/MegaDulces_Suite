@@ -12,10 +12,9 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 /**
  * Roles de archivo fijos (herencia del Google Form).
  *
- * `solicitud_kepler` sigue aceptándose para no romper lo ya capturado, pero el
- * formulario **ya no lo pide**: la solicitud vive en Kepler (XA1501) y de ahí la
- * leemos por folio. Pedir una foto de un documento que el sistema ya tiene es
- * papeleo, no evidencia.
+ * `solicitud_kepler` es la solicitud **firmada**. No se pide para leerle los datos —esos
+ * ya los tenemos de Kepler por folio— sino porque la firma es la evidencia de que alguien
+ * autorizó. Por eso es OPCIONAL: lo que no puede faltar es el comprobante del gasto.
  */
 export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
@@ -462,11 +461,33 @@ export class ExpenseProofsService {
   }
 
   /** El contador valida la solicitud de reembolso. */
-  async validate(id: string, actor?: string) {
+  /**
+   * Validar exige DECLARAR si el gasto lleva comprobación (XA1001).
+   *
+   * Hay solicitudes que nunca la generan, y sin este dato el tablero no puede distinguir
+   * «todavía no llega» de «nunca va a llegar» — que es justo lo que necesita saber quien
+   * persigue el rezago. Se pregunta al validar porque es el momento en que alguien tiene
+   * el expediente delante.
+   */
+  async validate(id: string, actor?: string, dto?: { tiene_comprobacion?: boolean; comprobacion_nota?: string }) {
     this.tenantCtx.requireTenantId();
+    if (typeof dto?.tiene_comprobacion !== 'boolean') {
+      throw new BadRequestException('Falta declarar si este gasto tiene comprobación.');
+    }
+    const nota = (dto.comprobacion_nota || '').trim();
+    // Sin comprobación hay que decir por qué: si no, el «no» no se puede auditar.
+    if (!dto.tiene_comprobacion && !nota) {
+      throw new BadRequestException('Si el gasto no lleva comprobación, explicá por qué.');
+    }
     return this.tk.run(async (trx) => {
+      const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision'])
-        .update({ status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now() })
+        .update({
+          status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(),
+          motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now(),
+          // Sonda: sin la migración 20260822140000 se valida igual, sin perder la acción.
+          ...(tieneCol ? { tiene_comprobacion: dto.tiene_comprobacion, comprobacion_nota: nota || null } : {}),
+        })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
       const [full] = await trx('finance.expense_proofs').where({ id })

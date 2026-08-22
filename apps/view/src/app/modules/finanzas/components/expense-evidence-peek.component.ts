@@ -7,6 +7,7 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { TextareaModule } from 'primeng/textarea';
 import { SkeletonModule } from 'primeng/skeleton';
+import { SelectButtonModule } from 'primeng/selectbutton';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ComprobacionesService, ExpenseProofDetail, ProofFile } from '../comprobaciones.service';
 import { ExpenseRequestRow } from '../../comercial/comercial.service';
@@ -20,7 +21,7 @@ interface PeekDoc { role: string; label: string; url: string; isPdf: boolean; sa
 const ETIQUETAS: Record<string, string> = {
   comprobante_1: 'Comprobante — hoja 1', comprobante_2: 'Comprobante — hoja 2',
   evidencia_1: 'Evidencia 1', evidencia_2: 'Evidencia 2', evidencia_3: 'Evidencia 3',
-  solicitud_kepler: 'Solicitud de gasto Kepler (histórico)',
+  solicitud_kepler: 'Solicitud de gasto firmada',
 };
 
 /**
@@ -37,7 +38,7 @@ const ETIQUETAS: Record<string, string> = {
 @Component({
   selector: 'app-expense-evidence-peek',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, TagModule, TextareaModule, SkeletonModule, SidePeekComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, TagModule, TextareaModule, SkeletonModule, SelectButtonModule, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-side-peek [open]="open()" (openChange)="onToggle($event)"
@@ -59,6 +60,12 @@ const ETIQUETAS: Record<string, string> = {
           <div><span class="ep-k">Diferencia</span><span class="ep-v">{{ diffTxt() }}</span><span class="ep-m">tolera $1 o 1%</span></div>
         </div>
 
+        @if (proof()?.status === 'validada' && proof()?.tiene_comprobacion != null) {
+          <p class="ep-note" [class.is-ok]="proof()!.tiene_comprobacion">
+            <i class="pi" [class.pi-check-circle]="proof()!.tiene_comprobacion" [class.pi-minus-circle]="!proof()!.tiene_comprobacion" aria-hidden="true"></i>
+            {{ proof()!.tiene_comprobacion ? 'Declarado CON comprobación' : 'Declarado SIN comprobación' }}{{ proof()!.comprobacion_nota ? ' — ' + proof()!.comprobacion_nota : '' }}
+          </p>
+        }
         @if (proof()?.status === 'revision' && proof()?.revision_nota) { <p class="ep-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ proof()!.revision_nota }}</p> }
         @if (proof()?.status === 'rechazada' && proof()?.motivo_rechazo) { <p class="ep-note is-bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ proof()!.motivo_rechazo }}</p> }
 
@@ -113,7 +120,7 @@ const ETIQUETAS: Record<string, string> = {
         @if (puedeResolver() && proof()) {
           <div class="ep-acts">
             @if (proof()!.status !== 'validada') {
-              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting()" (click)="validar()">
+              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting()" (click)="abrirValidar()">
                 <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button>
             }
             @if (proof()!.status !== 'rechazada') {
@@ -124,6 +131,25 @@ const ETIQUETAS: Record<string, string> = {
         }
       }
     </app-side-peek>
+
+    <!-- Validar exige declarar si el gasto lleva comprobación: hay solicitudes que nunca
+         la generan, y sin este dato no se distingue «no llegó» de «no va a llegar». -->
+    <p-dialog [visible]="showValidar()" (visibleChange)="showValidar.set($event)" [modal]="true"
+              [style]="{ width: '28rem' }" [draggable]="false" header="Validar el gasto">
+      <p class="ep-dlg-hint">¿Este gasto tiene comprobación en Kepler (XA1001)?</p>
+      <p-selectbutton [options]="siNo" [(ngModel)]="tieneComp" optionLabel="label" optionValue="value"
+                      [allowEmpty]="false" ariaLabelledBy="Tiene comprobación" />
+      <p class="ep-dlg-hint ep-dlg-sub">
+        {{ tieneComp === false ? 'Decí por qué no la lleva — es lo que va a leer quien revise esto después.' : 'Opcional: el folio de la comprobación, si lo tenés a mano.' }}
+      </p>
+      <textarea pTextarea [(ngModel)]="compNota" rows="2" class="ep-dlg-txt"
+                [placeholder]="tieneComp === false ? 'Ej. reembolso de caja chica, no genera comprobación' : 'Ej. folio 0004312'"></textarea>
+      <ng-template #footer>
+        <button pButton type="button" text (click)="showValidar.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" severity="success" [disabled]="tieneComp === null || (tieneComp === false && !compNota.trim())"
+                (click)="confirmarValidacion()"><span class="p-button-label">Validar</span></button>
+      </ng-template>
+    </p-dialog>
 
     <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
               [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobante">
@@ -186,6 +212,8 @@ const ETIQUETAS: Record<string, string> = {
     .ep-acts { display: flex; gap: var(--sp-2); margin-top: var(--sp-5);
       padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .ep-dlg-hint { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.45; }
+    .ep-dlg-sub { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-xs); }
+    .ep-note.is-ok { color: var(--ok-fg); }
     .ep-dlg-txt { width: 100%; font-size: var(--fs-sm); }
   `],
 })
@@ -211,6 +239,10 @@ export class ExpenseEvidencePeekComponent {
   readonly acting = signal(false);
   readonly showReject = signal(false);
   motivo = '';
+  readonly showValidar = signal(false);
+  readonly siNo = [{ label: 'Sí, tiene', value: true }, { label: 'No lleva', value: false }];
+  tieneComp: boolean | null = null;
+  compNota = '';
 
   readonly money = money;
   readonly dmy = dmy;
@@ -292,7 +324,14 @@ export class ExpenseEvidencePeekComponent {
   }
 
   // ── Resolución ───────────────────────────────────────────────────────────
-  validar() { this.resolver('validar'); }
+  abrirValidar() { this.tieneComp = null; this.compNota = ''; this.showValidar.set(true); }
+  confirmarValidacion() {
+    if (this.tieneComp === null) return;
+    // Un «no» sin motivo no es auditable.
+    if (this.tieneComp === false && !this.compNota.trim()) return;
+    this.showValidar.set(false);
+    this.resolver('validar');
+  }
   rechazar() {
     const m = this.motivo.trim();
     if (!m) return; // sin motivo no se rechaza: quien capturó tiene que saber qué corregir
@@ -303,7 +342,9 @@ export class ExpenseEvidencePeekComponent {
     const p = this.proof();
     if (!p || this.acting()) return;
     this.acting.set(true);
-    const req = accion === 'validar' ? this.svc.validate(p.id) : this.svc.reject(p.id, motivo);
+    const req = accion === 'validar'
+      ? this.svc.validate(p.id, { tiene_comprobacion: this.tieneComp === true, comprobacion_nota: this.compNota.trim() || undefined })
+      : this.svc.reject(p.id, motivo);
     req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.acting.set(false); this.onToggle(false); this.resolved.emit(); },
       error: () => this.acting.set(false),
