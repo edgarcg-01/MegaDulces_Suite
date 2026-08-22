@@ -20,6 +20,16 @@
 const BASE = 'http://localhost:3334/api';
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  OK ', m); } else { fail++; console.log('  XX ', m); } };
+// Presupuesto de latencia. La primera version tardaba 53 SEGUNDOS por
+// subconsultas correlacionadas (una por producto); pre-agregarlas como tablas
+// derivadas la dejo en ~0.4 s de SQL. Esta asercion existe para que no vuelva
+// en silencio: es la clase de regresion que nadie nota hasta que molesta.
+const MAX_MS = 6000;
+const timed = async (p, t) => {
+  const t0 = Date.now();
+  const r = await req(p, t);
+  return Object.assign({}, r, { ms: Date.now() - t0 });
+};
 const req = async (p, t) => {
   const r = await fetch(`${BASE}${p}`, { headers: { Authorization: `Bearer ${t}` } });
   const j = await r.json().catch(() => ({}));
@@ -99,6 +109,16 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
   const flt = await req('/commercial/profitability/breakdown?level=sku&window=30d&band=negativo&pageSize=3', t);
   ok(flt.status === 200 && flt.j.data.every((r) => r.margin_pct < 0), 'filtro band=negativo devuelve solo margen negativo');
   console.log(`     SKUs bajo costo: ${flt.j?.pagination?.total}`);
+
+  // Latencia real del endpoint. El nivel producto es el peor caso.
+  for (const lvl of ['sku', 'supplier']) {
+    const r = await timed(`/commercial/profitability/breakdown?level=${lvl}&window=365d&pageSize=50`, t);
+    console.log(`     breakdown ${lvl.padEnd(9)} ${String(r.ms).padStart(6)} ms`);
+    ok(r.status === 200 && r.ms < MAX_MS, `breakdown ${lvl} responde en < ${MAX_MS} ms (${r.ms} ms)`);
+  }
+  const ovt = await timed('/commercial/profitability/overview?window=365d', t);
+  console.log(`     overview            ${String(ovt.ms).padStart(6)} ms`);
+  ok(ovt.ms < MAX_MS, `overview responde en < ${MAX_MS} ms (${ovt.ms} ms)`);
 
   console.log(`\nProfitability smoke: ${pass} OK / ${fail} XX`);
   process.exit(fail === 0 ? 0 : 1);
