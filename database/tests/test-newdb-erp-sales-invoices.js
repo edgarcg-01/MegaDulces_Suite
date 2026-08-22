@@ -35,8 +35,12 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
     chk(r && r.relkind === 'v', `analytics.${v} debe ser VISTA (derive-no-copy), es: ${r ? r.relkind : 'no existe'}`);
   }
 
+  // Se filtra por COLUMNAS SIMPLES, igual que el service: `folio_digital` es una expresión
+  // compuesta dentro de la vista y el planner no la empuja al índice (3,031 ms vs 162 ms).
+  const P = { sucursal: '06', doc_prefix: 'UD0801', folio: '0000087' };
   const t0 = Date.now();
-  const h = (await db.query(`SELECT * FROM analytics.erp_sales_invoices WHERE folio_digital=$1`, [FOLIO])).rows[0];
+  const h = (await db.query(`SELECT * FROM analytics.erp_sales_invoices
+     WHERE sucursal=$1 AND doc_prefix=$2 AND folio=$3`, [P.sucursal, P.doc_prefix, P.folio])).rows[0];
   const msHdr = Date.now() - t0;
   chk(!!h, `no encontré la cabecera ${FOLIO}`);
   if (h) {
@@ -49,7 +53,11 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
     chk(h.vendedor_nombre === ESPERADO.vendedor_nombre, `vendedor ${h.vendedor_nombre}`);
     chk(h.doc_origen === ESPERADO.doc_origen, `pedido origen ${h.doc_origen}`);
     chk(Number(h.dias_credito) === ESPERADO.dias_credito, `dias_credito ${h.dias_credito} ≠ ${ESPERADO.dias_credito}`);
-    chk(String(h.vencimiento).slice(0, 10) === ESPERADO.vencimiento, `vencimiento ${String(h.vencimiento).slice(0, 10)} ≠ ${ESPERADO.vencimiento}`);
+    // el driver devuelve Date → formatear en LOCAL (la fecha viene sin tz; toISOString la correría un día)
+    const venc = h.vencimiento instanceof Date
+      ? `${h.vencimiento.getFullYear()}-${String(h.vencimiento.getMonth() + 1).padStart(2, '0')}-${String(h.vencimiento.getDate()).padStart(2, '0')}`
+      : String(h.vencimiento).slice(0, 10);
+    chk(venc === ESPERADO.vencimiento, `vencimiento ${venc} ≠ ${ESPERADO.vencimiento}`);
     chk(h.doc_tipo === 'telemarketing', `doc_tipo ${h.doc_tipo}`);
     chk(!!h.warehouse_id, 'warehouse_id sin resolver');
     // subtotal + ieps − descuento debe reconstruir el total (cuadre fiscal del CFDI)
@@ -57,7 +65,8 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   }
 
   const t1 = Date.now();
-  const l = (await db.query(`SELECT * FROM analytics.erp_sales_invoice_lines WHERE folio_digital=$1 ORDER BY linea`, [FOLIO])).rows;
+  const l = (await db.query(`SELECT * FROM analytics.erp_sales_invoice_lines
+     WHERE sucursal=$1 AND doc_prefix=$2 AND folio=$3 ORDER BY linea`, [P.sucursal, P.doc_prefix, P.folio])).rows;
   const msLin = Date.now() - t1;
   chk(l.length === ESPERADO.lineas, `líneas ${l.length} ≠ ${ESPERADO.lineas}`);
   chk(num(l.reduce((a, r) => a + Number(r.importe), 0)) === ESPERADO.suma_lineas, `Σ líneas ${l.reduce((a, r) => a + Number(r.importe), 0)} ≠ ${ESPERADO.suma_lineas}`);
@@ -76,7 +85,7 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   chk(t13 === 0, `se colaron ${t13} documentos U/D/13 (traspaso CEDIS, sin producto)`);
 
   console.log(`  cabecera ${msHdr} ms · líneas ${msLin} ms`);
-  if (msHdr > 3000 || msLin > 3000) console.log('  ⚠ lento: ¿se aplicó la migración de índices 20260822140100?');
+  if (msHdr > 1500 || msLin > 1500) console.log('  ⚠ lento: ¿se aplicó la migración de índices 20260822140100?');
   console.log(`\n${fallos.length ? '⚠' : '✅'} ${ok} checks OK · ${fallos.length} fallos`);
   fallos.forEach((f2) => console.log('   ✗ ' + f2));
   await db.end();
