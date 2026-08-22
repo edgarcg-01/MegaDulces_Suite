@@ -681,9 +681,10 @@ export class FinanzasSolicitudesComponent {
     return items;
   });
 
-  /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas. */
+  /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas:
+   *  FINANCE_EXPENSES_COMPROBAR, que hoy tiene una sola persona (Tesorería). */
   readonly puedeResolver = computed(() => this.perms.can('manage', 'all')
-    || this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
+    || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true);
 
   // ── Expediente y captura, en la misma pantalla ───────────────────────────
   // Antes esto vivía en /finanzas/comprobaciones: una bandeja aparte que volvía a pedir
