@@ -13,8 +13,19 @@ export interface ProofFile { role: ProofFileRole | string; url: string; public_i
 
 export interface Departamento { code: string; nombre: string; sucursal: string; }
 
-/** Último comprobante de una solicitud: qué estado tiene y cuál es, para poder actuar. */
-export interface ProofByFolio { id: string; status: ProofStatus | string; }
+/**
+ * El expediente de una solicitud, resumido para el tablero: qué estado tiene, cuál es
+ * (para poder actuar) y QUÉ DOCUMENTOS hay. Los tres faltantes posibles —comprobante,
+ * solicitud firmada, comprobación— son tres pendientes distintos para quien aprueba.
+ */
+export interface ProofByFolio {
+  id: string;
+  status: ProofStatus | string;
+  comprobante?: boolean;
+  solicitud?: boolean;
+  tiene_comprobacion?: boolean | null;
+  comprobacion_nota?: string | null;
+}
 
 export interface ExpenseProof {
   id: string;

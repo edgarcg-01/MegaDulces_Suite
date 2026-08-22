@@ -40,7 +40,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
  * mostraban entrelazados (estatus del documento + aplicación + evidencia): dentro de una
  * etapa esos tres valen siempre lo mismo, así que como columna no informaban nada.
  */
-type Etapa = 'autorizar' | 'ejercer' | 'comprobar' | 'validar' | 'cerradas' | 'canceladas' | 'todas';
+type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' | 'comprobacion' | 'completo' | 'canceladas' | 'todas';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
@@ -187,7 +187,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobar' | 'validar' | 'cerradas' | 'c
                      de una etapa decían siempre lo mismo. -->
                 <td>
                   @switch (etapaDeFila(r)) {
-                    @case ('comprobar') {
+                    @case ('comprobante') {
                       <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
                               [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
@@ -201,7 +201,21 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobar' | 'validar' | 'cerradas' | 'c
                         <span class="p-button-label">Revisar</span>
                       </button>
                     }
-                    @case ('cerradas') {
+                    @case ('solicitud') {
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
+                              [attr.aria-label]="'Adjuntar la solicitud firmada de ' + r.folio">
+                        <span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span>
+                        <span class="p-button-label">Agregar solicitud</span>
+                      </button>
+                    }
+                    @case ('comprobacion') {
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                              [attr.aria-label]="'Ver el expediente de ' + r.folio">
+                        <span class="p-button-icon p-button-icon-left pi pi-clock" aria-hidden="true"></span>
+                        <span class="p-button-label">Falta comprobación</span>
+                      </button>
+                    }
+                    @case ('completo') {
                       <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
                               [attr.aria-label]="'Ver el expediente de ' + r.folio">
                         <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span>
@@ -231,6 +245,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobar' | 'validar' | 'cerradas' | 'c
     <!-- Expediente: Kepler + evidencia + decisión, sin perder la lista. -->
     <app-expense-evidence-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)"
                                [solicitud]="sel()" [proofId]="selProofId()" [puedeResolver]="puedeResolver()"
+                               [comprobacionEnKepler]="selTieneComprobacion()"
                                (resolved)="trasResolver()" (attach)="adjuntar(sel()!)" />
 
     <!-- Captura: sólo los archivos. Todo lo demás lo pone Kepler. -->
@@ -365,10 +380,18 @@ export class FinanzasSolicitudesComponent {
   private etapaDe(r: ExpenseRequestRow): Exclude<Etapa, 'todas'> {
     if (r.estado === 'C') return 'canceladas';
     if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
-    const e = this.evidenciaDe(r.folio);
-    if (e === 'validada') return 'cerradas';
-    if (e === 'recibida' || e === 'revision') return 'validar';
-    return 'comprobar'; // sin evidencia, o rechazada (hay que volver a subirla)
+
+    const p = this.proofStatus()[r.folio];
+    // Sin expediente, o rechazado: hay que (volver a) subir el comprobante.
+    if (!p || p.status === 'rechazada' || p.comprobante === false) return 'comprobante';
+    // El papel firmado es lo segundo que se pide: aporta la firma, no los datos.
+    if (p.solicitud === false) return 'solicitud';
+    // Con todo lo adjuntable presente, le toca decidir a quien aprueba.
+    if (p.status !== 'validada') return 'validar';
+    // Ya validada: la única falta que queda es la comprobación que ELLA declaró que
+    // debía existir y todavía no aparece. Si declaró que no lleva (con motivo), cierra.
+    if (p.tiene_comprobacion === true && !this.compStatus()[r.folio]) return 'comprobacion';
+    return 'completo';
   }
 
   /** Cuántas y cuánto hay en cada etapa, sobre lo cargado. Es el embudo, y se ve siempre. */
@@ -404,7 +427,7 @@ export class FinanzasSolicitudesComponent {
   /** Añejo = más de 90 días en una etapa que debería haber avanzado. */
   esViejo(r: ExpenseRequestRow): boolean {
     const e = this.etapaDe(r);
-    if (e === 'cerradas' || e === 'canceladas') return false;
+    if (e === 'completo' || e === 'canceladas') return false;
     const d = this.edad(r);
     return d != null && d > 90;
   }
@@ -415,7 +438,7 @@ export class FinanzasSolicitudesComponent {
   });
   readonly hayPendiente = computed(() => {
     const e = this.etapa();
-    return e !== 'cerradas' && e !== 'canceladas' && this.visibles().length > 0;
+    return e !== 'completo' && e !== 'canceladas' && this.visibles().length > 0;
   });
 
   tituloEtapa(): string {
@@ -431,9 +454,11 @@ export class FinanzasSolicitudesComponent {
     const base: Record<string, string> = {
       autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
-      comprobar: `El gasto ya se ejerció y falta subir el comprobante. Es la deuda de respaldo.`,
-      validar: `Con comprobante subido, esperando que alguien lo revise contra el importe.`,
-      cerradas: `Ejercidas y con el comprobante validado. No requieren nada.`,
+      comprobante: `El gasto se ejerció y falta subir el comprobante. Es la deuda de respaldo.`,
+      solicitud: `Tienen comprobante pero falta adjuntar la solicitud firmada — la firma es la evidencia de que se autorizó.`,
+      validar: `Expediente completo, esperando que Tesorería lo revise y lo marque validado.`,
+      comprobacion: `Validadas declarando que SÍ llevan comprobación, y la comprobación todavía no aparece en Kepler.`,
+      completo: `Expediente cerrado: validado, y con la comprobación presente o declarada como no aplicable.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
       todas: `Todas las etapas juntas.`,
     };
@@ -495,9 +520,11 @@ export class FinanzasSolicitudesComponent {
   readonly etapasDef: { value: Etapa; label: string }[] = [
     { value: 'autorizar', label: 'Por autorizar' },
     { value: 'ejercer', label: 'Por ejercer' },
-    { value: 'comprobar', label: 'Por comprobar' },
+    { value: 'comprobante', label: 'Falta comprobante' },
+    { value: 'solicitud', label: 'Falta solicitud' },
     { value: 'validar', label: 'Por validar' },
-    { value: 'cerradas', label: 'Cerradas' },
+    { value: 'comprobacion', label: 'Falta comprobación' },
+    { value: 'completo', label: 'Completo' },
     { value: 'canceladas', label: 'Canceladas' },
     { value: 'todas', label: 'Todas' },
   ];
@@ -696,6 +723,10 @@ export class FinanzasSolicitudesComponent {
   readonly selProofId = computed(() => {
     const f = this.sel()?.folio;
     return f ? (this.proofStatus()[f]?.id ?? null) : null;
+  });
+  readonly selTieneComprobacion = computed(() => {
+    const f = this.sel()?.folio;
+    return !!f && !!this.compStatus()[f];
   });
 
   verExpediente(r: ExpenseRequestRow) { this.sel.set(r); this.peekOpen.set(true); }
