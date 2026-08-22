@@ -20,6 +20,13 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-directions',
     permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
   },
+  {
+    // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
+    label: 'Documentos',
+    route: '/comercial/documentos',
+    icon: 'pi pi-file',
+    permission: Permission.COMMERCIAL_ORDERS_VER,
+  },
   // Traspasos vive en Logística y Egresos en Finanzas — fuera de los tabs de
   // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).
 ];

@@ -19,6 +19,8 @@ import {
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { REPORTS_TABS } from '../reports-tabs';
 
 /**
  * AX.2/AX.3 — Documentos de venta al cliente.
@@ -37,7 +39,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
   imports: [
     CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule,
     InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TooltipModule, ToastModule,
-    MetricStripComponent, LoadStateComponent, SidePeekComponent,
+    MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -54,6 +56,8 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
         </p>
       </div>
     </div>
+
+    <app-page-tabs [tabs]="tabs" />
 
     <!-- KPIs de LA MISMA selección que la tabla -->
     @if (report(); as r) {
@@ -253,6 +257,7 @@ export class ComercialDocumentosComponent {
   desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   hasta = new Date().toISOString().slice(0, 10);
 
+  readonly tabs = REPORTS_TABS;
   readonly tipoOpts = [
     { label: 'Telemarketing', value: 'telemarketing' },
     { label: 'Venta a crédito', value: 'credito' },
