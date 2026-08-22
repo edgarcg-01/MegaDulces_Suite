@@ -384,7 +384,9 @@ export class ExpenseProofsService {
   async searchSolicitudes(term: string, limit = 20, user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const q = String(term || '').trim();
-    if (q.length < 2) return [];
+    // Un solo digito vale si es numero: la igualdad de folio es exacta y no genera ruido.
+    // Para texto si se piden 2, porque ahi es LIKE.
+    if (!q.length || (q.length < 2 && !/^[0-9]+$/.test(q))) return [];
     const lim = Math.min(50, Math.max(1, Number(limit) || 20));
     return this.tk.run(async (trx) => {
       const veTodo = isPlatformAdminRole(user?.role_name) || user?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true;

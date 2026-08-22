@@ -46,7 +46,8 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           <label class="cap-f"><span>1 · Folio de la solicitud (Kepler)</span>
             <p-autocomplete [(ngModel)]="sel" [suggestions]="sug()" (completeMethod)="buscar($event)"
               (onSelect)="pick($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body" styleClass="w-full" />
+              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body" styleClass="w-full"
+              [emptyMessage]="vacioMsg()" />
             <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También podés buscar por beneficiario.</em>
           </label>
         } @else {
@@ -206,9 +207,23 @@ export class FinanzasCapturarGastoComponent {
 
   constructor() { this.loadMine(); }
 
+  /** Último término buscado, para poder explicar un resultado vacío. */
+  private readonly ultimo = signal('');
+  /**
+   * Un desplegable vacío sin explicación es el peor resultado posible: no se distingue
+   * «ese folio no existe» de «no tenés alcance para verlo». Se dice cuál de las dos.
+   */
+  vacioMsg(): string {
+    const q = this.ultimo();
+    if (!q) return 'Escribí el folio de la solicitud.';
+    if (/^[0-9]+$/.test(q)) return `No hay ninguna solicitud con folio ${q}. Revisá el número — el folio del gasto y el de la solicitud NO son el mismo.`;
+    return 'Sin coincidencias. Si buscás por nombre y no sale nada, puede que no tengas áreas de gasto asignadas: buscá por folio exacto.';
+  }
+
   buscar(ev: { query: string }) {
     const q = (ev.query || '').trim();
-    if (q.length < 2) { this.sug.set([]); return; }
+    this.ultimo.set(q);
+    if (!q.length || (q.length < 2 && !/^[0-9]+$/.test(q))) { this.sug.set([]); return; }
     this.svc.searchSolicitudes(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
       this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · suc ${r.sucursal || '?'} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
       this.cdr.markForCheck();
