@@ -16,6 +16,7 @@ export * from './lib/collection-deposits/finance-collection-deposits.module';
 export * from './lib/collection-deposits/collection-deposits.service';
 export * from './lib/customer-ledger/finance-customer-ledger.module';
 export * from './lib/customer-ledger/customer-ledger.service';
+export * from './lib/customer-ledger/customer-receivables-scanner.service';
 export * from './lib/supplier-payment-proofs/finance-supplier-payment-proofs.module';
 export * from './lib/supplier-payment-proofs/supplier-payment-proofs.service';
 export * from './lib/goods-receipt-proofs/finance-goods-receipt-proofs.module';
