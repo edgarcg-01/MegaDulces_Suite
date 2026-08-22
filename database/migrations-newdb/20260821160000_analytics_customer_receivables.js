@@ -50,10 +50,16 @@ exports.up = async function (knex) {
     await knex.raw(`GRANT SELECT ON analytics.customer_receivables TO app_runtime`);
   }
 
-  // Idempotente: grupo/zona (kdud.c13/c14) por si la tabla ya existía sin ellas.
-  for (const col of ['grupo', 'zona']) {
+  // Idempotente: grupo/zona (kdud.c13/c14) + drill exacto (kdm5).
+  const cols = {
+    grupo: 'text', zona: 'text',
+    // Drill exacto por factura (cargo): saldo real = importe − Σ aplicaciones (kdm5), NO FIFO.
+    saldo_documento: 'numeric',   // solo cargo; abono = NULL
+    aplicaciones: 'jsonb',        // solo cargo: [{tipo,label,folio,fecha,monto}] de kdm5
+  };
+  for (const [col, type] of Object.entries(cols)) {
     if (!(await knex.schema.withSchema('analytics').hasColumn('customer_receivables', col))) {
-      await knex.raw(`ALTER TABLE analytics.customer_receivables ADD COLUMN ${col} text`);
+      await knex.raw(`ALTER TABLE analytics.customer_receivables ADD COLUMN ${col} ${type}`);
     }
   }
   await knex.raw(`CREATE INDEX IF NOT EXISTS ix_cxc_grupo_zona ON analytics.customer_receivables (tenant_id, sucursal, grupo, zona)`);

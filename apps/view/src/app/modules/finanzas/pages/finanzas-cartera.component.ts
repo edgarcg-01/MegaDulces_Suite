@@ -117,6 +117,9 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
                 <td class="ta-r"><b>{{ p.saldo_documento | number:'1.2-2' }}</b></td>
                 <td>@if (p.vencida) { <span class="ct-tag-venc">{{ p.dias_vencido }}d</span> } @else { <span class="muted">al día</span> }</td>
               </tr>
+              @for (a of p.aplicaciones; track a.folio) {
+                <tr class="ct-app"><td class="ct-app-cell" colspan="7"><i class="pi pi-arrow-turn-down-right" aria-hidden="true"></i> {{ a.label }} {{ a.folio }} · {{ a.fecha || '—' }} <b>−{{ a.monto | number:'1.2-2' }}</b></td></tr>
+              }
             } @empty { <tr><td colspan="7" class="ct-empty">Sin partidas vivas. Todo cobrado.</td></tr> }
           </tbody>
         </table>
@@ -125,7 +128,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
           </details>
         }
-        <p class="ct-det-note muted">El saldo por documento se aproxima por antigüedad (FIFO): los cobros del cliente se aplican a las facturas más viejas primero. El saldo total del cliente es exacto.</p>
+        <p class="ct-det-note muted">Saldo por documento exacto: cada factura muestra los cobros y notas que Kepler le aplicó (kdm5). Espejo read-only del ERP.</p>
       }
     </p-dialog>
   `,
@@ -164,6 +167,10 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-det-table th { color: var(--text-2, #6b6b6b); font-weight: 600; }
     .ct-mono { font-family: ui-monospace, monospace; font-size: .78rem; }
     .ct-tag-venc { background: rgba(180,35,24,.1); color: #b42318; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; font-weight: 600; }
+    .ct-app td { border-bottom: none; padding-top: .1rem; padding-bottom: .1rem; }
+    .ct-app-cell { padding-left: 1.6rem !important; font-size: .78rem; color: #6b8f71; }
+    .ct-app-cell i { font-size: .7rem; opacity: .6; }
+    .ct-app-cell b { color: var(--text-2, #6b6b6b); }
     .ct-abonos { margin-top: .8rem; font-size: .82rem; } .ct-abonos ul { margin: .4rem 0 0; padding-left: 1.1rem; }
     .ct-det-note { font-size: .78rem; margin-top: .8rem; }
   `],

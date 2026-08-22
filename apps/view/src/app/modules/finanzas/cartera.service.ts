@@ -18,10 +18,12 @@ export interface CarteraResp {
   clientes: CarteraCliente[]; total_clientes: number;
 }
 
+export interface Aplicacion { tipo: string; label: string; folio: string; fecha: string | null; monto: number }
 export interface Partida {
   doc_tipo: string; doc_label: string; folio: string; folio_digital: string;
   fecha: string | null; vencimiento: string | null; importe: number; saldo_documento: number;
   dias_vencido: number | null; vencida: boolean; referencia: string | null;
+  aplicaciones: Aplicacion[];
 }
 export interface CarteraDetalle {
   hoy: string;

@@ -77,34 +77,31 @@ export class CustomerLedgerService {
         const s = `%${q.search.trim()}%`;
         qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
       }
-      const rows = await qb.select(
-        'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona', 'r.cargo_abono',
-        'r.importe', 'r.signed_amount',
+      // Solo cargos: el saldo por documento (kdm5, exacto) ya trae lo aplicado restado.
+      const rows = await qb.where('r.cargo_abono', 'C').select(
+        'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona',
+        'r.importe', 'r.saldo_documento',
         trx.raw('r.vencimiento::text as vencimiento'),
         trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'),
       );
 
-      // Agrupar por (sucursal, cliente) y FIFO abonos → cargos más viejos primero.
       const map = new Map<string, any>();
       for (const r of rows) {
         const k = `${r.sucursal}||${r.cliente_code}`;
         let g = map.get(k);
-        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, cargos: [], abono: 0 }; map.set(k, g); }
-        if (r.cargo_abono === 'C') g.cargos.push({ importe: M2(r.importe), venc: r.vencimiento ? String(r.vencimiento).slice(0, 10) : null });
-        else g.abono += M2(r.importe);
+        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, cargos: [] }; map.set(k, g); }
+        const saldoDoc = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
+        g.cargos.push({ saldo: saldoDoc, venc: r.vencimiento || null });
         if (!g.cliente_nombre && r.cliente_nombre) g.cliente_nombre = r.cliente_nombre;
       }
 
       const clientes: any[] = [];
       const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, aging: emptyBucket() };
       for (const g of map.values()) {
-        g.cargos.sort((a: any, b: any) => (a.venc || '9999').localeCompare(b.venc || '9999'));
-        let rem = g.abono;
         const aging = emptyBucket();
         let saldo = 0; let vencido = 0; let nPartidas = 0;
         for (const cg of g.cargos) {
-          const pagado = Math.min(rem, cg.importe); rem -= pagado;
-          const residual = Math.round((cg.importe - pagado) * 100) / 100;
+          const residual = Math.round(cg.saldo * 100) / 100;
           if (residual <= 0.005) continue;
           saldo += residual; nPartidas += 1;
           bucketFor(aging, cg.venc, hoy, residual);
@@ -141,7 +138,11 @@ export class CustomerLedgerService {
     });
   }
 
-  /** Detalle (auxiliar) de un cliente: partidas con saldo por documento (FIFO) + abonos. */
+  /**
+   * Detalle (auxiliar) de un cliente: partidas con saldo por documento EXACTO (kdm5)
+   * + los cobros/notas aplicados a cada factura (como el reporte Kepler). Si falta
+   * `saldo_documento` (ramas sin kdm5), cae a `importe` (sin aplicar).
+   */
   async detalle(sucursal: string, cliente: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -153,26 +154,24 @@ export class CustomerLedgerService {
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente })
         .select('r.doc_tipo', 'r.doc_label', 'r.folio', 'r.folio_digital',
           trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'),
-          'r.importe', 'r.cargo_abono', 'r.referencia', 'r.vendedor',
+          'r.importe', 'r.cargo_abono', 'r.referencia', 'r.vendedor', 'r.saldo_documento', 'r.aplicaciones',
           trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'))
         .orderBy([{ column: 'r.fecha', order: 'asc' }, { column: 'r.folio', order: 'asc' }]);
 
-      const cargos = rows.filter((r: any) => r.cargo_abono === 'C')
-        .sort((a: any, b: any) => String(a.vencimiento || a.fecha).localeCompare(String(b.vencimiento || b.fecha)));
+      const cargos = rows.filter((r: any) => r.cargo_abono === 'C');
       const abonos = rows.filter((r: any) => r.cargo_abono === 'A');
-      let rem = abonos.reduce((s: number, r: any) => s + M2(r.importe), 0);
 
       const partidas = cargos.map((cg: any) => {
         const importe = M2(cg.importe);
-        const pagado = Math.min(rem, importe); rem -= pagado;
-        const saldo_documento = Math.round((importe - pagado) * 100) / 100;
-        const venc = cg.vencimiento ? String(cg.vencimiento).slice(0, 10) : null;
+        const saldo_documento = cg.saldo_documento != null ? M2(cg.saldo_documento) : importe;
+        const venc = cg.vencimiento || null;
         const dias = venc ? Math.floor((Date.parse(hoy) - Date.parse(venc)) / 86400000) : null;
         return {
           doc_tipo: cg.doc_tipo, doc_label: cg.doc_label, folio: cg.folio, folio_digital: cg.folio_digital,
-          fecha: cg.fecha ? String(cg.fecha).slice(0, 10) : null, vencimiento: venc,
+          fecha: cg.fecha || null, vencimiento: venc,
           importe, saldo_documento, dias_vencido: dias, vencida: dias != null && dias > 0 && saldo_documento > 0.005,
           referencia: cg.referencia,
+          aplicaciones: Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []),
         };
       });
       const head = rows[0] || {};
@@ -188,7 +187,7 @@ export class CustomerLedgerService {
         partidas: partidas.filter((p) => p.saldo_documento > 0.005),
         pagadas: partidas.filter((p) => p.saldo_documento <= 0.005).length,
         abonos: abonos.map((r: any) => ({
-          doc_label: r.doc_label, folio: r.folio, fecha: r.fecha ? String(r.fecha).slice(0, 10) : null, importe: M2(r.importe),
+          doc_label: r.doc_label, folio: r.folio, fecha: r.fecha || null, importe: M2(r.importe),
         })),
       };
     });
