@@ -18,6 +18,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 const RULES: FinanceRuleInput[] = [
   { rule_key: 'cxc_cliente_vencido', nombre: 'Cliente con saldo vencido', descripcion: 'Cartera vencida material por cliente (aging kdue).', clase: 'riesgo', params: { min_vencido: 2000 } },
   { rule_key: 'cxc_sobre_limite', nombre: 'Cliente sobre su línea de crédito', descripcion: 'Saldo supera el límite de crédito de Kepler (kdud.c15).', clase: 'riesgo', params: {} },
+  { rule_key: 'cxc_promesa_incumplida', nombre: 'Compromiso de pago incumplido', descripcion: 'El cliente no pagó en la fecha que se comprometió (CXC.13).', clase: 'riesgo', params: {} },
 ];
 const MIN_VENCIDO = 2000;    // pesos: piso para no ahogar la bandeja
 const CRIT_VENCIDO = 20000;  // pesos: vencido crítico
@@ -141,6 +142,32 @@ export class CustomerReceivablesScannerService {
         });
       }
     }
+    // Promesas de pago vencidas sin cumplir → marca incumplida + hallazgo (CXC.13).
+    try {
+      const broken = await this.knex.transaction(async (trx) => {
+        await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+        return (await trx.raw(
+          `UPDATE finance.collection_promises
+              SET estado = 'incumplida', updated_at = now()
+            WHERE tenant_id = ?::uuid AND estado = 'abierta'
+              AND fecha_promesa < (now() AT TIME ZONE 'America/Mexico_City')::date
+          RETURNING sucursal, cliente_code, cliente_nombre, monto_prometido, fecha_promesa::text AS fecha_promesa`,
+          [tenantId])).rows;
+      });
+      for (const b of broken) {
+        findings.push({
+          rule_key: 'cxc_promesa_incumplida', clase: 'riesgo', severity: 'critical',
+          score: 0.9,
+          titulo: `${b.cliente_nombre || b.cliente_code}: incumplió su compromiso (${this.mx(Number(b.monto_prometido))})`,
+          resumen: `Sucursal ${b.sucursal}. Se comprometió a pagar ${this.mx(Number(b.monto_prometido))} el ${b.fecha_promesa} y no cumplió. Reactivar cobranza.`,
+          entity: { sucursal: b.sucursal, cliente_code: b.cliente_code, nombre: b.cliente_nombre },
+          periodo: null, importe: Number(b.monto_prometido) || 0,
+          evidencia: { fecha_promesa: b.fecha_promesa },
+          dedup_key: `cxc_promesa:${b.sucursal}:${b.cliente_code}:${b.fecha_promesa}`,
+        });
+      }
+    } catch { /* tabla de promesas no migrada aún */ }
+
     if (!findings.length) return 0;
     const res = await this.sink.pushFindings(tenantId, findings, RULES);
     return res.inserted;

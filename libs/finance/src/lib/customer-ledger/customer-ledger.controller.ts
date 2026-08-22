@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
+
+interface AuthedRequest { user?: { username?: string } }
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Estado de cuenta
@@ -75,9 +77,27 @@ export class CustomerLedgerController {
     return { rows };
   }
 
+  // Compromisos de pago (CXC.13). 'promise/:id/resolve' declarado antes que ':sucursal/:cliente'.
+  @Post('promise/:id/resolve')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Resuelve un compromiso de pago: cumplida | incumplida | cancelada.' })
+  resolvePromise(@Param('id') id: string, @Body('estado') estado: 'cumplida' | 'incumplida' | 'cancelada', @Req() req: AuthedRequest) {
+    return this.svc.resolvePromise(id, estado, req.user?.username);
+  }
+
+  @Post(':sucursal/:cliente/promise')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Registra un compromiso de pago (promesa de cobro) del cliente.' })
+  createPromise(
+    @Param('sucursal') sucursal: string, @Param('cliente') cliente: string,
+    @Body() body: { monto: number; fecha: string; nota?: string }, @Req() req: AuthedRequest,
+  ) {
+    return this.svc.createPromise(sucursal, cliente, body, req.user?.username);
+  }
+
   @Get(':sucursal/:cliente')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
-  @ApiOperation({ summary: 'Auxiliar de un cliente: partidas vivas con saldo por documento + aging + abonos.' })
+  @ApiOperation({ summary: 'Auxiliar de un cliente: partidas vivas con saldo por documento + aging + abonos + compromisos.' })
   detalle(@Param('sucursal') sucursal: string, @Param('cliente') cliente: string) {
     return this.svc.detalle(sucursal, cliente);
   }
