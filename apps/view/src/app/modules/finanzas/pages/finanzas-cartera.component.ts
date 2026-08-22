@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
@@ -20,7 +21,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, DialogModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, ToggleSwitchModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -167,6 +168,14 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
             } @empty { <tr><td colspan="7" class="ct-empty">Sin partidas vivas. Todo cobrado.</td></tr> }
           </tbody>
         </table>
+        @if (det.cobranza; as cc) {
+          <div class="ct-360">
+            <i class="pi pi-check-circle" aria-hidden="true"></i>
+            <span><b>{{ cc.n }}</b> cobros registrados ({{ money(cc.monto) }})@if (cc.ultimo) { · último {{ cc.ultimo }} }</span>
+            <span class="ct-360-ev">· <b>{{ cc.con_ficha }}</b> con ficha · <b>{{ cc.validados }}</b> validados en banco</span>
+            <a routerLink="/finanzas/cobranza" class="ct-360-link">Ver cobranza <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+          </div>
+        }
         @if (det.abonos.length) {
           <details class="ct-abonos"><summary>{{ det.abonos.length }} cobros / notas aplicados</summary>
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
@@ -234,6 +243,10 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-contact-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; text-decoration: none; padding: .3rem .7rem; border-radius: 6px; border: 1px solid var(--surface-border, #ddd); color: inherit; }
     .ct-contact-btn:hover { background: var(--surface-hover, #faf9f7); }
     .ct-wa { color: #128c7e; border-color: rgba(18,140,126,.3); }
+    .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: rgba(107,143,113,.08); font-size: .82rem; }
+    .ct-360 > i { color: #6b8f71; }
+    .ct-360-ev { color: var(--text-2, #6b6b6b); }
+    .ct-360-link { margin-left: auto; text-decoration: none; color: var(--action, #c2410c); font-size: .8rem; white-space: nowrap; }
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {

@@ -38,6 +38,7 @@ export interface CarteraDetalle {
   saldo: number; vencido: number;
   partidas: Partida[]; pagadas: number;
   abonos: { doc_label: string; folio: string; fecha: string | null; importe: number }[];
+  cobranza: { n: number; monto: number; ultimo: string | null; con_ficha: number; validados: number } | null;
 }
 
 export interface CarteraQuery {

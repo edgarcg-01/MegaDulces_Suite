@@ -235,8 +235,27 @@ export class CustomerLedgerService {
       });
       const head = rows[0] || {};
       const saldo = Math.round(partidas.reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100;
+
+      // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
+      // Puente por cliente_code (los cobros CEDIS traen el código del cliente). Best-effort.
+      let cobranza: any = null;
+      try {
+        const cc = (await trx.raw(
+          `SELECT count(*)::int n, COALESCE(sum(e.monto), 0)::numeric monto, max(e.cobro_date)::text ultimo,
+                  count(d.id)::int con_ficha, count(*) FILTER (WHERE d.estado = 'validado')::int validados
+             FROM analytics.erp_collections e
+             LEFT JOIN finance.collection_deposits d
+               ON d.tenant_id = e.tenant_id AND d.sucursal = e.sucursal AND d.folio = e.folio
+            WHERE e.tenant_id = ? AND e.cliente_code = ?`,
+          [tenantId, cliente])).rows[0];
+        if (cc && cc.n > 0) {
+          cobranza = { n: cc.n, monto: M2(cc.monto), ultimo: cc.ultimo, con_ficha: cc.con_ficha, validados: cc.validados };
+        }
+      } catch { /* CC no disponible → sin puente */ }
+
       return {
         hoy,
+        cobranza,
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,
           vendedor: head.vendedor || null, grupo: head.grupo || null, zona: head.zona || null,
