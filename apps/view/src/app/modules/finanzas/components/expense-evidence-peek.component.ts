@@ -69,7 +69,28 @@ const ETIQUETAS: Record<string, string> = {
         @if (proof()?.status === 'revision' && proof()?.revision_nota) { <p class="ep-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ proof()!.revision_nota }}</p> }
         @if (proof()?.status === 'rechazada' && proof()?.motivo_rechazo) { <p class="ep-note is-bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ proof()!.motivo_rechazo }}</p> }
 
-        <!-- Evidencia -->
+        <!-- Lo primero que necesita quien aprueba: qué hay y qué falta. -->
+        <h4 class="ep-sec">Expediente</h4>
+        <ul class="ep-check">
+          <li [class.ok]="tieneComprobante()" [class.no]="!tieneComprobante()">
+            <i class="pi" [class.pi-check-circle]="tieneComprobante()" [class.pi-times-circle]="!tieneComprobante()" aria-hidden="true"></i>
+            <span>Comprobante del gasto</span>
+            <em>{{ tieneComprobante() ? 'adjunto' : 'obligatorio — sin esto no se aprueba' }}</em>
+            @if (!tieneComprobante()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
+          </li>
+          <li [class.ok]="tieneSolicitud()" [class.warn]="!tieneSolicitud()">
+            <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-minus-circle]="!tieneSolicitud()" aria-hidden="true"></i>
+            <span>Solicitud firmada</span>
+            <em>{{ tieneSolicitud() ? 'adjunta' : 'falta — es la evidencia de la autorización' }}</em>
+            @if (!tieneSolicitud()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
+          </li>
+          <li [class.ok]="comprobacionOk()" [class.warn]="!comprobacionOk()">
+            <i class="pi" [class.pi-check-circle]="comprobacionOk()" [class.pi-minus-circle]="!comprobacionOk()" aria-hidden="true"></i>
+            <span>Comprobación (XA1001)</span>
+            <em>{{ comprobacionTxt() }}</em>
+          </li>
+        </ul>
+
         <h4 class="ep-sec">Evidencia</h4>
         @if (loading()) {
           <p-skeleton height="12rem" />
@@ -120,12 +141,13 @@ const ETIQUETAS: Record<string, string> = {
         @if (puedeResolver() && proof()) {
           <div class="ep-acts">
             @if (proof()!.status !== 'validada') {
-              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting()" (click)="abrirValidar()">
-                <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button>
+              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !tieneComprobante()" (click)="abrirValidar()"
+                      [title]="tieneComprobante() ? 'Marcar el expediente como validado' : 'Sin comprobante no se puede validar'">
+                <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validado</span></button>
             }
             @if (proof()!.status !== 'rechazada') {
               <button pButton type="button" severity="danger" text [disabled]="acting()" (click)="showReject.set(true)">
-                <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">No validado</span></button>
             }
           </div>
         }
@@ -152,14 +174,14 @@ const ETIQUETAS: Record<string, string> = {
     </p-dialog>
 
     <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
-              [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar comprobante">
+              [style]="{ width: '26rem' }" [draggable]="false" header="Marcar como NO validado">
       <p class="ep-dlg-hint">El motivo lo lee quien capturó, así que decí qué corregir.</p>
       <textarea pTextarea [(ngModel)]="motivo" rows="3" class="ep-dlg-txt"
                 placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
       <ng-template #footer>
         <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
         <button pButton type="button" severity="danger" [disabled]="!motivo.trim()" (click)="rechazar()">
-          <span class="p-button-label">Rechazar</span></button>
+          <span class="p-button-label">No validado</span></button>
       </ng-template>
     </p-dialog>
   `,
@@ -203,6 +225,18 @@ const ETIQUETAS: Record<string, string> = {
       border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
     .ep-broken i { color: var(--warn-fg); }
 
+    /* Checklist: el estado es icono + texto, nunca sólo color. */
+    .ep-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .ep-check li { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--fg-1); }
+    .ep-check li > i { font-size: var(--fs-body); }
+    .ep-check li.ok > i { color: var(--ok-fg); }
+    .ep-check li.warn > i { color: var(--warn-fg); }
+    .ep-check li.no > i { color: var(--bad-fg); }
+    .ep-check em { font-style: normal; font-size: var(--fs-xs); color: var(--fg-3); }
+    .ep-add { margin-left: auto; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-xs);
+      color: var(--action); cursor: pointer; text-decoration: underline; }
+    .ep-add:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+
     .ep-dl { display: grid; grid-template-columns: 9rem 1fr; gap: var(--sp-1) var(--sp-3); margin: 0; }
     .ep-dl dt { font-size: var(--fs-xs); color: var(--fg-3); }
     .ep-dl dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
@@ -229,6 +263,8 @@ export class ExpenseEvidencePeekComponent {
   readonly proofId = input<string | null>(null);
   /** Quien puede validar/rechazar. Lo decide la página; acá sólo se respeta. */
   readonly puedeResolver = input(false);
+  /** ¿La comprobación (XA1001) ya existe? Lo sabe el tablero, no este detalle. */
+  readonly comprobacionEnKepler = input(false);
 
   readonly resolved = output<void>();
   readonly attach = output<void>();
@@ -284,6 +320,19 @@ export class ExpenseEvidencePeekComponent {
       };
     }));
   }
+  readonly tieneComprobante = computed(() => this.docs().some((d) => d.role.startsWith('comprobante')));
+  readonly tieneSolicitud = computed(() => this.docs().some((d) => d.role === 'solicitud_kepler'));
+  /** Resuelta = ya existe en Kepler, o quien validó declaró que no lleva. */
+  readonly comprobacionOk = computed(() =>
+    this.comprobacionEnKepler() || this.proof()?.tiene_comprobacion === false);
+  comprobacionTxt(): string {
+    if (this.comprobacionEnKepler()) return 'registrada en Kepler';
+    const d = this.proof()?.tiene_comprobacion;
+    if (d === false) return `no lleva — ${this.proof()?.comprobacion_nota || 'sin motivo'}`;
+    if (d === true) return 'declarada, y todavía no aparece en Kepler';
+    return 'sin declarar — se pregunta al validar';
+  }
+
   onDocError(url: string) {
     this.docs.update((ds) => ds.map((d) => d.url === url ? { ...d, failed: true } : d));
   }

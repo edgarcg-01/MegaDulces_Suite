@@ -23,6 +23,19 @@ const REQUIRED_ROLES: ProofFileRole[] = ['comprobante_1'];
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
+export interface ProofByFolio {
+  id: string;
+  status: string;
+  /** ¿Está el comprobante del gasto? Es el único que no puede faltar. */
+  comprobante: boolean;
+  /** ¿Está la solicitud firmada? Aporta la firma, no los datos. */
+  solicitud: boolean;
+  /** Lo declara quien valida. `null` = todavía nadie lo dijo. */
+  tiene_comprobacion: boolean | null;
+  comprobacion_nota: string | null;
+}
+
 export interface CreateExpenseProofDto {
   solicitante?: string;
   departamento?: string;
@@ -344,9 +357,11 @@ export class ExpenseProofsService {
   async detail(id: string) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
       const r: any = await trx('finance.expense_proofs')
         .where({ id })
-        .first('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
+        .first(...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
+          'id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
           'files', 'comentarios', 'status',
@@ -426,23 +441,38 @@ export class ExpenseProofsService {
     });
   }
 
-  /** (C) Mapa folio_solicitud → estado, para el indicador en /finanzas/solicitudes. */
-  async statusByFolio(): Promise<Record<string, string>> {
+  /**
+   * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/solicitudes.
+   *
+   * Devuelve el id (para poder resolver desde donde se ve), el estado, y qué documentos
+   * hay. Sin los documentos el tablero no puede separar «falta el comprobante» de «falta
+   * la solicitud firmada» de «falta la comprobación», que para quien aprueba son tres
+   * pendientes distintos con tres acciones distintas.
+   */
+  async statusByFolio(): Promise<Record<string, ProofByFolio>> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      // estado más reciente por folio
+      const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
       const rows = await trx
-        .with('ranked', (qb) => {
+        .with('ranked', (qb: any) => {
           qb.from('finance.expense_proofs')
-            .select('id', 'folio_solicitud', 'status',
+            .select('id', 'folio_solicitud', 'status', 'files',
+              ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
               trx.raw('row_number() OVER (PARTITION BY folio_solicitud ORDER BY created_at DESC) AS rn'));
         })
-        .from('ranked').where('rn', 1)
-        .select('id', 'folio_solicitud', 'status');
-      // Devuelve el ID además del estado: sin él, la lista de solicitudes solo podía
-      // MOSTRAR en qué va el comprobante, y para validarlo o rechazarlo había que irse a
-      // otra pantalla y buscarlo de nuevo.
-      return Object.fromEntries(rows.map((r: any) => [r.folio_solicitud, { id: r.id, status: r.status }]));
+        .from('ranked').where('rn', 1).select('*');
+      return Object.fromEntries(rows.map((r: any) => {
+        const files: any[] = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
+        const rol = (p: string) => files.some((f) => String(f?.role || '').startsWith(p) && f?.url);
+        return [r.folio_solicitud, {
+          id: r.id,
+          status: r.status,
+          comprobante: rol('comprobante'),
+          solicitud: rol('solicitud_kepler'),
+          tiene_comprobacion: tieneCol ? r.tiene_comprobacion : null,
+          comprobacion_nota: tieneCol ? (r.comprobacion_nota || null) : null,
+        }];
+      }));
     });
   }
 
