@@ -1,7 +1,9 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialSalesDocumentsService, SalesDocsQuery } from './commercial-sales-documents.service';
+import { AnexoVentaService } from './anexo-venta.service';
 
 /**
  * AX.1 — Documentos de venta al cliente. Lectura sobre vistas en vivo de `kepler_ods`.
@@ -12,7 +14,10 @@ import { CommercialSalesDocumentsService, SalesDocsQuery } from './commercial-sa
 @UseGuards(RolesGuard)
 @Controller('commercial/sales-documents')
 export class CommercialSalesDocumentsController {
-  constructor(private readonly svc: CommercialSalesDocumentsService) {}
+  constructor(
+    private readonly svc: CommercialSalesDocumentsService,
+    private readonly anexo: AnexoVentaService,
+  ) {}
 
   private q(raw: Record<string, string | undefined>): SalesDocsQuery {
     return {
@@ -33,6 +38,22 @@ export class CommercialSalesDocumentsController {
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Catálogos para los filtros (vendedores, sucursales, tipos) de la ventana consultada.' })
   filtros(@Query() raw: Record<string, string>) { return this.svc.filtros(this.q(raw)); }
+
+  // Antes de ':folio' — si no, la ruta genérica se traga '/:folio/anexo.pdf'.
+  @Get(':folio/anexo.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Anexo informativo al CFDI en PDF (carta). `?pagare=true` agrega la hoja desprendible del pagaré. NO es comprobante fiscal.' })
+  async anexoPdf(
+    @Param('folio') folio: string,
+    @Query('pagare') pagare: string,
+    @Res() res: Response,
+  ) {
+    const buf = await this.anexo.pdfDeFolio(folio, { pagare: pagare === 'true' });
+    res.setHeader('Content-Type', 'application/pdf');
+    // inline: el caso normal es verlo/imprimirlo, no bajarlo.
+    res.setHeader('Content-Disposition', `inline; filename="anexo-${folio}.pdf"`);
+    res.end(buf);
+  }
 
   // Declarada AL FINAL: si fuera antes, ':folio' se tragaría /filtros.
   @Get(':folio')
