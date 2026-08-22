@@ -94,15 +94,19 @@ export class ExpenseProofsController {
     return this.svc.create(body, req?.user?.full_name || req?.user?.username);
   }
 
+  // Validar el gasto lo hace UNA persona (Tesorería). FINANCE_FINDINGS_GESTIONAR lo
+  // tienen 27 usuarios porque cubre TODA la bandeja de hallazgos de finanzas; el permiso
+  // del dominio es FINANCE_EXPENSES_COMPROBAR, que hoy tiene exactamente una.
+  // admin/superadmin siguen pasando por el god-mode del RolesGuard.
   @Post(':id/validate')
-  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Valida la solicitud de reembolso. Auditado.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/reject')
-  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Rechaza la solicitud (con motivo). Auditado.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
