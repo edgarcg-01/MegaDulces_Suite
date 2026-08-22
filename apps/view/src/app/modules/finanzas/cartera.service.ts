@@ -16,9 +16,11 @@ export interface CarteraFiltros { sucursales: string[]; grupos: string[]; zonas:
 export interface CarteraResumen {
   hoy: string; saldo_total: number; vencido_total: number; pct_vencido: number; dso: number | null; ventas_90d: number; n_clientes: number;
   concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
+  proyeccion: { vencido: number; d0_7: number; d8_15: number; d16_30: number; d30_plus: number; sin_fecha: number };
   por_vendedor: { vendedor: string; saldo: number; vencido: number; n_clientes: number }[];
   por_zona: { zona: string; saldo: number; vencido: number }[];
 }
+export interface CarteraTendencia { fecha: string; saldo_total: number; vencido_total: number; n_clientes: number; pct_vencido: number }
 export interface CarteraResp {
   hoy: string;
   kpi: { total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number; n_sobre_linea: number; aging: AgingBucket };
@@ -43,7 +45,7 @@ export interface CarteraDetalle {
 
 export interface CarteraQuery {
   sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; from?: string; to?: string;
-  incluir_saldados?: string; search?: string; limit?: number;
+  incluir_saldados?: string; search?: string; sort?: 'saldo' | 'vencido'; limit?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -65,6 +67,13 @@ export class CarteraService {
     for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
     const qs = p.toString();
     return this.http.get<CarteraResumen>(`${this.base}/resumen${qs ? '?' + qs : ''}`);
+  }
+  tendencia(q: { sucursal?: string; dias?: number } = {}): Observable<CarteraTendencia[]> {
+    const p = new URLSearchParams();
+    if (q.sucursal) p.set('sucursal', q.sucursal);
+    if (q.dias) p.set('dias', String(q.dias));
+    const qs = p.toString();
+    return this.http.get<CarteraTendencia[]>(`${this.base}/tendencia${qs ? '?' + qs : ''}`);
   }
   detalle(sucursal: string, cliente: string): Observable<CarteraDetalle> {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);

@@ -40,9 +40,10 @@ export class CustomerLedgerController {
     @Query('to') to?: string,
     @Query('incluir_saldados') incluir_saldados?: string,
     @Query('search') search?: string,
+    @Query('sort') sort?: 'saldo' | 'vencido',
     @Query('limit') limit?: string,
   ) {
-    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, from, to, incluir_saldados, search, limit: limit ? Number(limit) : undefined };
+    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined };
     return this.svc.cartera(q);
   }
 
@@ -54,9 +55,24 @@ export class CustomerLedgerController {
 
   @Get('resumen')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
-  @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, cartera por vendedor/zona.' })
+  @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, proyección de cobranza, por vendedor/zona.' })
   resumen(@Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string) {
     return this.svc.resumen({ sucursal, grupo, zona });
+  }
+
+  @Get('tendencia')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Tendencia de cartera (snapshots diarios): saldo / vencido / % vencido.' })
+  tendencia(@Query('sucursal') sucursal?: string, @Query('dias') dias?: string) {
+    return this.svc.tendencia({ sucursal, dias: dias ? Number(dias) : undefined });
+  }
+
+  @Post('snapshot-now')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Captura el snapshot de cartera de hoy (para la tendencia).' })
+  async snapshotNow() {
+    const rows = await this.scanner.snapshotTenant(this.tenantCtx.requireTenantId());
+    return { rows };
   }
 
   @Get(':sucursal/:cliente')

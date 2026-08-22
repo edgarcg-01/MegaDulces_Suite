@@ -36,21 +36,52 @@ export class CustomerReceivablesScannerService {
   @Cron('0 30 8 * * *', { timeZone: 'America/Mexico_City' }) // 08:30 MX
   async scheduled(): Promise<void> {
     if (process.env.ENABLE_CXC_SCAN === 'false') return;
-    if (!this.sink) return;
     if (this.running) { this.logger.warn('Skip: scan en curso'); return; }
-    await this.scanAll();
+    await this.scanAll(); // snapshot siempre; findings solo si hay sink
   }
 
   async scanAll(): Promise<{ tenants: number; findings: number }> {
-    if (!this.sink) return { tenants: 0, findings: 0 };
     this.running = true;
     let total = 0;
     try {
       const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
-      for (const t of tenants) total += await this.scanTenant(t.id);
-      this.logger.log(`CxC scan: ${tenants.length} tenants, ${total} hallazgos`);
+      for (const t of tenants) {
+        await this.snapshotTenant(t.id).catch((e) => this.logger.warn(`snapshot ${t.id}: ${e.message}`));
+        if (this.sink) total += await this.scanTenant(t.id);
+      }
+      this.logger.log(`CxC scan: ${tenants.length} tenants, ${total} hallazgos + snapshots`);
       return { tenants: tenants.length, findings: total };
     } finally { this.running = false; }
+  }
+
+  /** CXC.12 — captura el agregado de HOY (tenant × sucursal) para la tendencia. Idempotente por día. */
+  async snapshotTenant(tenantId: string): Promise<number> {
+    return this.knex.transaction(async (trx) => {
+      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+      const res = await trx.raw(
+        `INSERT INTO analytics.customer_receivable_snapshots
+           (tenant_id, snapshot_date, sucursal, saldo_total, vencido_total, n_clientes, por_vencer, d0_30, d31_60, d61_90, d90_plus, computed_at)
+         SELECT ?::uuid, h.d, r.sucursal,
+           COALESCE(round(sum(r.saldo_documento), 2), 0),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d), 2), 0),
+           count(DISTINCT r.cliente_code),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento IS NULL OR r.vencimiento >= h.d), 2), 0),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d AND h.d - r.vencimiento <= 30), 2), 0),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 31 AND 60), 2), 0),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 61 AND 90), 2), 0),
+           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento > 90), 2), 0),
+           now()
+         FROM analytics.customer_receivables r
+         CROSS JOIN (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date d) h
+         WHERE r.tenant_id = ?::uuid AND r.cargo_abono = 'C' AND r.saldo_documento > 0.005
+         GROUP BY h.d, r.sucursal
+         ON CONFLICT (tenant_id, snapshot_date, sucursal) DO UPDATE SET
+           saldo_total=EXCLUDED.saldo_total, vencido_total=EXCLUDED.vencido_total, n_clientes=EXCLUDED.n_clientes,
+           por_vencer=EXCLUDED.por_vencer, d0_30=EXCLUDED.d0_30, d31_60=EXCLUDED.d31_60, d61_90=EXCLUDED.d61_90,
+           d90_plus=EXCLUDED.d90_plus, computed_at=now()`,
+        [tenantId, tenantId]);
+      return res.rowCount ?? 0;
+    });
   }
 
   async scanTenant(tenantId: string): Promise<number> {

@@ -8,7 +8,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, AgingBucket } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket } from '../cartera.service';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -31,6 +31,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
         </div>
         <div class="ct-head-actions">
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showResumen()" (click)="toggleResumen()"><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span><span class="p-button-label">Resumen</span></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!data()?.clientes?.length" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
@@ -42,6 +43,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
         <span class="p-input-icon-left ct-search">
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Cliente, código o RFC…" aria-label="Buscar cliente" />
         </span>
+        <p-select [options]="sortOpts" [(ngModel)]="sort" (onChange)="load()" optionLabel="label" optionValue="value" ariaLabel="Ordenar por" styleClass="ct-sel" />
         <label class="ct-toggle"><p-toggleswitch [(ngModel)]="incluirSaldados" (onChange)="load()" /> <span>Incluir saldados</span></label>
         @if (data(); as d) { <span class="ct-hoy muted">saldos al {{ d.hoy }}</span> }
       </div>
@@ -60,6 +62,32 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.concentracion.top10_pct }}%</span><span class="ct-rs-lbl">en top-10 clientes</span></div>
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ money(rs.ventas_90d) }}</span><span class="ct-rs-lbl">ventas 90d (base DSO)</span></div>
             </div>
+            <div class="ct-rs-proy">
+              <h4 class="ct-rs-h4">Proyección de cobranza <span class="muted">cuánto debería entrar y cuándo</span></h4>
+              <div class="ct-proy-row">
+                <div class="ct-proy-cell ct-proy-venc"><span class="ct-proy-num">{{ money(rs.proyeccion.vencido) }}</span><span class="ct-proy-lbl">Vencido (cobrar ya)</span></div>
+                <div class="ct-proy-cell"><span class="ct-proy-num">{{ money(rs.proyeccion.d0_7) }}</span><span class="ct-proy-lbl">Vence ≤ 7 días</span></div>
+                <div class="ct-proy-cell"><span class="ct-proy-num">{{ money(rs.proyeccion.d8_15) }}</span><span class="ct-proy-lbl">8–15 días</span></div>
+                <div class="ct-proy-cell"><span class="ct-proy-num">{{ money(rs.proyeccion.d16_30) }}</span><span class="ct-proy-lbl">16–30 días</span></div>
+                <div class="ct-proy-cell"><span class="ct-proy-num">{{ money(rs.proyeccion.d30_plus) }}</span><span class="ct-proy-lbl">> 30 días</span></div>
+              </div>
+            </div>
+
+            @if (tendencia().length > 1) {
+              <div class="ct-rs-trend">
+                <h4 class="ct-rs-h4">Tendencia de cartera <span class="muted">saldo · vencido</span></h4>
+                <div class="ct-trend-bars">
+                  @for (t of tendencia(); track t.fecha) {
+                    <div class="ct-trend-col" [title]="t.fecha + ': ' + money(t.saldo_total) + ' (' + money(t.vencido_total) + ' vencido)'">
+                      <div class="ct-trend-bar" [style.height.%]="trendPct(t.saldo_total)"><div class="ct-trend-venc" [style.height.%]="t.saldo_total > 0 ? (t.vencido_total / t.saldo_total) * 100 : 0"></div></div>
+                    </div>
+                  }
+                </div>
+              </div>
+            } @else if (showResumen()) {
+              <p class="ct-rs-trend-empty muted">La tendencia se construye con el snapshot diario — aparecerá al acumular días.</p>
+            }
+
             <div class="ct-rs-grid">
               <div>
                 <h4 class="ct-rs-h4">Cartera por vendedor</h4>
@@ -247,6 +275,18 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-360 > i { color: #6b8f71; }
     .ct-360-ev { color: var(--text-2, #6b6b6b); }
     .ct-360-link { margin-left: auto; text-decoration: none; color: var(--action, #c2410c); font-size: .8rem; white-space: nowrap; }
+    .ct-rs-proy { margin-bottom: 1rem; }
+    .ct-proy-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .ct-proy-cell { flex: 1; min-width: 120px; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2, #f6f5f2); display: flex; flex-direction: column; }
+    .ct-proy-venc { background: rgba(180,35,24,.08); }
+    .ct-proy-num { font-weight: 700; font-size: 1rem; }
+    .ct-proy-lbl { font-size: .74rem; color: var(--text-2, #8a8a8a); }
+    .ct-rs-trend { margin-bottom: 1rem; }
+    .ct-trend-bars { display: flex; align-items: flex-end; gap: 2px; height: 60px; }
+    .ct-trend-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+    .ct-trend-bar { width: 100%; background: #6b8f71; border-radius: 2px 2px 0 0; position: relative; min-height: 2px; display: flex; align-items: flex-end; }
+    .ct-trend-venc { width: 100%; background: #b42318; border-radius: 2px 2px 0 0; }
+    .ct-rs-trend-empty { font-size: .78rem; margin: .2rem 0 1rem; }
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
@@ -262,6 +302,9 @@ export class FinanzasCarteraComponent implements OnInit {
   zona: string | null = null;
   search = '';
   incluirSaldados = false;
+  sort: 'saldo' | 'vencido' = 'saldo';
+  readonly sortOpts = [{ label: 'Mayor saldo', value: 'saldo' }, { label: 'Más vencido (cobrar)', value: 'vencido' }];
+  readonly tendencia = signal<CarteraTendencia[]>([]);
 
   readonly filtros = signal<CarteraFiltros | null>(null);
   readonly grupoOpts = computed(() => (this.filtros()?.grupos || []).map((g) => ({ label: g, value: g })));
@@ -292,6 +335,7 @@ export class FinanzasCarteraComponent implements OnInit {
       zona: this.zona || undefined,
       search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
+      sort: this.sort,
     }).subscribe({
       next: (d) => { this.data.set(d); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
@@ -307,6 +351,28 @@ export class FinanzasCarteraComponent implements OnInit {
   loadResumen() {
     this.svc.resumen({ sucursal: this.sucursal || undefined, grupo: this.grupo || undefined, zona: this.zona || undefined })
       .subscribe({ next: (r) => this.resumen.set(r), error: () => this.resumen.set(null) });
+    this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
+      .subscribe({ next: (t) => this.tendencia.set(t), error: () => this.tendencia.set([]) });
+  }
+
+  trendPct(saldo: number): number {
+    const max = Math.max(...this.tendencia().map((t) => t.saldo_total), 1);
+    return Math.round((saldo / max) * 100);
+  }
+
+  /** Exporta la cartera visible a CSV (el navegador lo descarga). */
+  exportCsv() {
+    const rows = this.data()?.clientes || [];
+    if (!rows.length) return;
+    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Vencido', 'Saldo'];
+    const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.vencido, c.saldo].map(esc).join(','));
+    const csv = '﻿' + [head.join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `cartera_${this.sucursal || 'todas'}_${this.data()?.hoy || 'hoy'}.csv`;
+    a.click(); URL.revokeObjectURL(url);
   }
 
   /** Recordatorio de pago prellenado por WhatsApp (el operador lo revisa antes de enviar). */

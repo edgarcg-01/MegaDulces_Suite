@@ -26,6 +26,7 @@ export interface CarteraQuery {
   to?: string;
   incluir_saldados?: string; // '1' = incluir clientes con saldo 0
   search?: string;
+  sort?: 'saldo' | 'vencido'; // priorización: default saldo; 'vencido' = cola de cobranza
   limit?: number;
 }
 
@@ -122,7 +123,8 @@ export class CustomerLedgerService {
         if (limite != null && saldo > limite + 0.005) kpi.n_sobre_linea += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
       }
-      clientes.sort((a, b) => b.saldo - a.saldo);
+      if (q.sort === 'vencido') clientes.sort((a, b) => b.vencido - a.vencido || b.saldo - a.saldo);
+      else clientes.sort((a, b) => b.saldo - a.saldo);
       kpi.total_saldo = Math.round(kpi.total_saldo * 100) / 100;
       kpi.total_vencido = Math.round(kpi.total_vencido * 100) / 100;
       (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = Math.round(kpi.aging[k] * 100) / 100; });
@@ -150,6 +152,8 @@ export class CustomerLedgerService {
       const porCliente = new Map<string, number>();
       const porVend = new Map<string, any>();
       const porZona = new Map<string, any>();
+      // Proyección de cobranza (cashflow): lo NO vencido, por cuándo vence.
+      const proy = { vencido: 0, d0_7: 0, d8_15: 0, d16_30: 0, d30_plus: 0, sin_fecha: 0 };
       for (const r of rows) {
         const saldo = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
         const importe = M2(r.importe);
@@ -158,6 +162,13 @@ export class CustomerLedgerService {
         saldoTotal += saldo;
         const vencido = r.vencimiento && hoy > r.vencimiento ? saldo : 0;
         vencidoTotal += vencido;
+        if (vencido > 0) proy.vencido += saldo;
+        else if (!r.vencimiento) proy.sin_fecha += saldo;
+        else {
+          const dd = Math.floor((Date.parse(r.vencimiento) - Date.parse(hoy)) / 86400000);
+          if (dd <= 7) proy.d0_7 += saldo; else if (dd <= 15) proy.d8_15 += saldo;
+          else if (dd <= 30) proy.d16_30 += saldo; else proy.d30_plus += saldo;
+        }
         porCliente.set(r.cliente_code, (porCliente.get(r.cliente_code) || 0) + saldo);
         const v = porVend.get(r.vendedor || '—') || { vendedor: r.vendedor || '—', saldo: 0, vencido: 0, clientes: new Set() };
         v.saldo += saldo; v.vencido += vencido; v.clientes.add(r.cliente_code); porVend.set(r.vendedor || '—', v);
@@ -177,9 +188,31 @@ export class CustomerLedgerService {
         pct_vencido: saldoTotal > 0 ? Math.round((vencidoTotal / saldoTotal) * 1000) / 10 : 0,
         dso, ventas_90d: r2(ventas90), n_clientes: porCliente.size,
         concentracion: { top10_pct: saldoTotal > 0 ? Math.round((top10Suma / saldoTotal) * 1000) / 10 : 0, top10 },
+        proyeccion: { vencido: r2(proy.vencido), d0_7: r2(proy.d0_7), d8_15: r2(proy.d8_15), d16_30: r2(proy.d16_30), d30_plus: r2(proy.d30_plus), sin_fecha: r2(proy.sin_fecha) },
         por_vendedor: [...porVend.values()].map((v) => ({ vendedor: v.vendedor, saldo: r2(v.saldo), vencido: r2(v.vencido), n_clientes: v.clientes.size })).sort((a, b) => b.saldo - a.saldo),
         por_zona: [...porZona.values()].map((z) => ({ zona: z.zona, saldo: r2(z.saldo), vencido: r2(z.vencido) })).sort((a, b) => b.saldo - a.saldo),
       };
+    });
+  }
+
+  /** CXC.12 — tendencia de cartera (snapshots diarios). Sin sucursal = red (suma por día). */
+  async tendencia(q: { sucursal?: string; dias?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const dias = Math.min(Math.max(Number(q.dias) || 90, 1), 730);
+    return this.tk.run(async (trx) => {
+      let qb = trx('analytics.customer_receivable_snapshots')
+        .where('tenant_id', tenantId)
+        .andWhereRaw(`snapshot_date >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int`, [dias]);
+      if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
+      const rows = await qb
+        .select(trx.raw('snapshot_date::text as fecha'))
+        .sum({ saldo_total: 'saldo_total', vencido_total: 'vencido_total', n_clientes: 'n_clientes' })
+        .groupBy('snapshot_date').orderBy('snapshot_date');
+      return rows.map((r: any) => ({
+        fecha: r.fecha, saldo_total: M2(r.saldo_total), vencido_total: M2(r.vencido_total),
+        n_clientes: Number(r.n_clientes) || 0,
+        pct_vencido: M2(r.saldo_total) > 0 ? Math.round((M2(r.vencido_total) / M2(r.saldo_total)) * 1000) / 10 : 0,
+      }));
     });
   }
 
