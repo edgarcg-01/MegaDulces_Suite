@@ -27,7 +27,7 @@ const IDX = [
   [`ix_kdm2_venta_doc`, `kepler_ods.kdm2`,
     `(btrim(sucursal), ((c4)::int), ((c5)::int), btrim(c6::text))`, `c2='U' AND c3='D'`],
   // Listado por rango de fechas (la pantalla arranca con "últimos N días").
-  [`ix_kdm1_venta_fecha`, `kepler_ods.kdm1`, `((c9)::date)`, `c2='U' AND c3='D'`],
+  [`ix_kdm1_venta_fecha`, `kepler_ods.kdm1`, `((c9::date))`, `c2='U' AND c3='D'`],
   // Join del factor de caja (kdii) y del catálogo por SKU.
   [`ix_kdii_suc_sku`, `kepler_ods.kdii`, `(btrim(sucursal), btrim(c1::text))`, null],
 ];
