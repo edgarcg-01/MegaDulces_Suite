@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
+import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Estado de cuenta
@@ -12,7 +13,19 @@ import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 @UseGuards(RolesGuard)
 @Controller('finance/receivables')
 export class CustomerLedgerController {
-  constructor(private readonly svc: CustomerLedgerService) {}
+  constructor(
+    private readonly svc: CustomerLedgerService,
+    private readonly scanner: CustomerReceivablesScannerService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  @Post('scan-now')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Corre el detector de riesgo de cartera ahora (vencido / sobre-límite) → bandeja Maat.' })
+  async scanNow() {
+    const inserted = await this.scanner.scanTenant(this.tenantCtx.requireTenantId());
+    return { inserted };
+  }
 
   @Get()
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
