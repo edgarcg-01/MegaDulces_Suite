@@ -33,11 +33,18 @@ export class CustomerLedgerController {
     return this.svc.cartera(q);
   }
 
-  // 'filtros' (1 segmento) declarado ANTES de ':sucursal/:cliente' (2 segmentos) — sin colisión.
+  // Rutas de 1 segmento declaradas ANTES de ':sucursal/:cliente' (2 segmentos) — sin colisión.
   @Get('filtros')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @ApiOperation({ summary: 'Valores distintos para los selects (sucursal/grupo/zona/vendedor).' })
   filtros() { return this.svc.filtros(); }
+
+  @Get('resumen')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, cartera por vendedor/zona.' })
+  resumen(@Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string) {
+    return this.svc.resumen({ sucursal, grupo, zona });
+  }
 
   @Get(':sucursal/:cliente')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
