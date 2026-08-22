@@ -1246,3 +1246,33 @@ Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambia
 **Corrección del decode inicial:** el cobro a nivel SUCURSAL es **`UA07` "Cobro CFDI"** (dentro de `kdue`), NO `UA0501` (esa es la representación centralizada en CEDIS = `erp_collections`, que queda **fuera del camino crítico** de este reporte).
 
 **Consecuencias:** ✅ reproduce fielmente "Partidas vivas" (aging real por vencimiento `c10`) leyendo **solo `kdue`** + cierra el 360 de cobranza con la evidencia de la Fase CC. ✅ mucho más simple de lo previsto: sin FIFO, sin `erp_collections`, sin `gl_115` en el camino crítico. ⚠️ `kdm5` se agrega al set de replicación ODS solo para el drill por-factura (no bloquea el saldo). Plan + verificación en [`FASE_CXC_CARTERA_CLIENTES.md`](FASES/FASE_CXC_CARTERA_CLIENTES.md).
+
+---
+
+## ADR-049 — **Anexo de venta** (Fase AX): el documento al cliente se DERIVA del ODS, no se copia
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-22
+
+**Contexto:** el CFDI está apretado por el formato SAT y el cliente no entiende qué compró (precios con 6 decimales, sin equivalencias de empaque, el impuesto sólo como total al final). La queja textual: *"¿120 paquetes son cuántas cajas? ¿a cómo me sale la pieza?"*. Al ir a construirlo apareció el hueco de datos: **no existía ninguna vista de facturas de venta documento-por-documento** — los ~50 objetos `analytics.sales_*` son rollups sin folio, y `analytics.customer_receivables` (Fase CXC) es una **tabla copiada** por importer per-branch desde `md.kdue`, con el lag de batch que la Fase CDC acababa de eliminar.
+
+**Decisión:**
+
+1. **Derive-no-copy.** Las facturas se exponen como **vistas en vivo** (`analytics.erp_sales_invoices` / `_lines`) sobre `kepler_ods.kdm1/kdm2` ⋈ `kdud` ⋈ `kduv` ⋈ `kdii`. Sin tabla, sin importer → heredan la frescura del CDC (~segundos). Mismo patrón que `erp_collections`/`erp_supplier_payments`.
+2. **Los índices sí van.** Un índice de expresión sobre `kepler_ods` **no es una copia**: no duplica el dato ni introduce lag. Se aceptan porque sin ellos las vistas son inusables (17.1 s para una factura: `btrim()`/`::int` bloquean el índice y las PK arrancan con `c2`,`c3` de selectividad nula). `CONCURRENTLY` + `transaction:false` porque el CDC escribe en vivo sobre 3.4M filas.
+3. **El CFDI no se toca.** El anexo es informativo y lo dice en banner, aviso y pie de cada página. Lo fiscal sigue siendo el CFDI de ingreso + el REP al cobrar.
+4. **Los derivados se calculan en el service, no se inventan datos.** Sólo se muestra unidad vendida, factor de empaque real (`kdii.c84`) y precio; si el factor no está capturado, **no se muestra equivalencia**. El descuento por renglón se reparte por **mayor residuo** para que la columna sume exacto el total del documento.
+5. **El pagaré es un anexo del mismo documento**, no una hoja suelta: mismo membrete y jerarquía de sección. Conserva los 6 requisitos de LGTOC 170. **No tiene ni tendrá valor fiscal**; su valor legal nace con la firma autógrafa en papel.
+
+**Consecuencias:**
+- Cualquier consumidor futuro de facturas de venta (cobranza, portal, WhatsApp) tiene una fuente al momento sin montar otro feed.
+- Se acepta el costo de CPU de las vistas en cada consulta a cambio de cero lag y cero estado que sincronizar.
+- Las expresiones de las vistas y las de los índices quedan **acopladas**: si cambian allá, el índice deja de aplicar (anotado en ambas migraciones).
+
+**Alternativas rechazadas:**
+- **Tabla materializada + importer** (como `customer_receivables`): reintroduce lag de batch y un feed más que vigilar. *Compuerta:* si el volumen crece a punto de que los índices no basten.
+- **Reusar `customer_receivables`**: es copia, es per-branch, y agrupa U/D/12+13 juntos — correcto para saldos, incorrecto para detalle de producto (U/D/13 es 100% líneas de servicio).
+- **`.hbs` + `PdfService` de `libs/trade`**: el dinero debe cuadrar al centavo y conviene formatearlo en TS; además `PdfService` no está en el barrel de trade y colgar `ReportsModule` crearía una arista commercial→trade arrastrando WebSocketModule/Mapbox/scanners.
+
+Plan en [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
