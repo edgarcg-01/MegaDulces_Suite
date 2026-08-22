@@ -7,7 +7,6 @@ import { TableModule } from 'primeng/table';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
-import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -37,6 +36,13 @@ import { dmy } from './finanzas-format';
 type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 
 /**
+ * Etapa del ciclo. Es UNA sola, excluyente, y reemplaza a los tres ejes que antes se
+ * mostraban entrelazados (estatus del documento + aplicación + evidencia): dentro de una
+ * etapa esos tres valen siempre lo mismo, así que como columna no informaban nada.
+ */
+type Etapa = 'autorizar' | 'ejercer' | 'comprobar' | 'validar' | 'cerradas' | 'canceladas' | 'todas';
+
+/**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
  * y si ya se aplicaron a un gasto (XA1001). Foco de control: las pendientes (pedidas/
  * aprobadas y no ejecutadas). Fuente analytics.expense_requests (hoy vista viva sobre ODS).
@@ -49,7 +55,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -86,34 +92,31 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
         @if (r.kpis.total > 0) {
           <!-- Q.1 — la conclusión del periodo antes que el grid. Q.2 — con su lectura
                en llano. Q.4 — el número que evidencia el problema lleva a filtrarlo. -->
-          <div class="tw-verdict" [class.ok]="r.kpis.pendientes === 0" [class.bad]="r.kpis.pendientes > 0">
-            <i class="pi" [class.pi-check-circle]="r.kpis.pendientes === 0" [class.pi-exclamation-circle]="r.kpis.pendientes > 0" aria-hidden="true"></i>
+          <!-- Q.1 — la conclusión de la ETAPA que se está mirando, no del total. -->
+          <div class="tw-verdict" [class.ok]="!hayPendiente()" [class.bad]="hayPendiente()">
+            <i class="pi" [class.pi-check-circle]="!hayPendiente()" [class.pi-exclamation-circle]="hayPendiente()" aria-hidden="true"></i>
             <div>
-              <h3>{{ r.kpis.pendientes === 0 ? 'Todo aplicado' : (moneyShort(r.kpis.pendientes_importe) + ' sin aplicar') }}</h3>
-              <p class="so-read">
-                @if (r.kpis.pendientes === 0) {
-                  Las {{ r.kpis.total }} {{ r.kpis.total === 1 ? 'solicitud' : 'solicitudes' }} {{ periodoDe() }}
-                  ({{ money(r.kpis.importe) }}) ya se aplicaron a un gasto en Kepler.
-                } @else {
-                  De {{ r.kpis.total }} {{ r.kpis.total === 1 ? 'solicitud' : 'solicitudes' }} por {{ money(r.kpis.importe) }} {{ periodoEn() }},
-                  @if (aplicadaSel() !== 'pend') {
-                    <button type="button" class="so-drill" (click)="setAplicada('pend')">
-                      {{ r.kpis.pendientes }} {{ r.kpis.pendientes === 1 ? 'sigue' : 'siguen' }} sin aplicarse</button>
-                  } @else {
-                    <strong>{{ r.kpis.pendientes }} {{ r.kpis.pendientes === 1 ? 'sigue' : 'siguen' }} sin aplicarse</strong>
-                  }
-                  ({{ money(r.kpis.pendientes_importe) }}). Las canceladas no cuentan.
-                }
-                @if (sinEvidencia().n > 0) {
-                  <br />Y <strong>{{ sinEvidencia().n }}</strong> {{ sinEvidencia().n === 1 ? 'no tiene' : 'no tienen' }}
-                  ningún comprobante adjunto ({{ money(sinEvidencia().importe) }}).
-                }
-              </p>
+              <h3>{{ tituloEtapa() }}</h3>
+              <p class="so-read">{{ lecturaEtapa() }}</p>
             </div>
           </div>
           <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de solicitudes" />
         }
       }
+
+      <!-- Una etapa a la vez. Antes el estatus del documento, la aplicación y la evidencia
+           convivían como columnas y filtros sueltos: había que componerlos de cabeza para
+           saber en qué punto estaba cada solicitud. -->
+      <nav class="so-etapas" role="tablist" aria-label="Etapa del ciclo">
+        @for (e of etapasDef; track e.value) {
+          <button type="button" role="tab" [attr.aria-selected]="etapa() === e.value"
+                  class="so-etapa" [class.on]="etapa() === e.value" (click)="setEtapa(e.value)">
+            {{ e.label }}
+            <span class="so-etapa-n">{{ conteos()[e.value].n }}</span>
+            @if (conteos()[e.value].importe) { <span class="so-etapa-m">{{ moneyShort(conteos()[e.value].importe) }}</span> }
+          </button>
+        }
+      </nav>
 
       <div class="card-premium card-flat so-card">
         <!-- Filtros secundarios pegados a la tabla que filtran, no flotando mid-page. -->
@@ -121,11 +124,6 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
           <div class="so-field"><label for="so-f-suc">Sucursales</label>
             <p-multiselect inputId="so-f-suc" [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code"
                            placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
-          <div class="so-field"><span class="so-lbl" aria-hidden="true">Aplicación</span>
-            <app-segmented [options]="aplicadaOpts" [value]="aplicadaSel()" (valueChange)="setAplicada($event)" ariaLabel="Aplicación" /></div>
-          <!-- Evidencia: el único eje que NO viene de Kepler, y el que le importa a quien autoriza. -->
-          <div class="so-field"><span class="so-lbl" aria-hidden="true">Evidencia</span>
-            <app-segmented [options]="evidenciaOpts" [value]="evidenciaSel()" (valueChange)="evidenciaSel.set($event)" ariaLabel="Estado de la evidencia" /></div>
           @if (grupoOpts().length) {
             <div class="so-field"><label for="so-f-grp">Grupo de gasto</label>
               <p-multiselect inputId="so-f-grp" [options]="grupoOpts()" [(ngModel)]="grupo" optionLabel="label" optionValue="code"
@@ -134,9 +132,6 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
           <div class="so-field"><label for="so-f-min">Desde</label>
             <p-inputnumber inputId="so-f-min" [(ngModel)]="minImporte" mode="currency" currency="MXN" locale="es-MX"
                            [min]="0" placeholder="$0" styleClass="so-min" (onBlur)="queue()" /></div>
-          <div class="so-field"><label for="so-f-est">Estatus doc</label>
-            <p-select inputId="so-f-est" [options]="estadoOpts" [(ngModel)]="estado" optionLabel="label" optionValue="value" [showClear]="true"
-                      placeholder="Todos" appendTo="body" (onChange)="queue()" styleClass="w-full" /></div>
           <div class="so-field"><label for="so-f-sol">Solicitante</label>
             <p-select inputId="so-f-sol" [options]="solicitantes()" [(ngModel)]="solicitante" [showClear]="true" placeholder="Todos"
                       appendTo="body" (onChange)="queue()" styleClass="w-full" [filter]="true" /></div>
@@ -166,9 +161,8 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                 <th style="width:11rem">Beneficiario</th>
                 <th>Concepto</th>
                 <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
-                <th style="width:7rem">Estatus</th>
-                <th pSortableColumn="lead_days" style="width:10rem" title="Gasto XA1001 al que se aplicó, y en cuántos días">Aplicación <p-sorticon field="lead_days" /></th>
-                <th style="width:12rem">Evidencia</th>
+                <th class="ta-r" style="width:5rem" title="Días desde la fecha de la solicitud">Días</th>
+                <th style="width:12rem">Acción</th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
@@ -185,46 +179,46 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
                 </td>
                 <td class="muted"><span class="so-trunc" [title]="r.concepto || ''">{{ r.concepto || '—' }}</span></td>
                 <td class="ta-r num strong">{{ money(r.importe) }}</td>
-                <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" /></td>
+                <!-- Antigüedad. Es aproximada a propósito: Kepler no guarda cuándo cambió
+                     de etapa, sólo la fecha del documento. Se marca lo añejo. -->
+                <td class="ta-r num" [class.is-viejo]="esViejo(r)">{{ edad(r) ?? '—' }}</td>
 
-                <!-- Lo que dice Kepler. El lead time va como meta del folio, no como
-                     columna aparte: es la lectura de ESE número, no otro dato. -->
+                <!-- Una acción, la de SU etapa. Antes había tres celdas de estado que dentro
+                     de una etapa decían siempre lo mismo. -->
                 <td>
-                  @if (r.aplicada) {
-                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verGasto(r)"
-                            [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
-                      <span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span>
-                      <span class="p-button-label num">{{ r.gasto_folio || 'Aplicada' }}</span>
-                    </button>
-                    @if (r.lead_days != null) {
-                      <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span>
+                  @switch (etapaDeFila(r)) {
+                    @case ('comprobar') {
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
+                              [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
+                        <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
+                        <span class="p-button-label">Adjuntar evidencia</span>
+                      </button>
                     }
-                  } @else {
-                    <span class="faint">Sin aplicar</span>
-                  }
-                </td>
-
-                <!-- Lo que tenemos nosotros. El estado abre el EXPEDIENTE: validar sin ver
-                     la foto era justo el defecto que tenía la bandeja que se retiró. -->
-                <td>
-                  @if (proofStatus()[r.folio]; as ps) {
-                    <button type="button" class="so-evbtn" (click)="verExpediente(r)"
-                            [attr.aria-label]="'Ver el expediente de ' + r.folio">
-                      <span class="so-ev-k">Comprobante</span>
-                      <p-tag [value]="proofLabel(ps.status)" [severity]="proofSev(ps.status)" [icon]="'pi ' + proofIcon(ps.status)" styleClass="so-tag" />
-                    </button>
-                  } @else {
-                    <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="adjuntar(r)"
-                            [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
-                      <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
-                      <span class="p-button-label">Adjuntar evidencia</span>
-                    </button>
-                  }
-                  @if (compStatus()[r.folio]; as cs) {
-                    <div class="so-ev">
-                      <span class="so-ev-k">Comprobación</span>
-                      <p-tag [value]="proofLabel(cs)" [severity]="proofSev(cs)" [icon]="'pi ' + proofIcon(cs)" styleClass="so-tag" />
-                    </div>
+                    @case ('validar') {
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                              [attr.aria-label]="'Revisar el comprobante de ' + r.folio">
+                        <span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span>
+                        <span class="p-button-label">Revisar</span>
+                      </button>
+                    }
+                    @case ('cerradas') {
+                      <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verExpediente(r)"
+                              [attr.aria-label]="'Ver el expediente de ' + r.folio">
+                        <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span>
+                        <span class="p-button-label num">{{ r.gasto_folio || 'Ver' }}</span>
+                      </button>
+                      @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }
+                    }
+                    @default {
+                      <!-- Autorizar y ejercer pasan en Kepler, no acá: no se inventa un botón. -->
+                      @if (r.aplicada && r.gasto_folio) {
+                        <button pButton type="button" class="p-button-sm p-button-text so-cellbtn" (click)="verGasto(r)"
+                                [attr.aria-label]="'Ver el gasto ' + r.gasto_folio">
+                          <span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span>
+                          <span class="p-button-label num">{{ r.gasto_folio }}</span>
+                        </button>
+                      } @else { <span class="faint">—</span> }
+                    }
                   }
                 </td>
               </tr>
@@ -313,22 +307,31 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
     .so-cellbtn { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
     /* --tap-min vale 0px en puntero fino (densidad) y 44px en coarse: el fallback de
        var() NO aplica a un valor definido, así que el piso va con max(). */
+    /* ── Barra de etapas: una a la vez ──────────────────────────────────
+       Hairline, sin sombra, activo por superficie + ring (regla de elevación). */
+    .so-etapas { display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 3px;
+      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      overflow-x: auto; scrollbar-width: none; }
+    .so-etapas::-webkit-scrollbar { display: none; }
+    .so-etapa { display: inline-flex; align-items: baseline; gap: var(--sp-1); white-space: nowrap;
+      padding: var(--sp-1) var(--sp-3); border: 0; border-radius: var(--r-pill); background: none;
+      font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-2); cursor: pointer;
+      transition: color var(--dur-short) var(--ease-standard), background-color var(--dur-short) var(--ease-standard); }
+    .so-etapa:hover:not(.on) { color: var(--fg-1); }
+    .so-etapa.on { color: var(--fg-1); background: var(--card-bg); box-shadow: 0 0 0 1px var(--border-color); }
+    .so-etapa:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .so-etapa-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
+    .so-etapa-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-micro); color: var(--fg-3); }
+    /* Añejo: el número se marca, con el texto del tooltip como portador extra. */
+    .so-table td.is-viejo { color: var(--warn-fg); font-weight: var(--fw-bold); }
+
     /* El estado de evidencia ES el botón que abre el expediente. */
     .so-evbtn { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: max(1.5rem, var(--tap-min));
       padding: 0 2px; border: 0; background: transparent; font: inherit; cursor: pointer; }
     .so-evbtn:hover { background: var(--overlay-hover); border-radius: var(--r-sm); }
     .so-evbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; border-radius: var(--r-sm); }
 
-    /* ── Estado de la evidencia ─────────────────────────────────────────
-       El estado es un p-tag con severity, no un texto coloreado a mano: así lo
-       mapea el tema en claro y en oscuro, y el color deja de ser el portador. */
-    .so-ev { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin-top: 1px; }
-    .so-ev-k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3); }
-    /* styleClass aterriza dentro del template de p-tag, fuera del scope del
-       componente: ::ng-deep es como lo hace el resto de Finanzas. */
-    :host ::ng-deep .so-tag { font-size: var(--fs-micro); }
-
-    /* ── Diálogo ────────────────────────────────────────────────────────── */
   `],
 })
 export class FinanzasSolicitudesComponent {
@@ -353,21 +356,91 @@ export class FinanzasSolicitudesComponent {
   private evidenciaDe(folio: string): string {
     return this.proofStatus()[folio]?.status || this.compStatus()[folio] || 'sin';
   }
-  /** Filas visibles tras el filtro de evidencia (el resto lo aplica el servidor). */
-  readonly visibles = computed(() => {
-    const f = this.evidenciaSel();
-    const rows = this.rows();
-    if (!f) return rows;
-    return rows.filter((r) => {
-      const e = this.evidenciaDe(r.folio);
-      return f === 'sin' ? e === 'sin' : f === 'pend' ? (e === 'recibida' || e === 'revision') : e === f;
-    });
+
+  /**
+   * En qué etapa está una solicitud. El orden de las reglas importa: cada fila cae en UNA
+   * y sólo una. Cancelada gana sobre todo (es terminal, aunque Kepler tenga 102 canceladas
+   * con gasto aplicado).
+   */
+  private etapaDe(r: ExpenseRequestRow): Exclude<Etapa, 'todas'> {
+    if (r.estado === 'C') return 'canceladas';
+    if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
+    const e = this.evidenciaDe(r.folio);
+    if (e === 'validada') return 'cerradas';
+    if (e === 'recibida' || e === 'revision') return 'validar';
+    return 'comprobar'; // sin evidencia, o rechazada (hay que volver a subirla)
+  }
+
+  /** Cuántas y cuánto hay en cada etapa, sobre lo cargado. Es el embudo, y se ve siempre. */
+  readonly conteos = computed(() => {
+    const acc: Record<string, { n: number; importe: number }> = {};
+    for (const d of this.etapasDef) acc[d.value] = { n: 0, importe: 0 };
+    for (const r of this.rows()) {
+      const k = this.etapaDe(r);
+      acc[k].n++; acc[k].importe += Number(r.importe) || 0;
+      acc['todas'].n++; acc['todas'].importe += Number(r.importe) || 0;
+    }
+    return acc;
   });
-  /** Lo que le quita el sueño a quien autoriza: dinero pedido y sin respaldo. */
-  readonly sinEvidencia = computed(() => {
-    const r = this.rows().filter((x) => x.estado !== 'C' && this.evidenciaDe(x.folio) === 'sin');
+
+  /** Sólo la etapa elegida: separar es justamente no entrelazar. */
+  readonly visibles = computed(() => {
+    const e = this.etapa();
+    const rows = this.rows();
+    return e === 'todas' ? rows : rows.filter((r) => this.etapaDe(r) === e);
+  });
+
+  /** Antigüedad de la solicitud en días. Aproximada: Kepler no guarda cuándo cambió de etapa. */
+  edad(r: ExpenseRequestRow): number | null {
+    if (!r.fecha) return null;
+    const m = String(r.fecha).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    return Math.round((hoy.getTime() - d.getTime()) / 86400000);
+  }
+  /** La etapa de una fila, para la plantilla. */
+  etapaDeFila(r: ExpenseRequestRow): string { return this.etapaDe(r); }
+  /** Añejo = más de 90 días en una etapa que debería haber avanzado. */
+  esViejo(r: ExpenseRequestRow): boolean {
+    const e = this.etapaDe(r);
+    if (e === 'cerradas' || e === 'canceladas') return false;
+    const d = this.edad(r);
+    return d != null && d > 90;
+  }
+  /** Cuántas de la etapa actual llevan demasiado tiempo ahí. */
+  readonly viejas = computed(() => {
+    const r = this.visibles().filter((x) => this.esViejo(x));
     return { n: r.length, importe: r.reduce((a, b) => a + (Number(b.importe) || 0), 0) };
   });
+  readonly hayPendiente = computed(() => {
+    const e = this.etapa();
+    return e !== 'cerradas' && e !== 'canceladas' && this.visibles().length > 0;
+  });
+
+  tituloEtapa(): string {
+    const c = this.conteos()[this.etapa()];
+    if (!c?.n) return `Nada en ${this.etapaLabel().toLowerCase()}`;
+    const v = this.viejas();
+    if (v.n) return `${v.n} ${v.n === 1 ? 'lleva' : 'llevan'} más de 90 días acá`;
+    return `${c.n} ${c.n === 1 ? 'solicitud' : 'solicitudes'} · ${money(c.importe)}`;
+  }
+  lecturaEtapa(): string {
+    const c = this.conteos()[this.etapa()];
+    const per = this.periodoEn();
+    const base: Record<string, string> = {
+      autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
+      ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
+      comprobar: `El gasto ya se ejerció y falta subir el comprobante. Es la deuda de respaldo.`,
+      validar: `Con comprobante subido, esperando que alguien lo revise contra el importe.`,
+      cerradas: `Ejercidas y con el comprobante validado. No requieren nada.`,
+      canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
+      todas: `Todas las etapas juntas.`,
+    };
+    const v = this.viejas();
+    const cola = v.n ? ` ${v.n} ${v.n === 1 ? 'lleva' : 'llevan'} más de 90 días (${money(v.importe)}) — la antigüedad se mide desde la fecha del documento, que es lo único que Kepler guarda.` : '';
+    return `${c?.n || 0} de ${per}, ${money(c?.importe || 0)}. ${base[this.etapa()]}${cola}`;
+  }
   /**
    * Opciones de grupo derivadas de lo cargado, etiquetadas con el acreedor más común del
    * grupo: la etiqueta sale del dato, no de una taxonomía inventada.
@@ -391,10 +464,9 @@ export class FinanzasSolicitudesComponent {
   readonly error = signal<string | null>(null);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly solicitantes = signal<string[]>([]);
-  readonly aplicadaSel = signal<string>('');
   /** Eje de EVIDENCIA: lo único que la plataforma agrega sobre Kepler. Se filtra en el
    *  cliente porque el mapa folio→estado ya viene completo, no por página. */
-  readonly evidenciaSel = signal<string>('');
+  readonly etapa = signal<Etapa>('autorizar');
   /** Grupo de gasto (prefijo de la cuenta Kepler) y piso de importe: van al servidor. */
   grupo: string[] = [];
   minImporte: number | null = null;
@@ -419,14 +491,15 @@ export class FinanzasSolicitudesComponent {
     { label: 'Hoy', value: 'hoy' }, { label: '7 días', value: 'd7' },
     { label: '30 días', value: 'd30' }, { label: 'Rango', value: 'rango' },
   ];
-  readonly aplicadaOpts = [{ label: 'Todas', value: '' }, { label: 'Sin aplicar', value: 'pend' }, { label: 'Aplicadas', value: 'apl' }];
-  readonly evidenciaOpts = [
-    { label: 'Toda', value: '' }, { label: 'Sin evidencia', value: 'sin' },
-    { label: 'Por revisar', value: 'pend' }, { label: 'Validada', value: 'validada' }, { label: 'Rechazada', value: 'rechazada' },
-  ];
-  readonly estadoOpts = [
-    { label: 'Finalizada', value: 'F' }, { label: 'Autorizada', value: 'A' },
-    { label: 'Cancelada', value: 'C' }, { label: 'Nueva', value: 'N' },
+  /** Orden = el recorrido del dinero. `todas` queda al final como salida, no como default. */
+  readonly etapasDef: { value: Etapa; label: string }[] = [
+    { value: 'autorizar', label: 'Por autorizar' },
+    { value: 'ejercer', label: 'Por ejercer' },
+    { value: 'comprobar', label: 'Por comprobar' },
+    { value: 'validar', label: 'Por validar' },
+    { value: 'cerradas', label: 'Cerradas' },
+    { value: 'canceladas', label: 'Canceladas' },
+    { value: 'todas', label: 'Todas' },
   ];
 
   private readonly toast = inject(MessageService);
@@ -436,7 +509,6 @@ export class FinanzasSolicitudesComponent {
   readonly liveConnected = this.socket.connected;
 
   sucursal: string[] = [];
-  estado: string | null = null;
   solicitante: string | null = null;
   search = '';
   /** Solo se usa cuando el periodo es `rango`. Arranca en 30 días: entrar al modo
@@ -453,8 +525,8 @@ export class FinanzasSolicitudesComponent {
     const qp = this.route.snapshot.queryParamMap;
     const p = qp.get('periodo');
     if (p === 'hoy' || p === 'd7' || p === 'd30' || p === 'rango') this.periodo.set(p);
-    const ap = qp.get('aplicada');
-    if (ap === 'pend' || ap === 'apl') this.aplicadaSel.set(ap);
+    const et = qp.get('etapa');
+    if (et && this.etapasDef.some((x) => x.value === et)) this.etapa.set(et as Etapa);
     if (qp.get('mias') === '1') this.mias.set(true);
 
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
@@ -479,12 +551,12 @@ export class FinanzasSolicitudesComponent {
   // ── Periodo ────────────────────────────────────────────────────────────
   setAlcance(v: string) { this.mias.set(v === 'mias'); this.syncUrl(); this.load(); }
   setPeriodo(v: string) { this.periodo.set(v as Periodo); this.syncUrl(); this.load(); }
-  setAplicada(v: string) { this.aplicadaSel.set(v); this.syncUrl(); this.load(); }
+  setEtapa(v: Etapa) { this.etapa.set(v); this.syncUrl(); }
 
   private syncUrl(): void {
     this.router.navigate([], {
       relativeTo: this.route, replaceUrl: true, queryParamsHandling: 'merge',
-      queryParams: { periodo: this.periodo(), aplicada: this.aplicadaSel() || null, mias: this.mias() ? '1' : null },
+      queryParams: { periodo: this.periodo(), etapa: this.etapa(), mias: this.mias() ? '1' : null },
     });
   }
 
@@ -521,21 +593,19 @@ export class FinanzasSolicitudesComponent {
   }
 
   /** ¿Lo vació el filtro de evidencia y no el periodo? La salida es distinta. */
-  private vacioPorEvidencia(): boolean { return !!this.rows().length && !this.visibles().length; }
-  private evidenciaLabel(): string {
-    return (this.evidenciaOpts.find((o) => o.value === this.evidenciaSel())?.label || '').toLowerCase();
-  }
+  private vacioPorEtapa(): boolean { return !!this.rows().length && !this.visibles().length; }
+  etapaLabel(): string { return this.etapasDef.find((e) => e.value === this.etapa())?.label || ''; }
   emptyTitle(): string {
     if (this.mias() && this.sinAnclas()) return 'No sabemos cuáles son tuyas';
-    return this.vacioPorEvidencia() ? `Ninguna con evidencia "${this.evidenciaLabel()}"` : `Sin solicitudes ${this.periodoEn()}`;
+    return this.vacioPorEtapa() ? `Nada en "${this.etapaLabel()}"` : `Sin solicitudes ${this.periodoEn()}`;
   }
   emptyCta(): string | null {
     if (this.mias() && this.sinAnclas()) return 'Ver todas';
-    return this.vacioPorEvidencia() ? 'Ver toda la evidencia' : this.ampliarLabel();
+    return this.vacioPorEtapa() ? 'Ver todas las etapas' : this.ampliarLabel();
   }
   onEmptyCta(): void {
     if (this.mias() && this.sinAnclas()) { this.setAlcance('todas'); return; }
-    if (this.vacioPorEvidencia()) this.evidenciaSel.set(''); else this.ampliar();
+    if (this.vacioPorEtapa()) this.setEtapa('todas'); else this.ampliar();
   }
 
   /** Empty ≠ error: el periodo puede estar limpio. La salida es ampliar, no reintentar. */
@@ -544,11 +614,11 @@ export class FinanzasSolicitudesComponent {
       return 'Nadie te asignó áreas de gasto y tu nombre no aparece como solicitante en Kepler. ' +
         'Un administrador puede configurarlo en Usuarios → áreas de gasto visibles.';
     }
-    if (this.vacioPorEvidencia()) {
-      return `Las ${this.rows().length} solicitudes ${this.periodoEn()} están en otro estado de evidencia.`;
+    if (this.vacioPorEtapa()) {
+      return `Las ${this.rows().length} solicitudes ${this.periodoEn()} están en otra etapa.`;
     }
     const base = `Ninguna solicitud registrada ${this.periodoEn()}`;
-    const filtros = this.aplicadaSel() || this.estado || this.solicitante || this.search.trim() || this.sucursal.length;
+    const filtros = this.solicitante || this.search.trim() || this.sucursal.length || this.grupo.length || this.minImporte;
     return filtros ? `${base} con los filtros puestos.` : `${base}. El feed de Kepler las carga conforme se capturan.`;
   }
   /** Escalera de salida del vacío: hoy → 7 → 30 → 90 días. */
@@ -570,17 +640,15 @@ export class FinanzasSolicitudesComponent {
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const { from, to } = this.rango();
-    const ap = this.aplicadaSel();
     this.loading.set(true);
     this.error.set(null);
     this.svc.expenseRequests({
       from, to,
-      sucursal: this.sucursal, estado: this.estado || undefined,
+      sucursal: this.sucursal,
       solicitante: this.solicitante || undefined, search: this.search || undefined,
       mias: this.mias() || undefined,
       grupo: this.grupo.length ? this.grupo : undefined,
       min_importe: this.minImporte || undefined,
-      aplicada: ap === 'pend' ? false : ap === 'apl' ? true : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
@@ -602,8 +670,8 @@ export class FinanzasSolicitudesComponent {
       { label: 'Solicitudes', value: r.kpis.total, sub: moneyShort(r.kpis.importe) },
       { label: 'Sin aplicar', value: r.kpis.pendientes, tone: r.kpis.pendientes ? 'bad' : 'default', sub: moneyShort(r.kpis.pendientes_importe) },
       { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}% del periodo` },
-      { label: 'Sin comprobante', value: this.sinEvidencia().n, tone: this.sinEvidencia().n ? 'warn' : 'ok',
-        sub: moneyShort(this.sinEvidencia().importe) },
+      { label: 'Añejas (+90d)', value: this.viejas().n, tone: this.viejas().n ? 'warn' : 'ok',
+        sub: moneyShort(this.viejas().importe) },
     ];
     const leads = this.rows().map((x) => x.lead_days).filter((d): d is number => d != null);
     if (leads.length) {
@@ -641,11 +709,6 @@ export class FinanzasSolicitudesComponent {
     this.refreshProofs();
   }
 
-  proofLabel(s: string): string { return ({ recibida: 'recibido', revision: 'en revisión', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
-  proofIcon(s: string): string { return ({ recibida: 'pi-clock', revision: 'pi-eye', validada: 'pi-check-circle', rechazada: 'pi-times-circle' } as Record<string, string>)[s] || 'pi-file'; }
-  proofSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' {
-    return ({ recibida: 'warn', revision: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary';
-  }
   leadTexto(d: number): string { return d === 0 ? 'el mismo día' : `en ${d} ${d === 1 ? 'día' : 'días'}`; }
 
   /** Abre el gasto ligado en el detalle de egresos. */
@@ -657,11 +720,5 @@ export class FinanzasSolicitudesComponent {
     });
   }
 
-  estadoLabel(e: string | null): string {
-    return ({ F: 'Finalizada', A: 'Autorizada', C: 'Cancelada', N: 'Nueva' } as Record<string, string>)[e || ''] || (e || '—');
-  }
-  estadoSev(e: string | null): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
-    return ({ F: 'success', A: 'info', C: 'danger', N: 'warn' } as Record<string, 'success' | 'info' | 'warn' | 'danger'>)[e || ''] || 'secondary';
-  }
   pct(a: number, b: number): number { return b ? Math.round((a / b) * 100) : 0; }
 }
