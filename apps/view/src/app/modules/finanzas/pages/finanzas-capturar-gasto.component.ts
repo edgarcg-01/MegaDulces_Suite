@@ -7,6 +7,7 @@ import { AutoCompleteModule } from 'primeng/autocomplete';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
@@ -26,7 +27,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, ToastModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -60,11 +61,11 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               <div class="cap-g-imp">{{ moneyFull(gasto()!.importe) }}</div>
             </div>
             <div class="cap-g-meta">
-              @if (gasto()!.sucursal) { <span><i class="pi pi-map-marker"></i> {{ gasto()!.sucursal }}</span> }
-              @if (gasto()!.solicitante) { <span><i class="pi pi-user"></i> {{ gasto()!.solicitante }}</span> }
-              @if (gasto()!.fecha) { <span><i class="pi pi-calendar"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
+              @if (gasto()!.sucursal) { <span><i class="pi pi-map-marker" aria-hidden="true"></i> {{ gasto()!.sucursal }}</span> }
+              @if (gasto()!.solicitante) { <span><i class="pi pi-user" aria-hidden="true"></i> {{ gasto()!.solicitante }}</span> }
+              @if (gasto()!.fecha) { <span><i class="pi pi-calendar" aria-hidden="true"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
-            @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left"></i> {{ gasto()!.concepto }}</span></div> }
+            @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left" aria-hidden="true"></i> {{ gasto()!.concepto }}</span></div> }
             <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
           </div>
 
@@ -72,39 +73,44 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           <div class="cap-step">2 · Sube el comprobante</div>
           @if (!names()['comprobante_1']) {
             <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
-              <i class="pi pi-camera cap-drop-ic"></i>
+              <i class="pi pi-camera cap-drop-ic" aria-hidden="true"></i>
               <div>Arrastra la <strong>foto o PDF</strong> del comprobante</div>
-              <label class="cap-pick"><i class="pi pi-upload"></i> Elegir / tomar foto
+              <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
                 <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobante_1')" hidden />
               </label>
             </div>
           } @else {
             <div class="cap-done">
-              <i class="pi pi-check-circle cap-ok"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-              @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner"></i> leyendo…</span> }
+              <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
+              @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
               <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
             </div>
             @if (photoResult(); as pr) {
-              @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle"></i> El monto de la foto cuadra con el gasto.</div> }
-              @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-              @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle"></i> Se enviará para revisión manual.</div> }
-              @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle"></i> No pude leer la foto — quedará en revisión.</div> }
+              @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
+              @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
+              @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
+              @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
             }
           }
 
           <label class="cap-f"><span>Comentarios (opcional)</span>
-            <textarea pInputText [(ngModel)]="comentarios" rows="2" placeholder="Nota para quien autoriza…"></textarea></label>
+            <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
 
           @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
-          <button pButton type="button" class="cap-send" [loading]="saving()" (click)="submit()">
-            <span class="p-button-icon p-button-icon-left pi pi-send"></span><span class="p-button-label">Enviar comprobante</span>
+          <!-- Poka-yoke: sin comprobante o con la lectura en curso el botón no se puede
+               apretar, en vez de dejar apretar y contestar con un error. -->
+          <button pButton type="button" class="cap-send" [loading]="saving()"
+                  [disabled]="saving() || !names()['comprobante_1'] || photoLoading()"
+                  [title]="names()['comprobante_1'] ? 'Enviar el comprobante' : 'Falta subir el comprobante'"
+                  (click)="submit()">
+            <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Enviar comprobante</span>
           </button>
         }
       </div>
 
       <!-- Mis capturas -->
       <div class="cap-mine">
-        <div class="cap-mine-h"><h2>Mis últimas capturas</h2><button type="button" class="cap-link" (click)="loadMine()"><i class="pi pi-refresh"></i> actualizar</button></div>
+        <div class="cap-mine-h"><h2>Mis últimas capturas</h2><button type="button" class="cap-link" (click)="loadMine()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button></div>
         @if (mineLoading()) { <div class="cap-muted">Cargando…</div> }
         @else if (!mine().length) { <div class="cap-muted">Aún no has capturado comprobantes.</div> }
         @else {
@@ -120,8 +126,8 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                   <p-tag [value]="statusLabel(m.status)" [severity]="statusSev(m.status)" />
                   <span class="cap-it-date">{{ m.created_at | date:'dd/MM HH:mm' }}</span>
                 </div>
-                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle"></i> {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_solicitud }}.</div> }
-                @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle"></i> {{ m.revision_nota }}</div> }
+                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_solicitud }}.</div> }
+                @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ m.revision_nota }}</div> }
               </div>
             }
           </div>
@@ -131,53 +137,91 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
   `,
   styles: [`
     :host { display: block; }
+    /* Columna angosta: esto es un flujo de un solo hilo (elegí, subí, enviá), no una
+       bandeja. El resto de Operations es full-width porque ahí sí se compara. */
     .cap { max-width: 44rem; margin: 0 auto; }
-    .cap-card { padding: 1.2rem; display: flex; flex-direction: column; gap: 1rem; }
-    .cap-f { display: flex; flex-direction: column; gap: .35rem; }
-    .cap-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .cap-hint { font-size: .74rem; color: var(--text-muted); font-style: normal; }
+    .card-premium.cap-card { display: flex; flex-direction: column; gap: var(--sp-4);
+      padding: var(--sp-4); box-shadow: none; }
+    .card-premium.cap-card:hover { box-shadow: none; }
+    .cap-f { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .cap-f > span { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .cap-hint { font-size: var(--fs-xs); color: var(--fg-3); font-style: normal; }
     .w-full { width: 100%; }
-    .mono { font-family: var(--font-mono); }
-    .cap-gasto { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .9rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .5rem; }
-    .cap-g-top { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
-    .cap-g-folio { font-size: .82rem; color: var(--text-muted); }
-    .cap-g-prov { font-size: 1.05rem; font-weight: 600; color: var(--text-main); margin-top: .15rem; }
-    .cap-g-imp { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .cap-g-meta { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .8rem; color: var(--text-muted); }
-    .cap-g-meta span { display: inline-flex; align-items: center; gap: .3rem; }
-    .cap-cuadre { display: flex; align-items: center; gap: .4rem; font-size: .8rem; padding: .45rem .6rem; border-radius: var(--r-sm, .4rem); border: 1px solid var(--border-color); color: var(--text-muted); }
-    .cap-cuadre.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
-    .cap-cuadre.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); border-color: color-mix(in srgb, var(--bad-fg) 30%, transparent); }
-    .cap-link { align-self: flex-start; border: none; background: transparent; color: var(--action); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; font-size: .8rem; }
-    .cap-step { font-size: .8rem; font-weight: 600; color: var(--text-main); border-top: 1px solid var(--border-color); padding-top: .8rem; }
-    .cap-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; }
-    .cap-drop.drag { border-color: var(--action); }
-    .cap-drop-ic { font-size: 2rem; color: var(--action); }
-    .cap-pick { display: inline-flex; align-items: center; gap: .4rem; padding: .6rem 1rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); cursor: pointer; background: var(--card-bg); font-size: .9rem; }
+    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    /* Ficha de la solicitud elegida, hundida respecto de la card.
+       Ojo: --surface-sunken NO existe en tokens.css, así que el fallback la dejaba del
+       mismo color que la card y el hundido no se veía nunca. */
+    .cap-gasto { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
+    .cap-g-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+    .cap-g-folio { font-size: var(--fs-xs); color: var(--fg-3); }
+    .cap-g-prov { margin-top: 1px; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cap-g-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--fg-1); white-space: nowrap; }
+    .cap-g-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
+      font-size: var(--fs-xs); color: var(--fg-2); }
+    .cap-g-meta span { display: inline-flex; align-items: center; gap: var(--sp-1); }
+    .cap-cuadre { display: inline-flex; align-items: center; gap: var(--sp-1);
+      padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs);
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--fg-2); }
+    .cap-cuadre.ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .cap-cuadre.bad { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    .cap-link { align-self: flex-start; min-height: max(1.5rem, var(--tap-min)); padding: 0; border: 0;
+      background: none; font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer;
+      text-decoration: underline; text-underline-offset: 2px; }
+    .cap-link:hover { color: var(--action-hover); }
+    .cap-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cap-step { padding-top: var(--sp-3); border-top: 1px solid var(--border-color);
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
+
+    .cap-drop { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-6) var(--sp-4); text-align: center; font-size: var(--fs-sm); color: var(--fg-2);
+      border: 2px dashed var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
+    .cap-drop.drag { border-color: var(--action); background: var(--overlay-selected); }
+    /* Ícono de la zona: neutro. El naranja es de la acción, no de la decoración. */
+    .cap-drop-ic { font-size: var(--fs-h1); color: var(--fg-3); }
+    /* Se ve como botón secundario porque ES el botón. El input va oculto para poder ofrecer
+       cámara y arrastrar-soltar, que p-fileupload en modo básico no da. */
+    .cap-pick { display: inline-flex; align-items: center; gap: var(--sp-2);
+      min-height: max(2.25rem, var(--tap-min)); padding: 0 var(--sp-4);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg);
+      font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); cursor: pointer;
+      transition: border-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard); }
     .cap-pick:hover { border-color: var(--action); color: var(--action); }
-    .cap-done { display: flex; align-items: center; gap: .5rem; font-size: .88rem; padding: .6rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cap-pick:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+
+    .cap-done { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+      font-size: var(--fs-sm); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      background: var(--surface-ground); }
     .cap-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cap-ok { color: var(--ok-fg); }
-    .cap-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .35rem; }
-    .cap-val { display: flex; align-items: flex-start; gap: .5rem; font-size: .82rem; padding: .55rem .7rem; border-radius: var(--r-md, .5rem); border: 1px solid var(--border-color); }
-    .cap-val.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
-    .cap-val.warn { color: var(--warn-fg, var(--bad-fg)); background: color-mix(in srgb, var(--warn-fg, var(--bad-fg)) 8%, transparent); border-color: color-mix(in srgb, var(--warn-fg, var(--bad-fg)) 30%, transparent); }
-    .cap-err { color: var(--bad-fg); font-size: .82rem; }
+    .cap-proc { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--fg-2); }
+    /* Veredicto de la lectura: ícono + texto; el color acompaña, no carga solo. */
+    .cap-val { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+      font-size: var(--fs-xs); line-height: 1.4; border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .cap-val.ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .cap-val.warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
+    .cap-err { font-size: var(--fs-xs); color: var(--bad-fg); }
     .cap-send { justify-content: center; }
-    .cap-mine { margin-top: 1.4rem; }
-    .cap-mine-h { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
-    .cap-mine-h h2 { font-size: 1rem; margin: 0 0 .6rem; }
-    .cap-muted { color: var(--text-muted); font-size: .85rem; }
-    .cap-list { display: flex; flex-direction: column; gap: .5rem; }
-    .cap-item { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--card-bg); display: flex; flex-direction: column; gap: .35rem; }
-    .cap-it-main { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-    .cap-it-prov { color: var(--text-muted); font-size: .88rem; }
-    .cap-it-side { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
-    .cap-it-imp { font-variant-numeric: tabular-nums; font-weight: 600; }
-    .cap-it-date { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
-    .cap-it-note { font-size: .78rem; display: flex; align-items: center; gap: .35rem; }
+
+    .cap-mine { margin-top: var(--sp-6); }
+    .cap-mine-h { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-4); }
+    .cap-mine-h h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cap-muted { font-size: var(--fs-sm); color: var(--fg-2); }
+    .cap-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .cap-item { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
+    .cap-it-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2); }
+    .cap-it-prov { font-size: var(--fs-sm); color: var(--fg-2); }
+    .cap-it-side { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+    .cap-it-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
+    .cap-it-date { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-xs); color: var(--fg-3); }
+    .cap-it-note { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); }
     .cap-it-note.bad { color: var(--bad-fg); }
-    .cap-it-note.warn { color: var(--warn-fg, var(--bad-fg)); }
+    .cap-it-note.warn { color: var(--warn-fg); }
   `],
 })
 export class FinanzasCapturarGastoComponent {

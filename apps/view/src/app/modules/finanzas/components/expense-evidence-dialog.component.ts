@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, input, model, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, model, output, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
@@ -28,10 +29,13 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
 @Component({
   selector: 'app-expense-evidence-dialog',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule],
+  imports: [NgTemplateOutlet, FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <p-dialog [visible]="open()" (visibleChange)="onToggle($event)" [modal]="true"
+    <!-- Sin cierre implícito: esto es captura, y Esc o la X tirando archivos ya subidos es
+         exactamente la pérdida silenciosa que DESIGN.md §8 prohíbe. Se sale por Cancelar,
+         y si hay algo cargado, Cancelar pregunta. -->
+    <p-dialog [visible]="open()" [modal]="true" [closable]="false" [closeOnEscape]="false"
               [style]="{ width: '36rem', maxWidth: '95vw' }" [draggable]="false" header="Adjuntar evidencia">
       @if (solicitud(); as s) {
         <div class="ev-form">
@@ -49,25 +53,22 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
             </dl>
           </div>
 
-          @for (slot of fileSlots; track slot.role) {
-            <div class="ev-f">
-              <span class="ev-lbl">{{ slot.label }} @if (slot.required) { <b class="ev-req">*</b> }</span>
-              <p-fileupload mode="basic" [auto]="true" [customUpload]="true" [accept]="slot.accept"
-                            [maxFileSize]="10485760" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
-                            chooseStyleClass="p-button-sm p-button-outlined"
-                            (onSelect)="onFilePicked($event, slot.role)" />
-              @if (fileNames()[slot.role]) { <span class="ev-pick"><i class="pi pi-paperclip" aria-hidden="true"></i> {{ fileNames()[slot.role] }}</span> }
-              @if (vision()[slot.role]; as v) {
-                @if (v === 'cargando') {
-                  <span class="ev-vision is-load"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo con Claude Vision…</span>
-                } @else {
-                  <span class="ev-vision" [class.is-ok]="visionTone(v) === 'ok'" [class.is-warn]="visionTone(v) === 'warn'">
-                    <i class="pi" [class.pi-check-circle]="visionTone(v) === 'ok'" [class.pi-exclamation-triangle]="visionTone(v) === 'warn'" aria-hidden="true"></i>
-                    {{ visionMsg(v) }}
-                  </span>
-                }
-              }
-            </div>
+          <!-- Sólo los dos que se llenan siempre. Los otros cuatro existen para casos
+               puntuales (segunda hoja, fotos) y apilarlos como seis filas idénticas hacía
+               parecer que había seis cosas que hacer. Progressive disclosure de lo
+               secundario, que es para lo único que DESIGN.md la admite. -->
+          @for (slot of slotsBase; track slot.role) {
+            <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
+          }
+
+          @if (extraAbiertos()) {
+            @for (slot of slotsExtra; track slot.role) {
+              <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
+            }
+          } @else {
+            <button type="button" class="ev-more" (click)="extraAbiertos.set(true)">
+              <i class="pi pi-plus" aria-hidden="true"></i> Segunda hoja y fotos ({{ slotsExtra.length }})
+            </button>
           }
 
           <div class="ev-f">
@@ -77,11 +78,41 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
           @if (error()) { <div class="ev-err" role="alert">{{ error() }}</div> }
         </div>
       }
+      <ng-template #campo let-slot>
+        <div class="ev-f">
+          <span class="ev-lbl">{{ slot.label }}@if (slot.required) { <b class="ev-req" aria-hidden="true">*</b><span class="sr-only"> (obligatorio)</span> }</span>
+          <p-fileupload mode="basic" [auto]="true" [customUpload]="true" [accept]="slot.accept"
+                        [maxFileSize]="10485760" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
+                        chooseStyleClass="p-button-sm p-button-outlined"
+                        (onSelect)="onFilePicked($event, slot.role)" />
+          @if (fileNames()[slot.role]) { <span class="ev-pick"><i class="pi pi-paperclip" aria-hidden="true"></i> {{ fileNames()[slot.role] }}</span> }
+          @if (vision()[slot.role]; as v) {
+            @if (v === 'cargando') {
+              <span class="ev-vision"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo con Claude Vision…</span>
+            } @else {
+              <span class="ev-vision" [class.is-ok]="visionTone(v) === 'ok'" [class.is-warn]="visionTone(v) === 'warn'">
+                <i class="pi" [class.pi-check-circle]="visionTone(v) === 'ok'" [class.pi-exclamation-triangle]="visionTone(v) === 'warn'" aria-hidden="true"></i>
+                {{ visionMsg(v) }}
+              </span>
+            }
+          }
+        </div>
+      </ng-template>
+
       <ng-template #footer>
-        <button pButton type="button" text (click)="onToggle(false)"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" [loading]="saving()" (click)="enviar()">
-          <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-          <span class="p-button-label">Enviar evidencia</span></button>
+        @if (confirmClose()) {
+          <span class="ev-confirm">Hay archivos cargados. ¿Descartarlos?</span>
+          <button pButton type="button" text (click)="confirmClose.set(false)"><span class="p-button-label">Seguir</span></button>
+          <button pButton type="button" severity="danger" text (click)="descartar()"><span class="p-button-label">Descartar</span></button>
+        } @else {
+          <button pButton type="button" text (click)="pedirCerrar()"><span class="p-button-label">Cancelar</span></button>
+          <!-- Poka-yoke: el envío se previene mientras falte lo obligatorio, en vez de
+               dejar apretar y contestar con un error. -->
+          <button pButton type="button" [loading]="saving()" [disabled]="!listo() || saving()" (click)="enviar()"
+                  [title]="listo() ? 'Guardar la evidencia' : 'Falta el comprobante del gasto'">
+            <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+            <span class="p-button-label">Enviar evidencia</span></button>
+        }
       </ng-template>
     </p-dialog>
   `,
@@ -98,8 +129,17 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
     .ev-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
     .ev-wide { grid-column: 1 / -1; }
     .ev-f { display: flex; flex-direction: column; gap: var(--sp-1); }
-    .ev-lbl { font-size: var(--fs-xs); color: var(--fg-2); }
-    .ev-req { color: var(--bad-fg); }
+    /* Mismo idioma de etiqueta que los filtros del tablero y que la ficha de Kepler de
+       arriba: micro en versalitas. Antes este formulario tenía el suyo propio. */
+    .ev-lbl { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .ev-req { color: var(--bad-fg); margin-left: 2px; }
+    .ev-more { align-self: flex-start; display: inline-flex; align-items: center; gap: var(--sp-1);
+      min-height: max(1.75rem, var(--tap-min)); padding: 0; border: 0; background: none; font: inherit;
+      font-size: var(--fs-xs); color: var(--action); cursor: pointer; }
+    .ev-more:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .ev-more:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .ev-confirm { margin-right: auto; font-size: var(--fs-sm); color: var(--fg-2); }
     .ev-txt { width: 100%; font-size: var(--fs-sm); }
     .ev-pick { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }
     .ev-vision { display: inline-flex; align-items: flex-start; gap: var(--sp-1); font-size: var(--fs-xs); line-height: 1.4; color: var(--fg-2); }
@@ -121,14 +161,22 @@ export class ExpenseEvidenceDialogComponent {
    * La solicitud firmada SÍ se adjunta, pero opcional: sus datos ya los tenemos de Kepler,
    * lo que aporta el papel es la firma. Lo que no puede faltar es el comprobante del gasto.
    */
-  readonly fileSlots: FileSlot[] = [
-    { role: 'comprobante_1', label: 'Comprobante — hoja 1', required: true, accept: '.pdf,image/*' },
-    { role: 'comprobante_2', label: 'Comprobante — hoja 2', required: false, accept: '.pdf,image/*' },
+  readonly slotsBase: FileSlot[] = [
+    { role: 'comprobante_1', label: 'Comprobante del gasto', required: true, accept: '.pdf,image/*' },
     { role: 'solicitud_kepler', label: 'Solicitud de gasto firmada', required: false, accept: '.pdf,image/*' },
+  ];
+  readonly slotsExtra: FileSlot[] = [
+    { role: 'comprobante_2', label: 'Comprobante — hoja 2', required: false, accept: '.pdf,image/*' },
     { role: 'evidencia_1', label: 'Evidencia fotográfica 1', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_2', label: 'Evidencia fotográfica 2', required: false, accept: 'image/*,.pdf' },
     { role: 'evidencia_3', label: 'Evidencia fotográfica 3', required: false, accept: 'image/*,.pdf' },
   ];
+  /** La lista completa sigue siendo la fuente de la validación y de la subida. */
+  readonly fileSlots: FileSlot[] = [...this.slotsBase, ...this.slotsExtra];
+  readonly extraAbiertos = signal(false);
+  readonly confirmClose = signal(false);
+  /** Marca que hay archivos elegidos: cambia el `track` de las señales de nombre. */
+  readonly listo = computed(() => !!this.fileNames()['comprobante_1']);
 
   readonly fileNames = signal<Record<string, string>>({});
   readonly vision = signal<Record<string, ProofPhotoOcr | 'cargando' | null>>({});
@@ -145,9 +193,16 @@ export class ExpenseEvidenceDialogComponent {
     this.open.set(v);
     if (!v) this.reset();
   }
+  /** Cancelar con algo cargado pregunta; sin nada cargado, cierra y ya. */
+  pedirCerrar() {
+    if (Object.keys(this.fileNames()).length || this.comentarios.trim()) { this.confirmClose.set(true); return; }
+    this.onToggle(false);
+  }
+  descartar() { this.confirmClose.set(false); this.onToggle(false); }
   private reset() {
     this.fileData = {}; this.uploaded = {}; this.comentarios = '';
     this.fileNames.set({}); this.vision.set({}); this.error.set(''); this.saving.set(false);
+    this.extraAbiertos.set(false); this.confirmClose.set(false);
   }
 
   /** `p-fileupload` (modo básico) entrega el archivo en el evento, ya tipado. */
