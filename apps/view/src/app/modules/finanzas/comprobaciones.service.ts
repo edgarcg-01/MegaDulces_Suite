@@ -71,6 +71,12 @@ export interface CreateExpenseProof {
   receipt_legible?: boolean;
 }
 
+/** Una solicitud de Kepler como candidata para adjuntarle el comprobante. */
+export interface SolicitudSug {
+  folio: string; sucursal: string | null; fecha: string | null; solicitante: string | null;
+  beneficiario: string | null; concepto: string | null; estado: string | null; aplicada: boolean; importe: number;
+}
+
 /** Detalle + señal de si el bucket está configurado (para no confundir "sin adjunto" con "no lo puedo servir"). */
 export interface ExpenseProofDetail extends ExpenseProof { storage_ok?: boolean; }
 
@@ -79,10 +85,18 @@ export class ComprobacionesService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/expenses/proofs`;
 
-  list(q: { status?: string; folio_solicitud?: string; search?: string; from?: string; to?: string } = {}): Observable<ExpenseProofsReport> {
+  list(q: { status?: string; folio_solicitud?: string; search?: string; from?: string; to?: string; mine?: boolean } = {}): Observable<ExpenseProofsReport> {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<ExpenseProofsReport>(this.base, { params });
+  }
+  /**
+   * Busca la SOLICITUD contra la que se sube el comprobante. El folio se resuelve por
+   * valor numérico: teclear los últimos dígitos alcanza («23» → `0000023`).
+   */
+  searchSolicitudes(q: string, limit = 20): Observable<SolicitudSug[]> {
+    return this.http.get<SolicitudSug[]>(`${this.base}/search-solicitudes`,
+      { params: new HttpParams().set('q', q).set('limit', String(limit)) });
   }
   /** Sube UN archivo (base64 data URI) y devuelve su referencia (bucket privado). */
   uploadFile(file_base64: string, role: ProofFileRole): Observable<ProofFile> {

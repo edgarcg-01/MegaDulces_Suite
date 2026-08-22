@@ -12,13 +12,10 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
-import {
-  ComprobacionGastosService, GastoSug, ProofFile, ComprobacionFileRole,
-  ValidatePhotoResult, Comprobacion,
-} from '../comprobacion-gastos.service';
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof } from '../comprobaciones.service';
 
-/** Gasto de Kepler elegido (read-only) — el capturista solo confirma que es el correcto. */
-interface SelGasto { folio_gasto: string; proveedor: string | null; importe: number; sucursal: string | null; area: string | null; fecha: string | null; solicitud_folio: string | null; solicitud_importe: number | null; }
+/** Solicitud de Kepler elegida (read-only) — el capturista sólo confirma que es la correcta. */
+interface SelSolicitud { folio: string; beneficiario: string | null; importe: number; sucursal: string | null; solicitante: string | null; fecha: string | null; concepto: string | null; }
 
 /**
  * GX.8 — Vista del CAPTURISTA (rol `FINANCE_EXPENSES_CAPTURAR`). Superficie mínima:
@@ -46,34 +43,28 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
       <div class="card-premium card-flat cap-card">
         <!-- 1) Folio del gasto -->
         @if (!gasto()) {
-          <label class="cap-f"><span>1 · Folio del gasto (Kepler)</span>
+          <label class="cap-f"><span>1 · Folio de la solicitud (Kepler)</span>
             <p-autocomplete [(ngModel)]="sel" [suggestions]="sug()" (completeMethod)="buscar($event)"
               (onSelect)="pick($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-              placeholder="Ej. 7243, o nombre del proveedor…" appendTo="body" styleClass="w-full" />
-            <em class="cap-hint">Escribe el folio que te dieron; te muestro el gasto para confirmar.</em>
+              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body" styleClass="w-full" />
+            <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También podés buscar por beneficiario.</em>
           </label>
         } @else {
           <div class="cap-gasto">
             <div class="cap-g-top">
               <div>
-                <div class="cap-g-folio">Gasto <span class="mono">{{ gasto()!.folio_gasto }}</span></div>
-                <div class="cap-g-prov">{{ gasto()!.proveedor || '—' }}</div>
+                <div class="cap-g-folio">Solicitud <span class="mono">{{ gasto()!.folio }}</span></div>
+                <div class="cap-g-prov">{{ gasto()!.beneficiario || '—' }}</div>
               </div>
               <div class="cap-g-imp">{{ moneyFull(gasto()!.importe) }}</div>
             </div>
             <div class="cap-g-meta">
               @if (gasto()!.sucursal) { <span><i class="pi pi-map-marker"></i> {{ gasto()!.sucursal }}</span> }
-              @if (gasto()!.area) { <span><i class="pi pi-sitemap"></i> {{ gasto()!.area }}</span> }
+              @if (gasto()!.solicitante) { <span><i class="pi pi-user"></i> {{ gasto()!.solicitante }}</span> }
               @if (gasto()!.fecha) { <span><i class="pi pi-calendar"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
-            @if (gasto()!.solicitud_folio) {
-              <div class="cap-cuadre" [class.ok]="cuadra() === 'ok'" [class.bad]="cuadra() === 'bad'">
-                @if (cuadra() === 'ok') { <i class="pi pi-check-circle"></i> Cuadra con la solicitud {{ gasto()!.solicitud_folio }} · {{ moneyFull(gasto()!.solicitud_importe) }} }
-                @else if (cuadra() === 'bad') { <i class="pi pi-exclamation-triangle"></i> Ojo: la solicitud {{ gasto()!.solicitud_folio }} pide {{ moneyFull(gasto()!.solicitud_importe) }}, el gasto es {{ moneyFull(gasto()!.importe) }} }
-                @else { <i class="pi pi-info-circle"></i> Solicitud {{ gasto()!.solicitud_folio }} }
-              </div>
-            }
-            <button type="button" class="cap-link" (click)="reset()">cambiar gasto</button>
+            @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left"></i> {{ gasto()!.concepto }}</span></div> }
+            <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
           </div>
 
           <!-- 2) Comprobante -->
@@ -120,7 +111,7 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
             @for (m of mine(); track m.id) {
               <div class="cap-item">
                 <div class="cap-it-main">
-                  <span class="mono">{{ m.folio_gasto }}</span>
+                  <span class="mono">{{ m.folio_solicitud }}</span>
                   <span class="cap-it-prov">{{ m.proveedor }}</span>
                 </div>
                 <div class="cap-it-side">
@@ -128,8 +119,7 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
                   <p-tag [value]="statusLabel(m.status)" [severity]="statusSev(m.status)" />
                   <span class="cap-it-date">{{ m.created_at | date:'dd/MM HH:mm' }}</span>
                 </div>
-                @if (m.status === 'correccion' && m.motivo_rechazo) { <div class="cap-it-note warn"><i class="pi pi-undo"></i> Corrección: {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_gasto }}.</div> }
-                @else if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle"></i> {{ m.motivo_rechazo }}</div> }
+                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle"></i> {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_solicitud }}.</div> }
                 @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle"></i> {{ m.revision_nota }}</div> }
               </div>
             }
@@ -191,19 +181,19 @@ interface SelGasto { folio_gasto: string; proveedor: string | null; importe: num
 })
 export class FinanzasCapturarGastoComponent {
   readonly tabs = FINANZAS_TABS;
-  private readonly svc = inject(ComprobacionGastosService);
+  private readonly svc = inject(ComprobacionesService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  readonly gasto = signal<SelGasto | null>(null);
-  readonly sug = signal<(GastoSug & { label: string })[]>([]);
-  sel: (GastoSug & { label: string }) | string | null = null;
+  readonly gasto = signal<SelSolicitud | null>(null);
+  readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
+  sel: (SolicitudSug & { label: string }) | string | null = null;
   comentarios = '';
 
   readonly photoLoading = signal(false);
-  readonly photoResult = signal<ValidatePhotoResult | null>(null);
+  readonly photoResult = signal<ProofPhotoOcr | null>(null);
   readonly names = signal<Record<string, string>>({});
   private fileData: Record<string, string> = {};
   private uploaded: Record<string, ProofFile> = {};
@@ -211,31 +201,25 @@ export class FinanzasCapturarGastoComponent {
   readonly formError = signal('');
   readonly drag = signal(false);
 
-  readonly mine = signal<Comprobacion[]>([]);
+  readonly mine = signal<ExpenseProof[]>([]);
   readonly mineLoading = signal(false);
-
-  readonly cuadra = computed<'ok' | 'bad' | 'na'>(() => {
-    const g = this.gasto();
-    if (!g || g.solicitud_importe == null) return 'na';
-    const tol = Math.max(1, Math.abs(g.importe) * 0.01);
-    return Math.abs(g.importe - g.solicitud_importe) <= tol ? 'ok' : 'bad';
-  });
 
   constructor() { this.loadMine(); }
 
   buscar(ev: { query: string }) {
     const q = (ev.query || '').trim();
     if (q.length < 2) { this.sug.set([]); return; }
-    this.svc.searchGastos(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
-      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio_gasto} · ${r.proveedor || '—'} · ${this.moneyFull(r.importe)}` })));
+    this.svc.searchSolicitudes(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
+      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
       this.cdr.markForCheck();
     });
   }
 
-  pick(ev: { value: GastoSug & { label: string } } | (GastoSug & { label: string })) {
-    const g = (ev as { value: GastoSug & { label: string } }).value ?? (ev as GastoSug & { label: string });
+  pick(ev: { value: SolicitudSug & { label: string } } | (SolicitudSug & { label: string })) {
+    const g = (ev as { value: SolicitudSug & { label: string } }).value ?? (ev as SolicitudSug & { label: string });
     if (!g || typeof g === 'string') return;
-    this.gasto.set({ folio_gasto: g.folio_gasto, proveedor: g.proveedor, importe: Number(g.importe) || 0, sucursal: g.sucursal, area: g.area, fecha: g.fecha, solicitud_folio: g.solicitud_folio, solicitud_importe: g.solicitud_importe ?? null });
+    this.gasto.set({ folio: g.folio, beneficiario: g.beneficiario, importe: Number(g.importe) || 0,
+      sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto });
     this.sel = null;
   }
 
@@ -291,7 +275,7 @@ export class FinanzasCapturarGastoComponent {
     const roles = ['comprobacion'];
     const toUpload = roles.filter((r) => this.fileData[r] && !this.uploaded[r]);
     if (!toUpload.length) { this.create(); return; }
-    const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r as ComprobacionFileRole).pipe(
+    const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r as ProofFileRole).pipe(
       map((file) => ({ role: r, file: file as ProofFile | null })), catchError(() => of({ role: r, file: null as ProofFile | null })),
     ));
     forkJoin(ups).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((results) => {
@@ -306,24 +290,27 @@ export class FinanzasCapturarGastoComponent {
     const pr = this.photoResult();
     const files = ['comprobacion'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
-      folio_gasto: g.folio_gasto, sucursal: g.sucursal || undefined, comentarios: this.comentarios || undefined, files,
-      monto_ocr: pr?.total ?? null, subtotal_ocr: pr?.subtotal ?? null,
-      receipt_legible: pr ? (pr.ocr_status === 'ok' && pr.legible) : false,
+      folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
+      solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,
+      fecha_gasto: g.fecha ? String(g.fecha).slice(0, 10) : undefined, importe: g.importe || undefined,
+      comentarios: this.comentarios || g.concepto || undefined, files,
+      monto_ocr: pr?.monto_ocr ?? pr?.total ?? undefined, subtotal_ocr: pr?.subtotal ?? undefined,
+      receipt_legible: pr ? pr.ocr_status === 'ok' : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviado', detail: `Gasto ${g.folio_gasto} · pendiente de autorización` }); this.uploaded = {}; this.reset(); this.loadMine(); },
+      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviado', detail: `Solicitud ${g.folio} · pendiente de revisión` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar.'); },
     });
   }
 
   loadMine() {
     this.mineLoading.set(true);
-    this.svc.mine(50).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.list({ mine: true }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.mine.set(r.rows || []); this.mineLoading.set(false); },
       error: () => { this.mineLoading.set(false); },
     });
   }
 
-  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión', correccion: 'Corrección solicitada' } as Record<string, string>)[s] || s; }
-  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn', correccion: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
+  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s] || s; }
+  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }

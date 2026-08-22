@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery } from './expense-proofs.service';
 
-interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura + adjuntos
@@ -26,9 +26,16 @@ export class ExpenseProofsController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('mine') mine?: string,
     @Query('limit') limit?: string,
+    @Req() req?: AuthedRequest,
   ) {
-    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, limit: limit ? Number(limit) : undefined };
+    const q: ListExpenseProofsQuery = {
+      status, folio_solicitud, search, from, to,
+      // `mine` se resuelve del token, no de un parámetro: nadie pide "lo de otro".
+      mine: mine === 'true' ? (req?.user?.full_name || req?.user?.username || '') : undefined,
+      limit: limit ? Number(limit) : undefined,
+    };
     return this.svc.list(q);
   }
 
@@ -37,6 +44,13 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Catálogo canónico de departamentos (dimensión dpto del ERP, deduplicada).' })
   departamentos() {
     return this.svc.departamentos();
+  }
+
+  @Get('search-solicitudes')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: 'Busca la SOLICITUD (XA1501) contra la que se sube el comprobante. Folio por valor numérico (los últimos dígitos bastan) o beneficiario. Acotado a las áreas del usuario; sin áreas, sólo folio exacto.' })
+  searchSolicitudes(@Query('q') q: string, @Query('limit') limit?: string, @Req() req?: AuthedRequest) {
+    return this.svc.searchSolicitudes(q, limit ? Number(limit) : undefined, req?.user);
   }
 
   @Get('status-by-folio')
