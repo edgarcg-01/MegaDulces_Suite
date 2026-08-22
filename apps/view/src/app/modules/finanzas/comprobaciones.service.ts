@@ -31,6 +31,8 @@ export interface ExpenseProof {
   status: ProofStatus;
   monto_ocr?: number | null;      // total leído de la foto (Claude Vision)
   monto_match?: boolean | null;   // cuadró vs el importe de la solicitud
+  tiene_comprobacion?: boolean | null; // lo declara quien valida
+  comprobacion_nota?: string | null;
   revision_nota?: string | null;  // por qué quedó en revisión
   validated_by: string | null;
   validated_at: string | null;
@@ -120,7 +122,10 @@ export class ComprobacionesService {
   detail(id: string): Observable<ExpenseProofDetail> {
     return this.http.get<ExpenseProofDetail>(`${this.base}/${id}`);
   }
-  validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
+  /** Validar exige declarar si el gasto lleva comprobación (XA1001). */
+  validate(id: string, body: { tiene_comprobacion: boolean; comprobacion_nota?: string }): Observable<any> {
+    return this.http.post(`${this.base}/${id}/validate`, body);
+  }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.base}/departamentos`); }
   /** (C) folio_solicitud → estado, para el indicador en Solicitudes. */
