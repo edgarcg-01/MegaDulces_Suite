@@ -72,6 +72,7 @@ const TESTS = [
   { file: 'http-carga-load-status-test.js', label: 'Carga: checklist sí/no cargamos (load-status E2E)', needsApi: true },
   { file: 'http-tenant-isolation-test.js', label: 'B HTTP tenant isolation', needsApi: true },
   { file: 'http-analytics-test.js', label: 'C.0 analytics endpoints', needsApi: true },
+  { file: 'http-profitability-test.js', label: 'MR Motor de Rentabilidad (cascada de margen: bandas disjuntas suman el universo + total cuadra con overview en los 4 niveles + filtro por banda + palancas de proveedor declaran lo no atribuible)', needsApi: true },
   { file: 'http-analytics-mv-test.js', label: 'C.1 materialized views', needsApi: true },
   { file: 'http-alerts-ws-test.js', label: 'C.4 alerts WS realtime', needsApi: true },
   { file: 'http-portal-b2b-test.js', label: 'D.1 portal B2B + audit history', needsApi: true },
