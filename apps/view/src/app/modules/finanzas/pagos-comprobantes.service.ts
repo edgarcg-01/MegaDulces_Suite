@@ -48,9 +48,12 @@ export interface DepositOcr {
   banco_destino: string | null;
   metodo: string | null;
   ocr_status: string;
+  /** Hash de la hoja. Vuelve al adjuntar para que el servidor recupere ESTA lectura
+   *  y no le crea al request. */
+  sha256?: string;
 }
 
-export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null; }
+export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null; sha256?: string; }
 
 /** Un cargo del estado de cuenta (finance.bank_movements, amount_out). */
 export interface BankMovementMatch {

@@ -44,9 +44,12 @@ export interface DepositOcr {
   ordenante: string | null;
   metodo: string | null;
   ocr_status: string;
+  /** Hash de la hoja. Se devuelve al adjuntar para que el servidor recupere ESTA
+   *  lectura y no le crea al request. */
+  sha256?: string;
 }
 
-export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; sha256?: string; }
 
 /** Un abono del estado de cuenta (finance.bank_movements, fase CB). */
 export interface BankMovementMatch {
