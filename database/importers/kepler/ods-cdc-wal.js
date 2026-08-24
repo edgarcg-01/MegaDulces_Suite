@@ -128,25 +128,55 @@ async function run(code) {
     if (log.tag === 'delete') { const k = log.key || log.old || {}; e.rows.set(keyText(meta.pk, k), { op: 'D', row: k }); }
     else { const row = rowOf(log); e.rows.set(keyText(meta.pk, row), { op: 'U', row }); }
   });
-  service.on('error', (e) => console.error(`[${code}] error:`, e.message));
+  // Estado de la suscripción. Antes el fallo de `subscribe` sólo se logueaba a stderr y el
+  // proceso seguía vivo mandando latidos 'ok': el 23/08/2026 seis slots quedaron en
+  // wal_status='lost' y el monitor mostró los 7 carriles en verde **1.5 días** mientras 5
+  // sucursales no ingresaban nada. Un latido tiene que decir si ENTREGA, no si corre.
+  // OJO con la semántica: `subscribe()` es de larga duración — su promesa RESUELVE cuando el
+  // stream TERMINA, no cuando arranca. Así que no se puede usar el resolve como "está vivo"
+  // (probado: reportaba los 7 carriles como caídos). Se marca la MUERTE: rechazo, error del
+  // service, o resolución (= el stream se cerró).
+  let muerta = null;
+  service.on('error', (e) => { muerta = e.message; console.error(`[${code}] error:`, e.message); });
 
-  service.subscribe(plugin, slotName(code)).catch((e) => console.error(`[${code}] subscribe:`, e.message));
+  service.subscribe(plugin, slotName(code))
+    .then(() => { muerta = muerta || 'el stream de replicación terminó'; })
+    .catch((e) => { muerta = e.message; console.error(`[${code}] subscribe:`, e.message); });
 
   // CDC.5 — latido → cron_runs (via feeds-ingest). Lee el lag del slot del :5433 (una conexión
   // aparte; la de replicación la tiene el service). db-health hace dead-man's switch: si el
   // consumidor muere y cron_runs se congela → ROJO antes de que el slot llene el disco.
   async function heartbeat() {
-    let note = 'sin slot', status = 'ok';
+    // `status` sale de si el carril PUEDE entregar, no de si el proceso está arriba. Los cuatro
+    // modos de muerte silenciosa que había: slot ausente, slot INACTIVO, wal_status='lost'
+    // (Postgres lo invalidó por pasarse de max_slot_wal_keep_size) y suscripción caída.
+    let note = 'sin slot', status = 'error';
     const c = new Client(localCfg(code));
     try {
       await c.connect();
-      const r = (await c.query(`SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS lag FROM pg_replication_slots WHERE slot_name=$1`, [slotName(code)])).rows[0];
-      if (r) {
+      const r = (await c.query(`SELECT active, wal_status,
+          pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS lag
+        FROM pg_replication_slots WHERE slot_name=$1`, [slotName(code)])).rows[0];
+      if (!r) {
+        note = `slot ${slotName(code)} NO EXISTE — el carril no está capturando nada`;
+      } else {
         const mb = (Number(r.lag) || 0) / 1048576;
-        note = `lag ${mb.toFixed(1)}MB · ↑U${stats.shipU} ↑D${stats.shipD} · slot ${r.active ? 'activo' : 'INACTIVO'}`;
-        if (mb > WARN_LAG_MB) status = 'error';
+        const perdido = ['lost', 'unreserved'].includes(String(r.wal_status));
+        note = `lag ${mb.toFixed(1)}MB · ↑U${stats.shipU} ↑D${stats.shipD} · slot ${r.active ? 'activo' : 'INACTIVO'}`
+          + ` · wal ${r.wal_status}` + (muerta ? ` · SUSCRIPCIÓN CAÍDA: ${String(muerta).slice(0, 60)}` : '');
+        if (perdido) {
+          // El WAL de ese periodo ya no existe: reiniciar NO alcanza. Se dice qué hacer.
+          note = `slot ${r.wal_status.toUpperCase()} — requiere: ods-cdc-wal.js --drop-slot --branch=${code}`
+            + ` + reinicio + backfill (replicate-ods-live.js --branch=${code} --apply). ${note}`;
+          status = 'error';
+        } else if (!r.active || muerta || mb > WARN_LAG_MB) {
+          status = 'error';
+        } else {
+          status = 'ok';
+        }
       }
-    } catch (e) { note = `lag n/d: ${String(e.message).slice(0, 40)}`; } finally { await c.end().catch(() => {}); }
+    } catch (e) { note = `lag n/d: ${String(e.message).slice(0, 40)}`; status = 'error'; }
+    finally { await c.end().catch(() => {}); }
     try { await sink.ship('cdc-heartbeat', { rows: [{ job_key: `cdc_wal_${code}`, label: `CDC WAL sucursal ${code}`, status, note, host: 'cdc-lan' }], tenantId: TENANT }); }
     catch (e) { console.error(`[${code}] heartbeat: ${String(e.message).slice(0, 60)}`); }
   }
