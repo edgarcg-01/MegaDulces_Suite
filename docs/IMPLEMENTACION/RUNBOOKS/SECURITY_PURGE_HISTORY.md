@@ -9,13 +9,13 @@
 
 ## ⚠️ Antes de empezar (no negociable)
 
-1. **ROTAR los 3 passwords en Railway PRIMERO.** Purgar el historial NO deshace
-   la exposición — el secreto ya salió a un repo remoto (asumir comprometido).
+1. **ROTAR TODOS los secretos PRIMERO** — ver la checklist completa en
+   [`ROTACION_SECRETOS.md`](ROTACION_SECRETOS.md). El alcance creció más allá de los 3
+   passwords de DB: incluye `JWT_SECRET`, `APP_RUNTIME_PASSWORD`, y todas las API keys
+   (Anthropic/Voyage/Groq/Mapbox/Neo4j/StoreIngest/WhatsApp/etc.). Purgar el historial NO
+   deshace la exposición — el secreto ya salió a repos remotos (asumir comprometido).
    La rotación es lo único que cierra el hueco; la purga es higiene.
-   - DB nueva multi-tenant (`trolley.proxy.rlwy.net:39023/railway`)
-   - Vector DB (`acela.proxy.rlwy.net:37056/railway`)
-   - DB legacy (`switchback.proxy.rlwy.net:16885/railway`)
-   Tras rotar: actualizar `.env` local + variables de entorno en Railway + redeploy.
+   Tras rotar: actualizar `.env` local + variables de entorno en Railway + redeploy + re-login.
 2. **Si el repo es/fue público:** además de rotar, pedir a GitHub Support que
    purgue las vistas cacheadas de los commits viejos (el force-push no borra
    commits ya indexados/forkeados por terceros).
@@ -58,13 +58,21 @@ git filter-repo --invert-paths \
   --path database/_kep.js --path database/_kep2.js --path .claude/settings.local.json
 ```
 
-### 4. Re-agregar remoto y force-push
-`filter-repo` elimina el remoto por seguridad. Re-agregarlo y empujar:
+### 4. Re-agregar remotos y force-push
+`filter-repo` elimina los remotos por seguridad. **Hay DOS remotes — purgar AMBOS:**
 ```bash
+# origin = Trade_marketing (el repo activo del equipo)
+git remote add origin https://github.com/edgarcg-01/Trade_marketing.git
+git push origin --force --all
+git push origin --force --tags
+
+# logistica = Megadulces-Logistica (repo espejo/viejo, mismo leak)
 git remote add logistica https://github.com/edgarcg-01/Megadulces-Logistica.git
 git push logistica --force --all
 git push logistica --force --tags
 ```
+> ⚠️ Con branch protection en `main`, el force-push requiere que `enforce_admins` esté OFF
+> (o desactivar temporalmente la protección para el force-push y reactivarla después).
 
 ### 5. Verificación post-purga
 Verificar con cada password (tomar los valores del archivo scratch, NO pegarlos aquí):
