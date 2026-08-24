@@ -119,21 +119,20 @@ Esto se arregla **en Kepler** — la plataforma no corrige al ERP. Lo que sí co
 
 ---
 
-## 6. Defecto encontrado: `kdii` de la sucursal 03 desincronizada en el ODS
+## 6. Trampa: `md_03` NO es la sucursal 03
 
-Comparando fila por fila el origen (réplica local) contra `kepler_ods.kdii`:
+En `localhost:5433` conviven dos bases que parecen la sucursal 03. **Sólo una está viva:**
 
-| suc | origen | ODS | iguales | **difieren** | sólo origen | sólo ODS |
-|---|---|---|---|---|---|---|
-| 00 | 9,503 | 9,524 | 9,414 | 89 | 0 | 21 |
-| 01 | 9,499 | 9,521 | 9,498 | 1 | 0 | 22 |
-| 02 | 9,504 | 9,525 | 9,502 | 2 | 0 | 21 |
-| **03** | **9,249** | **9,523** | **6,789** | **2,444** | **16** | **290** |
-| 04 | 9,502 | 9,523 | 9,498 | 4 | 0 | 21 |
-| 05 | 9,500 | 9,521 | 9,500 | 0 | 0 | 21 |
-| 06 | 9,489 | 9,493 | 9,487 | 2 | 0 | 4 |
+| base | `md.kdm1` | último movimiento | bitácora hasta | qué es |
+|---|---|---|---|---|
+| **`kepler_pilot`** | 213,765 | **hoy** | **hoy** | **la sucursal 03 VIVA** (réplica lógica) |
+| `md_03` | 162,782 | 2026-06-15 | 2026-06-15 | restore de `BACKUP.sql`, congelado — se usó para descifrar el esquema |
 
-**El 26% del catálogo de precios de la sucursal 03 está desincronizado**, más 290 filas en el ODS que ya no existen en el origen. Las otras seis están sanas. Es un hueco del CDC específico de esa rama (su base se llama `md_03`, no `kepler_md_03` como las demás — vale revisar si el carril la trata distinto).
+El CDC lo tiene bien: [`ods-cdc-wal.js:40`](../../database/importers/kepler/ods-cdc-wal.js) mapea `'03' → kepler_pilot`. **`kepler_ods` está fiel al origen en las 7 sucursales.**
+
+El nombre engaña y ya costó un diagnóstico equivocado en esta misma investigación: comparar contra `md_03` produce 2,444 "diferencias" que en realidad son dos meses de cambios que el dump nunca vio. Ningún feed de producción lee `md_03`; sólo scripts de diagnóstico sueltos.
+
+**Dato revelador de la comparación:** en junio, la sucursal 03 tenía `90042` a $27.96/$1,242.14 (correcto). Hoy tiene $8.48/$16.94/$360.87 — la plantilla. **Las plantillas de §5 se estamparon después de junio y siguen apareciendo**, mientras la bitácora de esa misma sucursal registró `PAQ = $27.96` el 20-ago. Es la prueba más limpia de que `kdii` se corrompe y la bitácora no.
 
 ---
 
