@@ -24,6 +24,7 @@ export interface SalesDocsQuery {
   vendedor_code?: string;
   search?: string;         // cliente / RFC / folio / monto
   vencidas?: string;       // 'true' → sólo las que ya vencieron
+  canceladas?: string;     // 'true' → incluir las canceladas en Kepler (por defecto NO)
   min?: string;            // importe mínimo
   page?: number;
   pageSize?: number;
@@ -61,6 +62,10 @@ export class CommercialSalesDocumentsService {
       .andWhere('i.fecha', '>=', from)
       .andWhere('i.fecha', '<=', to);
 
+    // Las canceladas (kdm1.c43='C') son 280 documentos en $0 que no son ventas: fuera del
+    // listado y de los KPIs salvo que se pidan explícitamente.
+    if (q.canceladas !== 'true') b.andWhere('i.cancelada', false);
+
     const whs = this.whIds(q);
     if (whs.length) b.whereIn('i.warehouse_id', whs);
     if (q.doc_tipo && (DOC_TIPOS as readonly string[]).includes(q.doc_tipo)) b.andWhere('i.doc_tipo', q.doc_tipo);
@@ -91,6 +96,7 @@ export class CommercialSalesDocumentsService {
             'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
             'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
             'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
+            'i.doc_estatus', 'i.cancelada',
             trx.raw('(i.vencimiento < current_date) AS vencida'),
             trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
           )
@@ -131,62 +137,108 @@ export class CommercialSalesDocumentsService {
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
         .select('linea', 'sku', 'descripcion', 'unidad', 'cantidad', 'precio_unitario',
-                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'product_id')
+                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'product_id',
+                'box_factor', 'box_factor_source', 'box_factor_dudoso')
         .orderBy('linea');
 
       // derivar() devuelve `lineas` ya enriquecidas (descuento/neto/precios por unidad) → esas mandan.
-      return { ...doc, ...this.derivar(doc, lineas) };
+      // `sin_detalle`: 95 facturas traen un único renglón de SERVICIO y quedan sin producto;
+      // la pantalla no debe ofrecer el anexo ahí (el PDF también lo rechaza).
+      return { ...doc, sin_detalle: lineas.length === 0, ...this.derivar(doc, lineas) };
     });
   }
 
   /**
-   * Derivados del anexo. El descuento por renglón se reparte por MAYOR RESIDUO para que
-   * las columnas sumen EXACTO el descuento del documento: redondear cada línea por separado
-   * daba $1,357.89 contra $1,357.87 reales, y el cliente que sumara no cuadraba.
+   * Derivados del anexo. Kepler NO persiste el descuento por renglón, sólo el total del
+   * documento, así que la diferencia (bruto − total) se reparte proporcional al importe de
+   * cada línea, por MAYOR RESIDUO, para que la columna NETO sume **exacto** el total del CFDI:
+   * es lo único que el cliente puede verificar con una calculadora.
+   *
+   * NO se usa `kdud.c17` como base del reparto (lo hacía antes y fallaba en 593 de 5,128
+   * facturas): hay **802 documentos con 0% en el catálogo y descuento real** —hasta $761— y
+   * **348 donde el total es MAYOR que la suma de las líneas** (redondeo a favor del cliente),
+   * o sea que el objetivo puede ser negativo. El % del catálogo se queda sólo como referencia;
+   * la tasa que se muestra es la **efectiva** de este documento.
    */
   private derivar(doc: any, lineas: any[]) {
     const r2 = (n: number) => Math.round(n * 100) / 100;
-    const importes = lineas.map((l) => Number(l.importe));
+    const importes = lineas.map((l) => Number(l.importe) || 0);
     const bruto = r2(importes.reduce((a, b) => a + b, 0));
-    const pct = Number(doc.descuento_pct) || 0;
+    const total = Number(doc.total) || 0;
 
-    // Objetivo = lo que realmente se descontó (bruto − total), no un % recalculado.
-    const objetivo = Math.round((bruto - Number(doc.total)) * 100);
-    const piso = importes.map((v) => Math.floor((v * pct) / 100 * 100));
-    const resto = importes
-      .map((v, i) => ({ i, f: (v * pct) / 100 * 100 - piso[i] }))
-      .sort((a, b) => b.f - a.f);
-    const cents = [...piso];
-    for (let k = 0; k < Math.max(0, objetivo - piso.reduce((a, b) => a + b, 0)); k++) {
-      if (resto[k]) cents[resto[k].i] += 1;
-    }
+    // ¿El detalle EXPLICA el total? Medido sobre las 5,128 facturas con renglones: 4,973 tienen
+    // hueco ~0, 139 un descuento plausible (≤15%) y 9 un redondeo negativo mínimo. Las 8 que se
+    // salen son 2 canceladas y **6 con el detalle incompleto en Kepler** (renglones que arrancan
+    // en L7/L3/L5 — falta el principio del documento). Repartir ahí inflaría los pocos productos
+    // que sí están (una llegaba a +56%), así que no se reparte nada y el anexo se niega a salir.
+    const gapPct = bruto > 0 ? ((bruto - total) / bruto) * 100 : 100;
+    const explica = bruto > 0 && Math.abs(gapPct) <= 15;
+
+    const objetivo = explica ? Math.round((bruto - total) * 100) : 0; // centavos, CON signo
+    const signo = objetivo < 0 ? -1 : 1;
+    const meta = Math.abs(objetivo);
+    // Peso = participación de la línea en el importe (si el bruto es 0, reparto parejo).
+    const n = importes.length || 1;
+    const exacto = bruto > 0
+      ? importes.map((v) => (meta * v) / bruto)
+      : importes.map(() => meta / n);
+    const cents = exacto.map((v) => Math.floor(v));
+    // el residuo (< n centavos por construcción) va a las líneas de mayor fracción
+    const orden = exacto
+      .map((v, i) => ({ i, f: v - Math.floor(v) }))
+      .sort((a, b) => b.f - a.f || a.i - b.i);
+    let faltan = meta - cents.reduce((a, b) => a + b, 0);
+    for (let k = 0; faltan > 0 && orden.length; k++, faltan--) cents[orden[k % orden.length].i] += 1;
 
     const detalle = lineas.map((l, i) => {
-      const d = (cents[i] || 0) / 100;
+      const d = r2((signo * (cents[i] || 0)) / 100);
       const precio = Number(l.precio_unitario);
       const cant = Number(l.cantidad);
-      // UNIDADES VERBATIM DE KEPLER (regla 2026-08-24: cero unidades inventadas).
-      // El factor kdii.c84 relaciona la unidad de VENTA del catálogo (kdii.c11) con su BULTO
-      // (kdii.c83). Solo aplica si (a) hay factor >1, (b) el bulto está capturado, y (c) la
-      // línea se vendió EN la unidad del catálogo — hay líneas vendidas en otra unidad (93 en
-      // 90d) donde la equivalencia sería falsa.
-      const factorAplica = !!(l.factor_caja && Number(l.factor_caja) > 1 && l.unidad_bulto
+      // Tasa EFECTIVA de esta línea: el precio con descuento tiene que ser consistente con
+      // el descuento que realmente se le repartió, no con un % de catálogo que puede ser 0.
+      const importe = Number(l.importe) || 0;
+      const tasa = importe > 0 ? d / importe : 0;
+      // UNIDADES VERBATIM DE KEPLER + RELACIÓN DE EMPAQUE CANÓNICA (2026-08-24).
+      //
+      // Las etiquetas (unidad de línea `kdm2.c11`, bulto `kdii.c83`) van tal cual de Kepler.
+      // El FACTOR, en cambio, sale de `analytics.v_product_box_factor` — el resolvedor único
+      // que ya leen compras/sell-out/salidas (override > c84 > etiquetera > factor_sale, con
+      // guarda anti-pallet). Leer `c84` crudo acá hacía que 212 líneas contradijeran al resto
+      // del sistema (granel con override=1) y que otras 13,935 escondieran la equivalencia.
+      //
+      // Se imprime sólo si se puede afirmar honestamente:
+      //   (a) el canónico da > 1                     — con 1, el humano dijo "no convertir"
+      //   (b) el canónico no está marcado dudoso     — `is_master_suspect`: c84 parece pallet
+      //   (c) el bulto está capturado y difiere de la unidad de la línea
+      //   (d) la línea se vendió EN la unidad del catálogo (si no, el factor no la describe)
+      const canon = Number(l.box_factor) || 0;
+      const factorAplica = !!(canon > 1 && !l.box_factor_dudoso && l.unidad_bulto
         && l.unidad && l.unidad_venta && String(l.unidad) === String(l.unidad_venta)
         && String(l.unidad_bulto) !== String(l.unidad));
-      const factor = factorAplica ? Number(l.factor_caja) : null;
+      const factor = factorAplica ? canon : null;
       const cajas = factor && cant / factor >= 1 ? cant / factor : null;
       return {
         ...l,
         descuento: d,
-        neto: r2(Number(l.importe) - d),
-        precio_con_descuento: r2(precio * (1 - pct / 100)),
+        neto: r2(importe - d),
+        precio_con_descuento: r2(precio * (1 - tasa)),
         precio_caja: factor ? r2(precio * factor) : null,
-        precio_caja_con_descuento: factor ? r2(precio * factor * (1 - pct / 100)) : null,
+        precio_caja_con_descuento: factor ? r2(precio * factor * (1 - tasa)) : null,
         cajas_equivalentes: cajas,
-        factor_caja: factor, // ya validado; null si no aplica a esta línea
+        // el factor que SE MUESTRA (canónico y validado); null si no aplica a esta línea.
+        // `factor_caja` sigue viajando intacto desde la vista = c84 crudo, para trazabilidad.
+        factor_bulto: factor,
       };
     });
-    return { importe_bruto: bruto, lineas: detalle };
+    return {
+      importe_bruto: bruto,
+      descuento_aplicado: explica ? r2(bruto - total) : 0,
+      // tasa efectiva REAL del documento (la del catálogo miente en 802 facturas)
+      descuento_pct_efectivo: explica ? r2(gapPct) : 0,
+      /** false ⇒ los renglones no suman el total del CFDI: no hay anexo confiable que emitir */
+      detalle_explica_total: explica,
+      lineas: detalle,
+    };
   }
 
   /** Catálogos para poblar los filtros de la pantalla (de la misma ventana consultada). */

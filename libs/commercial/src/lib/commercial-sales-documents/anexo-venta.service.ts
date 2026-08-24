@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as puppeteer from 'puppeteer';
@@ -52,6 +52,25 @@ export class AnexoVentaService {
 
   async pdfDeFolio(folioDigital: string, opts: AnexoOpts = {}): Promise<Buffer> {
     const doc = await this.docs.detail(folioDigital);
+    // Un anexo sólo tiene sentido si hay mercancía y el documento vive. Sin estas dos guardas
+    // se imprimían dos documentos falsos (barrido 2026-08-24): 15 facturas CANCELADAS que
+    // conservan sus renglones (mostraban $43,904 de producto con total $0) y 95 facturas cuyo
+    // único renglón es de SERVICIO (tabla de productos vacía, total de hasta $439,527).
+    if (doc.cancelada) {
+      throw new BadRequestException(
+        `La factura ${folioDigital} está cancelada en Kepler (estatus ${doc.doc_estatus}): no se emite anexo.`);
+    }
+    if (!doc.lineas?.length) {
+      throw new BadRequestException(
+        `La factura ${folioDigital} no tiene renglones de producto (sólo servicio): no hay detalle que anexar.`);
+    }
+    // 6 facturas traen el detalle incompleto en Kepler (renglones que empiezan en L7/L3/L5): las
+    // columnas no pueden sumar el total del CFDI, que es justo lo que este anexo promete.
+    if (doc.detalle_explica_total === false) {
+      throw new BadRequestException(
+        `El detalle de ${folioDigital} no suma el total del CFDI (renglones $${doc.importe_bruto} vs total $${doc.total}): `
+        + 'el documento está incompleto en Kepler y no se emite anexo.');
+    }
     // El pagaré va SIEMPRE (decisión Edgar 2026-08-22); `pagare:false` lo omite explícitamente.
     return this.renderPdf(this.html(doc, { pagare: opts.pagare !== false }), this.pie(doc));
   }
@@ -196,8 +215,17 @@ export class AnexoVentaService {
   private html(doc: any, opts: AnexoOpts): string {
     const L = [...(doc.lineas || [])].sort((a: any, b: any) =>
       String(a.descripcion || '').localeCompare(String(b.descripcion || ''), 'es'));
-    const pct = Number(doc.descuento_pct) || 0;
+    // Tasa EFECTIVA del documento, no la del catálogo: 802 facturas traen 0% en `kdud.c17` y
+    // sí tienen descuento real, y en 348 el total es mayor que la suma de líneas (ajuste a
+    // favor del cliente) → el signo puede ser negativo.
+    const pct = Number(doc.descuento_pct_efectivo ?? doc.descuento_pct) || 0;
     const ahorro = Number(doc.importe_bruto) - Number(doc.total);
+    const pctTxt = Number.isInteger(pct) ? String(pct) : pct.toFixed(2);
+    const colDesc = ahorro >= 0 ? `Desc. ${pctTxt}%` : 'Ajuste';
+    // 4,973 de 5,128 facturas no traen descuento: sin esto la tabla imprimía "Desc. 0%", una
+    // columna entera de "−$0.00" y dos columnas de precio idénticas. Si no hay descuento, las
+    // tres columnas del descuento no existen y el importe es el neto.
+    const conDesc = Math.abs(ahorro) > 0.005;
 
     const filas = L.map((l: any) => {
       const cant = Number(l.cantidad);
@@ -208,20 +236,23 @@ export class AnexoVentaService {
       const bulto = this.unidad(l.unidad_bulto);
       const eq = l.cajas_equivalentes && bulto
         ? `<span class="q-eq">= ${l.cajas_equivalentes} ${bulto}</span>` : '';
-      const fac = l.factor_caja && bulto
-        ? `<span class="q-eq2">${Number(l.factor_caja)} ${un} por ${bulto}</span>` : '';
+      const fac = l.factor_bulto && bulto
+        ? `<span class="q-eq2">${Number(l.factor_bulto)} ${un} por ${bulto}</span>` : '';
       const caja = l.precio_caja && bulto
         ? `<span class="pu2">${this.m(l.precio_caja)}</span><span class="pl">por ${bulto}</span>` : '';
       const cajaD = l.precio_caja_con_descuento && bulto
         ? `<span class="pu2 pd">${this.m(l.precio_caja_con_descuento)}</span><span class="pl">por ${bulto}</span>` : '';
+      const colsDesc = conDesc ? `
+        <td class="u-price c-hl"><span class="pu pd">${this.m(l.precio_con_descuento)}</span><span class="pl">por ${un || 'unidad'}</span>${cajaD}</td>
+        <td class="imp">${this.m(l.importe)}</td>
+        <td class="desc">${Number(l.descuento) < 0 ? '+' : '−'}${this.m(Math.abs(Number(l.descuento)))}</td>
+        <td class="neto">${this.m(l.neto)}</td>`
+        : `<td class="neto">${this.m(l.importe)}</td>`;
       return `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div></td>
         <td class="qcell"><span class="q-main">${this.cantidadConUnidad(cant, l.unidad)}</span>${eq}${fac}</td>
         <td class="u-price"><span class="pu">${this.m(l.precio_unitario)}</span><span class="pl">por ${un || 'unidad'}</span>${caja}</td>
-        <td class="u-price c-hl"><span class="pu pd">${this.m(l.precio_con_descuento)}</span><span class="pl">por ${un || 'unidad'}</span>${cajaD}</td>
-        <td class="imp">${this.m(l.importe)}</td>
-        <td class="desc">−${this.m(l.descuento)}</td>
-        <td class="neto">${this.m(l.neto)}</td>
+        ${colsDesc}
       </tr>`;
     }).join('\n');
 
@@ -260,6 +291,9 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:10.5pt}
 col.c-prod{width:22%}col.c-cant{width:14.5%}col.c-pu{width:13%}col.c-pd{width:14%}
 col.c-imp{width:12%}col.c-desc{width:11.5%}col.c-neto{width:13%}
+/* sin descuento son 4 columnas: el producto se queda con el espacio que sobra */
+table.det.sin-desc col.c-prod{width:42%}table.det.sin-desc col.c-cant{width:21%}
+table.det.sin-desc col.c-pu{width:19%}table.det.sin-desc col.c-neto{width:18%}
 table.det thead{display:table-header-group}
 table.det thead th{font-size:8pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
   text-align:right;padding:8px 7px;border-bottom:1.5px solid var(--ink)}
@@ -374,10 +408,14 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 
 <div class="sec-h"><h2>¿Qué compraste?</h2>
   <span>${L.length} producto${L.length === 1 ? '' : 's'}, en orden alfabético · precios finales (IEPS incluido · IVA 0%)</span></div>
-<table class="det">
-  <colgroup><col class="c-prod"><col class="c-cant"><col class="c-pu"><col class="c-pd"><col class="c-imp"><col class="c-desc"><col class="c-neto"></colgroup>
-  <thead><tr><th class="l">Producto</th><th class="l">Cantidad</th><th>Precio de lista</th>
-    <th class="hl">Precio con descuento</th><th>Importe</th><th>Desc. ${pct}%</th><th>Neto</th></tr></thead>
+<table class="det${conDesc ? '' : ' sin-desc'}">
+  <colgroup><col class="c-prod"><col class="c-cant"><col class="c-pu">${conDesc
+    ? '<col class="c-pd"><col class="c-imp"><col class="c-desc"><col class="c-neto">'
+    : '<col class="c-neto">'}</colgroup>
+  <thead><tr><th class="l">Producto</th><th class="l">Cantidad</th><th>Precio${conDesc ? ' de lista' : ''}</th>
+    ${conDesc
+      ? `<th class="hl">Precio con descuento</th><th>Importe</th><th>${colDesc}</th><th>Neto</th>`
+      : '<th>Importe</th>'}</tr></thead>
   <tbody>${filas}</tbody>
 </table>
 
@@ -385,12 +423,13 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
   <div class="letra">
     <div class="cl">Importe con letra</div>
     <div class="cv">${this.conLetra(Number(doc.total))}</div>
-    ${ahorro > 0 ? `<div class="save-line">Ahorraste ${this.m(ahorro)} con tu ${pct}% de descuento.</div>
-    <div class="save-note">En tu CFDI ese mismo ${pct}% se registra como descuento de ${this.m(doc.descuento)}, porque el SAT lo calcula sobre el precio sin IEPS. Pagas exactamente el mismo total.</div>` : ''}
+    ${ahorro > 0 ? `<div class="save-line">Ahorraste ${this.m(ahorro)} en este pedido (${pctTxt}% sobre el importe de lista).</div>
+    ${Number(doc.descuento) > 0 ? `<div class="save-note">En tu CFDI ese descuento se registra como ${this.m(doc.descuento)}, porque el SAT lo calcula sobre el precio sin IEPS. Pagas exactamente el mismo total.</div>` : ''}` : ''}
   </div>
   <div class="tot">
-    <div class="r"><span class="l">Importe (${L.length} productos)</span><span class="v">${this.m(doc.importe_bruto)}</span></div>
-    ${ahorro > 0 ? `<div class="r saved"><span class="l">Descuento comercial · ${pct}%</span><span class="v">−${this.m(ahorro)}</span></div>` : ''}
+    ${conDesc ? `<div class="r"><span class="l">Importe (${L.length} productos)</span><span class="v">${this.m(doc.importe_bruto)}</span></div>` : ''}
+    ${ahorro > 0 ? `<div class="r saved"><span class="l">Descuento comercial · ${pctTxt}%</span><span class="v">−${this.m(ahorro)}</span></div>` : ''}
+    ${ahorro < 0 ? `<div class="r"><span class="l">Ajuste a tu favor</span><span class="v">+${this.m(Math.abs(ahorro))}</span></div>` : ''}
     <div class="r memo"><span class="l">Incluye IEPS</span><span class="v">${this.m(doc.ieps)}</span></div>
     <div class="grand"><span class="l">Total a pagar</span><span class="v">${this.m(doc.total)}</span></div>
   </div>

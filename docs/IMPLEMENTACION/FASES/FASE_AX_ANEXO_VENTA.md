@@ -49,6 +49,23 @@ La capa de presentación traducía con un mapa fijo `{CJA,PAQ,PZA,KG}` y plurali
 
 **Verificación (prod, 2026-08-24):** el smoke compara la vista contra `kdm2.c11` / `kdii.c11`/`c83`/`c84` **crudos**, línea por línea (30/30). Un test de mutación (inyectar `PAQ→paquetes`) confirma que la aserción muerde. El smoke quedó registrado en `run-all-tests.js` con skip-graceful si faltan las vistas.
 
+### Barrido total: 5,501 facturas × 35,877 renglones (2026-08-24)
+
+Se comparó **cada** renglón contra Kepler crudo (FULL OUTER JOIN) y se corrió el `derivar()` real del service sobre toda la población. La fidelidad del espejo salió perfecta —0 faltantes, 0 sobrantes, 0 duplicados, 0 diferencias de unidad/factor/cantidad/precio/importe— pero salieron **cuatro defectos propios** y **dos huecos de datos del ERP**:
+
+| # | Qué estaba mal | Alcance | Corrección |
+|---|---|---|---|
+| 1 | El descuento por renglón se repartía usando `kdud.c17`; con 0% en catálogo el reparto no alcanzaba el objetivo y con objetivo negativo no corría | **593 de 5,128** facturas: la columna NETO no sumaba el total del CFDI (802 con 0% y descuento real hasta $761; 348 con total > Σlíneas) | reparto proporcional al importe, por mayor residuo, con signo → Σ NETO == total **exacto** en las 5,120 que reconcilian |
+| 2 | El factor de empaque salía de `kdii.c84` crudo, ignorando el resolvedor canónico | **212 líneas / 195 facturas** contradecían al resto del sistema; **13,935** escondían la equivalencia | la vista trae `box_factor` de `analytics.v_product_box_factor`; se imprime sólo si >1 y no `is_master_suspect` |
+| 3 | Las canceladas se listaban como ventas y 2 conservan renglones | **280** facturas en $0; el anexo llegaba a mostrar $43,904 de mercancía con total $0 | `doc_estatus`/`cancelada` (`kdm1.c43='C'`); fuera del listado y del PDF |
+| 4 | Tabla con "Desc. 0%", columna de `−$0.00` y dos columnas de precio idénticas | **4,973 de 5,128** facturas no traen descuento | sin descuento, la tabla es de 4 columnas y el producto gana el espacio |
+| 5 | *(dato ERP)* facturas cuyo único renglón es de servicio | 95 con total > 0 (hasta $439,527) | `sin_detalle`; el PDF se niega |
+| 6 | *(dato ERP)* detalle incompleto: renglones que arrancan en L7/L3/L5 | **6** facturas; una habría inflado sus 2 productos +56% | `detalle_explica_total` (hueco ≤15%, medido: 5,120/5,128 caen dentro); el PDF se niega |
+
+Extra: `02UD0801-0001080` L1 tiene `importe` $12.36 con `1 PAQ × $85.55` — inconsistencia de Kepler en **1 de 35,877** renglones; se muestra verbatim, no se corrige.
+
+**Verificado:** barrido total 16/16 · 14 documentos límite renderizados y auditados (unidades KG/CUB/500/250/2KG/400 y bulto BTO, granel con override, 81 renglones) + los 3 rechazos disparando, 59/59 · factura ancla 53/53 · smoke prod 30/30.
+
 ---
 
 ## Arquitectura
@@ -117,9 +134,11 @@ Leyenda: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 
 ## Pendiente para prod
 
-1. Aplicar migraciones `20260822140000` (vistas) y `20260822140100` (índices) en Railway.
+1. `npm run migrate:new` — aplica lo que falte de: `20260822140000` (vistas) ✅, `20260822140100` (índices) ✅, `20260824120000` (unidades) ✅, **`20260824140000` (estatus + empaque canónico) ⬜**.
 2. `node database/tests/test-newdb-erp-sales-invoices.js` (avisa si quedó lento = faltó la de índices).
 3. Redeploy api + view.
+
+**Orden obligatorio: migración ANTES del redeploy.** El service pide `cancelada`, `box_factor`, `box_factor_dudoso`; con la vista vieja el detalle tira 500.
 
 Sin el paso 1 la pantalla carga vacía: las vistas no existen en prod.
 
