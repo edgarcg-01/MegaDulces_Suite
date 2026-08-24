@@ -197,13 +197,19 @@ const APP_SOURCES: SourceCfg[] = [
   //  (a) REZAGO ACTUAL: la MÁS vieja de las 3 (min de max business_date) → un almacén que dejó de
   //      alimentar salta aunque los otros estén frescos.
   {
-    key: 'wincaja_branch_stale', label: 'Wincaja — almacén rezagado (30/32/50)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    key: 'wincaja_branch_stale', label: 'Wincaja — almacén rezagado', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    // La lista de sucursales NO va hardcodeada: se deriva de `wincaja.branches` con el mismo
+    // predicado que usa la vista de recepciones (`kepler_code IS NULL` = sigue en Wincaja).
+    // Estaba fijo en ('30','32','50') y Canindo (50) migró a Kepler (kepler_code='06') el
+    // 21/08/2026: su .mdb dejó de moverse para siempre y esta alerta quedó crítica de forma
+    // permanente (276 h el 24/08) — una alarma que nunca se puede apagar entrena a ignorarlas.
     sql: `SELECT min(last_sale)::timestamp AS last_update,
                  string_agg(source_branch || ':' || to_char(last_sale,'DD/MM'), ' · ' ORDER BY source_branch) AS note_extra
           FROM (SELECT source_branch, max(business_date) AS last_sale
                   FROM wincaja.v_sales_lines
                  WHERE business_date BETWEEN CURRENT_DATE - 40 AND CURRENT_DATE
-                   AND source_branch IN ('30','32','50')
+                   AND source_branch IN (SELECT source_branch FROM wincaja.branches
+                                          WHERE kepler_code IS NULL AND warehouse_code LIKE 'MD-%')
                  GROUP BY source_branch) t`,
     warnH: 44, critH: 72, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
@@ -217,7 +223,9 @@ const APP_SOURCES: SourceCfg[] = [
             SELECT date_trunc('month', CURRENT_DATE - interval '1 month')::date AS m_start,
                    (date_trunc('month', CURRENT_DATE) - interval '1 day')::date AS m_end,
                    to_char(CURRENT_DATE - interval '1 month','YYYY-MM') AS ym),
-               exp AS (SELECT unnest(ARRAY['30','32','50']) AS source_branch),
+               -- misma derivación que el sensor de rezago: las que SIGUEN en Wincaja
+               exp AS (SELECT source_branch FROM wincaja.branches
+                        WHERE kepler_code IS NULL AND warehouse_code LIKE 'MD-%'),
                cov AS (
                  SELECT e.source_branch, count(DISTINCT v.business_date) AS days
                    FROM exp e
@@ -229,7 +237,7 @@ const APP_SOURCES: SourceCfg[] = [
           SELECT CASE WHEN EXISTS (SELECT 1 FROM bad) THEN now() - interval '100 days' ELSE now() END AS last_update,
                  (SELECT ym FROM lm) || ' · ' ||
                  COALESCE((SELECT string_agg(source_branch || '=' || days || 'd', ', ' ORDER BY source_branch) FROM bad),
-                          'cobertura completa 30/32/50') AS note_extra`,
+                          'cobertura completa') AS note_extra`,
     warnH: 24, critH: 48, cadence: 'mensual (verifica el mes anterior completo)',
   },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
