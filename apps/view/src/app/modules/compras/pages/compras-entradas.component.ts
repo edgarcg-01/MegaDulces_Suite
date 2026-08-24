@@ -7,7 +7,6 @@ import { forkJoin, of, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
@@ -55,7 +54,7 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -84,6 +83,25 @@ interface AttachFile {
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
 
+      <!-- Frescura por fuente: la lista mezcla Kepler (al segundo) con Wincaja (copia de los .mdb).
+           Sin esto, "esta sucursal no recibió nada" y "su feed dejó de traer datos" se ven igual. -->
+      @if (frescura().length) {
+        <div class="fresh-bar" role="status">
+          <span class="fresh-lbl">Datos al día</span>
+          @for (f of frescura(); track f.source_branch) {
+            <span class="fresh-chip" [class.late]="f.atrasada"
+                  [title]="f.origen === 'kepler' ? 'Kepler — réplica continua' : 'Wincaja — copia periódica del .mdb'">
+              <b>{{ etiquetaFuente(f.source_branch) }}</b>
+              {{ f.dias === 0 ? 'hoy' : f.dias === 1 ? 'ayer' : 'hace ' + f.dias + ' d' }}
+              @if (f.atrasada) { <i class="pi pi-exclamation-triangle"></i> }
+            </span>
+          }
+          @if (algunaAtrasada()) {
+            <span class="fresh-note">Su cadencia normal es menor: revisá el feed de esa fuente.</span>
+          }
+        </div>
+      }
+
       @if (error()) {
         <app-load-state [error]="error()" (retry)="load()"></app-load-state>
       } @else {
@@ -103,7 +121,13 @@ interface AttachFile {
           </ng-template>
           <ng-template #body let-c>
             <tr>
-              <td>{{ c.receipt_date | date:'dd/MM/yy' }}</td>
+              <td>
+                {{ c.receipt_date | date:'dd/MM/yy' }}
+                @if (c.fecha_futura) {
+                  <i class="pi pi-exclamation-triangle fecha-mala"
+                     title="Fecha capturada adelante de hoy en el ERP"></i>
+                }
+              </td>
               <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
               <td>
                 @if (c.proveedor_code) {
@@ -296,16 +320,25 @@ interface AttachFile {
               }
             </div>
 
-            <div class="cb-fields-head">Datos leídos de la orden <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
-            <div class="cb-grid">
-              <label class="cb-f"><span>Total</span><p-inputnumber [(ngModel)]="ocrForm.total" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>Folio</span><input pInputText [(ngModel)]="ocrForm.folio" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
-              <label class="cb-f"><span>Proveedor (emisor)</span><input pInputText [(ngModel)]="ocrForm.proveedor" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>RFC</span><input pInputText [(ngModel)]="ocrForm.rfc" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Subtotal</span><p-inputnumber [(ngModel)]="ocrForm.subtotal" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>IVA</span><p-inputnumber [(ngModel)]="ocrForm.iva" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-            </div>
+            <!-- Lo que leyó Claude Vision de la factura del proveedor es EVIDENCIA, no un
+                 formulario: de estos números salen el cuadre contra Kepler y el descuadre
+                 que se persiste. Editables, cualquiera podía teclear el importe de Kepler y
+                 dejar la entrada "cuadrada" sin que la factura lo dijera. ¿Leyó mal? Releer,
+                 mejor foto, o que se rechace — no escribirle encima. -->
+            <div class="cb-fields-head">Lo que leyó Claude Vision
+              <em class="cb-auto">de la factura del proveedor · es la evidencia, no se edita</em></div>
+            <dl class="cb-read">
+              <div><dt>Total</dt><dd class="cb-num">{{ ocrForm.total != null ? money(ocrForm.total) : '—' }}</dd></div>
+              <div><dt>Subtotal</dt><dd class="cb-num">{{ ocrForm.subtotal != null ? money(ocrForm.subtotal) : '—' }}</dd></div>
+              <div><dt>IVA</dt><dd class="cb-num">{{ ocrForm.iva != null ? money(ocrForm.iva) : '—' }}</dd></div>
+              <div><dt>Folio</dt><dd class="cb-num">{{ ocrForm.folio || '—' }}</dd></div>
+              <div><dt>Fecha</dt><dd class="cb-num">{{ ocrForm.fecha || '—' }}</dd></div>
+              <div><dt>RFC</dt><dd class="cb-num">{{ ocrForm.rfc || '—' }}</dd></div>
+              <div class="cb-read-wide"><dt>Proveedor (emisor)</dt><dd>{{ ocrForm.proveedor || '—' }}</dd></div>
+            </dl>
+            <!-- Salida honesta cuando leyó mal: no hay dónde escribir el número correcto, y
+                 la entrada se identifica aparte (abajo), que es identidad y no importe. -->
+            <p class="cb-read-out">Si algo quedó mal leído: <button type="button" class="cb-linkbtn" (click)="runOcr()">releer</button>, subí una foto mejor, o guardá así y que se resuelva al validar.</p>
           }
           @if (dupFiles().length) { <div class="cb-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupFiles().length }} hoja(s) duplicada(s) (misma imagen o folio ya subido) — quitala(s) para guardar.</div> }
           @if (attachFiles().length) {
@@ -699,6 +732,18 @@ interface AttachFile {
     .cb-newpill { background: var(--action); border-color: var(--action); color: #fff; }
     .cb-newpill:hover { filter: brightness(1.06); }
     app-metric-strip { display: block; margin-bottom: 1rem; }
+    /* Tira de frescura por fuente. Discreta cuando todo está al día; la fuente atrasada
+       es la única que toma color, para que se lea de un vistazo. */
+    .fresh-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .5rem; margin: -.4rem 0 1rem; }
+    .fresh-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-right: .15rem; }
+    .fresh-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .45rem;
+      font-size: var(--fs-xs, .75rem); color: var(--text-muted);
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
+    .fresh-chip b { color: var(--text-main); font-weight: 600; font-family: var(--font-mono); font-size: .95em; }
+    .fresh-chip.late { color: var(--warn-fg, var(--bad-fg)); border-color: currentColor; }
+    .fresh-chip.late b { color: inherit; }
+    .fresh-note { font-size: var(--fs-xs, .75rem); color: var(--warn-fg, var(--bad-fg)); }
+    .fecha-mala { color: var(--warn-fg, var(--bad-fg)); font-size: .8em; margin-left: .25rem; }
     .cb-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cb-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .cb-table .strong { font-weight: 600; color: var(--text-main); }
@@ -727,6 +772,23 @@ interface AttachFile {
     .cb-stored { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-auto { font-style: normal; font-size: .68rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; opacity: .8; }
     .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
+    /* Lectura del modelo: se ve como dato leído, no como campos deshabilitados. Un input
+       gris dice "ahorita no se puede"; lo que hay que decir es "esto no se toca". */
+    .cb-read { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      gap: var(--sp-3); margin: var(--sp-2) 0 0; padding: var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
+    .cb-read > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .cb-read-wide { grid-column: 1 / -1; }
+    .cb-read dt { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .cb-read dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1);
+      overflow: hidden; text-overflow: ellipsis; }
+    .cb-read .cb-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cb-read-out { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }
+    .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
+      cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .cb-linkbtn:hover { color: var(--action-hover); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
@@ -970,6 +1032,14 @@ export class ComprasEntradasComponent {
 
   readonly report = signal<EntradasReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
+  readonly frescura = computed(() => this.report()?.frescura || []);
+  readonly algunaAtrasada = computed(() => this.frescura().some((f) => f.atrasada));
+
+  /** 'md_03' → '03' · 'wincaja_30' → 'WCJ 30' — la tira tiene que caber en una línea. */
+  etiquetaFuente(sb: string): string {
+    const s = String(sb || '');
+    return s.startsWith('wincaja_') ? `WCJ ${s.slice(8)}` : s.replace(/^md_/, '');
+  }
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
