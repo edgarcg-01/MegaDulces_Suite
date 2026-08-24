@@ -118,6 +118,7 @@ const TESTS = [
   { file: 'http-reconciliation-test.js', label: 'SM.1/SM.2 cuadre (caja descuadre crítico + merma + bandeja + feedback L2)', needsApi: true },
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
+  { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
