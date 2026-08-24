@@ -50,6 +50,7 @@ export * from './lib/decorators/skip-tenant-tx.decorator';
 export * from './lib/ai/anthropic.service';
 export * from './lib/ai/embeddings.service';
 export * from './lib/ai/llm-extractor.service';
+export * from './lib/ai/ocr-readings.service';
 export * from './lib/ai-product-matcher/ai-product-matcher.module';
 export * from './lib/ai-product-matcher/ai-product-matcher.service';
 

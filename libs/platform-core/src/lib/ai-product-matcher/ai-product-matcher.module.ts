@@ -4,6 +4,7 @@ import { AiProductMatcherService } from './ai-product-matcher.service';
 import { EmbeddingSyncService } from './embedding-sync.service';
 import { EmbeddingsService } from '../ai/embeddings.service';
 import { LlmExtractorService } from '../ai/llm-extractor.service';
+import { OcrReadingsService } from '../ai/ocr-readings.service';
 import { AnthropicService } from '../ai/anthropic.service';
 
 /**
@@ -25,9 +26,10 @@ import { AnthropicService } from '../ai/anthropic.service';
     AiProductMatcherService,
     EmbeddingsService,
     LlmExtractorService,
+    OcrReadingsService,
     AnthropicService,
     EmbeddingSyncService,
   ],
-  exports: [EmbeddingsService, AiProductMatcherService, LlmExtractorService],
+  exports: [EmbeddingsService, AiProductMatcherService, LlmExtractorService, OcrReadingsService],
 })
 export class AiProductMatcherModule {}

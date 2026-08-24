@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
-import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-core';
+import { LlmExtractorService, OcrReadingsService, DepositSlipFields } from '@megadulces/platform-core';
 import { CobranzaGateway } from './cobranza.gateway';
 
 /**
@@ -18,7 +18,11 @@ const BANK_TOL = 1.0;   // pesos: |monto ficha - abono banco| para casar el movi
 const BANK_DAYS_BEFORE = 1; // el abono puede postearse el día del depósito o 1 antes (fecha valor)
 const BANK_DAYS_AFTER = 6;  // …o hasta unos días después (efectivo en ventanilla)
 
-export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface DepositFile {
+  role: string; url: string; public_id?: string; kind?: string; name?: string;
+  /** Hash del contenido: con él `attach` recupera la lectura que hizo el servidor. */
+  sha256?: string;
+}
 
 export interface ListCobrosQuery {
   estado?: 'pendiente' | 'con_comprobante' | 'validado' | string;
@@ -58,6 +62,7 @@ export class CollectionDepositsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    private readonly readings: OcrReadingsService,
     @Optional() private readonly gateway?: CobranzaGateway,
   ) {}
 
@@ -233,18 +238,27 @@ export class CollectionDepositsService {
     }
   }
 
-  /** Corre OCR sobre la ficha (imagen/PDF) y devuelve los campos extraídos (preview, no guarda). */
-  async runOcr(dataUri: string): Promise<DepositSlipFields & { ocr_status: string }> {
-    this.tenantCtx.requireTenantId();
+  /**
+   * Corre OCR sobre la ficha (imagen/PDF) y devuelve los campos extraídos (preview, no
+   * guarda). Devuelve además el `sha256` de la hoja: el cliente lo echa de vuelta al
+   * adjuntar y `attach` recupera con él ESTA lectura, en vez de creerle al request.
+   */
+  async runOcr(dataUri: string): Promise<DepositSlipFields & { ocr_status: string; sha256: string }> {
+    const scope = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
+    const sha256 = this.readings.hash(base64);
     if (!process.env.ANTHROPIC_API_KEY) {
-      // degradación explícita: sin key el capturista teclea los campos a mano
-      return { monto: null, fecha: null, banco: null, cuenta_dest: null, referencia: null, ordenante: null, metodo: null, ocr_status: 'sin_key' };
+      // Degradación explícita: sin key no hay lectura, y el cuadre lo hace una persona.
+      const vacio: DepositSlipFields = { monto: null, fecha: null, banco: null, cuenta_dest: null, referencia: null, ordenante: null, metodo: null };
+      this.readings.remember(scope, sha256, vacio, 'sin_key');
+      return { ...vacio, ocr_status: 'sin_key', sha256 };
     }
     const fields = await this.ocr.extractDepositSlip(base64, mediaType);
     const any = fields.monto != null || fields.fecha || fields.banco || fields.referencia;
-    return { ...fields, ocr_status: any ? 'ok' : 'ilegible' };
+    const ocr_status = any ? 'ok' : 'ilegible';
+    this.readings.remember(scope, sha256, fields, ocr_status);
+    return { ...fields, ocr_status, sha256 };
   }
 
   /** Crea el registro de evidencia ligado al cobro Kepler. Calcula `monto_match`. */
@@ -262,7 +276,15 @@ export class CollectionDepositsService {
         .first('cliente_code', 'cliente_nombre', 'cobro_date', trx.raw('monto::numeric AS monto'));
       if (!cobro) throw new BadRequestException(`cobro ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
-      const o = dto.ocr || {};
+      // Lo que se guarda como lectura del modelo tiene que venir del modelo: de `o` salen
+      // `monto_match` y el control de cuenta propia. Ver `OcrReadingsService`.
+      const verificada = this.readings.recall<DepositSlipFields>(
+        this.tenantCtx.requireTenantId(), files.find((f) => f.sha256)?.sha256);
+      const o: Partial<DepositSlipFields> & { ocr_status?: string } =
+        verificada ? { ...verificada.fields, ocr_status: verificada.status } : (dto.ocr || {});
+      if (!verificada && dto.ocr) {
+        this.logger.warn(`cobro ${sucursal}/${folio}: sin lectura verificada en memoria; se usa la del request`);
+      }
       const cobroMonto = Number(cobro.monto) || 0;
       const ocrMonto = o.monto != null ? Number(o.monto) : null;
       const montoMatch = ocrMonto != null ? Math.abs(ocrMonto - cobroMonto) <= TOLERANCIA : null;

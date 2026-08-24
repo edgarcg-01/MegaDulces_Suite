@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
-import { LlmExtractorService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
+import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -81,57 +81,17 @@ export class GoodsReceiptProofsService {
   private readonly logger = new Logger(GoodsReceiptProofsService.name);
 
   /**
-   * Lo que Claude Vision leyó, por hash de archivo. La llena `runOcr` (el único lugar
-   * donde de verdad corre el modelo) y la consume `attach`.
-   *
-   * Existe porque `attach` guardaba `dto.ocr` tal cual venía del request, y de ahí salían
-   * `ocr_monto`, `monto_match` y `discrepancy_kind`: quien capturaba podía teclear el
-   * importe de Kepler y el sistema certificaba que la factura cuadraba sin que la factura
-   * lo dijera. La lectura es evidencia; el request no puede dictarla.
-   *
-   * En memoria a propósito: el hueco que cierra es el de la captura, y entre leer y
-   * guardar pasan segundos dentro del mismo diálogo. Para que además aguante reinicios y
-   * varias instancias hay que persistirla (tabla por sha256) — ver nota en `attach`.
-   */
-  private readonly readings = new Map<string, { fields: RemisionFields; status: string; at: number }>();
-  private static readonly READING_TTL_MS = 8 * 60 * 60 * 1000;
-  private static readonly READING_MAX = 2000;
-
-  private rememberReading(sha256: string, fields: RemisionFields, status: string): void {
-    if (!sha256) return;
-    if (this.readings.size >= GoodsReceiptProofsService.READING_MAX) {
-      const corte = Date.now() - GoodsReceiptProofsService.READING_TTL_MS;
-      for (const [k, v] of this.readings) if (v.at < corte) this.readings.delete(k);
-      // El Map conserva orden de inserción: si aún está lleno, cae la más vieja.
-      if (this.readings.size >= GoodsReceiptProofsService.READING_MAX) {
-        const vieja = this.readings.keys().next().value;
-        if (vieja) this.readings.delete(vieja);
-      }
-    }
-    this.readings.set(`${this.tenantCtx.requireTenantId()}:${sha256}`, { fields, status, at: Date.now() });
-  }
-
-  private recallReading(sha256?: string | null) {
-    const sha = (sha256 || '').trim();
-    if (!sha) return null;
-    const key = `${this.tenantCtx.requireTenantId()}:${sha}`;
-    const hit = this.readings.get(key);
-    if (!hit) return null;
-    if (Date.now() - hit.at > GoodsReceiptProofsService.READING_TTL_MS) { this.readings.delete(key); return null; }
-    return hit;
-  }
-
-  /**
-   * La lectura del servidor de la hoja FISCAL del paquete: primero factura/remisión, y
-   * dentro de ésas la que traiga importe. Misma preferencia que aplica el cliente para el
-   * cuadre, pero decidida acá.
+   * La lectura que el servidor hizo de la hoja FISCAL del paquete: primero factura o
+   * remisión, y dentro de ésas la que traiga importe. La preferencia es de dominio y por
+   * eso vive acá; el almacén de lecturas es compartido (`OcrReadingsService`).
    */
   private pickVerifiedReading(files: ReceiptFile[]) {
+    const scope = this.tenantCtx.requireTenantId();
     const esFiscal = (f: ReceiptFile) => f.role === 'factura' || f.role === 'remision';
     const orden = [...files.filter(esFiscal), ...files.filter((f) => !esFiscal(f))];
-    let suplente: { fields: RemisionFields; status: string; at: number } | null = null;
+    let suplente: { fields: RemisionFields; status: string } | null = null;
     for (const f of orden) {
-      const hit = this.recallReading(f.sha256);
+      const hit = this.readings.recall<RemisionFields>(scope, f.sha256);
       if (!hit) continue;
       if (hit.fields.total != null || hit.fields.subtotal != null) return hit;
       if (!suplente) suplente = hit;
@@ -145,6 +105,7 @@ export class GoodsReceiptProofsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    private readonly readings: OcrReadingsService,
   ) {}
 
   /**
@@ -380,7 +341,7 @@ export class GoodsReceiptProofsService {
       ocr_status = any ? 'ok' : 'ilegible';
     }
     // Queda registrada para que `attach` guarde ESTO y no lo que traiga el request.
-    this.rememberReading(sha256, fields, ocr_status);
+    this.readings.remember(this.tenantCtx.requireTenantId(), sha256, fields, ocr_status);
     // El dedup por FOLIO aplica al documento del proveedor (remisión/factura); el de HASH, a cualquier hoja.
     const checkFolio = !role || role === 'remision' || role === 'factura';
     const duplicate = await this.findDuplicate({ sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc });
@@ -458,11 +419,8 @@ export class GoodsReceiptProofsService {
       if (!entrada) throw new BadRequestException(`entrada ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
       // La lectura del modelo manda sobre lo que venga en el request: de `o` salen
-      // `ocr_monto`, `monto_match` y el descuadre, o sea el control entero.
-      //
-      // Si no hay lectura en memoria (el API se reinició entre leer y guardar) se cae a la
-      // del request para no perder la captura, y queda el warning. Ése es el único resquicio
-      // que sigue abierto; cerrarlo del todo pide persistir las lecturas por sha256.
+      // `ocr_monto`, `monto_match` y el descuadre, o sea el control entero. Ver
+      // `OcrReadingsService` para el porqué y para la caída cuando no hay lectura.
       const verificada = this.pickVerifiedReading(files);
       const o: Partial<RemisionFields> & { ocr_status?: string } =
         verificada ? { ...verificada.fields, ocr_status: verificada.status } : (dto.ocr || {});

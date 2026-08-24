@@ -254,9 +254,14 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
           <!-- ficha-first: buscar el cobro por el OCR -->
           @if (captureMode() && !attachTarget() && ocrRun()) {
             <div class="cb-match">
-              <label class="cb-f"><span>Monto de la ficha <em class="cb-auto">corrígelo si el OCR falló</em></span>
+              <!-- Buscar por monto es BUSCAR, y por eso sigue siendo editable: si el OCR
+                   leyó mal, hay que poder tantear otro importe para dar con el cobro. Lo que
+                   cambia es que ya no escribe sobre la lectura del modelo — antes este mismo
+                   campo era el mismo ocrForm.monto, o sea que tantear en el buscador terminaba
+                   guardado como "lo que leyó Claude Vision". -->
+              <label class="cb-f"><span>Buscar por monto <em class="cb-auto">tanteá otro importe si el OCR leyó mal</em></span>
                 <div class="cb-match-row">
-                  <p-inputnumber [(ngModel)]="ocrForm.monto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" />
+                  <p-inputnumber [(ngModel)]="buscarMonto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" />
                   <button pButton type="button" size="small" (click)="runCapMatch()" [loading]="capMatching()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar cobro</span></button>
                 </div>
               </label>
@@ -295,15 +300,21 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
           }
 
           @if (attachTarget() && fileName()) {
-            <div class="cb-fields-head">Datos de la ficha <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
-            <div class="cb-grid">
-              <label class="cb-f"><span>Monto de la ficha</span><p-inputnumber [(ngModel)]="ocrForm.monto" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
-              <label class="cb-f"><span>Banco</span><input pInputText [(ngModel)]="ocrForm.banco" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Referencia / clave</span><input pInputText [(ngModel)]="ocrForm.referencia" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Cuenta destino</span><input pInputText [(ngModel)]="ocrForm.cuenta_dest" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Ordenante</span><input pInputText [(ngModel)]="ocrForm.ordenante" [disabled]="ocrLoading()" /></label>
-            </div>
+            <!-- Lo que leyó Claude Vision de la ficha es EVIDENCIA, no un formulario: de
+                 estos valores salen el cuadre contra el cobro y el control de "la cuenta
+                 destino es nuestra". Editables, se podía teclear el importe del cobro y
+                 dejarlo cuadrado sin que la ficha lo dijera. -->
+            <div class="cb-fields-head">Lo que leyó Claude Vision
+              <em class="cb-auto">de la ficha de depósito · es la evidencia, no se edita</em></div>
+            <dl class="cb-read">
+              <div><dt>Monto</dt><dd class="cb-num">{{ ocrForm.monto != null ? money(ocrForm.monto) : '—' }}</dd></div>
+              <div><dt>Fecha</dt><dd class="cb-num">{{ ocrForm.fecha || '—' }}</dd></div>
+              <div><dt>Banco</dt><dd>{{ ocrForm.banco || '—' }}</dd></div>
+              <div><dt>Referencia / clave</dt><dd class="cb-num">{{ ocrForm.referencia || '—' }}</dd></div>
+              <div><dt>Cuenta destino</dt><dd class="cb-num">{{ ocrForm.cuenta_dest || '—' }}</dd></div>
+              <div><dt>Ordenante</dt><dd>{{ ocrForm.ordenante || '—' }}</dd></div>
+            </dl>
+            <p class="cb-read-out">Si algo quedó mal leído: <button type="button" class="cb-linkbtn" (click)="runOcr()">releer</button>, subí una foto mejor, o guardá así y que se resuelva al validar.</p>
           }
           @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
         </div>
@@ -496,6 +507,22 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .cb-stored { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-auto { font-style: normal; font-size: .68rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; opacity: .8; }
+    /* Lectura del modelo: se ve como dato leído, no como campos deshabilitados. Un input
+       gris dice "ahorita no se puede"; lo que hay que decir es "esto no se toca". */
+    .cb-read { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      gap: var(--sp-3); margin: var(--sp-2) 0 0; padding: var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
+    .cb-read > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .cb-read dt { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .cb-read dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1);
+      overflow: hidden; text-overflow: ellipsis; }
+    .cb-read .cb-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cb-read-out { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }
+    .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
+      cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .cb-linkbtn:hover { color: var(--action-hover); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
@@ -566,6 +593,9 @@ export class FinanzasCobranzaComponent {
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
+  /** Monto con el que se BUSCA el cobro. Arranca en lo que leyó el modelo, pero es suyo:
+   *  tantear acá no puede cambiar la evidencia que se guarda. */
+  buscarMonto: number | null = null;
   // ficha-first (captura sin elegir cobro): foto → OCR → busca el cobro solo
   readonly captureMode = signal(false);
   readonly capMatching = signal(false);
@@ -747,7 +777,7 @@ export class FinanzasCobranzaComponent {
   private resetAttach() {
     this.fileData = null;
     this.fileName.set('');
-    this.ocrForm = {};
+    this.ocrForm = {}; this.buscarMonto = null;
     this.ocrRun.set(false);
     this.uploadedFile.set(null);
     this.uploading.set(false);
@@ -760,9 +790,9 @@ export class FinanzasCobranzaComponent {
 
   /** Con la ficha ya leída, busca el cobro por monto+fecha (ficha-first). */
   runCapMatch() {
-    if (this.ocrForm.monto == null) { this.capMatches.set([]); return; }
+    if (this.buscarMonto == null) { this.capMatches.set([]); return; }
     this.capMatching.set(true);
-    this.svc.matchCobro(this.ocrForm.monto, this.ocrForm.fecha).pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.matchCobro(this.buscarMonto, this.ocrForm.fecha).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.capMatches.set(r.cobros); this.capMatching.set(false); },
         error: () => { this.capMatching.set(false); this.capMatches.set([]); },
@@ -786,7 +816,7 @@ export class FinanzasCobranzaComponent {
     if (file.size > 10 * 1024 * 1024) { this.attachError.set(`"${file.name}" supera 10 MB.`); return; }
     this.attachError.set('');
     this.ocrRun.set(false);
-    this.ocrForm = {};
+    this.ocrForm = {}; this.buscarMonto = null;
     this.uploadedFile.set(null);
     const reader = new FileReader();
     reader.onload = () => {
@@ -821,6 +851,7 @@ export class FinanzasCobranzaComponent {
       .subscribe({
         next: (f) => {
           this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false);
+          this.buscarMonto = f.monto ?? null; // el buscador arranca donde quedó la lectura
           if (this.captureMode() && !this.attachTarget()) this.runCapMatch(); // ficha-first: busca el cobro solo
         },
         error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
@@ -852,7 +883,8 @@ export class FinanzasCobranzaComponent {
   }
 
   private doAttach(t: CobroRow, file: DepositFile) {
-    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
+    const hoja: DepositFile = { ...file, sha256: this.ocrForm.sha256 };
+    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [hoja], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {

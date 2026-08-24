@@ -185,10 +185,14 @@ interface GastoFile {
           @if (captureMode() && !attachTarget() && ocrRun()) {
             <div class="cb-match">
               <div class="cb-match-row2">
-                <label class="cb-f cb-grow"><span>Monto del comprobante <em class="cb-auto">corrígelo si el OCR falló</em></span>
-                  <p-inputnumber [(ngModel)]="ocrForm.monto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+                <!-- Buscar es BUSCAR: acá sí se puede tantear otro importe para dar con el
+                     pago si el OCR leyó mal. Lo que cambia es que ya no escribe sobre la
+                     lectura del modelo — antes eran los mismos ocrForm.*, o sea que tantear
+                     terminaba guardado como "lo que leyó Claude Vision". -->
+                <label class="cb-f cb-grow"><span>Buscar por monto <em class="cb-auto">tanteá otro importe si el OCR leyó mal</em></span>
+                  <p-inputnumber [(ngModel)]="buscarMonto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
                 <label class="cb-f cb-grow"><span>Concepto / factura</span>
-                  <input pInputText [(ngModel)]="ocrForm.concepto" placeholder="F 451" /></label>
+                  <input pInputText [(ngModel)]="buscarConcepto" placeholder="F 451" /></label>
                 <button pButton type="button" size="small" (click)="runCapMatch()" [loading]="capMatching()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar pago</span></button>
               </div>
               @if (capMatching()) {
@@ -226,17 +230,22 @@ interface GastoFile {
           }
 
           @if (attachTarget() && fileName()) {
-            <div class="cb-fields-head">Datos del comprobante <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
-            <div class="cb-grid">
-              <label class="cb-f"><span>Monto del comprobante</span><p-inputnumber [(ngModel)]="ocrForm.monto" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
-              <label class="cb-f"><span>Concepto (factura)</span><input pInputText [(ngModel)]="ocrForm.concepto" [disabled]="ocrLoading()" placeholder="F 451" /></label>
-              <label class="cb-f"><span>Clave de rastreo</span><input pInputText [(ngModel)]="ocrForm.clave_rastreo" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Cuenta origen (propia)</span><input pInputText [(ngModel)]="ocrForm.cuenta_origen" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Cuenta destino (prov.)</span><input pInputText [(ngModel)]="ocrForm.cuenta_destino" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Beneficiario</span><input pInputText [(ngModel)]="ocrForm.beneficiario" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Banco destino</span><input pInputText [(ngModel)]="ocrForm.banco_destino" [disabled]="ocrLoading()" /></label>
-            </div>
+            <!-- Lo que leyó Claude Vision del comprobante es EVIDENCIA, no un formulario:
+                 de estos valores salen el cuadre contra el pago de Kepler, el control de
+                 "salió de una cuenta nuestra" y el de clave de rastreo repetida. -->
+            <div class="cb-fields-head">Lo que leyó Claude Vision
+              <em class="cb-auto">del comprobante de pago · es la evidencia, no se edita</em></div>
+            <dl class="cb-read">
+              <div><dt>Monto</dt><dd class="cb-num">{{ ocrForm.monto != null ? money(ocrForm.monto) : '—' }}</dd></div>
+              <div><dt>Fecha</dt><dd class="cb-num">{{ ocrForm.fecha || '—' }}</dd></div>
+              <div><dt>Concepto (factura)</dt><dd class="cb-num">{{ ocrForm.concepto || '—' }}</dd></div>
+              <div><dt>Clave de rastreo</dt><dd class="cb-num">{{ ocrForm.clave_rastreo || '—' }}</dd></div>
+              <div><dt>Cuenta origen (propia)</dt><dd class="cb-num">{{ ocrForm.cuenta_origen || '—' }}</dd></div>
+              <div><dt>Cuenta destino (prov.)</dt><dd class="cb-num">{{ ocrForm.cuenta_destino || '—' }}</dd></div>
+              <div><dt>Banco destino</dt><dd>{{ ocrForm.banco_destino || '—' }}</dd></div>
+              <div class="cb-read-wide"><dt>Beneficiario</dt><dd>{{ ocrForm.beneficiario || '—' }}</dd></div>
+            </dl>
+            <p class="cb-read-out">Si algo quedó mal leído: <button type="button" class="cb-linkbtn" (click)="runOcr()">releer</button>, subí un archivo mejor, o guardá así y que se resuelva al validar.</p>
           }
 
           <!-- PC.2 — foto(s) del gasto (evidencia de lo comprado); Σ se valida contra el pago -->
@@ -485,6 +494,23 @@ interface GastoFile {
     .cb-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .cb-stored { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-auto { font-style: normal; font-size: .68rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; opacity: .8; }
+    /* Lectura del modelo: se ve como dato leído, no como campos deshabilitados. Un input
+       gris dice "ahorita no se puede"; lo que hay que decir es "esto no se toca". */
+    .cb-read { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      gap: var(--sp-3); margin: var(--sp-2) 0 0; padding: var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
+    .cb-read > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .cb-read-wide { grid-column: 1 / -1; }
+    .cb-read dt { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
+      letter-spacing: .06em; color: var(--fg-3); }
+    .cb-read dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1);
+      overflow: hidden; text-overflow: ellipsis; }
+    .cb-read .cb-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cb-read-out { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }
+    .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
+      cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .cb-linkbtn:hover { color: var(--action-hover); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
@@ -621,6 +647,10 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
+  /** Con qué se BUSCA el pago. Arranca en lo que leyó el modelo, pero es propio:
+   *  tantear acá no puede cambiar la evidencia que se guarda. */
+  buscarMonto: number | null = null;
+  buscarConcepto = '';
   // ficha-first (captura sin elegir pago)
   readonly captureMode = signal(false);
   readonly capMatching = signal(false);
@@ -755,7 +785,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     this.fileData = null;
     this.fileName.set('');
     this.gastoFiles.set([]);
-    this.ocrForm = {};
+    this.ocrForm = {}; this.buscarMonto = null; this.buscarConcepto = '';
     this.ocrRun.set(false);
     this.uploadedFile.set(null);
     this.uploading.set(false);
@@ -769,9 +799,9 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   /** Con el comprobante leído, busca el pago por monto + fecha + concepto (factura).
    *  OCR-primero SIN fricción: si hay UNA sola candidata, la enlaza sola (no buscar folio). */
   runCapMatch() {
-    if (this.ocrForm.monto == null) { this.capMatches.set([]); return; }
+    if (this.buscarMonto == null) { this.capMatches.set([]); return; }
     this.capMatching.set(true);
-    this.svc.matchPago(this.ocrForm.monto, this.ocrForm.fecha, this.ocrForm.concepto).pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.matchPago(this.buscarMonto, this.ocrForm.fecha, this.buscarConcepto || undefined).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
           this.capMatching.set(false);
@@ -815,7 +845,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { this.attachError.set('El comprobante de pago debe ser PDF — la foto del gasto va abajo.'); return; }
     this.attachError.set('');
     this.ocrRun.set(false);
-    this.ocrForm = {};
+    this.ocrForm = {}; this.buscarMonto = null; this.buscarConcepto = '';
     this.uploadedFile.set(null);
     let dataUri: string;
     try { dataUri = await this.fileToDataUri(file); }
@@ -871,6 +901,8 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (f) => {
           this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false);
+          // El buscador arranca donde quedó la lectura.
+          this.buscarMonto = f.monto ?? null; this.buscarConcepto = f.concepto || '';
           if (this.captureMode() && !this.attachTarget()) this.runCapMatch();
         },
         error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
@@ -935,7 +967,8 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   private doAttach(t: PagoRow, file: ProofFile) {
     // PC.2 — el comprobante (PDF) + las fotos del gasto ya subidas van en la misma evidencia.
     const gastos: ProofFile[] = this.gastoFiles().filter((g) => g.uploaded).map((g) => ({ ...(g.uploaded as ProofFile), role: 'gasto', name: g.name, ocr_monto: g.ocrMonto }));
-    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [file, ...gastos], ocr: this.ocrRun() ? this.ocrForm : undefined })
+    const hoja: ProofFile = { ...file, sha256: this.ocrForm.sha256 };
+    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [hoja, ...gastos], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
-import { LlmExtractorService, SupplierPaymentFields } from '@megadulces/platform-core';
+import { LlmExtractorService, OcrReadingsService, SupplierPaymentFields } from '@megadulces/platform-core';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 
 /**
@@ -28,7 +28,11 @@ const normRef = (s: unknown): string | null => {
   return d || null;
 };
 
-export interface PaymentFile { role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null; }
+export interface PaymentFile {
+  role: string; url: string; public_id?: string; kind?: string; name?: string; ocr_monto?: number | null;
+  /** Hash del contenido: con él `attach` recupera la lectura que hizo el servidor. */
+  sha256?: string;
+}
 
 export interface ListPaymentsQuery {
   estado?: 'pendiente' | 'con_comprobante' | 'validado' | string;
@@ -59,6 +63,7 @@ export class SupplierPaymentProofsService {
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    private readonly readings: OcrReadingsService,
     @Optional() private readonly gateway?: PagosComprobantesGateway,
   ) {}
 
@@ -201,20 +206,31 @@ export class SupplierPaymentProofsService {
   /** Corre OCR. `comprobante` (PDF SPEI/cheque) → campos de pago (liga el pago).
    *  `gasto` (foto de factura/ticket) → se extrae el TOTAL (mapeado a `monto`) para
    *  validar Σ gastos ≈ pago. Preview, no guarda. */
-  async runOcr(dataUri: string, role?: string): Promise<SupplierPaymentFields & { ocr_status: string }> {
-    this.tenantCtx.requireTenantId();
+  async runOcr(dataUri: string, role?: string): Promise<SupplierPaymentFields & { ocr_status: string; sha256: string }> {
+    const scope = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
+    // El cliente echa de vuelta este hash al adjuntar, y `attach` recupera con él ESTA
+    // lectura en vez de creerle al request. Ver `OcrReadingsService`.
+    const sha256 = this.readings.hash(base64);
     const empty: SupplierPaymentFields & { ocr_status: string } = { monto: null, fecha: null, concepto: null, cuenta_origen: null, cuenta_destino: null, beneficiario: null, clave_rastreo: null, banco_destino: null, metodo: null, ocr_status: 'sin_key' };
-    if (!process.env.ANTHROPIC_API_KEY) return empty;
+    if (!process.env.ANTHROPIC_API_KEY) {
+      this.readings.remember(scope, sha256, empty, 'sin_key');
+      return { ...empty, sha256 };
+    }
     if (role === 'gasto') {
       const r = await this.ocr.extractRemision(base64, mediaType); // factura/ticket del gasto
       const any = r.total != null || !!r.folio || !!r.proveedor;
-      return { ...empty, monto: r.total, fecha: r.fecha, concepto: r.folio, beneficiario: r.proveedor, ocr_status: any ? 'ok' : 'ilegible' };
+      const campos = { ...empty, monto: r.total, fecha: r.fecha, concepto: r.folio, beneficiario: r.proveedor };
+      const ocr_status = any ? 'ok' : 'ilegible';
+      this.readings.remember(scope, sha256, campos, ocr_status);
+      return { ...campos, ocr_status, sha256 };
     }
     const fields = await this.ocr.extractSupplierPayment(base64, mediaType);
     const any = fields.monto != null || fields.fecha || fields.concepto || fields.clave_rastreo;
-    return { ...fields, ocr_status: any ? 'ok' : 'ilegible' };
+    const ocr_status = any ? 'ok' : 'ilegible';
+    this.readings.remember(scope, sha256, fields, ocr_status);
+    return { ...fields, ocr_status, sha256 };
   }
 
   /** Crea el registro de evidencia ligado al pago Kepler. Calcula `monto_match`. */
@@ -235,7 +251,17 @@ export class SupplierPaymentProofsService {
       const pago = await pagoQ.first('doc_prefix', 'metodo_pago', 'proveedor_nombre', 'proveedor_rfc', 'pago_date', trx.raw('monto::numeric AS monto'));
       if (!pago) throw new BadRequestException(`pago ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
-      const o = dto.ocr || {};
+      // De `o` salen `monto_match`, el control de cuenta propia y el de clave repetida:
+      // la lectura la pone el modelo, no el request. La hoja que liga el pago es la del
+      // rol `comprobante` (la de rol `gasto` es la factura que se valida contra él).
+      const scope = this.tenantCtx.requireTenantId();
+      const hoja = files.find((f) => f.role === 'comprobante' && f.sha256) || files.find((f) => f.sha256);
+      const verificada = this.readings.recall<SupplierPaymentFields>(scope, hoja?.sha256);
+      const o: Partial<SupplierPaymentFields> & { ocr_status?: string } =
+        verificada ? { ...verificada.fields, ocr_status: verificada.status } : (dto.ocr || {});
+      if (!verificada && dto.ocr) {
+        this.logger.warn(`pago ${sucursal}/${folio}: sin lectura verificada en memoria; se usa la del request`);
+      }
       const pagoMonto = Number(pago.monto) || 0;
       const ocrMonto = o.monto != null ? Number(o.monto) : null;
       const montoMatch = ocrMonto != null ? Math.abs(ocrMonto - pagoMonto) <= TOLERANCIA : null;
