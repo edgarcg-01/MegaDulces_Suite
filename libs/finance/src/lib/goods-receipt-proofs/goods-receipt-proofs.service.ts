@@ -80,6 +80,65 @@ const PRICE_TOL = 0.05; // 5% de tolerancia en precio unitario
 export class GoodsReceiptProofsService {
   private readonly logger = new Logger(GoodsReceiptProofsService.name);
 
+  /**
+   * Lo que Claude Vision leyó, por hash de archivo. La llena `runOcr` (el único lugar
+   * donde de verdad corre el modelo) y la consume `attach`.
+   *
+   * Existe porque `attach` guardaba `dto.ocr` tal cual venía del request, y de ahí salían
+   * `ocr_monto`, `monto_match` y `discrepancy_kind`: quien capturaba podía teclear el
+   * importe de Kepler y el sistema certificaba que la factura cuadraba sin que la factura
+   * lo dijera. La lectura es evidencia; el request no puede dictarla.
+   *
+   * En memoria a propósito: el hueco que cierra es el de la captura, y entre leer y
+   * guardar pasan segundos dentro del mismo diálogo. Para que además aguante reinicios y
+   * varias instancias hay que persistirla (tabla por sha256) — ver nota en `attach`.
+   */
+  private readonly readings = new Map<string, { fields: RemisionFields; status: string; at: number }>();
+  private static readonly READING_TTL_MS = 8 * 60 * 60 * 1000;
+  private static readonly READING_MAX = 2000;
+
+  private rememberReading(sha256: string, fields: RemisionFields, status: string): void {
+    if (!sha256) return;
+    if (this.readings.size >= GoodsReceiptProofsService.READING_MAX) {
+      const corte = Date.now() - GoodsReceiptProofsService.READING_TTL_MS;
+      for (const [k, v] of this.readings) if (v.at < corte) this.readings.delete(k);
+      // El Map conserva orden de inserción: si aún está lleno, cae la más vieja.
+      if (this.readings.size >= GoodsReceiptProofsService.READING_MAX) {
+        const vieja = this.readings.keys().next().value;
+        if (vieja) this.readings.delete(vieja);
+      }
+    }
+    this.readings.set(`${this.tenantCtx.requireTenantId()}:${sha256}`, { fields, status, at: Date.now() });
+  }
+
+  private recallReading(sha256?: string | null) {
+    const sha = (sha256 || '').trim();
+    if (!sha) return null;
+    const key = `${this.tenantCtx.requireTenantId()}:${sha}`;
+    const hit = this.readings.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.at > GoodsReceiptProofsService.READING_TTL_MS) { this.readings.delete(key); return null; }
+    return hit;
+  }
+
+  /**
+   * La lectura del servidor de la hoja FISCAL del paquete: primero factura/remisión, y
+   * dentro de ésas la que traiga importe. Misma preferencia que aplica el cliente para el
+   * cuadre, pero decidida acá.
+   */
+  private pickVerifiedReading(files: ReceiptFile[]) {
+    const esFiscal = (f: ReceiptFile) => f.role === 'factura' || f.role === 'remision';
+    const orden = [...files.filter(esFiscal), ...files.filter((f) => !esFiscal(f))];
+    let suplente: { fields: RemisionFields; status: string; at: number } | null = null;
+    for (const f of orden) {
+      const hit = this.recallReading(f.sha256);
+      if (!hit) continue;
+      if (hit.fields.total != null || hit.fields.subtotal != null) return hit;
+      if (!suplente) suplente = hit;
+    }
+    return suplente;
+  }
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -118,8 +177,14 @@ export class GoodsReceiptProofsService {
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
+          trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
         )
-        .orderBy('c.receipt_date', 'desc')
+        // Se ordena por la fecha ACOTADA a hoy, y las de fecha futura van DESPUÉS de las de hoy:
+        // una entrada capturada con fecha adelantada (hay una de CEDIS con 29/12/2026) se
+        // quedaba clavada en el primer lugar para siempre. La fila sigue mostrando su fecha
+        // real y viaja marcada con `fecha_futura`.
+        .orderByRaw('LEAST(c.receipt_date, current_date) DESC')
+        .orderByRaw('(c.receipt_date > current_date) ASC')
         .orderBy('c.folio', 'desc')
         .limit(limit);
 
@@ -162,9 +227,58 @@ export class GoodsReceiptProofsService {
           entradas: Number(k.entradas), con_comprobante: Number(k.con_comprobante),
           validados: Number(k.validados), monto_pendiente: Number(k.monto_pendiente),
         },
+        frescura: await this.frescuraPorFuente(trx, tenantId),
         rows,
       };
     });
+  }
+
+  /**
+   * Frescura POR FUENTE de la lista de entradas.
+   *
+   * La pantalla mezcla dos orígenes (Kepler ODS, al segundo · Wincaja, copia periódica desde los
+   * .mdb) y no distinguía **"esta sucursal no recibió nada"** de **"su feed dejó de traer datos"**.
+   * El 24/08/2026 eso costó medio día de diagnóstico: Wincaja se veía "3 días atrás" y en realidad
+   * el archivo estaba fresco y no había habido recepciones.
+   *
+   * El umbral es POR FUENTE, no global: cada rama tiene su propia cadencia (CEDIS recibe a diario,
+   * una sucursal chica cada varios días). Se compara los días sin recepción contra la **mediana de
+   * su propio hueco** en 90 días, con piso de 3 días, así una rama de bajo volumen no grita sola.
+   */
+  private async frescuraPorFuente(trx: any, tenantId: string) {
+    const r = await trx.raw(`
+      WITH d AS (
+        SELECT source_branch, receipt_date::date AS f
+          FROM analytics.erp_goods_receipts
+         WHERE tenant_id = ? AND dup_of_folio IS NULL
+           AND receipt_date <= current_date          -- las fechas futuras no cuentan como frescura
+           AND receipt_date >= current_date - 90
+         GROUP BY 1, 2
+      ), gaps AS (
+        SELECT source_branch, f - lag(f) OVER (PARTITION BY source_branch ORDER BY f) AS gap FROM d
+      ), cadencia AS (
+        SELECT source_branch,
+               COALESCE(percentile_disc(0.5) WITHIN GROUP (ORDER BY gap), 1) AS gap_mediano
+          FROM gaps WHERE gap IS NOT NULL GROUP BY 1
+      )
+      SELECT d.source_branch,
+             max(d.f) AS ultima,
+             (current_date - max(d.f))::int AS dias,
+             COALESCE(c.gap_mediano, 1)::int AS cadencia_dias,
+             GREATEST(3, COALESCE(c.gap_mediano, 1) * 2)::int AS tolerancia_dias,
+             ((current_date - max(d.f)) > GREATEST(3, COALESCE(c.gap_mediano, 1) * 2)) AS atrasada
+        FROM d LEFT JOIN cadencia c USING (source_branch)
+       GROUP BY d.source_branch, c.gap_mediano
+       ORDER BY d.source_branch`, [tenantId]);
+    return (r.rows || []).map((x: any) => ({
+      source_branch: x.source_branch,
+      origen: String(x.source_branch || '').startsWith('md_') ? 'kepler' : 'wincaja',
+      ultima: x.ultima,
+      dias: Number(x.dias),
+      cadencia_dias: Number(x.cadencia_dias),
+      tolerancia_dias: Number(x.tolerancia_dias),
+      atrasada: !!x.atrasada,
+    }));
   }
 
   /**
@@ -265,6 +379,8 @@ export class GoodsReceiptProofsService {
       const any = fields.total != null || fields.folio || fields.proveedor || fields.rfc;
       ocr_status = any ? 'ok' : 'ilegible';
     }
+    // Queda registrada para que `attach` guarde ESTO y no lo que traiga el request.
+    this.rememberReading(sha256, fields, ocr_status);
     // El dedup por FOLIO aplica al documento del proveedor (remisión/factura); el de HASH, a cualquier hoja.
     const checkFolio = !role || role === 'remision' || role === 'factura';
     const duplicate = await this.findDuplicate({ sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc });
@@ -341,7 +457,18 @@ export class GoodsReceiptProofsService {
         .first('proveedor_nombre', 'proveedor_rfc', 'oc_folio', 'receipt_date', trx.raw('monto::numeric AS monto'));
       if (!entrada) throw new BadRequestException(`entrada ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
-      const o = dto.ocr || {};
+      // La lectura del modelo manda sobre lo que venga en el request: de `o` salen
+      // `ocr_monto`, `monto_match` y el descuadre, o sea el control entero.
+      //
+      // Si no hay lectura en memoria (el API se reinició entre leer y guardar) se cae a la
+      // del request para no perder la captura, y queda el warning. Ése es el único resquicio
+      // que sigue abierto; cerrarlo del todo pide persistir las lecturas por sha256.
+      const verificada = this.pickVerifiedReading(files);
+      const o: Partial<RemisionFields> & { ocr_status?: string } =
+        verificada ? { ...verificada.fields, ocr_status: verificada.status } : (dto.ocr || {});
+      if (!verificada && dto.ocr) {
+        this.logger.warn(`entrada ${sucursal}/${folio}: sin lectura verificada en memoria; se usa la del request`);
+      }
       const receiptMonto = Number(entrada.monto) || 0;
       const ocrTotal = o.total != null ? Number(o.total) : null;
       const ocrSubtotal = o.subtotal != null ? Number(o.subtotal) : null;
