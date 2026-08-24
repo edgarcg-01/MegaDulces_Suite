@@ -79,6 +79,13 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   const f = Object.fromEntries(l.map((r) => [r.sku, r.factor_caja === null ? null : Number(r.factor_caja)]));
   chk(f['87231'] === 5 && f['97127'] === 24 && f['78229'] === 12, `factores de caja: ${JSON.stringify({ d: f['87231'], p: f['97127'], g: f['78229'] })}`);
   chk(f['97040'] === null, 'SKU 97040 no debe traer factor (no está capturado en el catálogo)');
+  // unidades VERBATIM de Kepler (mig 20260824120000): kdii.c11 venta / c83 bulto
+  chk('unidad_venta' in l[0] && 'unidad_bulto' in l[0], 'faltan unidad_venta/unidad_bulto — ¿se aplicó la mig 20260824120000?');
+  if ('unidad_bulto' in l[0]) {
+    const uu = Object.fromEntries(l.map((r) => [r.sku, [r.unidad_venta, r.unidad_bulto]]));
+    chk(uu['97127'] && uu['97127'][0] === 'PAQ' && uu['97127'][1] === 'CJA', 'SKU 97127 debe traer venta=PAQ bulto=CJA (kdii)');
+    chk(uu['97040'] && uu['97040'][1] === null, 'SKU 97040 sin bulto en kdii → unidad_bulto NULL');
+  }
 
   // U/D/13 es factura de traspaso CEDIS (puro servicio) — no debe aparecer nunca
   const t13 = (await db.query(`SELECT count(*)::int n FROM analytics.erp_sales_invoices WHERE doc_prefix LIKE 'UD13%'`)).rows[0].n;

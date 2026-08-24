@@ -127,13 +127,19 @@ export class AnexoVentaService {
   private esc(s: any): string {
     return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
   }
-  /** Plural de la unidad vendida, para leerlo natural ("120 paquetes"). */
-  private unidadPlural(u: string, n: number): string {
-    const base = { CJA: 'caja', PAQ: 'paquete', PZA: 'pieza', KG: 'kilo' }[String(u).toUpperCase()] || String(u || '').toLowerCase();
-    return n === 1 ? base : `${base}s`;
+  /**
+   * Unidad VERBATIM de Kepler (regla 2026-08-24: cero unidades inventadas). El censo real trae
+   * PAQ/PZA/KG/CJA pero también 500, 250, 2KG, CUB… — pluralizarlas o traducirlas fabricaba
+   * unidades falsas ("500s", "cubs", "kilos"). Se muestra el código tal cual; si es puramente
+   * numérico (una presentación como "500") se antepone "×" para que "15 500" no se lea 15,500.
+   */
+  private unidad(u: any): string {
+    return this.esc(String(u ?? '').trim());
   }
-  private unidadSingular(u: string): string {
-    return { CJA: 'caja', PAQ: 'paquete', PZA: 'pieza', KG: 'kilo' }[String(u).toUpperCase()] || String(u || '').toLowerCase();
+  private cantidadConUnidad(cant: number, u: any): string {
+    const cod = this.unidad(u);
+    if (!cod) return String(cant);
+    return /^\d+$/.test(cod) ? `${cant} × ${cod}` : `${cant} ${cod}`;
   }
 
   /** Importe con letra (pesos MXN). Sin dependencia externa: el documento debe ser autosuficiente. */
@@ -195,21 +201,24 @@ export class AnexoVentaService {
 
     const filas = L.map((l: any) => {
       const cant = Number(l.cantidad);
-      const uPl = this.unidadPlural(l.unidad, cant);
-      const uSg = this.unidadSingular(l.unidad);
-      const eq = l.cajas_equivalentes
-        ? `<span class="q-eq">= ${l.cajas_equivalentes} caja${l.cajas_equivalentes > 1 ? 's' : ''}</span>` : '';
-      const fac = l.factor_caja && Number(l.factor_caja) > 1
-        ? `<span class="q-eq2">${Number(l.factor_caja)} paq. por caja</span>` : '';
-      const caja = l.precio_caja
-        ? `<span class="pu2">${this.m(l.precio_caja)}</span><span class="pl">por caja</span>` : '';
-      const cajaD = l.precio_caja_con_descuento
-        ? `<span class="pu2 pd">${this.m(l.precio_caja_con_descuento)}</span><span class="pl">por caja</span>` : '';
+      // Unidades TAL CUAL vienen de Kepler: la de línea (kdm2.c11) y el bulto del catálogo
+      // (kdii.c83). El service ya validó el factor (null si la línea no se vendió en la
+      // unidad del catálogo), así que aquí solo se rotula, nunca se traduce.
+      const un = this.unidad(l.unidad);
+      const bulto = this.unidad(l.unidad_bulto);
+      const eq = l.cajas_equivalentes && bulto
+        ? `<span class="q-eq">= ${l.cajas_equivalentes} ${bulto}</span>` : '';
+      const fac = l.factor_caja && bulto
+        ? `<span class="q-eq2">${Number(l.factor_caja)} ${un} por ${bulto}</span>` : '';
+      const caja = l.precio_caja && bulto
+        ? `<span class="pu2">${this.m(l.precio_caja)}</span><span class="pl">por ${bulto}</span>` : '';
+      const cajaD = l.precio_caja_con_descuento && bulto
+        ? `<span class="pu2 pd">${this.m(l.precio_caja_con_descuento)}</span><span class="pl">por ${bulto}</span>` : '';
       return `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div></td>
-        <td class="qcell"><span class="q-main">${cant} ${uPl}</span>${eq}${fac}</td>
-        <td class="u-price"><span class="pu">${this.m(l.precio_unitario)}</span><span class="pl">por ${uSg}</span>${caja}</td>
-        <td class="u-price c-hl"><span class="pu pd">${this.m(l.precio_con_descuento)}</span><span class="pl">por ${uSg}</span>${cajaD}</td>
+        <td class="qcell"><span class="q-main">${this.cantidadConUnidad(cant, l.unidad)}</span>${eq}${fac}</td>
+        <td class="u-price"><span class="pu">${this.m(l.precio_unitario)}</span><span class="pl">por ${un || 'unidad'}</span>${caja}</td>
+        <td class="u-price c-hl"><span class="pu pd">${this.m(l.precio_con_descuento)}</span><span class="pl">por ${un || 'unidad'}</span>${cajaD}</td>
         <td class="imp">${this.m(l.importe)}</td>
         <td class="desc">−${this.m(l.descuento)}</td>
         <td class="neto">${this.m(l.neto)}</td>
@@ -402,7 +411,7 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 </div>
 
 <p class="disclaimer"><b>Este es un anexo informativo, no un comprobante fiscal.</b> El documento con validez fiscal es el CFDI timbrado por el SAT.
-  Cantidades, unidades y precios provienen del sistema; la equivalencia paquete–caja usa el factor de empaque registrado en el catálogo.</p>
+  Cantidades, unidades y precios provienen del sistema; las unidades y la equivalencia de bulto son las registradas en el catálogo del sistema.</p>
 ${opts.pagare ? this.pagare(doc) : ''}`;
   }
 
