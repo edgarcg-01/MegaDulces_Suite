@@ -1,25 +1,38 @@
-# Trade Marketing Backend API
+# Documentación — Plataforma Mega Dulces
 
-## Índice de Documentación
+Índice de la documentación del proyecto. Empezá por arriba.
 
-Este directorio centraliza la inteligencia operativa y las normas arquitectónicas del backend de **Trade Marketing**.
+## Arranque (devs nuevos)
 
-### Documento Maestro
-- [ESPECIFICACIONES_TECNICAS.md](./ESPECIFICACIONES_TECNICAS.md): Documento completo con misión, arquitectura, roadmap, KPIs y entregables.
+- [`../ONBOARDING.md`](../ONBOARDING.md) — de cero a API + frontend corriendo.
+- [`../CLAUDE.md`](../CLAUDE.md) — **fuente de verdad**: contexto, fases, reglas. Se auto-carga en Claude Code.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — arquitectura de código: apps, dominios (libs), módulos, DBs, feeds.
+- [`GLOSSARY.md`](GLOSSARY.md) — términos de dominio y nombres internos (Thot/Horus/Maat, Kepler, fases).
+- [`GOTCHAS.md`](GOTCHAS.md) — trampas técnicas ya vividas (RLS, migraciones, permisos). **Antes de tocar DB.**
 
-### Documentos por Área de Equipo
-- [00 — Índice General](./areas/00_INDICE_GENERAL.md): Misión, visión, glosario y convenciones compartidas.
-- [01 — Arquitecto de Sistema](./areas/01_ARQUITECTO_SISTEMA.md): Bounded Contexts, ADRs, stack, reglas.
-- [02 — Analista Funcional](./areas/02_ANALISTA_FUNCIONAL.md): Reglas de negocio, scoring, KPIs, user stories.
-- [03 — Dev UI/UX](./areas/03_DEV_UI_UX.md): Design system, flujo UX campo, componentes.
-- [04 — Dev Backend](./areas/04_DEV_BACKEND.md): APIs, endpoints, guards, módulos NestJS.
-- [05 — Dev Frontend](./areas/05_DEV_FRONTEND.md): Pages, componentes, state management.
-- [06 — Dev Base de Datos](./areas/06_DEV_BASE_DATOS.md): Esquema SQL, migraciones, seeds, ERD.
-- [07 — QA / Pruebas](./areas/07_QA_PRUEBAS.md): Plan de tests, casos de prueba, cobertura.
-- [08 — Documentación](./areas/08_DOCUMENTACION.md): Swagger, README, changelogs, manuales.
-- [09 — Roadmap y Ejecución](./areas/09_ROADMAP_EJECUCION.md): Orden de fases y asignación de roles.
+## Datos y ERP
 
-### Guías y Políticas
-- [ARCHITECTURE.md](./ARCHITECTURE.md): Filosofía de Bounded Contexts y JWT como puente.
-- API_REFERENCE.md *(WIP)*: Swagger / especificaciones de endpoints HTTP RESTful.
-- DATABASE_SCHEMA.md *(WIP)*: Volcado oficial de la BD y DDL.
+- [`ARQUITECTURA_DATOS.md`](ARQUITECTURA_DATOS.md) — arquitectura de datos detallada (schemas, tablas, FKs, flujo, mermaid).
+- [`MODELO_CANONICO_DATOS.md`](MODELO_CANONICO_DATOS.md) — fuente única por entidad, patrón anti-desync.
+- [`ERP_KEPLER.md`](ERP_KEPLER.md) — decode de Kepler + pipeline `kepler_ods` (intro; detalle en `IMPLEMENTACION/ERP_KEPLER_SCHEMA.md`).
+
+## Diseño
+
+- [`../DESIGN.md`](../DESIGN.md) — sistema de diseño ("Mercado"). **Obligatorio antes de tocar UI.**
+- `DESIGN_FOUNDATIONS.md`, `DESIGN_TABLES.md`, `DESIGN_MOTION_KPI_CARDS.md` — referencias de diseño.
+
+## Tracking y decisiones
+
+- [`IMPLEMENTACION/INDEX.md`](IMPLEMENTACION/INDEX.md) — mapa de toda la documentación de implementación.
+- [`IMPLEMENTACION/01_TRACKER_PROGRESO.md`](IMPLEMENTACION/01_TRACKER_PROGRESO.md) — kanban en vivo.
+- [`IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`](IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md) — ADRs.
+- [`IMPLEMENTACION/FASES/`](IMPLEMENTACION/) — detalle por fase.
+
+## Setup de equipo
+
+- [`TEAM_SETUP_ROADMAP.md`](TEAM_SETUP_ROADMAP.md) — roadmap de onboarding del equipo (1 → 3 devs).
+
+---
+
+> ⚠️ **Documentos históricos** (pre-pivote a plataforma B2B, ~mar-abr 2026, conservados por contexto):
+> `ESPECIFICACIONES_TECNICAS.md` y la carpeta `areas/`. **No reflejan el estado actual** — usá `CLAUDE.md`.

@@ -1,5 +1,9 @@
 # 📋 Trade Marketing en Campo — Índice General
 
+> ⚠️ **CARPETA HISTÓRICA (`docs/areas/`, 2026-03-30) — NO refleja el estado actual.**
+> Docs de roles de equipo de la visión original del proyecto (pre-pivote B2B multi-tenant).
+> **La fuente de verdad actual es [`CLAUDE.md`](../../CLAUDE.md) + [`docs/ONBOARDING`](../../ONBOARDING.md).**
+
 > **Versión:** 1.0.0 · **Fecha:** 2026-03-30 · **Estado:** En Desarrollo Activo
 
 ---

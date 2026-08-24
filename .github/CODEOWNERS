@@ -1,0 +1,17 @@
+# CODEOWNERS — enruta reviews automáticamente cuando se abre un PR.
+# Sintaxis: <patrón>  <@usuario-o-equipo>
+#
+# Reemplazá los placeholders por los usuarios de GitHub reales del equipo.
+# Mientras el equipo sea chico (3 devs), tener a todos como owners del root
+# garantiza que cada PR sea visto por alguien. Refiná por área cuando crezca.
+
+# Default: cualquier archivo requiere review de alguno de los 3.
+*                       @edgar @dev2 @dev3
+
+# Áreas sensibles: pedir review del lead explícitamente.
+/database/migrations*/  @edgar
+/database/seeds*/       @edgar
+/.github/               @edgar
+/CLAUDE.md              @edgar
+/DESIGN.md              @edgar
+/.env.example           @edgar
