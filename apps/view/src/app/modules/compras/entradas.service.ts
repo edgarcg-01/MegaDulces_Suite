@@ -27,10 +27,25 @@ export interface EntradaRow {
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
+  /** fecha capturada adelante de hoy: el renglón se ordena como si fuera de hoy y se marca */
+  fecha_futura: boolean;
+}
+
+/** Frescura de UNA fuente (rama Kepler o sucursal Wincaja) de la lista de entradas. */
+export interface EntradaFrescura {
+  source_branch: string;
+  origen: 'kepler' | 'wincaja';
+  ultima: string;
+  dias: number;
+  /** hueco mediano de esa fuente en 90 días — su cadencia normal */
+  cadencia_dias: number;
+  tolerancia_dias: number;
+  atrasada: boolean;
 }
 
 export interface EntradasReport {
   kpis: { entradas: number; con_comprobante: number; validados: number; monto_pendiente: number };
+  frescura: EntradaFrescura[];
   rows: EntradaRow[];
 }
 
