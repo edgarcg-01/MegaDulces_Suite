@@ -14,11 +14,16 @@ export interface SalesDocRow {
   canal: string | null; referencia: string | null;
   total: string; ieps: string; descuento: string; descuento_pct: string; subtotal: string;
   vencida: boolean; dias_vencida: number;
+  /** estatus verbatim de Kepler (`kdm1.c43`): N vigente · C cancelada · R · F */
+  doc_estatus: string | null; cancelada: boolean;
 }
 export interface SalesDocLine {
   linea: number; sku: string; descripcion: string; unidad: string;
   cantidad: string; precio_unitario: string; importe: string;
   factor_caja: string | null; unidad_venta: string | null; unidad_bulto: string | null; product_id: string | null;
+  /** relación canónica de empaque (analytics.v_product_box_factor); `factor_bulto` = la que se muestra */
+  box_factor: string | null; box_factor_source: string | null; box_factor_dudoso: boolean;
+  factor_bulto: number | null;
   descuento: number; neto: number;
   precio_con_descuento: number; precio_caja: number | null;
   precio_caja_con_descuento: number | null; cajas_equivalentes: number | null;
@@ -27,6 +32,11 @@ export interface SalesDocDetail extends SalesDocRow {
   cliente_domicilio: string | null; cliente_colonia: string | null;
   cliente_estado: string | null; cliente_cp: string | null; doc_origen: string | null;
   importe_bruto: number; lineas: SalesDocLine[];
+  /** true si la factura no trae renglones de producto (sólo servicio) → no hay anexo que emitir */
+  sin_detalle: boolean;
+  descuento_aplicado: number; descuento_pct_efectivo: number;
+  /** false ⇒ los renglones no suman el total del CFDI (detalle incompleto en Kepler) */
+  detalle_explica_total: boolean;
 }
 export interface SalesDocsKpis {
   documentos: number; clientes: number; importe: string; descuento: string; vencidas: number;
@@ -43,7 +53,7 @@ export interface SalesDocsFiltros {
 export interface SalesDocsQuery {
   from?: string; to?: string; warehouse_ids?: string; doc_tipo?: string;
   cliente_code?: string; vendedor_code?: string; search?: string;
-  vencidas?: string; min?: string; page?: number; pageSize?: number;
+  vencidas?: string; min?: string; canceladas?: string; page?: number; pageSize?: number;
 }
 
 @Injectable({ providedIn: 'root' })

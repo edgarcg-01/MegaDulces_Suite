@@ -131,6 +131,39 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
     chk(l.every((r) => crudoUn.has(S(r.unidad))), 'la vista trae unidades que no existen en kdm2.c11');
   }
 
+  // ── estatus del documento (mig 20260824140000) ────────────────────────────────────────────
+  // 280 facturas canceladas ($0) se listaban como ventas y 2 conservan sus renglones: el anexo
+  // llegaba a mostrar $43,904 de mercancía con total $0.
+  if ('cancelada' in (h || {})) {
+    chk(h.cancelada === false, `la factura ancla no debe estar cancelada (estatus ${h.doc_estatus})`);
+    const st = (await db.query(`SELECT doc_estatus, cancelada, count(*)::int n,
+        count(*) FILTER (WHERE total = 0)::int cero
+      FROM analytics.erp_sales_invoices GROUP BY 1,2`)).rows;
+    chk(st.every((r) => (r.doc_estatus === 'C') === (r.cancelada === true)),
+      `cancelada debe equivaler a kdm1.c43='C': ${JSON.stringify(st)}`);
+    chk(st.filter((r) => r.cancelada).every((r) => r.n === r.cero),
+      'hay facturas canceladas con total ≠ 0 (¿cambió el significado de c43?)');
+  }
+
+  // ── relación de empaque CANÓNICA (mig 20260824140000) ─────────────────────────────────────
+  // `analytics.v_product_box_factor` es el resolvedor único (RA-PRO.38). El anexo leía c84 crudo
+  // y 212 líneas contradecían al resto del sistema (granel con override=1). Si alguien vuelve a
+  // derivar el factor por su cuenta, esto lo caza.
+  if ('box_factor' in (l[0] || {})) {
+    const div = (await db.query(`
+      SELECT count(*)::int AS n FROM analytics.erp_sales_invoice_lines li
+      JOIN analytics.erp_sales_invoices i USING (sucursal, doc_prefix, folio)
+      LEFT JOIN analytics.v_product_box_factor b
+        ON b.tenant_id = li.tenant_id AND b.product_id = li.product_id
+      WHERE i.fecha >= current_date - 90
+        AND li.product_id IS NOT NULL AND b.box_factor IS DISTINCT FROM li.box_factor`)).rows[0].n;
+    chk(div === 0, `${div} líneas (90d) donde box_factor ≠ analytics.v_product_box_factor`);
+    // en la factura ancla, el bulto se rotula con la unidad de Kepler y el factor con el canónico
+    const cj = l.find((r) => r.sku === '97127');
+    chk(cj && Number(cj.box_factor) > 1 && cj.unidad_bulto === 'CJA',
+      `SKU 97127 debe traer box_factor canónico > 1 y bulto CJA (trae ${cj && cj.box_factor}/${cj && cj.unidad_bulto})`);
+  }
+
   // U/D/13 es factura de traspaso CEDIS (puro servicio) — no debe aparecer nunca
   const t13 = (await db.query(`SELECT count(*)::int n FROM analytics.erp_sales_invoices WHERE doc_prefix LIKE 'UD13%'`)).rows[0].n;
   chk(t13 === 0, `se colaron ${t13} documentos U/D/13 (traspaso CEDIS, sin producto)`);

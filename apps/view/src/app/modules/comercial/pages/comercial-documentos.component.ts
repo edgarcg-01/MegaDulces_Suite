@@ -138,11 +138,15 @@ import { REPORTS_TABS } from '../reports-tabs';
                 @else { <span class="sub">—</span> }
               </td>
               <td class="c acciones">
-                <p-button icon="pi pi-print" [text]="true" size="small" ariaLabel="Imprimir anexo"
-                          pTooltip="Imprimir" [loading]="busy() === d.folio_digital"
-                          (onClick)="imprimir(d, $event)" />
-                <p-button icon="pi pi-file-pdf" [text]="true" size="small" ariaLabel="Ver PDF del anexo"
-                          (onClick)="verPdf(d, $event)" />
+                @if (d.cancelada) {
+                  <p-tag severity="secondary" value="Cancelada" styleClass="tg" />
+                } @else {
+                  <p-button icon="pi pi-print" [text]="true" size="small" ariaLabel="Imprimir anexo"
+                            pTooltip="Imprimir" [loading]="busy() === d.folio_digital"
+                            (onClick)="imprimir(d, $event)" />
+                  <p-button icon="pi pi-file-pdf" [text]="true" size="small" ariaLabel="Ver PDF del anexo"
+                            (onClick)="verPdf(d, $event)" />
+                }
               </td>
             </tr>
           </ng-template>
@@ -159,8 +163,20 @@ import { REPORTS_TABS } from '../reports-tabs';
       } @else if (det(); as x) {
         <div class="peek">
           <div class="peek-acc">
-            <p-button icon="pi pi-print" label="Imprimir" size="small" (onClick)="imprimirDet(x)" />
-            <span class="peek-hint">Incluye la sección de pagaré</span>
+            @if (x.cancelada) {
+              <p-tag severity="secondary" value="Cancelada en Kepler" />
+              <span class="peek-hint">Sin anexo: el documento fue cancelado (estatus {{ x.doc_estatus }}).</span>
+            } @else if (x.sin_detalle) {
+              <p-tag severity="warn" value="Sin detalle de producto" />
+              <span class="peek-hint">Su único renglón es de servicio, no hay mercancía que desglosar.</span>
+            } @else if (x.detalle_explica_total === false) {
+              <p-tag severity="warn" value="Detalle incompleto" />
+              <span class="peek-hint">Los renglones suman {{ x.importe_bruto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
+                y el CFDI dice {{ x.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}: falta detalle en Kepler.</span>
+            } @else {
+              <p-button icon="pi pi-print" label="Imprimir" size="small" (onClick)="imprimirDet(x)" />
+              <span class="peek-hint">Incluye la sección de pagaré</span>
+            }
           </div>
 
           <dl class="peek-kv">

@@ -23,7 +23,7 @@ export class CommercialSalesDocumentsController {
     return {
       from: raw.from, to: raw.to, warehouse_ids: raw.warehouse_ids, doc_tipo: raw.doc_tipo,
       cliente_code: raw.cliente_code, vendedor_code: raw.vendedor_code, search: raw.search,
-      vencidas: raw.vencidas, min: raw.min,
+      vencidas: raw.vencidas, min: raw.min, canceladas: raw.canceladas,
       page: raw.page ? Number(raw.page) : undefined,
       pageSize: raw.pageSize ? Number(raw.pageSize) : undefined,
     };
@@ -31,7 +31,7 @@ export class CommercialSalesDocumentsController {
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Facturas de venta (telemarketing / crédito) con KPIs. Filtros: from, to, warehouse_ids, doc_tipo, cliente_code, vendedor_code, min, vencidas, search (cliente/RFC/folio/monto).' })
+  @ApiOperation({ summary: 'Facturas de venta (telemarketing / crédito) con KPIs. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_ids, doc_tipo, cliente_code, vendedor_code, min, vencidas, search (cliente/RFC/folio/monto).' })
   list(@Query() raw: Record<string, string>) { return this.svc.list(this.q(raw)); }
 
   @Get('filtros')
