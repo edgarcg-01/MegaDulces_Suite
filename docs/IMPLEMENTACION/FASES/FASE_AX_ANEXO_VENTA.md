@@ -35,6 +35,20 @@ Tocar el CFDI o su timbrado · escribir en Kepler (sigue read-only) · tabla cop
 
 **Descuento (decode):** `kdud.c17` = % del cliente (41 clientes con 2%, 32 con 3%). Se guarda como **total** en `kdm1.c13`; el descuento por renglón **no se persiste**. Encima hay una capa por producto: el mismo cliente da 2.000% en una factura y 1.729% en otra, según qué líneas trae.
 
+### Unidades de medida — VERBATIM de Kepler (2026-08-24)
+
+Censo real de `kdm2.c11` (30d, U/D/8+12): **PAQ** 5,708 · **PZA** 1,736 · **KG** 1,142 · **500** 94 · **CJA** 23 · **CUB** 16 · **250** 13 (a 90d aparecen además **2KG** y **400**). El bulto del catálogo es `kdii.c83` y **no siempre es caja**: hay 552 SKUs KG × **BTO**.
+
+La capa de presentación traducía con un mapa fijo `{CJA,PAQ,PZA,KG}` y pluralizaba lo demás → fabricaba unidades que **no existen** ("500s", "cubs") y rotulaba "paq. por caja" aunque el bulto fuera BTO. Regla de Edgar: **cero unidades inventadas**. Corrección en tres capas:
+
+| Capa | Qué cambió |
+|---|---|
+| Vista (mig `20260824120000`) | expone `unidad_venta` = `kdii.c11` y `unidad_bulto` = `kdii.c83`, passthrough (`NULLIF(btrim(...))`, sin `CASE`) |
+| Service | el factor `c84` sólo aplica si la línea se vendió **en la unidad del catálogo** y el bulto existe y difiere — **83 líneas/90d** se venden en otra unidad, donde la equivalencia sería falsa; ahí se suprime |
+| PDF / pantalla | códigos tal cual (`120 PAQ`, `= 5 CJA`, `24 PAQ por CJA`, `por BTO`); los códigos puramente numéricos se rinden `15 × 250` para que no se lean "15,250" |
+
+**Verificación (prod, 2026-08-24):** el smoke compara la vista contra `kdm2.c11` / `kdii.c11`/`c83`/`c84` **crudos**, línea por línea (30/30). Un test de mutación (inyectar `PAQ→paquetes`) confirma que la aserción muerde. El smoke quedó registrado en `run-all-tests.js` con skip-graceful si faltan las vistas.
+
 ---
 
 ## Arquitectura

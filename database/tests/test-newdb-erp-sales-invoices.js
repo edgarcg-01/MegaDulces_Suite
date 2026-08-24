@@ -30,6 +30,16 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   await db.connect();
   console.log(`\n=== Smoke AX.0 — facturas de venta en vivo (${FOLIO}) ===\n`);
 
+  // skip-graceful: sin las vistas (migración pendiente en esta DB) no hay nada que afirmar.
+  const existen = (await db.query(`SELECT
+      to_regclass('analytics.erp_sales_invoices') AS h,
+      to_regclass('analytics.erp_sales_invoice_lines') AS l`)).rows[0];
+  if (!existen.h || !existen.l) {
+    console.log('SKIP — faltan las vistas analytics.erp_sales_invoice*; corré las migraciones (20260822140000 / 20260824120000).');
+    await db.end();
+    process.exit(0);
+  }
+
   for (const v of ['erp_sales_invoices', 'erp_sales_invoice_lines']) {
     const r = (await db.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass($1)`, [`analytics.${v}`])).rows[0];
     chk(r && r.relkind === 'v', `analytics.${v} debe ser VISTA (derive-no-copy), es: ${r ? r.relkind : 'no existe'}`);
@@ -79,12 +89,46 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   const f = Object.fromEntries(l.map((r) => [r.sku, r.factor_caja === null ? null : Number(r.factor_caja)]));
   chk(f['87231'] === 5 && f['97127'] === 24 && f['78229'] === 12, `factores de caja: ${JSON.stringify({ d: f['87231'], p: f['97127'], g: f['78229'] })}`);
   chk(f['97040'] === null, 'SKU 97040 no debe traer factor (no está capturado en el catálogo)');
-  // unidades VERBATIM de Kepler (mig 20260824120000): kdii.c11 venta / c83 bulto
-  chk('unidad_venta' in l[0] && 'unidad_bulto' in l[0], 'faltan unidad_venta/unidad_bulto — ¿se aplicó la mig 20260824120000?');
-  if ('unidad_bulto' in l[0]) {
+  // ── unidades VERBATIM de Kepler (mig 20260824120000) ──────────────────────────────────────
+  // Regla 2026-08-24: cero unidades inventadas. La vista es passthrough de kdm2.c11 (unidad de
+  // la línea) y kdii.c11/c83 (unidad de venta y bulto del catálogo). Este bloque compara la
+  // vista contra las columnas CRUDAS: si alguien vuelve a meter un mapeo/traducción, revienta.
+  const tieneUnidades = l.length > 0 && 'unidad_venta' in l[0] && 'unidad_bulto' in l[0];
+  chk(tieneUnidades, 'faltan unidad_venta/unidad_bulto — ¿se aplicó la mig 20260824120000?');
+  if (tieneUnidades) {
+    const crudo = (await db.query(`
+      SELECT (li.c7)::int AS linea, btrim(li.c8::text) AS sku,
+        NULLIF(btrim(li.c11::text),'') AS unidad,
+        NULLIF(btrim(k.c11::text),'')  AS unidad_venta,
+        NULLIF(btrim(k.c83::text),'')  AS unidad_bulto,
+        NULLIF(coalesce(nullif(regexp_replace(k.c84::text,'[^0-9.]','','g'),'')::numeric,0),0) AS factor_caja
+      FROM kepler_ods.kdm2 li
+      LEFT JOIN kepler_ods.kdii k
+        ON btrim(k.sucursal)=btrim(li.sucursal) AND btrim(k.c1::text)=btrim(li.c8::text)
+      WHERE btrim(li.sucursal)=$1 AND li.c2='U' AND li.c3='D' AND (li.c4)::int=8 AND (li.c5)::int=1
+        AND btrim(li.c6::text)=$2
+        AND coalesce(btrim(li.c11::text),'')<>'SER' AND abs(coalesce((li.c9)::numeric,0))>0`,
+      [P.sucursal, P.folio])).rows;
+    chk(crudo.length === l.length, `crudo ${crudo.length} líneas vs vista ${l.length}`);
+    const S = (v) => (v === null || v === undefined ? null : String(v));
+    const N = (v) => (v === null || v === undefined ? null : Number(v));
+    const difs = [];
+    for (const c of crudo) {
+      const v = l.find((x) => Number(x.linea) === Number(c.linea));
+      if (!v) { difs.push(`L${c.linea} ausente en la vista`); continue; }
+      for (const campo of ['unidad', 'unidad_venta', 'unidad_bulto']) {
+        if (S(v[campo]) !== S(c[campo])) difs.push(`L${c.linea} ${c.sku} ${campo}: vista=${v[campo]} ≠ Kepler=${c[campo]}`);
+      }
+      if (N(v.factor_caja) !== N(c.factor_caja)) difs.push(`L${c.linea} ${c.sku} factor: vista=${v.factor_caja} ≠ kdii.c84=${c.factor_caja}`);
+    }
+    chk(difs.length === 0, `unidades/factor NO coinciden con Kepler crudo → ${difs.slice(0, 4).join(' | ')}`);
+    // anclas conocidas del catálogo (por si el crudo cambiara de sucursal/SKU)
     const uu = Object.fromEntries(l.map((r) => [r.sku, [r.unidad_venta, r.unidad_bulto]]));
     chk(uu['97127'] && uu['97127'][0] === 'PAQ' && uu['97127'][1] === 'CJA', 'SKU 97127 debe traer venta=PAQ bulto=CJA (kdii)');
     chk(uu['97040'] && uu['97040'][1] === null, 'SKU 97040 sin bulto en kdii → unidad_bulto NULL');
+    // la vista NO puede acuñar unidades: todo código que sale debe existir crudo en kdm2.c11
+    const crudoUn = new Set(crudo.map((c) => S(c.unidad)));
+    chk(l.every((r) => crudoUn.has(S(r.unidad))), 'la vista trae unidades que no existen en kdm2.c11');
   }
 
   // U/D/13 es factura de traspaso CEDIS (puro servicio) — no debe aparecer nunca
