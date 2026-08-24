@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 (async () => {
-  const c = new Client({ connectionString: 'postgresql://postgres:whhQQTskVhAeQbbStUUkalNyWmikxBHJ@trolley.proxy.rlwy.net:39023/railway', ssl:{rejectUnauthorized:false} });
+  const c = new Client({ connectionString: process.env.DATABASE_URL_NEW, ssl:{rejectUnauthorized:false} });
   await c.connect();
   const T='00000000-0000-0000-0000-00000000d01c';
   const r=await c.query(`SELECT COUNT(*) convs, ROUND(AVG(iterations),1) iter_prom, COUNT(*) FILTER (WHERE feedback=1) up, COUNT(*) FILTER (WHERE feedback=-1) down, COUNT(*) FILTER (WHERE promoted) promovidas, COUNT(*) FILTER (WHERE array_length(tools_used,1)>0) con_tools FROM commercial.thot_chat_log WHERE tenant_id=$1`,[T]);

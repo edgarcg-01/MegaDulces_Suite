@@ -21,7 +21,7 @@
  *
  * Ejemplo:
  *   node database/setup-runtime-role.js \
- *     "postgresql://postgres:whh...@trolley.proxy.rlwy.net:39023/railway" \
+ *     "postgresql://postgres:<PROD_DB_PASSWORD>@trolley.proxy.rlwy.net:39023/railway" \
  *     "postgres-oqkq.railway.internal:5432"
  */
 const knex = require('knex');
