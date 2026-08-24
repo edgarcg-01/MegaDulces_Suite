@@ -366,6 +366,12 @@ async function reload(db, branch, dataset, spec, rows) {
     replicaDb = knexLib({ client: 'pg', connection: REPLICA_URL, pool: { min: 0, max: 2 }, acquireConnectionTimeout: 30000 });
   }
 
+  // Fallos por (sucursal, tabla). Antes se logueaban y el proceso salía 0: el 24/08/2026 el
+  // sync reportó "BRONZE actual OK" con **205 lecturas caídas** (ECONNRESET en 8 sucursales),
+  // así que nadie supo que esas ramas no se actualizaron. Un feed que no cuenta lo que dejó
+  // fuera miente.
+  const fallos = [];
+
   for (const dataset of datasets) {
     const dir = folderFor(dataset);
     if (!dir) { console.error(`Dataset desconocido: ${dataset} (usar actual|concentrada|both o un año YYYY)`); continue; }
@@ -393,6 +399,7 @@ async function reload(db, branch, dataset, spec, rows) {
           console.log(`  ${spec.access.padEnd(22)} -> ${spec.pg.padEnd(22)} ${String(n).padStart(7)} ${APPLY ? 'OK' : '(dry)'} ${Date.now() - t0}ms`);
         } catch (e) {
           console.error(`  ${spec.access}: ERROR ${String(e.message).slice(0, 120)}`);
+          fallos.push({ suc: br.code, dataset, tabla: spec.access, msg: String(e.message).slice(0, 120) });
         }
       }
     }
@@ -400,4 +407,16 @@ async function reload(db, branch, dataset, spec, rows) {
   if (db) await db.destroy();
   if (replicaDb) await replicaDb.destroy();
   if (!APPLY) console.log('\n(dry-run - usar --apply para escribir a wincaja.*)');
+
+  if (fallos.length) {
+    const porSuc = new Map();
+    for (const f of fallos) porSuc.set(f.suc, (porSuc.get(f.suc) || 0) + 1);
+    const porMsg = new Map();
+    for (const f of fallos) porMsg.set(f.msg, (porMsg.get(f.msg) || 0) + 1);
+    console.error(`\n########## ${fallos.length} LECTURAS FALLARON ##########`);
+    console.error(`  sucursales afectadas: ${[...porSuc].map(([s, n]) => `${s}(${n})`).join(' · ')}`);
+    for (const [m, n] of [...porMsg].sort((a, b) => b[1] - a[1]).slice(0, 5)) console.error(`  ×${n}  ${m}`);
+    console.error('  Esas tablas quedaron con el dato ANTERIOR en wincaja.* (no se borró nada).');
+    process.exit(2); // el .ps1 lo marca como fallo → el heartbeat queda en error, no en "ok"
+  }
 })().catch((e) => { console.error(e); process.exit(1); });
