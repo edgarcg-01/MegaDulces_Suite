@@ -1,9 +1,9 @@
 # CODEOWNERS — enruta reviews automáticamente cuando se abre un PR.
 # Sintaxis: <patrón>  <@usuario-o-equipo>
-# Equipo (3): @edgarcg-01 (lead) · @IngeDavid2209 · @dev-david24
+# Equipo: @edgarcg-01 (lead/owner) · @IngeDavid2209 · @dev-david24 · @0SistemasMD
 
 # Default: cualquier archivo requiere review de alguno del equipo.
-*                       @edgarcg-01 @IngeDavid2209 @dev-david24
+*                       @edgarcg-01 @IngeDavid2209 @dev-david24 @0SistemasMD
 
 # Áreas sensibles: pedir review del lead explícitamente.
 /database/migrations*/  @edgarcg-01
