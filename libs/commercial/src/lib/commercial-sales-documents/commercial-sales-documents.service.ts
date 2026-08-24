@@ -131,7 +131,7 @@ export class CommercialSalesDocumentsService {
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
         .select('linea', 'sku', 'descripcion', 'unidad', 'cantidad', 'precio_unitario',
-                'importe', 'factor_caja', 'product_id')
+                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'product_id')
         .orderBy('linea');
 
       // derivar() devuelve `lineas` ya enriquecidas (descuento/neto/precios por unidad) → esas mandan.
@@ -164,18 +164,26 @@ export class CommercialSalesDocumentsService {
     const detalle = lineas.map((l, i) => {
       const d = (cents[i] || 0) / 100;
       const precio = Number(l.precio_unitario);
-      const factor = l.factor_caja ? Number(l.factor_caja) : null;
       const cant = Number(l.cantidad);
-      // equivalencia en cajas sólo si hay factor real y la compra llega a una caja entera
-      const cajas = factor && factor > 1 && cant / factor >= 1 ? cant / factor : null;
+      // UNIDADES VERBATIM DE KEPLER (regla 2026-08-24: cero unidades inventadas).
+      // El factor kdii.c84 relaciona la unidad de VENTA del catálogo (kdii.c11) con su BULTO
+      // (kdii.c83). Solo aplica si (a) hay factor >1, (b) el bulto está capturado, y (c) la
+      // línea se vendió EN la unidad del catálogo — hay líneas vendidas en otra unidad (93 en
+      // 90d) donde la equivalencia sería falsa.
+      const factorAplica = !!(l.factor_caja && Number(l.factor_caja) > 1 && l.unidad_bulto
+        && l.unidad && l.unidad_venta && String(l.unidad) === String(l.unidad_venta)
+        && String(l.unidad_bulto) !== String(l.unidad));
+      const factor = factorAplica ? Number(l.factor_caja) : null;
+      const cajas = factor && cant / factor >= 1 ? cant / factor : null;
       return {
         ...l,
         descuento: d,
         neto: r2(Number(l.importe) - d),
         precio_con_descuento: r2(precio * (1 - pct / 100)),
-        precio_caja: factor && factor > 1 ? r2(precio * factor) : null,
-        precio_caja_con_descuento: factor && factor > 1 ? r2(precio * factor * (1 - pct / 100)) : null,
+        precio_caja: factor ? r2(precio * factor) : null,
+        precio_caja_con_descuento: factor ? r2(precio * factor * (1 - pct / 100)) : null,
         cajas_equivalentes: cajas,
+        factor_caja: factor, // ya validado; null si no aplica a esta línea
       };
     });
     return { importe_bruto: bruto, lineas: detalle };

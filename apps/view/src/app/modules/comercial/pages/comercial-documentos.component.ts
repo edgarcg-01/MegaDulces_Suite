@@ -178,7 +178,7 @@ import { REPORTS_TABS } from '../reports-tabs';
                 <tr>
                   <td><span class="nom">{{ l.descripcion }}</span><span class="sub mono">SKU {{ l.sku }}</span></td>
                   <td class="r mono">{{ l.cantidad }} {{ l.unidad }}
-                    @if (l.cajas_equivalentes) { <span class="sub">= {{ l.cajas_equivalentes }} cja</span> }
+                    @if (l.cajas_equivalentes && l.unidad_bulto) { <span class="sub">= {{ l.cajas_equivalentes }} {{ l.unidad_bulto }}</span> }
                   </td>
                   <td class="r mono">{{ l.neto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
                 </tr>

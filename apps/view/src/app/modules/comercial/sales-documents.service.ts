@@ -18,7 +18,7 @@ export interface SalesDocRow {
 export interface SalesDocLine {
   linea: number; sku: string; descripcion: string; unidad: string;
   cantidad: string; precio_unitario: string; importe: string;
-  factor_caja: string | null; product_id: string | null;
+  factor_caja: string | null; unidad_venta: string | null; unidad_bulto: string | null; product_id: string | null;
   descuento: number; neto: number;
   precio_con_descuento: number; precio_caja: number | null;
   precio_caja_con_descuento: number | null; cajas_equivalentes: number | null;
