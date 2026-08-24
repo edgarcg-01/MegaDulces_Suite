@@ -116,3 +116,20 @@ database/importers/wincaja/_shadow/
 database/importers/wincaja/store-agent.cmd
 database/importers/wincaja/store-agent.log
 database/importers/wincaja/.wincaja-agent-*.json
+
+# ── Higiene de working tree (2026-08-24) — scratch/diagnóstico, NO versionar ──
+# Dumps de sesión del navegador (Playwright MCP).
+.playwright-mcp/
+# Scripts de diagnóstico one-off (viven en el árbol, no son código de producto).
+_diag-*.js
+database/**/_diag-*.js
+# Caches locales de extractores/scans (data derivada, se regenera).
+database/importers/wincaja/.wincaja-*.json
+database/importers/checadores/.scan-*.json
+# Archivos de referencia/scratch sueltos en la raíz del repo (PDF/Excel/txt de trabajo).
+/*.pdf
+/*.xlsx
+/c2.txt
+/s2.txt
+/chunks.txt
+/sizes.txt

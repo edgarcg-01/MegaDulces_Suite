@@ -1,5 +1,9 @@
 # Arquitectura de datos — cómo funcionan nuestras bases, el flujo y qué es nuevo
 
+> ⚠️ **VERSIÓN SUPERSEDED (2026-08-11).** La versión vigente y más completa vive en
+> [`docs/ARQUITECTURA_DATOS.md`](../ARQUITECTURA_DATOS.md) (2026-08-15, grounded en introspección de prod).
+> Usá esa. Este archivo se conserva por historial.
+
 > Vista de pájaro de TODAS las bases de datos del proyecto, cómo se mueve el dato de origen a la app,
 > qué se construyó (pipe CDC al-minuto) y qué se quedó igual.
 >

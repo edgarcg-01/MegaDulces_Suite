@@ -1,5 +1,10 @@
 # 📋 Especificaciones Técnicas — Trade Marketing en Campo
 
+> ⚠️ **DOCUMENTO HISTÓRICO (2026-03-30) — NO refleja el estado actual.**
+> Describe la visión original del proyecto (solo trade marketing, pre-pivote a plataforma B2B multi-tenant).
+> Se conserva por contexto histórico. **La fuente de verdad actual es [`CLAUDE.md`](../CLAUDE.md)**,
+> [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) y [`docs/IMPLEMENTACION/`](IMPLEMENTACION/INDEX.md).
+
 > **Versión:** 1.0.0 · **Fecha:** 2026-03-30 · **Estado:** En Desarrollo Activo
 
 ---
