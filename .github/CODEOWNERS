@@ -1,10 +1,9 @@
 # CODEOWNERS — enruta reviews automáticamente cuando se abre un PR.
 # Sintaxis: <patrón>  <@usuario-o-equipo>
-#
-# TODO: agregar el 2º dev nuevo cuando esté su usuario de GitHub (reemplazar la nota de abajo).
+# Equipo (3): @edgarcg-01 (lead) · @IngeDavid2209 · @dev-david24
 
 # Default: cualquier archivo requiere review de alguno del equipo.
-*                       @edgarcg-01 @IngeDavid2209
+*                       @edgarcg-01 @IngeDavid2209 @dev-david24
 
 # Áreas sensibles: pedir review del lead explícitamente.
 /database/migrations*/  @edgarcg-01
