@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 
 export interface SalesDocRow {
   folio_digital: string; sucursal: string; warehouse_id: string | null;
-  doc_prefix: string; doc_tipo: 'telemarketing' | 'credito'; doc_label: string; folio: string;
+  doc_prefix: string; doc_tipo: 'telemarketing'; doc_label: string; folio: string;
   fecha: string; vencimiento: string; dias_credito: number; limite_credito: string;
   cliente_code: string; cliente_nombre: string; cliente_rfc: string | null;
   vendedor_code: string | null; vendedor_nombre: string | null;

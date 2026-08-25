@@ -300,8 +300,8 @@ table.det thead th{font-size:8pt;letter-spacing:.07em;text-transform:uppercase;c
 table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:6px 7px;border-bottom:1px solid var(--line-2);vertical-align:top}
-.p-name{font-weight:700;font-size:10.5pt;line-height:1.25}
-.p-sku{font-size:8.5pt;color:var(--muted);font-weight:600;margin-top:2px}
+.p-name{font-weight:700;font-size:9pt;line-height:1.2}
+.p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
 .qcell{text-align:left}
 .q-main{font-weight:700;display:block}
 .q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}
