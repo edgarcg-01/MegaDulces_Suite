@@ -169,6 +169,10 @@ export enum Permission {
   COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
+  // reusando COMMERCIAL_ORDERS_VER, así que no se podía asignar sin dar Pedidos
+  // ni quitar sin quitarlos. Backfill ← ORDERS_VER en 20260825120000.
+  COMMERCIAL_SALES_DOCS_VER = 'COMMERCIAL_SALES_DOCS_VER',
   // Traspasos NO tiene permiso propio nuevo: reusa el ya existente
   // LOGISTICS_TRANSFERS_VER (la ruta /logistica/traspasos ya lo usa).
   COMMERCIAL_CUSTOMERS360_VER = 'COMMERCIAL_CUSTOMERS360_VER',

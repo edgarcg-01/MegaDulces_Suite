@@ -62,6 +62,7 @@ export * from './lib/storage/object-storage.service';
 
 // ── constants / schemas / date ──
 export * from './lib/constants/permissions';
+export * from './lib/constants/branches';
 export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
 export * from './lib/phone/mx-phone';

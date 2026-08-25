@@ -6,6 +6,30 @@
 
 ---
 
+## 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera)
+
+**Disparador:** revisión de `/compras/compras-360` pedida por Edgar. La pantalla estaba bien construida (answer-first, empty≠error, estado en URL, sort server-side, split comercial/operativo) y el problema no era el estilo: eran **la atribución del dato y el comportamiento de los filtros**.
+
+**Lo que se encontró y arregló** (detalle en `CHANGELOG.md`):
+
+| # | Hallazgo | Verificación |
+|---|---|---|
+| 1 | Ajuste ligado **solo por `entrada_folio`** → atribución cruzada de proveedor entre sucursales | 1,106 folios existen en >1 sucursal; folio `0000505` pegaba ajustes de GONAC a CUERITOS LUPITA y PADRE HIDALGO. Fix `(sucursal, entrada_folio)`: atribuidos **16 → 12** = los ligables reales |
+| 2 | Buscador `ILIKE '%q%'` de un token, sensible a acentos | `"gonac comercializadora"` y `"yurécuaro"` daban **0**; con `applySmartSearch` dan 82 y 144 (y `"gonak"` con typo, 82) |
+| 3 | Sin cancelación de requests | `Subject` + `switchMap`; debounces cancelados al cambiar de filtro y en `DestroyRef` |
+| 4 | Sin frescura del feed | `data_as_of` + chip "Datos de hace N" + botón Actualizar (el espejo local tenía 15 días) |
+| 5 | KPI de cobertura fijo en verde | tono por cobertura (0 comprobantes de 11,405 se pintaba ok) |
+| 6 | "Con ajuste" excluía los ajustes de $0 | filtra por *tener ajuste*; + modos Solo operativo / Solo comercial |
+| 7 | Conteos de dropdown globales | **facetas**: 8 Esquinas decía 872, la tabla daba 85 |
+| 8 | Export con tope silencioso y error callado | `truncated` + aviso + split operativo/comercial en el CSV |
+| 9–12 | Deep-link `?ent=`, preset en URL, guard del sanitizer, `@container` + `rem` + CSS muerto + `::ng-deep` documentado | §R / §S / §Ing.UI 8 del `DESIGN.md` |
+
+**Lección (la que importa):** el smoke `test-newdb-compras-360` **pasaba en verde con el bug adentro**. Verificaba que el join no inflara **filas** (era cierto: 11,405 == 11,405) y nadie había preguntado si inflaba **atribuciones**. Un join 1:0..1 correcto en cardinalidad puede ser incorrecto en semántica. Se le agregaron dos aserciones: `Σ ajustes atribuidos == ajustes ligables` y `0 ajustes pegados a un proveedor distinto` — con el join viejo la primera daba 16 ≠ 12 y habría fallado.
+
+**Estado:** `tsc` del API verde; smoke 6/6. El `nx build view` **no se pudo cerrar en verde por WIP ajeno** en el árbol (`finanzas/expense-evidence-peek` + `finanzas-solicitudes` referencian exports que `comprobaciones.service` todavía no tiene, junto a la migración sin trackear `20260825180000_expense_proofs_clasificacion`). El compilador de Angular hizo el pase completo y **no reportó ningún diagnóstico en los archivos de compras** — falta re-correr el build cuando ese trabajo cierre.
+
+---
+
 ## 2026-08-20 — FKJ: integridad referencial + JOINs correctos + copias→vista
 
 **Origen:** el usuario pidió un análisis de tablas sin FK, que la integridad referencial fuera correcta, y que se usara JOIN donde debe. El audit del código (uso de JOINs a dims canónicas) se corrió con un **Workflow de 13 agentes** (6 dimensiones × find→verify adversarial + síntesis): 14 hallazgos confirmados, 0 falsos positivos.
