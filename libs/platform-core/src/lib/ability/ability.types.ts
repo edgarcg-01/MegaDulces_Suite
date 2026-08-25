@@ -34,6 +34,7 @@ export type AppSubject =
   | 'commercial_sellout'
   | 'commercial_salidas'
   | 'commercial_route_sales'
+  | 'commercial_sales_docs'
   | 'commercial_customers360'
   | 'commercial_historical'
   | 'commercial_deadstock'

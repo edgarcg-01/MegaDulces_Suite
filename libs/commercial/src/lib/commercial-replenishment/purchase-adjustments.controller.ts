@@ -96,14 +96,29 @@ export class PurchaseAdjustmentsController {
 
   @Get('compras-360/filters')
   @RequirePermissions(Permission.COMPRAS_360_VER)
-  @ApiOperation({ summary: 'CXP.3 — catálogo de filtros de Compras 360: sucursales presentes (con conteo) + monto máximo, para poblar los dropdowns.' })
-  compras360Filters() {
-    return this.svc.compras360Filters();
+  @ApiOperation({ summary: 'CXP.3 — catálogo de filtros de Compras 360: sucursales y proveedores presentes + monto máximo. Los conteos son FACETAS: respetan los demás filtros activos e ignoran la propia dimensión, así el "· N" es lo que la tabla va a dar. Mismos params que /compras-360 (sin sort/page).' })
+  compras360Filters(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('proveedor_code') proveedor_code?: string,
+    @Query('date_from') date_from?: string,
+    @Query('date_to') date_to?: string,
+    @Query('ajuste') ajuste?: string,
+    @Query('con_oc') con_oc?: string,
+    @Query('comprobante') comprobante?: string,
+    @Query('monto_min') monto_min?: string,
+    @Query('monto_max') monto_max?: string,
+  ) {
+    return this.svc.compras360Filters({
+      search, sucursal, proveedor_code, date_from, date_to, ajuste, con_oc, comprobante,
+      monto_min: monto_min != null && monto_min !== '' ? Number(monto_min) : undefined,
+      monto_max: monto_max != null && monto_max !== '' ? Number(monto_max) : undefined,
+    });
   }
 
   @Get('compras-360')
   @RequirePermissions(Permission.COMPRAS_360_VER)
-  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto + neto. Filtros: search (prov/OC/folio/vale/concepto), sucursal, proveedor_code, date_from, date_to, ajuste (con|sin), con_oc (con|sin), comprobante (sin|con|validado|por_validar|rechazado), monto_min, monto_max, sort+dir (whitelist), page, pageSize, all (export ≤5000). con_ajuste sigue por back-compat.' })
+  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto por (sucursal, folio) + neto. Filtros: search (smart-search: multi-token, sin acentos, typos), sucursal, proveedor_code, date_from, date_to, ajuste (con|sin|operativo|comercial), con_oc (con|sin), comprobante (sin|con|validado|por_validar|rechazado), monto_min, monto_max, sort+dir (whitelist), page, pageSize, all (export ≤5000; responde truncated=true si se cortó). Devuelve data_as_of (frescura del feed). con_ajuste sigue por back-compat.' })
   compras360(
     @Query('search') search?: string,
     @Query('sucursal') sucursal?: string,

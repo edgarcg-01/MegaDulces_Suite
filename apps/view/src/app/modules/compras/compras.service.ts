@@ -1035,9 +1035,24 @@ export class ComprasService {
     return this.http.get<Compras360Response>(`${this.adjBase}/compras-360${qs ? '?' + qs : ''}`);
   }
 
-  /** CXP.3 — catálogo de filtros de Compras 360 (sucursales con conteo + monto máximo). */
-  compras360Filters(): Observable<Compras360Filters> {
-    return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters`);
+  /**
+   * CXP.3 — catálogo de filtros de Compras 360. Los conteos son FACETAS: se le pasan los
+   * filtros activos para que el "· N" del dropdown sea lo que la tabla va a devolver.
+   */
+  compras360Filters(q: Compras360Query = {}): Observable<Compras360Filters> {
+    const p = new URLSearchParams();
+    if (q.search) p.set('search', q.search);
+    if (q.sucursal) p.set('sucursal', q.sucursal);
+    if (q.proveedor_code) p.set('proveedor_code', q.proveedor_code);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.ajuste) p.set('ajuste', q.ajuste);
+    if (q.con_oc) p.set('con_oc', q.con_oc);
+    if (q.comprobante) p.set('comprobante', q.comprobante);
+    if (q.monto_min != null) p.set('monto_min', String(q.monto_min));
+    if (q.monto_max != null) p.set('monto_max', String(q.monto_max));
+    const qs = p.toString();
+    return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters${qs ? '?' + qs : ''}`);
   }
 
   /** RE.9 — evidencia (comprobante + OCR, URL de lectura prefirmada) de una orden de entrada, para el visor de Compras 360. */
@@ -1131,7 +1146,7 @@ export interface PolizaForReceipt { found: boolean; cuadra: boolean; polizas: Po
 export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean }
 export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number }; rows: LandedCostRow[] }
 
-export type Compras360AjusteMode = 'con' | 'sin';
+export type Compras360AjusteMode = 'con' | 'sin' | 'operativo' | 'comercial';
 export type Compras360OcMode = 'con' | 'sin';
 export type Compras360CompMode = 'sin' | 'con' | 'validado' | 'por_validar' | 'rechazado';
 export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; comprobante?: Compras360CompMode; monto_min?: number; monto_max?: number; sort?: string; dir?: 'asc' | 'desc'; page?: number; pageSize?: number; all?: boolean }
@@ -1139,7 +1154,7 @@ export interface Compras360Row { sucursal: string; folio: string; receipt_date: 
   /** Parte del ajuste que es beneficio negociado (descuento/pronto pago/apoyo) vs la que es un problema. */
   ajuste_comercial: number; ajuste_operativo: number;
   neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
-export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
+export interface Compras360Response { total: number; page: number; pageSize: number; /** Última corrida del importer que puebla el espejo (ISO) — frescura del dato. */ data_as_of?: string | null; /** El export cortó filas (all + total > tope). */ truncated?: boolean; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
 export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }
 export interface ReceiptEvidenceDeposit { id: string; files: ReceiptEvidenceFile[]; ocr_folio: string | null; ocr_fecha: string | null; ocr_proveedor: string | null; ocr_rfc: string | null; ocr_subtotal: number | null; ocr_iva: number | null; ocr_monto: number | null; ocr_status: string | null; monto_match: boolean | null; discrepancy_kind: string | null; discrepancy_amount: number | null; status: string; comentarios: string | null; validated_by: string | null; validated_at: string | null; motivo_rechazo: string | null; created_by: string | null; created_at: string }
