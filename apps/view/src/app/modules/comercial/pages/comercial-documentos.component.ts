@@ -51,7 +51,7 @@ import { REPORTS_TABS } from '../reports-tabs';
       <div>
         <h1>Documentos de venta</h1>
         <p class="surf-page-sub">
-          Facturas de telemarketing y venta a crédito · imprime el detalle desglosado para el cliente
+          Facturas de telemarketing · imprime el detalle desglosado para el cliente
           <span class="live" title="Se leen en vivo del ERP; no dependen de un proceso nocturno.">· en vivo</span>
         </p>
       </div>
@@ -71,9 +71,6 @@ import { REPORTS_TABS } from '../reports-tabs';
         <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
                placeholder="Cliente, RFC, folio o monto" aria-label="Buscar documentos" />
       </p-iconfield>
-
-      <p-select [(ngModel)]="docTipo" (onChange)="load()" [options]="tipoOpts" optionLabel="label"
-                optionValue="value" placeholder="Tipo" [showClear]="true" ariaLabel="Tipo de documento" />
 
       <p-select [(ngModel)]="vendedor" (onChange)="load()" [options]="vendedorOpts()" optionLabel="label"
                 optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" ariaLabel="Vendedor" />
@@ -267,17 +264,12 @@ export class ComercialDocumentosComponent {
   private readonly filtros = signal<SalesDocsFiltros | null>(null);
 
   search = '';
-  docTipo: string | null = null;
   vendedor: string | null = null;
   soloVencidas = false;
   desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   hasta = new Date().toISOString().slice(0, 10);
 
   readonly tabs = REPORTS_TABS;
-  readonly tipoOpts = [
-    { label: 'Telemarketing', value: 'telemarketing' },
-    { label: 'Venta a crédito', value: 'credito' },
-  ];
   readonly vendedorOpts = computed(() =>
     (this.filtros()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
@@ -307,7 +299,7 @@ export class ComercialDocumentosComponent {
     this.error.set(null);
     const q = {
       from: this.desde, to: this.hasta, search: this.search || undefined,
-      doc_tipo: this.docTipo || undefined, vendedor_code: this.vendedor || undefined,
+      vendedor_code: this.vendedor || undefined,
       vencidas: this.soloVencidas ? 'true' : undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
