@@ -232,23 +232,30 @@ export class AnexoVentaService {
       // Unidades TAL CUAL vienen de Kepler: la de línea (kdm2.c11) y el bulto del catálogo
       // (kdii.c83). El service ya validó el factor (null si la línea no se vendió en la
       // unidad del catálogo), así que aquí solo se rotula, nunca se traduce.
-      const precioPza = Number(l.precio_unitario) || 0;
       const importe = Number(l.importe) || 0;
       const tasa = importe > 0 ? (Number(l.descuento) || 0) / importe : 0; // tasa efectiva de la línea
-      // Niveles de MAYOR a menor (caja > paquete > pieza): cantidad + precio POR unidad, con los
-      // factores de Kepler (box_factor=c84 caja / factor_paq=c81 paquete). Solo divide EXACTO (no
-      // fabricar fracciones) y solo si la línea se vendió en la unidad base. Caja omitida si dudoso.
+      // Factores de Kepler (contra la base pieza): box_factor=c84 piezas/caja · factor_paq=c81 piezas/paquete.
       const cjaF = Number(l.box_factor) || 0;
       const paqF = Number(l.factor_paq) || 0;
-      const enBase = !!l.unidad_venta && String(l.unidad) === String(l.unidad_venta);
+      const bultoU = this.unidad(l.unidad_bulto);
+      const paqUu = this.unidad(l.unidad_paq);
+      const baseU = this.unidad(l.unidad_venta) || this.unidad(l.unidad) || 'pza';
+      const cajaOK = cjaF > 1 && !!l.unidad_bulto && !l.box_factor_dudoso;
+      const paqOK = paqF > 1 && !!l.unidad_paq && String(l.unidad_paq) !== String(l.unidad_bulto);
+      // Normaliza la cantidad VENDIDA a piezas (según la unidad de venta) para poder desglosarla en
+      // caja/paquete/pieza AUNQUE se haya vendido en paquetes (así el cliente no divide a mano).
+      const soldU = String(l.unidad || '');
+      let soldFactor = 1;
+      if (paqOK && soldU === String(l.unidad_paq)) soldFactor = paqF;
+      else if (cajaOK && soldU === String(l.unidad_bulto)) soldFactor = cjaF;
+      const qtyPz = cant * soldFactor;
+      const precioPza = soldFactor > 0 ? (Number(l.precio_unitario) || 0) / soldFactor : 0;
+
+      // LO COMPRADO desglosado de MAYOR a menor (caja > paquete > pieza). Solo niveles EXACTOS.
       const niveles: { n: number; u: any; p: number }[] = [];
-      if (enBase && cjaF > 1 && l.unidad_bulto && !l.box_factor_dudoso && cant % cjaF === 0) {
-        niveles.push({ n: cant / cjaF, u: l.unidad_bulto, p: precioPza * cjaF });
-      }
-      if (enBase && paqF > 1 && l.unidad_paq && String(l.unidad_paq) !== String(l.unidad_bulto) && cant % paqF === 0) {
-        niveles.push({ n: cant / paqF, u: l.unidad_paq, p: precioPza * paqF });
-      }
-      niveles.push({ n: cant, u: l.unidad, p: precioPza }); // pieza / unidad de la línea (la menor)
+      if (cajaOK && qtyPz % cjaF === 0) niveles.push({ n: qtyPz / cjaF, u: l.unidad_bulto, p: precioPza * cjaF });
+      if (paqOK && qtyPz % paqF === 0) niveles.push({ n: qtyPz / paqF, u: l.unidad_paq, p: precioPza * paqF });
+      niveles.push({ n: qtyPz, u: l.unidad_venta || l.unidad, p: precioPza }); // pieza (la menor)
 
       // Cantidad y precio comparten el MISMO orden (caja > paquete > pieza) → quedan alineados.
       const qCell = niveles.map((r, i) =>
@@ -257,6 +264,13 @@ export class AnexoVentaService {
         `<span class="${i === 0 ? 'pu' : 'pu2'}${withDesc ? ' pd' : ''}">${this.m(withDesc ? r.p * (1 - tasa) : r.p)}</span>`
         + `<span class="pl">por ${this.unidad(r.u) || 'unidad'}</span>`).join('');
 
+      // Apartado pequeño: cuánto equivale cada unidad (1 caja = N paquetes · 1 paquete = M piezas).
+      const equiv: string[] = [];
+      if (cajaOK && paqOK && cjaF % paqF === 0) equiv.push(`1 ${bultoU} = ${cjaF / paqF} ${paqUu}`);
+      if (paqOK) equiv.push(`1 ${paqUu} = ${paqF} ${baseU}`);
+      else if (cajaOK) equiv.push(`1 ${bultoU} = ${cjaF} ${baseU}`);
+      const equivHtml = equiv.length ? `<div class="p-equiv">${equiv.join(' · ')}</div>` : '';
+
       const colsDesc = conDesc ? `
         <td class="u-price c-hl">${priceLadder(true)}</td>
         <td class="imp">${this.m(l.importe)}</td>
@@ -264,7 +278,7 @@ export class AnexoVentaService {
         <td class="neto">${this.m(l.neto)}</td>`
         : `<td class="neto">${this.m(l.importe)}</td>`;
       return `<tr>
-        <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div></td>
+        <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div>${equivHtml}</td>
         <td class="qcell">${qCell}</td>
         <td class="u-price">${priceLadder(false)}</td>
         ${colsDesc}
@@ -317,6 +331,7 @@ table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:3px 6px;border-bottom:1px solid var(--line-2);vertical-align:top}
 .p-name{font-weight:700;font-size:9pt;line-height:1.2}
 .p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
+.p-equiv{font-size:7pt;color:var(--muted);font-style:italic;margin-top:2px;line-height:1.25}
 .qcell{text-align:left}
 .q-main{font-weight:700;display:block}
 .q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}
