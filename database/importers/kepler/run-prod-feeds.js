@@ -140,7 +140,14 @@ const STEPS = {
     path.join(K, 'import-canindo-routes-monthly.js'), // RR — rutas de Canindo desde Kepler '06' (c67=500N → WIN-50N); reemplaza el feed Wincaja de '50', mismo namespace → serie continua
     path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
     path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
-    path.join(K, 'repoint-catalog-prices.js'), // catálogo — SYNC precio base (KP_CONCENTRADA c90 → BASE-MXN, Kepler autoridad, churn-free; piso anti-promo c90>0.05)
+    // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
+    // el precio de venta lo lleva `normalizeSalePrice` (ods-derived) AL MOMENTO vía hop-2, porque leer
+    // `kdii.c90` como "precio pieza" es un decode equivocado (c90 es el precio de la UNIDAD BASE) y
+    // kdii carga 219 tripletas de plantilla que afectan 1,667 SKUs. Este paso ya NO toca precios
+    // existentes; sólo rellena huecos y mantiene is_promo.
+    // NO agregar acá un feed de precio: nada derivado del ODS se refresca por cron.
+    // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
+    [path.join(K, 'repoint-catalog-prices.js'), '--gap-fill-only'],
     path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
@@ -256,9 +263,15 @@ function killTree(proc) {
   }
 }
 
-function run(script) {
+// Una entrada de la lista puede ser una ruta o `[ruta, ...flags]` cuando el script necesita un
+// modo distinto del default (ej. repoint-catalog-prices en --gap-fill-only, porque el sync de
+// precio lo tomó repoint-prices-from-bitacora).
+const pathOf = (entry) => (Array.isArray(entry) ? entry[0] : entry);
+
+function run(entry) {
   return new Promise((resolve) => {
-    const args = [script];
+    const script = pathOf(entry);
+    const args = [script, ...(Array.isArray(entry) ? entry.slice(1) : [])];
     if (APPLY) args.push('--apply');
     const proc = spawn('node', args, { stdio: 'inherit' });
     currentChild = proc;
@@ -332,9 +345,9 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   let failed = 0;
   const failedSteps = [];
   for (const s of steps) {
-    console.log(`\n--- ${s} ---`);
+    console.log(`\n--- ${pathOf(s)} ---`);
     const code = await run(s);
-    if (code !== 0) { failed++; failedSteps.push(path.basename(s)); console.error(`✗ ${s} salió con código ${code}`); }
+    if (code !== 0) { failed++; failedSteps.push(path.basename(pathOf(s))); console.error(`✗ ${pathOf(s)} salió con código ${code}`); }
   }
   console.log(`\n=== Runner terminó: ${steps.length - failed}/${steps.length} OK ===`);
 

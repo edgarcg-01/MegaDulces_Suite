@@ -49,17 +49,12 @@ PUPPETEER_SKIP_DOWNLOAD=true npm ci
 # 3. Levantar las DBs locales (Postgres 5432 + pgvector 5433 + Redis 6379)
 npm run dev:up
 
-# 4. Crear tu .env desde el template
-cp .env.example .env
-#    Editá .env — para desarrollo local con el Docker de arriba, apuntá TODO a localhost:
-#      DATABASE_URL=postgresql://postgres:postgres@localhost:5432/megadulces_logistica
-#      DATABASE_URL_NEW=postgresql://postgres:postgres@localhost:5432/postgres_platform
-#      DATABASE_URL_NEW_RUNTIME=postgresql://app_runtime:app_runtime@localhost:5432/postgres_platform
-#      VECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/vector_db
-#      REDIS_URL=redis://localhost:6379
-#      JWT_SECRET=<generá uno largo aleatorio>
-#      ENABLE_MULTITENANT=true
-#    Los secretos reales (Cloudinary, Anthropic, Voyage, etc.) los pedís al lead — NO están en el repo (§6).
+# 4. Crear tu .env desde el template MÍNIMO de dev (DBs locales ya configuradas)
+cp .env.dev.example .env
+#    Ya apunta a las DBs del Docker de arriba. Solo pegá las API keys que vayas a
+#    usar (Anthropic, Cloudinary, etc.) — pedilas al lead por canal seguro; NO están
+#    en el repo (§6). El API arranca igual sin ellas (se saltan esos flujos).
+#    Para el env COMPLETO (prod/feeds/todos los servicios) está `.env.example`.
 
 # 5. Correr migraciones (legacy + nueva DB multi-tenant) y seeds
 npm run migrate:latest    # DB legacy
@@ -172,6 +167,7 @@ está en **[`docs/GOTCHAS.md`](docs/GOTCHAS.md) — léelo antes de tocar DB o p
 El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave para el equipo:
 
 - **`CLAUDE.md` es la memoria compartida** — se auto-carga en cada sesión. Si aprendés algo no obvio del dominio, va ahí (o en `docs/`), no en tu cabeza.
+- **La primera vez, orientá a tu Claude:** decile *"Leé `docs/CLAUDE_ONBOARDING.md` y seguí el protocolo para entender el proyecto."* Eso lo guía a leer los docs correctos en orden y armar el modelo mental antes de tocar código.
 - **La memoria personal de Claude (`~/.claude/memory/`) es local a tu máquina** — no se comparte entre devs. El conocimiento que debe verlo todo el equipo va a `docs/` o `CLAUDE.md`.
 - **Actualizá el tracker al cerrar cualquier item**: `01_TRACKER_PROGRESO.md` (estado ⬜→🔨→🧪→🚀→✅) y `03_LOG_REVISIONES.md` (al cerrar sprint). Es mandatorio, no opcional.
 - **Decisiones técnicas relevantes → un ADR** en `02_DECISIONES_ARQUITECTURA.md`.

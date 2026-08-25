@@ -63,6 +63,7 @@
 | [`WINCAJA_KEPLER_RELACION.md`](WINCAJA_KEPLER_RELACION.md) | **Mapeo empírico Wincaja ↔ Kepler** — qué se relaciona (producto por `sku`, sucursal por crosswalk) y qué no (clientes/proveedores/folios); base del bridge W.5/W.6 |
 | [`ERP_KEPLER_SCHEMA.md`](ERP_KEPLER_SCHEMA.md) | Esquema descifrado de inventario + write-back físico Fase I → Kepler |
 | [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md) | **Modelo contable descifrado** (pólizas `kdc2` + catálogo `kdco`): 7 familias de cuenta, ciclos venta/compra/inventario, corte presupuesto→factura, reglas para feeds de egresos/ventas/margen |
+| [`KEPLER_PRECIOS_MODELO.md`](KEPLER_PRECIOS_MODELO.md) | **Modelo de precios descifrado** — las 5 fuentes (`kdpv_bitacora_precios`, `kdpv_prod_util`, `kdm2.c12`, `kdii`, `kdik`), qué campo usar según su función, y por qué `c90` NO es "precio pieza" sino el de la unidad base |
 | [`RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md`](RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md) | Runbook de despliegue de la consolidación viva a prod |
 
 ---

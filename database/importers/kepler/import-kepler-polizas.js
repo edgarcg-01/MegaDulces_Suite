@@ -69,12 +69,17 @@ const iso = (d) => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : Stri
       if (!exists) continue; // el mes no existe en esa sucursal
       let rows;
       try {
+        // Guard own-sucursal (igual que import-ledger-chain.js): las DBs de sucursal PUEDEN
+        // arrastrar réplicas de otras plazas (DB03↔DB02) → sin esto la misma póliza se leería
+        // desde 2+ DBs y duplicaría patas/cargos. Se conservan c14 NULL/'' (pólizas sin sucursal
+        // del CEDIS) atribuyéndolas a la DB conectada; NO usar `btrim(c14)=code` a secas (dropea esas).
         rows = (await src.query(
           `SELECT c14 AS suc, c2 AS fecha, c3 AS cuenta, c4 AS ca, c5 AS importe, c10 AS linea,
                   c6 AS concepto, (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) AS doc_tipo,
                   NULLIF(btrim(c19::text),'') AS folio
              FROM md.${t.tbl}
-            WHERE c5 > 0 AND c4 IN ('C','A')`)).rows;
+            WHERE c5 > 0 AND c4 IN ('C','A')
+              AND (c14 IS NULL OR btrim(c14::text) = '' OR btrim(c14::text) = $1)`, [b.code])).rows;
       } catch (e) { console.warn(`  ⚠ ${b.code}/${t.tbl}: ${e.message}`); continue; }
       for (const r of rows) {
         const suc = String(r.suc || b.code).trim() || b.code;
