@@ -227,7 +227,7 @@ export class AnexoVentaService {
     // tres columnas del descuento no existen y el importe es el neto.
     const conDesc = Math.abs(ahorro) > 0.005;
 
-    const filas = L.map((l: any) => {
+    const filasArr = L.map((l: any) => {
       const cant = Number(l.cantidad);
       // Unidades TAL CUAL vienen de Kepler: la de línea (kdm2.c11) y el bulto del catálogo
       // (kdii.c83). El service ya validó el factor (null si la línea no se vendió en la
@@ -250,19 +250,38 @@ export class AnexoVentaService {
       else if (cajaOK && soldU === String(l.unidad_bulto)) soldFactor = cjaF;
       const qtyPz = cant * soldFactor;
       const precioPza = soldFactor > 0 ? (Number(l.precio_unitario) || 0) / soldFactor : 0;
+      // Unidad en que se VENDIÓ esta línea → para agrupar las líneas: caja (0) / paquete (1) / pieza (2).
+      let tier = 2;
+      if (cajaOK && soldU === String(l.unidad_bulto)) tier = 0;
+      else if (paqOK && soldU === String(l.unidad_paq)) tier = 1;
 
-      // LO COMPRADO desglosado de MAYOR a menor (caja > paquete > pieza). Solo niveles EXACTOS.
-      const niveles: { n: number; u: any; p: number }[] = [];
-      if (cajaOK && qtyPz % cjaF === 0) niveles.push({ n: qtyPz / cjaF, u: l.unidad_bulto, p: precioPza * cjaF });
-      if (paqOK && qtyPz % paqF === 0) niveles.push({ n: qtyPz / paqF, u: l.unidad_paq, p: precioPza * paqF });
-      niveles.push({ n: qtyPz, u: l.unidad_venta || l.unidad, p: precioPza }); // pieza (la menor)
+      // Niveles de UNIDAD disponibles (mayor → menor), para el precio POR unidad.
+      const unitLevels: { u: any; factor: number }[] = [];
+      if (cajaOK) unitLevels.push({ u: l.unidad_bulto, factor: cjaF });
+      if (paqOK) unitLevels.push({ u: l.unidad_paq, factor: paqF });
+      unitLevels.push({ u: l.unidad_venta || l.unidad, factor: 1 }); // pieza (la base)
 
-      // Cantidad y precio comparten el MISMO orden (caja > paquete > pieza) → quedan alineados.
-      const qCell = niveles.map((r, i) =>
-        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${this.cantidadConUnidad(r.n, r.u)}</span>`).join('');
-      const priceLadder = (withDesc: boolean) => niveles.map((r, i) =>
-        `<span class="${i === 0 ? 'pu' : 'pu2'}${withDesc ? ' pd' : ''}">${this.m(withDesc ? r.p * (1 - tasa) : r.p)}</span>`
-        + `<span class="pl">por ${this.unidad(r.u) || 'unidad'}</span>`).join('');
+      // LO COMPRADO, SEPARADO en caja + paquete + pieza (descomposición euclidiana): cuando la
+      // compra abarca varias unidades se muestra "3 CJA + 5 PAQ + 2 PZA" en vez de puras piezas.
+      // Son partes ADITIVAS (no equivalencias) → los remanentes llevan "+".
+      const compra: { n: number; u: any }[] = [];
+      let restoPz = qtyPz;
+      for (const lvl of unitLevels) {
+        const n = Math.floor(restoPz / lvl.factor);
+        restoPz -= n * lvl.factor;
+        if (n > 0) compra.push({ n, u: lvl.u });
+      }
+      if (!compra.length) compra.push({ n: qtyPz, u: l.unidad_venta || l.unidad });
+
+      // Cantidad: el mayor en grande, cada remanente debajo con "+" (se lee como suma).
+      const qCell = compra.map((r, i) =>
+        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${i === 0 ? '' : '+ '}${this.cantidadConUnidad(r.n, r.u)}</span>`).join('');
+      // Precio POR cada unidad disponible (caja > paquete > pieza), alineado a su unidad.
+      const priceLadder = (withDesc: boolean) => unitLevels.map((lvl, i) => {
+        const p = precioPza * lvl.factor;
+        return `<span class="${i === 0 ? 'pu' : 'pu2'}${withDesc ? ' pd' : ''}">${this.m(withDesc ? p * (1 - tasa) : p)}</span>`
+          + `<span class="pl">por ${this.unidad(lvl.u) || 'unidad'}</span>`;
+      }).join('');
 
       // Apartado pequeño: cuánto equivale cada unidad (1 caja = N paquetes · 1 paquete = M piezas).
       const equiv: string[] = [];
@@ -277,13 +296,31 @@ export class AnexoVentaService {
         <td class="desc">${Number(l.descuento) < 0 ? '+' : '−'}${this.m(Math.abs(Number(l.descuento)))}</td>
         <td class="neto">${this.m(l.neto)}</td>`
         : `<td class="neto">${this.m(l.importe)}</td>`;
-      return `<tr>
+      return { tier, html: `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div>${equivHtml}</td>
         <td class="qcell">${qCell}</td>
         <td class="u-price">${priceLadder(false)}</td>
         ${colsDesc}
-      </tr>`;
-    }).join('\n');
+      </tr>` };
+    });
+
+    // Agrupar las líneas por la unidad en que se compraron (caja → paquete → pieza). Solo se
+    // rotula por grupos cuando la factura mezcla unidades; si todo se vendió igual, no estorba.
+    const NCOLS = conDesc ? 7 : 4;
+    const GRUPOS = [
+      { t: 0, label: 'Comprado por caja' },
+      { t: 1, label: 'Comprado por paquete' },
+      { t: 2, label: 'Comprado por pieza / unidad suelta' },
+    ];
+    const mezcla = new Set(filasArr.map((f) => f.tier)).size > 1;
+    const filas = mezcla
+      ? GRUPOS.map((g) => {
+          const rows = filasArr.filter((f) => f.tier === g.t);
+          if (!rows.length) return '';
+          return `<tr class="grp"><td colspan="${NCOLS}">${g.label} · ${rows.length} producto${rows.length === 1 ? '' : 's'}</td></tr>`
+            + rows.map((r) => r.html).join('\n');
+        }).filter(Boolean).join('\n')
+      : filasArr.map((f) => f.html).join('\n');
 
     const ctas = CUENTAS.map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
 
@@ -329,6 +366,8 @@ table.det thead th{font-size:7.5pt;letter-spacing:.07em;text-transform:uppercase
 table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:3px 6px;border-bottom:1px solid var(--line-2);vertical-align:top}
+table.det tbody tr.grp td{padding:7px 8px 4px;font-size:7.5pt;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border-bottom:1.5px solid var(--accent);break-after:avoid}
 .p-name{font-weight:700;font-size:9pt;line-height:1.2}
 .p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
 .p-equiv{font-size:7pt;color:var(--muted);font-style:italic;margin-top:2px;line-height:1.25}
