@@ -66,9 +66,15 @@ export class PlanogramsService {
           qb.whereIn('sku', unresolved).orWhereIn('articulo', unresolved),
         )
         .select('id', 'sku', 'articulo');
+      // Desambiguación determinista (hay 836 colisiones sku↔articulo en prod): `sku` es el
+      // identificador primario → se resuelve PRIMERO por sku; `articulo` solo llena los huecos
+      // que quedaron, sin pisar un código ya resuelto por sku. Evita el bind al azar por orden.
+      const need = new Set(unresolved);
       for (const r of catRows) {
-        if (r.sku && !map.has(r.sku)) map.set(r.sku, r.id);
-        if (r.articulo && !map.has(r.articulo)) map.set(r.articulo, r.id);
+        if (r.sku && need.has(r.sku) && !map.has(r.sku)) map.set(r.sku, r.id);
+      }
+      for (const r of catRows) {
+        if (r.articulo && need.has(r.articulo) && !map.has(r.articulo)) map.set(r.articulo, r.id);
       }
     }
 
