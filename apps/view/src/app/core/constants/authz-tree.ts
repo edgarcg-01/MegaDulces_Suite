@@ -118,6 +118,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'sellout', label: 'Sell-Out por empresa', route: '/comercial/sell-out', view: [Permission.COMMERCIAL_SELLOUT_VER], manage: [] },
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
+          { id: 'sales-docs', label: 'Documentos de venta', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
