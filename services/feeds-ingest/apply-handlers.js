@@ -17,6 +17,7 @@
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
+const { computeBarcodes } = require('./barcode-compute');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -700,11 +701,71 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
   }
 }
 
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.product_barcodes (barcodes por UNIDAD,
+ * 1 SKU→N). Hop-2 AL-MOMENTO: un cambio de kdii recomputa los barcodes al instante (misma lógica que
+ * el reconciliador nocturno, vía barcode-compute — single source of truth). Churn-free (solo escribe
+ * si algo cambió). Soft-delete de los barcodes kepler_* que ya no salen de Kepler para ese SKU (no toca
+ * source='wincaja' ni manual). Ver feedback_everything_derivable_from_ods + project_etiquetera_tienda.
+ */
+async function normalizeBarcodesFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  const clean = Array.from(new Set((Array.isArray(skus) ? skus : []).map((s) => String(s == null ? '' : s).trim()).filter(Boolean)));
+  if (!clean.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const rows = await computeBarcodes(client, { schema: 'kepler_ods', skus: clean });
+    // stg_bc SIEMPRE (aunque vacía) para que el soft-delete de stale funcione uniforme.
+    await client.query(`CREATE TEMP TABLE stg_bc (
+      sku text, barcode text, unit text, factor numeric, source text, is_primary boolean) ON COMMIT DROP`);
+    const BATCH = 1000;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((r, ri) => {
+        const b = ri * 6;
+        vals.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`);
+        params.push(r.sku, r.barcode, r.unit, r.factor, r.source, r.is_primary);
+      });
+      await client.query(`INSERT INTO stg_bc VALUES ${vals.join(',')}`, params);
+    }
+    let changed = 0;
+    if (rows.length) {
+      const up = await client.query(`
+        INSERT INTO catalog.product_barcodes (id, tenant_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
+        SELECT gen_random_uuid(), $1, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
+          FROM stg_bc s
+        ON CONFLICT (tenant_id, sku, barcode) WHERE deleted_at IS NULL DO UPDATE SET
+          unit=EXCLUDED.unit, factor=EXCLUDED.factor, source=EXCLUDED.source,
+          is_primary=EXCLUDED.is_primary, synced_at=now(), updated_at=now()
+        WHERE (catalog.product_barcodes.unit, catalog.product_barcodes.factor,
+               catalog.product_barcodes.source, catalog.product_barcodes.is_primary)
+              IS DISTINCT FROM (EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
+        [tenantId]);
+      changed += up.rowCount;
+    }
+    // soft-delete de barcodes kepler_* que ya NO salen de Kepler para estos SKUs (no toca wincaja/manual).
+    const del = await client.query(`
+      UPDATE catalog.product_barcodes p SET deleted_at=now(), updated_at=now()
+       WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.source LIKE 'kepler\\_%'
+         AND btrim(p.sku) = ANY($2)
+         AND NOT EXISTS (SELECT 1 FROM stg_bc s WHERE s.sku=btrim(p.sku) AND s.barcode=p.barcode)`,
+      [tenantId, clean]);
+    changed += del.rowCount;
+    await client.query('COMMIT');
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
   kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
   kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de

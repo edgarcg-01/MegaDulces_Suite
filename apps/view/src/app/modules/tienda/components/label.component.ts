@@ -36,6 +36,7 @@ export interface LabelModel {
   box_price: number | null;
   unit_base: string | null;
   sold_by_kg?: boolean;
+  scanned_unit?: string | null;   // unidad del barcode con que se resolvió (PZA/PAQ/CJA/KG) — auto-selecciona el hero
 }
 
 /**
@@ -214,9 +215,13 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   //    pide Y hay dato real (precio > 0 y, donde aplica, tamaño > 0). Mata los $0.00 y (0 pzas).
   // ── F5: además, un mayoreo solo se muestra si CUADRA (es más barato que su precio base);
   //    un "mayoreo" ≥ menudeo es dato erróneo de Kepler → se oculta en vez de imprimir un precio absurdo.
+  /** El precio grande (hero) es la unidad BASE (pieza/paquete/caja base o granel). null = sin scan → base. */
+  get bigIsBase(): boolean { const h = this.hero; return !h || h === 'pieza' || h === 'kg'; }
   get hasMayoreoPza(): boolean {
     // Base agrupada (paquete/caja) no tiene "pieza suelta" que mayorear → se oculta.
     if (this.baseIsGrouped) return false;
+    // El mayoreo debe ser el de la UNIDAD LEÍDA: pieza solo si el hero es la base (pieza/granel).
+    if (!this.bigIsBase) return false;
     const w = this.num(this.model?.wholesale_piece_price);
     const base = this.num(this.model?.piece_price);
     return !!this.show.mayoreoPza && w > 0 && (base <= 0 || w < base);
@@ -230,9 +235,13 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     const w = this.num(this.model?.wholesale_pack_price);
     if (!this.show.mayoreoPaq || w <= 0) return false;
     if (this.baseIsGrouped) {
+      // base es paquete/caja → este ES el mayoreo de la unidad base → solo si el hero es la base.
+      if (!this.bigIsBase) return false;
       const base = this.num(this.model?.piece_price);
       return base > 0 && w < base;
     }
+    // base=pieza → mayoreo por PAQUETE → solo si se leyó/eligió el paquete.
+    if (this.hero !== 'paquete') return false;
     const base = this.num(this.model?.pack_price);
     const size = this.num(this.model?.pack_size);
     return base > 0 && size > 0 && w < base;
