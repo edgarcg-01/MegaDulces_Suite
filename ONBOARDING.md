@@ -167,6 +167,7 @@ está en **[`docs/GOTCHAS.md`](docs/GOTCHAS.md) — léelo antes de tocar DB o p
 El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave para el equipo:
 
 - **`CLAUDE.md` es la memoria compartida** — se auto-carga en cada sesión. Si aprendés algo no obvio del dominio, va ahí (o en `docs/`), no en tu cabeza.
+- **La primera vez, orientá a tu Claude:** decile *"Leé `docs/CLAUDE_ONBOARDING.md` y seguí el protocolo para entender el proyecto."* Eso lo guía a leer los docs correctos en orden y armar el modelo mental antes de tocar código.
 - **La memoria personal de Claude (`~/.claude/memory/`) es local a tu máquina** — no se comparte entre devs. El conocimiento que debe verlo todo el equipo va a `docs/` o `CLAUDE.md`.
 - **Actualizá el tracker al cerrar cualquier item**: `01_TRACKER_PROGRESO.md` (estado ⬜→🔨→🧪→🚀→✅) y `03_LOG_REVISIONES.md` (al cerrar sprint). Es mandatorio, no opcional.
 - **Decisiones técnicas relevantes → un ADR** en `02_DECISIONES_ARQUITECTURA.md`.
