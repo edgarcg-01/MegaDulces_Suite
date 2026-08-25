@@ -232,33 +232,41 @@ export class AnexoVentaService {
       // Unidades TAL CUAL vienen de Kepler: la de línea (kdm2.c11) y el bulto del catálogo
       // (kdii.c83). El service ya validó el factor (null si la línea no se vendió en la
       // unidad del catálogo), así que aquí solo se rotula, nunca se traduce.
-      const un = this.unidad(l.unidad);
-      const bulto = this.unidad(l.unidad_bulto);
-      // Escalera de empaque LEÍDA DE KEPLER (cero fórmula): caja > paquete > pieza, cada nivel con
-      // su factor-en-piezas tal cual Kepler (c84 caja / c81 paquete). El bulto se omite si el factor
-      // está marcado dudoso (c84 parece pallet). La base (pieza) es la unidad de venta del catálogo.
-      const base = this.unidad(l.unidad_venta) || un || 'pza';
+      const precioPza = Number(l.precio_unitario) || 0;
+      const importe = Number(l.importe) || 0;
+      const tasa = importe > 0 ? (Number(l.descuento) || 0) / importe : 0; // tasa efectiva de la línea
+      // Niveles de MAYOR a menor (caja > paquete > pieza): cantidad + precio POR unidad, con los
+      // factores de Kepler (box_factor=c84 caja / factor_paq=c81 paquete). Solo divide EXACTO (no
+      // fabricar fracciones) y solo si la línea se vendió en la unidad base. Caja omitida si dudoso.
       const cjaF = Number(l.box_factor) || 0;
       const paqF = Number(l.factor_paq) || 0;
-      const paqU = this.unidad(l.unidad_paq);
-      const escalones: string[] = [];
-      if (cjaF > 1 && bulto && !l.box_factor_dudoso) escalones.push(`1 ${bulto} = ${cjaF} ${base}`);
-      if (paqF > 1 && paqU && paqU !== bulto) escalones.push(`1 ${paqU} = ${paqF} ${base}`);
-      const escala = escalones.map((e) => `<span class="q-eq2">${e}</span>`).join('');
-      const caja = l.precio_caja && bulto
-        ? `<span class="pu2">${this.m(l.precio_caja)}</span><span class="pl">por ${bulto}</span>` : '';
-      const cajaD = l.precio_caja_con_descuento && bulto
-        ? `<span class="pu2 pd">${this.m(l.precio_caja_con_descuento)}</span><span class="pl">por ${bulto}</span>` : '';
+      const enBase = !!l.unidad_venta && String(l.unidad) === String(l.unidad_venta);
+      const niveles: { n: number; u: any; p: number }[] = [];
+      if (enBase && cjaF > 1 && l.unidad_bulto && !l.box_factor_dudoso && cant % cjaF === 0) {
+        niveles.push({ n: cant / cjaF, u: l.unidad_bulto, p: precioPza * cjaF });
+      }
+      if (enBase && paqF > 1 && l.unidad_paq && String(l.unidad_paq) !== String(l.unidad_bulto) && cant % paqF === 0) {
+        niveles.push({ n: cant / paqF, u: l.unidad_paq, p: precioPza * paqF });
+      }
+      niveles.push({ n: cant, u: l.unidad, p: precioPza }); // pieza / unidad de la línea (la menor)
+
+      // Cantidad y precio comparten el MISMO orden (caja > paquete > pieza) → quedan alineados.
+      const qCell = niveles.map((r, i) =>
+        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${this.cantidadConUnidad(r.n, r.u)}</span>`).join('');
+      const priceLadder = (withDesc: boolean) => niveles.map((r, i) =>
+        `<span class="${i === 0 ? 'pu' : 'pu2'}${withDesc ? ' pd' : ''}">${this.m(withDesc ? r.p * (1 - tasa) : r.p)}</span>`
+        + `<span class="pl">por ${this.unidad(r.u) || 'unidad'}</span>`).join('');
+
       const colsDesc = conDesc ? `
-        <td class="u-price c-hl"><span class="pu pd">${this.m(l.precio_con_descuento)}</span><span class="pl">por ${un || 'unidad'}</span>${cajaD}</td>
+        <td class="u-price c-hl">${priceLadder(true)}</td>
         <td class="imp">${this.m(l.importe)}</td>
         <td class="desc">${Number(l.descuento) < 0 ? '+' : '−'}${this.m(Math.abs(Number(l.descuento)))}</td>
         <td class="neto">${this.m(l.neto)}</td>`
         : `<td class="neto">${this.m(l.importe)}</td>`;
       return `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div></td>
-        <td class="qcell"><span class="q-main">${this.cantidadConUnidad(cant, l.unidad)}</span>${escala}</td>
-        <td class="u-price"><span class="pu">${this.m(l.precio_unitario)}</span><span class="pl">por ${un || 'unidad'}</span>${caja}</td>
+        <td class="qcell">${qCell}</td>
+        <td class="u-price">${priceLadder(false)}</td>
         ${colsDesc}
       </tr>`;
     }).join('\n');
@@ -295,18 +303,18 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 .sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:13px 0 4px;break-after:avoid}
 .sec-h h2{font-size:12.5pt;font-weight:700;margin:0}
 .sec-h span{font-size:9pt;color:var(--muted)}
-table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:10.5pt}
+table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:9pt}
 col.c-prod{width:22%}col.c-cant{width:14.5%}col.c-pu{width:13%}col.c-pd{width:14%}
 col.c-imp{width:12%}col.c-desc{width:11.5%}col.c-neto{width:13%}
 /* sin descuento son 4 columnas: el producto se queda con el espacio que sobra */
 table.det.sin-desc col.c-prod{width:42%}table.det.sin-desc col.c-cant{width:21%}
 table.det.sin-desc col.c-pu{width:19%}table.det.sin-desc col.c-neto{width:18%}
 table.det thead{display:table-header-group}
-table.det thead th{font-size:8pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
-  text-align:right;padding:8px 7px;border-bottom:1.5px solid var(--ink)}
+table.det thead th{font-size:7.5pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  text-align:right;padding:4px 6px;border-bottom:1.5px solid var(--ink)}
 table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
-table.det tbody td{padding:6px 7px;border-bottom:1px solid var(--line-2);vertical-align:top}
+table.det tbody td{padding:3px 6px;border-bottom:1px solid var(--line-2);vertical-align:top}
 .p-name{font-weight:700;font-size:9pt;line-height:1.2}
 .p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
 .qcell{text-align:left}
@@ -314,8 +322,8 @@ table.det tbody td{padding:6px 7px;border-bottom:1px solid var(--line-2);vertica
 .q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}
 .q-eq2{display:block;font-size:8.5pt;color:var(--muted);margin-top:1px;line-height:1.3}
 .u-price{text-align:right;line-height:1.18}
-.pu{display:block;font-weight:700;font-size:10.5pt}
-.pu2{display:block;font-weight:600;font-size:9.5pt;margin-top:3px}
+.pu{display:block;font-weight:700;font-size:9pt}
+.pu2{display:block;font-weight:600;font-size:8pt;margin-top:1px}
 .pl{display:block;font-size:7.5pt;color:var(--muted)}
 .c-hl{background:#f2f7f3}.pd{color:var(--save)}th.hl{color:var(--save)}
 td.imp,td.desc,td.neto{text-align:right;white-space:nowrap}
