@@ -188,3 +188,29 @@ Un `insert/update({ activo: ... })` tira error → bug silencioso.
 
 Las tablas con `activo` **real** (no GENERATED) — `users`, `stores`, `tenants`, `brands`, `products`, todas las
 `commercial.*` y `logistics.*` — usan el write tradicional `.update({ activo: false })`.
+
+---
+
+## 12. TypeScript — `typescript` sigue en 6.0.3 aunque el latest sea 7.x
+
+TypeScript 7 es el compilador reescrito en **Go**. **No se puede** subir el `typescript` del workspace:
+el paquete `typescript@7` ya no exporta la API JS del compilador (sus `exports` son `.` → `lib/version.cjs`
+y `./unstable/*`), y **Angular AOT, `ts-jest` y el lint tipado consumen esa API**. Los peers lo bloquean
+explícitamente:
+
+| Paquete | peer `typescript` |
+|---|---|
+| `@angular/compiler-cli` 22.x | `>=6.0 <6.1` |
+| `ts-jest` 29.x | `>=4.3 <7` |
+| `typescript-eslint` 8.x | `>=4.8.4 <6.1.0` |
+
+`6.0.3` es el último de la línea 6.x — no hay nada que bumpear. Se reevalúa cuando Angular libere soporte.
+
+**Lo que sí corre hoy:** `npm run typecheck:fast` = `tsgo` (mismo compilador Go, paquete
+`@typescript/native-preview`, bin `tsgo` → **no choca** con el bin `tsc` de TS 6) sobre
+[`tsconfig.ts7.json`](../tsconfig.ts7.json). Cubre api + libs de backend (3,524 archivos): **~15 s vs ~35 s**
+del `tsc` actual, 0 errores, exit code correcto (1 si hay error) → usable en CI. **No participa de ningún build.**
+
+`tsconfig.ts7.json` es standalone a propósito: TS 7 **removió `baseUrl`** (`TS5102`) y exige `paths`
+relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.base.json`. Si cambian los
+`paths` de la base, replicarlos ahí.

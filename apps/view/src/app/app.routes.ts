@@ -192,7 +192,7 @@ export const routes: Routes = [
         // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
         path: 'documentos',
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
       },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },

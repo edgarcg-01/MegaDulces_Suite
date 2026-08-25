@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, switchMap, of, catchError } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
@@ -45,6 +46,13 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <p class="surf-page-sub">Todas las órdenes de entrada y facturas de compra en una vista, con su OC, ajustes (devoluciones/notas ligadas) y neto. El "Excel" de recepción, vivo y filtrable.</p>
         </div>
         <div class="c3-head-actions">
+          <!-- Frescura: esta vista es un espejo que puebla un importer. Sin esto no se
+               distingue "no hay recepciones" de "el feed no corrió". -->
+          <span class="c3-fresh" [class.stale]="staleFeed()" [title]="freshTitle()">
+            <i class="pi" [ngClass]="staleFeed() ? 'pi-exclamation-triangle' : 'pi-clock'" aria-hidden="true"></i>
+            {{ freshLabel() }}
+          </span>
+          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()" title="Volver a consultar (no recarga la app)"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="exporting()" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
         </div>
       </header>
@@ -69,6 +77,14 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         }
       </div>
 
+      @if (exportMsg(); as m) {
+        <div class="c3-errbox c3-warnbox" role="status">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span class="c3-errbox-txt">{{ m }}</span>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="exportMsg.set(null)" label="Cerrar"></button>
+        </div>
+      }
+
       @if (err(); as e) {
         <div class="c3-errbox" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -84,7 +100,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <i [class]="verdictClean(d) ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'" aria-hidden="true"></i>
           <span class="c3-verdict-txt">{{ verdict(d) }}</span>
           @if (d.total > d.totals.con_comprobante) {
-            <button type="button" class="c3-linkbtn" (click)="onComprobante('sin')">Ver las que faltan</button>
+            <button type="button" class="c3-linkbtn" (click)="onComprobante('sin')">Ver las {{ d.total - d.totals.con_comprobante }} sin comprobante</button>
+          }
+          @if (d.totals.ajuste_operativo) {
+            <button type="button" class="c3-linkbtn" (click)="onAjuste('operativo')">Ver los ajustes operativos</button>
           }
         </div>
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales de compras" />
@@ -327,7 +346,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
               <a pButton type="button" text size="small" [href]="doc.url" target="_blank" rel="noopener" title="Abrir en pestaña"><span class="p-button-icon pi pi-external-link" aria-hidden="true"></span></a>
             </div>
             <div class="c3-doc-frame">
-              @if (doc.kind === 'pdf') { <iframe [src]="doc.safeUrl" title="Comprobante de la orden de entrada"></iframe> }
+              @if (doc.kind === 'pdf') {
+                @if (doc.safeUrl) { <iframe [src]="doc.safeUrl" title="Comprobante de la orden de entrada"></iframe> }
+                @else { <p class="c3-empty c3-dt-err">No se puede previsualizar este archivo (la dirección no es válida). Abrilo en una pestaña con el botón de arriba.</p> }
+              }
               @else { <img [src]="doc.url" [alt]="doc.name" /> }
             </div>
           } @else {
@@ -349,15 +371,26 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-title-row { display:inline-flex; align-items:center; gap:.4rem; }
     .c3-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
     .c3-search input { min-width:230px; }
+    /* ::ng-deep — VENDOR ONLY (§S): PrimeNG renderiza p-select/p-inputnumber en su propio
+       árbol, así que el ancho no se puede fijar desde el host sin perforar. No hay
+       !important: alcanza con la especificidad del styleClass. */
     :host ::ng-deep .c3-sel { min-width:12rem; }
     :host ::ng-deep .c3-sel-sm { min-width:9rem; }
     :host ::ng-deep .c3-sel-wide { min-width:16rem; max-width:22rem; }
     :host ::ng-deep .c3-num-in { width:9.5rem; }
     :host ::ng-deep .c3-num-in input { width:100%; text-align:right; font-variant-numeric:tabular-nums; }
     .c3-clear { color:var(--text-muted); }
+    .c3-fresh { display:inline-flex; align-items:center; gap:.35rem; font-size:.76rem; color:var(--text-faint); white-space:nowrap; }
+    .c3-fresh .pi { font-size:.72rem; }
+    .c3-fresh.stale { color:var(--warn-fg); }
+    .c3-warnbox { border-left-color:var(--warn-fg); }
+    .c3-warnbox .pi { color:var(--warn-fg); }
     .c3-table { margin-top:.6rem; }
     .c3-row { cursor:pointer; }
-    .c3-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    /* La fila no es focusable a propósito (ver comentario del template): el objetivo de
+       teclado es el botón del folio, que ya trae su propio focus-visible. Por eso acá NO va
+       una regla :focus-visible — sería CSS muerto. */
+    .c3-row:has(.c3-foliolink:focus-visible) { background:var(--overlay-hover); }
     /* Sólo el ajuste OPERATIVO marca la fila: un apoyo de marca no es una excepción a revisar. */
     .c3-row.has-adj > td:first-child { box-shadow:inset 3px 0 0 var(--warn-fg); }
     .ta-r { text-align:right; }
@@ -412,6 +445,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-verdict-txt { flex:1; color:var(--text-main); }
     /* detalle */
     .c3-dt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem 1rem; margin-bottom:1rem; }
+    @container c3review (max-width:35rem) { .c3-dt-grid { grid-template-columns:repeat(2,1fr); } }
     .c3-dt-grid > div { display:flex; flex-direction:column; gap:.15rem; }
     .c3-dt-l { font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); }
     .c3-dt-v { font-size:.9rem; color:var(--text-main); }
@@ -430,11 +464,14 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-w-cuenta { width:8rem; } .c3-w-ca { width:3rem; }
     .c3-dt-actions { margin-top:1rem; padding-top:.7rem; border-top:1px solid var(--border-color); display:flex; justify-content:flex-end; }
     /* RE.9b — comparación de dos paneles en el detalle (contenido/OCR izq + documento der) */
-    .c3-review { display:grid; grid-template-columns:1fr; gap:1.1rem; }
-    @media (min-width:60rem) { .c3-review { grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); align-items:start; } }
+    /* §R — el layout de revisión depende del ancho REAL que le da el diálogo (que cambia
+       con maximizar), no del viewport: un modal de 1040px en una pantalla de 1920 medía el
+       viewport y se creía ancho. */
+    .c3-review { container-type:inline-size; container-name:c3review; display:grid; grid-template-columns:1fr; gap:1.1rem; }
+    @container c3review (min-width:60rem) { .c3-review { grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); align-items:start; } }
     .c3-review-main { min-width:0; }
     .c3-review-doc { min-width:0; }
-    @media (min-width:60rem) { .c3-review-doc { position:sticky; top:0; align-self:start; } }
+    @container c3review (min-width:60rem) { .c3-review-doc { position:sticky; top:0; align-self:start; } }
     .c3-doc-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.4rem; }
     .c3-doc-name { display:inline-flex; align-items:center; gap:.4rem; min-width:0; font-size:.8rem; color:var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .c3-doc-name .pi-file-pdf { color:var(--bad-fg); }
@@ -455,7 +492,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-filebtn.on { border-color:var(--action); box-shadow:inset 0 0 0 1px var(--action); }
     .c3-dep-ocr { display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; font-size:.76rem; color:var(--text-main); }
     .c3-dep-ocr em { font-style:normal; color:var(--text-faint); margin-right:.3rem; }
-    @media (max-width:560px) { .c3-dt-grid { grid-template-columns:repeat(2,1fr); } }
+
   `],
 })
 export class ComprasCompras360Component implements OnInit {
@@ -468,6 +505,8 @@ export class ComprasCompras360Component implements OnInit {
   readonly data = signal<Compras360Response | null>(null);
   readonly loading = signal(false);
   readonly exporting = signal(false);
+  /** Aviso del export (cortado por tope o fallido) — nunca falla callado. */
+  readonly exportMsg = signal<string | null>(null);
   /** Error de red de la lista (banner + reintento). Empty ≠ error. */
   readonly err = signal<string | null>(null);
   readonly search = signal('');
@@ -487,14 +526,19 @@ export class ComprasCompras360Component implements OnInit {
   readonly sucNames = computed(() => { const m = new Map<string, string>(); for (const s of this.filters()?.sucursales || []) m.set(s.code, s.name || s.code); return m; });
   readonly proveedorOpts = computed(() => (this.filters()?.proveedores || []).map((p) => ({ label: `${p.nombre || p.code} · ${p.n}`, value: p.code })));
   readonly ocOpts = [{ label: 'Con OC', value: 'con' }, { label: 'Sin OC', value: 'sin' }];
-  readonly ajusteOpts = [{ label: 'Con ajuste', value: 'con' }, { label: 'Sin ajuste', value: 'sin' }];
+  readonly ajusteOpts = [
+    { label: 'Con ajuste', value: 'con' },
+    { label: 'Sin ajuste', value: 'sin' },
+    { label: 'Solo operativo', value: 'operativo' },   // faltante · mal estado · duplicada
+    { label: 'Solo comercial', value: 'comercial' },   // descuento · pronto pago · apoyo
+  ];
   readonly compOpts = [{ label: 'Con comprobante', value: 'con' }, { label: 'Sin comprobante', value: 'sin' }, { label: 'Validado', value: 'validado' }, { label: 'Por validar', value: 'por_validar' }, { label: 'Rechazado', value: 'rechazado' }];
   readonly presetOpts = DATE_PRESET_OPTIONS;
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly total = signal(0);
-  private searchTimer: any;
-  private montoTimer: any;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private montoTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly detail = signal<Compras360Row | null>(null);
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
@@ -549,20 +593,58 @@ export class ComprasCompras360Component implements OnInit {
     this.dateTo.set(this.fromIso(q.get('to')));
     const oc = q.get('oc'); this.conOc.set(oc === 'con' || oc === 'sin' ? oc : '');
     // ajuste: param nuevo 'aj'; back-compat del viejo 'adj=1' → con ajuste.
-    const aj = q.get('aj'); this.ajusteMode.set(aj === 'con' || aj === 'sin' ? aj : (q.get('adj') === '1' ? 'con' : ''));
+    const aj = q.get('aj');
+    this.ajusteMode.set((['con', 'sin', 'operativo', 'comercial'] as string[]).includes(aj || '') ? (aj as Compras360AjusteMode) : (q.get('adj') === '1' ? 'con' : ''));
     const cp = q.get('comp'); this.comprobante.set((['con', 'sin', 'validado', 'por_validar', 'rechazado'] as string[]).includes(cp || '') ? (cp as Compras360CompMode) : '');
     this.montoMin.set(this.toNum(q.get('mmin')));
     this.montoMax.set(this.toNum(q.get('mmax')));
+    this.preset.set(q.get('preset') || '');
     const sf = q.get('sort'); if (sf) { this.sortField.set(sf); this.sortOrder.set(q.get('dir') === 'asc' ? 1 : -1); }
     const p = parseInt(q.get('page') || '1', 10);
     this.page.set(!Number.isFinite(p) || p < 1 ? 1 : p);
+
+    // Pipeline único de carga: switchMap cancela la petición anterior en vuelo.
+    this.reload$.pipe(
+      switchMap(() => {
+        this.loading.set(true); this.err.set(null);
+        return this.svc.compras360(this.query()).pipe(catchError(() => { this.err.set('No se pudieron cargar las recepciones.'); return of(null); }));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((d) => {
+      this.loading.set(false);
+      if (!d) return;                       // error: el banner ya quedó puesto
+      this.data.set(d); this.total.set(d.total);
+      this.loadFilters();                   // facetas coherentes con el filtro aplicado
+      this.openPendingEnt();                // ?ent=suc|folio
+    });
+    this.destroyRef.onDestroy(() => this.cancelTimers());
+
     this.loadFilters();
     // La carga inicial de la tabla la dispara el onLazyLoad de la p-table.
+    // Deep-link del detalle: /compras/compras-360?ent=<sucursal>|<folio> abre la ficha.
+    const ent = q.get('ent');
+    if (ent) this.pendingEnt = ent;
   }
 
-  /** Carga el catálogo de filtros (sucursales) — un fallo no rompe la tabla. */
+  /** Entrada pedida por URL (`?ent=suc|folio`) que se abre en cuanto llegan las filas. */
+  private pendingEnt: string | null = null;
+
+  /** Abre el detalle pedido por URL una vez que la fila existe en la página cargada. */
+  private openPendingEnt(): void {
+    const ent = this.pendingEnt;
+    if (!ent) return;
+    const [suc, folio] = ent.split('|');
+    const row = (this.data()?.rows || []).find((r) => r.sucursal === suc && r.folio === folio);
+    if (row) { this.pendingEnt = null; this.openDetail(row); }
+  }
+
+  /**
+   * Catálogo de filtros (facetas). Se recarga junto con la tabla y con los MISMOS filtros:
+   * el "· N" de cada opción es lo que la tabla va a dar al elegirla, no un total global.
+   * Un fallo no rompe la tabla.
+   */
   private loadFilters(): void {
-    this.svc.compras360Filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.compras360Filters(this.query()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => this.filters.set(f),
       error: () => { /* sin dropdown de sucursal; el resto sigue */ },
     });
@@ -620,6 +702,8 @@ export class ComprasCompras360Component implements OnInit {
         adj: null, // limpia el param legado
         mmin: this.montoMin() != null ? this.montoMin() : null,
         mmax: this.montoMax() != null ? this.montoMax() : null,
+        preset: this.preset() || null,
+        ent: this.detail() ? `${this.detail()!.sucursal}|${this.detail()!.folio}` : null,
         sort: this.sortField() || null,
         dir: this.sortField() ? (this.sortOrder() === 1 ? 'asc' : 'desc') : null,
         page: this.page() > 1 ? this.page() : null,
@@ -629,20 +713,31 @@ export class ComprasCompras360Component implements OnInit {
     });
   }
 
+  /**
+   * Toda recarga pasa por este Subject + `switchMap`: si el comprador cambia dos filtros
+   * seguidos, la respuesta de la primera se CANCELA. Antes eran subscribes sueltos y ganaba
+   * el que respondiera último, no el último pedido — la tabla podía quedar mostrando un
+   * filtro que ya no estaba seleccionado (invisible en local a 9ms, real contra Railway).
+   */
+  private readonly reload$ = new Subject<void>();
+
   reload(): void {
-    this.loading.set(true); this.err.set(null);
-    this.svc.compras360(this.query()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.data.set(d); this.total.set(d.total); this.loading.set(false); },
-      error: () => { this.loading.set(false); this.err.set('No se pudieron cargar las recepciones.'); },
-    });
+    this.cancelTimers();          // un filtro explícito mata el debounce pendiente
+    this.reload$.next();
   }
 
   /** Reintento del banner de error. */
   retry(): void { this.err.set(null); this.reload(); }
 
+  /** Cancela los debounces pendientes (búsqueda / monto) — también al destruir. */
+  private cancelTimers(): void {
+    if (this.searchTimer) { clearTimeout(this.searchTimer); this.searchTimer = null; }
+    if (this.montoTimer) { clearTimeout(this.montoTimer); this.montoTimer = null; }
+  }
+
   onSearch(v: string): void {
     this.search.set(v);
-    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.cancelTimers();
     this.searchTimer = setTimeout(() => { this.page.set(1); this.syncUrl(); this.reload(); }, 320);
   }
 
@@ -672,7 +767,7 @@ export class ComprasCompras360Component implements OnInit {
   /** Monto min/max con debounce (evita un request por dígito tecleado). */
   onMonto(which: 'min' | 'max', v: number | null): void {
     (which === 'min' ? this.montoMin : this.montoMax).set(v ?? null);
-    if (this.montoTimer) clearTimeout(this.montoTimer);
+    this.cancelTimers();
     this.montoTimer = setTimeout(() => { this.page.set(1); this.syncUrl(); this.reload(); }, 380);
   }
 
@@ -689,6 +784,7 @@ export class ComprasCompras360Component implements OnInit {
 
   openDetail(r: Compras360Row): void {
     this.detail.set(r);
+    this.syncUrl();   // ?ent=suc|folio → el detalle es compartible y sobrevive F5
     this.explains.set([]); this.explainsTotal.set(0); this.explainsErr.set(false); this.explainsLoading.set(true);
     this.svc.adjustmentsForEntrada({ proveedor_code: r.proveedor_code, entrada_folio: r.folio, date: r.receipt_date?.slice(0, 10), window_days: 15 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => { this.explains.set(res.rows || []); this.explainsTotal.set(res.total_monto || 0); this.explainsLoading.set(false); },
@@ -713,17 +809,31 @@ export class ComprasCompras360Component implements OnInit {
       error: () => { this.evidenceLoading.set(false); this.evidenceErr.set(true); },
     });
   }
-  closeDetail(): void { this.detail.set(null); this.poliza.set(null); this.polizaErr.set(false); this.evidence.set([]); this.evidenceErr.set(false); this.selectedDoc.set(null); }
+  closeDetail(): void {
+    this.detail.set(null); this.poliza.set(null); this.polizaErr.set(false);
+    this.evidence.set([]); this.evidenceErr.set(false); this.selectedDoc.set(null);
+    this.pendingEnt = null; this.syncUrl();
+  }
 
   /** RE.9b — muestra el archivo en el panel derecho (iframe PDF / img) para comparar vs OCR. */
   selectDoc(f: ReceiptEvidenceFile): void {
     const isImg = this.isImageUrl(f);
+    // El bypass del sanitizer solo se aplica a una URL http(s) verificada. La URL viene
+    // prefirmada del backend, pero el registro lo origina un archivo que sube un usuario:
+    // sin este guard un `javascript:`/`data:` en el campo se embebería en el iframe (§8).
+    const safe = !isImg && this.isSafeHttpUrl(f.url);
     this.selectedDoc.set({
       url: f.url,
-      safeUrl: isImg ? null : this.sanitizer.bypassSecurityTrustResourceUrl(f.url),
+      safeUrl: safe ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
       kind: isImg ? 'image' : 'pdf',
       name: f.name || (isImg ? 'imagen' : 'comprobante (PDF)'),
     });
+  }
+
+  /** Solo http/https absolutas: nada de `javascript:`, `data:` ni protocolos raros. */
+  private isSafeHttpUrl(u: string | null | undefined): boolean {
+    try { const p = new URL(String(u ?? ''), window.location.origin); return p.protocol === 'http:' || p.protocol === 'https:'; }
+    catch { return false; }
   }
   isImageUrl(f: ReceiptEvidenceFile): boolean {
     const k = (f.kind || '').toLowerCase();
@@ -740,19 +850,45 @@ export class ComprasCompras360Component implements OnInit {
   }
 
   exportCsv(): void {
-    this.exporting.set(true);
+    this.exporting.set(true); this.exportMsg.set(null);
     this.svc.compras360(this.query(true)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
-        const head = ['Fecha', 'Sucursal', 'Proveedor', 'Codigo', 'OC', 'Folio', 'Factura', 'Ajuste', 'Neto', 'Comprobante'];
+        const head = ['Fecha', 'Sucursal', 'Proveedor', 'Codigo', 'OC', 'Folio', 'Factura', 'Ajuste', 'Ajuste operativo', 'Ajuste comercial', 'Neto', 'Comprobante'];
         const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
         const comp = (r: Compras360Row) => r.deposits > 0 ? `${this.compLabel(r.deposit_status)}${r.monto_match ? ' (cuadra)' : ' (no cuadra)'}` : 'Sin comprobante';
-        const lines = [head.join(',')].concat(d.rows.map((r) => [r.receipt_date?.slice(0, 10) || '', r.sucursal, r.proveedor_nombre || '', r.proveedor_code || '', r.oc_folio || '', r.folio, r.factura, r.ajuste, r.neto, comp(r)].map(esc).join(',')));
+        const lines = [head.join(',')].concat(d.rows.map((r) => [r.receipt_date?.slice(0, 10) || '', r.sucursal, r.proveedor_nombre || '', r.proveedor_code || '', r.oc_folio || '', r.folio, r.factura, r.ajuste, r.ajuste_operativo, r.ajuste_comercial, r.neto, comp(r)].map(esc).join(',')));
         const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'compras-360.csv'; a.click(); URL.revokeObjectURL(a.href);
         this.exporting.set(false);
+        // El backend corta el export en 5,000 filas: se dice, no se calla. Un CSV incompleto
+        // que parece completo es peor que no exportar.
+        if (d.truncated) this.exportMsg.set(`El archivo trae las primeras ${d.rows.length.toLocaleString('es-MX')} de ${d.total.toLocaleString('es-MX')} recepciones (tope del export). Afiná los filtros para bajarlo completo.`);
       },
-      error: () => this.exporting.set(false),
+      error: () => { this.exporting.set(false); this.exportMsg.set('No se pudo generar el CSV. Intentá de nuevo o reducí el rango de fechas.'); },
     });
+  }
+
+  /** Antigüedad del espejo en minutos (null = el backend no reportó `data_as_of`). */
+  private ageMin(): number | null {
+    const iso = this.data()?.data_as_of;
+    if (!iso) return null;
+    const ms = Date.now() - new Date(iso).getTime();
+    return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 60000)) : null;
+  }
+  /** Más de 24h sin correr el importer = el dato ya no representa la operación. */
+  staleFeed(): boolean { const a = this.ageMin(); return a != null && a > 24 * 60; }
+  freshLabel(): string {
+    const a = this.ageMin();
+    if (a == null) return 'Frescura desconocida';
+    if (a < 60) return `Datos de hace ${a} min`;
+    const h = Math.round(a / 60);
+    if (h < 48) return `Datos de hace ${h} h`;
+    return `Datos de hace ${Math.round(h / 24)} días`;
+  }
+  freshTitle(): string {
+    const iso = this.data()?.data_as_of;
+    const base = iso ? `Última corrida del importer: ${new Date(iso).toLocaleString('es-MX')}` : 'El backend no reportó la fecha del último feed';
+    return this.staleFeed() ? `${base}. Hace más de 24 h — puede faltar operación reciente.` : base;
   }
 
   /** Sin nada que mirar: todo con comprobante y sin ajuste operativo. */
@@ -783,7 +919,9 @@ export class ComprasCompras360Component implements OnInit {
       { label: 'Ajuste operativo', value: d.totals.ajuste_operativo, format: 'currency-short', tone: 'warn', sub: 'faltante · mal estado · duplicada' },
       { label: 'Ajuste comercial', value: d.totals.ajuste_comercial, format: 'currency-short', tone: 'ok', sub: 'descuento · pronto pago · apoyo' },
       { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: 'brand', sub: 'factura − ajuste' },
-      { label: 'Con comprobante', value: d.totals.con_comprobante, format: 'number', tone: 'ok', sub: `${cov}% de ${d.total}` },
+      // El tono lo decide la cobertura: con 0% adjuntos esta card estaba VERDE al lado de un
+      // veredicto que decía que faltaban todos.
+      { label: 'Con comprobante', value: d.totals.con_comprobante, format: 'number', tone: cov >= 90 ? 'ok' : cov >= 50 ? 'warn' : 'bad', sub: `${cov}% de ${d.total}` },
     ];
   }
 

@@ -17,8 +17,19 @@
  *   node database/importers/refresh-products-active.js --apply --reactivate   # + reactiva el drift
  */
 const { Client } = require('pg');
+const fs = require('fs');
 const M = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// OJO: el default DATABASE_URL_NEW (.env) apunta a la copia LOCAL stale (localhost:5433).
+// --prod resuelve la URL Railway desde el runner en runtime (NUNCA imprime credenciales).
+function prodUrl() {
+  const t = fs.readFileSync('C:/KeplerRunner/run-feeds.cmd', 'utf8');
+  for (const m of t.matchAll(/(postgres(?:ql)?:\/\/[^\s"']+)/gi)) {
+    try { const u = new URL(m[1]); if (/rlwy|railway|proxy/i.test(u.host)) return m[1]; } catch { /* skip */ }
+  }
+  throw new Error('no encontré URL Railway en el runner');
+}
+const DST = process.argv.includes('--prod') ? prodUrl()
+  : (process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform');
 const APPLY = process.argv.includes('--apply');
 const REACT = process.argv.includes('--reactivate');
 
@@ -51,11 +62,28 @@ const REACT_WHERE = `p.tenant_id=$1 AND p.source='kepler' AND p.deleted_at IS NU
     // catalog.products (maestra). Sin dropearlo, los SKUs nuevos del catálogo violan el FK.
     await c.query(`ALTER TABLE inventory.products_active DROP CONSTRAINT IF EXISTS fk_inventory_products_active_sku`);
     await c.query(`TRUNCATE inventory.products_active`);
+    // catalog.products es una proyección NORMALIZADA, NO un superset: deja en NULL los campos
+    // denormalizados (product_line/department = NULL → la línea vive como brand_id uuid; sin imagen).
+    // El SoR de esos campos es inventory.products (FDW denormalizado + Cloudinary). Por eso:
+    //   - subfamilia/categoria/image_*  ← SOLO inventory.products (catalog los tiene en 0).
+    //   - nombre/descripcion/unidades/barcode ← catalog (más fresco, arregla '***') con fallback a inventory.
+    // Copiar estos de catalog a ciegas nulea subfamilia+categoria+imagen (regresión vivida 2026-08-17).
     const ins = await c.query(`
       INSERT INTO inventory.products_active
         (sku, codigo_barras, subfamilia, nombre, descripcion, unidad_compra, unidad_venta, categoria, synced_at, image_url, image_source, image_storage_key, image_updated_at)
-      SELECT sku, barcode, product_line, nombre, description, unit_purchase, unit_sale, department, now(), image_url, image_source, image_storage_key, image_updated_at
-        FROM catalog.products WHERE tenant_id=$1 AND activo AND deleted_at IS NULL AND btrim(coalesce(sku,''))<>''`, [M]);
+      SELECT p.sku,
+             COALESCE(NULLIF(btrim(p.barcode),''), ip.codigo_barras),
+             ip.subfamilia,
+             COALESCE(NULLIF(btrim(p.nombre),''), ip.nombre),
+             COALESCE(NULLIF(btrim(p.description),''), ip.descripcion),
+             COALESCE(NULLIF(btrim(p.unit_purchase),''), ip.unidad_compra),
+             COALESCE(NULLIF(btrim(p.unit_sale),''), ip.unidad_venta),
+             ip.categoria,
+             now(),
+             ip.image_url, ip.image_source, ip.image_storage_key, ip.image_updated_at
+        FROM catalog.products p
+        LEFT JOIN inventory.products ip ON ip.sku = p.sku
+       WHERE p.tenant_id=$1 AND p.activo AND p.deleted_at IS NULL AND btrim(coalesce(p.sku,''))<>''`, [M]);
     await c.query('COMMIT');
     console.log(`  ✓ products_active refrescada: ${ins.rowCount} filas (desde catalog.products).`);
   } catch (e) {
