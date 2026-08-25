@@ -109,6 +109,25 @@ export class InventoryCountService {
     return this.tenantCtx.get()?.userId || null;
   }
 
+  /**
+   * Resuelve un código en `inventory.products` SIN el anti-patrón "codigo_barras OR sku + .first()"
+   * (liga el producto equivocado en las colisiones sku↔codigo_barras). Prefiere match exacto por sku;
+   * si el código es AMBIGUO (>1 producto), LANZA en vez de tomar el primero. Devuelve null si no existe.
+   */
+  private async resolveInvByCode(trx: any, code: string): Promise<any | null> {
+    const c = String(code || '').trim();
+    if (!c) return null;
+    const cands = await trx('inventory.products')
+      .where((b: any) => b.where('codigo_barras', c).orWhere('sku', c))
+      .distinct('sku', 'nombre', 'codigo_barras', 'unidad_venta', 'categoria');
+    if (!cands.length) return null;
+    const bySku = Array.from(new Map(cands.map((r: any) => [String(r.sku), r])).values());
+    if (bySku.length === 1) return bySku[0];
+    const exact = bySku.filter((r: any) => String(r.sku) === c);
+    if (exact.length === 1) return exact[0];
+    throw new ConflictException(`Código '${c}' ambiguo: coincide con ${bySku.length} productos. Escaneá el código de barras específico.`);
+  }
+
   /** Push de monitoreo en vivo al supervisor que mira el folio (best-effort). */
   private emitMonitor(folioId: string, event: Record<string, any>): void {
     try {
@@ -370,11 +389,7 @@ export class InventoryCountService {
         // inventory.products por barcode o sku
         const code = String(dto.barcode || dto.product_id || '').trim();
         if (!code) throw new BadRequestException('Se requiere barcode o sku');
-        const prod = await trx('inventory.products')
-          .where('codigo_barras', code)
-          .orWhere('sku', code)
-          .select('sku', 'nombre')
-          .first();
+        const prod = await this.resolveInvByCode(trx, code);
         if (!prod) throw new NotFoundException(`Sin producto para '${code}'`);
         productSku = prod.sku;
         prodName = prod.nombre;
@@ -846,11 +861,7 @@ export class InventoryCountService {
       //    se identifica por sku → product_id queda null (el conteo por sku es
       //    parte del rework pendiente; acá solo reconocemos el producto).
       if (code) {
-        const inv = await trx('inventory.products')
-          .where('codigo_barras', code)
-          .orWhere('sku', code)
-          .select('sku', 'nombre', 'codigo_barras', 'unidad_venta', 'categoria')
-          .first();
+        const inv = await this.resolveInvByCode(trx, code);
         if (inv) {
           return {
             product_id: null,
