@@ -12,7 +12,8 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  */
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DOC_TIPOS = ['telemarketing', 'credito'] as const;
+// AX 2026-08-25: /comercial/documentos = SOLO telemarketing (se sacó la venta a crédito, U/D/12).
+const DOC_TIPOS = ['telemarketing'] as const;
 const MAX_PAGE = 200;
 
 export interface SalesDocsQuery {
@@ -68,7 +69,9 @@ export class CommercialSalesDocumentsService {
 
     const whs = this.whIds(q);
     if (whs.length) b.whereIn('i.warehouse_id', whs);
-    if (q.doc_tipo && (DOC_TIPOS as readonly string[]).includes(q.doc_tipo)) b.andWhere('i.doc_tipo', q.doc_tipo);
+    // AX 2026-08-25 (Edgar): /comercial/documentos = SOLO facturas de telemarketing.
+    // Se saca la venta a crédito (U/D/12). Filtro en el service (no en la vista compartida).
+    b.andWhere('i.doc_tipo', 'telemarketing');
     if (q.cliente_code) b.andWhere('i.cliente_code', q.cliente_code.trim());
     if (q.vendedor_code) b.andWhere('i.vendedor_code', q.vendedor_code.trim());
     if (q.min && Number.isFinite(Number(q.min))) b.andWhere('i.total', '>=', Number(q.min));
@@ -249,10 +252,12 @@ export class CommercialSalesDocumentsService {
       const [vendedores, sucursales] = await Promise.all([
         trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
           .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+          .andWhere('doc_tipo', 'telemarketing')
           .whereNotNull('vendedor_code')
           .distinct('vendedor_code', 'vendedor_nombre').orderBy('vendedor_nombre'),
         trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
           .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+          .andWhere('doc_tipo', 'telemarketing')
           .whereNotNull('warehouse_id')
           .distinct('warehouse_id', 'sucursal').orderBy('sucursal'),
       ]);
