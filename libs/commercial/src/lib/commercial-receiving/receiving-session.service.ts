@@ -48,6 +48,47 @@ export class ReceivingSessionService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  /**
+   * Resuelve un código escaneado a UN producto SIN el anti-patrón "barcode OR sku + .first()"
+   * (que en prod liga el producto equivocado: 279 barcodes dup + 57 colisiones sku↔barcode).
+   * Prioridad: (1) barcode normalizado por unidad `catalog.product_barcodes` → sku (desambigua),
+   * (2) sku exacto, (3) legacy products.barcode. Si el código sigue AMBIGUO (>1 producto), LANZA
+   * en vez de tomar el primero. Ver feedback_everything_derivable_from_ods + auditoría 2026-08-25.
+   */
+  private async resolveProductByCode(trx: any, code: string): Promise<{ id: string; sku: string | null; nombre: string | null }> {
+    const c = String(code || '').trim();
+    if (!c) throw new BadRequestException('Se requiere barcode o sku');
+
+    // (1) barcode normalizado por unidad → sku(s). La tabla puede no existir aún (no-regresivo).
+    let bcSkus: string[] = [];
+    const hasPB = (await trx.raw(`SELECT to_regclass('catalog.product_barcodes') IS NOT NULL AS ok`)).rows?.[0]?.ok;
+    if (hasPB) {
+      const rows = await trx('catalog.product_barcodes').where('barcode', c).whereNull('deleted_at').distinct('sku');
+      bcSkus = rows.map((r: any) => String(r.sku));
+    }
+
+    // Candidatos = producto(s) por sku-del-barcode ∪ sku==code ∪ barcode==code.
+    const cands = await trx('public.products')
+      .whereNull('deleted_at')
+      .andWhere((b: any) => {
+        if (bcSkus.length) b.whereIn('sku', bcSkus);
+        b.orWhere('sku', c).orWhere('barcode', c);
+      })
+      .distinct('id', 'sku', 'nombre');
+
+    if (!cands.length) throw new NotFoundException(`Sin producto para '${c}'`);
+    const distinct = Array.from(new Map(cands.map((r: any) => [r.id, r])).values());
+    if (distinct.length > 1) {
+      // El barcode normalizado manda: si apunta a UN solo producto, gana sobre la colisión sku.
+      if (bcSkus.length === 1) {
+        const only = distinct.filter((r: any) => r.sku === bcSkus[0]);
+        if (only.length === 1) return only[0] as { id: string; sku: string | null; nombre: string | null };
+      }
+      throw new ConflictException(`Código '${c}' ambiguo: coincide con ${distinct.length} productos. Escaneá el código de barras específico o usá product_id.`);
+    }
+    return distinct[0] as { id: string; sku: string | null; nombre: string | null };
+  }
+
   /** Recalcula la discrepancia de una línea desde expected vs received (no pisa overrides manuales). */
   static discrepancyFor(expected: number, received: number, manualOverride?: DiscrepancyKind): DiscrepancyKind {
     if (manualOverride === 'producto_incorrecto' || manualOverride === 'dañado') return manualOverride;
@@ -240,8 +281,7 @@ export class ReceivingSessionService {
       } else {
         const code = String(dto.barcode || '').trim();
         if (!code) throw new BadRequestException('Se requiere barcode o product_id');
-        prod = await trx('public.products').where('barcode', code).orWhere('sku', code).first('id', 'sku', 'nombre');
-        if (!prod) throw new NotFoundException(`Sin producto para '${code}'`);
+        prod = await this.resolveProductByCode(trx, code);
         productId = prod.id;
       }
 
@@ -314,8 +354,7 @@ export class ReceivingSessionService {
         if (!UUID.test(dto.product_id)) throw new BadRequestException('product_id inválido');
         prod = await trx('public.products').where({ id: dto.product_id }).first('id', 'sku', 'nombre');
       } else if (dto.barcode) {
-        const code = String(dto.barcode).trim();
-        prod = await trx('public.products').where('barcode', code).orWhere('sku', code).first('id', 'sku', 'nombre');
+        prod = await this.resolveProductByCode(trx, String(dto.barcode).trim());
       }
       if (!prod) throw new NotFoundException('Sin producto para la línea');
 
