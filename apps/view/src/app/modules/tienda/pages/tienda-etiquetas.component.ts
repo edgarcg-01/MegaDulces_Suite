@@ -511,6 +511,19 @@ export class TiendaEtiquetasComponent {
 
   /** Hero por default: granel → por kg (se vende por kilo); si no, pieza / primero disponible. */
   private defaultHero(m: LabelModel): HeroKey {
+    // Si se ESCANEÓ el barcode de una unidad concreta, esa manda — cada unidad tiene su código,
+    // el usuario NO debe elegir (feedback etiquetera 2026-08-25). Cae al default solo si no aplica.
+    const su = (m.scanned_unit || '').toUpperCase();
+    const base = (m.unit_base || '').toUpperCase();
+    if (su) {
+      if (su === 'CJA' && this.n(m.box_price) > 0) return 'caja';
+      if (su === 'PAQ' && base !== 'PAQ' && this.n(m.pack_price) > 0) return 'paquete';
+      // Unidad base escaneada (o paquete cuando la base ES paquete): el "pieza"/hero base la muestra.
+      if (su === base || su === 'PAQ' || su === 'PZA' || su === 'KG') {
+        if (this.granelGrams(m) > 0 && this.n(m.piece_price) > 0) return 'kg';
+        if (this.n(m.piece_price) > 0) return 'pieza';
+      }
+    }
     if (this.granelGrams(m) > 0 && this.n(m.piece_price) > 0) return 'kg';
     if (this.n(m.piece_price) > 0) return 'pieza';
     if (this.n(m.pack_price) > 0) return 'paquete';
