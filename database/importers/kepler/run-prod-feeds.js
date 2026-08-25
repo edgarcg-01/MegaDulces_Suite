@@ -141,14 +141,13 @@ const STEPS = {
     path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
     path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
     // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
-    // el SYNC de precio lo tomó `repoint-prices-from-bitacora` (abajo), porque leer `kdii.c90` como
-    // "precio pieza" es un decode equivocado — c90 es el precio de la UNIDAD BASE (c11), y kdii carga
-    // 219 tripletas de plantilla que afectan 1,667 SKUs. Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md.
+    // el precio de venta lo lleva `normalizeSalePrice` (ods-derived) AL MOMENTO vía hop-2, porque leer
+    // `kdii.c90` como "precio pieza" es un decode equivocado (c90 es el precio de la UNIDAD BASE) y
+    // kdii carga 219 tripletas de plantilla que afectan 1,667 SKUs. Este paso ya NO toca precios
+    // existentes; sólo rellena huecos y mantiene is_promo.
+    // NO agregar acá un feed de precio: nada derivado del ODS se refresca por cron.
+    // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
     [path.join(K, 'repoint-catalog-prices.js'), '--gap-fill-only'],
-    // catálogo — SYNC precio base desde la BITÁCORA de Kepler (precio + unidad + momento), mediana
-    // de retail, con validaciones (cobrado real > escalón de volumen > costo). Rechaza y reporta;
-    // nunca inventa un precio. Va DESPUÉS del gap-fill para ser la autoridad final del precio.
-    path.join(K, 'repoint-prices-from-bitacora.js'),
     path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
