@@ -342,6 +342,84 @@ que no rompe; endurecer como defensa.
 
 ---
 
+## Addendum — Hallazgos setup desde cero 2026-08-25
+
+Primer levantamiento del stack local de Docker **desde cero** en una máquina
+limpia (clone → `npm ci` → `dev:up` → migraciones → seeds). El proyecto es
+single-dev sobre la DB de `192.168.0.245`, así que este camino nunca se había
+ejercido: el `ONBOARDING.md` §2 promete un setup reproducible que **no lo era**.
+
+### 🔴 Crítico
+
+**S3.1 — `docker-compose.dev.yml`: volumen en la ruta vieja de Postgres** ✅ FIXED
+Los servicios `postgres` y `pgvector` montaban el volumen en
+`/var/lib/postgresql/data`. Las imágenes **PG18+** guardan los datos en un
+subdirectorio por versión mayor (para `pg_upgrade --link` sin cruzar límites de
+mount) y el entrypoint **aborta** si encuentra data en la ruta vieja. Síntoma:
+`tm-postgres` y `tm-pgvector` en `Restarting (1)`, `dev:up` sale 1 con
+`container tm-postgres is unhealthy`. Fix: montar en `/var/lib/postgresql`.
+
+**S3.2 — `postgres_platform` corría sin pgvector en dev** ✅ FIXED
+El servicio principal usaba `postgres:18-alpine`, pero
+`20260527120000_enable_pgvector_and_products_embedding.js` hace
+`CREATE EXTENSION IF NOT EXISTS vector` + índice HNSW sobre `products` de **esa**
+DB. El container `pgvector` es otra base (`vector_db` en `:5433`), no la sirve.
+En Railway la DB nueva sí corre con imagen pgvector → el compose no reflejaba
+prod. Síntoma: `extension "vector" is not available`. Fix: `pgvector/pgvector:pg18`
+en el servicio `postgres`.
+
+**S3.3 — `alterTable` con callback `async` (builder de knex es sincrónico)** ✅ FIXED
+`20260701130000_thot_chat_log_feedback.js` hacía
+`alterTable(tbl, async (t) => { await hasColumn(...) })`. Knex arma el `ALTER` con
+lo registrado **sincrónicamente** (nada, porque la primera instrucción es un
+`await`), y las queries del `await` caen cuando la trx ya cerró. En la DB de prod
+quedó marcada como aplicada **sin efecto** — de ahí el hotfix
+`20260724150000_thot_chat_log_feedback_fix.js`, que documenta el bug pero **no lo
+corrige en origen**. En una DB limpia no es un no-op silencioso: **crashea** con
+`Transaction query already complete` y aborta la corrida. Fix: `hasColumn` antes,
+callback sincrónico. Barrido del antipatrón: solo quedaba
+`20260604190000_drivers_legal_fields.js`, inofensivo (callback async **vacío**,
+la lógica ya está afuera en `raw`).
+
+**S3.4 — Set de migraciones legacy irreproducible desde cero** ⛔ OPEN — requiere decisión
+**28 de 89** migraciones de `database/migrations/` son stubs vacíos
+(`exports.up = async function(knex) {};`), incluidas **ambas**
+`init_logistics_schema` (`20250101000000` y `20260420153000`),
+`create_fuel_management_schema`, `add_detalles_tables` y
+`create_fleet_usage_and_maintenance`. El esquema legacy se aplicó a mano en prod y
+los archivos quedaron vacíos. `migrate:latest` muere en la **#45 de 89** con
+`relation "logistica_catalogo_destinos" does not exist` — ninguna migración ni SQL
+del repo crea esa tabla. Knex corre el batch en una sola trx → rollback total,
+**0 aplicadas**. Salidas: (a) `pg_dump --schema-only` de `megadulces_logistica`
+commiteado como baseline, o (b) declarar la legacy no-reproducible y sacar el paso
+del `ONBOARDING.md` (coherente con el cutover a `postgres_platform`).
+
+### 🟡 Importante
+
+**S3.5 — Migración de datos que depende de un seed posterior** ⚠️ WORKAROUND
+`20260608140000_create_morelia_madero_zone_routes.js` inserta en `zones` con el
+tenant hardcodeado `…d01c` **sin verificar que exista**. Ese tenant lo crea
+`seeds-newdb/01_first_tenant_mega_dulces.js`, que según `ONBOARDING.md` §2 corre
+**después** de las migraciones → `zones_tenant_id_foreign` violada. Sus hermanas
+sí guardan (`zona LA PIEDAD RD no existe para el tenant; skip`). Workaround usado:
+`knex seed:run --specific=01_first_tenant_mega_dulces.js` antes de continuar. Fix
+propuesto: `skip` si el tenant no existe, como el resto.
+
+**S3.6 — 20 migraciones dependen de la réplica ODS** ⏳ DEFERRED (por diseño)
+De las 45 migraciones que quedan tras la #435, **20** referencian
+`kepler_ods.*` / `wincaja.*` — schemas que crea el pipeline `replicate-ods-live`
+en la máquina de feeds, no las migraciones (ej.
+`20260819120000_erp_goods_receipts_live_view.js` indexa `kepler_ods.kdm1`). Un
+entorno local sin réplica ERP tope en **435/480**. Aceptable: es la capa de
+integración (Fases WR/CA/RE/CC), no la plataforma core. Documentarlo en el
+onboarding para que no se lea como falla.
+
+**Estado alcanzado con S3.1-S3.3 corregidos:** 435/480 migraciones multi-tenant,
+331 tablas, 10 schemas, seeds 7/7 + testdata, build 6/6, API bootea y `auth-mt/login`
+devuelve JWT (`superoot` / `superadmin`).
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
