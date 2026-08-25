@@ -4,6 +4,7 @@
 > Dirección **"Mercado"**, creada por `/design-consultation` (2026-06-04, extendida 2026-06-08).
 > Los tokens viven en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) — **un solo archivo para las 3 apps** (`view` · `portal` · `vendor`). Este archivo manda sobre cualquier valor hardcodeado.
 > *(Consolidado 2026-08-12: antes estaba triplicado en `apps/*/src/styles/tokens.css` + un segundo bloque dentro de cada `styles.css`. Ya había divergido — portal servía Inter/JetBrains en `:root` y `--ease-standard` tenía dos valores. Ver Decisions Log.)*
+> **Estado del arte técnico (ago-2026):** [`docs/DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md) — qué APIs de plataforma ya son seguras (container queries, `@layer`, popover+anchor, view transitions), el método responsive de 4 herramientas, tooling (Angular 22 / **PrimeNG ya no es open source** / Tailwind v4 / tokens DTCG), CWV 2026 y patrones de **agentic UX**. Incluye auditoría de adopción del repo y backlog `DT.1-DT.14`. Investigación, no normativa: lo aceptado sube acá.
 > **Fundamentos (el *por qué* + estado del arte, con citas):** [`docs/DESIGN_FOUNDATIONS.md`](docs/DESIGN_FOUNDATIONS.md) — color perceptual (OKLCH/APCA), tokens DTCG, tipografía óptica, densidad, WCAG 2.2, motion. Este archivo es operativo; ése es la base teórica.
 > **Benchmark CRM/Inventario (cómo lo hacen Linear/Attio/Carbon/Polaris/Stripe, con números):** [`docs/DESIGN_BENCHMARK_CRM_INVENTORY.md`](docs/DESIGN_BENCHMARK_CRM_INVENTORY.md). Las reglas canónicas de datos densos de aquí abajo salen de ahí.
 
