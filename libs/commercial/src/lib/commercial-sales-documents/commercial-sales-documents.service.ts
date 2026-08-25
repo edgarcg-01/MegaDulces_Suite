@@ -140,7 +140,7 @@ export class CommercialSalesDocumentsService {
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
         .select('linea', 'sku', 'descripcion', 'unidad', 'cantidad', 'precio_unitario',
-                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'product_id',
+                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'unidad_paq', 'factor_paq', 'product_id',
                 'box_factor', 'box_factor_source', 'box_factor_dudoso')
         .orderBy('linea');
 
