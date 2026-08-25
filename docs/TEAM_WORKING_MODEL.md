@@ -11,24 +11,24 @@
 | Persona | Área / dominio | Qué incluye |
 |---|---|---|
 | **Edgar** (lead) | Plataforma + datos + AI | `libs/platform-core` (auth/RBAC/tenant/DB), **feeds + `kepler_ods`** (frágil, tribal), motores AI (**Thot/Horus/Maat**), arquitectura/ADRs, review de lo sensible (migraciones, seguridad). |
-| **David** (`@dev-david24`) | **Ventas / Comercial** | Ver §2 — el dominio comercial completo. |
-| **Dev 2** (`@_______`) | *(por asignar)* | Propuesta: **Finanzas + Fiscal** (`libs/finance` + `libs/fiscal`): bancos, Maat, CxP/CxC, conciliación, pólizas, CFDI/SAT. |
-| **Dev 3** (`@_______`) | *(por asignar)* | Propuesta: **Logística** (`libs/logistics`): embarques, flota, guías, costos, tracking, carta porte. |
+| **David** (`@dev-david24`) | **Almacén / Inventario** (`/almacen`) | Ver §2 — el dominio de inventario/almacén completo. |
+| **Dev 2** (`@_______`) | *(por asignar)* | Propuesta: **Ventas / Comercial** (`libs/commercial` ventas): pedidos, clientes, pricing, anexos de venta, portal B2B, vendor. |
+| **Dev 3** (`@_______`) | *(por asignar)* | Propuesta: **Finanzas + Fiscal + Logística** (`libs/finance` + `libs/fiscal` + `libs/logistics`): bancos, Maat, CxP/CxC, conciliación, CFDI/SAT, embarques, flota, guías. |
 
-> Ajustá el reparto según la fortaleza de cada dev. Si el equipo es de 3 (Edgar + 2), fusioná Finanzas+Fiscal+Logística en un solo dueño o repartilo entre los dos devs.
+> Ajustá el reparto según la fortaleza de cada dev. Si el equipo es de 3 (Edgar + 2), fusioná las áreas de Dev 2/Dev 3 o repartilas por route.
 
-## 2. El área de David — Ventas / Comercial (alcance concreto)
+## 2. El área de David — Almacén / Inventario (alcance concreto)
 
-**Backend:** `libs/commercial/*` — pedidos (orders), clientes (customers), pricing, productos, inventario comercial, promociones, analytics comercial, **sales-documents (anexo de venta / AX)**, stock, catalog-search, recomendaciones, televenta, portal-ai-order, ticket-extractor.
+**Backend:** los módulos de inventario de `libs/commercial/*` — `commercial-inventory` (stock + state-machine de movimientos), `commercial-movements` (almacén/movimientos), `commercial-warehouses` (almacenes), `commercial-receiving` (recepción), `commercial-stock-reservation` (reservas), `commercial-expiry-reviews` (caducidad) + los módulos de **inventario físico / WMS** (conteo físico, recepción-auditor, bin-locations, investigación/monitoreo/riesgo de inventario).
 
-**Frontend:**
-- `apps/view/src/app/modules/comercial/*` (admin comercial)
-- `apps/portal/*` (portal B2B del cliente)
-- `apps/vendor/*` (app del vendedor en campo)
+**Frontend:** `apps/view/src/app/modules/almacen/*` (movimientos, cuadre, recepción, conteos, existencia).
 
-**DB:** schema `commercial.*` (+ las vistas `analytics.*` que consumen ventas).
+**DB:** `commercial.stock`, `commercial.stock_movements`, `commercial.warehouses` + las tablas de inventario físico/WMS.
 
-**NO es de David** (aunque toque "ventas" de refilón): los **feeds/`kepler_ods`** que alimentan los datos de venta (los mantiene Edgar), y los **motores AI** (Thot). Si David necesita un dato nuevo del ERP, lo coordina con Edgar.
+**NO es de David:**
+- Los **feeds/`kepler_ods`** que alimentan la existencia/costo (los mantiene Edgar) — si David necesita un dato nuevo del ERP o cambiar cómo entra el stock, lo coordina con Edgar.
+- **Compras / reabastecimiento** (`/compras`, `libs/commercial-replenishment`) — área vecina pero distinta; definí si es de David o de otro (comparten el concepto de existencia).
+- **Ventas** (pedidos/pricing) — de otro dueño; se cruzan en `commercial.stock` (la venta consume stock), así que David coordina cambios de schema de stock con el dueño de ventas.
 
 ## 3. Zonas compartidas (acá es donde se van a pisar)
 
