@@ -33,17 +33,18 @@ import { datePresetRange, money, moneyShort } from '../../../shared/util';
 import { dmy } from './finanzas-format';
 
 /** Etapas que cuentan como «abierta»: todavía deben algo. Alimenta la lectura del periodo. */
-const ABIERTAS = ['autorizar', 'ejercer', 'comprobante', 'solicitud', 'validar', 'comprobacion'];
+const ABIERTAS = ['autorizar', 'ejercer', 'capturar', 'validar'];
 
 /** Periodos que ofrece el head. `rango` revela el datepicker. */
 type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
 
 /**
- * Etapa del ciclo. Es UNA sola, excluyente, y reemplaza a los tres ejes que antes se
- * mostraban entrelazados (estatus del documento + aplicación + evidencia): dentro de una
- * etapa esos tres valen siempre lo mismo, así que como columna no informaban nada.
+ * Etapa del ciclo. Es UNA sola, excluyente. El expediente ya no distingue «comprobante»
+ * de «solicitud» como etapas: la naturaleza del gasto (fiscal / comprobable / no
+ * comprobable) decide qué documentos lleva, y eso vive DENTRO del expediente, no como
+ * columna del embudo.
  */
-type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' | 'comprobacion' | 'completo' | 'canceladas' | 'todas';
+type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'canceladas' | 'todas';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
@@ -234,16 +235,10 @@ type Etapa = 'autorizar' | 'ejercer' | 'comprobante' | 'solicitud' | 'validar' |
                      que no se repite; y una etapa sin acción propia no inventa un botón. -->
                 <td class="ta-r">
                   @switch (etapaDeFila(r)) {
-                    @case ('comprobante') {
+                    @case ('capturar') {
                       <button type="button" class="so-act" (click)="$event.stopPropagation(); adjuntar(r)"
-                              title="Adjuntar la evidencia" [attr.aria-label]="'Adjuntar la evidencia de ' + r.folio">
+                              title="Capturar el expediente" [attr.aria-label]="'Capturar el expediente de ' + r.folio">
                         <i class="pi pi-upload" aria-hidden="true"></i>
-                      </button>
-                    }
-                    @case ('solicitud') {
-                      <button type="button" class="so-act" (click)="$event.stopPropagation(); adjuntar(r)"
-                              title="Adjuntar la solicitud firmada" [attr.aria-label]="'Adjuntar la solicitud firmada de ' + r.folio">
-                        <i class="pi pi-file-edit" aria-hidden="true"></i>
                       </button>
                     }
                     @case ('validar') {
@@ -460,15 +455,13 @@ export class FinanzasSolicitudesComponent {
     if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
 
     const p = this.proofStatus()[r.folio];
-    // Sin expediente, o rechazado: hay que (volver a) subir el comprobante.
-    if (!p || p.status === 'rechazada' || p.comprobante === false) return 'comprobante';
-    // El papel firmado es lo segundo que se pide: aporta la firma, no los datos.
-    if (p.solicitud === false) return 'solicitud';
-    // Con todo lo adjuntable presente, le toca decidir a quien aprueba.
+    // Sin expediente todavía, o rechazado: hay que (volver a) capturarlo —clasificar y,
+    // si el gasto lo lleva, subir la evidencia.
+    if (!p || p.status === 'rechazada') return 'capturar';
+    // Comprobable pero sin su evidencia (estado inconsistente / legacy): sigue faltando.
+    if (p.requiere_evidencia && p.comprobante === false) return 'capturar';
+    // Capturado: le toca decidir a quien aprueba.
     if (p.status !== 'validada') return 'validar';
-    // Ya validada: la única falta que queda es la comprobación que ELLA declaró que
-    // debía existir y todavía no aparece. Si declaró que no lleva (con motivo), cierra.
-    if (p.tiene_comprobacion === true && !this.compStatus()[r.folio]) return 'comprobacion';
     return 'completo';
   }
 
@@ -541,11 +534,9 @@ export class FinanzasSolicitudesComponent {
     const base: Record<string, string> = {
       autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
-      comprobante: `El gasto se ejerció y falta subir el comprobante. Es la deuda de respaldo.`,
-      solicitud: `Tienen comprobante pero falta adjuntar la solicitud firmada — la firma es la evidencia de que se autorizó.`,
-      validar: `Expediente completo, esperando que Tesorería lo revise y lo marque validado.`,
-      comprobacion: `Validadas declarando que SÍ llevan su solicitud de gasto y/o comprobación, y ese documento todavía no aparece en Kepler.`,
-      completo: `Expediente cerrado: validado, y con su solicitud de gasto y/o comprobación presente, o declarada como no aplicable.`,
+      capturar: `El gasto se ejerció y falta capturar el expediente: clasificarlo (fiscal / no fiscal / no comprobable) y, si lo lleva, subir la evidencia.`,
+      validar: `Expediente capturado, esperando que Tesorería lo revise y lo marque validado.`,
+      completo: `Expediente cerrado: validado, con su evidencia — o declarado no comprobable con motivo.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
       todas: `Todas las etapas juntas, en orden de fecha.`,
     };
@@ -616,10 +607,8 @@ export class FinanzasSolicitudesComponent {
       { value: 'ejercer', label: 'Por ejercer' },
     ] },
     { label: 'Expediente', etapas: [
-      { value: 'comprobante', label: 'Falta comprobante' },
-      { value: 'solicitud', label: 'Falta solicitud' },
+      { value: 'capturar', label: 'Por capturar' },
       { value: 'validar', label: 'Por validar' },
-      { value: 'comprobacion', label: 'Falta comprobación' },
     ] },
     { label: 'Cerradas', etapas: [
       { value: 'completo', label: 'Completo' },

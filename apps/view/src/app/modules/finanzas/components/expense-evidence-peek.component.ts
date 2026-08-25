@@ -7,9 +7,8 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { TextareaModule } from 'primeng/textarea';
 import { SkeletonModule } from 'primeng/skeleton';
-import { SelectButtonModule } from 'primeng/selectbutton';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
-import { ComprobacionesService, ExpenseProofDetail, ProofFile } from '../comprobaciones.service';
+import { ComprobacionesService, ExpenseProofDetail, ProofFile, requiereEvidencia, CLASIFICACION_LABEL, ExpenseClasificacion } from '../comprobaciones.service';
 import { ExpenseRequestRow } from '../../comercial/comercial.service';
 import { money } from '../../../shared/util';
 import { dmy } from '../pages/finanzas-format';
@@ -38,7 +37,7 @@ const ETIQUETAS: Record<string, string> = {
 @Component({
   selector: 'app-expense-evidence-peek',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, TagModule, TextareaModule, SkeletonModule, SelectButtonModule, SidePeekComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, TagModule, TextareaModule, SkeletonModule, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- 780px y no los 520 del default: adentro va el comprobante, y DESIGN.md O.1 no
@@ -58,10 +57,10 @@ const ETIQUETAS: Record<string, string> = {
           </div>
         </div>
 
-        @if (proof()?.status === 'validada' && proof()?.tiene_comprobacion != null) {
-          <p class="ep-note" [class.is-ok]="proof()!.tiene_comprobacion">
-            <i class="pi" [class.pi-check-circle]="proof()!.tiene_comprobacion" [class.pi-minus-circle]="!proof()!.tiene_comprobacion" aria-hidden="true"></i>
-            {{ proof()!.tiene_comprobacion ? 'Declarado CON solicitud de gasto y/o comprobación' : 'Declarado SIN solicitud de gasto ni comprobación' }}{{ proof()!.comprobacion_nota ? ' — ' + proof()!.comprobacion_nota : '' }}
+        @if (proof()?.clasificacion) {
+          <p class="ep-note">
+            <i class="pi pi-tag" aria-hidden="true"></i>
+            {{ clasLabel() }}@if (!necesitaEvidencia() && proof()?.comprobacion_nota) { <span> — {{ proof()!.comprobacion_nota }}</span> }
           </p>
         }
         @if (proof()?.status === 'revision' && proof()?.revision_nota) { <p class="ep-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ proof()!.revision_nota }}</p> }
@@ -72,16 +71,20 @@ const ETIQUETAS: Record<string, string> = {
              por encabezado en vez de por un paréntesis en la etiqueta. -->
         <h4 class="ep-sec">Papeles adjuntos</h4>
         <ul class="ep-check">
-          <li [class.ok]="tieneComprobante()" [class.no]="!tieneComprobante()">
-            <i class="pi" [class.pi-check-circle]="tieneComprobante()" [class.pi-times-circle]="!tieneComprobante()" aria-hidden="true"></i>
-            <span>Comprobante del gasto</span>
-            <em>{{ tieneComprobante() ? 'adjunto' : 'obligatorio — sin esto no se aprueba' }}</em>
-            @if (!tieneComprobante()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
+          <li [class.ok]="tieneComprobante() || !necesitaEvidencia()" [class.no]="necesitaEvidencia() && !tieneComprobante()">
+            <i class="pi" [class.pi-check-circle]="tieneComprobante() || !necesitaEvidencia()" [class.pi-times-circle]="necesitaEvidencia() && !tieneComprobante()" aria-hidden="true"></i>
+            <span>Evidencia del gasto</span>
+            <em>
+              @if (!necesitaEvidencia()) { no aplica — gasto no comprobable }
+              @else if (tieneComprobante()) { adjunta }
+              @else { obligatoria — sin esto no se aprueba }
+            </em>
+            @if (necesitaEvidencia() && !tieneComprobante()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
           <li [class.ok]="tieneSolicitud()" [class.warn]="!tieneSolicitud()">
             <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-minus-circle]="!tieneSolicitud()" aria-hidden="true"></i>
             <span>Solicitud firmada</span>
-            <em>{{ tieneSolicitud() ? 'adjunta' : 'falta — es la evidencia de la autorización' }}</em>
+            <em>{{ tieneSolicitud() ? 'adjunta' : 'opcional — la firma de la autorización' }}</em>
             @if (!tieneSolicitud()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
         </ul>
@@ -151,7 +154,7 @@ const ETIQUETAS: Record<string, string> = {
         @if (puedeResolver() && proof()) {
           <div class="ep-acts">
             @if (proof()!.status !== 'validada') {
-              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !tieneComprobante()" (click)="abrirValidar()">
+              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || (necesitaEvidencia() && !tieneComprobante())" (click)="resolver('validar')">
                 <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validado</span></button>
             }
             <!-- Von Restorff: la que cierra en negativo va discreta y separada de la diaria. -->
@@ -159,32 +162,11 @@ const ETIQUETAS: Record<string, string> = {
               <button pButton type="button" severity="danger" text [disabled]="acting()" (click)="showReject.set(true)">
                 <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">No validado</span></button>
             }
-            @if (!tieneComprobante()) { <span class="ep-acts-why">Falta el comprobante: sin él no se puede validar.</span> }
+            @if (necesitaEvidencia() && !tieneComprobante()) { <span class="ep-acts-why">Falta la evidencia: sin ella no se puede validar.</span> }
           </div>
         }
       }
     </app-side-peek>
-
-    <!-- Validar exige declarar si el gasto lleva su documento de cierre en Kepler: hay
-         solicitudes que nunca lo generan, y sin este dato no se distingue «no llegó» de
-         «no va a llegar». El negocio lo llama «solicitud de gasto y/o comprobación»
-         porque según el caso el documento es uno u otro. -->
-    <p-dialog [visible]="showValidar()" (visibleChange)="showValidar.set($event)" [modal]="true"
-              [style]="{ width: '28rem' }" [draggable]="false" header="Validar el gasto">
-      <p class="ep-dlg-hint" id="ep-comp-q">¿Este gasto tiene su <strong>solicitud de gasto y/o comprobación</strong> en Kepler?</p>
-      <p-selectbutton [options]="siNo" [(ngModel)]="tieneComp" optionLabel="label" optionValue="value"
-                      [allowEmpty]="false" ariaLabelledBy="ep-comp-q" />
-      <p class="ep-dlg-hint ep-dlg-sub">
-        {{ tieneComp === false ? 'Decí por qué no lo lleva — es lo que va a leer quien revise esto después.' : 'Opcional: el folio del documento, si lo tenés a mano.' }}
-      </p>
-      <textarea pTextarea [(ngModel)]="compNota" rows="2" class="ep-dlg-txt"
-                [placeholder]="tieneComp === false ? 'Ej. reembolso de caja chica, no genera documento de cierre' : 'Ej. folio 0004312'"></textarea>
-      <ng-template #footer>
-        <button pButton type="button" text (click)="showValidar.set(false)"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="success" [disabled]="tieneComp === null || (tieneComp === false && !compNota.trim())"
-                (click)="confirmarValidacion()"><span class="p-button-label">Validar</span></button>
-      </ng-template>
-    </p-dialog>
 
     <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
               [style]="{ width: '26rem' }" [draggable]="false" header="Marcar como NO validado">
@@ -315,10 +297,6 @@ export class ExpenseEvidencePeekComponent {
   readonly acting = signal(false);
   readonly showReject = signal(false);
   motivo = '';
-  readonly showValidar = signal(false);
-  readonly siNo = [{ label: 'Sí, tiene', value: true }, { label: 'No lleva', value: false }];
-  tieneComp: boolean | null = null;
-  compNota = '';
 
   readonly money = money;
   readonly dmy = dmy;
@@ -371,16 +349,16 @@ export class ExpenseEvidencePeekComponent {
   }
   readonly tieneComprobante = computed(() => this.docs().some((d) => d.role.startsWith('comprobante')));
   readonly tieneSolicitud = computed(() => this.docs().some((d) => d.role === 'solicitud_kepler'));
-  /** Resuelto = ya existe en Kepler, o quien validó declaró que no lleva. */
-  readonly comprobacionOk = computed(() =>
-    this.comprobacionEnKepler() || this.proof()?.tiene_comprobacion === false);
-  readonly comprobacionTxt = computed(() => {
-    if (this.comprobacionEnKepler()) return 'registrada en Kepler';
-    const d = this.proof()?.tiene_comprobacion;
-    if (d === false) return `no lleva — ${this.proof()?.comprobacion_nota || 'sin motivo'}`;
-    if (d === true) return 'declarado, y todavía no aparece en Kepler';
-    return 'sin declarar — se pregunta al validar';
-  });
+  /** ¿La clasificación del gasto exige evidencia adjunta? (no_comprobable = no). */
+  readonly necesitaEvidencia = computed(() => requiereEvidencia(this.proof()?.clasificacion));
+  clasLabel(): string {
+    const c = this.proof()?.clasificacion as ExpenseClasificacion | null | undefined;
+    return c ? (CLASIFICACION_LABEL[c] || c) : '';
+  }
+  /** El XA1001 vive SIEMPRE en Kepler; acá sólo se refleja si ya apareció por el feed. */
+  readonly comprobacionOk = computed(() => this.comprobacionEnKepler());
+  readonly comprobacionTxt = computed(() =>
+    this.comprobacionEnKepler() ? 'registrada en Kepler' : 'aún no aparece en Kepler');
 
   onDocError(url: string) {
     this.docs.update((ds) => ds.map((d) => d.url === url ? { ...d, failed: true } : d));
@@ -423,26 +401,18 @@ export class ExpenseEvidencePeekComponent {
   }
 
   // ── Resolución ───────────────────────────────────────────────────────────
-  abrirValidar() { this.tieneComp = null; this.compNota = ''; this.showValidar.set(true); }
-  confirmarValidacion() {
-    if (this.tieneComp === null) return;
-    // Un «no» sin motivo no es auditable.
-    if (this.tieneComp === false && !this.compNota.trim()) return;
-    this.showValidar.set(false);
-    this.resolver('validar');
-  }
   rechazar() {
     const m = this.motivo.trim();
     if (!m) return; // sin motivo no se rechaza: quien capturó tiene que saber qué corregir
     this.showReject.set(false);
     this.resolver('rechazar', m);
   }
-  private resolver(accion: 'validar' | 'rechazar', motivo?: string) {
+  resolver(accion: 'validar' | 'rechazar', motivo?: string) {
     const p = this.proof();
     if (!p || this.acting()) return;
     this.acting.set(true);
     const req = accion === 'validar'
-      ? this.svc.validate(p.id, { tiene_comprobacion: this.tieneComp === true, comprobacion_nota: this.compNota.trim() || undefined })
+      ? this.svc.validate(p.id)
       : this.svc.reject(p.id, motivo);
     req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.acting.set(false); this.onToggle(false); this.resolved.emit(); },
