@@ -407,8 +407,9 @@ propuesto: `skip` si el tenant no existe, como el resto.
 
 **S3.6 — 20 migraciones dependen de la réplica ODS** ⏳ DEFERRED (por diseño)
 De las 45 migraciones que quedan tras la #435, **20** referencian
-`kepler_ods.*` / `wincaja.*` — schemas que crea el pipeline `replicate-ods-live`
-en la máquina de feeds, no las migraciones (ej.
+`kepler_ods.*` / `wincaja.*`. Los schemas sí los crean migraciones, pero las
+**tablas crudas** del ERP (`kepler_ods.kdm1`, etc.) las materializa el pipeline
+`replicate-ods-live` en la máquina de feeds (ej.
 `20260819120000_erp_goods_receipts_live_view.js` indexa `kepler_ods.kdm1`). Un
 entorno local sin réplica ERP tope en **435/480**. Aceptable: es la capa de
 integración (Fases WR/CA/RE/CC), no la plataforma core. Documentarlo en el
