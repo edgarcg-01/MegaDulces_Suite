@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Internal — TypeScript 7 (Go) como typecheck lado a lado; `typescript` sigue en 6.0.3 (2026-08-25)
+- **El `typescript` del workspace NO puede subir a 7.x.** TS 7 es el compilador reescrito en Go y su paquete ya no exporta la API JS del compilador (`exports` = `.` → `lib/version.cjs` + `./unstable/*`); Angular AOT (`@angular/compiler-cli` 22.x → `typescript >=6.0 <6.1`), `ts-jest` (`<7`) y `typescript-eslint` (`<6.1.0`) consumen esa API y lo bloquean por peer. `6.0.3` ya es el último de la línea 6.x: no había nada que bumpear.
+- **Added:** `npm run typecheck:fast` → `tsgo` (`@typescript/native-preview` pineado, bin `tsgo`, sin choque con el bin `tsc` de TS 6) sobre el nuevo `tsconfig.ts7.json`. Cubre api + libs de backend (**3,524 archivos**, 572 de `libs/`): **~15 s vs ~35 s** del `tsc` actual en la misma config, **0 errores**, exit 1 ante error real → usable en CI. No participa de ningún build.
+- `tsconfig.ts7.json` es standalone porque TS 7 **removió `baseUrl`** (`TS5102`) y exige `paths` relativos (`TS5090`) — `tsconfig.base.json` usa ambos. Gotcha documentado en [`docs/GOTCHAS.md`](docs/GOTCHAS.md) §12.
+
 ### Added — Fase AX: anexo de venta imprimible (detalle + pagaré) — ADR-049 (2026-08-22)
 - **El documento que se le entrega al cliente, derivado del ODS.** El CFDI está apretado por el formato SAT y el tendero no entiende qué compró (6 decimales, sin equivalencias de empaque, impuesto sólo como total al final). Se le acompaña un **anexo informativo** que desglosa lo mismo en su lenguaje: unidades reales con equivalencia en cajas, **precio con descuento por unidad de medida**, importe/descuento/neto por renglón, cuentas de depósito con CLABE y referencia = número de cliente. Productos en orden alfabético.
 - **Hueco de datos que apareció al construirlo:** no existía ninguna vista de facturas de venta documento-por-documento — los ~50 objetos `analytics.sales_*` son rollups sin folio, y `analytics.customer_receivables` (Fase CXC) es tabla copiada por importer per-branch. Se resolvió con **vistas en vivo** `analytics.erp_sales_invoices` / `_lines` sobre `kepler_ods.kdm1/kdm2` ⋈ `kdud` ⋈ `kduv` ⋈ `kdii` (migs `20260822140000`/`140100`) → frescura del CDC (~segundos), sin tabla ni importer.
