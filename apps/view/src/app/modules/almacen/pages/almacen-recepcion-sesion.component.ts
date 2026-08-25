@@ -104,11 +104,11 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
           <tr [class.rsd-row-disc]="isDiscrepancy(l.discrepancy_kind)">
             <td class="rsd-mono">{{ l.sku || l.expected_sku || '—' }}</td>
             <td class="rsd-name">{{ l.product_name || l.expected_name || l.product_id || '—' }}</td>
-            <td class="num">{{ l.expected_qty }}</td>
-            <td class="num rsd-rec">{{ l.received_qty }}</td>
+            <td class="num">{{ l.expected_qty | number }}</td>
+            <td class="num rsd-rec">{{ l.received_qty | number }}</td>
             <td class="num rsd-decl" [class.rsd-decl-gap]="undeclared(l) > 0">
-              {{ declared(l) }}
-              @if (undeclared(l) > 0) { <span class="rsd-gap">faltan {{ undeclared(l) }}</span> }
+              {{ declared(l) | number }}
+              @if (undeclared(l) > 0) { <span class="rsd-gap">faltan {{ undeclared(l) | number }}</span> }
               @if (l.holds) { <span class="rsd-held">{{ l.holds }} retenida(s)</span> }
             </td>
             <td><p-tag [value]="discLabel(l.discrepancy_kind)" [severity]="discSeverity(l.discrepancy_kind)"></p-tag></td>
@@ -141,16 +141,26 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
         @if (lotLine(); as l) {
           <div class="rlp">
             <div class="rlp-tally" [class.rlp-tally-gap]="undeclared(l) > 0">
-              <span>Recibido <strong>{{ l.received_qty }}</strong></span>
-              <span>Declarado <strong>{{ declared(l) }}</strong></span>
-              <span class="rlp-pend">Faltan <strong>{{ undeclared(l) }}</strong></span>
+              <span>Recibido <strong>{{ l.received_qty | number }}</strong></span>
+              <span>Declarado <strong>{{ declared(l) | number }}</strong></span>
+              <span class="rlp-pend">Faltan <strong>{{ undeclared(l) | number }}</strong></span>
             </div>
 
             <section class="rlp-form">
               <h3>Agregar lote</h3>
               <label class="rlp-f">
                 <span>Foto de la caducidad <em>(opcional — el OCR propone, vos confirmás)</em></span>
-                <input type="file" accept="image/*" capture="environment" (change)="onPhoto($event)" [disabled]="ocrBusy()" />
+                <!-- El input nativo muestra "Choose File / No file chosen" en el idioma del
+                     navegador (no se puede traducir). Se oculta y se dispara desde un label
+                     estilado, que además da un target táctil decente en la rampa. -->
+                <span class="rlp-file">
+                  <input #photoInput type="file" accept="image/*" capture="environment" (change)="onPhoto($event)" [disabled]="ocrBusy()" hidden />
+                  <button pButton type="button" [outlined]="true" severity="secondary" size="small" (click)="photoInput.click()" [disabled]="ocrBusy()">
+                    <span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span>
+                    {{ photoName() ? 'Cambiar foto' : 'Tomar o elegir foto' }}
+                  </button>
+                  @if (photoName()) { <span class="rlp-file-name">{{ photoName() }}</span> }
+                </span>
               </label>
               @if (ocrBusy()) { <p class="rlp-ocr">Leyendo la etiqueta…</p> }
               @if (ocrDone()) {
@@ -194,10 +204,10 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
                   <div class="rlp-item-head">
                     <p-tag [value]="verdictLabel(c.verdict)" [severity]="verdictSeverity(c.verdict)"></p-tag>
                     <span class="rlp-item-lot">{{ c.confirmed_lot || 'NA' }}</span>
-                    <span class="rlp-item-qty">{{ c.quantity }} u</span>
+                    <span class="rlp-item-qty">{{ c.quantity | number }} u</span>
                   </div>
                   <div class="rlp-item-meta">
-                    <span>Vence {{ c.confirmed_expiry || '—' }}</span>
+                    <span>Vence {{ fmtDate(c.confirmed_expiry) }}</span>
                     @if (c.days_of_life !== null && c.days_of_life !== undefined) { <span>{{ c.days_of_life }} d de vida</span> }
                     @if (c.rule_broken) { <span class="rlp-rule">{{ ruleLabel(c.rule_broken) }}</span> }
                   </div>
@@ -262,6 +272,9 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rlp-date { display: flex; gap: .5rem; align-items: center; }
     .rlp-date > input { flex: 1; }
     .rlp-ocr { font-size: .78rem; color: var(--text-color-secondary); margin: 0 0 .6rem; }
+    .rlp-file { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .rlp-file-name { font-size: .74rem; color: var(--text-color-secondary); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
     .rlp-actions { display: flex; gap: .5rem; margin-top: .3rem; }
     .rlp-item { border: 1px solid var(--surface-border); border-radius: 10px; padding: .55rem .7rem; margin-bottom: .5rem; }
     .rlp-item.rlp-red { border-color: var(--bad-border, #fecaca); }
@@ -306,6 +319,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
   readonly ocrLot = signal<string | null>(null);
   readonly ocrExpiry = signal<string | null>(null);
   readonly ocrConfidence = signal<number | null>(null);
+  readonly photoName = signal<string | null>(null);
   lotCode = '';
   lotExpiryText = '';
   lotExpiryDate: Date | null = null;
@@ -315,7 +329,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
   readonly lotSubtitle = computed(() => {
     const l = this.lotLine();
     if (!l) return null;
-    return `${l.product_name || l.expected_name || ''} · recibido ${l.received_qty}, declarado ${this.declared(l)}`;
+    return `${l.product_name || l.expected_name || ''} · recibido ${Number(l.received_qty) || 0}, declarado ${this.declared(l)}`;
   });
 
   readonly markOptions = [
@@ -434,6 +448,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
     this.lotExpiryDate = null;
     this.lotQty = null;
     this.photoDataUri = null;
+    this.photoName.set(null);
     this.ocrDone.set(false);
     this.ocrLot.set(null);
     this.ocrExpiry.set(null);
@@ -444,6 +459,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    this.photoName.set(file.name);
     const reader = new FileReader();
     reader.onload = () => {
       this.photoDataUri = String(reader.result || '');
@@ -542,7 +558,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
         this.resetLotForm();
         this.toast.add({
           severity: cap.verdict === 'red' ? 'error' : cap.verdict === 'yellow' ? 'warn' : 'success',
-          summary: 'Lote ' + this.verdictLabel(cap.verdict),
+          summary: this.verdictToast(cap.verdict),
           detail: cap.verdict === 'red'
             ? 'Retenido: no entró a inventario hasta que un supervisor autorice.'
             : 'Entró a inventario y ya alimenta FEFO.',
@@ -592,6 +608,23 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
 
   verdictLabel(v: string): string {
     return v === 'green' ? 'Aceptado' : v === 'yellow' ? 'Con reserva' : 'Retenido';
+  }
+  private verdictToast(v: string): string {
+    return v === 'green' ? 'Lote aceptado' : v === 'yellow' ? 'Lote aceptado con reserva' : 'Lote retenido';
+  }
+
+  /**
+   * Fecha para mostrar. La API devuelve `date` de Postgres serializado como ISO
+   * (`2026-12-03T06:00:00.000Z`): se toma el tramo YYYY-MM-DD **tal cual**, sin
+   * `new Date()`, porque re-convertir a la TZ del navegador puede correr el día
+   * (DESIGN.md §10 — la TZ ya viene normalizada del backend).
+   */
+  fmtDate(v: string | null | undefined): string {
+    if (!v) return '—';
+    const iso = String(v).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(v);
+    const parts = iso.split('-');
+    return parts[2] + '/' + parts[1] + '/' + parts[0];
   }
   verdictSeverity(v: string): 'success' | 'warn' | 'danger' {
     return v === 'green' ? 'success' : v === 'yellow' ? 'warn' : 'danger';
