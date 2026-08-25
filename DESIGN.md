@@ -12,6 +12,8 @@
 
 > **Contrato de ingeniería de UI (2026-07-10):** el *cómo se construye* (fundamento cognitivo, matriz de estados, a11y AA+APCA, presupuesto de motion + limpieza de ciclo de vida, container queries, error boundaries, formateo de dominio, XSS, estado-en-URL) está codificado como BINDING en la sección [Ingeniería de UI](#ingeniería-de-ui--contrato-de-implementación-binding). Se verifica en review.
 
+> **Plataforma + IA (2026-08-25):** dos contratos nuevos BINDING, destilados de la investigación técnica: [Plataforma web moderna](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding) (§R responsividad por capas · §S cascada `@layer` · §T overlays nativos · §U motion nativo · §V presupuesto INP · §W ganancias gratis) y [Superficies con IA](#superficies-con-ia--contrato-de-agentic-ux-binding) (§X: plan previo, razón, confianza, reversa, escalación). Marco: **mejora progresiva** — la pantalla funciona sin la feature moderna.
+
 > **Norte de estilo — directiva "quiet luxury" (2026-06-23):** el surface Operations toma como referencia absoluta a **Linear · Stripe · Vercel (Geist)**: minimalismo técnico, herramienta profesional, máxima densidad sin sacrificar claridad. Reglas que **mandan** (refuerzan/afinan lo de abajo):
 > 1. **Estructura casi monocromática.** El color de marca (sunset `--action`) se reserva para **CTAs, enlaces activos y el estado seleccionado** — nada de decorar con color. Semánticos (ok/warn/bad) **desaturados y controlados**, solo en badges de estado.
 >    - **Excepción confirmada (decisión Edgar 2026-06-23):** los **accents de color por card** en `MetricCard` y las gráficas (sparkline/bars/gauge/donut) **se conservan** — ahí el color **codifica dato**, no decora (igual que los charts de Linear/Stripe). No atenuar a monocromo. La regla "casi monocromático" aplica a la **estructura/chrome** (tablas, paneles, navegación, formularios), no a la capa de data-viz.
@@ -30,7 +32,8 @@
 
 **2. Cero hex crudo.** Referenciá un [rol/token de 3 tiers](#arquitectura-de-tokens-3-tiers--interacción--densidad-por-puntero); si no existe, agregá el token, no un literal. Estados de superficie = alpha-overlays sobre `--ink-rgb`, no hex por interacción.
 
-**3. PrimeNG-first.** Lo que PrimeNG cubra, con PrimeNG (`p-table`, `p-tag`, `p-dialog`), no HTML crudo. Overrides vía theming/token, sin `!important`.
+**3. PrimeNG-first, plataforma-antes-que-JS.** Lo que PrimeNG cubra, con PrimeNG (`p-table`, `p-tag`, `p-dialog`), no HTML crudo. Overrides vía theming/token + **capa de cascada**, no `!important` (→ [§S](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding)). **Antes** de sumar un componente/librería nueva, verificá si la plataforma ya lo cubre nativo (popover + anchor positioning, `<dialog closedby>`, `appearance: base-select`, view transitions): eso no crece la superficie de dependencia ni pelea con el theming.
+> ⚠️ **Riesgo de licencia (ago-2026):** PrimeNG dejó de ser open source — repo archivado jun-2026, v22+ bajo licencia comercial PrimeUI. Estamos en `primeng 22.0.0`. La regla PrimeNG-first **sigue vigente** para lo existente; la decisión (licenciar / congelar / migrar a `@angular/aria` headless) es de Edgar y está abierta — ver [`docs/DESIGN_TECNOLOGIA_2026.md §5.2`](docs/DESIGN_TECNOLOGIA_2026.md). Mientras esté abierta: **no crecer la dependencia sin necesidad** (si nativo lo cubre, nativo).
 
 **4. Tipografía por rol.** Body = Hanken Grotesk · data/cifras/SKU/folio = Geist Mono con **`tabular-nums` obligatorio** · display Poppins **solo** en Storefront. Nunca Fraunces (retirada) ni `system-ui` como display.
 
@@ -46,7 +49,7 @@
 
 **8. Motion con techo** (150/250/**350ms máx**, ease-out): **solo `transform`+`opacity`**; `prefers-reduced-motion`; `NgZone.runOutsideAngular` para callbacks de alta frecuencia; limpiar en `DestroyRef`. GSAP **no** es dependencia hoy. → [Ingeniería de UI §4](#ingeniería-de-ui--contrato-de-implementación-binding).
 
-**9. Reutilizable = `libs/` + container queries.** Componente que se embebe en varios anchos reacciona a `@container`, no a viewport. → [§5](#ingeniería-de-ui--contrato-de-implementación-binding).
+**9. Responsividad por capas (4 herramientas, cada una con su trabajo).** `@media` = **página/chrome** (sidebar, tab bar, densidad por puntero) · `@container` = **componente** (todo lo que se embebe en más de un ancho: `libs/`, cards, tablas, master-detail) · `clamp()` = **fluido** (type/spacing, máximo ≤ 2.5× el mínimo y término medio con `rem`, o revienta el zoom 200%) · **grid intrínseco** (`auto-fit`/`minmax`/`subgrid`) = layout sin breakpoints. Breakpoints nuevos en **`rem`**, nunca en px. → [§5](#ingeniería-de-ui--contrato-de-implementación-binding) + [§R](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding).
 
 **10. Dominio + seguridad.** Divisa/fecha vía `Intl`/pipes es-MX (`registerLocaleData`); TZ ya normalizada en backend, no re-convertir con `new Date()`. Cero `[innerHTML]` sin `DomSanitizer`; jamás `bypassSecurityTrustHtml` sobre input de usuario. Estado de filtros/selección en URL. → [§7–§9](#ingeniería-de-ui--contrato-de-implementación-binding).
 
@@ -62,6 +65,12 @@
 
 **15. Jerarquía + comprensión (interfaces de MUCHOS valores).** En pantallas densas en cifras (tablas de conciliación, KPIs, ledger, existencia, egresos, pólizas) el riesgo #1 no es el estilo — es que no se entienda qué se mira: **answer-first** (veredicto/resumen primero; el grid crudo al drill-down) · cada número no trivial con su **lectura en llano** al lado · las diferencias **señalan la fila exacta**, no solo el total · todo dato accionable es **navegable a su arreglo** (con el filtro puesto) · jerarquía por **tipo+contraste, no por color** · color de grupo determinista + leyenda + nunca único portador · abouts (regla P) donde haya jerga. → [Jerarquía visual + comprensión del dato](#jerarquía-visual--comprensión-del-dato-interfaces-densas-en-valores--binding).
 
+**16. Plataforma antes que JS + cascada en capas.** Overlay/tooltip/hovercard **nuevo** = Popover API + anchor positioning con `@supports` (no librería de posicionamiento ni cálculo en JS). CSS nuevo entra en su `@layer`; `!important` requiere justificación en review y `::ng-deep` es **solo** para vendor y con comentario. Nada de esto es requisito de render: la feature moderna es **mejora progresiva** — en el Android de gama baja del campo la pantalla funciona sin ella. → [§S / §T](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding).
+
+**17. Presupuesto de interacción (INP < 200ms).** En vistas densas (tablas, filtros, bandejas, conciliación) la latencia de respuesta es **criterio de aceptación**, no tarea de perf posterior: se mide, no se estima. Palancas: virtualización, `content-visibility: auto`, `@defer` en bloques pesados (charts/mapas), ceder el hilo en handlers de filtro. Un filtro que tarda 400ms en pintar es un **defecto de diseño**. → [§V](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding).
+
+**18. Superficies con IA = contrato de confianza.** Toda acción sugerida o ejecutada por un motor/agente (Maat, Thot, Horus, hallazgos, canasta, requisiciones) expone las cinco: **plan antes de ejecutar** · **razón en llano** ("porque X, propongo Y") · **confianza visible** · **reversa o ventana de reversa explícita** · **ruta de escalación** ("no sé / decide un humano"). El motor decide, el agente comunica, el LLM nunca escribe cifras. → [§X](#superficies-con-ia--contrato-de-agentic-ux-binding).
+
 ---
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
@@ -76,6 +85,7 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 - **Densidad por método de entrada** (Polaris/Carbon): la densidad la decide el **puntero**, no el surface. `@media (pointer: coarse)` sube `--row-h-sm/md` y `--tap-min` a **≥44px** (Ley de Fitts en touch / `apps/vendor` Capacitor); `pointer: fine` mantiene ultra-compacto. Hit areas táctiles aplicadas en `styles.css` sin tocar componentes.
 - **Data-viz**: secuencia categórica `--chart-1..8` (light+dark), ordenada por separación perceptual, **sin morado** (`--chart-3` es verde). El color codifica dato → exenta de la regla monocromática.
 - **Diferido**: SSOT JSON + Style Dictionary (export web/Tailwind/Android nativo) — se monta cuando la divergencia multiplataforma realmente lo exija; por ahora puente manual de los ~4 colores que la status-bar/splash de Capacitor necesita.
+  - **Actualización ago-2026 — ya hay estándar:** el **DTCG Format Module v2025.10** (W3C Community Group) es la primera versión **estable** y el toolchain se asentó (Figma Variables → DTCG JSON → Style Dictionary → CSS/`@theme`). Dirección aprobada como investigación, **no binding todavía**: `tokens.json` en DTCG pasa a ser la **fuente** y `tokens.css` un **artefacto generado**, con las rampas migradas a **OKLCH** (hoy son 100% hex → el dark se ajusta a ojo paso por paso). Backlog `DT.5` en [`docs/DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md). Mientras no se ejecute, **`tokens.css` sigue siendo la fuente de verdad** y se edita a mano.
 
 ## Surfaces — dos modes del mismo sistema
 
@@ -270,6 +280,7 @@ Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la cal
 - **Sólo `transform` + `opacity`.** Nunca `width/height/margin/padding/box-shadow`.
 - **Mobile:** usar `HapticService` en acciones (add to cart, confirmar).
 - **Siempre** respetar `@media (prefers-reduced-motion: reduce)`.
+- **Implementación = plataforma primero** (2026-08-25): transiciones de ruta y master→detail con **View Transitions**; progreso/header-condensa/reveals con **scroll-driven animations**; easing tipo resorte con **`linear()`**. Nada de librería de animación para esto. Los números y curvas de arriba **no cambian** — cambia con qué se implementan. → [§U](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding).
 
 ---
 
@@ -511,6 +522,9 @@ QA tras migrar:
 - Hex inline en color de pin Leaflet u otros componentes compartidos.
 - Centered everything en empties.
 - Empty state "No items found." sin contexto ni CTA.
+- `!important` o `::ng-deep` como herramienta de primera mano en vez de capa de cascada + token de Tier 3 (→ [§S](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding)).
+- Componente reutilizable que decide su layout interno con `@media` de ancho (→ [§R](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding)).
+- Morado/azul como identidad de IA — ya listado arriba — **y** superficie de IA que sugiere sin razón, sin confianza y sin reversa (→ [§X](#superficies-con-ia--contrato-de-agentic-ux-binding)).
 
 ---
 
@@ -537,6 +551,8 @@ Ningún componente se considera terminado sin sus estados. Cada entrega los decl
 - **Contraste:** WCAG **AA** es el requisito formal/legal (piso innegociable); **APCA** es el mejor predictor perceptual y manda cuando difieren, sobre todo en texto ≤14px de celdas densas (buscar Lc≥75 para body chico). Justificar el par de color con ambas métricas cuando no coincidan. Tokens en OKLCH (`FOUNDATIONS`).
 - **Semántica + ARIA:** roles correctos; `aria-label` en todo icon-button; `aria-current` en selección master; labels `for/id` en inputs. El color **nunca** es único portador de significado (+ icono/texto — ya binding).
 - **Foco:** navegación por teclado fluida; al abrir `p-dialog`/side-peek → mover foco dentro + **retornarlo al trigger** al cerrar; foco no obstruido por headers sticky. PrimeNG trae base ARIA pero **no es gratis** — se verifica, no se asume.
+- **Estado del estándar (ago-2026), para no perseguir fantasmas:** **WCAG 2.2 AA es el piso vigente** (y lo que la EAA europea va a exigir vía EN 301 549 v4.1.1). **WCAG 3.0 sigue siendo Working Draft** — modelo Bronze/Silver/Gold, Recommendation esperada ~2028-2030 — y **APCA sigue exploratorio y no normativo**. Conclusión operativa: **no se espera WCAG 3**; quien cumple 2.2 AA hoy ya está construyendo Bronze. Nuestra postura (AA obligatorio + APCA como guía perceptual en texto chico) queda igual.
+- **`contrast-color()`** resuelve el par texto/fondo cuando el fondo lo decide el dato (chips de grupo, badges de data-viz): usarlo en vez de elegir el par a mano — es donde el dark se rompe más seguido.
 
 ### 4. Presupuesto de motion + ciclo de vida (60fps o no se anima)
 > Extiende el techo de motion ya binding (§11 datos densos, §Motion KPI). **GSAP no es dependencia del monorepo hoy** — estas reglas rigen CSS/Web Animations API por default y GSAP *si/cuando* se introduzca (evaluar bundle + lazy).
@@ -550,6 +566,7 @@ Ningún componente se considera terminado sin sus estados. Cada entrega los decl
 - Un componente que vive en `libs/` y se embebe en distintos anchos (tabla de inventario en Operations *y* en `/portal`) **no** decide su layout interno por viewport (`md:`/`lg:`/`@media`) sino por el espacio que le da el padre: `@container` de Tailwind sobre un wrapper con `container-type: inline-size`.
 - **Trampa:** `container-type` establece contención de tamaño y **rompe elementos que se desbordan a propósito** (overlays PrimeNG, `p-overlay`, tooltips). Regla: container query en el *wrapper de layout*, no en el nodo que ancla overlays.
 - Componente reutilizable cross-app = vive en `libs/`, no en `apps/view`.
+- **Método completo** (las 4 herramientas, `rem` en breakpoints, regla del `clamp()`, style queries y `scroll-state`): [§R](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding). *(Auditoría ago-2026: esta regla existía desde jul-2026 y el repo tenía **0 usos** de `@container` — el gap se atacó ahí.)*
 
 ### 6. Error boundaries por sección + degradación elegante
 - Angular **no** tiene error boundaries nativos — se construyen. Dos capas: `ErrorHandler` global para lo no capturado + por sección el patrón `catchError` con estado local y reintento aislado (reintenta *esa* query, no recarga la vista).
@@ -578,6 +595,144 @@ Ningún componente se considera terminado sin sus estados. Cada entrega los decl
 
 ### 11. Gobernanza
 Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: se expone el conflicto y decide el usuario. "No desviarse del DS sin aprobación."
+
+---
+
+## Plataforma web moderna — cascada, responsividad, overlays, motion nativo (BINDING)
+
+> Alcance: **toda** superficie. Añadido 2026-08-25, destilado de [`docs/DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md) (estado del arte técnico ago-2026) y de la auditoría de adopción del repo.
+> **El diagnóstico que origina esta sección:** el DS visual iba muy por delante de la plataforma con la que lo implementábamos — **0 container queries** (aunque §5 ya las mandaba), **0 `@layer`** contra **971 `!important`** + **317 `::ng-deep`**, 124 breakpoints en px, y features gratis sin usar (`text-wrap`, `field-sizing`, `content-visibility`). Estas reglas se **verifican en review**.
+> **Regla marco — mejora progresiva:** todo lo de esta sección entra bajo `@supports` cuando no es Baseline widely available. El piso es que la pantalla **funcione sin la feature** (el campo corre Android de gama baja). Ninguna capacidad moderna es requisito de render.
+
+### R. Responsividad por capas — 4 herramientas, 4 trabajos
+Cada herramienta tiene **su** trabajo; usar la de al lado es el bug:
+
+| Herramienta | Trabajo | Regla |
+|---|---|---|
+| `@media` | **página / chrome**: sidebar colapsa, tab bar móvil, densidad por `pointer: coarse` | Solo para esto. Breakpoints nuevos en **`rem`** (respetan zoom), nunca px |
+| `@container` | **componente**: cómo se reorganiza según el ancho que le dio el padre | Obligatorio en `libs/` y en todo componente que viva en >1 ancho (card, tabla, panel de master-detail) |
+| `clamp()` | **fluido**: type y spacing entre extremos | Máximo **≤ 2.5×** el mínimo y término medio con componente `rem` (si no, rompe WCAG 1.4.4 a 200% de zoom) |
+| Grid intrínseco | **layout sin breakpoints**: `auto-fit` + `minmax()`, `subgrid` para alinear filas entre cards | Preferido sobre inventar un breakpoint |
+
+```css
+/* el mismo componente en Operations (ancho completo), en un side-peek (~420px) y en /portal */
+.card-wrap { container-type: inline-size; container-name: card; }
+
+@container card (min-width: 30rem) {
+  .card        { grid-template-columns: 1fr auto; }
+  .card__spark { display: block; }
+}
+@container card (max-width: 22rem) {
+  .card__meta  { display: none; }   /* progressive disclosure por espacio real, no por viewport */
+}
+```
+
+- **Trampa (repetida a propósito):** `container-type` crea contención de tamaño y **rompe lo que se desborda a propósito** (overlays PrimeNG, tooltips). El contenedor va en el *wrapper de layout*, jamás en el nodo que ancla un overlay.
+- **Densidad como token heredado:** cuando haya que variar densidad por contexto, `@container style(--density: compact)` en vez de repetir clases en cada hijo. La densidad la sigue decidiendo el **puntero** (regla ya binding).
+- **Header de tabla pegado:** estilo del sticky con `@container scroll-state((stuck: top))`, no con `IntersectionObserver`.
+- ⛔ **Prohibido** un `@media` de ancho dentro de un componente reutilizable para decidir su layout interno.
+
+### S. Cascada en capas — el fin de la guerra de especificidad
+- **Orden declarado una sola vez, global:**
+
+```css
+@layer reset, vendor, tokens, components, utilities;
+/* vendor = PrimeNG/spartan. Nuestro CSS vive en components/utilities y gana por capa, no por selector */
+```
+
+- **`!important` requiere justificación explícita en review** (comentario en el sitio: qué regla de vendor está peleando y por qué no alcanza la capa). No se acepta "para que agarre".
+- **`::ng-deep` es solo para vendor**, con comentario, y con horizonte de retiro: si el componente es nuestro, se resuelve con token de Tier 3 o `@scope`.
+- **Métrica de QA:** el conteo de `!important` y `::ng-deep` **por módulo** no sube. Bajar es la dirección; subir necesita justificación.
+- Estilos de módulo nuevos: `@scope` antes que subir especificidad.
+
+### T. Overlays y controles nativos — menos JS de plomería
+Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
+
+```html
+<!-- hovercard de cliente/SKU: cero JS, cero listeners, cero librería de posicionamiento -->
+<a interestfor="hc-cliente" href="/comercial/clientes/123">DEMO-001</a>
+<div id="hc-cliente" popover="hint" class="hovercard">…saldo, última compra, riesgo…</div>
+```
+
+```css
+.hovercard { position-anchor: --cli; position-area: block-end span-inline-end; }
+@position-try --flip { position-area: block-start span-inline-end; } /* se reacomoda solo al borde */
+```
+
+- **Popover API + anchor positioning** (Baseline 2026) para tooltip / hovercard / popover de filtro. ⛔ Nada de cálculo de posición en JS en código nuevo.
+- **`<dialog closedby="any">` + `:open`** para confirmaciones: el foco y `Esc` los da la plataforma (pero la regla de **foco al abrir + retorno al trigger** sigue siendo nuestra y se verifica).
+- **Invoker commands** (`command`/`commandfor`) para abrir/cerrar sin handler.
+- **`appearance: base-select`** para selects triviales con nuestros tokens, en vez de pelear el theming del vendor.
+- **`@starting-style` + `transition-behavior: allow-discrete`** para la entrada de popover/dialog (mata el flash), dentro del techo de motion.
+- **Custom highlights** para resaltar coincidencias de `applySmartSearch` sin inyectar `<mark>` por `innerHTML` (además cierra el vector XSS de §8).
+
+### U. Motion nativo — la plataforma primero
+> No cambia el presupuesto (§Motion es la única fuente de duraciones/curvas: techo **350ms**, solo `transform`+`opacity`, `prefers-reduced-motion` gatea todo). Cambia **con qué se implementa**.
+- **View Transitions** para transiciones de ruta y master→detail: `provideRouter(routes, withViewTransitions())` + `view-transition-name` en el elemento que persiste (la fila que se convierte en detalle). Antes que animar a mano.
+- **Scroll-driven animations** (`scroll-timeline` / `view-timeline`) para progreso, header que condensa y reveals: sin listeners de `scroll`, sin trabajo en el hilo principal. Jamás rotación ni translación grande sin gate de reduced-motion.
+- **Springs sin librería:** `linear()` genera easings tipo resorte. No se introduce una librería de animación para eso (GSAP sigue sin ser dependencia).
+
+### V. Presupuesto de interacción y percepción (INP < 200ms)
+- **Criterio de aceptación** de toda vista densa: la respuesta a la interacción (filtro, orden, selección, expandir fila) **< 200ms**. Se **mide** (DevTools/Playwright MCP o campo), no se estima. Un filtro de 400ms es defecto de diseño, no deuda de infra.
+- Palancas por orden de rendimiento: **virtualización** en tablas de miles de filas → **`content-visibility: auto`** en listas/secciones largas → **`@defer`** en bloques pesados (charts, mapas Leaflet) → ceder el hilo en handlers de filtro → memoizar con `computed()`.
+- **CLS 0** sigue siendo requisito (skeleton dimensionado al contenido real, ya binding §2).
+- La medición de campo (soft navigations ya reconocidas para SPA desde jul-2026) es backlog `DT.3`: hasta que exista, la medición es local y explícita en el PR.
+
+### W. Ganancias gratis (usar por default en código nuevo)
+- **`text-wrap: balance`** en títulos de card / page-head (≤4 líneas) y **`pretty`** en párrafos y microcopy: mata la palabra huérfana sin tocar el layout.
+- **`field-sizing: content`** en inputs de cantidad (carrito, take-order, requisición) y textareas de nota: adiós al auto-resize en JS.
+- **`light-dark()`** para el token que solo difiere por tema: una declaración en vez de dos bloques (menos chance de que dark quede roto).
+- **`interpolate-size: allow-keywords` / `calc-size()`** para animar acordeones y paneles a altura `auto` sin hackear `max-height`.
+- **`contrast-color()`** para el texto sobre chips/badges cuyo fondo lo decide el dato (data-viz, color por grupo): resuelve el par de contraste solo, en ambos temas.
+- **`:has()`** para estado dependiente del contenido (fila con selección, card con error, form inválido) en vez de calcular clases en TS.
+- **`attr()` tipado** y **`sibling-index()`** para chips/gauges por dato y stagger de filas, en vez de `[style.--x]` binding.
+
+### Antipatrones (flag en review)
+- `!important` nuevo sin comentario que justifique contra qué vendor pelea.
+- `::ng-deep` sobre un componente **nuestro** (es un token de Tier 3 mal hecho).
+- `@media (max-width: 768px)` **en px** o dentro de un componente reutilizable para decidir su layout interno.
+- Tooltip/hovercard nuevo con posicionamiento calculado en JS.
+- `clamp()` con máximo >2.5× el mínimo o sin componente `rem` (rompe el zoom).
+- `container-type` puesto en el nodo que ancla un overlay (overlay recortado).
+- Animar `width/height/top/left` "porque view transitions no alcanzaba" — se rediseña, no se excepciona.
+- Vista densa entregada sin número de latencia medido cuando la tabla pasa de ~200 filas.
+- Feature moderna usada como requisito (pantalla vacía o rota en un navegador/dispositivo sin soporte) — falta el `@supports` y el camino base.
+
+---
+
+## Superficies con IA — contrato de agentic UX (BINDING)
+
+> Alcance: toda UI donde un motor o agente **sugiere, propone o ejecuta** algo: Maat (chat + hallazgos + `proposed_actions`), Thot (canasta/sugeridos), Horus (parte diario, auditoría visual, fraude), RA (sugerido de compra, requisiciones), alertas y nudges. Añadido 2026-08-25 desde el estado del arte de agentic UX 2026 (los seis patrones canónicos) — detalle y mapeo en [`docs/DESIGN_TECNOLOGIA_2026.md §8`](docs/DESIGN_TECNOLOGIA_2026.md).
+> **Herencia:** ADR-016 / ADR-020 / ADR-021 — **el motor decide, el agente comunica, el LLM fuera del camino del dinero**. Esta sección es el *cómo se ve* de esa tesis. Identidad visual = **ember** (nunca morado ni azul; regla ya binding).
+> **Tesis:** en 2026 el problema de diseño de la IA no es la capacidad, es la **confianza**. Y la confianza no se declara: se construye con transparencia, control, consistencia y buen manejo de la falla.
+
+### X. Los seis, como reglas
+1. **Plan antes de ejecutar (Intent Preview).** Acción irreversible, que mueve dinero, que escribe en un tercero o que afecta a muchos registros → se muestra **el plan en lenguaje llano** con opciones **Proceder / Editar / Lo hago yo**. Nunca "listo, ya lo hice" como primer contacto. Es la forma visual del HITL que ya usamos (`finance.proposed_actions`, requisiciones RQ).
+2. **Nivel de autonomía explícito y por dominio (Autonomy Dial).** El usuario ve —y donde aplique, ajusta— cuánta libertad tiene el motor **por tipo de tarea**: observar → sugerir → actuar. Lo de bajo riesgo (refrescar vistas, reclasificar por regla determinista) puede ser autónomo; lo que toca dinero o terceros, nunca por default. El nivel vigente se muestra, no se asume.
+3. **Razón en llano, no logs (Explainable Rationale).** Toda sugerencia trae su **por qué** como dato estructurado ("porque este cliente compra X cada 14 días y lleva 26"), no un volcado del razonamiento del modelo. Nadie quiere leer la cadena de pensamiento; quieren saber **qué hizo, con qué confianza y cómo verificarlo**. El link a la evidencia (póliza, ticket, foto, movimiento) es parte de la razón — patrón que ya hacemos bien en hallazgos y hay que sostener.
+4. **Confianza visible (Confidence Signal).** Si el motor tiene score/precisión (`score 0..1`, `precision_score`, umbral por percentil), **se muestra** con forma perceptual (no solo el número) y con su alcance ("esto lo estimo, esto lo leí"). Usarla solo para suprimir por dentro es desperdiciarla y alimenta el sesgo de automatización.
+5. **Auditoría + reversa con ventana (Action Audit & Undo).** Toda acción del motor queda en un log cronológico consultable **desde la UI** (ya lo hay en histórico de pedidos y audit de chat) y, cuando el dominio lo permite, con **undo prominente** y **ventana explícita** ("se puede revertir hasta que se timbre / hasta el cierre del día"). Si algo no es reversible, se dice **antes** (se conecta con la regla 1 y con la fricción de la acción destructiva).
+6. **Ruta de escalación (Escalation Pathway).** Ante ambigüedad el motor **escala, no adivina**: pide la aclaración mínima, ofrece opciones válidas o marca "esto lo decide un humano". El chat debe poder decir "no sé" y ofrecer a quién preguntar. Escalar es un resultado exitoso, no una falla.
+
+### Presentación
+- **Progressive disclosure siempre:** resumen accionable arriba (answer-first, regla Q), detalle y evidencia al drill-down. El razonamiento largo va colapsado por default.
+- **La IA no es un botón, es una capa presente-opcional:** se puede ignorar sin perder la pantalla. Nada crítico vive **solo** dentro del chat.
+- **Cero cifras del LLM en pantalla:** todo número renderizado viene de una query/tool determinista. Si el texto del modelo trae un número, es bug (regla ya viva en Maat/Thot).
+- **Estado de trabajo honesto:** "buscando en 3 fuentes…" con lo que ya encontró; jamás un spinner opaco ni una animación que finja progreso.
+- **Feedback del humano = dato de entrenamiento** (👍/👎, confirmar/descartar, pin): visible, con efecto declarado ("dejaré de mostrar esta regla si sigue fallando"), reversible.
+
+### Dirección (no binding aún)
+**Generative UI estándar:** que el agente emita un **blueprint declarativo** (A2UI v0.9, Apache 2.0, tiene renderer Angular) y el host renderice **nuestros** componentes con nuestros tokens, en vez de markdown parseado. Encaja con el `render_response` que Thot/Maat ya usan y respeta la tesis (el modelo emite *layout*, nunca cifras). Spike `DT.11` — cuando se apruebe, sube acá como regla.
+
+### Antipatrones (flag en review)
+- Acción del motor ejecutada sin plan previo cuando toca dinero, terceros o muchos registros.
+- Sugerencia sin razón, o con "razón" que es un volcado del prompt/razonamiento.
+- Score de confianza usado solo internamente y nunca mostrado.
+- Cifra tomada del texto del modelo y pintada como dato.
+- Acción del agente sin rastro en un log consultable desde la UI.
+- Chat que inventa antes que escalar ("no sé" no está en su repertorio).
+- Morado/azul como identidad de IA (ember es la identidad).
+- Todo el valor de una función encerrado en el chat, sin superficie determinista equivalente.
 
 ---
 
@@ -742,6 +897,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-08-25 | **Plataforma web moderna BINDING (§R-§W + pre-vuelo 16/17)** (responsividad por capas: `@media`=página / `@container`=componente / `clamp()` con máx ≤2.5× / grid intrínseco, breakpoints en `rem` · cascada `@layer` + `!important` justificado + `::ng-deep` solo vendor · overlays nativos Popover+anchor+`<dialog closedby>`+`base-select` · motion nativo View Transitions/scroll-driven/`linear()` · presupuesto INP<200ms como criterio de aceptación · ganancias gratis `text-wrap`/`field-sizing`/`light-dark`/`contrast-color`/`:has`) **+ agentic UX BINDING (§X + pre-vuelo 18)** (plan previo · autonomía por dominio · razón en llano · confianza visible · auditoría+undo con ventana · escalación) **+ marco de mejora progresiva** (`@supports`, el piso es que funcione sin la feature) | Auditoría del DS contra la plataforma (investigación [`DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md)): **el sistema de diseño iba muy por delante de la tecnología con la que lo implementábamos**. Medido en el repo: **0 `@container`** (aunque §Ing.UI 5 lo mandaba desde jul-2026), **0 `@layer`** contra **971 `!important` + 317 `::ng-deep`**, **124 breakpoints en px** (rompen zoom), y features gratis sin usar (`text-wrap` 1 archivo, `field-sizing` 1, `content-visibility` 2, `popover` 1). Además faltaba por completo el contrato visual de las superficies con IA — teníamos la tesis (motor decide / LLM fuera del dinero) y la identidad (ember), pero no las reglas de **confianza** (plan, razón, confianza, reversa, escalación), que es el problema de diseño #1 de la IA en 2026. Se anotó también el riesgo de licencia de PrimeNG (v22+ comercial, repo archivado jun-2026) en pre-vuelo 3 sin cerrar la decisión — es de Edgar. |
 | 2026-08-12 | **Tokens consolidados en un archivo único** [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) para las 3 apps + **6 contradicciones del doc resueltas** + **inventario de componentes** agregado | Auditoría del DS contra el código. La "fuente única" eran **3 copias** de `tokens.css` (una por app) **más** un segundo bloque de tokens duplicado dentro de cada `styles.css`, y ya habían divergido: `apps/portal` servía **Inter + JetBrains Mono** en `:root` (retiradas en 2026-06-04, sólo se salvaba por el override de `.portal-shell`) y **`--ease-standard` estaba declarado dos veces con curvas distintas** — ganaba la de `styles.css`, así que la curva documentada acá no era la que corría. Resueltas además: motion 400↔350ms (→ **350ms**, §Motion es la única fuente) · dark Operations zinc↔espresso (→ **zinc `#111111`**; espresso queda scopeado al portal) · dos escalas de spacing (→ **`--sp-*`**) · Fraunces "retirada" vs. autorizada en portal (→ **retirada de verdad**: fuera de `--font-display` y de los `<link>` de las 3 apps; display = Poppins, storefront-only) · elevación hairline vs. spotlight de cards (→ el spotlight/lift es **respuesta al puntero, no elevación en reposo**) · `#2563EB` antipatrón vs. `--info-fg` (→ **se prohíbe el rol, no el hex**). Y la **escala tipográfica**: el doc mandaba `--text-page-head/data/label`, que **nunca existieron** (0 declaraciones, 1 uso) y además colisionaban con `--text-*` = *color*; la escala real `--fs-*`/`--fw-*` (481 usos) quedó documentada y movida al archivo canónico, con alias `--fg-1/2/3` para color. Efecto colateral medible: el payload de fuentes de `view` y `vendor` baja de **5 familias a 2** (Inter/Fraunces/JetBrains ya no se descargan). Builds view+portal+vendor verdes. |
 | 2026-07-22 | **Jerarquía visual + comprensión en interfaces de MUCHOS valores BINDING (§Q + pre-vuelo 15)** (answer-first · explicar el número en llano · señalar la fila exacta de la diferencia · redirección desde el dato · jerarquía por tipo+contraste no por color · color-grupo determinista+leyenda+no único portador · abouts P) | El DS garantizaba tokens/estados/a11y pero no que una pantalla con muchas cifras se **entienda**: qué es primario, qué significa cada número, dónde está el problema, cómo arreglarlo. Faltaba como regla → dependía de que el usuario lo pidiera a los golpes. Destilado con Edgar sobre el rediseño de `/finanzas/bancos` (color-por-grupo, renglón que salta, lecturas en llano, chips navegables). |
 | 2026-07-20 | **Arquitectura de layouts por sector + ayuda contextual BINDING** (O.1 Fiscal = master-detail permanente sin modal para docs extensos · O.2 Almacén/Compras = full-width grid + totales congelados + sidebar colapsable + offline/frescura · O.3 Mostrador/POS = keyboard-first + total/cobro dominantes + feed al tope; P = `<app-context-help>` desde diccionario de negocio versionado) | "El layout sigue a la operación, no al componente": cada sector tiene plantilla estructural inmutable. Reconcilia con datos densos (mostrador NO pagina / bandeja auditable SÍ; fiscal split permanente vs side-peek ligero). Genera backlog: viewer fiscal master-detail, focus-mode de sidebar, componente+diccionario ContextHelp. |
