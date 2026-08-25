@@ -59,7 +59,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
         </ng-template>
         <ng-template #body let-r>
           <tr class="er-row" (click)="open(r)">
-            <td>{{ r.review_date }}</td>
+            <td>{{ fmtDate(r.review_date) }}</td>
             <td class="er-mono">{{ r.warehouse_code }} · {{ r.warehouse_name }}</td>
             <td>{{ r.responsible_name || '—' }}</td>
             <td class="num">{{ r.line_count }}</td>
@@ -163,6 +163,14 @@ export class ComercialExpiryReviewsComponent {
   }
 
   openNew() { this.newWarehouse = ''; this.newDate = new Date(); this.newLocation = ''; this.newOpen.set(true); }
+
+  /** `date` de Postgres llega como ISO completo: se muestra el tramo YYYY-MM-DD, sin new Date(). */
+  fmtDate(v: string | null | undefined): string {
+    const ymd = String(v || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '—';
+    const p = ymd.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
 
   private toYmd(d: Date): string {
     const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
