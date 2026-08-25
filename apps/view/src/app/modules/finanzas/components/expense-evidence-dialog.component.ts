@@ -7,7 +7,8 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { FileUploadModule } from 'primeng/fileupload';
 import { TextareaModule } from 'primeng/textarea';
-import { ComprobacionesService, ProofFile, ProofFileRole, ProofPhotoOcr } from '../comprobaciones.service';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { ComprobacionesService, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { ExpenseRequestRow } from '../../comercial/comercial.service';
 import { money } from '../../../shared/util';
 import { dmy } from '../pages/finanzas-format';
@@ -29,7 +30,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
 @Component({
   selector: 'app-expense-evidence-dialog',
   standalone: true,
-  imports: [NgTemplateOutlet, FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule],
+  imports: [NgTemplateOutlet, FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule, SelectButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Sin cierre implícito: esto es captura, y Esc o la X tirando archivos ya subidos es
@@ -53,28 +54,44 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
             </dl>
           </div>
 
-          <!-- Sólo los dos que se llenan siempre. Los otros cuatro existen para casos
-               puntuales (segunda hoja, fotos) y apilarlos como seis filas idénticas hacía
-               parecer que había seis cosas que hacer. Progressive disclosure de lo
-               secundario, que es para lo único que DESIGN.md la admite. -->
-          @for (slot of slotsBase; track slot.role) {
-            <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
-          }
-
-          @if (extraAbiertos()) {
-            @for (slot of slotsExtra; track slot.role) {
-              <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
-            }
-          } @else {
-            <button type="button" class="ev-more" (click)="extraAbiertos.set(true)">
-              <i class="pi pi-plus" aria-hidden="true"></i> Segunda hoja y fotos ({{ slotsExtra.length }})
-            </button>
-          }
-
+          <!-- Clasificación del gasto: decide si la evidencia es obligatoria. -->
           <div class="ev-f">
-            <span class="ev-lbl">Comentarios</span>
-            <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="ev-txt"></textarea>
+            <span class="ev-lbl">Tipo de gasto</span>
+            <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
+                            optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="ev-clas"
+                            ariaLabel="Tipo de gasto" />
+            @if (clasificacion()) { <em class="ev-hint">{{ clasHint() }}</em> }
           </div>
+
+          @if (clasificacion()) {
+            @if (llevaEvidencia()) {
+              <!-- Sólo los dos que se llenan siempre; los otros cuatro por progressive disclosure. -->
+              @for (slot of slotsBase; track slot.role) {
+                <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
+              }
+              @if (extraAbiertos()) {
+                @for (slot of slotsExtra; track slot.role) {
+                  <ng-container *ngTemplateOutlet="campo; context: { $implicit: slot }" />
+                }
+              } @else {
+                <button type="button" class="ev-more" (click)="extraAbiertos.set(true)">
+                  <i class="pi pi-plus" aria-hidden="true"></i> Segunda hoja y fotos ({{ slotsExtra.length }})
+                </button>
+              }
+              <div class="ev-f">
+                <span class="ev-lbl">Comentarios</span>
+                <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="ev-txt"></textarea>
+              </div>
+            } @else {
+              <!-- No comprobable: sin foto, pero el motivo es obligatorio y auditable. -->
+              <div class="ev-f">
+                <span class="ev-lbl">Motivo <b class="ev-req" aria-hidden="true">*</b><span class="sr-only">(obligatorio)</span></span>
+                <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="ev-txt"
+                          placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
+                <em class="ev-hint">Se registra sin evidencia. El motivo lo lee quien valida.</em>
+              </div>
+            }
+          }
           @if (error()) { <div class="ev-err" role="alert">{{ error() }}</div> }
         </div>
       }
@@ -109,9 +126,9 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
           <!-- Poka-yoke: el envío se previene mientras falte lo obligatorio, en vez de
                dejar apretar y contestar con un error. -->
           <button pButton type="button" [loading]="saving()" [disabled]="!listo() || saving()" (click)="enviar()"
-                  [title]="listo() ? 'Guardar la evidencia' : 'Falta el comprobante del gasto'">
+                  [title]="listo() ? 'Guardar' : (!clasificacion() ? 'Elegí el tipo de gasto' : (llevaEvidencia() ? 'Falta la evidencia' : 'Falta el motivo'))">
             <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-            <span class="p-button-label">Enviar evidencia</span></button>
+            <span class="p-button-label">Enviar</span></button>
         }
       </ng-template>
     </p-dialog>
@@ -134,6 +151,9 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
     .ev-lbl { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
       letter-spacing: .06em; color: var(--fg-3); }
     .ev-req { color: var(--bad-fg); margin-left: 2px; }
+    .ev-hint { font-size: var(--fs-xs); color: var(--fg-3); font-style: normal; }
+    :host ::ng-deep .ev-clas { display: flex; flex-wrap: wrap; }
+    :host ::ng-deep .ev-clas .p-togglebutton, :host ::ng-deep .ev-clas .p-button { flex: 1 1 auto; }
     .ev-more { align-self: flex-start; display: inline-flex; align-items: center; gap: var(--sp-1);
       min-height: max(1.75rem, var(--tap-min)); padding: 0; border: 0; background: none; font: inherit;
       font-size: var(--fs-xs); color: var(--action); cursor: pointer; }
@@ -175,8 +195,30 @@ export class ExpenseEvidenceDialogComponent {
   readonly fileSlots: FileSlot[] = [...this.slotsBase, ...this.slotsExtra];
   readonly extraAbiertos = signal(false);
   readonly confirmClose = signal(false);
-  /** Marca que hay archivos elegidos: cambia el `track` de las señales de nombre. */
-  readonly listo = computed(() => !!this.fileNames()['comprobante_1']);
+
+  /** Clasificación del gasto: decide si la evidencia es obligatoria. */
+  readonly clasificacion = signal<ExpenseClasificacion | null>(null);
+  clasificacionV: ExpenseClasificacion | null = null;
+  readonly clasOpts = [
+    { label: 'Fiscal', value: 'fiscal' },
+    { label: 'No fiscal, con recibo', value: 'no_fiscal_comprobable' },
+    { label: 'No comprobable', value: 'no_comprobable' },
+  ];
+  readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
+  onClasChange() { this.clasificacion.set(this.clasificacionV); this.error.set(''); }
+  clasHint(): string {
+    switch (this.clasificacion()) {
+      case 'fiscal': return 'Lleva CFDI/factura. Adjunta la factura.';
+      case 'no_fiscal_comprobable': return 'No tiene factura pero sí ticket o recibo.';
+      case 'no_comprobable': return 'Sin documento que lo respalde.';
+      default: return '';
+    }
+  }
+  /** El envío exige: clasificación + (evidencia si comprobable, o motivo si no). */
+  listo(): boolean {
+    if (!this.clasificacion()) return false;
+    return this.llevaEvidencia() ? !!this.fileNames()['comprobante_1'] : !!this.comentarios.trim();
+  }
 
   readonly fileNames = signal<Record<string, string>>({});
   readonly vision = signal<Record<string, ProofPhotoOcr | 'cargando' | null>>({});
@@ -203,6 +245,7 @@ export class ExpenseEvidenceDialogComponent {
     this.fileData = {}; this.uploaded = {}; this.comentarios = '';
     this.fileNames.set({}); this.vision.set({}); this.error.set(''); this.saving.set(false);
     this.extraAbiertos.set(false); this.confirmClose.set(false);
+    this.clasificacion.set(null); this.clasificacionV = null;
   }
 
   /** `p-fileupload` (modo básico) entrega el archivo en el evento, ya tipado. */
@@ -247,6 +290,17 @@ export class ExpenseEvidenceDialogComponent {
   enviar() {
     const s = this.solicitud();
     if (!s || this.saving()) return;
+    if (!this.clasificacion()) { this.error.set('Elegí el tipo de gasto.'); return; }
+
+    // No comprobable: sin archivos, con motivo obligatorio. Se crea directo.
+    if (!this.llevaEvidencia()) {
+      if (!this.comentarios.trim()) { this.error.set('Escribí por qué no se puede comprobar.'); return; }
+      this.error.set('');
+      this.saving.set(true);
+      this.crear([]);
+      return;
+    }
+
     for (const slot of this.fileSlots) {
       if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) {
         this.error.set(`Falta: ${slot.label}.`); return;
@@ -283,8 +337,9 @@ export class ExpenseEvidenceDialogComponent {
 
   private crear(roles: string[]) {
     const s = this.solicitud()!;
-    const files = roles.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
-    const v = this.vision()['comprobante_1'] ?? this.vision()['comprobante_2'];
+    const lleva = this.llevaEvidencia();
+    const files = lleva ? (roles.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[]) : [];
+    const v = lleva ? (this.vision()['comprobante_1'] ?? this.vision()['comprobante_2']) : null;
     const ocr = v && v !== 'cargando' ? v : null;
     this.svc.create({
       folio_solicitud: s.folio,
@@ -293,7 +348,8 @@ export class ExpenseEvidenceDialogComponent {
       sucursal: s.sucursal || undefined,
       fecha_gasto: s.fecha ? String(s.fecha).slice(0, 10) : undefined,
       importe: s.importe || undefined,
-      comentarios: this.comentarios || s.concepto || undefined,
+      clasificacion: this.clasificacion()!,
+      comentarios: this.comentarios || (lleva ? s.concepto || undefined : undefined),
       files,
       monto_ocr: ocr ? ocr.monto_ocr ?? ocr.total : undefined,
       subtotal_ocr: ocr ? ocr.subtotal : undefined,
