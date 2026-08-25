@@ -11,11 +11,10 @@
 | Persona | Área / dominio | Qué incluye |
 |---|---|---|
 | **Edgar** (lead) | Plataforma + datos + AI | `libs/platform-core` (auth/RBAC/tenant/DB), **feeds + `kepler_ods`** (frágil, tribal), motores AI (**Thot/Horus/Maat**), arquitectura/ADRs, review de lo sensible (migraciones, seguridad). |
-| **David** (`@dev-david24`) | **Almacén / Inventario** (`/almacen`) | Ver §2 — el dominio de inventario/almacén completo. |
-| **Dev 2** (`@_______`) | *(por asignar)* | Propuesta: **Ventas / Comercial** (`libs/commercial` ventas): pedidos, clientes, pricing, anexos de venta, portal B2B, vendor. |
-| **Dev 3** (`@_______`) | *(por asignar)* | Propuesta: **Finanzas + Fiscal + Logística** (`libs/finance` + `libs/fiscal` + `libs/logistics`): bancos, Maat, CxP/CxC, conciliación, CFDI/SAT, embarques, flota, guías. |
+| **David** (`@dev-david24`) | **Almacén / Inventario** (`/almacen`) | Ver §2 — inventario/almacén completo. |
+| **0Sistemas** (`@0SistemasMD`) | **Tienda / POS en vivo** (`/tienda`) | Ver §2 — monitor de tickets, arqueo, etiquetera. |
 
-> Ajustá el reparto según la fortaleza de cada dev. Si el equipo es de 3 (Edgar + 2), fusioná las áreas de Dev 2/Dev 3 o repartilas por route.
+> **Equipo = Edgar + David + 0Sistemas.** Edgar (lead) carga **todo lo demás** por ahora: Ventas/Comercial, Finanzas, Fiscal, Logística, Compras — además de plataforma/feeds/AI. Esas áreas se reasignan a los devs a medida que agarren ritmo.
 
 ## 2. El área de David — Almacén / Inventario (alcance concreto)
 
@@ -29,6 +28,18 @@
 - Los **feeds/`kepler_ods`** que alimentan la existencia/costo (los mantiene Edgar) — si David necesita un dato nuevo del ERP o cambiar cómo entra el stock, lo coordina con Edgar.
 - **Compras / reabastecimiento** (`/compras`, `libs/commercial-replenishment`) — área vecina pero distinta; definí si es de David o de otro (comparten el concepto de existencia).
 - **Ventas** (pedidos/pricing) — de otro dueño; se cruzan en `commercial.stock` (la venta consume stock), así que David coordina cambios de schema de stock con el dueño de ventas.
+
+## 2b. El área de 0Sistemas — Tienda / POS en vivo (alcance concreto)
+
+**Backend:** `apps/api/src/modules/store` — el gateway WebSocket (`store.gateway.ts`), el endpoint de ingest de tickets (`/store/live/ingest`, protegido con `x-store-ingest-key`), y la lógica de tienda en vivo (tickets, arqueo, alertas de ticket grande).
+
+**Frontend:** `apps/view/src/app/modules/tienda/*` — monitor de tickets POS en vivo, **arqueo de caja**, **etiquetera** (impresión de etiquetas de precio).
+
+**DB:** las tablas de `store_live` (tickets en vivo) + arqueo.
+
+**NO es de 0Sistemas:**
+- El **poller on-prem de Wincaja** que EMPUJA los tickets al ingest (vive en `database/importers/wincaja/`, on-prem `.249`) — eso es infra de feeds, la mantiene Edgar. 0Sistemas es dueño del **consumidor** (el ingest + el monitor + WS), no del poller que envía.
+- El `STORE_INGEST_KEY` (clave compartida máquina-a-máquina) — coordinar con Edgar si cambia.
 
 ## 3. Zonas compartidas (acá es donde se van a pisar)
 
