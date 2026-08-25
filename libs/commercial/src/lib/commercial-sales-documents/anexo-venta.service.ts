@@ -234,10 +234,17 @@ export class AnexoVentaService {
       // unidad del catálogo), así que aquí solo se rotula, nunca se traduce.
       const un = this.unidad(l.unidad);
       const bulto = this.unidad(l.unidad_bulto);
-      const eq = l.cajas_equivalentes && bulto
-        ? `<span class="q-eq">= ${l.cajas_equivalentes} ${bulto}</span>` : '';
-      const fac = l.factor_bulto && bulto
-        ? `<span class="q-eq2">${Number(l.factor_bulto)} ${un} por ${bulto}</span>` : '';
+      // Escalera de empaque LEÍDA DE KEPLER (cero fórmula): caja > paquete > pieza, cada nivel con
+      // su factor-en-piezas tal cual Kepler (c84 caja / c81 paquete). El bulto se omite si el factor
+      // está marcado dudoso (c84 parece pallet). La base (pieza) es la unidad de venta del catálogo.
+      const base = this.unidad(l.unidad_venta) || un || 'pza';
+      const cjaF = Number(l.box_factor) || 0;
+      const paqF = Number(l.factor_paq) || 0;
+      const paqU = this.unidad(l.unidad_paq);
+      const escalones: string[] = [];
+      if (cjaF > 1 && bulto && !l.box_factor_dudoso) escalones.push(`1 ${bulto} = ${cjaF} ${base}`);
+      if (paqF > 1 && paqU && paqU !== bulto) escalones.push(`1 ${paqU} = ${paqF} ${base}`);
+      const escala = escalones.map((e) => `<span class="q-eq2">${e}</span>`).join('');
       const caja = l.precio_caja && bulto
         ? `<span class="pu2">${this.m(l.precio_caja)}</span><span class="pl">por ${bulto}</span>` : '';
       const cajaD = l.precio_caja_con_descuento && bulto
@@ -250,7 +257,7 @@ export class AnexoVentaService {
         : `<td class="neto">${this.m(l.importe)}</td>`;
       return `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div></td>
-        <td class="qcell"><span class="q-main">${this.cantidadConUnidad(cant, l.unidad)}</span>${eq}${fac}</td>
+        <td class="qcell"><span class="q-main">${this.cantidadConUnidad(cant, l.unidad)}</span>${escala}</td>
         <td class="u-price"><span class="pu">${this.m(l.precio_unitario)}</span><span class="pl">por ${un || 'unidad'}</span>${caja}</td>
         ${colsDesc}
       </tr>`;
@@ -300,8 +307,8 @@ table.det thead th{font-size:8pt;letter-spacing:.07em;text-transform:uppercase;c
 table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:6px 7px;border-bottom:1px solid var(--line-2);vertical-align:top}
-.p-name{font-weight:700;font-size:10.5pt;line-height:1.25}
-.p-sku{font-size:8.5pt;color:var(--muted);font-weight:600;margin-top:2px}
+.p-name{font-weight:700;font-size:9pt;line-height:1.2}
+.p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
 .qcell{text-align:left}
 .q-main{font-weight:700;display:block}
 .q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}

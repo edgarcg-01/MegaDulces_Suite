@@ -28,7 +28,7 @@ El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exha
 | Tabla | Qué es | Columnas clave |
 |---|---|---|
 | **`kdii`** | Maestro de productos (por sucursal) | `c1`=SKU · `c2`=nombre · `c7`=código de barras (EAN) · `c8`=clave familia · **`c84`=piezas por caja** (box factor canónico) · **`c33`=mínimo · `c34`=punto de reorden · `c35`=máximo** |
-| **`kdil`** | Existencia/acumulados por sucursal | `c1`=sucursal · `c3`=SKU · **`c9`=existencia actual** · `c6/c7`=última compra/venta |
+| **`kdil`** | Existencia/acumulados **por almacén** | ⚠️ `c1`=**ALMACÉN (no sucursal)** — filtrá por la columna `sucursal` + `c1`=almacén principal · `c3`=SKU · **`c9`=existencia actual** (validado vs `kdik.c6`; ~38% de drift entre ambas fuentes) · `c6/c7`=última compra/venta |
 | **`kdik`** | Valuación por sucursal | `c2`=SKU · `c6`=existencia · `c9`=valor a costo → **costo unitario = c9/c6** |
 | **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · `c2/c3/c4`=género/naturaleza/tipo del doc · `c9`=fecha · `c10`=forma de pago |
 | **`kdm2`** | Detalle/líneas de documentos (1.26M filas) | `c8`=SKU · `c9`=cantidad · `c32`=fecha (≈ header) |
@@ -110,6 +110,8 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
    crudo), tenés que reinyectar `tenant_id` explícito o rompés el aislamiento. Ver [`docs/GOTCHAS.md`](GOTCHAS.md) §1.
 5. **Box factor = `kdii.c84`** (piezas por caja). `c84 IN (0,1)` = granel (factor 1). No lo adivines del nombre.
 6. **`kepler_ods` filtra por `sucursal`, no por `c1`** (la PK de catálogos es `(sucursal, c1)`).
+7. **En las tablas de detalle (`kdil`, `kdij`, `kdue`, `kdxe`, `kdpv_descuxq`), `c1` es el ALMACÉN, no la sucursal.** En `kepler_ods`/`kp.*` la rama real es la columna `sucursal` (agregada al concentrar); `c1` es el almacén dentro de la rama. Para existencia de rama: `WHERE sucursal='03' AND c1='03'` (almacén principal). Existencia = `kdil.c9` (validado vs `kdik.c6`, con ~38% de drift entre ambas fuentes).
+8. **La notación `X-A-30` = género(`c2`)·naturaleza(`c3`)·grupo(`c4`) en `kdm1`.** El número (30/35/40…) es el **grupo** (`kdm1.c4` = `kdmm.c3`), no el "tipo". Validado vivo 2026-08-25.
 
 ---
 
