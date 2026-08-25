@@ -17,7 +17,7 @@
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
-const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice } = require('./ods-derived');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -603,7 +603,7 @@ const BARCODE_CASE = `CASE
 
 /**
  * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.products (identidad + política barcode)
- * + commercial.product_prices (c90). NO reactiva (activo=false es decisión aparte) ni borra (el
+ * (el precio lo lleva normalizeSalePrice). NO reactiva (activo=false es decisión aparte) ni borra (el
  * barrido reconcilia bajas). Idempotente y churn-free.
  */
 async function normalizeProductsFromOds(client, tenantId, skus) {
@@ -619,7 +619,7 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
       SELECT DISTINCT ON (btrim(c1))
              btrim(c1) AS sku, btrim(c2) AS nombre,
              nullif(btrim(coalesce(c7,'')),'') AS barcode,
-             btrim(c3::text) AS linea, c90::numeric AS precio, NULL::uuid AS brand_id
+             btrim(c3::text) AS linea, NULL::uuid AS brand_id
         FROM kepler_ods.kdii
        WHERE btrim(c1) = ANY($1) AND btrim(coalesce(c2,'')) <> ''
        ORDER BY btrim(c1), (sucursal='00') DESC, sucursal`, [skus]);
@@ -648,17 +648,13 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
         AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
                           AND p2.brand_id=p.brand_id AND p2.nombre=s.nombre)`, [tenantId])).rowCount;
 
-    // 3) UPSERT precio base (c90 > 0.05, churn-free) — Kepler es autoridad del precio de venta.
-    const prc = (await client.query(`
-      INSERT INTO commercial.product_prices (id, tenant_id, price_list_id, product_id, price, tax_rate, min_qty, created_at, updated_at)
-      SELECT gen_random_uuid(), $1, '${PRODUCT_BASE_LIST}', p.id, s.precio, COALESCE(p.iva_rate,0), 1, now(), now()
-      FROM catalog.products p JOIN snap_p s ON s.sku=p.sku
-      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND s.precio > 0.05
-      ON CONFLICT (tenant_id, price_list_id, product_id) DO UPDATE SET price=EXCLUDED.price, updated_at=now()
-        WHERE commercial.product_prices.price IS DISTINCT FROM EXCLUDED.price`, [tenantId])).rowCount;
-
+    // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
+    // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
+    // ($15.25/$7.02/$8.48) sobre BASE-MXN. Pasó a `normalizeSalePrice` (ods-derived), que lee la
+    // BITÁCORA con su unidad y valida contra lo cobrado / la escalera / el costo. Sigue siendo
+    // al-momento: está registrado en ODS_NORMALIZERS para kdm2 (la venta), kdii y kdpv_prod_util.
     await client.query('COMMIT');
-    return ins + idn + prc;
+    return ins + idn;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
@@ -708,9 +704,13 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
-  kdii: { fns: [normalizeProductsFromOds, normalizeLabelsFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
   kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
-  kdpv_prod_util: { fns: [normalizeLabelsFromOds, normalizeBoxPrice] },
+  kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice] },
+  // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
+  // precio recalcula al instante. Su SKU vive en c3 (el pk[0] es la sucursal).
+  // Una VENTA nueva es un precio nuevo: el PdV es la fuente. Su SKU vive en c8.
+  kdm2: { skuCol: 'c8', fns: [normalizeSalePrice] },
 };
 
 const HANDLERS = {
