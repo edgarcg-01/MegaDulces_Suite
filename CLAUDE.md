@@ -10,7 +10,7 @@
 
 **Flujo de trabajo:** rama por feature → PR → CI verde + 1 review (CODEOWNERS) → merge a `main`. `main` está protegida. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md). Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
 
-> **Para el Claude de un dev nuevo:** para entender el proyecto de cero, leé en orden [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (mapa de código: apps/libs/DBs/feeds), [`docs/GLOSSARY.md`](docs/GLOSSARY.md) (dominio + nombres internos), [`docs/ERP_KEPLER.md`](docs/ERP_KEPLER.md) (el ERP + pipeline `kepler_ods`), [`docs/GOTCHAS.md`](docs/GOTCHAS.md) (trampas de RLS/migraciones/permisos) y [`DESIGN.md`](DESIGN.md) (sistema de diseño). La memoria personal de Claude NO se comparte entre máquinas — todo lo que deba verlo el equipo va a estos `.md`.
+> **Para el Claude de un dev nuevo:** seguí el protocolo de orientación en [`docs/CLAUDE_ONBOARDING.md`](docs/CLAUDE_ONBOARDING.md) — te guía paso a paso a entender la estructura completa (leé esos docs en orden: ARCHITECTURE, ARQUITECTURA_DATOS, GLOSSARY, ERP_KEPLER, GOTCHAS, DESIGN + los 6 modelos mentales y las reglas duras). La memoria personal de Claude NO se comparte entre máquinas — todo lo que deba verlo el equipo va a estos `.md`.
 
 ---
 
