@@ -430,6 +430,8 @@ export interface ExpiryReviewLine {
   files?: ReviewFile[];
   fed_to_fefo?: boolean;
   fefo_qty?: number | string;
+  /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
+  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
 }
 
 export interface ExpiryReviewDetail extends ExpiryReview {
@@ -447,6 +449,8 @@ export interface ExpiryLineInput {
   action?: string;
   location?: string;
   files?: ReviewFile[];
+  /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
+  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
 }
 
 export interface AbcRow {

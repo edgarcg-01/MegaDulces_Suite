@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — P2.6: plazo automático y unidad de medida en Control de Caducidades (2026-08-25)
+- **El sistema dice el plazo, ya no la persona.** Al capturar la fecha, la hoja clasifica sola: *Buen plazo* (>90 d) · *Intermedio — vigilar* (31–90 d) · *Riesgoso — sacarlo ya* (≤30 d) · *Vencido*. Se ve en vivo bajo el campo y en cada renglón guardado. Los umbrales son dos constantes en el componente; **30 días es el mismo umbral con el que el sistema ya alerta lotes por vencer** (`EXPIRING_LOTS_DAYS`), así que la hoja y las alertas no se contradicen.
+- **`ESTADO` → `ESTADO FÍSICO` ("cómo llegó, no la fecha").** Ese campo es para lo que se ve (bolsas grasosas, goma dura) y competía con el plazo — de ahí venía la petición de que el sistema lo dedujera. Ahora el plazo lo calcula la máquina y el estado físico lo juzga la persona.
+- **Unidad de medida real** (mig `20260825180000`): `caja | pieza | bulto | kg`. Antes **todo** se mostraba en "pz", así que 3 cajas y 3 piezas se veían igual — y ese conteo alimenta FEFO al enviar la hoja. La UI **sugiere sin imponer** (código de anaquel numérico → caja; producto escaneado por barras → pieza) y deja de sugerir al primer toque manual; la columna no tiene default en DB: se guarda lo que confirma el operador.
+
+### Fixed — la foto de evidencia se perdía en silencio
+- `POST /commercial/expiry-reviews/upload` responde **400 "Almacenamiento no configurado (faltan env S3_*)"**. Es **entorno, no código**, pero la UI lo tapaba con un genérico *"No se pudo subir la foto"* y a continuación dejaba guardar el renglón sin avisar que la evidencia se había perdido. Ahora muestra el motivo real que el backend ya devolvía y deja un aviso fijo: *"queda **sin evidencia**"*.
+- El `GET` del detalle selecciona columnas explícitas y **no incluía `l.unit`**: la unidad se guardaba pero no volvía al frontend. Lo detectó la verificación en navegador, no el smoke de API (el `POST` devuelve `*` y parecía correcto).
+
 ### Fixed — Compras 360: atribución de ajustes por sucursal, buscador y carrera de filtros (2026-08-25)
 - **🔴 Atribución cruzada de proveedor.** El ajuste (devolución X-D-40 / nota X-D-55) se ligaba a la recepción **solo por `entrada_folio`**, y el folio de Kepler **no es único entre sucursales** (1,106 folios viven en más de una): una devolución de la 00 se le pegaba a las entradas homónimas de la 02 y la 03, atribuyéndola a **otro proveedor**. Caso vivo: folio `0000505`, ajustes de GONAC apareciendo en CUERITOS LUPITA y PADRE HIDALGO. Ahora se agrupa y liga por **`(sucursal, entrada_folio)`** — atribuidos pasa de **16 a 12**, que son exactamente los ajustes ligables. Mismo fix en el FIFO de `forProveedor`. El smoke `test-newdb-compras-360` no lo cazaba (validaba que el join no inflara *filas*, no *atribuciones*): se le agregaron ambas aserciones.
 - **🔴 Buscador.** Era un `ILIKE '%q%'` plano: `"gonac comercializadora"` (orden invertido) y `"yurécuaro"` (con acento) devolvían **0**. Ahora usa `applySmartSearch` (el motor canónico del repo): multi-token en cualquier orden, sin acentos, con typos por trigramas → 82, 144 y 82 respectivamente.
