@@ -40,7 +40,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
         <div class="erd-head-text">
           <h1>Control de Caducidades</h1>
           @if (review(); as r) {
-            <p class="erd-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} — {{ r.review_date }} · {{ r.responsible_name || 'sin responsable' }}</p>
+            <p class="erd-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} — {{ fmtDate(r.review_date) }} · {{ r.responsible_name || 'sin responsable' }}</p>
           }
         </div>
         @if (review(); as r) {
@@ -97,7 +97,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <span class="erd-lbl">Foto de evidencia</span>
               @if (pendingPhoto()) {
                 <div class="erd-photo">
-                  <img [src]="pendingPhoto()!.url" alt="evidencia" />
+                  <img [src]="pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
                   <button pButton [text]="true" severity="danger" size="small" (click)="pendingPhoto.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
                 </div>
               } @else {
@@ -128,8 +128,11 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <div class="erd-line-main">
                 <div class="erd-line-name">{{ l.product_name || l.product_name_raw || l.product_code_raw || 'Producto' }}</div>
                 <div class="erd-line-meta">
-                  <span class="erd-qty">{{ l.quantity }} pz</span>
-                  @if (l.expiry_date) { <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag> }
+                  <span class="erd-qty">{{ l.quantity | number }} pz</span>
+                  @if (l.expiry_date) {
+                    <span class="erd-exp">{{ fmtDate(l.expiry_date) }}</span>
+                    <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag>
+                  }
                   @if (l.condition) { <span class="erd-cond" [attr.data-c]="l.condition">{{ l.condition }}</span> }
                   @if (l.location) { <span class="erd-loc"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ l.location }}</span> }
                   @if (l.fed_to_fefo) { <span class="erd-fefo" title="Alimentó FEFO">FEFO ✓</span> }
@@ -137,7 +140,15 @@ type Condition = 'bueno' | 'regular' | 'malo';
                 @if (l.observations) { <div class="erd-line-obs">{{ l.observations }}</div> }
                 @if (l.action) { <div class="erd-line-act"><i class="pi pi-flag" aria-hidden="true"></i> {{ l.action }}</div> }
               </div>
-              @if (l.files?.length) { <img class="erd-line-photo" [src]="l.files![0].url" alt="evidencia" /> }
+              @if (linePhoto(l); as photo) {
+                <img class="erd-line-photo" [src]="photo" alt="Evidencia del renglón" (error)="onPhotoError($event)" />
+              } @else if (l.files?.length) {
+                <!-- Hay evidencia guardada pero el storage no devolvió URL firmada
+                     (signedUrl() cae a '' si falla): mostrar el hecho, no un <img> roto. -->
+                <span class="erd-photo-missing" title="La evidencia existe pero no se pudo cargar">
+                  <i class="pi pi-image" aria-hidden="true"></i> sin vista previa
+                </span>
+              }
               @if (editable()) {
                 <button pButton [text]="true" severity="danger" size="small" (click)="removeLine(l)" aria-label="Borrar"><span class="p-button-icon pi pi-trash" aria-hidden="true"></span></button>
               }
@@ -179,6 +190,9 @@ type Condition = 'bueno' | 'regular' | 'malo';
     .erd-pickbtn.busy { opacity: .6; cursor: default; }
     .erd-photo { position: relative; display: inline-block; }
     .erd-photo img { max-height: 80px; border-radius: var(--radius-md, 8px); display: block; }
+    .erd-exp { font-size: .78rem; color: var(--text-color-secondary); font-variant-numeric: tabular-nums; }
+    .erd-photo-missing { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem;
+      color: var(--text-color-secondary); white-space: nowrap; }
     .erd-photo button { position: absolute; top: -8px; right: -8px; }
     .erd-form-actions { margin-top: 1rem; display: flex; justify-content: flex-end; }
     .erd-lines-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
@@ -258,7 +272,12 @@ export class ComercialExpiryReviewDetailComponent {
     this.load();
     this.svc.myBrands()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.promoterBrands.set(r?.brands || []), error: () => {} });
+      .subscribe({
+        next: (r) => this.promoterBrands.set(r?.brands || []),
+        // No se cambia el flujo (sin marcas = no es promotor), pero no se traga en
+        // silencio: un 403 acá se veía igual que "no tiene marcas" (GOTCHAS §4).
+        error: (e) => console.warn('[caducidades] no se pudieron leer las marcas del promotor:', e?.status || e),
+      });
   }
 
   load() {
@@ -369,21 +388,54 @@ export class ComercialExpiryReviewDetailComponent {
 
   back() { this.router.navigate(['..'], { relativeTo: this.route }); }
 
-  private daysTo(expiry: string): number {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const d = new Date(expiry + 'T00:00:00');
-    return Math.round((d.getTime() - today.getTime()) / 86400000);
+  /** URL utilizable de la evidencia, o null si el storage no la firmó. */
+  linePhoto(l: { files?: { url?: string }[] | null }): string | null {
+    const url = l.files?.[0]?.url;
+    return url && /^(https?:|data:|blob:)/.test(url) ? url : null;
+  }
+  /** Si la imagen no carga (URL firmada vencida), se oculta en vez de dejar el ícono roto. */
+  onPhotoError(ev: Event): void {
+    const el = ev.target as HTMLImageElement | null;
+    if (el) el.style.display = 'none';
+  }
+
+  /**
+   * Días a la caducidad.
+   *
+   * `expiry_date` es un `date` de Postgres y la API lo serializa como ISO COMPLETO
+   * (`2027-03-15T06:00:00.000Z`), no como `YYYY-MM-DD`. Concatenarle `'T00:00:00'`
+   * producía `...ZT00:00:00` → **Invalid Date → NaN** → el tag salía "NaN d" y el
+   * semáforo caía siempre a 'secondary'. Se toma el tramo de fecha TAL CUAL (sin
+   * re-convertir a la TZ del navegador: ya viene normalizada del backend, DESIGN §10)
+   * y se compara a mediodía para que el horario de verano no corra un día.
+   */
+  private daysTo(expiry: string): number | null {
+    const ymd = String(expiry || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+    const [y, m, d] = ymd.split('-').map(Number);
+    const target = new Date(y, m - 1, d, 12, 0, 0, 0);
+    const today = new Date(); today.setHours(12, 0, 0, 0);
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
   }
   dayLabel(expiry: string): string {
     const d = this.daysTo(expiry);
-    if (d < 0) return `Vencido ${Math.abs(d)}d`;
+    if (d === null) return 'Sin fecha';
+    if (d < 0) return `Vencido ${Math.abs(d)} d`;
     if (d === 0) return 'Vence hoy';
     return `${d} d`;
   }
   daySeverity(expiry: string): 'danger' | 'warn' | 'secondary' {
     const d = this.daysTo(expiry);
+    if (d === null) return 'secondary';
     if (d <= 7) return 'danger';
     if (d <= 15) return 'warn';
     return 'secondary';
+  }
+  /** Fecha legible (DD/MM/AAAA) del mismo tramo YYYY-MM-DD, sin new Date() sobre el ISO. */
+  fmtDate(v: string | null | undefined): string {
+    const ymd = String(v || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '—';
+    const parts = ymd.split('-');
+    return parts[2] + '/' + parts[1] + '/' + parts[0];
   }
 }
