@@ -67,11 +67,30 @@ Nx workspace: `nx graph` (o mirar `project.json` de cada lib) muestra las depend
 | UI / componentes | `DESIGN.md` |
 | Una fase específica (RA, CB, AX…) | `docs/IMPLEMENTACION/FASES/FASE_<X>_*.md` |
 
-## Paso 6 — Flujo de trabajo
+## Paso 6 — Cómo trabajás en este repo (reglas de flujo, OBLIGATORIAS)
 
-Rama por feature → `nx affected -t lint,test` + build verde → PR contra `main` → CI verde + 1 review (CODEOWNERS) → merge. `main` está protegida; no se pushea directo. Ver [`../ONBOARDING.md`](../ONBOARDING.md) §8.
+Este es un repo de **equipo (3 devs)** con `main` protegida. Trabajás así, sin excepción:
+
+1. **NUNCA commitees ni pushees a `main` directo.** `main` está protegida (require PR + review + code owners) → GitHub te va a **rechazar** el push de todos modos. No pierdas tiempo intentándolo.
+2. **Rama por feature:** `git checkout main && git pull` → `git checkout -b feat/<algo>`.
+3. **Antes de pushear:** `nx affected -t lint,test` + `nx run-many -t build -p api view portal vendor --configuration=production` en verde.
+4. **Push a tu rama + abrí un PR** contra `main`. Esperá **CI verde + 1 review** (CODEOWNERS) antes del merge. No mergees sin review.
+5. **`git add` con paths explícitos**, nunca `git add -A` (hay trabajo concurrente en el árbol).
+6. Al cerrar un item: actualizá el tracker (`docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`).
+
+## Paso 7 — Tu área (quedate en tu carril)
+
+Cada dev es dueño de un **dominio vertical**. Preguntale a tu dev **cuál es su área** y confirmala en
+[`TEAM_WORKING_MODEL.md`](TEAM_WORKING_MODEL.md) (tabla de ownership). Reglas:
+
+- Trabajá **dentro de tu dominio** (tu frontend + backend + DB). Ej.: si tu dev es de **Almacén/Inventario**,
+  tu carril es `commercial-inventory/-movements/-warehouses/-receiving`, `apps/view/.../almacen/*`, `commercial.stock*`.
+- Si necesitás **tocar un dominio ajeno** o una **zona compartida** (migraciones, permisos, sidebar, `app.module`,
+  `tokens.css`), avisá al dueño primero (ver §3 del working model) — ahí es donde el equipo se pisa.
+- Datos del **ERP / feeds / `kepler_ods`** los mantiene el lead (Edgar): si necesitás un dato nuevo del ERP,
+  coordinás con él, no lo tocás por tu cuenta.
 
 ---
 
 **Cuando termines el protocolo:** resumile al dev, en 5-6 líneas, tu modelo mental del proyecto
-(qué es, cómo se divide, y las 2-3 trampas que más importan). Eso confirma que el onboarding funcionó.
+(qué es, cómo se divide, tu área, y las 2-3 trampas que más importan). Eso confirma que el onboarding funcionó.
