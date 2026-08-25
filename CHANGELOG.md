@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — P2.6: plazo automático y unidad de medida en Control de Caducidades (2026-08-25)
+- **El sistema dice el plazo, ya no la persona.** Al capturar la fecha, la hoja clasifica sola: *Buen plazo* (>90 d) · *Intermedio — vigilar* (31–90 d) · *Riesgoso — sacarlo ya* (≤30 d) · *Vencido*. Se ve en vivo bajo el campo y en cada renglón guardado. Los umbrales son dos constantes en el componente; **30 días es el mismo umbral con el que el sistema ya alerta lotes por vencer** (`EXPIRING_LOTS_DAYS`), así que la hoja y las alertas no se contradicen.
+- **`ESTADO` → `ESTADO FÍSICO` ("cómo llegó, no la fecha").** Ese campo es para lo que se ve (bolsas grasosas, goma dura) y competía con el plazo — de ahí venía la petición de que el sistema lo dedujera. Ahora el plazo lo calcula la máquina y el estado físico lo juzga la persona.
+- **Unidad de medida real** (mig `20260825180000`): `caja | pieza | bulto | kg`. Antes **todo** se mostraba en "pz", así que 3 cajas y 3 piezas se veían igual — y ese conteo alimenta FEFO al enviar la hoja. La UI **sugiere sin imponer** (código de anaquel numérico → caja; producto escaneado por barras → pieza) y deja de sugerir al primer toque manual; la columna no tiene default en DB: se guarda lo que confirma el operador.
+
+### Fixed — la foto de evidencia se perdía en silencio
+- `POST /commercial/expiry-reviews/upload` responde **400 "Almacenamiento no configurado (faltan env S3_*)"**. Es **entorno, no código**, pero la UI lo tapaba con un genérico *"No se pudo subir la foto"* y a continuación dejaba guardar el renglón sin avisar que la evidencia se había perdido. Ahora muestra el motivo real que el backend ya devolvía y deja un aviso fijo: *"queda **sin evidencia**"*.
+- El `GET` del detalle selecciona columnas explícitas y **no incluía `l.unit`**: la unidad se guardaba pero no volvía al frontend. Lo detectó la verificación en navegador, no el smoke de API (el `POST` devuelve `*` y parecía correcto).
+
+
 ### Added — Fase AX: anexo de venta imprimible (detalle + pagaré) — ADR-049 (2026-08-22)
 - **El documento que se le entrega al cliente, derivado del ODS.** El CFDI está apretado por el formato SAT y el tendero no entiende qué compró (6 decimales, sin equivalencias de empaque, impuesto sólo como total al final). Se le acompaña un **anexo informativo** que desglosa lo mismo en su lenguaje: unidades reales con equivalencia en cajas, **precio con descuento por unidad de medida**, importe/descuento/neto por renglón, cuentas de depósito con CLABE y referencia = número de cliente. Productos en orden alfabético.
 - **Hueco de datos que apareció al construirlo:** no existía ninguna vista de facturas de venta documento-por-documento — los ~50 objetos `analytics.sales_*` son rollups sin folio, y `analytics.customer_receivables` (Fase CXC) es tabla copiada por importer per-branch. Se resolvió con **vistas en vivo** `analytics.erp_sales_invoices` / `_lines` sobre `kepler_ods.kdm1/kdm2` ⋈ `kdud` ⋈ `kduv` ⋈ `kdii` (migs `20260822140000`/`140100`) → frescura del CDC (~segundos), sin tabla ni importer.
