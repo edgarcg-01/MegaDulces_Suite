@@ -255,16 +255,18 @@ function salePriceCtes(scoped) {
                mode() WITHIN GROUP (ORDER BY round(m2.c12::numeric,2)) AS precio,
                count(*)::int AS lineas
           FROM kepler_ods.kdm2 m2
+          -- La llave del documento son las 7 columnas de la PK (sucursal,c1..c6), no (sucursal,c5,c6):
+          -- el folio NO es unico entre tipos de documento, asi que unir de menos casa el documento
+          -- equivocado (ademas de no poder usar kdm1_pkey y volverse inservible: 66 s por 1 SKU).
           JOIN kepler_ods.kdm1 m1
-            ON btrim(m1.sucursal)=btrim(m2.sucursal)
-           AND btrim(m1.c5::text)=btrim(m2.c5::text) AND btrim(m1.c6::text)=btrim(m2.c6::text)
+            ON m1.sucursal=m2.sucursal AND m1.c1=m2.c1 AND m1.c2=m2.c2 AND m1.c3=m2.c3
+           AND m1.c4=m2.c4 AND m1.c5=m2.c5 AND m1.c6=m2.c6
           JOIN base_unit bu
             ON bu.suc=btrim(m2.sucursal) AND bu.sku=btrim(m2.c8::text)
            AND bu.unidad=btrim(m2.c11::text)
          WHERE m1.c9::date >= current_date - ${VENTANA_DIAS}
            AND btrim(coalesce(m1.c43::text,'N'))='N'
-           AND btrim(m1.c2::text)='U' AND btrim(m1.c3::text)='D'
-           AND m1.c4::int IN (${DOCS_VENTA})
+           AND m2.c2='U' AND m2.c3='D' AND m2.c4::int IN (${DOCS_VENTA})
            AND m2.c12::numeric > 0.05 AND m2.c9::numeric > 0 AND m2.c9::numeric < 3
            AND btrim(m2.sucursal) <> '00' ${fm2}
          GROUP BY 1 HAVING count(*) >= ${MIN_LINEAS}
