@@ -8,12 +8,13 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
+import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
-import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof } from '../comprobaciones.service';
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 
 /** Solicitud de Kepler elegida (read-only) — el capturista sólo confirma que es la correcta. */
 interface SelSolicitud { folio: string; beneficiario: string | null; importe: number; sucursal: string | null; solicitante: string | null; fecha: string | null; concepto: string | null; }
@@ -27,7 +28,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -69,41 +70,57 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
             <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
           </div>
 
-          <!-- 2) Comprobante -->
-          <div class="cap-step">2 · Sube el comprobante</div>
-          @if (!names()['comprobante_1']) {
-            <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
-              <i class="pi pi-camera cap-drop-ic" aria-hidden="true"></i>
-              <div>Arrastra la <strong>foto o PDF</strong> del comprobante</div>
-              <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
-                <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobante_1')" hidden />
-              </label>
-            </div>
-          } @else {
-            <div class="cap-done">
-              <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-              @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
-              <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
-            </div>
-            @if (photoResult(); as pr) {
-              @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
-              @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-              @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
-              @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
+          <!-- 2) Clasificación del gasto: decide si lleva evidencia. -->
+          <div class="cap-step">2 · ¿Qué tipo de gasto es?</div>
+          <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
+                          optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
+                          ariaLabel="Tipo de gasto" />
+          @if (clasificacion()) { <em class="cap-hint">{{ clasHint() }}</em> }
+
+          <!-- 3) Evidencia (si el gasto es comprobable) o motivo (si no lo es). -->
+          @if (clasificacion()) {
+            @if (llevaEvidencia()) {
+              <div class="cap-step">3 · Sube la evidencia</div>
+              @if (!names()['comprobante_1']) {
+                <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
+                  <i class="pi pi-camera cap-drop-ic" aria-hidden="true"></i>
+                  <div>Arrastra la <strong>foto o PDF</strong> de la {{ clasificacion() === 'fiscal' ? 'factura' : 'evidencia' }}</div>
+                  <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
+                    <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobante_1')" hidden />
+                  </label>
+                </div>
+              } @else {
+                <div class="cap-done">
+                  <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
+                  @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
+                  <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
+                </div>
+                @if (photoResult(); as pr) {
+                  @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
+                  @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
+                  @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
+                  @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
+                }
+              }
+              <label class="cap-f"><span>Comentarios (opcional)</span>
+                <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
+            } @else {
+              <!-- No comprobable: sin foto, pero el motivo es obligatorio y auditable. -->
+              <div class="cap-step">3 · ¿Por qué no se puede comprobar?</div>
+              <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="w-full"
+                        placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
+              <em class="cap-hint">Este gasto se registra <strong>sin evidencia</strong>. El motivo lo lee quien valida.</em>
             }
           }
 
-          <label class="cap-f"><span>Comentarios (opcional)</span>
-            <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
-
           @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
-          <!-- Poka-yoke: sin comprobante o con la lectura en curso el botón no se puede
-               apretar, en vez de dejar apretar y contestar con un error. -->
+          <!-- Poka-yoke: el botón no se puede apretar hasta tener lo que exige la
+               clasificación (evidencia, o motivo si es no comprobable). -->
           <button pButton type="button" class="cap-send" [loading]="saving()"
-                  [disabled]="saving() || !names()['comprobante_1'] || photoLoading()"
-                  [title]="names()['comprobante_1'] ? 'Enviar el comprobante' : 'Falta subir el comprobante'"
+                  [disabled]="!puedeEnviar() || saving() || photoLoading()"
+                  [title]="enviarTitle()"
                   (click)="submit()">
-            <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Enviar comprobante</span>
+            <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Enviar</span>
           </button>
         }
       </div>
@@ -175,6 +192,9 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
     .cap-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cap-step { padding-top: var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
+    /* Clasificación: que las 3 opciones quepan y envuelvan en móvil. */
+    :host ::ng-deep .cap-clas { display: flex; flex-wrap: wrap; }
+    :host ::ng-deep .cap-clas .p-togglebutton, :host ::ng-deep .cap-clas .p-button { flex: 1 1 auto; }
 
     .cap-drop { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
       padding: var(--sp-6) var(--sp-4); text-align: center; font-size: var(--fs-sm); color: var(--fg-2);
@@ -237,6 +257,36 @@ export class FinanzasCapturarGastoComponent {
   sel: (SolicitudSug & { label: string }) | string | null = null;
   comentarios = '';
 
+  /** Clasificación del gasto: decide si lleva evidencia. Obligatoria para enviar. */
+  readonly clasificacion = signal<ExpenseClasificacion | null>(null);
+  /** ngModel del selectbutton (no toma signal directo). */
+  clasificacionV: ExpenseClasificacion | null = null;
+  readonly clasOpts = [
+    { label: 'Fiscal (factura)', value: 'fiscal' },
+    { label: 'No fiscal, con recibo', value: 'no_fiscal_comprobable' },
+    { label: 'No comprobable', value: 'no_comprobable' },
+  ];
+  readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
+  onClasChange() { this.clasificacion.set(this.clasificacionV); this.formError.set(''); }
+  clasHint(): string {
+    switch (this.clasificacion()) {
+      case 'fiscal': return 'Lleva CFDI/factura. Adjunta la factura.';
+      case 'no_fiscal_comprobable': return 'No tiene factura pero sí ticket o recibo. Adjunta la foto.';
+      case 'no_comprobable': return 'No hay documento que lo respalde. Se registra con un motivo, sin foto.';
+      default: return '';
+    }
+  }
+  /** Poka-yoke del envío: la clasificación decide qué falta. */
+  puedeEnviar(): boolean {
+    if (!this.gasto() || !this.clasificacion()) return false;
+    return this.llevaEvidencia() ? !!this.names()['comprobante_1'] : !!this.comentarios.trim();
+  }
+  enviarTitle(): string {
+    if (!this.clasificacion()) return 'Elige el tipo de gasto';
+    if (this.llevaEvidencia()) return this.names()['comprobante_1'] ? 'Enviar' : 'Falta subir la evidencia';
+    return this.comentarios.trim() ? 'Enviar' : 'Falta el motivo';
+  }
+
   readonly photoLoading = signal(false);
   readonly photoResult = signal<ProofPhotoOcr | null>(null);
   readonly names = signal<Record<string, string>>({});
@@ -282,7 +332,10 @@ export class FinanzasCapturarGastoComponent {
     this.sel = null;
   }
 
-  reset() { this.gasto.set(null); this.clearPhoto(); this.sel = null; this.comentarios = ''; this.formError.set(''); }
+  reset() {
+    this.gasto.set(null); this.clearPhoto(); this.sel = null; this.comentarios = '';
+    this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
+  }
 
   onFile(ev: Event, role: string) {
     const input = ev.target as HTMLInputElement;
@@ -326,7 +379,18 @@ export class FinanzasCapturarGastoComponent {
   submit() {
     const g = this.gasto();
     if (!g) { this.formError.set('Elige el gasto.'); return; }
-    if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube el comprobante.'); return; }
+    if (!this.clasificacion()) { this.formError.set('Elige el tipo de gasto.'); return; }
+
+    // No comprobable: sin archivos, pero con motivo obligatorio. Se crea directo.
+    if (!this.llevaEvidencia()) {
+      if (!this.comentarios.trim()) { this.formError.set('Escribe por qué no se puede comprobar.'); return; }
+      this.formError.set('');
+      this.saving.set(true);
+      this.create();
+      return;
+    }
+
+    if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube la evidencia.'); return; }
     if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
     this.saving.set(true);
@@ -346,13 +410,16 @@ export class FinanzasCapturarGastoComponent {
 
   private create() {
     const g = this.gasto()!;
-    const pr = this.photoResult();
-    const files = ['comprobante_1'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
+    const lleva = this.llevaEvidencia();
+    const pr = lleva ? this.photoResult() : null;
+    const files = lleva ? (['comprobante_1'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[]) : [];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,
       fecha_gasto: g.fecha ? String(g.fecha).slice(0, 10) : undefined, importe: g.importe || undefined,
-      comentarios: this.comentarios || g.concepto || undefined, files,
+      clasificacion: this.clasificacion()!,
+      // No comprobable: el motivo ES el comentario (obligatorio). Comprobable: nota opcional.
+      comentarios: this.comentarios || (lleva ? g.concepto || undefined : undefined), files,
       monto_ocr: pr?.monto_ocr ?? pr?.total ?? undefined, subtotal_ocr: pr?.subtotal ?? undefined,
       receipt_legible: pr ? pr.ocr_status === 'ok' : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
