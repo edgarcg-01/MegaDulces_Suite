@@ -286,7 +286,7 @@ export class ReceivingSessionService {
       }
 
       // Buscar línea existente del producto en la sesión.
-      let line = await trx('commercial.receiving_lines')
+      const line = await trx('commercial.receiving_lines')
         .where({ session_id: sessionId, product_id: productId })
         .forUpdate()
         .first();
@@ -383,6 +383,24 @@ export class ReceivingSessionService {
       const session = await trx('commercial.receiving_sessions').where({ id: sessionId }).first();
       if (!session) throw new NotFoundException('Sesión no encontrada');
       if (session.status !== 'open') throw new ConflictException(`La sesión está ${session.status}`);
+
+      // ADR-044 — guard de cierre: un vale NO se cierra con mercancía retenida por un
+      // rojo sin resolver. Cerrarlo declararía como recibido algo que nunca entró al
+      // inventario (el rojo no escribe stock hasta que un supervisor autoriza).
+      const held = await trx('commercial.receiving_lot_captures as c')
+        .join('commercial.receiving_lines as l', function () {
+          this.on('l.tenant_id', '=', 'c.tenant_id').andOn('l.id', '=', 'c.receiving_line_id');
+        })
+        .where('l.session_id', sessionId)
+        .where('c.status', 'pending_authorization')
+        .count({ n: '*' })
+        .first();
+      const heldCount = Number((held as any)?.n || 0);
+      if (heldCount > 0)
+        throw new ConflictException(
+          `El vale tiene ${heldCount} captura(s) de lote pendientes de autorización: autorizá o rechazá antes de cerrar`,
+        );
+
       const userId = this.tenantCtx.get()?.userId || null;
 
       await trx('commercial.receiving_lines')
@@ -458,6 +476,9 @@ export class ReceivingSessionService {
         .first();
       if (!session) throw new NotFoundException('Sesión no encontrada');
 
+      // Cuadre de caducidad por renglón (ADR-044): `declared_qty` = Σ de las capturas
+      // de lote ligadas al renglón, y `held_qty` = las que están retenidas por un rojo
+      // sin autorizar (no entraron a stock). Se DERIVA, no se denormaliza.
       const lines = await trx('commercial.receiving_lines as l')
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
         .where('l.session_id', sessionId)
@@ -465,6 +486,18 @@ export class ReceivingSessionService {
           'l.id', 'l.product_id', 'p.sku', 'p.nombre as product_name',
           'l.expected_sku', 'l.expected_name', 'l.expected_qty', 'l.received_qty',
           'l.barcode_scanned', 'l.discrepancy_kind', 'l.notes',
+          trx.raw(`COALESCE((
+            SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status <> 'rejected'
+          ), 0)::numeric AS declared_qty`),
+          trx.raw(`COALESCE((
+            SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
+          ), 0)::numeric AS held_qty`),
+          trx.raw(`(
+            SELECT COUNT(*) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
+          )::int AS holds`),
         )
         .orderByRaw(`CASE l.discrepancy_kind WHEN 'pending' THEN 0 WHEN 'faltante' THEN 1 WHEN 'sobrante' THEN 2 ELSE 3 END`)
         .orderBy('l.created_at');
@@ -476,6 +509,15 @@ export class ReceivingSessionService {
         discrepancies: lines.filter((l) => ['faltante', 'sobrante', 'producto_incorrecto', 'dañado'].includes(l.discrepancy_kind)).length,
         expected_units: lines.reduce((a, l) => a + Number(l.expected_qty), 0),
         received_units: lines.reduce((a, l) => a + Number(l.received_qty), 0),
+        // ADR-044 — el indicador que antes no existía: cuánto de lo recibido tiene
+        // lote+caducidad declarados, y cuánto entró sin trazabilidad.
+        declared_units: lines.reduce((a, l) => a + Number(l.declared_qty), 0),
+        undeclared_units: lines.reduce(
+          (a, l) => a + Math.max(0, Number(l.received_qty) - Number(l.declared_qty)),
+          0,
+        ),
+        held_units: lines.reduce((a, l) => a + Number(l.held_qty), 0),
+        holds: lines.reduce((a, l) => a + Number(l.holds), 0),
       };
       return { ...session, lines, progress };
     }

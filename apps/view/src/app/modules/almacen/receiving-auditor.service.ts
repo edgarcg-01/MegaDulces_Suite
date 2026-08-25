@@ -47,6 +47,8 @@ export interface EvaluatePayload {
   product_id: string;
   supplier_code?: string;
   source_ref?: string;
+  /** Renglón del vale al que pertenece este lote (ADR-044). */
+  receiving_line_id?: string;
   quantity: number;
   confirmed_lot?: string;
   confirmed_expiry?: string;
@@ -92,8 +94,10 @@ export class ReceivingAuditorService {
     return this.http.post<ReceivingCapture>(`${this.base}/evaluate`, payload);
   }
 
-  listCaptures(filters: { warehouse_id?: string; supplier_code?: string; verdict?: string; status?: string; limit?: number } = {}): Observable<ReceivingCapture[]> {
+  listCaptures(filters: { warehouse_id?: string; supplier_code?: string; verdict?: string; status?: string; receiving_line_id?: string; session_id?: string; limit?: number } = {}): Observable<ReceivingCapture[]> {
     let params = new HttpParams();
+    if (filters.receiving_line_id) params = params.set('receiving_line_id', filters.receiving_line_id);
+    if (filters.session_id) params = params.set('session_id', filters.session_id);
     if (filters.warehouse_id) params = params.set('warehouse_id', filters.warehouse_id);
     if (filters.supplier_code) params = params.set('supplier_code', filters.supplier_code);
     if (filters.verdict) params = params.set('verdict', filters.verdict);

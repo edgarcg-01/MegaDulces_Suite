@@ -22,6 +22,12 @@ export interface ReceivingLine {
   barcode_scanned?: string | null;
   discrepancy_kind: DiscrepancyKind;
   notes?: string | null;
+  /** Σ de lotes declarados para este renglón (ADR-044). Puede llegar como string (numeric). */
+  declared_qty?: number | string;
+  /** Piezas retenidas por un rojo sin autorizar (no entraron a stock). */
+  held_qty?: number | string;
+  /** Cantidad de capturas en pending_authorization. */
+  holds?: number;
 }
 
 export interface ReceivingSessionProgress {
@@ -31,6 +37,11 @@ export interface ReceivingSessionProgress {
   discrepancies: number;
   expected_units: number;
   received_units: number;
+  /** ADR-044 — cuadre de trazabilidad de caducidad. */
+  declared_units?: number;
+  undeclared_units?: number;
+  held_units?: number;
+  holds?: number;
 }
 
 export interface ReceivingSession {

@@ -1276,3 +1276,38 @@ Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambia
 - **`.hbs` + `PdfService` de `libs/trade`**: el dinero debe cuadrar al centavo y conviene formatearlo en TS; además `PdfService` no está en el barrel de trade y colgar `ReportsModule` crearía una arista commercial→trade arrastrando WebSocketModule/Mapbox/scanners.
 
 Plan en [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
+
+---
+
+## ADR-044 — **Estación de recepción**: la app es dueña de lote/caducidad/evidencia, Kepler SoR de la cantidad; captura **por renglón** con aceptación parcial
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-25
+
+**Contexto:** la Fase WMS-REC construyó tres piezas (Vale vivo por escaneo · auditor de caducidad con semáforo · bin-level) y el plan proponía este ADR sin escribirlo — quedó el hueco entre ADR-043 y ADR-045. Sin la decisión escrita, la costura entre Pieza 1 y Pieza 2 quedó abierta y se notó en tres síntomas concretos:
+
+1. **Dos pantallas que no se hablan.** `receiving_lot_captures` liga al vale por `source_ref` (string libre de 120), **no** por FK al renglón. La sesión sabe *cuánto llegó* (`received_qty`) y el auditor sabe *qué lote es*, pero nadie cruza los dos → no existe la pregunta "¿de las 100 pz recibidas, cuántas tienen caducidad declarada?".
+2. **La cascada de política por categoría nunca pudo funcionar.** `resolvePolicy` resuelve `producto → categoría → proveedor` leyendo `products.category`, y **esa columna no existe** en `catalog.products`: la query `select "category" from public.products` devuelve `42703 undefined_column` (reproducido contra la DB, 2026-08-25). Como el request va en una sola transacción (GOTCHAS §2), el error aborta la trx → **500 en toda captura**. La taxonomía real es `department` (Kepler `kdie`: DULCES/BEBIDAS/BOTANAS) y `product_line` (`kdif`); `category_id` apunta a **proveedores**, no a categorías (ver mig `20260615130000`).
+3. **El smoke probaba una copia.** `test-newdb-receiving-auditor.js` reimplementa `computeVerdict` en JS ("mirror exacto") e inserta filas directo con knex: nunca llama `evaluate()`/`authorize()`. 17/17 verde con la ruta de producción caída.
+
+**Decisión:**
+
+- **Reparto de autoridad.** Kepler sigue siendo *system of record* de la **cantidad** recibida (`X-A-40`, espejado en `analytics.erp_goods_receipts`). La plataforma es dueña de la capa que Kepler **no codifica**: `lote · caducidad · ubicación · evidencia fotográfica · veredicto de auditoría`. **Sin write-back al ERP**; la relación es por **reconciliación** (`source_kind`/`source_ref`), coherente con el trato read-only que el proyecto le da a Kepler en todas las fases.
+- **Un único escritor de stock.** El alta de existencia la hace **siempre la captura de lote** (`ReceivingAuditorService` → `recordMovement('in', lot_code, expiry_date)`, y de ahí el trigger `trg_rebalance_stock_lots` mantiene el invariante `SUM(stock_lots)=stock`). El **renglón del vale nunca escribe stock**: es la *cuenta física* (cuánto llegó), no el asiento. `receiving_sessions` se mantiene como captura de realidad, tal como se construyó.
+- **Granularidad = 1 fila por lote, ligada al renglón.** `receiving_lot_captures` gana `receiving_line_id` (FK compuesta `(tenant_id, receiving_line_id)`). Un SKU con 3 lotes = 3 capturas del mismo renglón. No hay cambio en el modelo de lotes: `stock_lots` ya es único por `(tenant, almacén, producto, lot_code, expiry_date)` con `NULLS NOT DISTINCT`, o sea N-lotes-por-producto es nativo.
+- **Aceptación parcial con veredicto mixto.** El veredicto es **por lote**, no por renglón: 100 pz en 3 lotes pueden dar 🟢/🟡/🔴. Los 🟢/🟡 entran a stock de inmediato; el 🔴 queda `pending_authorization` **sin escribir stock**. El renglón expone dos cantidades derivadas — `declared_qty` (Σ capturas) y `undeclared_qty` (`received_qty − declared_qty`) — y **la sesión no se puede cerrar con capturas pendientes de autorización** (409). Cerrar un vale con mercancía retenida sin resolver sería declarar como recibido algo que no entró al inventario.
+- **Eje de la política de caducidad = `products.department`.** La columna `expiry_receiving_policy.category` **conserva su nombre** (hay filas y UI que lo usan) pero se define como "valor de `catalog.products.department`". Se descarta `category_id` porque semánticamente es proveedor y ya está cubierto por la regla `supplier_code` — tener dos ámbitos que significan lo mismo invita a políticas contradictorias.
+- **Convención de fecha incompleta.** Una etiqueta con solo `MM/AAAA` (frecuente en dulcería) se normaliza al **último día del mes**: es la lectura conservadora del lado del inventario (no acorta vida útil que el proveedor sí entregó) y hace determinista el `days_of_life`, el semáforo y el orden FEFO.
+- **Verificación: smoke HTTP contra los endpoints reales.** Todo cambio de la estación se prueba llamando la API (login → abrir vale → escanear → capturar lotes → autorizar → cerrar), no reimplementando el motor en el test. El *mirror* de `computeVerdict` se conserva **solo** como prueba de tabla de decisión pura, nunca como sustituto del recorrido real.
+
+**Alternativas y compuertas (qué tendría que pasar para reabrir):**
+- **Lote/caducidad como columnas de `receiving_lines`** — rechazado: obliga a 1 lote por renglón o a duplicar renglones del mismo SKU, y rompe la inmutabilidad (una corrección sería un UPDATE del dato capturado). *Compuerta:* ninguna prevista.
+- **Que el renglón escriba stock al cerrar el vale** — rechazado: con la captura escribiendo también, duplica existencia; y el cierre no sabe de lotes. *Compuerta:* que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario (hoy eso es justamente lo que se quiere medir, no permitir).
+- **Bloquear el vale completo ante un 🔴** — rechazado: castiga la mercancía buena de la misma entrega. La aceptación parcial es lo que hace usable el gate.
+- **`MM/AAAA` → primer día del mes** — rechazado: adelanta el vencimiento y dispararía semáforos y alertas falsas.
+- **Write-back del lote a Kepler** — diferido (sin spec de escritura al ERP en ninguna fase). *Compuerta:* que Kepler exponga un formato de importación soportado.
+
+**Consecuencias:** ✅ queda medible el indicador que hoy no existe — **% de piezas recibidas con lote y caducidad declarados**, por almacén y por proveedor, que es exactamente la mercancía que entra sin trazabilidad. ✅ la política por categoría empieza a funcionar por primera vez (antes era letra muerta *y* causa de 500). ✅ el gate 🔴 se vuelve operable: retiene sólo lo malo y deja pasar el resto. ⚠️ el renglón puede quedar "recibido pero no declarado" — es deliberado: se vuelve visible en vez de invisible, pero exige que alguien lo trabaje. ⚠️ `receiving_line_id` es **nullable**: las capturas sueltas (sin vale, desde `/almacen/inventory/recepcion`) siguen siendo válidas, así que el cuadre por renglón solo aplica a lo capturado dentro de un vale. Hereda ADR-016 (el motor decide, el operador confirma la realidad física, el OCR propone y no autoriza) y ADR-022 (sub-ledger de lotes aditivo).
+
+Plan en [`FASE_WMS_ESTACION_RECEPCION`](FASES/FASE_WMS_ESTACION_RECEPCION.md).

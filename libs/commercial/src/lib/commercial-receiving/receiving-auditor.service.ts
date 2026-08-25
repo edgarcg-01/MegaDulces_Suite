@@ -41,6 +41,8 @@ export interface EvaluateDto {
   product_id: string;
   supplier_code?: string;
   source_ref?: string;
+  /** Renglón del vale (ADR-044). Opcional: null = captura suelta sin vale. */
+  receiving_line_id?: string;
   quantity: number;
   confirmed_lot?: string;
   confirmed_expiry?: string; // YYYY-MM-DD
@@ -126,6 +128,8 @@ export class ReceivingAuditorService {
     if (!UUID_REGEX.test(dto.product_id)) throw new BadRequestException('product_id inválido');
     if (typeof dto.quantity !== 'number' || dto.quantity <= 0)
       throw new BadRequestException('quantity debe ser > 0');
+    if (dto.receiving_line_id && !UUID_REGEX.test(dto.receiving_line_id))
+      throw new BadRequestException('receiving_line_id inválido');
     if (dto.confirmed_expiry && !ISO_DATE.test(dto.confirmed_expiry))
       throw new BadRequestException('confirmed_expiry debe ser YYYY-MM-DD');
 
@@ -148,9 +152,34 @@ export class ReceivingAuditorService {
     const captureId = await this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
 
-      // Categoría del producto (para resolver política por categoría).
-      const prod = await trx('public.products').where({ id: dto.product_id }).first('category');
-      const category: string | null = prod?.category || null;
+      // Taxonomía del producto para resolver la política por ámbito (ADR-044).
+      // OJO 1: `products` NO tiene columna `category` — la real es `department`
+      // (Kepler kdie: DULCES/BEBIDAS/BOTANAS). `category_id` apunta a PROVEEDORES
+      // (ver mig 20260615130000), así que no sirve como eje de taxonomía.
+      // OJO 2: se lee de `catalog.products` (la tabla), NO de la vista compat
+      // `public.products`: esa vista es un `SELECT *` congelado al crearse
+      // (mig 20260603150000) y NO expone las columnas agregadas después —
+      // `department` entre ellas (mig 20260615130000).
+      const prod = await trx('catalog.products')
+        .where({ id: dto.product_id })
+        .first('department');
+      const category: string | null = prod?.department || null;
+
+      // El renglón, si viene, debe pertenecer a un vale ABIERTO y al MISMO producto:
+      // una captura ligada al renglón equivocado falsea el cuadre "declarado vs recibido".
+      if (dto.receiving_line_id) {
+        const line = await trx('commercial.receiving_lines as l')
+          .join('commercial.receiving_sessions as s', function () {
+            this.on('s.tenant_id', '=', 'l.tenant_id').andOn('s.id', '=', 'l.session_id');
+          })
+          .where('l.id', dto.receiving_line_id)
+          .first('l.id', 'l.product_id', 's.status');
+        if (!line) throw new NotFoundException('Renglón de recepción no encontrado');
+        if (line.status !== 'open')
+          throw new ConflictException(`El vale está ${line.status}: no admite capturas`);
+        if (line.product_id !== dto.product_id)
+          throw new BadRequestException('El renglón corresponde a otro producto');
+      }
 
       const policy = await this.resolvePolicy(trx, {
         product_id: dto.product_id,
@@ -192,6 +221,7 @@ export class ReceivingAuditorService {
           product_id: dto.product_id,
           supplier_code: dto.supplier_code || null,
           source_ref: dto.source_ref || null,
+          receiving_line_id: dto.receiving_line_id || null,
           quantity: dto.quantity,
           photo_key: photoKey,
           ocr_lot: dto.ocr_lot || null,
@@ -220,7 +250,15 @@ export class ReceivingAuditorService {
     return this.getCapture(captureId);
   }
 
-  /** Autoriza una NC (rojo) — un supervisor libera y se escribe el stock. */
+  /**
+   * Autoriza una NC (rojo) — un supervisor libera y se escribe el stock.
+   *
+   * El cambio de estado es un **claim atómico** (UPDATE condicional): si dos
+   * supervisores autorizan a la vez, sólo uno gana el UPDATE y el otro recibe 409.
+   * Sin eso, ambos leerían `pending_authorization` y escribirían stock → existencia
+   * duplicada silenciosa. Si la escritura de stock falla después del claim, se
+   * revierte el estado (compensación) para no dejar una NC autorizada sin stock.
+   */
   async authorize(id: string, notes?: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     const capture = await this.getCapture(id);
@@ -228,11 +266,10 @@ export class ReceivingAuditorService {
     if (capture.status !== 'pending_authorization')
       throw new ConflictException(`La captura ya está ${capture.status}`);
 
-    await this.writeStockForCapture(capture);
-    await this.tk.run(async (trx) => {
+    const claimed = await this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
-      await trx('commercial.receiving_lot_captures')
-        .where({ id })
+      return trx('commercial.receiving_lot_captures')
+        .where({ id, status: 'pending_authorization', verdict: 'red' })
         .update({
           status: 'authorized',
           authorized_by: userId,
@@ -240,6 +277,21 @@ export class ReceivingAuditorService {
           resolution_notes: notes || null,
         });
     });
+    if (!claimed) throw new ConflictException('La captura ya fue resuelta por otro usuario');
+
+    try {
+      await this.writeStockForCapture(await this.getCapture(id));
+    } catch (e: any) {
+      await this.tk.run(async (trx) => {
+        await trx('commercial.receiving_lot_captures').where({ id }).update({
+          status: 'pending_authorization',
+          authorized_by: null,
+          authorized_at: null,
+        });
+      });
+      this.logger.error(`Autorización revertida (falló el alta de stock): ${e?.message || e}`);
+      throw e;
+    }
     return this.getCapture(id);
   }
 
@@ -249,10 +301,11 @@ export class ReceivingAuditorService {
     const capture = await this.getCapture(id);
     if (capture.status !== 'pending_authorization')
       throw new ConflictException(`La captura ya está ${capture.status}`);
-    await this.tk.run(async (trx) => {
+    // Mismo claim atómico que authorize (no escribe stock, pero el 409 debe ser correcto).
+    const claimed = await this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
-      await trx('commercial.receiving_lot_captures')
-        .where({ id })
+      return trx('commercial.receiving_lot_captures')
+        .where({ id, status: 'pending_authorization' })
         .update({
           status: 'rejected',
           authorized_by: userId,
@@ -260,6 +313,7 @@ export class ReceivingAuditorService {
           resolution_notes: notes || null,
         });
     });
+    if (!claimed) throw new ConflictException('La captura ya fue resuelta por otro usuario');
     return this.getCapture(id);
   }
 
@@ -268,12 +322,20 @@ export class ReceivingAuditorService {
     supplier_code?: string;
     verdict?: Verdict;
     status?: string;
+    /** Capturas (lotes) de UN renglón del vale — ADR-044. */
+    receiving_line_id?: string;
+    /** Capturas de todos los renglones de UN vale — ADR-044. */
+    session_id?: string;
     from?: string;
     to?: string;
     limit?: number;
   }) {
     if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
+    if (query.receiving_line_id && !UUID_REGEX.test(query.receiving_line_id))
+      throw new BadRequestException('receiving_line_id inválido');
+    if (query.session_id && !UUID_REGEX.test(query.session_id))
+      throw new BadRequestException('session_id inválido');
     const limit = Math.min(500, Math.max(1, Number(query.limit) || 200));
     return this.tk.run(async (trx) => {
       let q = trx('commercial.receiving_lot_captures as c')
@@ -282,6 +344,12 @@ export class ReceivingAuditorService {
         })
         .leftJoin('public.products as p', 'p.id', 'c.product_id');
       if (query.warehouse_id) q = q.where('c.warehouse_id', query.warehouse_id);
+      if (query.receiving_line_id) q = q.where('c.receiving_line_id', query.receiving_line_id);
+      if (query.session_id)
+        q = q.whereIn(
+          'c.receiving_line_id',
+          trx('commercial.receiving_lines').where({ session_id: query.session_id }).select('id'),
+        );
       if (query.supplier_code) q = q.where('c.supplier_code', query.supplier_code);
       if (query.verdict) q = q.where('c.verdict', query.verdict);
       if (query.status) q = q.where('c.status', query.status);
@@ -291,7 +359,7 @@ export class ReceivingAuditorService {
         .select(
           'c.id', 'c.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
           'c.product_id', 'p.sku', 'p.nombre as product_name',
-          'c.supplier_code', 'c.source_ref', 'c.quantity',
+          'c.supplier_code', 'c.source_ref', 'c.receiving_line_id', 'c.quantity',
           'c.confirmed_lot', 'c.confirmed_expiry', 'c.existing_min_expiry', 'c.days_of_life',
           'c.ocr_lot', 'c.ocr_expiry', 'c.ocr_confidence', 'c.photo_key',
           'c.verdict', 'c.rule_broken', 'c.status',
