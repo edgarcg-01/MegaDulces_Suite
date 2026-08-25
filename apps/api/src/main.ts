@@ -1,8 +1,6 @@
 // OTel: DEBE ir PRIMERO de todo (instrumenta al cargar). Inerte sin
 // OTEL_EXPORTER_OTLP_ENDPOINT. Ver apps/api/src/otel.ts (INFRA.2, ADR-043).
 import './otel';
-// Sentry: DEBE ir primero (instrumenta al cargar). Inerte sin SENTRY_DSN.
-import './instrument';
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { Logger } from '@nestjs/common';
@@ -122,6 +120,15 @@ async function bootstrap() {
     app.useLogger(app.get(PinoLogger));
     app.flushLogs();
   }
+
+  // INFRA.2: filtro global que loguea las excepciones >= 500 con stacktrace a
+  // nivel error (reemplaza al SentryGlobalFilter removido). Tras el useLogger
+  // para que el error salga por pino (stdout Railway + Loki).
+  const { HttpAdapterHost } = await import('@nestjs/core');
+  const { AllExceptionsFilter } = await import('./all-exceptions.filter');
+  app.useGlobalFilters(
+    new AllExceptionsFilter(app.get(HttpAdapterHost).httpAdapter),
+  );
 
   // Detrás de nginx (mismo container) y del edge de Railway: confiar en el
   // primer proxy para que `req.ip` use X-Forwarded-For en vez de 127.0.0.1.

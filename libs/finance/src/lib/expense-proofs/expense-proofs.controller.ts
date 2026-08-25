@@ -100,8 +100,8 @@ export class ExpenseProofsController {
   // admin/superadmin siguen pasando por el god-mode del RolesGuard.
   @Post(':id/validate')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
-  @ApiOperation({ summary: 'Valida la solicitud de reembolso. Auditado.' })
-  validate(@Param('id') id: string, @Body() body: { tiene_comprobacion?: boolean; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
+  @ApiOperation({ summary: 'Valida el expediente de gasto (con reclasificación opcional). Auditado.' })
+  validate(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body);
   }
 

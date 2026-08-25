@@ -27,12 +27,16 @@ const { ZKClient } = require('./zk-client');
 const DEVICES = require('./devices');
 
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-// Nunca hardcodear credenciales: la conexión sale de DATABASE_URL_NEW (.env).
-const DST = process.env.DATABASE_URL_NEW;
+// Nunca hardcodear credenciales. Destino por defecto = la base dedicada de
+// asistencia (`hr` on-prem en .245); si no está configurada cae a
+// `postgres_platform`. El schema es idéntico en las dos, así que el mismo
+// código sirve para cualquiera (ver knexfile-hr.js).
+const DST = process.env.DATABASE_URL_HR || process.env.DATABASE_URL_NEW;
 if (!DST) {
-  console.error('FALTA DATABASE_URL_NEW (revisá database/.env o exportá la variable).');
+  console.error('FALTA DATABASE_URL_HR (o DATABASE_URL_NEW) — revisá el .env de la raíz.');
   process.exit(1);
 }
+const DST_LABEL = process.env.DATABASE_URL_HR ? 'base dedicada hr' : 'postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const NO_LOGS = process.argv.includes('--no-logs');
 const ipIx = process.argv.indexOf('--ip');
@@ -182,7 +186,7 @@ async function insertLogs(db, deviceId, logs, tz) {
 
 (async () => {
   const targets = DEVICES.filter((d) => !ONLY_IP || d.ip === ONLY_IP);
-  console.log(`\n=== Checadores ZKTeco → hr.* (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${targets.length} equipo(s) ===\n`);
+  console.log(`\n=== Checadores ZKTeco → hr.* en ${DST_LABEL} (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${targets.length} equipo(s) ===\n`);
 
   const db = new Client({ connectionString: DST });
   // Sin este handler, el cierre del socket al final emite un 'error' sin dueño

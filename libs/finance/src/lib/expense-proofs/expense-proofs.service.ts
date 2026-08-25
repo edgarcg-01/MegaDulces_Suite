@@ -18,8 +18,20 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
  */
 export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
-/** Lo único que la plataforma NO puede obtener sola: el comprobante del gasto. */
-const REQUIRED_ROLES: ProofFileRole[] = ['comprobante_1'];
+
+/**
+ * Naturaleza del gasto — decide si la EVIDENCIA (factura/ticket) es obligatoria.
+ * `fiscal` y `no_fiscal_comprobable` la exigen; `no_comprobable` cierra sin foto pero
+ * con motivo. La comprobación XA1001 vive SIEMPRE en Kepler y es otra cosa.
+ */
+export const EXPENSE_CLASIFICACIONES = ['fiscal', 'no_fiscal_comprobable', 'no_comprobable'] as const;
+export type ExpenseClasificacion = (typeof EXPENSE_CLASIFICACIONES)[number];
+/** ¿Este gasto debe llevar evidencia adjunta? Todo salvo lo declarado no_comprobable. */
+export function requiereEvidencia(c?: string | null): boolean {
+  return c === 'fiscal' || c === 'no_fiscal_comprobable';
+}
+/** El archivo de evidencia que puede faltar (condicional a la clasificación). */
+const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
@@ -27,11 +39,15 @@ export interface ProofFile { role: string; url: string; public_id?: string; kind
 export interface ProofByFolio {
   id: string;
   status: string;
-  /** ¿Está el comprobante del gasto? Es el único que no puede faltar. */
+  /** ¿Está la evidencia del gasto (factura/ticket)? Obligatoria salvo no_comprobable. */
   comprobante: boolean;
   /** ¿Está la solicitud firmada? Aporta la firma, no los datos. */
   solicitud: boolean;
-  /** Lo declara quien valida. `null` = todavía nadie lo dijo. */
+  /** Naturaleza del gasto: fiscal / no_fiscal_comprobable / no_comprobable. `null` = sin clasificar. */
+  clasificacion: string | null;
+  /** Derivado de la clasificación: ¿este gasto debe llevar evidencia adjunta? */
+  requiere_evidencia: boolean;
+  /** (XA1001, dormante) Lo declaraba quien valida. `null` = nadie lo dijo. */
   tiene_comprobacion: boolean | null;
   comprobacion_nota: string | null;
 }
@@ -46,6 +62,8 @@ export interface CreateExpenseProofDto {
   proveedor?: string;
   importe?: number;
   comentarios?: string;
+  /** Naturaleza del gasto — decide si la evidencia es obligatoria (ver ExpenseClasificacion). */
+  clasificacion?: string;
   files?: ProofFile[];
   // Validación por vision de la foto del comprobante (preview vía validate-photo):
   monto_ocr?: number | null;    // total leído de la foto
@@ -236,13 +254,21 @@ export class ExpenseProofsService {
     return { total: f.total, subtotal: f.subtotal, ocr_status: legible ? 'ok' : 'ilegible', importe_esperado: esperado, monto_ocr: usado, monto_match: legible && match, diff };
   }
 
-  /** Alta de la solicitud de reembolso (con los archivos ya subidos vía uploadFile). */
+  /** Alta del expediente de gasto (con los archivos ya subidos vía uploadFile). */
   async create(dto: CreateExpenseProofDto, actor?: string) {
     this.tenantCtx.requireTenantId();
     const req = (v?: string) => (v || '').trim();
     const folioSolicitud = req(dto.folio_solicitud);
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
     if (!folioSolicitud) throw new BadRequestException('folio de la solicitud requerido');
+
+    // Clasificación del gasto: decide si la evidencia (factura/ticket) es obligatoria.
+    const clasificacion = req(dto.clasificacion) as ExpenseClasificacion | '';
+    if (!clasificacion || !EXPENSE_CLASIFICACIONES.includes(clasificacion as ExpenseClasificacion)) {
+      throw new BadRequestException('clasificación del gasto requerida (fiscal / no_fiscal_comprobable / no_comprobable)');
+    }
+    const llevaEvidencia = requiereEvidencia(clasificacion);
+    const motivo = req(dto.comentarios);
 
     // La solicitud ya subida a Kepler ES la fuente de verdad: trae solicitante,
     // beneficiario, sucursal, fecha e importe. Pedirlos otra vez en el formulario era
@@ -260,52 +286,76 @@ export class ExpenseProofsService {
     if (!solicitante) throw new BadRequestException('solicitante requerido (no vino en la solicitud ni en el formulario)');
     if (!proveedor) throw new BadRequestException('proveedor requerido (no vino en la solicitud ni en el formulario)');
     if (!departamento) throw new BadRequestException('departamento o sucursal requerido');
+
     const roles = new Set(files.map((f) => f.role));
-    for (const r of REQUIRED_ROLES) {
-      if (!roles.has(r)) throw new BadRequestException(`falta el archivo obligatorio: ${r}`);
+    if (llevaEvidencia && !roles.has(EVIDENCE_ROLE)) {
+      throw new BadRequestException('falta la evidencia del gasto (obligatoria salvo gasto no comprobable)');
+    }
+    // No comprobable: no se exige foto, pero sí el motivo — si no, el «no» no se audita.
+    if (!llevaEvidencia && !motivo) {
+      throw new BadRequestException('un gasto no comprobable exige un motivo (por qué no lleva evidencia)');
     }
 
-    // Vision autoritativo FUERA de la trx (I/O lento): re-lee el comprobante en el servidor.
-    const srv = await this.serverReadReceipt(files, dto);
+    // Vision autoritativo FUERA de la trx (I/O lento): re-lee la evidencia en el servidor.
+    // Sólo cuando hay evidencia que leer.
+    const srv = llevaEvidencia ? await this.serverReadReceipt(files, dto) : null;
 
     return this.tk.run(async (trx) => {
       // Importe esperado = el de la solicitud Kepler (XA1501, fuente de verdad); si no se
       // encuentra, cae al del DTO (auto-rellenado por el front desde la misma solicitud).
-      const sol = await trx('analytics.expense_requests')
+      const solRow = await trx('analytics.expense_requests')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: folioSolicitud })
         .first(trx.raw('importe::numeric AS importe'));
-      const importe = Number(sol?.importe) || Number(dto.importe) || 0;
+      const importe = Number(solRow?.importe) || Number(dto.importe) || 0;
 
-      // Cuadre por vision: cuadra → validada (por Claude Vision); si no → revisión.
-      const legible = srv.legible;
-      const { match, usado, diff } = this.montoCuadra(importe, srv.total, srv.subtotal);
-      const cuadra = legible && match;
-      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      const status = cuadra ? 'validada' : 'revision';
-      const revisionNota = cuadra ? null
-        : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
-          : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+      let status: string;
+      let monto_ocr: number | null = null;
+      let monto_match: boolean | null = null;
+      let revisionNota: string | null = null;
+      let validatedBy: string | null = null;
+      let cuadra = false;
+
+      if (!llevaEvidencia) {
+        // Gasto no comprobable: entra a revisión para que el aprobador valide el motivo.
+        status = 'recibida';
+      } else {
+        // Cuadre por vision: cuadra → validada (por Claude Vision); si no → revisión.
+        const legible = srv!.legible;
+        const { match, usado, diff } = this.montoCuadra(importe, srv!.total, srv!.subtotal);
+        cuadra = legible && match;
+        const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        status = cuadra ? 'validada' : 'revision';
+        monto_ocr = usado;
+        monto_match = legible ? match : null;
+        revisionNota = cuadra ? null
+          : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
+            : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+        validatedBy = cuadra ? 'Claude Vision' : null;
+      }
 
       const [row] = await trx('finance.expense_proofs')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           solicitante, departamento, departamento_code: req(dto.departamento_code) || null,
           sucursal: sucursal || null,
-          fecha_gasto: dto.fecha_gasto || sol?.fecha || null,
+          fecha_gasto: dto.fecha_gasto || solRow?.fecha || null,
           folio_solicitud: folioSolicitud, proveedor,
           importe,
+          clasificacion,
+          // El motivo de un no_comprobable vive en comprobacion_nota (campo de "por qué falta").
+          comprobacion_nota: llevaEvidencia ? null : motivo,
           files: JSON.stringify(files),
-          comentarios: req(dto.comentarios) || null,
+          comentarios: motivo || null,
           status,
-          monto_ocr: usado,
-          monto_match: legible ? match : null,
+          monto_ocr,
+          monto_match,
           revision_nota: revisionNota,
-          validated_by: cuadra ? 'Claude Vision' : null,
+          validated_by: validatedBy,
           validated_at: cuadra ? trx.fn.now() : null,
           created_by: actor || null,
         })
         .returning(['id', 'folio_solicitud', 'status']);
-      this.logger.log(`solicitud de reembolso folio ${row.folio_solicitud} → ${status} [vision:${srv.source}]${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
+      this.logger.log(`expediente de gasto folio ${row.folio_solicitud} [${clasificacion}] → ${status}${srv ? ` [vision:${srv.source}]` : ''}${revisionNota ? ` (${revisionNota})` : ''} · ${files.length} archivos, por ${actor || '?'}`);
       this.emit('captured', { folio_solicitud: row.folio_solicitud, status: row.status, solicitante, importe: dto.importe, sucursal: dto.sucursal }, actor);
       return row;
     });
@@ -358,9 +408,11 @@ export class ExpenseProofsService {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
+      const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const r: any = await trx('finance.expense_proofs')
         .where({ id })
         .first(...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
+          ...(clasCol ? ['clasificacion'] : []),
           'id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
@@ -372,6 +424,7 @@ export class ExpenseProofsService {
         ...r,
         importe: Number(r.importe),
         monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
+        requiere_evidencia: requiereEvidencia(clasCol ? r.clasificacion : null),
         files: await this.storage.signFiles(files, 1800),
         // El front no puede distinguir "no adjuntaron nada" de "hay archivo pero no lo
         // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
@@ -453,22 +506,27 @@ export class ExpenseProofsService {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
+      const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const rows = await trx
         .with('ranked', (qb: any) => {
           qb.from('finance.expense_proofs')
             .select('id', 'folio_solicitud', 'status', 'files',
               ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
+              ...(clasCol ? ['clasificacion'] : []),
               trx.raw('row_number() OVER (PARTITION BY folio_solicitud ORDER BY created_at DESC) AS rn'));
         })
         .from('ranked').where('rn', 1).select('*');
       return Object.fromEntries(rows.map((r: any) => {
         const files: any[] = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
         const rol = (p: string) => files.some((f) => String(f?.role || '').startsWith(p) && f?.url);
+        const clasificacion = clasCol ? (r.clasificacion || null) : null;
         return [r.folio_solicitud, {
           id: r.id,
           status: r.status,
           comprobante: rol('comprobante'),
           solicitud: rol('solicitud_kepler'),
+          clasificacion,
+          requiere_evidencia: requiereEvidencia(clasificacion),
           tiene_comprobacion: tieneCol ? r.tiene_comprobacion : null,
           comprobacion_nota: tieneCol ? (r.comprobacion_nota || null) : null,
         }];
@@ -490,36 +548,41 @@ export class ExpenseProofsService {
     ) as Promise<{ solicitante?: string; beneficiario?: string; sucursal?: string; concepto?: string; fecha?: string; importe?: number } | undefined>;
   }
 
-  /** El contador valida la solicitud de reembolso. */
   /**
-   * Validar exige DECLARAR si el gasto lleva comprobación (XA1001).
-   *
-   * Hay solicitudes que nunca la generan, y sin este dato el tablero no puede distinguir
-   * «todavía no llega» de «nunca va a llegar» — que es justo lo que necesita saber quien
-   * persigue el rezago. Se pregunta al validar porque es el momento en que alguien tiene
-   * el expediente delante.
+   * El aprobador valida el expediente. Puede RECLASIFICAR el gasto (si el capturista se
+   * equivocó de naturaleza): al hacerlo se re-aplica la regla de evidencia. No se puede
+   * validar un gasto comprobable sin su evidencia, ni cerrar un no_comprobable sin motivo.
    */
-  async validate(id: string, actor?: string, dto?: { tiene_comprobacion?: boolean; comprobacion_nota?: string }) {
+  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }) {
     this.tenantCtx.requireTenantId();
-    // El negocio lo llama «solicitud de gasto y/o comprobación»: según el caso el
-    // documento que cierra el gasto en Kepler es uno u otro. La columna se quedó como
-    // `tiene_comprobacion` — renombrarla sería churn sin ganancia.
-    if (typeof dto?.tiene_comprobacion !== 'boolean') {
-      throw new BadRequestException('Falta declarar si este gasto tiene su solicitud de gasto y/o comprobación.');
+    const clasIn = (dto?.clasificacion || '').trim();
+    if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
+      throw new BadRequestException('clasificación inválida');
     }
-    const nota = (dto.comprobacion_nota || '').trim();
-    // Sin comprobación hay que decir por qué: si no, el «no» no se puede auditar.
-    if (!dto.tiene_comprobacion && !nota) {
-      throw new BadRequestException('Si el gasto no lleva solicitud de gasto ni comprobación, explicá por qué.');
-    }
+    const notaIn = (dto?.comprobacion_nota || '').trim();
     return this.tk.run(async (trx) => {
-      const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
+      const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
+      const cur: any = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision'])
+        .first('folio_solicitud', 'files', ...(clasCol ? ['clasificacion', 'comprobacion_nota'] : []));
+      if (!cur) throw new BadRequestException('solicitud no encontrada o ya validada');
+
+      const finalClas = clasIn || (clasCol ? cur.clasificacion : null);
+      const files: any[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
+      const hasEvidence = files.some((f) => String(f?.role || '').startsWith('comprobante') && f?.url);
+      if (requiereEvidencia(finalClas) && !hasEvidence) {
+        throw new BadRequestException('no se puede validar un gasto comprobable sin su evidencia adjunta');
+      }
+      const motivo = notaIn || (clasCol ? (cur.comprobacion_nota || '') : '');
+      if (finalClas === 'no_comprobable' && !motivo) {
+        throw new BadRequestException('un gasto no comprobable exige un motivo');
+      }
+
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'rechazada', 'revision'])
         .update({
           status: 'validada', validated_by: actor || null, validated_at: trx.fn.now(),
           motivo_rechazo: null, revision_nota: null, updated_at: trx.fn.now(),
-          // Sonda: sin la migración 20260822140000 se valida igual, sin perder la acción.
-          ...(tieneCol ? { tiene_comprobacion: dto.tiene_comprobacion, comprobacion_nota: nota || null } : {}),
+          // Sonda: sin la migración de clasificación se valida igual, sin perder la acción.
+          ...(clasCol ? { clasificacion: finalClas || null, comprobacion_nota: finalClas === 'no_comprobable' ? motivo : null } : {}),
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');

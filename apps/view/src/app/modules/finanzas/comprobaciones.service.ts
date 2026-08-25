@@ -11,6 +11,19 @@ export type ProofStatus = 'recibida' | 'validada' | 'rechazada' | 'revision';
 export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
 export interface ProofFile { role: ProofFileRole | string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Naturaleza del gasto — decide si la evidencia (factura/ticket) es obligatoria. */
+export type ExpenseClasificacion = 'fiscal' | 'no_fiscal_comprobable' | 'no_comprobable';
+/** ¿Este gasto debe llevar evidencia adjunta? Todo salvo lo declarado no_comprobable. */
+export function requiereEvidencia(c?: string | null): boolean {
+  return c === 'fiscal' || c === 'no_fiscal_comprobable';
+}
+/** Etiquetas de la clasificación para la UI. */
+export const CLASIFICACION_LABEL: Record<ExpenseClasificacion, string> = {
+  fiscal: 'Fiscal (con factura)',
+  no_fiscal_comprobable: 'No fiscal, con recibo',
+  no_comprobable: 'No comprobable',
+};
+
 export interface Departamento { code: string; nombre: string; sucursal: string; }
 
 /**
@@ -23,6 +36,8 @@ export interface ProofByFolio {
   status: ProofStatus | string;
   comprobante?: boolean;
   solicitud?: boolean;
+  clasificacion?: ExpenseClasificacion | string | null;
+  requiere_evidencia?: boolean;
   tiene_comprobacion?: boolean | null;
   comprobacion_nota?: string | null;
 }
@@ -40,9 +55,10 @@ export interface ExpenseProof {
   files: ProofFile[];
   comentarios: string | null;
   status: ProofStatus;
+  clasificacion?: ExpenseClasificacion | string | null; // naturaleza del gasto (decide la evidencia)
   monto_ocr?: number | null;      // total leído de la foto (Claude Vision)
   monto_match?: boolean | null;   // cuadró vs el importe de la solicitud
-  tiene_comprobacion?: boolean | null; // lo declara quien valida
+  tiene_comprobacion?: boolean | null; // (XA1001, dormante) lo declaraba quien valida
   comprobacion_nota?: string | null;
   revision_nota?: string | null;  // por qué quedó en revisión
   validated_by: string | null;
@@ -78,6 +94,8 @@ export interface CreateExpenseProof {
   proveedor?: string;
   importe?: number;
   comentarios?: string;
+  /** Naturaleza del gasto — obligatoria: decide si la evidencia es obligatoria. */
+  clasificacion?: ExpenseClasificacion;
   files?: ProofFile[];
   monto_ocr?: number | null;
   subtotal_ocr?: number | null;
@@ -91,7 +109,7 @@ export interface SolicitudSug {
 }
 
 /** Detalle + señal de si el bucket está configurado (para no confundir "sin adjunto" con "no lo puedo servir"). */
-export interface ExpenseProofDetail extends ExpenseProof { storage_ok?: boolean; }
+export interface ExpenseProofDetail extends ExpenseProof { storage_ok?: boolean; requiere_evidencia?: boolean; }
 
 @Injectable({ providedIn: 'root' })
 export class ComprobacionesService {
@@ -133,9 +151,9 @@ export class ComprobacionesService {
   detail(id: string): Observable<ExpenseProofDetail> {
     return this.http.get<ExpenseProofDetail>(`${this.base}/${id}`);
   }
-  /** Validar exige declarar si el gasto lleva comprobación (XA1001). */
-  validate(id: string, body: { tiene_comprobacion: boolean; comprobacion_nota?: string }): Observable<any> {
-    return this.http.post(`${this.base}/${id}/validate`, body);
+  /** Valida el expediente. Puede reclasificar el gasto (si el capturista se equivocó). */
+  validate(id: string, body?: { clasificacion?: string; comprobacion_nota?: string }): Observable<any> {
+    return this.http.post(`${this.base}/${id}/validate`, body || {});
   }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.base}/departamentos`); }
