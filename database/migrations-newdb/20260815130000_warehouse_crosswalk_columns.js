@@ -16,7 +16,7 @@ exports.up = async function (knex) {
 
   if (!(await has('kepler_code'))) {
     await knex.schema.withSchema('commercial').alterTable('warehouses', (t) => {
-      t.text('kepler_code'); // sucursal Kepler '00'..'05' (md_00..md_05)
+      t.text('kepler_code'); // sucursal Kepler '01'..'05' (md_01..md_05); CEDIS 00 es Wincaja, NO Kepler
     });
   }
   if (!(await has('wincaja_source_branch'))) {
