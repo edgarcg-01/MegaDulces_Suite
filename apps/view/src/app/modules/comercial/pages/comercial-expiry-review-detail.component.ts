@@ -130,8 +130,11 @@ const PLAZO_INTERMEDIO_DIAS = 90;
               <span class="erd-lbl">Foto de evidencia</span>
               @if (pendingPhoto()) {
                 <div class="erd-photo">
-                  <img [src]="pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
-                  <button pButton [text]="true" severity="danger" size="small" (click)="pendingPhoto.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+                  <img [src]="pendingPhoto()!.preview_url || pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
+                  @if (previewBroken()) {
+                    <span class="erd-photo-noprev"><i class="pi pi-check-circle" aria-hidden="true"></i> Foto adjunta (sin vista previa)</span>
+                  }
+                  <button pButton [text]="true" severity="danger" size="small" (click)="clearPhoto()" pTooltip="Quitar la foto"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
                 </div>
               } @else {
                 @if (photoFailed()) {
@@ -169,7 +172,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
                 <div class="erd-line-meta">
                   <span class="erd-qty">{{ l.quantity | number }} {{ unitLabel(l.unit) }}</span>
                   @if (l.expiry_date) {
-                    <span class="erd-exp">{{ fmtDate(l.expiry_date) }}</span>
+                    <span class="erd-exp">Vence {{ fmtDate(l.expiry_date) }}</span>
                     <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag>
                     <span class="erd-plazo-chip" [attr.data-p]="plazoOf(l.expiry_date)?.level">{{ plazoOf(l.expiry_date)?.title }}</span>
                   }
@@ -256,6 +259,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       border: 1px solid var(--bad-border, #fecaca); background: var(--bad-soft-bg, #fef2f2); }
     @media (pointer: coarse) { .erd-unit { min-height: 44px; padding-inline: .8rem; } }
     .erd-exp { font-size: .78rem; color: var(--text-color-secondary); font-variant-numeric: tabular-nums; }
+    .erd-photo-noprev { display: inline-flex; align-items: center; gap: .3rem; font-size: .74rem; color: var(--ok-fg, #15803d); }
     .erd-photo-missing { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem;
       color: var(--text-color-secondary); white-space: nowrap; }
     .erd-photo button { position: absolute; top: -8px; right: -8px; }
@@ -335,6 +339,8 @@ export class ComercialExpiryReviewDetailComponent {
   pendingPhoto = signal<ReviewFile | null>(null);
   /** Hubo un intento de foto que falló: el renglón se guardaría SIN evidencia. */
   readonly photoFailed = signal(false);
+  /** La foto está adjunta pero su vista previa no cargó (firma vencida/no firmada). */
+  readonly previewBroken = signal(false);
 
   uploading = signal(false);
   addingLine = signal(false);
@@ -439,11 +445,15 @@ export class ComercialExpiryReviewDetailComponent {
       });
   }
 
+  /** Quita la foto adjunta del formulario (no borra nada del storage). */
+  clearPhoto(): void { this.pendingPhoto.set(null); this.previewBroken.set(false); }
+
   private resetForm() {
     this.productId.set(null); this.nameRaw.set(''); this.codeRaw = '';
     this.qty = null; this.expiry = null; this.condition.set(null);
     this.observations = ''; this.action = ''; this.pendingPhoto.set(null);
-    this.photoFailed.set(false); this.unitTouched = false; this.unit.set('caja');
+    this.photoFailed.set(false); this.previewBroken.set(false);
+    this.unitTouched = false; this.unit.set('caja');
   }
 
   removeLine(l: ExpiryReviewLine) {
@@ -557,6 +567,9 @@ export class ComercialExpiryReviewDetailComponent {
   onPhotoError(ev: Event): void {
     const el = ev.target as HTMLImageElement | null;
     if (el) el.style.display = 'none';
+    // Ocultar la imagen dejaba la caja vacía con la × suelta: parecía que la foto
+    // se había perdido. La evidencia SÍ está adjunta; lo que falla es la vista previa.
+    this.previewBroken.set(true);
   }
 
   /**
