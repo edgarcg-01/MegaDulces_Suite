@@ -29,12 +29,18 @@ const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
 const SCRIPT = 'database/importers/kepler/ods-cdc-wal.js';
 const BRANCHES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 
-// Empuja a prod por feeds-ingest (ingress gratis). DATABASE_URL_NEW = BASE local :5433 (el consumidor
+// Empuja a prod por feeds-ingest (ingress gratis). ODS_SOURCE_BASE = BASE local :5433 (el consumidor
 // le cambia el nombre de la DB por sucursal). FEEDS_INGEST_KEY se hereda del entorno (secreto).
+//
+// Antes esto seteaba DATABASE_URL_NEW, que es la base de la APP: dev la mueve (p. ej. a la réplica
+// de pruebas en .245) y entonces el consumidor se va a buscar los `kepler_md_XX` al server
+// equivocado y se calla. La fuente ahora tiene env propia. NO poner DATABASE_URL_NEW acá: el
+// destino de este consumidor es http (feeds-ingest), no una DB.
 const env = {
   FEEDS_SINK: 'http',
   FEEDS_INGEST_URL: process.env.FEEDS_INGEST_URL || 'https://feeds-ingest-production.up.railway.app',
-  DATABASE_URL_NEW: process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
+  // Sin fallback a DATABASE_URL_NEW a propósito: si dev la movió, heredarla reintroduce la trampa.
+  ODS_SOURCE_BASE: process.env.ODS_SOURCE_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
 };
 const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true, env };
 

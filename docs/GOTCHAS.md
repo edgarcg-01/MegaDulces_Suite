@@ -303,3 +303,33 @@ node database/importers/kepler/run-prod-feeds.js <modo> | head -3
   detener la tarea, editar, arrancar.
 - **`session_replication_role = replica`** (como superuser) apaga triggers y chequeo de FK — sirve
   para cargas masivas sin pelear el orden entre tablas. Lo que **no** apaga son los índices UNIQUE.
+
+## 17. `DATABASE_URL_NEW` tiene DOS roles — y moverla calla el CDC
+
+Esa var significa dos cosas distintas según quién la lee:
+
+| Quién | Para qué la usa |
+|---|---|
+| API (`new-database.module.ts`) | conexión **admin** (`KNEX_NEW_DB_ADMIN`, REFRESH de MVs) |
+| `knexfile-newdb.js` | destino de las **migraciones** |
+| `replicate-ods-live.js` / `ods-cdc-wal.js` | **BASE de la FUENTE**: de ahí derivan `kepler_md_XX` (los replicas lógicos del contenedor `:5433`) |
+
+Ese tercer uso es la trampa. Si dev mueve `DATABASE_URL_NEW` para apuntar la app a otra base
+(p. ej. la réplica de pruebas en `.245`), el CDC se va a buscar los replicas al server equivocado
+y **se calla**: loguea `no conecta — skip` por rama y la pasada termina "bien" sin shipear nada.
+`kepler_ods` en prod se congela en silencio y con él toda la capa derive-no-copy.
+
+**Desde 2026-08-26 la fuente tiene env propia: `ODS_SOURCE_BASE`** (fallback a `DATABASE_URL_NEW`
+por compatibilidad). Está fijada explícitamente en `run-ods-live-loop.cmd`,
+`run-ods-full-mirror.cmd`, `run-ods-loop.cmd` y en `ecosystem.cdc.config.js` — ahí **sin** fallback
+a `DATABASE_URL_NEW`, porque heredarla reintroduce la trampa.
+
+Al mover la app a otra base, mover **las dos**:
+
+- `DATABASE_URL_NEW_RUNTIME` → rol **`app_runtime`** (con RLS). NUNCA `postgres`: el runtime tiene
+  que ejercitar RLS o los bugs de aislamiento entre tenants no aparecen en dev.
+- `DATABASE_URL_NEW` → rol `postgres` (admin: migraciones + REFRESH MV).
+
+Y verificar que el rol `app_runtime` existe **con la contraseña correcta** en el server destino: en
+`.245` existía con una contraseña vieja del snapshot de junio y ninguna credencial de la máquina
+servía. Sin eso el API no arranca contra esa base.
