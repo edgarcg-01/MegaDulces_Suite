@@ -1311,3 +1311,37 @@ Plan en [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
 **Consecuencias:** ✅ queda medible el indicador que hoy no existe — **% de piezas recibidas con lote y caducidad declarados**, por almacén y por proveedor, que es exactamente la mercancía que entra sin trazabilidad. ✅ la política por categoría empieza a funcionar por primera vez (antes era letra muerta *y* causa de 500). ✅ el gate 🔴 se vuelve operable: retiene sólo lo malo y deja pasar el resto. ⚠️ el renglón puede quedar "recibido pero no declarado" — es deliberado: se vuelve visible en vez de invisible, pero exige que alguien lo trabaje. ⚠️ `receiving_line_id` es **nullable**: las capturas sueltas (sin vale, desde `/almacen/inventory/recepcion`) siguen siendo válidas, así que el cuadre por renglón solo aplica a lo capturado dentro de un vale. Hereda ADR-016 (el motor decide, el operador confirma la realidad física, el OCR propone y no autoriza) y ADR-022 (sub-ledger de lotes aditivo).
 
 Plan en [`FASE_WMS_ESTACION_RECEPCION`](FASES/FASE_WMS_ESTACION_RECEPCION.md).
+
+---
+
+## ADR-050 — **Permiso ≠ alcance** (Fase ID): el rol dice qué acción, el scope dice sobre qué filas
+
+**Estado:** Propuesto
+
+**Fecha:** 2026-08-26
+
+**Contexto:** el proyecto nació como auditoría de rutas (una zona, un supervisor, un colaborador) y `users.zona_id` alcanzaba. Hoy hay 41 módulos, 7 sucursales y 117 usuarios, y la tabla de usuarios sigue siendo la de rutas con 10 columnas pegadas encima. Medido en prod 2026-08-26: **83 de 117 usuarios sin `warehouse_code`**, y la convención vigente — escrita en el propio DTO — es *"vacío = ve todas"*, o sea **la ausencia de dato significa acceso ilimitado**. El enforcement es por-controller (`user?.warehouse_code || query.warehouse_code`), hay **6 mecanismos de alcance distintos** (`warehouse_code`, `warehouse_id`, `zona_id`, `finance_expense_area_ids`, `customer_id`, `promoter_brands`) sin nada compartido, y **16 nombres de query param** para decir "qué sucursal" (115 ocurrencias). No se puede expresar "su sucursal + la 03", ni "ve la red pero escribe solo en la suya". Y como el rol hace dos trabajos a la vez (puesto y bundle de permisos), cada combinación permiso × sucursal terminó siendo un rol nuevo: **33 roles para 117 usuarios**, 14 sin nadie.
+
+**Decisión:**
+
+1. **Cuatro ejes ortogonales:** persona (`identity.people`) · organigrama (`department_code`/`position_code`/`supervisor_id`, ya normalizado en `[UN.1]`) · **permiso** (`role_name` → JSONB, no se toca) · **alcance** (nuevo). El permiso dice *qué acción*; el alcance dice *sobre qué filas*.
+2. **El alcance es un dato de primera clase:** `identity.role_scopes` (default por rol) + `identity.user_scopes` (override por usuario), una fila por dimensión, con `mode ∈ {none, own, listed, all}`. Resolución `user → role → none`. Con 33 roles y 117 usuarios, configurar solo por usuario es la garantía de que quede mal.
+3. **`fail-closed`:** sin fila = `none`. `all` tiene que ser explícito. Por eso la migración de arranque **materializa** el `all` implícito de los 83 usuarios de hoy — preservar primero, cortar después (misma disciplina que `[UN.13]`).
+4. **`mode_write` separado de lectura** desde el schema, aunque se aplique más tarde: "ve las 3 sucursales de su zona, captura solo en la suya" es requisito de ERP y agregarlo después obliga a re-migrar.
+5. **Un solo punto de aplicación:** `ScopeResolver` en `platform-core` resuelve una vez por request y lo deja en el CLS (donde ya vive `tenantId`); los servicios usan `scoped(qb, dim, col)`. Más `@ScopeDimension(...)` en el controller y un test de cobertura que falla si un endpoint que consulta una tabla con `warehouse_code` no la declara — el test que faltó y produjo las fugas de `[UN.4]` (Finanzas) y `[UN.11]` (Compras).
+6. **El alcance NO viaja en el JWT** (a diferencia de los permisos): arrays que rotan, y el token ya carga 162 permisos + rules de CASL. Va en DB con cache TTL. Consecuencia deseada: **cambiar un alcance no exige re-login; cambiar un permiso sí.**
+7. **El alcance no se implementa con RLS.** RLS se queda en `tenant_id`. Hacerlo con RLS exigiría GUCs y policies por dimensión en ~200 tablas, y `analytics.*` no tiene RLS por diseño.
+
+**Consecuencias:**
+- Se puede responder, para cualquier usuario, *qué ve exactamente y por qué* — hoy no se puede.
+- La proliferación de roles deja de tener causa: el eje sucursal sale del rol.
+- ⚠️ El día del corte, cualquier dominio migrado depende de que la materialización haya corrido antes. El orden es migración → deploy, verificado con el snapshot de alcance.
+- ⚠️ Dos semánticas de invalidación conviviendo (permiso/re-login vs alcance/TTL) — hay que decirlo en la UI.
+- Se acepta migrar dimensión por dimensión y dominio por dominio: el resolver se despliega inerte y los 41 módulos convergen por goteo.
+
+**Alternativas rechazadas:**
+- **RLS por sucursal** — ver punto 7. *Compuerta:* si aparece un tenant con requisito de aislamiento por sucursal a nivel DB.
+- **Un rol por combinación permiso × sucursal** (lo que pasa hoy de facto) — es la causa de los 33 roles; no escala a 7 sucursales × 6 dimensiones.
+- **Meter los scopes en el JWT** — tamaño de token y obliga a re-login por cada cambio de alcance operativo.
+
+Plan en [`FASE_ID_IDENTIDAD_ACCESOS_ALCANCE`](FASES/FASE_ID_IDENTIDAD_ACCESOS_ALCANCE.md).

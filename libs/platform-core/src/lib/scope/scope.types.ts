@@ -1,0 +1,69 @@
+/**
+ * `[ID.2]` — Tipos del ALCANCE de datos (Fase ID / ADR-050).
+ *
+ * El permiso dice QUÉ ACCIÓN (`Permission` + `RolesGuard`); el alcance dice
+ * SOBRE QUÉ FILAS. Son dos ejes distintos y se invalidan distinto: el permiso
+ * viaja en el JWT (cambiarlo exige re-login), el alcance se lee de DB con TTL
+ * (cambiarlo NO exige re-login).
+ *
+ * No confundir con `getDataScope()` de `ability/data-scope.ts`, que resuelve la
+ * jerarquía de REPORTES (propio / equipo / global vía `supervisor_id`). Eso es
+ * otro eje y sigue viviendo aparte.
+ */
+
+/** Las 6 dimensiones de `identity.scope_dimensions`. */
+export type ScopeDimension =
+  | 'warehouse'
+  | 'zone'
+  | 'route'
+  | 'brand'
+  | 'expense_area'
+  | 'customer';
+
+export const SCOPE_DIMENSIONS: ScopeDimension[] = [
+  'warehouse',
+  'zone',
+  'route',
+  'brand',
+  'expense_area',
+  'customer',
+];
+
+/**
+ * `none`   — no ve nada de esta dimensión. **Default si no hay fila** (fail-closed).
+ * `own`    — el valor de su propia ficha (`users.warehouse_code` / `zona_id` /
+ *            `customer_id`). Evita repetir el valor en cada renglón de config.
+ * `listed` — exactamente `values[]`. Permite "la suya + la 03".
+ * `all`    — toda la dimensión. Tiene que ser EXPLÍCITO.
+ */
+export type ScopeMode = 'none' | 'own' | 'listed' | 'all';
+
+/** De dónde salió la regla — es lo que hace explicable el "Acceso efectivo". */
+export type ScopeSource = 'user' | 'role' | 'default' | 'platform_admin';
+
+export interface ResolvedDimension {
+  mode: ScopeMode;
+  /** Valores concretos para lectura. Vacío cuando `mode` es `all` o `none`. */
+  values: string[];
+  modeWrite: ScopeMode;
+  valuesWrite: string[];
+  source: ScopeSource;
+  /** Texto de por qué se le dio de más, capturado al otorgar el override. */
+  nota?: string | null;
+}
+
+export interface ResolvedScope {
+  tenantId: string;
+  userId: string;
+  roleName: string;
+  dims: Record<ScopeDimension, ResolvedDimension>;
+}
+
+/** Fila cruda de `identity.role_scopes` / `identity.user_scopes`. */
+export interface ScopeRuleRow {
+  dimension: ScopeDimension;
+  mode: ScopeMode;
+  values: string[] | null;
+  mode_write: ScopeMode | null;
+  nota?: string | null;
+}
