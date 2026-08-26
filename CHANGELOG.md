@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Changed — FKJ: `finance.kepler_accounts` deja de ser copia nightly y pasa a vista en vivo (2026-08-26)
+- **Un paso menos en el nightly.** `import-kepler-accounts.js` retirado: `finance.kepler_accounts` ahora es **VISTA** sobre `analytics.ledger_monthly` (mig `20260826190000`, mismo patrón que `erp_customers`/`erp_promotions`/`erp_shipments`: la tabla se RENOMBRA a `*_snapshot_bak`, no se borra). Contrato de 8 columnas idéntico → cero cambios en el consumidor (CB.13 `keplerAccounts`).
+- **El filtro de tenant se mudó ADENTRO de la vista.** Una vista no hereda RLS, y esta tabla tenía RLS *forzada* con `tenant_id = current_tenant_id()` mientras su lector **no filtra tenant** (confiaba en la policy). El `WHERE tenant_id = current_tenant_id()` va dentro: sin tenant en la sesión, 0 filas — el smoke lo verifica *como superusuario*, a quien la RLS no aplicaría.
+- **Se corrigió un bug latente de paso.** El importer elegía el nombre de la cuenta con `MAX(cuenta_nombre)` = orden alfabético = **dependiente del collation**: para `605-005` (renombrada en Kepler) prod (`en_US.utf8`) devolvía `MANT. NO BREAK` y la réplica (`Spanish_Mexico.1252`) la otra — mismo código, dos resultados. La vista toma el nombre del **mes más reciente** (`anio_mes COLLATE "C" DESC`): determinista y además correcto. Efecto visible: `607-002` decía `HONORARIOS CONTADOR` y hoy es `AUDITORIA CONTABLE` (2026-08).
+- Smoke nuevo `test-newdb-kepler-accounts-view.js` en la regresión: **18/18** (relkind + contrato + tenant + paridad 175 filas con la única diferencia explicada por rename + costo del lector 15 ms).
+
+### Added — gate de costo para derive-no-copy: `analytics.stock_movements` NO puede ser vista (2026-08-26)
+- Medido en prod: el mismo derive que el importer corre server-side, pero como vista, es **89× a 517× más lento** y una de las cuatro queries del módulo DM **se pasa de 180 s**. Causa: el join a `kdm2` va envuelto en `btrim()`/casts (ningún índice aplica) y `warehouse_id`/`product_id` **nacen del join**, así que el filtro del consumidor no baja al scan del ODS. Los ~1.9 GB no son copia redundante: son proyección indexada.
+- Además esa tabla es una **unión de fuentes** (Kepler + Wincaja `source_branch LIKE 'W%'`, que vive en otra DB, + re-derivación por bloques del ingest), así que una vista solo podría cubrir la mitad.
+- La medición queda reproducible en `database/scripts/bench-ods-derive-stock-movements.js` y la regla en `docs/GOTCHAS.md` §19–20. **Corolario:** las tablas grandes son grandes *porque* son caras de derivar; los candidatos a vista son los chicos.
+
 ### Added — P2.6: plazo automático y unidad de medida en Control de Caducidades (2026-08-25)
 - **El sistema dice el plazo, ya no la persona.** Al capturar la fecha, la hoja clasifica sola: *Buen plazo* (>90 d) · *Intermedio — vigilar* (31–90 d) · *Riesgoso — sacarlo ya* (≤30 d) · *Vencido*. Se ve en vivo bajo el campo y en cada renglón guardado. Los umbrales son dos constantes en el componente; **30 días es el mismo umbral con el que el sistema ya alerta lotes por vencer** (`EXPIRING_LOTS_DAYS`), así que la hoja y las alertas no se contradicen.
 - **`ESTADO` → `ESTADO FÍSICO` ("cómo llegó, no la fecha").** Ese campo es para lo que se ve (bolsas grasosas, goma dura) y competía con el plazo — de ahí venía la petición de que el sistema lo dedujera. Ahora el plazo lo calcula la máquina y el estado físico lo juzga la persona.

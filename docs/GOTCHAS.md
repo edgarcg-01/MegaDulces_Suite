@@ -214,3 +214,59 @@ del `tsc` actual, 0 errores, exit code correcto (1 si hay error) → usable en C
 `tsconfig.ts7.json` es standalone a propósito: TS 7 **removió `baseUrl`** (`TS5102`) y exige `paths`
 relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.base.json`. Si cambian los
 `paths` de la base, replicarlos ahí.
+
+---
+
+## 19. derive-no-copy tiene un GATE DE COSTO (no todo lo derivable puede ser vista)
+
+La regla "todo lo derivable sale del ODS" necesita un calificador: **derivable Y barato de derivar
+por query**. Medido en prod el 2026-08-26 sobre `analytics.stock_movements`, el mismo derive que el
+importer corre server-side, pero como vista:
+
+| query (almacén con 57,933 líneas en 120d) | tabla | vista derivada |
+|---|---|---|
+| agregado x producto, 1 almacén, 30d | 259 ms | **133,807 ms** (517×) |
+| drill-down por folio | 154 ms | 13,734 ms (89×) |
+| serie diaria, 1 almacén, 30d | 239 ms | 61,910 ms (259×) |
+| tipos de documento, 1 almacén, 120d | 542 ms | **timeout (>180 s)** |
+
+**Por qué:** el join a `kdm2` va envuelto en `btrim()` y casts (`(l.c4)::int`) → ningún índice
+aplica; y `warehouse_id`/`product_id` **nacen del join** (con `commercial.warehouses` y
+`catalog.products`), así que el filtro del consumidor no baja al scan del ODS. Los ~1.9 GB de esa
+tabla no son copia redundante: son una **proyección indexada**. Reproducí la medición con
+[`database/scripts/bench-ods-derive-stock-movements.js`](../database/scripts/bench-ods-derive-stock-movements.js)
+antes de proponer el refactor otra vez.
+
+**Corolario contra-intuitivo:** las tablas grandes son grandes *porque* son caras de derivar. Los
+candidatos reales a vista son los **chicos** (miles de filas, lookups puntuales), no los GB.
+
+**Segundo filtro, antes del costo: ¿cuántos escritores tiene la tabla?** Varias `analytics.*` que
+parecen espejo de Kepler son **uniones**: `stock_movements` = Kepler + Wincaja (`source_branch LIKE
+'W%'`, y Wincaja vive en otra DB) + re-derivación por bloques de `services/feeds-ingest`;
+`gl_polizas`/`gl_poliza_lines` = Kepler + ContPAQi (columna `source`). Una vista solo puede cubrir
+la mitad que sale del ODS.
+
+**Y si la tabla está en un schema con RLS, el filtro de tenant se muda ADENTRO de la vista.** Una
+vista no hereda RLS. `finance.kepler_accounts` tenía RLS forzada con `tenant_id =
+current_tenant_id()` y su lector (CB.13) **no filtra tenant** — confía en la policy. Al convertirla
+(mig `20260826190000`) el `WHERE tenant_id = current_tenant_id()` va dentro de la vista: mismas
+semánticas (sin tenant en sesión → 0 filas) y el smoke lo verifica *como superusuario*, a quien la
+RLS no aplicaría.
+
+## 20. `MAX(texto)` para desempatar depende del COLLATION → el mismo importer da distinto por DB
+
+`import-kepler-accounts.js` resolvía "¿cuál de los N nombres de esta cuenta uso?" con
+`MAX(cuenta_nombre)`, que es orden alfabético. Para la cuenta `605-005`, renombrada en Kepler
+(`MANTENIMIENTO CAMARAS SEGUTRID` → `MANT. NO BREAK`):
+
+- prod (`en_US.utf8`) → elige `MANT. NO BREAK`
+- réplica .245 (`Spanish_Mexico.1252`) → elige `MANTENIMIENTO CAMARAS SEGUTRID`
+
+Mismo código, misma data, **dos resultados**, porque `en_US` ignora la puntuación al comparar y
+`Spanish_Mexico.1252` no. Eran 3 cuentas afectadas. Si tenés que elegir una fila de un grupo,
+desempatá por un criterio **semántico** (`ORDER BY anio_mes DESC` = el valor vigente), no
+alfabético; y si el orden textual es inevitable, pinealo con `COLLATE "C"`.
+
+Aplica igual a `DISTINCT ON ... ORDER BY texto`, `MIN()`, `string_agg(... ORDER BY texto)` y a
+cualquier fingerprint md5 armado con `string_agg` ordenado por texto: entre DBs con collation
+distinto, el hash cambia sin que cambie la data.

@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-08-26 — FKJ: dónde SÍ y dónde NO puede morir un paso del nightly (gate de costo medido)
+
+**Disparador:** pregunta de Edgar — "las tablas que consumen esto, ¿pueden hacerse join o FK de ODS?". La respuesta corta: **JOIN sí, FK no**, y "vista sí" solo pasando un gate de costo que hay que medir, no suponer.
+
+**Lo que se midió en prod (no se supuso):**
+
+| Pregunta | Medición |
+|---|---|
+| ¿Se le puede colgar una FK al ODS? | Técnicamente sí: **226/226 tablas con PK** `(sucursal, clave_natural)`. Pero 0 con `tenant_id`, 0 con RLS, y hoy hay **0 FKs** apuntándole |
+| ¿Conviene? | **No.** El CDC aplica `DELETE` reales y el backfill hace `TRUNCATE`: con cascade, el botón de borrar de Kepler borra nuestra data; sin cascade, el `DELETE` falla, el consumidor se atasca y su slot WAL retiene disco. `TRUNCATE` sobre tabla referenciada falla de plano |
+| ¿Ya se joinea? | Sí: **14 de las 20** vistas/matviews de `analytics` ya derivan del ODS. El patrón está probado |
+| ¿Hasta dónde llega la historia del ODS? | `kdm1` arranca 2024-08 en el CEDIS, 2025-01 en 02/03 y **2026-02 / 2026-03 en las sucursales 04 y 05**, contra `sales_monthly` que cubre 2024-04 → 2026-08 (627k filas). Los rollups largos son **archivo, no caché** |
+| Fechas basura en el ODS | `1800-01-01` en sucursales 01 y 06; **futuras** (`2026-12-31` CEDIS, `2026-12-14` en la 02). Cualquier vista que filtre por `c9` necesita guard |
+
+**El gate de costo (lo importante):** convertir `analytics.stock_movements` (1.9 GB) en vista da **89× a 517×** más lento y una de las 4 formas de query del módulo DM **se pasa de 180 s**. Causa: el join a `kdm2` va envuelto en `btrim()`/casts → ningún índice aplica; y `warehouse_id`/`product_id` nacen del join, así que el filtro del consumidor no baja al scan del ODS. **Corolario contra-intuitivo:** las tablas grandes son grandes *porque* son caras de derivar; los candidatos reales a vista son los chicos. Medición reproducible en `database/scripts/bench-ods-derive-stock-movements.js`.
+
+**Segundo filtro que casi se pasa por alto:** varias `analytics.*` que parecen espejo de Kepler son **uniones de fuentes** — `stock_movements` = Kepler + Wincaja (`source_branch LIKE 'W%'`, otra DB) + re-derivación por bloques del ingest + enriquecimiento propio; `gl_polizas`/`gl_poliza_lines` = Kepler + ContPAQi. Una vista solo cubre la mitad que sale del ODS.
+
+**Lo que sí se convirtió:** `finance.kepler_accounts` (1 escritor, 1 lector, fuente de 2,548 filas) → vista sobre `analytics.ledger_monthly`, mig `20260826190000`. Paridad 175/175 filas, la búsqueda real del lector cuesta lo mismo (140 ms), smoke **18/18**.
+
+**Dos lecciones que valen más que la conversión:**
+
+1. **Si la tabla vive en un schema con RLS, el filtro de tenant se muda adentro de la vista.** Una vista no hereda RLS. Esta tabla tenía RLS forzada y su lector no filtra tenant. El smoke lo verifica *como superusuario* (a quien la RLS no aplicaría) → prueba que el filtro es real y no un accidente de privilegios.
+2. **`MAX(texto)` para desempatar depende del collation.** El importer elegía el nombre de la cuenta con `MAX(cuenta_nombre)`: para `605-005` (renombrada en Kepler) prod (`en_US.utf8`) devuelve `MANT. NO BREAK` y la réplica (`Spanish_Mexico.1252`) la otra. Mismo código, misma data, dos resultados; 3 cuentas afectadas. La vista desempata por `anio_mes COLLATE "C" DESC` = el nombre **vigente**. Efecto visible: `607-002` decía `HONORARIOS CONTADOR` y hoy es `AUDITORIA CONTABLE`. Aplica igual a `DISTINCT ON`, `MIN()` y a los fingerprints md5 armados con `string_agg` ordenado por texto.
+
+**Pendiente:** los 57 `analytics.*` materializados siguen ahí; ahora hay criterio (y script) para saber cuáles se pueden tocar. Y "cero nightly" no es un interruptor mientras la historia larga no viva en el ODS.
+
+---
+
 ## 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera)
 
 **Disparador:** revisión de `/compras/compras-360` pedida por Edgar. La pantalla estaba bien construida (answer-first, empty≠error, estado en URL, sort server-side, split comercial/operativo) y el problema no era el estilo: eran **la atribución del dato y el comportamiento de los filtros**.
