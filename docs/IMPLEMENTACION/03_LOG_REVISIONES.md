@@ -6,6 +6,99 @@
 
 ---
 
+## 2026-08-26 — Réplica de pruebas en .245 (estructura de prod) + espejo del sink · y el CDC del ODS llevaba 2 días colgado
+
+**Disparador:** Edgar pidió una copia de prod en `.245` para usarla de pruebas — **estructura, no data** — y que *"la bd local que alimenta a prod también alimente .245"*.
+
+### 1. Réplica de estructura → `192.168.0.245:5432/platform_test`
+
+`pg_dump --schema-only` de prod (`trolley`, PG 18.6) restaurado en .245 (PG 18.4). Paridad verificada objeto por objeto:
+
+| | prod | .245 | |
+|---|---|---|---|
+| schemas / tablas | 18 / 571 | 18 / 571 | ✅ |
+| PK / FK / UNIQUE / CHECK | 627 / 478 / 262 / 257 | idem | ✅ |
+| vistas / matviews | 55 / 4 | idem | ✅ |
+| índices | 1453 | 1452 | −1 = el HNSW (ver abajo) |
+| RLS forzado / policies | 257 / 257 | idem | ✅ |
+| funciones | 257 | 139 | −118 = las de pgvector |
+| triggers / secuencias | 68 / 8 | idem | ✅ |
+
+Se copió **solo** la data de arranque: `knex_migrations` (486, última `20260825180000_expense_proofs_clasificacion`), `knex_migrations_lock` e `identity.tenants` (1). Sin esas 486 filas, un `knex migrate:latest` contra .245 intentaría replayear todo sobre un schema ya completo. **No** se copiaron usuarios/roles → todavía no hay con qué loguearse.
+
+**pgvector no existe en .245** (PG de Windows; `vector` no está en `pg_available_extensions`). El dump se adapta con `scripts` de sesión: la extensión se omite, las 3 columnas `embedding vector(1024)` bajan a `text`, el índice HNSW y 118 `GRANT` de funciones pgvector se descartan (auditados uno por uno: todos de la extensión). Consecuencia: el match AI de la Fase K **no** funciona en la réplica; todo lo demás sí.
+
+**La réplica vive en `D:` de .245** (tablespace `ts_platform_test` → `D:\pgdata_test`). El `data_directory` de .245 está en `C:` y su espacio libre no es legible desde acá (WinRM y `c$` denegados); `D:` tiene 750 GB verificados vía `Z:`. Sin esto, un espejo continuo podía llenar el disco de sistema de .245.
+
+### 2. Espejo del alimentador: una lectura del origen → dos destinos
+
+`database/importers/lib/sink.js` gana `FEEDS_MIRROR_URL`: además del destino primario (prod por `feeds-ingest` en modo http, o el `Client` del importer en modo pg), aplica **el mismo changeset** a una segunda DB reusando los mismos `HANDLERS` — el SQL de apply sigue teniendo una sola fuente.
+
+Decisiones que importan:
+
+- **Best-effort:** si el espejo está caído o falla, el feed primario sigue igual (nunca lanza, nunca cambia el valor de retorno). Se auto-desactiva por corrida al primer fallo de conexión.
+- **Guard anti-pie:** si `FEEDS_MIRROR_URL` apunta a Railway, se ignora con aviso (evita doble-apply sobre prod).
+- **Socket `unref()`:** el `Client` del espejo no debe impedir que el proceso termine — los importers cierran con `process.exitCode`, no con `process.exit()`. Se hace `ref()` solo mientras hay una escritura en vuelo. Sin esto se reproducía el patrón de *feeds on-prem colgados* que ya nos costó dos días (ver §3).
+- **Si el primario falla, el espejo no corre.** El watermark del origen (`ods.ctl` / `ods.shadow`, co-locado en el réplica local) solo avanza tras un push OK, así que ambos destinos reintentan juntos y quedan consistentes.
+
+Wiring, sin tocar código de los runners:
+- `.env` → `FEEDS_MIRROR_URL=...` cubre los dos loops del ODS (`replicate-ods-live.js` carga dotenv) **sin reiniciar tareas**: cada iteración lanza un `node` nuevo que relee `.env`.
+- `C:\KeplerRunner\run-feeds.cmd` → misma línea (backup `.bak-20260826`), para los importers del sink que **no** cargan dotenv: `import-branch-stock-live`, `import-goods-receipts`, `import-purchase-docs`. Se dejó a propósito **sin** dotenv esos tres: con `.env` cargado, una corrida manual pasaría a apuntar a la copia stale de `localhost:5433` en vez de fallar (el footgun documentado en `reference_prod_db_connection_topology`).
+
+Smoke `database/importers/_smoke-sink-mirror.js` — **7/7**, corriendo contra la réplica (no toca prod): llega el changeset (auto-crea la tabla), es idempotente, un espejo caído no tumba el primario, el guard de Railway funciona y **el proceso termina solo**.
+
+Verificado en vivo: 23 tablas `kepler_ods` espejadas, réplica 49 MB → 106 MB.
+
+**Alcance real del espejo:** cubre el CDC del ODS (que es la fuente de la capa derivada — `analytics.*` es en su mayoría VISTA sobre `kepler_ods`) + existencias + recepciones + docs de compra. **No** cubre los importers que escriben directo (`import-sales-fact`, `import-demand-clean`, `import-replenishment-plan`, …): esos necesitarían una segunda corrida `DATABASE_URL_NEW=<.245> run-prod-feeds.js <modo> --apply --local` (el guard `--local` ya acepta `192.168.*`), a costa de duplicar la lectura LAN a las sucursales.
+
+**Es hacia adelante, no historia.** El watermark/shadow ya venía avanzado, así que .245 recibe únicamente lo que cambia de ahora en más. Traer el histórico es otra operación (copia bulk de `kepler_ods`, el grueso de los 21 GB de prod).
+
+### 3. Hallazgo aparte: el CDC del ODS estaba congelado desde el 24-ago 05:18
+
+Buscando evidencia del espejo apareció esto: `\Tienda\OdsLiveLoop` y `\Tienda\OdsFullMirror` figuraban **Running** y con proceso vivo, pero sus logs no se escribían **desde el 24-ago 05:18 / 05:24** — ~2 días. Los PIDs 6256 y 27096 llevaban **1s y 0s de CPU**: colgados, no trabajando. Antes de congelarse: **607 + 16** respuestas `HTTP 404 {"code":404,"message":"Application not found"}` del edge de Railway (esa forma de error es del edge, no de la app: `feeds-ingest` responde `{"error":"not found"}`).
+
+Impacto: `kepler_ods` en prod 2 días viejo, y con él **todo lo derive-no-copy** que cuelga de ahí (ventas, recepciones, pagos a proveedor, cobranza, bancos Kepler).
+
+Arreglo: matar los dos procesos. El `:loop` del `.cmd` seguía vivo esperándolos → arrancó pasada nueva sola. Recuperado y verificado: 33 tablas con push en 10 min, `kdm1`/`kdm2` en 0 filas de delta (al día), cero 404 en la última pasada. `/ingest/raw-upsert` responde 401 sin key → la ruta y la app están sanas ahora; el 404 fue una ventana mala del edge.
+
+**Lo que queda abierto:** el `FeedGuardian` no vigila estos dos loops (sus logs sí estaban frescos mientras el ODS moría en silencio) y `shipHttp` tiene `timeout: 60000` que evidentemente no cortó el cuelgue. Dos días de atraso silencioso en la fuente de la capa derivada merecen: (a) que el guardian cubra los loops del ODS por *mtime de log*, no por proceso vivo, y (b) un `AbortController` de verdad en `shipHttp`.
+
+### 4. Maestros sembrados — el espejo escribía 0 filas y no avisaba
+
+La réplica solo acumulaba ODS crudo. **Prueba:** la corrida de `stock` de 09:50 shipeó 110 filas de delta, el espejo corrió sin un error… y `commercial.stock` seguía en 0. `applyStockDelta` hace `JOIN commercial.warehouses ON w.code=…` y `JOIN public.products ON p.id=…`; con la estructura clonada y sin maestros, el JOIN daba vacío. **Silencioso por diseño** (un UPSERT que no matchea no es un error) — la lección es que clonar estructura no alcanza: lo que resuelve por clave de negocio necesita a qué colgarse.
+
+Se sembró el **cierre transitivo de FKs** del set de maestros (18 tablas, calculado con un `WITH RECURSIVE` sobre `pg_constraint`, no a ojo): products 14,755 · product_prices 44,973 · customers 3,210 · barcodes 12,339 · suppliers 1,295 · brands 648 · categories 386 · stores 1,584 · routes 139 · warehouses 27 · users 117 · role_permissions 48 · positions 43 · catalogs 41 · departments 13 · price_lists 6. Más `commercial.stock` (52,755), que el feed solo actualiza por delta y nunca se llenaría solo. Carga con `session_replication_role = replica` (FKs y triggers off → el orden entre tablas deja de importar) + `DELETE` previo en vez de `TRUNCATE` (que exigiría `CASCADE`).
+
+Dos tropiezos que valen como nota: (1) `catalog.product_barcodes` chocó con `uniq_catalog_product_barcodes` — no era colación ni data sucia, era que **el espejo ya había insertado 184 barcodes** vía los normalizadores que `raw-upsert` dispara sobre `kdii` (`normalizeProductsFromOds`, `normalizeBarcodesFromOds`, …); el ODS no solo llena `kepler_ods`, también normaliza hacia `catalog.*`. (2) La lista de tablas salía con `\r` pegado porque **`psql.exe` escribe CRLF** — `pg_dump -t` no matcheaba nada y el `TRUNCATE` decía "no existe la relación". `tr -d '\r'`.
+
+### 5. Segundo hallazgo en prod: el `nightly` no corría desde el 25-ago
+
+Al correr `nightly` contra .245 explotó antes del primer paso: `ERR_INVALID_ARG_TYPE` en `sweepStaleOrphans`. La causa está en el repo, no en la réplica: el archivo ya tiene `pathOf(entry)` para las entradas que son `[ruta, ...flags]`, pero `sweepStaleOrphans` llamaba `path.basename(s)` **sobre la entrada cruda**. El commit `7b3c2d3b` (24-ago) agregó el primer step-array (`[repoint-catalog-prices.js, '--gap-fill-only']`) y desde ahí **el modo entero muere al arrancar**.
+
+Confirmado contra el log de prod: corridas de 20 a 24-ago con ~840 líneas cada una, y **21 y 22 líneas el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`, `inventory-health`, `reorder-policy` ni el DRP. Fix de una línea (`path.basename(pathOf(s))`). Nadie se enteró porque el runner sale con código ≠ 0 pero **no hay nada mirando el resultado del nightly**.
+
+### 6. Corrección de rumbo de Edgar: *"no debe vivir ningún nightly, todo vive en ODS"*
+
+Se estaba wireando una segunda corrida de feeds cocinados contra .245 (`run-feeds-245.cmd`, leyendo **solo** los réplicas lógicos locales vía `STOCK_BRANCH_MAP`/`SALES_BRANCH_MAP` → cero carga extra al POS). Edgar cortó eso: la dirección es **derive-no-copy**, no más batch.
+
+Medición para calibrar cuánto falta de esa migración: `analytics` en prod tiene **57 tablas, 17 vistas y 3 matviews** — el 23% convertido. Las pesadas siguen siendo tablas (`sales_daily` 4.4 M filas, `stock_movements`, `product_sales_daily`). Consecuencia práctica para .245: mientras esas 57 sigan siendo tablas, la réplica las tiene vacías; lo que ya es vista responde solo con que `kepler_ods` tenga data. Por eso el trabajo se movió de "correr feeds" a "traer la historia del ODS".
+
+`run-feeds-245.cmd` queda como herramienta **manual** (sirvió para `catalog` 2/2 y `stock` 3/3 — 22,028 filas de existencia y `replenishment_plan` 56,819, todo por pg directo sin tocar prod), **sin tarea agendada**.
+
+### 7. Historia del ODS + rotación de credenciales
+
+**Backfill — y el error de rumbo que Edgar cazó:** `kepler_ods` son 5.2 GB de heap real en 226 tablas, sin una sola FK. El primer intento fue **copiarlo de prod** (`pg_dump -n kepler_ods --data-only` por el proxy). Mal por dos motivos: es **egress pago de Railway** y es lentísimo — medido, ~11 MB/min comprimidos, con las 4 tablas grandes (`kdm2`, `kdmx_26`, `kdpv_bitacora_precios`, `kdmx_25` = 3.5 de los 5.2 GB) copándolo todo. Se abortó a los ~480 MB (el cable va **sin comprimir**, así que fueron algún GB de egress tirado).
+
+Lo correcto es **local → local**: los réplicas lógicos ya están en el contenedor de `:5433`, en la misma LAN que .245. Medido en la misma tabla: **4 s** por las 49 k filas de `kdm1` de una rama, contra ~30 min de proxy para una fracción del total.
+
+Por qué un script nuevo (`kepler/backfill-ods-mirror.js`) y no `replicate-ods-live.js --full`: el watermark (`ods.ctl`) y el shadow de hashes viven en el **origen** y son **estado compartido con el CDC de prod** — una pasada full los avanzaría y prod se saltearía filas que nunca shipeó. El backfill solo LEE `md.*` y escribe la réplica; no toca una fila de estado. Detalles que importan: la contraseña va por `PGPASSWORD` y no en la línea de comando (un `Get-CimInstance Win32_Process` la muestra a cualquiera con la máquina abierta — pasó en esta sesión); la lista de columnas es la **intersección** origen∩destino (el ODS pudo ganar columnas que el origen ya no tiene); `TRUNCATE` una vez por tabla y cada rama escribe su propio `sucursal`, así que no se pisan. Cobertura: 223 de 225 tablas tienen origen local, 1,437 pares tabla×rama.
+
+Y no hace falta detener el CDC: alcanza con **apagar el espejo** y esperar a que no quede ninguna pasada en vuelo (`application_name='feeds-mirror'` en `pg_stat_activity` del destino). Con el espejo prendido, el `TRUNCATE` global entra en deadlock contra un `raw-upsert` en vuelo — vivido dos veces.
+
+**Rotación:** `FEEDS_INGEST_KEY` rotada (Railway `feeds-ingest` + los 6 `.cmd` on-prem) y verificada — cero 401/404 y 24 tablas con push a prod en los 5 min siguientes. Truco para editar `.cmd` en ejecución sin riesgo: **key nueva del mismo largo** (48 hex) → el reemplazo no mueve ningún byte, así que el offset de lectura de `cmd.exe` sigue siendo válido. Los dos endpoints validan **una sola** key exacta (`===`), así que toda rotación tiene ventana; el CDC la tolera porque reintenta cada 15 s sin avanzar watermark.
+
+---
+
 ## 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera)
 
 **Disparador:** revisión de `/compras/compras-360` pedida por Edgar. La pantalla estaba bien construida (answer-first, empty≠error, estado en URL, sort server-side, split comercial/operativo) y el problema no era el estilo: eran **la atribución del dato y el comportamiento de los filtros**.
