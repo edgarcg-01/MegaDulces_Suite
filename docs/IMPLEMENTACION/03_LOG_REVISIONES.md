@@ -63,6 +63,34 @@ Arreglo: matar los dos procesos. El `:loop` del `.cmd` seguía vivo esperándolo
 
 **Lo que queda abierto:** el `FeedGuardian` no vigila estos dos loops (sus logs sí estaban frescos mientras el ODS moría en silencio) y `shipHttp` tiene `timeout: 60000` que evidentemente no cortó el cuelgue. Dos días de atraso silencioso en la fuente de la capa derivada merecen: (a) que el guardian cubra los loops del ODS por *mtime de log*, no por proceso vivo, y (b) un `AbortController` de verdad en `shipHttp`.
 
+### 4. Maestros sembrados — el espejo escribía 0 filas y no avisaba
+
+La réplica solo acumulaba ODS crudo. **Prueba:** la corrida de `stock` de 09:50 shipeó 110 filas de delta, el espejo corrió sin un error… y `commercial.stock` seguía en 0. `applyStockDelta` hace `JOIN commercial.warehouses ON w.code=…` y `JOIN public.products ON p.id=…`; con la estructura clonada y sin maestros, el JOIN daba vacío. **Silencioso por diseño** (un UPSERT que no matchea no es un error) — la lección es que clonar estructura no alcanza: lo que resuelve por clave de negocio necesita a qué colgarse.
+
+Se sembró el **cierre transitivo de FKs** del set de maestros (18 tablas, calculado con un `WITH RECURSIVE` sobre `pg_constraint`, no a ojo): products 14,755 · product_prices 44,973 · customers 3,210 · barcodes 12,339 · suppliers 1,295 · brands 648 · categories 386 · stores 1,584 · routes 139 · warehouses 27 · users 117 · role_permissions 48 · positions 43 · catalogs 41 · departments 13 · price_lists 6. Más `commercial.stock` (52,755), que el feed solo actualiza por delta y nunca se llenaría solo. Carga con `session_replication_role = replica` (FKs y triggers off → el orden entre tablas deja de importar) + `DELETE` previo en vez de `TRUNCATE` (que exigiría `CASCADE`).
+
+Dos tropiezos que valen como nota: (1) `catalog.product_barcodes` chocó con `uniq_catalog_product_barcodes` — no era colación ni data sucia, era que **el espejo ya había insertado 184 barcodes** vía los normalizadores que `raw-upsert` dispara sobre `kdii` (`normalizeProductsFromOds`, `normalizeBarcodesFromOds`, …); el ODS no solo llena `kepler_ods`, también normaliza hacia `catalog.*`. (2) La lista de tablas salía con `\r` pegado porque **`psql.exe` escribe CRLF** — `pg_dump -t` no matcheaba nada y el `TRUNCATE` decía "no existe la relación". `tr -d '\r'`.
+
+### 5. Segundo hallazgo en prod: el `nightly` no corría desde el 25-ago
+
+Al correr `nightly` contra .245 explotó antes del primer paso: `ERR_INVALID_ARG_TYPE` en `sweepStaleOrphans`. La causa está en el repo, no en la réplica: el archivo ya tiene `pathOf(entry)` para las entradas que son `[ruta, ...flags]`, pero `sweepStaleOrphans` llamaba `path.basename(s)` **sobre la entrada cruda**. El commit `7b3c2d3b` (24-ago) agregó el primer step-array (`[repoint-catalog-prices.js, '--gap-fill-only']`) y desde ahí **el modo entero muere al arrancar**.
+
+Confirmado contra el log de prod: corridas de 20 a 24-ago con ~840 líneas cada una, y **21 y 22 líneas el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`, `inventory-health`, `reorder-policy` ni el DRP. Fix de una línea (`path.basename(pathOf(s))`). Nadie se enteró porque el runner sale con código ≠ 0 pero **no hay nada mirando el resultado del nightly**.
+
+### 6. Corrección de rumbo de Edgar: *"no debe vivir ningún nightly, todo vive en ODS"*
+
+Se estaba wireando una segunda corrida de feeds cocinados contra .245 (`run-feeds-245.cmd`, leyendo **solo** los réplicas lógicos locales vía `STOCK_BRANCH_MAP`/`SALES_BRANCH_MAP` → cero carga extra al POS). Edgar cortó eso: la dirección es **derive-no-copy**, no más batch.
+
+Medición para calibrar cuánto falta de esa migración: `analytics` en prod tiene **57 tablas, 17 vistas y 3 matviews** — el 23% convertido. Las pesadas siguen siendo tablas (`sales_daily` 4.4 M filas, `stock_movements`, `product_sales_daily`). Consecuencia práctica para .245: mientras esas 57 sigan siendo tablas, la réplica las tiene vacías; lo que ya es vista responde solo con que `kepler_ods` tenga data. Por eso el trabajo se movió de "correr feeds" a "traer la historia del ODS".
+
+`run-feeds-245.cmd` queda como herramienta **manual** (sirvió para `catalog` 2/2 y `stock` 3/3 — 22,028 filas de existencia y `replenishment_plan` 56,819, todo por pg directo sin tocar prod), **sin tarea agendada**.
+
+### 7. Historia del ODS + rotación de credenciales
+
+**Backfill:** `kepler_ods` son 5.2 GB de heap real en 226 tablas, sin una sola FK. Se descartó reconstruirlo desde los réplicas locales porque el watermark (`ods.ctl`) y el shadow de hashes son **estado compartido** con el CDC de prod: reescribirlos haría que prod se saltee filas que nunca shipeó. Se copia de prod con `pg_dump -n kepler_ods --data-only`, **sin `--single-transaction`** (el `data_directory` de .245 vive en `C:` y 5 GB en una sola trx inflarían `pg_wal` en el disco de sistema; commit por COPY recicla el WAL). Requiere **detener los dos loops del ODS** mientras carga: con el espejo prendido, el `TRUNCATE` global entra en deadlock contra un `raw-upsert` en vuelo, y una pasada que quede a medio camino deja PKs duplicadas.
+
+**Rotación:** `FEEDS_INGEST_KEY` rotada (Railway `feeds-ingest` + los 6 `.cmd` on-prem) y verificada — cero 401/404 y 24 tablas con push a prod en los 5 min siguientes. Truco para editar `.cmd` en ejecución sin riesgo: **key nueva del mismo largo** (48 hex) → el reemplazo no mueve ningún byte, así que el offset de lectura de `cmd.exe` sigue siendo válido. Los dos endpoints validan **una sola** key exacta (`===`), así que toda rotación tiene ventana; el CDC la tolera porque reintenta cada 15 s sin avanzar watermark.
+
 ---
 
 ## 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera)

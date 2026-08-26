@@ -299,7 +299,10 @@ function run(entry) {
 function sweepStaleOrphans(steps) {
   if (process.platform !== 'win32') return;
   const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
-  const names = [...new Set(steps.map((s) => path.basename(s)))].join(',');
+  // pathOf: una entrada puede ser `[ruta, ...flags]` (ver arriba). Sin esto, basename() recibe
+  // un Array y tira ERR_INVALID_ARG_TYPE ANTES de correr el primer paso → el modo entero muere.
+  // Vivido: el `nightly` de prod no corrió el 25 ni el 26-ago por esto.
+  const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
   try {
     const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
       '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],

@@ -267,3 +267,39 @@ del origen local → dos destinos). Hoy: `192.168.0.245:5432/platform_test` (est
   nunca (los importers cierran con `process.exitCode`, no `process.exit()`) → ver gotcha #13.
 - Solo replica **hacia adelante**: el watermark ya viene avanzado, la réplica no tiene historia.
 - Smoke: `node database/importers/_smoke-sink-mirror.js` (7 aserciones, no toca prod).
+
+## 15. `run-prod-feeds.js` — un step `[ruta, ...flags]` puede matar el modo entero
+
+Una entrada de `STEPS` puede ser una ruta **o** `[ruta, ...flags]`. El archivo tiene `pathOf(entry)`
+para eso, pero cualquier función que use la entrada cruda con `path.basename()` tira
+`ERR_INVALID_ARG_TYPE` **antes de correr el primer paso** → el modo completo muere al arrancar.
+
+Ya pasó: el commit que agregó el primer step-array (24-ago-2026) dejó el **`nightly` de prod sin
+correr el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`,
+`inventory-health`, `reorder-policy` ni DRP. Nadie se enteró: el runner sale con código ≠ 0 pero
+**nada mira el resultado del nightly**.
+
+Al tocar `STEPS` o cualquier helper que lo recorra: **siempre `pathOf(s)`**, nunca la entrada cruda.
+Y para verificar que un modo arranca, alcanza el dry-run (sin `--apply`):
+
+```bash
+node database/importers/kepler/run-prod-feeds.js <modo> | head -3
+```
+
+## 16. Trampas chicas de los feeds on-prem (ya vividas)
+
+- **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
+  nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
+  Pasar siempre por `tr -d '\r'`.
+- **El réplica lógico de la sucursal 03 se llama `kepler_pilot`** (nombre del piloto, rename
+  diferido), no `kepler_md_03`. Existe además un `md_03` que es un **sobrante congelado en junio**:
+  usarlo da data vieja sin ningún error. La resolución canónica está en `localDbName()` de
+  `replicate-ods-live.js`.
+- **`sslmode=no-verify` no existe en libpq.** Es cosa de node-postgres. Para `psql`/`pg_dump` contra
+  el proxy de Railway va `sslmode=require`.
+- **Editar un `.cmd` que está corriendo** corre el offset de lectura de `cmd.exe` y puede hacerle
+  ejecutar un fragmento partido. Si el cambio es un reemplazo de **igual largo** (p. ej. rotar una
+  key por otra del mismo tamaño) no se mueve ningún byte y es inofensivo. Si cambia el tamaño:
+  detener la tarea, editar, arrancar.
+- **`session_replication_role = replica`** (como superuser) apaga triggers y chequeo de FK — sirve
+  para cargas masivas sin pelear el orden entre tablas. Lo que **no** apaga son los índices UNIQUE.

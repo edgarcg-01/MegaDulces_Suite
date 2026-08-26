@@ -131,7 +131,22 @@ function shipHttp(feed, { rows, tenantId, meta }) {
     const body = zlib.gzipSync(Buffer.from(payload, 'utf8'));
     const lib = u.protocol === 'https:' ? https : http;
 
-    const req = lib.request(
+    // DEADLINE DURO de toda la operación. El `timeout` de abajo es de INACTIVIDAD de socket:
+    // no cubre un servidor que gotea bytes, ni una respuesta que se corta sin emitir 'error'
+    // en el request. Sin este reloj el ship puede no resolver NUNCA y el loop del .cmd se
+    // queda esperando para siempre — fue el cuelgue de 2 días del CDC del ODS (24-ago).
+    const HARD_MS = Number(process.env.FEEDS_INGEST_TIMEOUT_MS) || 120000;
+    let req = null;
+    let settled = false;
+    let deadline = null;
+    const done = (err, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      if (err) { try { if (req) req.destroy(); } catch { /* ya cerrado */ } reject(err); } else resolve(val);
+    };
+
+    req = lib.request(
       u,
       {
         method: 'POST',
@@ -146,19 +161,23 @@ function shipHttp(feed, { rows, tenantId, meta }) {
       (res) => {
         let data = '';
         res.on('data', (d) => (data += d));
+        // Sin este handler, una respuesta cortada emite 'error' en el stream y nadie lo escucha
+        // → la promesa queda colgada (y en Node un 'error' sin listener puede tumbar el proceso).
+        res.on('error', (e) => done(new Error(`ingest '${feed}': respuesta cortada: ${e.message}`)));
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             let parsed = {};
             try { parsed = JSON.parse(data || '{}'); } catch { parsed = { raw: data }; }
-            resolve({ ok: true, mode: 'http', ...parsed });
+            done(null, { ok: true, mode: 'http', ...parsed });
           } else {
-            reject(new Error(`ingest '${feed}' → HTTP ${res.statusCode}: ${String(data).slice(0, 300)}`));
+            done(new Error(`ingest '${feed}' → HTTP ${res.statusCode}: ${String(data).slice(0, 300)}`));
           }
         });
       },
     );
-    req.on('error', reject);
-    req.on('timeout', () => req.destroy(new Error(`ingest '${feed}': timeout`)));
+    req.on('error', (e) => done(e));
+    req.on('timeout', () => done(new Error(`ingest '${feed}': socket inactivo 60s`)));
+    deadline = setTimeout(() => done(new Error(`ingest '${feed}': deadline de ${HARD_MS}ms superado`)), HARD_MS);
     req.write(body);
     req.end();
   });
