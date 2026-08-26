@@ -18,6 +18,20 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
 type Condition = 'bueno' | 'regular' | 'malo';
+type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
+type PlazoLevel = 'bueno' | 'intermedio' | 'riesgoso' | 'vencido';
+
+/**
+ * Umbrales del PLAZO (días entre hoy y la caducidad). **Esta es la perilla**:
+ * si el negocio decide otra ventana, se cambia acá y cambia en toda la pantalla.
+ *
+ * `RIESGOSO_DIAS = 30` no es arbitrario: es el mismo umbral con el que el sistema
+ * ya alerta lotes por vencer (`ALERT_THRESHOLDS.EXPIRING_LOTS_DAYS`), así que la
+ * hoja y las alertas dicen lo mismo. 90 días (un trimestre) es el plazo cómodo
+ * para rotar en tienda; entre 31 y 90 hay que traerlo vigilado.
+ */
+const PLAZO_RIESGOSO_DIAS = 30;
+const PLAZO_INTERMEDIO_DIAS = 90;
 
 /**
  * P2.6 — captura de una hoja de Control de Caducidades (mobile-first).
@@ -40,7 +54,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
         <div class="erd-head-text">
           <h1>Control de Caducidades</h1>
           @if (review(); as r) {
-            <p class="erd-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} — {{ r.review_date }} · {{ r.responsible_name || 'sin responsable' }}</p>
+            <p class="erd-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} — {{ fmtDate(r.review_date) }} · {{ r.responsible_name || 'sin responsable' }}</p>
           }
         </div>
         @if (review(); as r) {
@@ -62,23 +76,42 @@ type Condition = 'bueno' | 'regular' | 'malo';
             </label>
             <label class="erd-field">
               <span class="erd-lbl">Código (si no aparece)</span>
-              <input pInputText [(ngModel)]="codeRaw" placeholder="Código de anaquel" class="erd-full" />
+              <input pInputText [(ngModel)]="codeRaw" (ngModelChange)="onCodeChange()" placeholder="Código de anaquel" class="erd-full" />
             </label>
-            <label class="erd-field">
+            <div class="erd-field">
               <span class="erd-lbl">Cantidad</span>
-              <p-inputnumber [(ngModel)]="qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" styleClass="erd-full"
-                incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"></p-inputnumber>
-            </label>
+              <div class="erd-qtyrow">
+                <p-inputnumber [(ngModel)]="qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" styleClass="erd-full"
+                  incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"></p-inputnumber>
+                <div class="erd-units" role="radiogroup" aria-label="Unidad de medida">
+                  @for (u of units; track u.value) {
+                    <button type="button" class="erd-unit" role="radio" [attr.aria-checked]="unit() === u.value"
+                      [class.on]="unit() === u.value" (click)="pickUnit(u.value)" [title]="u.hint">{{ u.label }}</button>
+                  }
+                </div>
+              </div>
+              @if (unitSuggested()) {
+                <small class="erd-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ unitSuggested() }}</small>
+              }
+            </div>
             <label class="erd-field">
               <span class="erd-lbl">Fecha de caducidad</span>
               <p-datepicker [(ngModel)]="expiry" dateFormat="yy-mm-dd" [showButtonBar]="true" appendTo="body" styleClass="erd-full"></p-datepicker>
+              @if (plazo(); as pz) {
+                <div class="erd-plazo" [attr.data-p]="pz.level">
+                  <i class="pi" [class.pi-check-circle]="pz.level === 'bueno'" [class.pi-eye]="pz.level === 'intermedio'"
+                     [class.pi-exclamation-triangle]="pz.level === 'riesgoso'" [class.pi-times-circle]="pz.level === 'vencido'" aria-hidden="true"></i>
+                  <strong>{{ pz.title }}</strong>
+                  <span>{{ pz.detail }}</span>
+                </div>
+              }
             </label>
             <label class="erd-field">
               <span class="erd-lbl">Ubicación</span>
               <input pInputText [(ngModel)]="location" placeholder="Anaquel / bodega / exhibidor" class="erd-full" />
             </label>
             <div class="erd-field">
-              <span class="erd-lbl">Estado</span>
+              <span class="erd-lbl">Estado físico <em class="erd-lbl-em">(cómo llegó, no la fecha)</em></span>
               <div class="erd-chips">
                 @for (c of conditions; track c.value) {
                   <button type="button" class="erd-chip" [class.on]="condition() === c.value" [attr.data-c]="c.value" (click)="condition.set(c.value)">{{ c.label }}</button>
@@ -97,10 +130,16 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <span class="erd-lbl">Foto de evidencia</span>
               @if (pendingPhoto()) {
                 <div class="erd-photo">
-                  <img [src]="pendingPhoto()!.url" alt="evidencia" />
+                  <img [src]="pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
                   <button pButton [text]="true" severity="danger" size="small" (click)="pendingPhoto.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
                 </div>
               } @else {
+                @if (photoFailed()) {
+                  <div class="erd-photo-failed" role="alert">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    La foto no se subió. Si guardás así, el renglón queda <strong>sin evidencia</strong>.
+                  </div>
+                }
                 <label class="erd-pickbtn" [class.busy]="uploading()">
                   <i class="pi" [class.pi-camera]="!uploading()" [class.pi-spin]="uploading()" [class.pi-spinner]="uploading()" aria-hidden="true"></i>
                   {{ uploading() ? 'Subiendo…' : 'Tomar / elegir foto' }}
@@ -128,8 +167,12 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <div class="erd-line-main">
                 <div class="erd-line-name">{{ l.product_name || l.product_name_raw || l.product_code_raw || 'Producto' }}</div>
                 <div class="erd-line-meta">
-                  <span class="erd-qty">{{ l.quantity }} pz</span>
-                  @if (l.expiry_date) { <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag> }
+                  <span class="erd-qty">{{ l.quantity | number }} {{ unitLabel(l.unit) }}</span>
+                  @if (l.expiry_date) {
+                    <span class="erd-exp">{{ fmtDate(l.expiry_date) }}</span>
+                    <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag>
+                    <span class="erd-plazo-chip" [attr.data-p]="plazoOf(l.expiry_date)?.level">{{ plazoOf(l.expiry_date)?.title }}</span>
+                  }
                   @if (l.condition) { <span class="erd-cond" [attr.data-c]="l.condition">{{ l.condition }}</span> }
                   @if (l.location) { <span class="erd-loc"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ l.location }}</span> }
                   @if (l.fed_to_fefo) { <span class="erd-fefo" title="Alimentó FEFO">FEFO ✓</span> }
@@ -137,7 +180,15 @@ type Condition = 'bueno' | 'regular' | 'malo';
                 @if (l.observations) { <div class="erd-line-obs">{{ l.observations }}</div> }
                 @if (l.action) { <div class="erd-line-act"><i class="pi pi-flag" aria-hidden="true"></i> {{ l.action }}</div> }
               </div>
-              @if (l.files?.length) { <img class="erd-line-photo" [src]="l.files![0].url" alt="evidencia" /> }
+              @if (linePhoto(l); as photo) {
+                <img class="erd-line-photo" [src]="photo" alt="Evidencia del renglón" (error)="onPhotoError($event)" />
+              } @else if (l.files?.length) {
+                <!-- Hay evidencia guardada pero el storage no devolvió URL firmada
+                     (signedUrl() cae a '' si falla): mostrar el hecho, no un <img> roto. -->
+                <span class="erd-photo-missing" title="La evidencia existe pero no se pudo cargar">
+                  <i class="pi pi-image" aria-hidden="true"></i> sin vista previa
+                </span>
+              }
               @if (editable()) {
                 <button pButton [text]="true" severity="danger" size="small" (click)="removeLine(l)" aria-label="Borrar"><span class="p-button-icon pi pi-trash" aria-hidden="true"></span></button>
               }
@@ -179,6 +230,34 @@ type Condition = 'bueno' | 'regular' | 'malo';
     .erd-pickbtn.busy { opacity: .6; cursor: default; }
     .erd-photo { position: relative; display: inline-block; }
     .erd-photo img { max-height: 80px; border-radius: var(--radius-md, 8px); display: block; }
+    .erd-lbl-em { font-style: normal; font-weight: 400; color: var(--text-color-secondary); font-size: .72rem; }
+    .erd-hint { display: flex; align-items: center; gap: .3rem; font-size: .72rem; color: var(--text-color-secondary); margin-top: .25rem; }
+    .erd-qtyrow { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+    .erd-qtyrow > *:first-child { flex: 1 1 130px; }
+    .erd-units { display: inline-flex; border: 1px solid var(--surface-border); border-radius: 8px; overflow: hidden; }
+    .erd-unit { appearance: none; background: transparent; border: 0; border-right: 1px solid var(--surface-border);
+      padding: .4rem .6rem; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--text-color-secondary); }
+    .erd-unit:last-child { border-right: 0; }
+    .erd-unit.on { background: var(--overlay-selected, rgba(0,0,0,.06)); color: var(--text-color); }
+    .erd-unit:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
+    /* Plazo — el veredicto que da el sistema desde la fecha */
+    .erd-plazo { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; font-size: .78rem; }
+    .erd-plazo strong { font-weight: 700; }
+    .erd-plazo span { color: var(--text-color-secondary); }
+    .erd-plazo[data-p="bueno"] { color: var(--ok-fg, #15803d); }
+    .erd-plazo[data-p="intermedio"] { color: var(--warn-fg, #b45309); }
+    .erd-plazo[data-p="riesgoso"], .erd-plazo[data-p="vencido"] { color: var(--bad-fg, #b91c1c); }
+    .erd-plazo-chip { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+    .erd-plazo-chip[data-p="bueno"] { color: var(--ok-fg, #15803d); }
+    .erd-plazo-chip[data-p="intermedio"] { color: var(--warn-fg, #b45309); }
+    .erd-plazo-chip[data-p="riesgoso"], .erd-plazo-chip[data-p="vencido"] { color: var(--bad-fg, #b91c1c); }
+    .erd-photo-failed { display: flex; align-items: center; gap: .4rem; font-size: .76rem; margin-bottom: .4rem;
+      padding: .4rem .55rem; border-radius: 8px; color: var(--bad-fg, #b91c1c);
+      border: 1px solid var(--bad-border, #fecaca); background: var(--bad-soft-bg, #fef2f2); }
+    @media (pointer: coarse) { .erd-unit { min-height: 44px; padding-inline: .8rem; } }
+    .erd-exp { font-size: .78rem; color: var(--text-color-secondary); font-variant-numeric: tabular-nums; }
+    .erd-photo-missing { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem;
+      color: var(--text-color-secondary); white-space: nowrap; }
     .erd-photo button { position: absolute; top: -8px; right: -8px; }
     .erd-form-actions { margin-top: 1rem; display: flex; justify-content: flex-end; }
     .erd-lines-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
@@ -207,6 +286,14 @@ type Condition = 'bueno' | 'regular' | 'malo';
   `],
 })
 export class ComercialExpiryReviewDetailComponent {
+  /** Unidades reales de recepción (no todo llega en piezas). */
+  readonly units: { label: string; value: LineUnit; hint: string }[] = [
+    { label: 'Caja', value: 'caja', hint: 'Caja cerrada — lo común con código de anaquel' },
+    { label: 'Pieza', value: 'pieza', hint: 'Suelto: piñatas, producto individual' },
+    { label: 'Bulto', value: 'bulto', hint: 'Bolsa grande / costal' },
+    { label: 'Kg', value: 'kg', hint: 'Granel, por peso' },
+  ];
+
   readonly conditions: { label: string; value: Condition }[] = [
     { label: 'Bueno', value: 'bueno' },
     { label: 'Regular', value: 'regular' },
@@ -239,10 +326,15 @@ export class ComercialExpiryReviewDetailComponent {
   qty: number | null = null;
   expiry: Date | null = null;
   condition = signal<Condition | null>(null);
+  unit = signal<LineUnit>('caja');
+  /** True mientras el operador no toque el selector: permite auto-sugerir. */
+  private unitTouched = false;
   observations = '';
   action = '';
   location = '';
   pendingPhoto = signal<ReviewFile | null>(null);
+  /** Hubo un intento de foto que falló: el renglón se guardaría SIN evidencia. */
+  readonly photoFailed = signal(false);
 
   uploading = signal(false);
   addingLine = signal(false);
@@ -258,7 +350,12 @@ export class ComercialExpiryReviewDetailComponent {
     this.load();
     this.svc.myBrands()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.promoterBrands.set(r?.brands || []), error: () => {} });
+      .subscribe({
+        next: (r) => this.promoterBrands.set(r?.brands || []),
+        // No se cambia el flujo (sin marcas = no es promotor), pero no se traga en
+        // silencio: un 403 acá se veía igual que "no tiene marcas" (GOTCHAS §4).
+        error: (e) => console.warn('[caducidades] no se pudieron leer las marcas del promotor:', e?.status || e),
+      });
   }
 
   load() {
@@ -274,7 +371,13 @@ export class ComercialExpiryReviewDetailComponent {
     this.productId.set(p?.id || null);
     this.nameRaw.set(p?.label || '');
     if (p?.sku) this.codeRaw = p.sku;
+    this.suggestUnit();
   }
+
+  /** El código de anaquel manda sobre la sugerencia: al teclearlo se re-evalúa. */
+  onCodeChange(): void { this.suggestUnit(); }
+  /** A partir del primer toque manual, el sistema deja de sugerir. */
+  pickUnit(u: LineUnit): void { this.unitTouched = true; this.unit.set(u); }
 
   onPhoto(ev: Event) {
     const input = ev.target as HTMLInputElement;
@@ -287,8 +390,19 @@ export class ComercialExpiryReviewDetailComponent {
       this.svc.uploadExpiryFile(reader.result as string, 'evidencia')
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: (f) => { this.pendingPhoto.set(f); this.uploading.set(false); },
-          error: () => { this.uploading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo subir la foto' }); },
+          next: (f) => { this.pendingPhoto.set(f); this.photoFailed.set(false); this.uploading.set(false); },
+          error: (e) => {
+            this.uploading.set(false);
+            this.photoFailed.set(true);
+            // El backend explica el motivo real (p.ej. "Almacenamiento no configurado
+            // (faltan env S3_*)"). Tragarlo en un genérico dejaba al operador
+            // intentando de nuevo contra algo que nunca iba a funcionar.
+            this.toast.add({
+              severity: 'error', life: 8000,
+              summary: 'No se pudo subir la foto',
+              detail: e?.error?.message || 'Revisá la conexión e intentá de nuevo.',
+            });
+          },
         });
     };
     reader.readAsDataURL(file);
@@ -313,6 +427,7 @@ export class ComercialExpiryReviewDetailComponent {
       observations: this.observations.trim() || undefined,
       action: this.action.trim() || undefined,
       location: this.location.trim() || undefined,
+      unit: this.unit(),
       files: this.pendingPhoto() ? [this.pendingPhoto()!] : undefined,
     };
     this.addingLine.set(true);
@@ -328,6 +443,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.productId.set(null); this.nameRaw.set(''); this.codeRaw = '';
     this.qty = null; this.expiry = null; this.condition.set(null);
     this.observations = ''; this.action = ''; this.pendingPhoto.set(null);
+    this.photoFailed.set(false); this.unitTouched = false; this.unit.set('caja');
   }
 
   removeLine(l: ExpiryReviewLine) {
@@ -369,21 +485,117 @@ export class ComercialExpiryReviewDetailComponent {
 
   back() { this.router.navigate(['..'], { relativeTo: this.route }); }
 
-  private daysTo(expiry: string): number {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const d = new Date(expiry + 'T00:00:00');
-    return Math.round((d.getTime() - today.getTime()) / 86400000);
+  // ── Plazo: el sistema lo dice solo, desde la fecha ────────────────────────
+
+  /**
+   * Clasifica la caducidad contra HOY. Es lo que el operador pidió: que el sistema
+   * diga si es buen plazo, hay que vigilarlo, o es riesgoso para la tienda —
+   * sin que nadie lo tenga que juzgar a ojo.
+   */
+  private classify(days: number | null): { level: PlazoLevel; title: string; detail: string } | null {
+    if (days === null) return null;
+    if (days < 0) return { level: 'vencido', title: 'Vencido', detail: `hace ${Math.abs(days)} d — retirar` };
+    if (days <= PLAZO_RIESGOSO_DIAS)
+      return { level: 'riesgoso', title: 'Riesgoso', detail: `vence en ${days} d — sacarlo ya` };
+    if (days <= PLAZO_INTERMEDIO_DIAS)
+      return { level: 'intermedio', title: 'Intermedio', detail: `${days} d — vigilar` };
+    return { level: 'bueno', title: 'Buen plazo', detail: `${days} d` };
+  }
+
+  /** Plazo de la fecha que se está capturando en el formulario. */
+  plazo(): { level: PlazoLevel; title: string; detail: string } | null {
+    return this.classify(this.daysFromDate(this.expiry));
+  }
+  /** Plazo de un renglón ya guardado. */
+  plazoOf(expiry: string | null | undefined): { level: PlazoLevel; title: string; detail: string } | null {
+    return this.classify(this.daysTo(String(expiry || '')));
+  }
+  private daysFromDate(d: Date | null): number | null {
+    if (!d) return null;
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
+    const today = new Date(); today.setHours(12, 0, 0, 0);
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
+  }
+
+  // ── Unidad de medida ──────────────────────────────────────────────────────
+
+  unitLabel(u: string | null | undefined): string {
+    switch (u) {
+      case 'caja': return 'cajas';
+      case 'bulto': return 'bultos';
+      case 'kg': return 'kg';
+      case 'pieza': return 'pz';
+      default: return 'pz'; // renglones anteriores a la columna
+    }
+  }
+
+  /**
+   * Sugerencia (no imposición): un código de anaquel puramente numérico casi
+   * siempre viene de caja; un producto resuelto por código de barras se cuenta
+   * suelto. Solo aplica mientras el operador no haya elegido unidad a mano.
+   */
+  private suggestUnit(): void {
+    if (this.unitTouched) return;
+    const code = (this.codeRaw || '').trim();
+    if (code && /^\d+$/.test(code)) this.unit.set('caja');
+    else if (this.productId()) this.unit.set('pieza');
+  }
+  unitSuggested(): string | null {
+    if (this.unitTouched) return null;
+    const code = (this.codeRaw || '').trim();
+    if (code && /^\d+$/.test(code)) return 'Código de anaquel numérico: se asume caja. Cambialo si llegó suelto.';
+    if (this.productId()) return 'Producto escaneado: se asume pieza.';
+    return null;
+  }
+
+  /** URL utilizable de la evidencia, o null si el storage no la firmó. */
+  linePhoto(l: { files?: { url?: string }[] | null }): string | null {
+    const url = l.files?.[0]?.url;
+    return url && /^(https?:|data:|blob:)/.test(url) ? url : null;
+  }
+  /** Si la imagen no carga (URL firmada vencida), se oculta en vez de dejar el ícono roto. */
+  onPhotoError(ev: Event): void {
+    const el = ev.target as HTMLImageElement | null;
+    if (el) el.style.display = 'none';
+  }
+
+  /**
+   * Días a la caducidad.
+   *
+   * `expiry_date` es un `date` de Postgres y la API lo serializa como ISO COMPLETO
+   * (`2027-03-15T06:00:00.000Z`), no como `YYYY-MM-DD`. Concatenarle `'T00:00:00'`
+   * producía `...ZT00:00:00` → **Invalid Date → NaN** → el tag salía "NaN d" y el
+   * semáforo caía siempre a 'secondary'. Se toma el tramo de fecha TAL CUAL (sin
+   * re-convertir a la TZ del navegador: ya viene normalizada del backend, DESIGN §10)
+   * y se compara a mediodía para que el horario de verano no corra un día.
+   */
+  private daysTo(expiry: string): number | null {
+    const ymd = String(expiry || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+    const [y, m, d] = ymd.split('-').map(Number);
+    const target = new Date(y, m - 1, d, 12, 0, 0, 0);
+    const today = new Date(); today.setHours(12, 0, 0, 0);
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
   }
   dayLabel(expiry: string): string {
     const d = this.daysTo(expiry);
-    if (d < 0) return `Vencido ${Math.abs(d)}d`;
+    if (d === null) return 'Sin fecha';
+    if (d < 0) return `Vencido ${Math.abs(d)} d`;
     if (d === 0) return 'Vence hoy';
     return `${d} d`;
   }
   daySeverity(expiry: string): 'danger' | 'warn' | 'secondary' {
     const d = this.daysTo(expiry);
+    if (d === null) return 'secondary';
     if (d <= 7) return 'danger';
     if (d <= 15) return 'warn';
     return 'secondary';
+  }
+  /** Fecha legible (DD/MM/AAAA) del mismo tramo YYYY-MM-DD, sin new Date() sobre el ISO. */
+  fmtDate(v: string | null | undefined): string {
+    const ymd = String(v || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '—';
+    const parts = ymd.split('-');
+    return parts[2] + '/' + parts[1] + '/' + parts[0];
   }
 }

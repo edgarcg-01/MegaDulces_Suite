@@ -29,6 +29,14 @@ import {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_CONDITIONS = ['bueno', 'regular', 'malo'] as const;
+/**
+ * Unidades reales de recepción en tienda: al almacén no todo llega en piezas.
+ * caja (lo común con código numérico de anaquel) · pieza (piñatas, suelto) ·
+ * bulto (las bolsas grandes) · kg (granel). Espeja el CHECK de la migración
+ * 20260825180000.
+ */
+const VALID_UNITS = ['caja', 'pieza', 'bulto', 'kg'] as const;
+export type LineUnit = (typeof VALID_UNITS)[number];
 type Condition = (typeof VALID_CONDITIONS)[number];
 
 export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
@@ -50,6 +58,7 @@ export interface ReviewLineDto {
   observations?: string;
   action?: string;
   location?: string; // ubicación física del renglón (anaquel/bodega/exhibidor)
+  unit?: LineUnit; // caja | pieza | bulto | kg
   files?: ReviewFile[];
 }
 
@@ -175,6 +184,7 @@ export class CommercialExpiryReviewsService {
           'l.observations',
           'l.action',
           'l.location',
+          'l.unit',
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
@@ -209,6 +219,7 @@ export class CommercialExpiryReviewsService {
           observations: dto.observations || null,
           action: dto.action || null,
           location: dto.location || null,
+          unit: dto.unit || null,
           files: JSON.stringify(dto.files || []),
           created_by: ctx?.userId || null,
           updated_by: ctx?.userId || null,
@@ -238,6 +249,7 @@ export class CommercialExpiryReviewsService {
       if (dto.observations !== undefined) patch.observations = dto.observations || null;
       if (dto.action !== undefined) patch.action = dto.action || null;
       if (dto.location !== undefined) patch.location = dto.location || null;
+      if (dto.unit !== undefined) patch.unit = dto.unit || null;
       if (dto.files !== undefined) patch.files = JSON.stringify(dto.files || []);
 
       const [row] = await trx('commercial.expiry_review_lines').where({ id: lineId }).update(patch).returning('*');
@@ -353,6 +365,8 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('quantity debe ser número >= 0');
     if (dto.condition && !VALID_CONDITIONS.includes(dto.condition))
       throw new BadRequestException(`condition debe ser: ${VALID_CONDITIONS.join(', ')}`);
+    if (dto.unit && !VALID_UNITS.includes(dto.unit))
+      throw new BadRequestException(`unit debe ser: ${VALID_UNITS.join(', ')}`);
   }
 
   /** Normaliza un valor de fecha (Date que devuelve pg para `date`, o string) a 'YYYY-MM-DD'. */

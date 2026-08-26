@@ -54,6 +54,26 @@ Aunque cada uno tenga su dominio, estos archivos los tocan varios → **coordina
 | **Diseño** (`libs/design-tokens/tokens.css`, `DESIGN.md`) | cambios de sistema visual | review del lead |
 | **Docs vivos** (`CLAUDE.md`, tracker, CHANGELOG) | al cerrar items | commits chicos y frecuentes |
 
+## 3b. Varias sesiones de Claude en UNA PC (worktrees)
+
+Si corrés **varios agentes de Claude en la misma máquina**, NO los abras en la misma carpeta: comparten
+un solo working tree y una sola rama, así que cuando uno hace `checkout`/`pull`/`reset` le borra el trabajo
+**sin commitear** al otro (esa es la causa del "relajo" y de los cambios que se revierten). La regla es
+**1 agente = 1 worktree = 1 rama = 1 carpeta**.
+
+Herramientas (Windows/PowerShell):
+
+```powershell
+.\scripts\nuevo-agente.ps1 almacen   # crea ../tm-almacen con rama feat/almacen (desde origin/main),
+                                      # + junction de node_modules + copia de .env. Abrí Claude ahí.
+.\scripts\cerrar-agente.ps1 almacen -BorrarRama   # cuando el PR ya mergeó: borra carpeta + rama
+git worktree list                     # ver todos los worktrees activos
+```
+
+Reglas: cada agente commitea seguido (lo no commiteado es lo único que se pierde), reparte por dominio (§1)
+para que dos ramas no toquen los mismos archivos, y las **zonas compartidas** (§3) se coordinan antes de tocar.
+Los 2 devs en sus máquinas NO necesitan worktrees (cada clon ya está aislado): les alcanza rama + PR.
+
 ## 4. Flujo de trabajo diario
 
 ```
