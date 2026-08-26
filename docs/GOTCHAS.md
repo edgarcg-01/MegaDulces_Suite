@@ -214,3 +214,56 @@ del `tsc` actual, 0 errores, exit code correcto (1 si hay error) → usable en C
 `tsconfig.ts7.json` es standalone a propósito: TS 7 **removió `baseUrl`** (`TS5102`) y exige `paths`
 relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.base.json`. Si cambian los
 `paths` de la base, replicarlos ahí.
+
+---
+
+## 13. Feeds on-prem — "tarea Running" NO significa que el feed corra
+
+Los loops del CDC del ODS (`\Tienda\OdsLiveLoop`, `\Tienda\OdsFullMirror`) son un `.cmd` con `:loop` que
+relanza `node` cada iteración. Si el `node` se cuelga, **la tarea sigue en `Running` y el proceso sigue
+vivo** — se ve todo sano y no se está replicando nada. Pasó: 2 días congelado (24-ago 05:18 → 26-ago),
+con `kepler_ods` viejo en prod y con él **toda la capa derive-no-copy** que cuelga de ahí.
+
+**La señal real es el `mtime` del log, no el estado de la tarea ni el proceso:**
+
+```bash
+ls -l --time-style=+%Y-%m-%d_%H:%M /c/KeplerRunner/logs/*.log     # ¿cuál se quedó atrás?
+```
+
+Confirmación: si el proceso lleva minutos vivo con ~0s de CPU, está colgado, no trabajando.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'replicate-ods-live' } |
+  ForEach-Object { "pid={0} arrancado={1:HH:mm} cpu_s={2}" -f $_.ProcessId, $_.CreationDate, [math]::Round($_.UserModeTime/1e7) }
+```
+
+**Arreglo:** matar el `node`. El `:loop` del `.cmd` sigue vivo esperándolo → arranca pasada nueva solo.
+No hace falta reiniciar la tarea.
+
+**Frescura del lado destino** (lo que hay que mirar para saber si prod está al día):
+
+```sql
+SELECT count(*) FROM kepler_ods._sync_status WHERE last_push_at > now() - interval '10 min';
+```
+
+Ojo con dos cosas al diagnosticar:
+- El `FeedGuardian` **no** cubre estos loops (vigila los modos de `run-feeds.cmd`), así que nadie avisa.
+- `{"code":404,"message":"Application not found"}` es el **edge de Railway**, no `feeds-ingest` (la app
+  responde `{"error":"not found"}`). Para saber si la app está viva: `POST /ingest/raw-upsert` sin key
+  debe dar **401**; un 404 ahí sí es la app caída.
+
+## 14. Espejo de feeds a la réplica de pruebas (`FEEDS_MIRROR_URL`)
+
+`lib/sink.js` puede aplicar cada changeset a una **segunda** DB además del destino primario (una lectura
+del origen local → dos destinos). Hoy: `192.168.0.245:5432/platform_test` (estructura de prod, sin data).
+
+- Se prende con `FEEDS_MIRROR_URL` en `.env` (cubre los loops del ODS, que sí cargan dotenv) y en
+  `C:\KeplerRunner\run-feeds.cmd` (para `import-branch-stock-live` / `-goods-receipts` / `-purchase-docs`,
+  que **no** cargan dotenv — y así debe quedar: con dotenv, una corrida manual apuntaría a la copia stale
+  de `localhost:5433` en vez de fallar).
+- Es **best-effort**: si el espejo falla, el feed primario sigue igual. Quitar la env = rollback total.
+- Al agregar un `Client` de pg de larga vida a un importer, **`unref()` el socket** o el proceso no termina
+  nunca (los importers cierran con `process.exitCode`, no `process.exit()`) → ver gotcha #13.
+- Solo replica **hacia adelante**: el watermark ya viene avanzado, la réplica no tiene historia.
+- Smoke: `node database/importers/_smoke-sink-mirror.js` (7 aserciones, no toca prod).

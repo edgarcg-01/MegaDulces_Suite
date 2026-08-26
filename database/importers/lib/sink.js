@@ -14,6 +14,11 @@
  *
  * En modo pg, `client` es obligatorio (Client de pg ya conectado). En modo http se ignora.
  * Rollback instantáneo: volver a FEEDS_SINK=pg (o quitar la env) restaura el comportamiento previo.
+ *
+ * ESPEJO (FEEDS_MIRROR_URL): además del destino primario, aplica el MISMO changeset a una
+ * segunda DB (la réplica de pruebas en .245). Una sola lectura del origen local → dos destinos.
+ * Best-effort por diseño: si el espejo falla o está caído, el feed primario sigue como si nada
+ * (nunca lanza, nunca cambia el resultado). Quitar la env = rollback total.
  */
 
 const http = require('http');
@@ -32,13 +37,83 @@ function sinkMode() {
 
 async function ship(feed, { rows, tenantId = DEFAULT_TENANT, client = null, meta = null } = {}) {
   const list = Array.isArray(rows) ? rows : [];
-  if (sinkMode() === 'http') return shipHttp(feed, { rows: list, tenantId, meta });
-  // modo pg: aplicar en proceso con el Client del importer
+  let res;
+  if (sinkMode() === 'http') {
+    res = await shipHttp(feed, { rows: list, tenantId, meta });
+  } else {
+    // modo pg: aplicar en proceso con el Client del importer
+    const handler = HANDLERS[feed];
+    if (!handler) throw new Error(`sink(pg): feed desconocido '${feed}'`);
+    if (!client) throw new Error(`sink(pg): feed '${feed}' requiere un Client de pg conectado`);
+    const rowCount = await handler(client, tenantId, list, meta);
+    res = { ok: true, mode: 'pg', rowCount };
+  }
+  await shipMirror(feed, { rows: list, tenantId, meta }); // nunca lanza
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// Espejo a una segunda DB (FEEDS_MIRROR_URL). Reusa los mismos HANDLERS que el
+// modo pg, así que el SQL de apply sigue teniendo una sola fuente.
+// ---------------------------------------------------------------------------
+let mirrorClient = null;
+let mirrorOff = false; // se apaga sola en la corrida si el destino no responde
+
+function mirrorUrl() {
+  const u = process.env.FEEDS_MIRROR_URL || '';
+  if (!u) return '';
+  // Salvavidas: el espejo es para la réplica local. Apuntarlo a Railway duplicaría
+  // el apply sobre prod (o lo escribiría dos veces desde dos rutas distintas).
+  if (/proxy\.rlwy\.net|railway/i.test(u)) {
+    if (!mirrorOff) console.error('sink(mirror): FEEDS_MIRROR_URL apunta a Railway/prod → espejo IGNORADO');
+    mirrorOff = true;
+    return '';
+  }
+  return u;
+}
+
+// El Client del espejo queda unref'd: un socket idle NO debe impedir que el proceso
+// termine (los importers cierran con `process.exitCode`, no con process.exit()).
+// Se hace ref() solo mientras hay una escritura en vuelo.
+function mirrorStream() {
+  try { return mirrorClient && mirrorClient.connection && mirrorClient.connection.stream; } catch { return null; }
+}
+
+async function getMirror() {
+  if (mirrorOff) return null;
+  const url = mirrorUrl();
+  if (!url) return null;
+  if (mirrorClient) return mirrorClient;
+  try {
+    const { Client } = require('pg');
+    const c = new Client({ connectionString: url, application_name: 'feeds-mirror' });
+    c.on('error', (e) => { console.error('sink(mirror): conexión perdida: ' + String(e.message).slice(0, 120)); mirrorOff = true; mirrorClient = null; });
+    await c.connect();
+    mirrorClient = c;
+    const s = mirrorStream();
+    if (s && s.unref) s.unref();
+    return c;
+  } catch (e) {
+    mirrorOff = true;
+    console.error('sink(mirror): sin conexión → espejo DESACTIVADO en esta corrida: ' + String(e.message).slice(0, 140));
+    return null;
+  }
+}
+
+async function shipMirror(feed, { rows, tenantId, meta }) {
   const handler = HANDLERS[feed];
-  if (!handler) throw new Error(`sink(pg): feed desconocido '${feed}'`);
-  if (!client) throw new Error(`sink(pg): feed '${feed}' requiere un Client de pg conectado`);
-  const rowCount = await handler(client, tenantId, list, meta);
-  return { ok: true, mode: 'pg', rowCount };
+  if (!handler) return; // feed sin handler: el primario ya se quejó
+  const c = await getMirror();
+  if (!c) return;
+  const s = mirrorStream();
+  try {
+    if (s && s.ref) s.ref();
+    await handler(c, tenantId, rows, meta);
+  } catch (e) {
+    console.error(`sink(mirror): '${feed}' falló (no fatal): ` + String(e.message).slice(0, 160));
+  } finally {
+    if (s && s.unref) s.unref();
+  }
 }
 
 function shipHttp(feed, { rows, tenantId, meta }) {
@@ -89,4 +164,4 @@ function shipHttp(feed, { rows, tenantId, meta }) {
   });
 }
 
-module.exports = { ship, sinkMode };
+module.exports = { ship, sinkMode, mirrorUrl };
