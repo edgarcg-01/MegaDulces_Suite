@@ -81,10 +81,12 @@ const ETIQUETAS: Record<string, string> = {
             </em>
             @if (necesitaEvidencia() && !tieneComprobante()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
-          <li [class.ok]="tieneSolicitud()" [class.warn]="!tieneSolicitud()">
-            <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-minus-circle]="!tieneSolicitud()" aria-hidden="true"></i>
+          <!-- Va en los TRES tipos de gasto: el gasto puede no ser comprobable, la
+               autorización firmada nunca deja de existir. -->
+          <li [class.ok]="tieneSolicitud()" [class.no]="!tieneSolicitud()">
+            <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-times-circle]="!tieneSolicitud()" aria-hidden="true"></i>
             <span>Solicitud firmada</span>
-            <em>{{ tieneSolicitud() ? 'adjunta' : 'opcional — la firma de la autorización' }}</em>
+            <em>{{ tieneSolicitud() ? 'adjunta' : 'obligatoria — sin esto no se aprueba' }}</em>
             @if (!tieneSolicitud()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
         </ul>
@@ -154,7 +156,7 @@ const ETIQUETAS: Record<string, string> = {
         @if (puedeResolver() && proof()) {
           <div class="ep-acts">
             @if (proof()!.status !== 'validada') {
-              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || (necesitaEvidencia() && !tieneComprobante())" (click)="resolver('validar')">
+              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !puedeValidar()" (click)="resolver('validar')">
                 <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validado</span></button>
             }
             <!-- Von Restorff: la que cierra en negativo va discreta y separada de la diaria. -->
@@ -162,7 +164,7 @@ const ETIQUETAS: Record<string, string> = {
               <button pButton type="button" severity="danger" text [disabled]="acting()" (click)="showReject.set(true)">
                 <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">No validado</span></button>
             }
-            @if (necesitaEvidencia() && !tieneComprobante()) { <span class="ep-acts-why">Falta la evidencia: sin ella no se puede validar.</span> }
+            @if (!puedeValidar()) { <span class="ep-acts-why">{{ porQueNoValida() }}</span> }
           </div>
         }
       }
@@ -351,6 +353,16 @@ export class ExpenseEvidencePeekComponent {
   readonly tieneSolicitud = computed(() => this.docs().some((d) => d.role === 'solicitud_kepler'));
   /** ¿La clasificación del gasto exige evidencia adjunta? (no_comprobable = no). */
   readonly necesitaEvidencia = computed(() => requiereEvidencia(this.proof()?.clasificacion));
+  /**
+   * Para validar hace falta la **solicitud firmada siempre** + la evidencia sólo si el gasto
+   * es comprobable. Un gasto no comprobable se aprueba sin factura, nunca sin autorización.
+   */
+  readonly puedeValidar = computed(() => this.tieneSolicitud() && (!this.necesitaEvidencia() || this.tieneComprobante()));
+  porQueNoValida(): string {
+    if (!this.tieneSolicitud() && this.necesitaEvidencia() && !this.tieneComprobante()) return 'Faltan la solicitud firmada y la evidencia: sin eso no se puede validar.';
+    if (!this.tieneSolicitud()) return 'Falta la solicitud firmada: sin ella no se puede validar, aunque el gasto no sea comprobable.';
+    return 'Falta la evidencia: sin ella no se puede validar.';
+  }
   clasLabel(): string {
     const c = this.proof()?.clasificacion as ExpenseClasificacion | null | undefined;
     return c ? (CLASIFICACION_LABEL[c] || c) : '';
