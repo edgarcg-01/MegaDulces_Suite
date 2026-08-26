@@ -397,7 +397,9 @@ export interface ExpiringLot {
 }
 
 // ── P2.6 — Control de Caducidades ──────────────────────────────────
-export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string;
+  /** Firma efímera que devuelve /upload solo para la vista previa; no se persiste. */
+  preview_url?: string; }
 
 export interface ExpiryReview {
   id: string;
