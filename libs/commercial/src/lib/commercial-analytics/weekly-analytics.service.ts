@@ -26,8 +26,13 @@ export interface WeeklyQuery {
   week?: string;
   /** Nº de semanas de la tendencia (default 12, máx 26). */
   weeks?: number;
-  /** Código de sucursal ('00'..'05'). Forzado por el controller si el user está scopeado. */
-  warehouse_code?: string;
+  /**
+   * Sucursales visibles, YA resueltas por `ScopeService` en el controller
+   * (`[ID.4]` / ADR-050). `null`/ausente = sin filtro (alcance `all`); lista
+   * vacía = no ve ninguna. Es lista y no un solo código porque el alcance
+   * permite "la suya + la 03".
+   */
+  warehouse_codes?: string[] | null;
 }
 
 export interface RangeQuery {
@@ -35,8 +40,8 @@ export interface RangeQuery {
   from?: string;
   /** Fin del rango (ISO 'YYYY-MM-DD', inclusivo). */
   to?: string;
-  /** Código de sucursal. Forzado por el controller si el user está scopeado. */
-  warehouse_code?: string;
+  /** Sucursales visibles ya resueltas por `ScopeService`. Ver `WeeklyQuery`. */
+  warehouse_codes?: string[] | null;
 }
 
 const MX_TZ = 'America/Mexico_City';
@@ -58,7 +63,9 @@ export class WeeklyAnalyticsService {
   async weekly(q: WeeklyQuery): Promise<any> {
     const tenantId = this.tenantCtx.requireTenantId();
     const weeks = Math.min(26, Math.max(4, Number(q.weeks) || 12));
-    const wh = (q.warehouse_code || '').trim() || null;
+    // `null` = sin filtro (alcance `all`). Array vacío = no ve ninguna sucursal,
+    // que NO es lo mismo: se respeta y devuelve series en cero.
+    const whs = q.warehouse_codes == null ? null : q.warehouse_codes.map((c) => String(c).trim()).filter(Boolean);
     const week = q.week && /^\d{4}-\d{2}-\d{2}$/.test(q.week) ? q.week : null;
 
     return this.tk.run(async (trx) => {
@@ -75,8 +82,8 @@ export class WeeklyAnalyticsService {
       const windowStart = addDays(refStart, -(weeks - 1) * 7);
       const label = (ws: string) => this.isoWeekLabel(ws);
 
-      const whClause = wh ? `AND w.code = ?` : ``;
-      const whBind = wh ? [wh] : [];
+      const whClause = whs ? `AND w.code = ANY(?)` : ``;
+      const whBind = whs ? [whs] : [];
 
       // 2) Serie de tendencia (sales_daily, historia completa).
       const seriesRes: any = await trx.raw(
@@ -174,7 +181,7 @@ export class WeeklyAnalyticsService {
       return {
         ref_week: { start: refStart, label: label(refStart) },
         prev_week: { start: prevStart, label: label(prevStart) },
-        weeks, scoped_warehouse: wh,
+        weeks, scoped_warehouses: whs,
         series, kpis, by_branch, by_product,
       };
     });
@@ -200,7 +207,9 @@ export class WeeklyAnalyticsService {
    */
   async range(q: RangeQuery): Promise<any> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const wh = (q.warehouse_code || '').trim() || null;
+    // `null` = sin filtro (alcance `all`). Array vacío = no ve ninguna sucursal,
+    // que NO es lo mismo: se respeta y devuelve series en cero.
+    const whs = q.warehouse_codes == null ? null : q.warehouse_codes.map((c) => String(c).trim()).filter(Boolean);
     const iso = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
     const from = iso(q.from);
     const to = iso(q.to);
@@ -212,8 +221,8 @@ export class WeeklyAnalyticsService {
     const prevFrom = addDays(from, -days);    // período previo del mismo tamaño
     const prevToExcl = from;                  // exclusivo = from (previo termina el día antes)
 
-    const whClause = wh ? `AND w.code = ?` : ``;
-    const whBind = wh ? [wh] : [];
+    const whClause = whs ? `AND w.code = ANY(?)` : ``;
+    const whBind = whs ? [whs] : [];
 
     return this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '30s'`);
@@ -254,8 +263,8 @@ export class WeeklyAnalyticsService {
       // sin traducir. (Un JOIN a branches.kepler_code lo convertía a 'MD-54' y luego filtraba
       // b2.warehouse_code='05' → 0 filas: ese era el bug de "ticket promedio $0" en sucursales
       // Kepler. El código comercial ya coincide en ambos lados, no hay nada que traducir.)
-      const bWh = wh ? `AND warehouse_code = ?` : ``;
-      const mWh = wh ? `AND b.warehouse_code = ?` : ``;
+      const bWh = whs ? `AND warehouse_code = ANY(?)` : ``;
+      const mWh = whs ? `AND b.warehouse_code = ANY(?)` : ``;
       const tkDaily: any = await trx.raw(
         `WITH tk AS (
            SELECT warehouse_code, ticket_ts::date AS d, count(*)::int AS tickets,
@@ -287,7 +296,7 @@ export class WeeklyAnalyticsService {
          )
          SELECT warehouse_code, d, sum(tickets)::int AS tickets, sum(lines)::int AS lines
            FROM tk GROUP BY 1, 2`,
-        [tenantId, prevFrom, to, ...(wh ? [wh] : []), tenantId, prevFrom, to, ...(wh ? [wh] : [])],
+        [tenantId, prevFrom, to, ...(whs ? [whs] : []), tenantId, prevFrom, to, ...(whs ? [whs] : [])],
       );
       const inCur = (d: string) => d >= from && d <= to;
       const inPrev = (d: string) => d >= prevFrom && d <= prevTo;
@@ -369,7 +378,7 @@ export class WeeklyAnalyticsService {
       return {
         period: { from, to, days },
         prev_period: { from: prevFrom, to: addDays(prevToExcl, -1) },
-        scoped_warehouse: wh,
+        scoped_warehouses: whs,
         kpis, series, by_branch, by_product,
       };
     });

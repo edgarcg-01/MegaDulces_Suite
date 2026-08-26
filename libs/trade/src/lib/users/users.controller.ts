@@ -20,6 +20,7 @@ import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { ReqUser } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { ScopeService, TenantContextService } from '@megadulces/platform-core';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -39,7 +40,11 @@ interface AuthUser {
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly scope: ScopeService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   @Post()
   @RequirePermissions(Permission.USUARIOS_GESTIONAR)
@@ -109,6 +114,40 @@ export class UsersController {
   @ApiOperation({ summary: 'Catálogo de puestos canonicalizados del ORGANIGRAMA 2026' })
   getPositions() {
     return this.usersService.getPositions();
+  }
+
+  /**
+   * `[ID.2]` — Alcance del usuario en sesión (Fase ID / ADR-050).
+   *
+   * Declarado ANTES de `:id`: si fuera después, la ruta genérica se tragaría
+   * `me/scope` (mismo cuidado que en sales-documents con `:folio/anexo.pdf`).
+   *
+   * SIN `@RequirePermissions`: cualquiera puede preguntar por su PROPIO alcance
+   * — es lo que alimenta los selectores de sucursal del front, y pedir un
+   * permiso para saber qué puedes ver es circular.
+   */
+  @Get('me/scope')
+  @ApiOperation({ summary: 'Alcance de datos del usuario en sesión, por dimensión, con las opciones que puede elegir' })
+  async myScope() {
+    const scope = await this.scope.current();
+    return {
+      user_id: scope.userId,
+      role_name: scope.roleName,
+      dimensions: await this.scope.describe(scope),
+    };
+  }
+
+  /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
+  @Get(':id/scope')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Alcance efectivo de un usuario y de dónde sale cada dimensión (user override / rol / default)' })
+  async userScope(@Param('id', new ParseUUIDPipe()) id: string) {
+    const scope = await this.scope.forUser(this.tenantCtx.requireTenantId(), id);
+    return {
+      user_id: scope.userId,
+      role_name: scope.roleName,
+      dimensions: await this.scope.describe(scope),
+    };
   }
 
   @Get(':id')
