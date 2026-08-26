@@ -64,6 +64,9 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
           </div>
 
           @if (clasificacion()) {
+            <!-- Va SIEMPRE: el gasto puede no ser comprobable, la autorización nunca. -->
+            <ng-container *ngTemplateOutlet="campo; context: { $implicit: slotSolicitud }" />
+
             @if (llevaEvidencia()) {
               <!-- Sólo los dos que se llenan siempre; los otros cuatro por progressive disclosure. -->
               @for (slot of slotsBase; track slot.role) {
@@ -83,12 +86,13 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
                 <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="ev-txt"></textarea>
               </div>
             } @else {
-              <!-- No comprobable: sin foto, pero el motivo es obligatorio y auditable. -->
+              <!-- No comprobable: sin factura/ticket, pero CON la solicitud firmada (arriba)
+                   y con motivo obligatorio y auditable. -->
               <div class="ev-f">
                 <span class="ev-lbl">Motivo <b class="ev-req" aria-hidden="true">*</b><span class="sr-only">(obligatorio)</span></span>
                 <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="ev-txt"
                           placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
-                <em class="ev-hint">Se registra sin evidencia. El motivo lo lee quien valida.</em>
+                <em class="ev-hint">Se registra sin factura ni ticket — la solicitud firmada va igual. El motivo lo lee quien valida.</em>
               </div>
             }
           }
@@ -126,7 +130,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
           <!-- Poka-yoke: el envío se previene mientras falte lo obligatorio, en vez de
                dejar apretar y contestar con un error. -->
           <button pButton type="button" [loading]="saving()" [disabled]="!listo() || saving()" (click)="enviar()"
-                  [title]="listo() ? 'Guardar' : (!clasificacion() ? 'Elegí el tipo de gasto' : (llevaEvidencia() ? 'Falta la evidencia' : 'Falta el motivo'))">
+                  [title]="listo() ? 'Guardar' : falta()">
             <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
             <span class="p-button-label">Enviar</span></button>
         }
@@ -178,12 +182,16 @@ export class ExpenseEvidenceDialogComponent {
   readonly saved = output<string>();
 
   /**
-   * La solicitud firmada SÍ se adjunta, pero opcional: sus datos ya los tenemos de Kepler,
-   * lo que aporta el papel es la firma. Lo que no puede faltar es el comprobante del gasto.
+   * **La solicitud firmada se sube SIEMPRE** — sea el gasto fiscal, no fiscal o no
+   * comprobable. Es el papel autorizado que respalda la salida de dinero: sin él el
+   * expediente no existe, aunque no haya factura ni ticket que adjuntar.
+   * Lo que la clasificación condiciona es la EVIDENCIA del gasto (factura/ticket), no la
+   * solicitud. (Antes estaba `required: false` y, peor, en «no comprobable» ni se mostraba
+   * el campo → no había manera de subirla.)
    */
+  readonly slotSolicitud: FileSlot = { role: 'solicitud_kepler', label: 'Solicitud de gasto firmada', required: true, accept: '.pdf,image/*' };
   readonly slotsBase: FileSlot[] = [
     { role: 'comprobante_1', label: 'Comprobante del gasto', required: true, accept: '.pdf,image/*' },
-    { role: 'solicitud_kepler', label: 'Solicitud de gasto firmada', required: false, accept: '.pdf,image/*' },
   ];
   readonly slotsExtra: FileSlot[] = [
     { role: 'comprobante_2', label: 'Comprobante — hoja 2', required: false, accept: '.pdf,image/*' },
@@ -192,7 +200,7 @@ export class ExpenseEvidenceDialogComponent {
     { role: 'evidencia_3', label: 'Evidencia fotográfica 3', required: false, accept: 'image/*,.pdf' },
   ];
   /** La lista completa sigue siendo la fuente de la validación y de la subida. */
-  readonly fileSlots: FileSlot[] = [...this.slotsBase, ...this.slotsExtra];
+  readonly fileSlots: FileSlot[] = [this.slotSolicitud, ...this.slotsBase, ...this.slotsExtra];
   readonly extraAbiertos = signal(false);
   readonly confirmClose = signal(false);
 
@@ -210,14 +218,27 @@ export class ExpenseEvidenceDialogComponent {
     switch (this.clasificacion()) {
       case 'fiscal': return 'Lleva CFDI/factura. Adjunta la factura.';
       case 'no_fiscal_comprobable': return 'No tiene factura pero sí ticket o recibo.';
-      case 'no_comprobable': return 'Sin documento que lo respalde.';
+      case 'no_comprobable': return 'Sin factura ni ticket. La solicitud firmada va igual, más el motivo.';
       default: return '';
     }
   }
-  /** El envío exige: clasificación + (evidencia si comprobable, o motivo si no). */
+  /** ¿Está la solicitud firmada? Es requisito en los tres tipos de gasto. */
+  readonly tieneSolicitud = computed(() => !!this.fileNames()['solicitud_kepler']);
+
+  /**
+   * El envío exige: clasificación + **solicitud firmada (siempre)** + (evidencia si el
+   * gasto es comprobable, o motivo si no lo es).
+   */
   listo(): boolean {
-    if (!this.clasificacion()) return false;
+    if (!this.clasificacion() || !this.tieneSolicitud()) return false;
     return this.llevaEvidencia() ? !!this.fileNames()['comprobante_1'] : !!this.comentarios.trim();
+  }
+
+  /** Qué falta, en el orden en que se llena (para el tooltip del botón). */
+  falta(): string {
+    if (!this.clasificacion()) return 'Elegí el tipo de gasto';
+    if (!this.tieneSolicitud()) return 'Falta la solicitud de gasto firmada';
+    return this.llevaEvidencia() ? 'Falta el comprobante del gasto' : 'Falta el motivo';
   }
 
   readonly fileNames = signal<Record<string, string>>({});
