@@ -26,12 +26,21 @@ export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
  */
 export const EXPENSE_CLASIFICACIONES = ['fiscal', 'no_fiscal_comprobable', 'no_comprobable'] as const;
 export type ExpenseClasificacion = (typeof EXPENSE_CLASIFICACIONES)[number];
-/** ¿Este gasto debe llevar evidencia adjunta? Todo salvo lo declarado no_comprobable. */
+/**
+ * ¿Este gasto debe llevar **evidencia** (factura/ticket) adjunta? Todo salvo lo declarado
+ * no_comprobable.
+ *
+ * ⚠️ Esto condiciona la EVIDENCIA del gasto, **nunca la solicitud firmada**: esa se sube
+ * siempre, sea el gasto fiscal, no fiscal o no comprobable (es la autorización que respalda
+ * la salida de dinero). Ver `REQUEST_ROLE`.
+ */
 export function requiereEvidencia(c?: string | null): boolean {
   return c === 'fiscal' || c === 'no_fiscal_comprobable';
 }
 /** El archivo de evidencia que puede faltar (condicional a la clasificación). */
 const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
+/** La solicitud de gasto firmada: **obligatoria siempre**, en los tres tipos de gasto. */
+const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
@@ -288,6 +297,11 @@ export class ExpenseProofsService {
     if (!departamento) throw new BadRequestException('departamento o sucursal requerido');
 
     const roles = new Set(files.map((f) => f.role));
+    // La solicitud firmada respalda la salida de dinero: va en los TRES tipos de gasto.
+    // Un gasto puede no ser comprobable; la autorización nunca deja de existir.
+    if (!roles.has(REQUEST_ROLE)) {
+      throw new BadRequestException('falta la solicitud de gasto firmada (se adjunta siempre, incluso si el gasto no es comprobable)');
+    }
     if (llevaEvidencia && !roles.has(EVIDENCE_ROLE)) {
       throw new BadRequestException('falta la evidencia del gasto (obligatoria salvo gasto no comprobable)');
     }
