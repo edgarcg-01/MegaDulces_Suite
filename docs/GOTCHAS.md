@@ -333,3 +333,28 @@ Al mover la app a otra base, mover **las dos**:
 Y verificar que el rol `app_runtime` existe **con la contraseña correcta** en el server destino: en
 `.245` existía con una contraseña vieja del snapshot de junio y ninguna credencial de la máquina
 servía. Sin eso el API no arranca contra esa base.
+
+## 18. Rotar `FEEDS_INGEST_KEY` deja ciegos a los consumidores WAL (y su alerta también)
+
+Los 7 `cdc-wal-XX` de PM2 heredaban la key **del shell del operador** al momento de
+`pm2 start`. Al rotarla (Railway + los `.cmd` de KeplerRunner) esos procesos siguen con la
+vieja en memoria → **`HTTP 401` en cada flush, cada 3 segundos**, con `pm2 ls` diciendo
+`online`. Vivido el 2026-08-26.
+
+Lo que lo vuelve traicionero: **el latido de esos consumidores viaja por el MISMO sink**. Si el
+sink no autoriza, tampoco late — el dead-man's switch de Salud BD (`cdc_wal_00..06`) se queda
+mudo exactamente cuando hace falta. Un sensor que depende del canal que vigila no sirve.
+
+**Al rotar la key, la lista completa es:**
+
+1. Railway (`railway variables -s feeds-ingest --set …`).
+2. Los `.cmd` de `C:\KeplerRunner` (6 archivos). Generá la key nueva **del mismo largo** que la
+   vieja: el reemplazo no mueve bytes y editar un `.cmd` en ejecución deja de ser riesgoso.
+3. `.env` del repo (`FEEDS_INGEST_KEY`) — de ahí la lee `ecosystem.cdc.config.js`.
+4. **`pm2 restart cdc-wal-00 … cdc-wal-06 --update-env`** + `pm2 save` (si no, un reboot
+   resucita con la vieja).
+5. Verificar: que los `*-error.log` de PM2 dejen de crecer **y** que `analytics.cron_runs`
+   muestre `cdc_wal_0*` con `updated_at` fresco. Lo primero solo no alcanza.
+
+`ecosystem.cdc.config.js` ahora carga el `.env` del repo y **lanza** si la key falta: fallar al
+arrancar es mucho mejor que 7 procesos logueando 401 en silencio.
