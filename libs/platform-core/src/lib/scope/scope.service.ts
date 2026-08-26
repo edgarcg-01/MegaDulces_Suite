@@ -5,6 +5,7 @@ import { TenantContextService } from '../tenant/tenant-context.service';
 import { isPlatformAdminRole } from '../ability/ability.factory';
 import {
   ResolvedDimension,
+  ScopeSource,
   ResolvedScope,
   ScopeDimension,
   ScopeMode,
@@ -35,7 +36,9 @@ import {
  *     `commercial-map.service.getRequesterZonaId()`. Sin esto, un superadmin con
  *     `zona_id` heredado quedaba filtrado a esa zona (bug ya vivido).
  *
- * Este servicio se despliega INERTE: nadie lo llama hasta `[ID.4]`.
+ * Primer consumidor (`[ID.4]`): `store-analytics.controller` — /tienda/análisis
+ * semanal. El resto de los dominios migra de a uno; hasta que lo hagan siguen
+ * con su filtro a mano, y este servicio simplemente no los toca.
  */
 
 interface CacheEntry {
@@ -157,12 +160,18 @@ export class ScopeService {
         : Promise.resolve([] as ScopeRuleRow[]),
     ]);
 
-    const porUsuario = new Map(userRules.map((r: ScopeRuleRow) => [r.dimension, r]));
-    const porRol = new Map(roleRules.map((r: ScopeRuleRow) => [r.dimension, r]));
+    // Tipado explícito del Map: sin la anotación de tupla, TS infiere
+    // `(ScopeDimension | ScopeRuleRow)[][]` y el `.get()` devuelve `{}`.
+    const indexar = (rows: ScopeRuleRow[]) =>
+      new Map<ScopeDimension, ScopeRuleRow>(
+        rows.map((r) => [r.dimension, r] as [ScopeDimension, ScopeRuleRow]),
+      );
+    const porUsuario = indexar(userRules as ScopeRuleRow[]);
+    const porRol = indexar(roleRules as ScopeRuleRow[]);
 
     for (const dim of SCOPE_DIMENSIONS) {
       const regla = porUsuario.get(dim) ?? porRol.get(dim);
-      const source = porUsuario.has(dim) ? 'user' : porRol.has(dim) ? 'role' : 'default';
+      const source: ScopeSource = porUsuario.has(dim) ? 'user' : porRol.has(dim) ? 'role' : 'default';
       if (!regla) {
         // Fail-closed: sin regla, no ve nada.
         dims[dim] = { mode: 'none', values: [], modeWrite: 'none', valuesWrite: [], source: 'default' };
