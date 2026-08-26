@@ -14,6 +14,12 @@
  * Regla derivada: la evidencia es obligatoria salvo cuando `clasificacion='no_comprobable'`,
  * caso en que se exige el motivo (se reusa `comprobacion_nota` como "por qué no comprobable").
  *
+ * ⚠️ **Corrección 2026-08-25 (Edgar):** esto condiciona SOLO la evidencia. La **solicitud de
+ * gasto firmada (`solicitud_kepler`) se sube siempre**, en los tres tipos — es la autorización
+ * que respalda la salida de dinero. La primera versión la dejó opcional y en «no comprobable»
+ * ni mostraba el campo; se corrigió en el servicio (`REQUEST_ROLE`), en el diálogo de captura
+ * y en el gate de validación del aprobador. Sin cambio de schema.
+ *
  * `NULL` = expedientes previos a este campo (legacy) o sin clasificar todavía.
  * @param { import("knex").Knex } knex
  */
