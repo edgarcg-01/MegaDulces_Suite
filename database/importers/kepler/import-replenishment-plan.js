@@ -43,7 +43,7 @@ const CTE = `
   WITH ur AS (${urBody}),
   pf AS (SELECT id AS product_id, sku, nombre, supplier_id, category_id,
                 COALESCE(factor_sale,1)::numeric fs, COALESCE(cost_with_tax,0)::numeric cwt
-           FROM catalog.products WHERE tenant_id=$1 AND activo=true),
+           FROM catalog.products WHERE tenant_id=$1 AND activo=true AND deleted_at IS NULL),
   lbl AS (SELECT product_id, max(box_size) bs, max(pack_size) ps
             FROM commercial.product_label_prices WHERE tenant_id=$1 GROUP BY product_id),
   uov AS (SELECT product_id, pieces_per_unit, box_factor

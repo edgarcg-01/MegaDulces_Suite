@@ -61,6 +61,32 @@ const eanOk = (v) => { const s = String(v || '').trim(); return /^\d{13}$/.test(
     // (brand,nombre) con DISTINCT ON + ON CONFLICT DO NOTHING. barcode/factor validados en SQL.
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+
+    // REVIVE antes de insertar: si un sku vendido REAPARECE y solo existe como fila BORRADA
+    // (sin fila viva), revivirla en vez de crear un id nuevo. El índice único es parcial
+    // (WHERE deleted_at IS NULL), así que insertar dejaría un par vivo+borrado (el bug del
+    // SKU 68523). Solo revive cuando NO hay fila viva del mismo sku → nunca crea 2 vivas.
+    const rev = await db.query(`
+      WITH sold AS (
+        SELECT DISTINCT sku FROM wincaja.v_sales_lines
+         WHERE tenant_id=$1 AND ( wincaja_only=true
+               OR (source_branch='10' AND business_date < DATE '2026-07-01')
+               OR (source_branch='42' AND business_date < DATE '2025-10-01')
+               OR (source_branch='44' AND business_date < DATE '2026-02-18')
+               OR (source_branch='54' AND business_date < DATE '2026-03-16') )
+         GROUP BY sku HAVING sum(importe) > 0),
+      dead AS (
+        SELECT DISTINCT ON (p.sku) p.id
+          FROM catalog.products p
+          JOIN sold s ON s.sku = p.sku
+         WHERE p.tenant_id=$1 AND p.deleted_at IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM catalog.products l
+                            WHERE l.tenant_id=$1 AND l.sku=p.sku AND l.deleted_at IS NULL)
+         ORDER BY p.sku, p.updated_at DESC)
+      UPDATE catalog.products p SET deleted_at=NULL, activo=true, updated_at=now()
+        FROM dead WHERE p.id = dead.id`, [M]);
+    if (rev.rowCount) console.log(`  revividos (reaparecidos, sin duplicar): ${rev.rowCount}`);
+
     const res = await db.query(`
       WITH sold AS (
         SELECT sku, sum(importe) rev FROM wincaja.v_sales_lines

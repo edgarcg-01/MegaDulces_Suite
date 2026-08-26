@@ -3527,7 +3527,7 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.product_label_prices as lp', function (this: any) {
           this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
         })
-        .where('p.tenant_id', tenantId).andWhere('p.activo', true)
+        .where('p.tenant_id', tenantId).andWhere('p.activo', true).whereNull('p.deleted_at')
         .select(
           'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
           'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
