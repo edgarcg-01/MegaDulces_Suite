@@ -67,5 +67,10 @@ export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
 export * from './lib/phone/mx-phone';
 
+// ── scope (alcance de datos — ADR-050) ──
+export * from './lib/scope/scope.module';
+export * from './lib/scope/scope.service';
+export * from './lib/scope/scope.types';
+
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';

@@ -17,6 +17,7 @@ const TESTS = [
   { file: 'test-newdb-tenant-context.js', label: 'A.0mt.1 tenant context', needsApi: false },
   { file: 'test-newdb-rls-isolation.js', label: 'A.0mt.2 RLS isolation', needsApi: false },
   { file: 'test-newdb-auth-multitenant.js', label: 'A.0mt.3 auth multi-tenant', needsApi: false },
+  { file: 'test-newdb-identity-scopes.js', label: 'ID.1-3 alcance de datos (catálogo 6 dims + CHECK listed/cardinality + RLS forzado + user override gana sobre rol + cobertura: nadie sin sucursal queda sin all explícito + public.users.warehouse_id + own coherente)', needsApi: false },
   { file: 'test-newdb-orders-flow.js', label: 'B.2 orders state machine', needsApi: false },
   { file: 'test-newdb-orders-with-testdata.js', label: 'B.3.2 multi-line order', needsApi: false },
   { file: 'test-newdb-inventory-count.js', label: 'I.1 inventario físico (folio+snapshot+conteo ciego+coverage+freeze+reconcile)', needsApi: false },
