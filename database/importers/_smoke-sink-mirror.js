@@ -10,11 +10,23 @@
  *   4. el proceso TERMINA solo — el Client del espejo va unref'd (si colgara, este
  *      script no volvería nunca: es el bug clásico de los feeds on-prem).
  *
- * Uso: MIRROR_TEST_URL=postgresql://...@192.168.0.245:5432/platform_test node database/importers/_smoke-sink-mirror.js
+ * La URL sale de MIRROR_TEST_URL o, si no está, de FEEDS_MIRROR_URL (la que ya usan los feeds).
+ * No hay default hardcodeado a propósito: no metemos credenciales al repo.
+ *
+ * Uso: MIRROR_TEST_URL=<url de la réplica> node database/importers/_smoke-sink-mirror.js
  */
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const { Client } = require('pg');
 
-const URL_ = process.env.MIRROR_TEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/platform_test';
+const URL_ = process.env.MIRROR_TEST_URL || process.env.FEEDS_MIRROR_URL;
+if (!URL_) {
+  console.error('Falta MIRROR_TEST_URL (o FEEDS_MIRROR_URL en .env) apuntando a la réplica de pruebas.');
+  process.exit(2);
+}
+if (/proxy\.rlwy\.net|railway/i.test(URL_)) {
+  console.error('ABORT: la URL apunta a Railway/prod. Este smoke escribe y borra tablas — solo contra la réplica.');
+  process.exit(2);
+}
 const TABLE = 'zz_sink_mirror_smoke';
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const META = {
