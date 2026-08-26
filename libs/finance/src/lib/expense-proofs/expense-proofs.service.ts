@@ -582,6 +582,12 @@ export class ExpenseProofsService {
 
       const finalClas = clasIn || (clasCol ? cur.clasificacion : null);
       const files: any[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
+      // La solicitud firmada es obligatoria SIEMPRE (los 3 tipos): el gate del aprobador
+      // debe ser el mismo que el de la captura, o un expediente sin firma se colaría por API.
+      const hasRequest = files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url);
+      if (!hasRequest) {
+        throw new BadRequestException('no se puede validar sin la solicitud de gasto firmada adjunta');
+      }
       const hasEvidence = files.some((f) => String(f?.role || '').startsWith('comprobante') && f?.url);
       if (requiereEvidencia(finalClas) && !hasEvidence) {
         throw new BadRequestException('no se puede validar un gasto comprobable sin su evidencia adjunta');

@@ -37,8 +37,8 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
       <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Capturar comprobante de gasto</h1>
-          <p class="surf-page-sub">Pega el folio del gasto (Kepler) y sube el comprobante. Lo demás lo llena el sistema.</p>
+          <h1>Capturar gasto</h1>
+          <p class="surf-page-sub">Pega el folio de la solicitud (Kepler), sube la solicitud firmada y —si aplica— el comprobante. Lo demás lo llena el sistema.</p>
         </div>
       </header>
 
@@ -70,8 +70,26 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
             <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
           </div>
 
-          <!-- 2) Clasificación del gasto: decide si lleva evidencia. -->
-          <div class="cap-step">2 · ¿Qué tipo de gasto es?</div>
+          <!-- 2) Solicitud firmada: OBLIGATORIA siempre (la autorización que respalda la
+               salida de dinero). Va en los tres tipos de gasto, incluso no comprobable. -->
+          <div class="cap-step">2 · Sube la solicitud firmada</div>
+          @if (!names()['solicitud_kepler']) {
+            <div class="cap-drop" [class.drag]="dragSol()" (dragover)="overSol($event)" (dragleave)="leaveSol($event)" (drop)="dropSol($event)">
+              <i class="pi pi-file-edit cap-drop-ic" aria-hidden="true"></i>
+              <div>Arrastra la <strong>solicitud de gasto firmada</strong> (foto o PDF)</div>
+              <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
+                <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'solicitud_kepler')" hidden />
+              </label>
+            </div>
+          } @else {
+            <div class="cap-done">
+              <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['solicitud_kepler'] }}</span>
+              <button type="button" class="cap-link" (click)="clearFile('solicitud_kepler')">cambiar</button>
+            </div>
+          }
+
+          <!-- 3) Clasificación del gasto: decide si lleva evidencia. -->
+          <div class="cap-step">3 · ¿Qué tipo de gasto es?</div>
           <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
                           optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
                           ariaLabel="Tipo de gasto" />
@@ -80,7 +98,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           <!-- 3) Evidencia (si el gasto es comprobable) o motivo (si no lo es). -->
           @if (clasificacion()) {
             @if (llevaEvidencia()) {
-              <div class="cap-step">3 · Sube la evidencia</div>
+              <div class="cap-step">4 · Sube la evidencia</div>
               @if (!names()['comprobante_1']) {
                 <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
                   <i class="pi pi-camera cap-drop-ic" aria-hidden="true"></i>
@@ -106,7 +124,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                 <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
             } @else {
               <!-- No comprobable: sin foto, pero el motivo es obligatorio y auditable. -->
-              <div class="cap-step">3 · ¿Por qué no se puede comprobar?</div>
+              <div class="cap-step">4 · ¿Por qué no se puede comprobar?</div>
               <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="w-full"
                         placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
               <em class="cap-hint">Este gasto se registra <strong>sin evidencia</strong>. El motivo lo lee quien valida.</em>
@@ -276,12 +294,15 @@ export class FinanzasCapturarGastoComponent {
       default: return '';
     }
   }
-  /** Poka-yoke del envío: la clasificación decide qué falta. */
+  /** Poka-yoke del envío: la solicitud firmada es obligatoria SIEMPRE; la clasificación
+   *  decide si además falta evidencia o motivo. */
   puedeEnviar(): boolean {
     if (!this.gasto() || !this.clasificacion()) return false;
+    if (!this.names()['solicitud_kepler']) return false;   // la firma va en los 3 tipos
     return this.llevaEvidencia() ? !!this.names()['comprobante_1'] : !!this.comentarios.trim();
   }
   enviarTitle(): string {
+    if (!this.names()['solicitud_kepler']) return 'Falta la solicitud firmada';
     if (!this.clasificacion()) return 'Elige el tipo de gasto';
     if (this.llevaEvidencia()) return this.names()['comprobante_1'] ? 'Enviar' : 'Falta subir la evidencia';
     return this.comentarios.trim() ? 'Enviar' : 'Falta el motivo';
@@ -295,6 +316,8 @@ export class FinanzasCapturarGastoComponent {
   readonly saving = signal(false);
   readonly formError = signal('');
   readonly drag = signal(false);
+  /** Drag propio de la zona de la solicitud firmada (para no encender ambas zonas a la vez). */
+  readonly dragSol = signal(false);
 
   readonly mine = signal<ExpenseProof[]>([]);
   readonly mineLoading = signal(false);
@@ -333,7 +356,7 @@ export class FinanzasCapturarGastoComponent {
   }
 
   reset() {
-    this.gasto.set(null); this.clearPhoto(); this.sel = null; this.comentarios = '';
+    this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios = '';
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
   }
 
@@ -346,11 +369,16 @@ export class FinanzasCapturarGastoComponent {
   over(e: DragEvent) { e.preventDefault(); e.stopPropagation(); if (!this.drag()) this.drag.set(true); }
   leave(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.drag.set(false); }
   drop(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.drag.set(false); const f = e.dataTransfer?.files?.[0]; if (f) this.handle(f, 'comprobante_1'); }
-  clearPhoto() {
-    delete this.fileData['comprobante_1']; delete this.uploaded['comprobante_1'];
-    this.names.update((m) => { const n = { ...m }; delete n['comprobante_1']; return n; });
-    this.photoResult.set(null);
+  overSol(e: DragEvent) { e.preventDefault(); e.stopPropagation(); if (!this.dragSol()) this.dragSol.set(true); }
+  leaveSol(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.dragSol.set(false); }
+  dropSol(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.dragSol.set(false); const f = e.dataTransfer?.files?.[0]; if (f) this.handle(f, 'solicitud_kepler'); }
+  /** Quita un archivo elegido por rol. El comprobante además limpia su lectura de visión. */
+  clearFile(role: string) {
+    delete this.fileData[role]; delete this.uploaded[role];
+    this.names.update((m) => { const n = { ...m }; delete n[role]; return n; });
+    if (role === 'comprobante_1') this.photoResult.set(null);
   }
+  clearPhoto() { this.clearFile('comprobante_1'); }
 
   private handle(file: File, role: string) {
     if (file.size > 10 * 1024 * 1024) { this.formError.set(`"${file.name}" supera 10 MB.`); return; }
@@ -376,29 +404,30 @@ export class FinanzasCapturarGastoComponent {
     });
   }
 
+  /** Roles de archivo a subir/incluir: la solicitud firmada SIEMPRE, más el comprobante
+   *  cuando el gasto es comprobable. */
+  private rolesActivos(): ProofFileRole[] {
+    return ['solicitud_kepler', ...(this.llevaEvidencia() ? (['comprobante_1'] as ProofFileRole[]) : [])];
+  }
+
   submit() {
     const g = this.gasto();
     if (!g) { this.formError.set('Elige el gasto.'); return; }
     if (!this.clasificacion()) { this.formError.set('Elige el tipo de gasto.'); return; }
-
-    // No comprobable: sin archivos, pero con motivo obligatorio. Se crea directo.
-    if (!this.llevaEvidencia()) {
-      if (!this.comentarios.trim()) { this.formError.set('Escribe por qué no se puede comprobar.'); return; }
-      this.formError.set('');
-      this.saving.set(true);
-      this.create();
-      return;
+    // La solicitud firmada va siempre — el backend la exige en los tres tipos.
+    if (!this.fileData['solicitud_kepler'] && !this.uploaded['solicitud_kepler']) { this.formError.set('Sube la solicitud firmada.'); return; }
+    if (this.llevaEvidencia()) {
+      if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube la evidencia.'); return; }
+      if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
+    } else if (!this.comentarios.trim()) {
+      this.formError.set('Escribe por qué no se puede comprobar.'); return;
     }
-
-    if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube la evidencia.'); return; }
-    if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
     this.saving.set(true);
 
-    const roles = ['comprobante_1'];
-    const toUpload = roles.filter((r) => this.fileData[r] && !this.uploaded[r]);
+    const toUpload = this.rolesActivos().filter((r) => this.fileData[r] && !this.uploaded[r]);
     if (!toUpload.length) { this.create(); return; }
-    const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r as ProofFileRole).pipe(
+    const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r).pipe(
       map((file) => ({ role: r, file: file as ProofFile | null })), catchError(() => of({ role: r, file: null as ProofFile | null })),
     ));
     forkJoin(ups).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((results) => {
@@ -412,7 +441,7 @@ export class FinanzasCapturarGastoComponent {
     const g = this.gasto()!;
     const lleva = this.llevaEvidencia();
     const pr = lleva ? this.photoResult() : null;
-    const files = lleva ? (['comprobante_1'].map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[]) : [];
+    const files = this.rolesActivos().map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,

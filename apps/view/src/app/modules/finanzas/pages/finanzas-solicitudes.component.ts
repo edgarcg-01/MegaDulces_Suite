@@ -458,6 +458,10 @@ export class FinanzasSolicitudesComponent {
     // Sin expediente todavía, o rechazado: hay que (volver a) capturarlo —clasificar y,
     // si el gasto lo lleva, subir la evidencia.
     if (!p || p.status === 'rechazada') return 'capturar';
+    // Falta la solicitud firmada (obligatoria siempre): el aprobador NO puede validar sin
+    // ella, así que el tablero no debe decir "por validar" — sigue en captura (evita el
+    // desacuerdo tablero-vs-peek en expedientes legacy).
+    if (p.solicitud === false) return 'capturar';
     // Comprobable pero sin su evidencia (estado inconsistente / legacy): sigue faltando.
     if (p.requiere_evidencia && p.comprobante === false) return 'capturar';
     // Capturado: le toca decidir a quien aprueba.
