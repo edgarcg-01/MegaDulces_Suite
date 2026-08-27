@@ -24,7 +24,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type DiscrepancyKind = 'pending' | 'ok' | 'faltante' | 'sobrante' | 'producto_incorrecto' | 'dañado';
 
 export interface OpenSessionDto {
-  warehouse_id: string;
+  /** Opcional cuando source_kind='erp_receipt': se deriva de la orden. */
+  warehouse_id?: string;
   supplier_code?: string;
   source_kind?: 'manual' | 'erp_receipt';
   /** Para source_kind='erp_receipt': (sucursal, folio) de analytics.erp_goods_receipts. */
@@ -99,10 +100,16 @@ export class ReceivingSessionService {
   }
 
   async open(dto: OpenSessionDto) {
-    if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const sourceKind = dto.source_kind || 'manual';
     if (sourceKind === 'erp_receipt' && (!dto.erp_sucursal || !dto.erp_folio))
       throw new BadRequestException('erp_receipt requiere sucursal + folio de la orden');
+    // Desde una orden del ERP el almacén se DERIVA (crosswalk → espejo): el
+    // operador no elige nada, solo teclea el folio. En modo manual sigue siendo
+    // obligatorio porque no hay de dónde sacarlo.
+    if (sourceKind !== 'erp_receipt' && !UUID.test(dto.warehouse_id || ''))
+      throw new BadRequestException('warehouse_id inválido');
+    if (dto.warehouse_id && !UUID.test(dto.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
 
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
@@ -113,6 +120,13 @@ export class ReceivingSessionService {
         erpHeader = await this.findErpHeader(trx, dto.erp_sucursal!, dto.erp_folio!);
         if (!erpHeader) throw new NotFoundException('No encontré una orden de entrada con ese folio en esa sucursal');
       }
+
+      // Almacén: lo que mande el cliente, y si no, el que dice la orden del ERP.
+      const warehouseId = dto.warehouse_id || (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : null);
+      if (!warehouseId)
+        throw new BadRequestException(
+          'No pude determinar el almacén de destino: configurá el mapa sucursal→almacén ("Almacenes×sucursal")',
+        );
 
       const year = new Date().getFullYear();
       const seqRes = await trx.raw(
@@ -134,7 +148,7 @@ export class ReceivingSessionService {
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           folio,
-          warehouse_id: dto.warehouse_id,
+          warehouse_id: warehouseId,
           supplier_code: supplierCode,
           source_kind: sourceKind,
           source_ref: erpHeader ? `${erpHeader.sucursal}/${erpHeader.folio}` : null,
@@ -147,8 +161,11 @@ export class ReceivingSessionService {
       // Precarga de líneas esperadas desde el espejo ERP (mapea SKU Kepler → catálogo).
       if (erpHeader) {
         const tenantId = this.tenantCtx.get()?.tenantId || null;
+        // Los renglones `SER` son servicios (flete, maniobra): no son mercancía, no
+        // se reciben ni se ubican. Se excluyen del vale y se muestran aparte en la ficha.
         const erpLines = await trx('analytics.erp_goods_receipt_lines')
           .where({ tenant_id: tenantId, sucursal: erpHeader.sucursal, folio: erpHeader.folio })
+          .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
           .select('sku', 'nombre', 'cantidad');
         for (const el of erpLines) {
           const prod = el.sku ? await trx('public.products').where({ sku: String(el.sku) }).first('id') : null;
@@ -172,19 +189,40 @@ export class ReceivingSessionService {
    * Resuelve la cabecera de una orden de entrada del ERP por (sucursal, folio). Acepta
    * el folio COMPLETO o solo los últimos dígitos (búsqueda por sufijo, la más reciente).
    */
+  /**
+   * Almacén destino de una orden del ERP: primero el crosswalk configurado, si no
+   * el que ya trae el espejo.
+   *
+   * Valida que el almacén EXISTA para este tenant antes de devolverlo: el espejo
+   * `analytics.*` no tiene RLS y su `warehouse_id` puede haber quedado apuntando a
+   * un almacén borrado o de otro tenant. Sin esta comprobación el insert reventaba
+   * con un 500 por violación de FK en vez de un mensaje que se entienda.
+   */
+  private async resolveWarehouse(trx: any, erpHeader: any): Promise<string | null> {
+    const exists = async (id: string | null | undefined) => {
+      if (!id || !UUID.test(id)) return null;
+      const w = await trx('commercial.warehouses').where({ id }).first('id');
+      return w?.id || null;
+    };
+    const map = await trx('commercial.erp_sucursal_warehouse')
+      .where('sucursal', erpHeader.sucursal)
+      .first('warehouse_id');
+    return (await exists(map?.warehouse_id)) || (await exists(erpHeader.warehouse_id));
+  }
+
   private async findErpHeader(trx: any, sucursal: string, folioInput: string) {
     const tenantId = this.tenantCtx.get()?.tenantId || null;
     const f = String(folioInput || '').trim();
     if (!f) return null;
     let row = await trx('analytics.erp_goods_receipts')
       .where({ tenant_id: tenantId, sucursal }).where('folio', f)
-      .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date');
+      .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date', 'warehouse_id');
     if (!row) {
       row = await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: tenantId, sucursal })
         .whereRaw('RIGHT(folio, ?) = ?', [f.length, f])
         .orderBy('receipt_date', 'desc')
-        .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date');
+        .first('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'monto', 'receipt_date', 'warehouse_id');
     }
     return row || null;
   }
@@ -193,6 +231,59 @@ export class ReceivingSessionService {
    * Busca una orden de entrada del ERP (para el diálogo "Nueva sesión"): devuelve el
    * folio completo, el proveedor (autollenado) y cuántas líneas trae. Por últimos dígitos.
    */
+  /**
+   * Busca órdenes de entrada del ERP **solo por folio**, en todas las sucursales.
+   *
+   * El folio de Kepler es por sucursal, así que el mismo número existe en varias
+   * (verificado en prod: `0000001` vive en 7). Por eso devuelve una LISTA para que
+   * el operador elija, en vez de adivinar una. Excluye los vales marcados como
+   * duplicado (`dup_of_folio`), que son réplicas del feed y no entradas reales.
+   *
+   * Todo lo que necesita el vale sale de acá: no hace falta preguntar sucursal ni
+   * almacén — se derivan de la orden elegida.
+   */
+  async searchErpOrders(folio: string, limit = 20) {
+    const f = String(folio || '').trim();
+    if (!/^\d{1,}$/.test(f)) throw new BadRequestException('Escribí el folio (solo dígitos)');
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+
+    return this.tk.run(async (trx) => {
+      // `analytics.*` no tiene RLS → el tenant va explícito (GOTCHAS §1).
+      const rows = await trx('analytics.erp_goods_receipts as r')
+        .where({ 'r.tenant_id': tenantId })
+        .whereNull('r.dup_of_folio')
+        .where((b: any) => b.where('r.folio', f).orWhereRaw('RIGHT(r.folio, ?) = ?', [f.length, f]))
+        .leftJoin('commercial.erp_sucursal_warehouse as m', function () {
+          this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'r.tenant_id').andOn('w.id', '=', trx.raw('COALESCE(m.warehouse_id, r.warehouse_id)'));
+        })
+        .orderBy('r.receipt_date', 'desc')
+        .limit(Math.min(50, Math.max(1, Number(limit) || 20)))
+        .select(
+          'r.sucursal', 'r.folio', 'r.receipt_date',
+          'r.proveedor_code', 'r.proveedor_nombre', 'r.proveedor_rfc',
+          'r.oc_folio', 'r.vale_folio', 'r.concepto', 'r.monto',
+          'w.id as warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
+          // Renglones de MERCANCÍA (los `SER` son fletes/maniobras, no se reciben).
+          trx.raw(`(SELECT COUNT(*) FROM analytics.erp_goods_receipt_lines l
+                     WHERE l.tenant_id = r.tenant_id AND l.sucursal = r.sucursal
+                       AND l.folio = r.folio AND COALESCE(TRIM(l.unidad),'') <> 'SER')::int AS line_count`),
+          trx.raw(`(SELECT COUNT(*) FROM analytics.erp_goods_receipt_lines l
+                     WHERE l.tenant_id = r.tenant_id AND l.sucursal = r.sucursal
+                       AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
+        );
+
+      return rows.map((r: any) => ({
+        ...r,
+        monto: Number(r.monto) || 0,
+        // Traspaso interno = "proveedor" con prefijo TI (sucursal propia).
+        tipo: /^TI/i.test(r.proveedor_code || '') ? 'traspaso' : 'compra',
+      }));
+    });
+  }
+
   async lookupErpOrder(sucursal: string, folio: string) {
     const suc = String(sucursal || '').trim();
     const f = String(folio || '').trim();
@@ -498,6 +589,19 @@ export class ReceivingSessionService {
             SELECT COUNT(*) FROM commercial.receiving_lot_captures c
              WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
           )::int AS holds`),
+          // Unidad TAL CUAL la manda el vale del ERP (PAQ/PZA/KG/CJA/BTO/CUB…).
+          // Se DERIVA del espejo en vez de copiarla a una columna: el vale ya guarda
+          // `source_ref = sucursal/folio` y el renglón su `expected_sku`, y se verificó
+          // en prod que un mismo SKU dentro de un vale nunca trae dos unidades
+          // distintas (0 casos ambiguos de 89,167), así que el join es determinista.
+          trx.raw(
+            `(SELECT MIN(TRIM(el.unidad)) FROM analytics.erp_goods_receipt_lines el
+               WHERE el.tenant_id = l.tenant_id
+                 AND el.sucursal = split_part(?, '/', 1)
+                 AND el.folio    = split_part(?, '/', 2)
+                 AND el.sku      = l.expected_sku) AS expected_unit`,
+            [session.source_ref || '', session.source_ref || ''],
+          ),
         )
         .orderByRaw(`CASE l.discrepancy_kind WHEN 'pending' THEN 0 WHEN 'faltante' THEN 1 WHEN 'sobrante' THEN 2 ELSE 3 END`)
         .orderBy('l.created_at');
@@ -519,7 +623,35 @@ export class ReceivingSessionService {
         held_units: lines.reduce((a, l) => a + Number(l.held_qty), 0),
         holds: lines.reduce((a, l) => a + Number(l.holds), 0),
       };
-      return { ...session, lines, progress };
+      // Ficha del vale del ERP — DERIVADA, no copiada (ERP_KEPLER §5.1): con el
+      // `source_ref` alcanza para traer proveedor/RFC/OC/concepto/monto al vuelo.
+      let erp: Record<string, unknown> | null = null;
+      if (session.source_kind === 'erp_receipt' && session.source_ref) {
+        const [suc, fol] = String(session.source_ref).split('/');
+        const tenantId = this.tenantCtx.get()?.tenantId || null;
+        const h = await trx('analytics.erp_goods_receipts')
+          .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
+          .first(
+            'sucursal', 'folio', 'doc_prefix', 'receipt_date', 'proveedor_code',
+            'proveedor_nombre', 'proveedor_rfc', 'oc_folio', 'vale_folio',
+            'concepto', 'monto',
+          );
+        if (h) {
+          // Servicios del vale (flete/maniobra): se muestran, pero NO se reciben.
+          const services = await trx('analytics.erp_goods_receipt_lines')
+            .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
+            .whereRaw(`TRIM(unidad) = 'SER'`)
+            .select('nombre', 'cantidad', 'importe');
+          erp = {
+            ...h,
+            monto: Number(h.monto) || 0,
+            tipo: /^TI/i.test(h.proveedor_code || '') ? 'traspaso' : 'compra',
+            services,
+          };
+        }
+      }
+
+      return { ...session, lines, progress, erp };
     }
   }
 }

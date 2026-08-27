@@ -12,7 +12,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
-import { ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup, SucursalMapEntry } from '../receiving-session.service';
+import { ErpOrderMatch, ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup, SucursalMapEntry } from '../receiving-session.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -74,38 +74,57 @@ import { Permission } from '../../../core/constants/permissions';
 
       <p-dialog [visible]="newOpen()" (visibleChange)="newOpen.set($event)" [modal]="true" [style]="{ width: '520px' }" header="Nueva sesión de recepción" [dismissableMask]="true">
         <div class="rs-form">
-          <label class="rs-field"><span>Almacén destino *</span>
-            <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="¿A qué almacén entra la mercancía?" styleClass="rs-w"></p-select>
-          </label>
           <label class="rs-field"><span>Origen</span>
-            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" (onChange)="foundOrder.set(null)" styleClass="rs-w"></p-select>
+            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" (onChange)="onSourceChange()" styleClass="rs-w"></p-select>
           </label>
 
           @if (newSource === 'manual') {
+            <label class="rs-field"><span>Almacén destino *</span>
+              <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="¿A qué almacén entra la mercancía?" styleClass="rs-w"></p-select>
+            </label>
             <label class="rs-field"><span>Proveedor (opcional)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
           } @else {
-            <div class="rs-row">
-              <label class="rs-field"><span>Sucursal ERP</span>
-                <p-select [options]="sucursalOptions" [(ngModel)]="newErpSucursal" optionLabel="label" optionValue="value" styleClass="rs-w"></p-select>
-              </label>
-              <label class="rs-field"><span>Folio (últimos dígitos)</span><input pInputText [(ngModel)]="newErpFolio" (keyup.enter)="lookupOrder()" placeholder="ej. 2555" /></label>
-            </div>
-            <button pButton [text]="true" severity="secondary" size="small" (click)="lookupOrder()" [loading]="looking()" [disabled]="!newErpFolio"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span> Buscar orden</button>
-            @if (foundOrder(); as o) {
-              <div class="rs-found">
-                <i class="pi pi-check-circle" aria-hidden="true"></i>
-                <div>
-                  <strong>Orden {{ o.folio }}</strong>
-                  <p-tag [value]="o.tipo === 'traspaso' ? 'Traspaso' : 'Compra'" [severity]="o.tipo === 'traspaso' ? 'warn' : 'info'" styleClass="rs-found-tag"></p-tag>
-                  · {{ o.line_count }} líneas · {{ o.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                  <div class="rs-found-prov">{{ o.tipo === 'traspaso' ? 'Sucursal origen' : 'Proveedor' }}: {{ o.proveedor_nombre || o.proveedor_code || '—' }}</div>
-                  @if (o.warehouse_code) { <div class="rs-found-prov">Almacén: {{ o.warehouse_code }} <span class="rs-auto">(automático)</span></div> }
-                </div>
+            <!-- Un solo campo: el folio del papel. Sucursal, almacén y proveedor
+                 salen de la orden elegida — el operador no llena nada más. -->
+            <label class="rs-field"><span>Folio del vale</span>
+              <input pInputText [(ngModel)]="newErpFolio" (keyup.enter)="searchOrders()" (ngModelChange)="matches.set([])"
+                     placeholder="Tecleá el folio y Enter — ej. 909" autofocus />
+            </label>
+            <button pButton [text]="true" severity="secondary" size="small" (click)="searchOrders()" [loading]="looking()" [disabled]="!newErpFolio">
+              <span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span> Buscar en todas las sucursales
+            </button>
+
+            @if (searched() && !matches().length && !looking()) {
+              <p class="rs-nores">Sin coincidencias para <strong>{{ newErpFolio }}</strong>.</p>
+            }
+            @if (matches().length) {
+              <p class="rs-hint">{{ matches().length }} coincidencia(s) — el mismo folio existe en varias sucursales. Elegí la tuya:</p>
+              <div class="rs-matches">
+                @for (o of matches(); track o.sucursal + '/' + o.folio) {
+                  <button type="button" class="rs-match" [class.on]="isPicked(o)" (click)="pick(o)">
+                    <div class="rs-match-head">
+                      <strong>{{ o.sucursal }} · {{ o.folio }}</strong>
+                      <p-tag [value]="o.tipo === 'traspaso' ? 'Traspaso' : 'Compra'" [severity]="o.tipo === 'traspaso' ? 'warn' : 'info'"></p-tag>
+                      <span class="rs-match-monto">{{ o.monto | currency:'MXN':'symbol-narrow':'1.0-2' }}</span>
+                    </div>
+                    <div class="rs-match-sub">
+                      {{ o.proveedor_nombre || o.proveedor_code || '—' }}
+                      @if (o.receipt_date) { · {{ fmtDate(o.receipt_date) }} }
+                      @if (o.warehouse_code) { · → {{ o.warehouse_code }} }
+                    </div>
+                    <div class="rs-match-sub">
+                      @if (o.line_count) { {{ o.line_count }} renglón(es) }
+                      @else { <span class="rs-warn">sin renglones en el espejo (fuente Wincaja)</span> }
+                      @if (o.service_count) { · <span class="rs-serv">{{ o.service_count }} servicio(s) — no se reciben</span> }
+                      @if (o.oc_folio) { · OC {{ o.oc_folio }} }
+                    </div>
+                  </button>
+                }
               </div>
             }
           }
 
-          <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir sesión</button>
+          <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir vale</button>
         </div>
       </p-dialog>
 
@@ -123,6 +142,21 @@ import { Permission } from '../../../core/constants/permissions';
     </div>
   `,
   styles: [`
+    .rs-matches { display: flex; flex-direction: column; gap: .4rem; max-height: 300px; overflow-y: auto; }
+    .rs-match { text-align: left; background: transparent; border: 1px solid var(--surface-border); border-radius: 10px;
+      padding: .5rem .65rem; cursor: pointer; font: inherit; color: inherit; }
+    .rs-match:hover { background: var(--overlay-hover, rgba(0,0,0,.03)); }
+    .rs-match.on { border-color: var(--action, #c2410c); background: var(--overlay-selected, rgba(0,0,0,.05)); }
+    .rs-match:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: 1px; }
+    .rs-match-head { display: flex; align-items: center; gap: .45rem; }
+    .rs-match-head > strong { font-family: var(--font-mono, monospace); }
+    .rs-match-monto { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .rs-match-sub { font-size: .74rem; color: var(--text-color-secondary); margin-top: .15rem; }
+    .rs-warn { color: var(--warn-fg, #b45309); }
+    .rs-serv { color: var(--text-color-secondary); font-style: italic; }
+    .rs-nores { font-size: .8rem; color: var(--text-color-secondary); }
+    @media (pointer: coarse) { .rs-match { min-height: 44px; } }
+  `, `
     .rs-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .rs-status { min-width: 160px; }
     :host ::ng-deep .rs-w { width: 100%; }
@@ -173,6 +207,10 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   newErpSucursal = '00';
   newErpFolio = '';
   readonly foundOrder = signal<ErpOrderLookup | null>(null);
+  /** Coincidencias del folio en todas las sucursales, y la elegida. */
+  readonly matches = signal<ErpOrderMatch[]>([]);
+  readonly picked = signal<ErpOrderMatch | null>(null);
+  readonly searched = signal(false);
   readonly looking = signal(false);
   readonly sourceOptions = [
     { label: 'Manual (escaneo libre)', value: 'manual' },
@@ -209,35 +247,65 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     });
   }
 
-  openNew(): void { this.foundOrder.set(null); this.newErpFolio = ''; this.newOpen.set(true); }
+  openNew(): void {
+    this.matches.set([]); this.picked.set(null); this.searched.set(false);
+    this.newErpFolio = ''; this.newOpen.set(true);
+  }
+  onSourceChange(): void { this.matches.set([]); this.picked.set(null); this.searched.set(false); }
 
-  /** Busca la orden del ERP por sucursal + últimos dígitos → autollena proveedor + líneas. */
-  lookupOrder(): void {
+  /**
+   * Busca SOLO por folio, en todas las sucursales. El folio de Kepler es por
+   * sucursal, así que el mismo número existe en varias (verificado: `0000909`
+   * está en la 02 con 50 renglones y en la 03 con 1) → se muestran para elegir.
+   */
+  searchOrders(): void {
     const folio = this.newErpFolio.trim();
     if (!folio) return;
-    this.looking.set(true);
-    this.svc.lookupErpOrder(this.newErpSucursal, folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (o) => { this.looking.set(false); this.foundOrder.set(o); if (o.warehouse_id) this.newWarehouse = o.warehouse_id; },
-      error: (e) => { this.looking.set(false); this.foundOrder.set(null); this.toast.add({ severity: 'warn', summary: 'No encontrada', detail: e?.error?.message || 'No hay una orden con ese folio en esa sucursal' }); },
+    this.looking.set(true); this.picked.set(null);
+    this.svc.searchErpOrders(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => {
+        this.looking.set(false); this.searched.set(true);
+        this.matches.set(rows || []);
+        // Si hay una sola, se elige sola: el operador no tiene que confirmar lo obvio.
+        if ((rows || []).length === 1) this.pick(rows[0]);
+      },
+      error: (e) => {
+        this.looking.set(false); this.searched.set(true); this.matches.set([]);
+        this.toast.add({ severity: 'warn', summary: 'Búsqueda', detail: e?.error?.message || 'No pude buscar el folio' });
+      },
     });
   }
 
+  pick(o: ErpOrderMatch): void { this.picked.set(o); }
+  isPicked(o: ErpOrderMatch): boolean {
+    const p = this.picked();
+    return !!p && p.sucursal === o.sucursal && p.folio === o.folio;
+  }
+
+  /** `date` de Postgres llega como ISO completo: se muestra el tramo YYYY-MM-DD. */
+  fmtDate(v: string | null | undefined): string {
+    const ymd = String(v || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '';
+    const p = ymd.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
+
   canOpen(): boolean {
-    if (!this.newWarehouse) return false;
-    return this.newSource === 'manual' ? true : !!this.foundOrder();
+    if (this.newSource === 'manual') return !!this.newWarehouse;
+    return !!this.picked();
   }
 
   create(): void {
     if (!this.canOpen()) return;
-    const o = this.foundOrder();
+    const o = this.picked();
     this.creating.set(true);
     this.svc.open({
-      warehouse_id: this.newWarehouse,
+      // Desde el ERP el almacén lo deriva el backend de la orden elegida: acá no se manda.
+      warehouse_id: this.newSource === 'manual' ? this.newWarehouse : undefined,
       supplier_code: this.newSource === 'manual' ? (this.newSupplier?.trim() || undefined) : undefined,
       source_kind: this.newSource,
-      // Usa el folio COMPLETO de la orden encontrada (el proveedor lo autollena el backend).
-      erp_sucursal: this.newSource === 'erp_receipt' ? this.newErpSucursal : undefined,
-      erp_folio: this.newSource === 'erp_receipt' ? (o?.folio || this.newErpFolio.trim()) : undefined,
+      erp_sucursal: this.newSource === 'erp_receipt' ? o?.sucursal : undefined,
+      erp_folio: this.newSource === 'erp_receipt' ? o?.folio : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate(['/almacen/inventory/recepcion-sesiones', s.id]); },
       error: (e) => { this.creating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo abrir' }); },

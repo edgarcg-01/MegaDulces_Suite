@@ -57,6 +57,32 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
         }
       </header>
 
+      @if (session()?.erp; as v) {
+        <section class="rsd-vale surf-card">
+          <header class="rsd-vale-head">
+            <h2>Vale del ERP {{ v.sucursal }} · {{ v.folio }}</h2>
+            <p-tag [value]="v.tipo === 'traspaso' ? 'Traspaso' : 'Compra'" [severity]="v.tipo === 'traspaso' ? 'warn' : 'info'"></p-tag>
+            <span class="rsd-vale-monto">{{ v.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          </header>
+          <dl class="rsd-vale-grid">
+            <div><dt>{{ v.tipo === 'traspaso' ? 'Sucursal origen' : 'Proveedor' }}</dt>
+                 <dd>{{ v.proveedor_nombre || v.proveedor_code || '—' }}
+                     @if (v.proveedor_code) { <span class="rsd-vale-code">{{ v.proveedor_code }}</span> }</dd></div>
+            @if (v.proveedor_rfc) { <div><dt>RFC</dt><dd class="rsd-mono">{{ v.proveedor_rfc }}</dd></div> }
+            @if (v.receipt_date) { <div><dt>Fecha</dt><dd>{{ fmtDate(v.receipt_date) }}</dd></div> }
+            @if (v.oc_folio) { <div><dt>Orden de compra</dt><dd class="rsd-mono">{{ v.oc_folio }}</dd></div> }
+            @if (v.vale_folio) { <div><dt>Vale de entrada</dt><dd class="rsd-mono">{{ v.vale_folio }}</dd></div> }
+            @if (v.concepto) { <div><dt>Concepto</dt><dd>{{ v.concepto }}</dd></div> }
+          </dl>
+          @if (v.services?.length) {
+            <p class="rsd-vale-serv">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Este vale también trae {{ v.services!.length }} servicio(s) — flete o maniobra. No son mercancía: no se reciben ni se ubican.
+            </p>
+          }
+        </section>
+      }
+
       @if (session()?.progress; as pr) {
         <div class="rsd-kpis">
           <div class="rsd-kpi"><span class="rsd-kpi-n">{{ pr.lines }}</span><span class="rsd-kpi-l">líneas</span></div>
@@ -95,7 +121,8 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
       <p-table [value]="lines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
-            <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Esperado</th>
+            <th scope="col">SKU</th><th scope="col">Producto</th>
+            <th scope="col" class="num">Esperado</th><th scope="col">Unidad</th>
             <th scope="col" class="num">Recibido</th><th scope="col" class="num">Declarado</th>
             <th scope="col">Estado</th><th scope="col"></th>
           </tr>
@@ -105,6 +132,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <td class="rsd-mono">{{ l.sku || l.expected_sku || '—' }}</td>
             <td class="rsd-name">{{ l.product_name || l.expected_name || l.product_id || '—' }}</td>
             <td class="num">{{ l.expected_qty | number }}</td>
+            <td class="rsd-unit">{{ l.expected_unit || '—' }}</td>
             <td class="num rsd-rec">{{ l.received_qty | number }}</td>
             <td class="num rsd-decl" [class.rsd-decl-gap]="undeclared(l) > 0">
               {{ declared(l) | number }}
@@ -248,6 +276,16 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rsd-actions { display: flex; gap: .25rem; align-items: center; }
     :host ::ng-deep .rsd-mark { min-width: 64px; }
     .rsd-row-disc { background: var(--warn-soft-bg, #fffbeb); }
+    .rsd-unit { font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--text-color-secondary); }
+    .rsd-vale { margin-bottom: 1rem; }
+    .rsd-vale-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+    .rsd-vale-head h2 { font-size: .95rem; margin: 0; }
+    .rsd-vale-monto { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
+    .rsd-vale-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem 1rem; margin: 0; }
+    .rsd-vale-grid dt { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-color-secondary); }
+    .rsd-vale-grid dd { margin: .1rem 0 0; font-size: .86rem; }
+    .rsd-vale-code { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-color-secondary); margin-left: .3rem; }
+    .rsd-vale-serv { display: flex; align-items: center; gap: .4rem; margin: .7rem 0 0; font-size: .76rem; color: var(--text-color-secondary); }
     .rsd-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     @media (max-width: 900px) { .rsd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     .rsd-hold-banner { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding: .6rem .8rem;

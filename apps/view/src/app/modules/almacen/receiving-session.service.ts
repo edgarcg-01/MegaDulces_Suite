@@ -28,6 +28,25 @@ export interface ReceivingLine {
   held_qty?: number | string;
   /** Cantidad de capturas en pending_authorization. */
   holds?: number;
+  /** Unidad TAL CUAL la manda el vale del ERP (PAQ/PZA/KG/CJA/BTO…). Derivada, no copiada. */
+  expected_unit?: string | null;
+}
+
+/** Ficha del vale del ERP — derivada del espejo al leer, no almacenada. */
+export interface ErpVale {
+  sucursal: string;
+  folio: string;
+  doc_prefix?: string | null;
+  receipt_date?: string | null;
+  proveedor_code?: string | null;
+  proveedor_nombre?: string | null;
+  proveedor_rfc?: string | null;
+  oc_folio?: string | null;
+  vale_folio?: string | null;
+  concepto?: string | null;
+  monto: number;
+  tipo: 'compra' | 'traspaso';
+  services?: { nombre?: string | null; cantidad?: number | string | null; importe?: number | string | null }[];
 }
 
 export interface ReceivingSessionProgress {
@@ -59,6 +78,8 @@ export interface ReceivingSession {
   closed_at?: string | null;
   lines?: ReceivingLine[];
   progress?: ReceivingSessionProgress;
+  /** Datos del vale del ERP (solo si source_kind='erp_receipt'). */
+  erp?: ErpVale | null;
 }
 
 export interface ReceivingSessionListItem extends ReceivingSession {
@@ -67,7 +88,8 @@ export interface ReceivingSessionListItem extends ReceivingSession {
 }
 
 export interface OpenSessionDto {
-  warehouse_id: string;
+  /** Opcional desde el ERP: el backend lo deriva de la orden elegida (ADR-044). */
+  warehouse_id?: string;
   supplier_code?: string;
   source_kind?: 'manual' | 'erp_receipt';
   erp_sucursal?: string;
@@ -96,6 +118,26 @@ export interface SucursalMapEntry {
   warehouse_name?: string | null;
 }
 
+/** Una coincidencia de la búsqueda por folio: trae TODO lo que llena el vale. */
+export interface ErpOrderMatch {
+  sucursal: string;
+  folio: string;
+  receipt_date?: string | null;
+  proveedor_code?: string | null;
+  proveedor_nombre?: string | null;
+  proveedor_rfc?: string | null;
+  oc_folio?: string | null;
+  vale_folio?: string | null;
+  concepto?: string | null;
+  monto: number;
+  warehouse_id?: string | null;
+  warehouse_code?: string | null;
+  warehouse_name?: string | null;
+  line_count: number;
+  service_count: number;
+  tipo: 'compra' | 'traspaso';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReceivingSessionService {
   private readonly http = inject(HttpClient);
@@ -105,7 +147,12 @@ export class ReceivingSessionService {
     return this.http.post<ReceivingSession>(this.base, dto);
   }
 
-  /** Busca una orden de entrada del ERP por sucursal + últimos dígitos del folio. */
+  /** Busca órdenes del ERP SOLO por folio, en todas las sucursales (ADR-044). */
+  searchErpOrders(folio: string): Observable<ErpOrderMatch[]> {
+    const params = new HttpParams().set('folio', folio);
+    return this.http.get<ErpOrderMatch[]>(`${this.base}/erp-search`, { params });
+  }
+
   lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {
     const params = new HttpParams().set('sucursal', sucursal).set('folio', folio);
     return this.http.get<ErpOrderLookup>(`${this.base}/erp-order`, { params });
