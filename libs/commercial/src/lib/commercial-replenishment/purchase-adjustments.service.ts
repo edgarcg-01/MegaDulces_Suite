@@ -381,6 +381,11 @@ export class PurchaseAdjustmentsService {
       .select('sucursal', 'folio').count('* as n')
       .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
       .select(trx.raw(`(array_agg(monto_match ORDER BY created_at DESC))[1] AS any_match`))
+      // RE.13.4 — el lente de CUMPLIMIENTO necesita el descuadre y quién decidió, no sólo
+      // si cuadra: la pregunta de esa vista es "¿en qué anda el proceso?", no "¿cuánto costó?".
+      .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY created_at DESC))[1] AS last_disc`))
+      .select(trx.raw(`(array_agg(validated_by ORDER BY created_at DESC))[1] AS last_by`))
+      .select(trx.raw(`(array_agg(created_at ORDER BY created_at DESC))[1] AS last_at`))
       .groupBy('sucursal', 'folio').as('d');
     const b = trx('analytics.erp_goods_receipts as c')
       .leftJoin(adj, (j: any) => { j.on('c.sucursal', 'a.sucursal').andOn('c.folio', 'a.entrada_folio'); })
@@ -467,7 +472,12 @@ export class PurchaseAdjustmentsService {
           trx.raw('COALESCE(a.ajuste_operativo,0)::numeric AS ajuste_operativo'),
           trx.raw('COALESCE(d.n,0)::int AS deposits'),
           trx.raw('d.last_status AS deposit_status'),
-          trx.raw('COALESCE(d.any_match, false) AS monto_match'))
+          trx.raw('COALESCE(d.any_match, false) AS monto_match'),
+          // RE.13.4 — columnas del lente de cumplimiento. `dias` va acotado a hoy: hay una
+          // entrada de CEDIS con fecha 29/12/2026 que si no daba días negativos.
+          trx.raw('d.last_disc::numeric AS discrepancy_amount'),
+          trx.raw('d.last_by AS decidio'),
+          trx.raw('(current_date - LEAST(c.receipt_date, current_date))::int AS dias'))
         .orderByRaw(orderSql)
         .limit(pageSize).offset(q.all ? 0 : (page - 1) * pageSize);
       const factura = Number(tot?.factura) || 0, ajuste = Number(tot?.ajuste) || 0;
@@ -485,7 +495,9 @@ export class PurchaseAdjustmentsService {
         },
         rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste),
           ajuste_comercial: Number(r.ajuste_comercial) || 0, ajuste_operativo: Number(r.ajuste_operativo) || 0,
-          neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true })),
+          neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true,
+          discrepancy_amount: r.discrepancy_amount == null ? null : Number(r.discrepancy_amount),
+          dias: Number(r.dias) || 0 })),
       };
     });
   }

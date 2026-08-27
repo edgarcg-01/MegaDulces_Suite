@@ -4,7 +4,7 @@ import { Subject, switchMap, of, catchError } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
@@ -19,6 +19,9 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
+import { EntradasService, CoverageReport } from '../entradas.service';
+import { branchName } from '../../../core/constants/store-branches';
 import { makeLazyLoad, type LazyTableEvent, DATE_PRESET_OPTIONS, datePresetRange, money, moneyShort } from '../../../shared/util';
 import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, Compras360AjusteMode, Compras360OcMode, Compras360CompMode, AdjustmentForEntradaRow, PolizaForReceipt, ReceiptEvidenceDeposit, ReceiptEvidenceFile } from '../compras.service';
 
@@ -35,7 +38,7 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
-    TableModule, TagModule, DatePickerModule, SelectModule, InputNumberModule, DialogModule, MetricStripComponent, ContextHelpComponent,
+    TableModule, TagModule, DatePickerModule, SelectModule, InputNumberModule, DialogModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, RouterLink,
     EntityInspectorComponent,
   ],
   template: `
@@ -46,6 +49,10 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
           <p class="surf-page-sub">Todas las órdenes de entrada y facturas de compra en una vista, con su OC, ajustes (devoluciones/notas ligadas) y neto. El "Excel" de recepción, vivo y filtrable.</p>
         </div>
         <div class="c3-head-actions">
+          <!-- RE.13.4 — dos lentes sobre las MISMAS filas: el dinero (cuánto costó) y el
+               cumplimiento (en qué anda el proceso). Son dos preguntas distintas y antes
+               esta pantalla sólo contestaba la primera. -->
+          <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" />
           <!-- Frescura: esta vista es un espejo que puebla un importer. Sin esto no se
                distingue "no hay recepciones" de "el feed no corrió". -->
           <span class="c3-fresh" [class.stale]="staleFeed()" [title]="freshTitle()">
@@ -109,6 +116,70 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales de compras" />
       }
 
+      <!-- RE.13.4 — Cobertura por sucursal: la tabla que contesta "¿quién no está subiendo?".
+           Un % global no sirve para actuar: con CEDIS pesando el 74% del volumen, la red puede
+           verse bien mientras una sucursal chica lleva tres semanas sin subir nada. -->
+      @if (lente() === 'cumplimiento') {
+        @if (cov(); as cv) {
+          <section class="c3-cov" aria-label="Cobertura por sucursal">
+            <div class="c3-cov-head">
+              <h2>Cobertura del proceso por sucursal</h2>
+              <span class="c3-cov-sub">
+                desde el arranque ({{ cv.settings.reception_start }}) · vencidas = más de
+                {{ cv.settings.sla_capture_days }} días sin factura
+              </span>
+              @if (cv.rezago.entradas > 0) {
+                <span class="c3-cov-rez" [title]="'Entradas anteriores al arranque: no entran al % ni al SLA'">
+                  rezago aparte: {{ cv.rezago.entradas }} · {{ moneyShort(cv.rezago.monto) }}
+                </span>
+              }
+            </div>
+            <div class="c3-cov-table" role="table">
+              <div class="c3-cov-h" role="row">
+                <span role="columnheader">Sucursal</span>
+                <span role="columnheader" class="ta-r">Entradas</span>
+                <span role="columnheader">Con factura</span>
+                <span role="columnheader" class="ta-r">Validadas</span>
+                <span role="columnheader" class="ta-r">Vencidas</span>
+                <span role="columnheader" class="ta-r">Antigüedad p50 / p90</span>
+                <span role="columnheader" class="ta-r">$ por comprobar</span>
+                <span role="columnheader"></span>
+              </div>
+              @for (c of cv.rows; track c.sucursal) {
+                <div class="c3-cov-r" role="row" [class.cero]="c.pct_evidencia === 0">
+                  <span role="cell" class="c3-cov-suc">{{ suc(c.sucursal) }}</span>
+                  <span role="cell" class="ta-r c3-num">{{ c.entradas }}</span>
+                  <span role="cell" class="c3-cov-bar">
+                    <span class="c3-cov-track"><span [style.width.%]="c.pct_evidencia"></span></span>
+                    <em>{{ c.pct_evidencia }}%</em>
+                  </span>
+                  <span role="cell" class="ta-r c3-num">{{ c.validadas }}</span>
+                  <span role="cell" class="ta-r c3-num" [class.c3-neg]="c.atrasadas > 0">{{ c.atrasadas }}</span>
+                  <span role="cell" class="ta-r c3-num" [title]="'La mitad de lo pendiente lleva ' + c.dias_p50 + ' días o más; el 10% peor, ' + c.dias_p90"
+                        [class.c3-neg]="c.dias_p50 > cv.settings.sla_capture_days">{{ c.dias_p50 }} / {{ c.dias_p90 }}</span>
+                  <span role="cell" class="ta-r c3-num">{{ moneyShort(c.monto_pendiente) }}</span>
+                  <span role="cell" class="c3-cov-act">
+                    @if (c.entradas > c.con_evidencia) {
+                      <a [routerLink]="['/compras/entradas']" [queryParams]="{ suc: c.sucursal }" class="c3-linkbtn"
+                         title="Abrir la worklist de esa sucursal">pendientes</a>
+                    }
+                    @if (c.por_validar > 0) {
+                      <a [routerLink]="['/compras/entradas/revision']" [queryParams]="{ suc: c.sucursal }" class="c3-linkbtn"
+                         [title]="c.por_validar + ' esperando decisión'">revisar {{ c.por_validar }}</a>
+                    }
+                  </span>
+                </div>
+              }
+              @if (!cv.rows.length) {
+                <div class="c3-cov-r" role="row"><span class="muted">Sin sucursales en tu alcance.</span></div>
+              }
+            </div>
+          </section>
+        } @else if (covLoading()) {
+          <p class="c3-cov-load"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Calculando cobertura…</p>
+        }
+      }
+
       <p-table
         [value]="data()?.rows || []"
         [loading]="loading()"
@@ -135,9 +206,16 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
             <th class="c3-w-oc" pSortableColumn="oc_folio">OC <p-sorticon field="oc_folio" /></th>
             <th class="c3-w-oc" pSortableColumn="folio">Folio <p-sorticon field="folio" /></th>
             <th class="ta-r c3-w-amt" pSortableColumn="factura">Factura <p-sorticon field="factura" /></th>
-            <th class="ta-r c3-w-amt" pSortableColumn="ajuste">Ajuste <p-sorticon field="ajuste" /></th>
-            <th class="ta-r c3-w-amt" pSortableColumn="neto">Neto <p-sorticon field="neto" /></th>
-            <th class="c3-w-comp">Comprobante</th>
+            @if (lente() === 'dinero') {
+              <th class="ta-r c3-w-amt" pSortableColumn="ajuste">Ajuste <p-sorticon field="ajuste" /></th>
+              <th class="ta-r c3-w-amt" pSortableColumn="neto">Neto <p-sorticon field="neto" /></th>
+              <th class="c3-w-comp">Comprobante</th>
+            } @else {
+              <th class="ta-r c3-w-dias">Días</th>
+              <th class="c3-w-comp">Evidencia</th>
+              <th class="ta-r c3-w-amt">Δ factura</th>
+              <th class="c3-w-quien">Decidió</th>
+            }
           </tr>
         </ng-template>
         <ng-template #body let-r>
@@ -165,30 +243,52 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
                       [attr.aria-label]="'Ver detalle de la entrada ' + r.folio + ' de ' + (r.proveedor_nombre || r.proveedor_code || '')">{{ r.folio }}</button>
             </td>
             <td class="ta-r c3-num">{{ money(r.factura) }}</td>
-            <!-- El ajuste se parte: lo COMERCIAL es un beneficio negociado y no se pinta como
-                 error; lo OPERATIVO (faltante, mal estado, factura duplicada…) sí. Antes todo
-                 iba en rojo, y 3 de cada 4 ajustes son descuentos ganados. -->
-            <td class="ta-r c3-num">
-              @if (r.ajuste !== 0) {
-                <span class="c3-adj" [class.c3-neg]="r.ajuste_operativo !== 0">−{{ money(r.ajuste) }}@if (r.n_ajuste > 1) { <span class="c3-adj-n" [title]="r.n_ajuste + ' ajustes ligados'">×{{ r.n_ajuste }}</span> }</span>
-                <span class="c3-adj-kind">
-                  @if (r.ajuste_operativo !== 0 && r.ajuste_comercial !== 0) { <span class="c3-adj-mix" [title]="'Operativo ' + money(r.ajuste_operativo) + ' · comercial ' + money(r.ajuste_comercial)">mixto</span> }
-                  @else if (r.ajuste_operativo !== 0) { <span class="c3-adj-op" title="Devolución/faltante/mal estado/factura duplicada — algo salió mal">operativo</span> }
-                  @else { <span class="c3-adj-com" title="Descuento comercial, pronto pago o apoyo de marca — beneficio negociado, no un problema">comercial</span> }
-                </span>
-              } @else { <span class="c3-adj-no" title="Sin devoluciones ni notas ligadas por folio (puede haber heurísticas — abrí el detalle)">sin</span> }
-            </td>
-            <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
-            <td>
-              @if (r.deposits > 0) {
-                <span class="c3-comp">
+            @if (lente() === 'dinero') {
+              <!-- El ajuste se parte: lo COMERCIAL es un beneficio negociado y no se pinta como
+                   error; lo OPERATIVO (faltante, mal estado, factura duplicada…) sí. Antes todo
+                   iba en rojo, y 3 de cada 4 ajustes son descuentos ganados. -->
+              <td class="ta-r c3-num">
+                @if (r.ajuste !== 0) {
+                  <span class="c3-adj" [class.c3-neg]="r.ajuste_operativo !== 0">−{{ money(r.ajuste) }}@if (r.n_ajuste > 1) { <span class="c3-adj-n" [title]="r.n_ajuste + ' ajustes ligados'">×{{ r.n_ajuste }}</span> }</span>
+                  <span class="c3-adj-kind">
+                    @if (r.ajuste_operativo !== 0 && r.ajuste_comercial !== 0) { <span class="c3-adj-mix" [title]="'Operativo ' + money(r.ajuste_operativo) + ' · comercial ' + money(r.ajuste_comercial)">mixto</span> }
+                    @else if (r.ajuste_operativo !== 0) { <span class="c3-adj-op" title="Devolución/faltante/mal estado/factura duplicada — algo salió mal">operativo</span> }
+                    @else { <span class="c3-adj-com" title="Descuento comercial, pronto pago o apoyo de marca — beneficio negociado, no un problema">comercial</span> }
+                  </span>
+                } @else { <span class="c3-adj-no" title="Sin devoluciones ni notas ligadas por folio (puede haber heurísticas — abrí el detalle)">sin</span> }
+              </td>
+              <td class="ta-r c3-num c3-strong">{{ money(r.neto) }}</td>
+              <td>
+                @if (r.deposits > 0) {
+                  <span class="c3-comp">
+                    <p-tag [value]="compLabel(r.deposit_status)" [severity]="compSev(r.deposit_status)" />
+                    <i class="pi c3-comp-match" [class.ok]="r.monto_match" [class.bad]="!r.monto_match" [ngClass]="r.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'" [title]="r.monto_match ? 'El total del comprobante cuadra con la factura' : 'El total del comprobante NO cuadra'"></i>
+                  </span>
+                } @else {
+                  <span class="muted c3-comp-none"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin</span>
+                }
+              </td>
+            } @else {
+              <!-- Lente de CUMPLIMIENTO: los mismos renglones contestando otra pregunta —
+                   cuánto lleva sin evidencia, en qué estado está y quién la decidió. -->
+              <td class="ta-r c3-num">
+                <span class="c3-dias" [class]="'is-' + tonoDias(r)" [title]="r.dias + ' días desde la recepción'">{{ r.dias }}</span>
+              </td>
+              <td>
+                @if (r.deposits > 0) {
                   <p-tag [value]="compLabel(r.deposit_status)" [severity]="compSev(r.deposit_status)" />
-                  <i class="pi c3-comp-match" [class.ok]="r.monto_match" [class.bad]="!r.monto_match" [ngClass]="r.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'" [title]="r.monto_match ? 'El total del comprobante cuadra con la factura' : 'El total del comprobante NO cuadra'"></i>
-                </span>
-              } @else {
-                <span class="muted c3-comp-none"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin</span>
-              }
-            </td>
+                } @else {
+                  <span class="muted c3-comp-none"><i class="pi pi-paperclip" aria-hidden="true"></i> Falta</span>
+                }
+              </td>
+              <td class="ta-r c3-num">
+                @if (r.deposits === 0) { <span class="muted">—</span> }
+                @else if (r.monto_match) { <span class="c3-ok-mini" title="Cuadra al peso">cuadra</span> }
+                @else if (r.discrepancy_amount != null) { <span class="c3-neg">{{ money(r.discrepancy_amount) }}</span> }
+                @else { <span class="muted" title="Sin total leído por el OCR">s/d</span> }
+              </td>
+              <td class="c3-quien" [title]="r.decidio || ''">{{ r.decidio || '—' }}</td>
+            }
           </tr>
         </ng-template>
         <ng-template #emptymessage>
@@ -493,6 +593,38 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-dep-ocr { display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; font-size:.76rem; color:var(--text-main); }
     .c3-dep-ocr em { font-style:normal; color:var(--text-faint); margin-right:.3rem; }
 
+
+    /* RE.13.4 — cobertura por sucursal + columnas del lente de cumplimiento */
+    .c3-cov { margin: 0 0 1rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; }
+    .c3-cov-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; padding: .6rem .8rem;
+      background: var(--surface-sunken, var(--card-bg)); border-bottom: 1px solid var(--border-color); }
+    .c3-cov-head h2 { margin: 0; font-size: 1rem; }
+    .c3-cov-sub { font-size: var(--fs-xs, .75rem); color: var(--text-muted); }
+    .c3-cov-rez { margin-left: auto; font-size: var(--fs-xs, .75rem); color: var(--text-muted);
+      border: 1px dashed var(--border-color); border-radius: var(--r-sm, .35rem); padding: .1rem .45rem; }
+    .c3-cov-table { display: grid; }
+    .c3-cov-h, .c3-cov-r { display: grid; gap: .6rem; align-items: center; padding: .4rem .8rem;
+      grid-template-columns: minmax(7rem, 1fr) 5rem minmax(7rem, 1fr) 5rem 5rem 8rem 8rem minmax(8rem, auto); }
+    .c3-cov-h { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .c3-cov-r { border-top: 1px solid var(--border-color); font-size: var(--fs-sm, .85rem); }
+    .c3-cov-r.cero { background: color-mix(in oklab, var(--bad-fg) 5%, transparent); }
+    .c3-cov-suc { font-weight: 600; }
+    .c3-cov-bar { display: flex; align-items: center; gap: .4rem; }
+    .c3-cov-track { flex: 1; height: .4rem; min-width: 3rem; border-radius: 99px; background: var(--border-color); overflow: hidden; }
+    .c3-cov-track > span { display: block; height: 100%; background: var(--ok-fg); border-radius: 99px; }
+    .c3-cov-bar em { font-style: normal; font-size: var(--fs-xs, .75rem); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .c3-cov-act { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+    .c3-cov-load { color: var(--text-muted); font-size: var(--fs-sm, .85rem); }
+    @media (max-width: 68rem) {
+      .c3-cov-h { display: none; }
+      .c3-cov-r { grid-template-columns: 1fr 1fr; }
+    }
+    .c3-dias { font-variant-numeric: tabular-nums; font-weight: 600; border-radius: var(--r-sm, .35rem); padding: .05rem .3rem; }
+    .c3-dias.is-ok { color: var(--text-muted); }
+    .c3-dias.is-warn { color: var(--warn-fg, var(--bad-fg)); background: color-mix(in oklab, var(--warn-fg, var(--bad-fg)) 10%, transparent); }
+    .c3-dias.is-bad { color: var(--bad-fg); background: color-mix(in oklab, var(--bad-fg) 12%, transparent); }
+    .c3-ok-mini { color: var(--ok-fg); font-size: var(--fs-xs, .75rem); }
+    .c3-quien { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: var(--fs-sm, .85rem); }
   `],
 })
 export class ComprasCompras360Component implements OnInit {
@@ -501,6 +633,46 @@ export class ComprasCompras360Component implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly sanitizer = inject(DomSanitizer);
+
+  private readonly entradas = inject(EntradasService);
+
+  /**
+   * RE.13.4 — el lente: las MISMAS filas contestando dos preguntas distintas. `dinero` es la
+   * vista histórica (factura/ajuste/neto); `cumplimiento` responde en qué anda el proceso
+   * (antigüedad, evidencia, descuadre, quién decidió) y trae la cobertura por sucursal.
+   */
+  readonly lente = signal<'dinero' | 'cumplimiento'>('dinero');
+  readonly lenteOpts = [
+    { label: 'Dinero', value: 'dinero' },
+    { label: 'Cumplimiento', value: 'cumplimiento' },
+  ];
+  readonly cov = signal<CoverageReport | null>(null);
+  readonly covLoading = signal(false);
+
+  setLente(v: string): void {
+    this.lente.set(v === 'cumplimiento' ? 'cumplimiento' : 'dinero');
+    if (this.lente() === 'cumplimiento' && !this.cov() && !this.covLoading()) this.cargarCobertura();
+  }
+  private cargarCobertura(): void {
+    this.covLoading.set(true);
+    const q = {
+      from: this.toIso(this.dateFrom()) || undefined,
+      to: this.toIso(this.dateTo()) || undefined,
+    };
+    this.entradas.coverage(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.covLoading.set(false); this.cov.set(r); },
+      error: () => { this.covLoading.set(false); },
+    });
+  }
+  suc(code: string): string { return branchName(code) || code; }
+  /** Tres niveles sobre el SLA del tenant, igual que la worklist del capturista. */
+  tonoDias(r: Compras360Row): 'ok' | 'warn' | 'bad' {
+    const sla = this.cov()?.settings?.sla_capture_days ?? 3;
+    if (r.deposits > 0) return 'ok';           // ya tiene factura: el reloj de captura se detuvo
+    if (r.dias > sla * 2) return 'bad';
+    if (r.dias > sla) return 'warn';
+    return 'ok';
+  }
 
   readonly data = signal<Compras360Response | null>(null);
   readonly loading = signal(false);
@@ -939,4 +1111,5 @@ export class ComprasCompras360Component implements OnInit {
    * dos cifras idénticas al lado de una alarma, sin manera de entenderla.
    */
   readonly money = money;
+  readonly moneyShort = moneyShort;
 }

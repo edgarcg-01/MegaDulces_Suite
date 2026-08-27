@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { Subject, forkJoin, of, switchMap, catchError, map } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -435,6 +436,7 @@ export class ComprasEntradasPendientesComponent {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
 
   readonly report = signal<EntradasReport | null>(null);
   readonly loading = signal(false);
@@ -518,6 +520,10 @@ export class ComprasEntradasPendientesComponent {
       }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((r) => { if (r) { this.report.set(r); } this.loading.set(false); });
+    // Deep-link desde la cobertura de Compras 360: `?suc=03` aterriza en esa sucursal (si el
+    // alcance no la incluye, el server la recorta y la lista sale vacía — no se filtra a mano).
+    const suc = this.route.snapshot.queryParamMap.get('suc');
+    if (suc) this.sucursalSel.set(suc);
     this.reload();
   }
 

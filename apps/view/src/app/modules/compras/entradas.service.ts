@@ -84,6 +84,31 @@ export interface EntradasQuery {
   pageSize?: number;
 }
 
+/** RE.13.4 — cobertura del proceso por sucursal (la tabla de "¿quién no está subiendo?"). */
+export interface CoverageRow {
+  sucursal: string;
+  entradas: number;
+  con_evidencia: number;
+  validadas: number;
+  por_validar: number;
+  rechazadas: number;
+  monto: number;
+  monto_pendiente: number;
+  atrasadas: number;
+  /** antigüedad de lo PENDIENTE: el promedio esconde la cola larga, que es la que hay que perseguir */
+  dias_p50: number;
+  dias_p90: number;
+  pct_evidencia: number;
+  pct_validadas: number;
+}
+
+export interface CoverageReport {
+  settings: ReceiptSettings;
+  rows: CoverageRow[];
+  /** Lo anterior al arranque, aparte: mezclarlo al % lo vuelve inservible para exigir. */
+  rezago: { entradas: number; monto: number };
+}
+
 /** Frescura de UNA fuente (rama Kepler o sucursal Wincaja) de la lista de entradas. */
 export interface EntradaFrescura {
   source_branch: string;
@@ -265,6 +290,15 @@ export class EntradasService {
       params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
     }
     return this.http.get<EntradasReport>(this.base, { params });
+  }
+  /** RE.13.4 — cobertura por sucursal (respeta el alcance del usuario). */
+  coverage(q: { from?: string; to?: string; warehouse_codes?: string[] } = {}): Observable<CoverageReport> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(q)) {
+      if (v == null || v === '') continue;
+      params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
+    }
+    return this.http.get<CoverageReport>(`${this.base}/coverage`, { params });
   }
   /** Parámetros vigentes del proceso (arranque, tolerancia, SLA, tope de lote). */
   settings(): Observable<ReceiptSettings> {

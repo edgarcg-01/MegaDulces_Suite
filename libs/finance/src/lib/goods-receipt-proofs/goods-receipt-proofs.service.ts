@@ -427,6 +427,96 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * `[RE.13.4]` — **Cobertura por sucursal**: la tabla que contesta *"¿quién no está subiendo?"*.
+   *
+   * Un `%` de evidencia global no sirve para actuar: con CEDIS pesando el 74% del volumen, la
+   * red puede verse "al 70%" mientras una sucursal chica lleva tres semanas sin subir nada.
+   * Acá cada sucursal responde por lo suyo, con la **antigüedad p50/p90 de lo pendiente** —
+   * el promedio esconde justo la cola larga que hay que perseguir.
+   *
+   * Respeta el alcance: un revisor local ve su renglón, el central ve la red.
+   */
+  async coverage(q: { warehouse_codes?: string[] | null; from?: string; to?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    return this.tk.run(async (trx) => {
+      const cfg = await this.settings(trx);
+      // Los `?` van en el orden en que aparecen en la SQL: sla → tenant → arranque → filtros.
+      let filtro = '';
+      const filtroParams: any[] = [];
+      if (alcance) {
+        if (!alcance.length) return { settings: cfg, rows: [], rezago: { entradas: 0, monto: 0 } };
+        filtro += ` AND c.sucursal = ANY(?)`; filtroParams.push(alcance);
+      }
+      if (q.from) { filtro += ` AND c.receipt_date >= ?`; filtroParams.push(q.from); }
+      if (q.to) { filtro += ` AND c.receipt_date <= ?`; filtroParams.push(q.to); }
+
+      const r = await trx.raw(`
+        WITH d AS (
+          SELECT sucursal, folio, count(*) AS n,
+                 (array_agg(status ORDER BY created_at DESC))[1] AS last_status
+            FROM finance.goods_receipt_proofs GROUP BY sucursal, folio
+        )
+        SELECT c.sucursal,
+               COUNT(*)::int                                                     AS entradas,
+               COUNT(d.n)::int                                                   AS con_evidencia,
+               COUNT(*) FILTER (WHERE d.last_status = 'validado')::int            AS validadas,
+               COUNT(*) FILTER (WHERE d.last_status = 'recibido')::int            AS por_validar,
+               COUNT(*) FILTER (WHERE d.last_status = 'rechazado')::int           AS rechazadas,
+               COALESCE(SUM(c.monto::numeric), 0)::numeric                        AS monto,
+               COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente,
+               COUNT(*) FILTER (
+                 WHERE d.n IS NULL
+                   AND (current_date - LEAST(c.receipt_date, current_date)) > ?
+               )::int                                                            AS atrasadas,
+               -- p50/p90 de la ANTIGÜEDAD de lo que falta subir. El promedio esconde la cola
+               -- larga, que es exactamente lo que hay que perseguir.
+               COALESCE(percentile_disc(0.5) WITHIN GROUP (
+                 ORDER BY (current_date - LEAST(c.receipt_date, current_date))
+               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p50,
+               COALESCE(percentile_disc(0.9) WITHIN GROUP (
+                 ORDER BY (current_date - LEAST(c.receipt_date, current_date))
+               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p90
+          FROM analytics.erp_goods_receipts c
+          LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
+         WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL
+           AND c.receipt_date >= ?${filtro}
+         GROUP BY c.sucursal
+         ORDER BY c.sucursal`,
+        [cfg.sla_capture_days, tenantId, cfg.reception_start, ...filtroParams]);
+
+      // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
+      // cobertura, el número deja de servir para exigirle a nadie.
+      const rez = await trx.raw(`
+        SELECT COUNT(*)::int AS entradas, COALESCE(SUM(monto::numeric), 0)::numeric AS monto
+          FROM analytics.erp_goods_receipts c
+         WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date < ?
+           ${alcance ? 'AND c.sucursal = ANY(?)' : ''}`,
+        alcance ? [tenantId, cfg.reception_start, alcance] : [tenantId, cfg.reception_start]);
+
+      return {
+        settings: cfg,
+        rows: (r.rows || []).map((x: any) => ({
+          sucursal: x.sucursal,
+          entradas: Number(x.entradas),
+          con_evidencia: Number(x.con_evidencia),
+          validadas: Number(x.validadas),
+          por_validar: Number(x.por_validar),
+          rechazadas: Number(x.rechazadas),
+          monto: Number(x.monto),
+          monto_pendiente: Number(x.monto_pendiente),
+          atrasadas: Number(x.atrasadas),
+          dias_p50: Number(x.dias_p50),
+          dias_p90: Number(x.dias_p90),
+          pct_evidencia: Number(x.entradas) ? Math.round((Number(x.con_evidencia) / Number(x.entradas)) * 100) : 0,
+          pct_validadas: Number(x.entradas) ? Math.round((Number(x.validadas) / Number(x.entradas)) * 100) : 0,
+        })),
+        rezago: { entradas: Number(rez.rows?.[0]?.entradas || 0), monto: Number(rez.rows?.[0]?.monto || 0) },
+      };
+    });
+  }
+
+  /**
    * Frescura POR FUENTE de la lista de entradas.
    *
    * La pantalla mezcla dos orígenes (Kepler ODS, al segundo · Wincaja, copia periódica desde los

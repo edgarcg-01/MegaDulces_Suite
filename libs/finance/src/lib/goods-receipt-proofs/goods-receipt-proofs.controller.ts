@@ -45,6 +45,20 @@ export class GoodsReceiptProofsController {
     return this.svc.listReceipts(q);
   }
 
+  @Get('coverage')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.13.4 — cobertura por sucursal: % con evidencia, % validadas, $ pendiente, atrasadas y antigüedad p50/p90 de lo pendiente. Respeta el alcance. El rezago (previo al arranque) va aparte.',
+  })
+  coverage(@Query() query: Record<string, unknown>) {
+    const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts/coverage');
+    return this.svc.coverage({
+      warehouse_codes,
+      from: query['from'] as string,
+      to: query['to'] as string,
+    });
+  }
+
   @Get('settings')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'Parámetros vigentes del proceso: arranque, tolerancia del cuadre, SLA y tope de lote.' })

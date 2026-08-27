@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -511,6 +511,7 @@ export class ComprasEntradasRevisionComponent {
   private readonly toast = inject(MessageService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
 
   readonly report = signal<EntradasReport | null>(null);
   readonly loading = signal(false);
@@ -604,6 +605,9 @@ export class ComprasEntradasRevisionComponent {
       this.idx.set(Math.min(this.idx(), Math.max(0, filtrado.rows.length - 1)));
       this.cargarExpediente();
     });
+    // Deep-link desde la cobertura de Compras 360 (`?suc=03`).
+    const suc = this.route.snapshot.queryParamMap.get('suc');
+    if (suc) this.sucursalSel.set(suc);
     this.reload();
   }
 
