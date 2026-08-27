@@ -23,6 +23,11 @@
  *
  * Uso: DATABASE_URL_NEW=... node database/tests/test-newdb-goods-receipts-scope.js
  */
+// Carga el .env como los demás smokes: sin esto el fallback de abajo apunta a OTRA DB (el
+// Docker de pgvector), y el test falla con "relation finance.receipt_settings does not exist"
+// sobre una base que nunca tuvo el schema — un rojo que no habla del código.
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 const { Client } = require('pg');
 
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
