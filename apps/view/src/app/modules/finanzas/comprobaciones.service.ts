@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
-export type ProofStatus = 'recibida' | 'validada' | 'rechazada' | 'revision';
+export type ProofStatus = 'recibida' | 'aprobada' | 'validada' | 'rechazada' | 'revision';
 
 /** Roles de archivo del formulario (Google Form → plataforma). */
 export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
@@ -156,6 +156,18 @@ export class ComprobacionesService {
     return this.http.post(`${this.base}/${id}/validate`, body || {});
   }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+  /** MOMENTO 2 — aprueba la solicitud capturada. Comprobable → aprobada; no comprobable → validada. */
+  approve(id: string, body?: { clasificacion?: string; comprobacion_nota?: string }): Observable<any> {
+    return this.http.post(`${this.base}/${id}/approve`, body || {});
+  }
+  /** MOMENTO 3 — sube la evidencia de un gasto ya aprobado y comprobable (cuadre por visión → validada/revision). */
+  addEvidence(id: string, body: CreateExpenseProof): Observable<{ id: string; folio_solicitud: string; status: string }> {
+    return this.http.post<{ id: string; folio_solicitud: string; status: string }>(`${this.base}/${id}/evidence`, body);
+  }
+  /** Estado del expediente de un folio (para saber en qué momento está la captura). Accesible al capturista. */
+  proofByFolio(folio: string): Observable<ProofByFolio | null> {
+    return this.http.get<ProofByFolio | null>(`${this.base}/proof-by-folio`, { params: new HttpParams().set('folio', folio) });
+  }
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.base}/departamentos`); }
   /** (C) folio_solicitud → estado, para el indicador en Solicitudes. */
   /** Estado + ID del último comprobante por folio de solicitud. El ID permite validar o

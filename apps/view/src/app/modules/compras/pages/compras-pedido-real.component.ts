@@ -158,7 +158,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
                 <tr class="pr-sub-row">
                   @for (t of wbTerritories(); track t.code) {
-                    <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                    <th class="pr-r pr-sub-h" title="Venta 30 días, en CAJAS.">Vta</th><th class="pr-r pr-sub-h" title="Existencia, en CAJAS.">Exist.</th><th class="pr-r pr-sub-h pr-ped-h" title="Pedido sugerido, en CAJAS.">Pedido</th>
                   }
                 </tr>
               </ng-template>
@@ -216,7 +216,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
                                   <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                  <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
                                 </tr></thead>
                                 <tbody>
                                   @for (u of urows; track u.type + ':' + u.warehouse_code) {
