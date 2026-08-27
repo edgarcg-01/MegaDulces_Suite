@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-08-22 (Fase AX — anexo de venta imprimible, MVP en código)
+**Última actualización:** 2026-08-27 (Fase RE.13 — órdenes de entrada en 4 pantallas por trabajo; 13.0 + 13.1 en código local)
 
 ---
 
@@ -894,6 +894,31 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 - [ ] **[UN.9]** ⬜ Casing de `nombre` (UPPER vs Title Case), backfill `warehouse_id` (bloqueado por `commercial.warehouses.kepler_code` vacío), purga de 3 tenants de prueba.
 
 **Hallazgos que necesitan a Edgar:** (1) el organigrama describe 5 sitios pero Kepler opera 7 — Yurécuaro `04` y Zamora Centro `05` tienen 7 cajeras y no aparecen; Morelia Abastos y Madero suman 55 plazas y 0 usuarios. (2) Morelia Abastos declara 40 pero suma 42: `CAJA GENERAL (1)` dibujado **detrás** de `AUX. DE RR-HH (1)`, y `CHECADOR (1)` + `CHECADORES (2)` duplicados. (3) `cristian.lopez` es rol `jefe_marketing` pero el organigrama solo tiene `AUX. DE MKT (1)` → quedó sin puesto.
+
+---
+
+## 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global)
+
+> Plan completo en [`FASES/FASE_RE13_TRES_VISTAS_ENTRADAS.md`](FASES/FASE_RE13_TRES_VISTAS_ENTRADAS.md).
+> Contexto que manda: **1,096 entradas desde el arranque y CERO con evidencia** — el proceso está
+> construido pero no adoptado, así que la prioridad es que el capturista de sucursal pueda subir el
+> papel, no la analítica. Decisiones cerradas con Edgar el 2026-08-27 (§7 del plan).
+> ⛔ **Gate:** 13.1 no se anuncia antes de que el alcance `warehouse` de los capturistas esté
+> configurado y verificado (13.6) — depende de la normalización de usuarios de Fase ID.
+
+- [x] **[RE.13.0]** 🧪 **Backend de las tres vistas** (2026-08-27) — alcance ADR-050 en `list`/`match`/`detail` + `assertCanWrite` en `attach` · paginación real con `total` (antes cortaba en 300 en silencio con el KPI en 1,096) · estados `por_validar` + `rechazado` · orden `antiguedad|reciente|monto|riesgo` · `dias`/`dias_espera`/`atrasada` por fila · carril `al_dia|rezago` · `finance.receipt_settings` (mig `20260827130000`) saca `reception_start` y la tolerancia del código · `'06' = Canindo`. Smoke `test-newdb-goods-receipts-scope` **18/18** en la regression. Build api verde.
+- [x] **[RE.13.1]** 🧪 **Vista A-suc "Pendientes de subir"** (2026-08-27) — worklist scopeada en `/compras/entradas` (la vista completa se mudó a `/compras/entradas/todas`, nada se perdió). **Cámara**: el tapón era `storage.putPdf`, que rechaza imágenes — ahora `putFile` + compresión 1600px/JPEG 0.8 en el cliente. Marcador del día, semáforo de días sobre el SLA del tenant, banner de devueltas, captura sin wizard (la entrada viene del renglón). Build view verde. **Sin verificar por HTTP** (no hay API local y no se levantan dev servers).
+- [ ] **[RE.13.2]** ⬜ **Vista B "Bandeja de revisión"** — cola `por_validar` por riesgo + master-detail permanente + siguiente automático + atajos + lote por tolerancia + motivo tipificado (mig `motivo_codigo`) + guard de segregación de funciones (H7) + aviso de colisión central/local + `goods_receipt_proof_history` (H9).
+- [ ] **[RE.13.3]** ⬜ **Vista A-cedis "Captura por lote"** — `/compras/entradas/lote`: drop de N archivos + OCR con concurrencia limitada + tabla de conciliación + `POST /attach-bulk` transaccional. Mueve el **74% del volumen**.
+- [ ] **[RE.13.4]** ⬜ **Vista C** — lente de cumplimiento en Compras 360 + `GET /coverage` por sucursal + deep-links a A/B. Puede ir en paralelo.
+- [ ] **[RE.13.5]** ⬜ **SLA + avisos** — `@Cron` → `finance.findings` + WS al capturista cuando le devuelven y al revisor cuando le entra trabajo (cierra RE.3/RE.4 y H8).
+- [ ] **[RE.13.6]** ⬜ **Permisos y alcance** — recortar el grant de `_VALIDAR` (hoy en **15 roles**, incluidos `coordinadora_marketing` y `tele_operator`) + configurar `role_scopes`/`user_scopes` de los revisores locales.
+- [ ] **[RE.13.7]** ⬜ Cola offline en la captura de sucursal (sólo si la red lo pide de verdad).
+- [ ] **[RE.13.8]** ⬜ PDF/XLSX del expediente para contabilidad.
+
+**Pendiente prod (13.0 + 13.1):** mig `20260827130000_receipt_settings` a Railway + redeploy api/view + configurar alcance de capturistas. Sin permisos nuevos → no requiere re-login.
+
+**Decisión abierta:** qué valor le ponemos a `reception_start` el día del arranque. El rezago anterior son **11,047 entradas** (vs 1,096 en el carril vivo); recomendado dejarlo en carril propio para que el semáforo del día signifique algo.
 
 ---
 

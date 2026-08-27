@@ -1,6 +1,7 @@
 # Fase RE.13 — Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global)
 
-> **Estado:** 🔨 DISEÑADO (planeación) — 2026-08-27, decisiones cerradas con Edgar el mismo día.
+> **Estado:** 🧪 **RE.13.0 + RE.13.1 EN CÓDIGO (local, builds + smoke verdes)** — 2026-08-27.
+> Decisiones cerradas con Edgar el mismo día. Falta 13.2 (revisión), 13.3 (lote CEDIS), 13.4 (vista C).
 > **Depende de:** Fase RE (recepción) · **Fase ID / ADR-050** (alcance de datos + normalización de
 > usuarios) · CC ext (evidencia de entradas).
 > **Tesis:** una pantalla que sirve a tres trabajos no sirve bien a ninguno. Se parte por **trabajo**,
@@ -63,7 +64,7 @@ Tres hechos que mandan sobre el diseño:
 
 | # | Hallazgo | Evidencia | Impacto |
 |---|---|---|---|
-| H1 | **El input de archivo sólo acepta PDF** (`accept="application/pdf"` en los dos pasos del wizard), sin `capture`. El backend y el OCR **sí** aceptan `image/jpeg\|png\|webp\|gif`. | `compras-entradas.component.ts` (2 inputs) vs `parseDataUri()` del service | El capturista con el celular y el papel en la mano **no puede subir nada**. Candidato #1 a explicar la adopción cero. |
+| H1 | **No se puede subir una foto.** El input pide `accept="application/pdf"`, pero eso era el síntoma: **`uploadFile` llama a `ObjectStorageService.putPdf`, que rechaza imágenes** ("Solo se aceptan archivos PDF"). Viene de la migración desde Cloudinary, donde el problema era *servir* PDFs — no una política contra las fotos. El OCR (`parseDataUri`) acepta `image/jpeg\|png\|webp\|gif` desde siempre, `signFiles` firma cualquier tipo y el detalle ya distingue imagen de PDF; el único tapón era el almacenamiento. `putFile` (el camino que ya usa `bank-capture` para las fotos que llegan por WhatsApp) resuelve las dos capas. | `goods-receipt-proofs.service.ts` → `putPdf` vs `object-storage.service.ts` → `putFile` | El capturista con el celular y el papel en la mano **no puede subir nada**. Candidato #1 a explicar la adopción cero. ✅ **corregido en RE.13.1**. |
 | H2 | **La lista trunca en silencio.** `limit` default 300 (máx 1,000), sin paginación ni `total` en la respuesta; los KPIs sí cuentan el universo. | `listReceipts()` | El KPI dice 1,096 y la tabla muestra 300. Nadie sabe qué falta. |
 | H3 | **No hay filtro por sucursal** en `GET /finance/goods-receipts`. | `ListReceiptsQuery` | El de Yurécuaro (16 entradas) navega entre las 815 de CEDIS. |
 | H4 | **No hay cola de "por validar".** Los estados son `pendiente` (sin evidencia) / `con_comprobante` / `validado` / todas. | idem | El revisor no tiene bandeja: recorre "Con remisión" leyendo tags. |
@@ -298,10 +299,17 @@ ponemos el día del arranque** y qué hacemos con lo anterior:
 Numeración: **RE.13** (RE.11 = conciliación por línea y RE.12 = copias CEDIS ya están tomadas en
 código, aunque el doc de la Fase RE todavía no las liste — deuda de doc aparte).
 
+> **Avance al 2026-08-27:** 13.0 y 13.1 ✅ en código local (build api + view verdes, smoke
+> `test-newdb-goods-receipts-scope` **18/18** en la regression). **Sin verificar por HTTP**: no
+> hay API local levantada y la regla del repo es no arrancar dev servers — la integración con
+> `ScopeService` sobre el request real se valida en el primer arranque.
+> **Pendiente prod:** migración `20260827130000_receipt_settings` + redeploy api/view + configurar
+> el alcance `warehouse` de los capturistas (13.6) antes de anunciar la pantalla.
+
 | Sprint | Alcance | Toca | Tamaño |
 |---|---|---|---|
-| **RE.13.0** ⛔ ruta crítica | **Backend, sin UI.** `warehouse_codes` (contrato ID.5) + `ScopeService.applyToCurrent` en `list`/`detail` + `assertCanWrite` en `attach` (H3, H5) · `estado` += `por_validar` \| `rechazado` (H4) · paginación real `page`/`pageSize` + `total` + `truncated` (H2) · `orden` = `antiguedad` \| `monto` \| `riesgo` · `dias_min` · `dias_pendiente` por fila (H10) · migración `finance.receipt_settings` (`reception_start`, `match_tolerance`, `sla_capture_days`, `sla_review_days`, `bulk_max_files`) y las constantes salen del código (H12) · fix `'06': 'Canindo'` (H11). Smoke `test-newdb-goods-receipts-scope`. | `goods-receipt-proofs.service.ts`, `.controller.ts`, migración newdb, `branches.ts`, tests | M |
-| **RE.13.1** | **Vista A-suc.** Componente nuevo y chico (~350 líneas) que reemplaza el actual en `/compras/entradas`: worklist scopeada + semáforo de días + banner de devueltas + progreso del día + **cámara/imagen** (H1) + compresión en cliente. El wizard de captura se extrae a componente compartido. | `apps/view/.../compras/pages/` (nuevo), `entradas.service.ts` | L |
+| **RE.13.0** ✅ | **Backend, sin UI.** `warehouse_codes` (contrato ID.5) + `ScopeService.applyToCurrent` en `list`/`detail` + `assertCanWrite` en `attach` (H3, H5) · `estado` += `por_validar` \| `rechazado` (H4) · paginación real `page`/`pageSize` + `total` + `truncated` (H2) · `orden` = `antiguedad` \| `monto` \| `riesgo` · `dias_min` · `dias_pendiente` por fila (H10) · migración `finance.receipt_settings` (`reception_start`, `match_tolerance`, `sla_capture_days`, `sla_review_days`, `bulk_max_files`) y las constantes salen del código (H12) · fix `'06': 'Canindo'` (H11). Smoke `test-newdb-goods-receipts-scope`. | `goods-receipt-proofs.service.ts`, `.controller.ts`, migración newdb, `branches.ts`, tests | M |
+| **RE.13.1** ✅ | **Vista A-suc.** Componente nuevo y chico (~350 líneas) que reemplaza el actual en `/compras/entradas`: worklist scopeada + semáforo de días + banner de devueltas + progreso del día + **cámara/imagen** (H1) + compresión en cliente. El wizard de captura se extrae a componente compartido. | `apps/view/.../compras/pages/` (nuevo), `entradas.service.ts` | L |
 | **RE.13.2** | **Vista B.** `/compras/entradas/revision`: cola + master-detail permanente + siguiente automático + atajos + lote por tolerancia + **motivo tipificado** (migración aditiva `motivo_codigo`) + guard de segregación de funciones (H7) + aviso de colisión entre revisor central y local + `finance.goods_receipt_proof_history` (H9, patrón `order_status_history`). El expediente se muda del diálogo actual (código ya escrito y probado). | migración newdb, service, controller, componente nuevo, nav | L |
 | **RE.13.3** | **Vista A-cedis.** `/compras/entradas/lote`: drop de N archivos + OCR con concurrencia limitada + tabla de conciliación del lote + `POST /attach-bulk` transaccional + contadores. Reusa `ocr`/`match`/`upload`. | componente nuevo, 1 endpoint | L |
 | **RE.13.4** | **Vista C.** Lente de cumplimiento + `GET /finance/goods-receipts/coverage` (por sucursal, con el carril de rezago) + deep-links a A/B + columnas nuevas en el export. Puede ir **en paralelo** desde el día 1: su backend ya existe casi completo. | `purchase-adjustments.service.ts`, `compras-compras360.component.ts` | M |
