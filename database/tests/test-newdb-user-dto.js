@@ -35,6 +35,13 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { console.log(`  ✓ ${m}`); pass++; } else { console.error(`  ✗ ${m}`); fail++; } };
 const unicos = (a) => a.filter((x, i, arr) => arr.indexOf(x) === i);
 
+/**
+ * Campos que existen SÓLO en el update, y está bien que sea así: son el ciclo de
+ * vida (`[ID.8]`). Una cuenta nueva nace activa y sin flags — elegir "suspendido"
+ * o "debe cambiar contraseña" en el alta no tiene sentido operativo.
+ */
+const SOLO_UPDATE = ['activo', 'status', 'must_change_password'];
+
 require('ts-node').register({
   transpileOnly: true, skipProject: true,
   compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', experimentalDecorators: true, emitDecoratorMetadata: true, ignoreDeprecations: '6.0' },
@@ -78,10 +85,19 @@ function obligatorios(cls) {
       JSON.stringify(create) === JSON.stringify(base),
       `CreateUserDto == UserWriteDto (${create.length} campos)`,
     );
-    ok(camposPropios(UpdateUserDto).join(',') === 'activo', `UpdateUserDto sólo agrega 'activo' (agrega: ${camposPropios(UpdateUserDto).join(',') || 'nada'})`);
+    // `[ID.8]` sumó el ciclo de vida al update. Son update-only A PROPÓSITO: no
+    // se elige un estado ni un "debe cambiar contraseña" al crear una cuenta.
+    // La aserción se escribe como conjunto PERMITIDO y no como igualdad exacta,
+    // que es lo que la hacía romperse al agregar un campo legítimo.
+    const propiosUpd = camposPropios(UpdateUserDto);
+    const sobranUpd = propiosUpd.filter((c) => !SOLO_UPDATE.includes(c));
+    ok(
+      sobranUpd.length === 0,
+      `UpdateUserDto sólo agrega campos de ciclo de vida (agrega: ${propiosUpd.join(',') || 'nada'})`,
+    );
 
     console.log('\n═══ 2. Simetría create/update ═══');
-    const soloUpdate = update.filter((c) => !create.includes(c) && c !== 'activo');
+    const soloUpdate = update.filter((c) => !create.includes(c) && !SOLO_UPDATE.includes(c));
     const soloCreate = create.filter((c) => !update.includes(c));
     ok(soloUpdate.length === 0, `nada editable que no se pueda setear al crear${soloUpdate.length ? ` — ${soloUpdate.join(', ')}` : ''}`);
     ok(soloCreate.length === 0, `nada del create ausente en el update${soloCreate.length ? ` — ${soloCreate.join(', ')}` : ''}`);

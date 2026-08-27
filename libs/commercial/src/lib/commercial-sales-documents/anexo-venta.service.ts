@@ -160,22 +160,6 @@ export class AnexoVentaService {
     if (!cod) return String(cant);
     return /^\d+$/.test(cod) ? `${cant} × ${cod}` : `${cant} ${cod}`;
   }
-  /**
-   * Nombre del empaque para la columna "Empaque" (petición Edgar 2026-08-26: "una columna que diga
-   * CAJA o PAQUETE"). Expande los códigos estándar de Kepler y deja VERBATIM cualquier otro (KG,
-   * 500…) sin inventar unidades; numérico puro lleva "×" para no leerse como cantidad.
-   */
-  private unidadPalabra(u: any): string {
-    const cod = String(u ?? '').trim().toUpperCase();
-    const map: Record<string, string> = {
-      CJA: 'CAJA', CJ: 'CAJA', CAJA: 'CAJA', CJS: 'CAJA',
-      PAQ: 'PAQUETE', PAQUETE: 'PAQUETE', PQ: 'PAQUETE',
-      PZA: 'PIEZA', PZ: 'PIEZA', PIEZA: 'PIEZA', PIEZAS: 'PIEZA', PZAS: 'PIEZA',
-    };
-    if (map[cod]) return map[cod];
-    if (/^\d+$/.test(cod)) return `× ${cod}`;
-    return this.esc(cod);
-  }
 
   /** Importe con letra (pesos MXN). Sin dependencia externa: el documento debe ser autosuficiente. */
   private conLetra(n: number): string {
@@ -266,10 +250,9 @@ export class AnexoVentaService {
       else if (cajaOK && soldU === String(l.unidad_bulto)) soldFactor = cjaF;
       const qtyPz = cant * soldFactor;
       const precioPza = soldFactor > 0 ? (Number(l.precio_unitario) || 0) / soldFactor : 0;
-      // Unidad en que se VENDIÓ esta línea → para agrupar las líneas: caja (0) / paquete (1) / pieza (2).
+      // Grupo real de la línea (caja 0 / paquete 1 / pieza 2). Se fija MÁS ABAJO, tras armar la
+      // descomposición, porque depende de la unidad MAYOR que se muestra, no de la de venta.
       let tier = 2;
-      if (cajaOK && soldU === String(l.unidad_bulto)) tier = 0;
-      else if (paqOK && soldU === String(l.unidad_paq)) tier = 1;
 
       // Niveles de UNIDAD disponibles (mayor → menor), para el precio POR unidad.
       const unitLevels: { u: any; factor: number }[] = [];
@@ -289,12 +272,15 @@ export class AnexoVentaService {
       }
       if (!compra.length) compra.push({ n: qtyPz, u: l.unidad_venta || l.unidad });
 
-      // Cantidad y EMPAQUE en columnas SEPARADAS, alineadas fila a fila: el número a la izquierda,
-      // el empaque (CAJA/PAQUETE/PIEZA) en su propia columna. El mayor arriba, cada remanente con "+".
-      const qNumCell = compra.map((r, i) =>
-        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${i === 0 ? '' : '+ '}${r.n}</span>`).join('');
-      const qUnitCell = compra.map((r, i) =>
-        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${this.unidadPalabra(r.u)}</span>`).join('');
+      // El grupo se decide por la unidad MAYOR que realmente se MUESTRA (compra[0]), no por la
+      // unidad de venta de Kepler (kdm2.c11): casi todo se factura en PAQ pero el anexo lo muestra
+      // convertido a CJA, así que agrupar por c11 dejaba TODO en "pieza" y no salía separación.
+      const primaU = String(compra[0]?.u ?? '').trim().toUpperCase();
+      tier = /^(CJA|CJ|CAJA|CJS)$/.test(primaU) ? 0 : /^(PAQ|PQ|PAQUETE)$/.test(primaU) ? 1 : 2;
+
+      // Cantidad: el mayor en grande, cada remanente debajo con "+" (se lee como suma).
+      const qCell = compra.map((r, i) =>
+        `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${i === 0 ? '' : '+ '}${this.cantidadConUnidad(r.n, r.u)}</span>`).join('');
       // Precio POR cada unidad disponible (caja > paquete > pieza), alineado a su unidad.
       const priceLadder = (withDesc: boolean) => unitLevels.map((lvl, i) => {
         const p = precioPza * lvl.factor;
@@ -317,17 +303,29 @@ export class AnexoVentaService {
         : `<td class="neto">${this.m(l.importe)}</td>`;
       return { tier, html: `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div>${equivHtml}</td>
-        <td class="qcell">${qNumCell}</td>
-        <td class="empaque">${qUnitCell}</td>
+        <td class="qcell">${qCell}</td>
         <td class="u-price">${priceLadder(false)}</td>
         ${colsDesc}
       </tr>` };
     });
 
-    // La unidad de compra va en su propia columna "Empaque" (no en bandas de grupo). Se ordenan las
-    // líneas por unidad (caja → paquete → pieza) para que esa columna quede agrupada visualmente;
-    // dentro de cada unidad se respeta el orden alfabético que ya trae `L`.
-    const filas = [...filasArr].sort((a, b) => a.tier - b.tier).map((f) => f.html).join('\n');
+    // Agrupar las líneas por la unidad en que se compraron (caja → paquete → pieza). Solo se
+    // rotula por grupos cuando la factura mezcla unidades; si todo se vendió igual, no estorba.
+    const NCOLS = conDesc ? 7 : 4;
+    const GRUPOS = [
+      { t: 0, label: 'Comprado por caja' },
+      { t: 1, label: 'Comprado por paquete' },
+      { t: 2, label: 'Comprado por pieza / unidad suelta' },
+    ];
+    const mezcla = new Set(filasArr.map((f) => f.tier)).size > 1;
+    const filas = mezcla
+      ? GRUPOS.map((g) => {
+          const rows = filasArr.filter((f) => f.tier === g.t);
+          if (!rows.length) return '';
+          return `<tr class="grp"><td colspan="${NCOLS}">${g.label} · ${rows.length} producto${rows.length === 1 ? '' : 's'}</td></tr>`
+            + rows.map((r) => r.html).join('\n');
+        }).filter(Boolean).join('\n')
+      : filasArr.map((f) => f.html).join('\n');
 
     const ctas = CUENTAS.map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
 
@@ -362,11 +360,11 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 .sec-h h2{font-size:12.5pt;font-weight:700;margin:0}
 .sec-h span{font-size:9pt;color:var(--muted)}
 table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:9pt}
-col.c-prod{width:22%}col.c-cant{width:6%}col.c-emp{width:8.5%}col.c-pu{width:13%}col.c-pd{width:14%}
+col.c-prod{width:22%}col.c-cant{width:14.5%}col.c-pu{width:13%}col.c-pd{width:14%}
 col.c-imp{width:12%}col.c-desc{width:11.5%}col.c-neto{width:13%}
-/* sin descuento son 5 columnas: el producto se queda con el espacio que sobra */
-table.det.sin-desc col.c-prod{width:38%}table.det.sin-desc col.c-cant{width:9%}
-table.det.sin-desc col.c-emp{width:12%}table.det.sin-desc col.c-pu{width:23%}table.det.sin-desc col.c-neto{width:18%}
+/* sin descuento son 4 columnas: el producto se queda con el espacio que sobra */
+table.det.sin-desc col.c-prod{width:42%}table.det.sin-desc col.c-cant{width:21%}
+table.det.sin-desc col.c-pu{width:19%}table.det.sin-desc col.c-neto{width:18%}
 table.det thead{display:table-header-group}
 table.det thead th{font-size:7.5pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
   text-align:right;padding:4px 6px;border-bottom:1.5px solid var(--ink)}
@@ -382,9 +380,6 @@ table.det tbody tr.grp td{padding:7px 8px 4px;font-size:7.5pt;font-weight:800;le
 .q-main{font-weight:700;display:block}
 .q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}
 .q-eq2{display:block;font-size:8.5pt;color:var(--muted);margin-top:1px;line-height:1.3}
-.empaque{text-align:left}
-.empaque .q-main{display:block;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--accent);font-size:8.5pt}
-.empaque .q-eq2{display:block;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;font-size:8pt;margin-top:1px}
 .u-price{text-align:right;line-height:1.18}
 .pu{display:block;font-weight:700;font-size:9pt}
 .pu2{display:block;font-weight:600;font-size:8pt;margin-top:1px}
@@ -488,10 +483,10 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 <div class="sec-h"><h2>¿Qué compraste?</h2>
   <span>${L.length} producto${L.length === 1 ? '' : 's'}, en orden alfabético · precios finales (IEPS incluido · IVA 0%)</span></div>
 <table class="det${conDesc ? '' : ' sin-desc'}">
-  <colgroup><col class="c-prod"><col class="c-cant"><col class="c-emp"><col class="c-pu">${conDesc
+  <colgroup><col class="c-prod"><col class="c-cant"><col class="c-pu">${conDesc
     ? '<col class="c-pd"><col class="c-imp"><col class="c-desc"><col class="c-neto">'
     : '<col class="c-neto">'}</colgroup>
-  <thead><tr><th class="l">Producto</th><th class="l">Cant.</th><th class="l">Empaque</th><th>Precio${conDesc ? ' de lista' : ''}</th>
+  <thead><tr><th class="l">Producto</th><th class="l">Cantidad</th><th>Precio${conDesc ? ' de lista' : ''}</th>
     ${conDesc
       ? `<th class="hl">Precio con descuento</th><th>Importe</th><th>${colDesc}</th><th>Neto</th>`
       : '<th>Importe</th>'}</tr></thead>

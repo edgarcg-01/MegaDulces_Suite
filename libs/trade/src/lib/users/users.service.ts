@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -15,6 +16,8 @@ import { getDataScope, TenantContextService } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
+  /** Se asienta en la bitácora: un uuid solo no dice quién fue. */
+  username?: string;
   rules?: unknown[];
 }
 
@@ -22,6 +25,8 @@ const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
@@ -66,6 +71,49 @@ export class UsersService {
     if (dto.zona_id) return dto.zona_id;
     if (dto.zona !== undefined) return this.resolveZonaId(dto.zona);
     return undefined;
+  }
+
+  /**
+   * `[ID.8]` — Asienta un cambio en `identity.user_events`.
+   *
+   * Es append-only y **nunca hace fallar la operación**: si la bitácora se cae,
+   * el alta o el cambio de rol ya se hizo, y perder el asiento es mucho menos
+   * grave que dejar la operación a medias. El error se loguea, no se propaga.
+   *
+   * Se le pasa la trx cuando hay una abierta, para que el asiento viva o muera
+   * con la operación que describe.
+   */
+  private async recordEvent(
+    trx: Knex | Knex.Transaction,
+    userId: string,
+    event: string,
+    detalle: Record<string, unknown>,
+    requester: RequesterContext,
+  ): Promise<void> {
+    try {
+      await trx('identity.user_events').insert({
+        tenant_id: this.tenantId,
+        user_id: userId,
+        event,
+        detalle: JSON.stringify(detalle),
+        actor_user_id: requester.sub ?? null,
+        actor_username: requester.username ?? null,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo asentar el evento "${event}" del usuario ${userId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** Nombre de la zona a partir del uuid, para las respuestas de escritura. */
+  private async zoneNameOf(zonaId?: string | null): Promise<string | null> {
+    if (!zonaId) return null;
+    const z = await this.knex('zones')
+      .where({ id: zonaId, tenant_id: this.tenantId })
+      .select('name')
+      .first();
+    return z?.name ?? null;
   }
 
   private normalizeUsername(username: string): string {
@@ -234,6 +282,12 @@ export class UsersService {
         role_name: normalizedRoleName,
         username: normalizedUsername,
         updated_by: requester.sub,
+        created_by: requester.sub,
+        // `[ID.8]` La contraseña la eligió OTRO (el admin que da el alta), así
+        // que el dueño tiene que cambiarla. `created_by` además deja de estar
+        // vacío: en prod estaba en NULL para los 117 usuarios.
+        password_changed_at: this.knex.fn.now(),
+        must_change_password: true,
       })
       .returning([
         'id',
@@ -246,7 +300,10 @@ export class UsersService {
         'created_at',
       ]);
 
-    return { ...user, zona: _zonaLegacy };
+    // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
+    // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
+    // devolver el que mandó el cliente sería devolverle su propio input.
+    return { ...user, zona: await this.zoneNameOf(zona_id) };
   }
 
   async findAll(
@@ -486,16 +543,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const zoneName =
-      _zonaLegacy !== undefined
-        ? _zonaLegacy
-        : (
-            await this.knex('zones')
-              .where({ id: user.zona_id, tenant_id: this.tenantId })
-              .select('name')
-              .first()
-          )?.name;
-    return { ...user, zona: zoneName };
+    return { ...user, zona: await this.zoneNameOf(user.zona_id) };
   }
 
   async remove(id: string, requester: RequesterContext) {
