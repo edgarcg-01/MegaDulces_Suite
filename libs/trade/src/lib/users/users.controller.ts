@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -148,6 +149,51 @@ export class UsersController {
       role_name: scope.roleName,
       dimensions: await this.scope.describe(scope),
     };
+  }
+
+  /**
+   * `[ID.9]` — Editar el ALCANCE de un usuario desde la UI.
+   *
+   * Hasta acá `identity.user_scopes` sólo se podía tocar por migración, o sea
+   * que ampliar o recortar lo que alguien ve exigía una sesión con acceso a prod.
+   * Regla de Edgar: el dato operativo se administra en /admin/*.
+   *
+   * `mode: null` borra el override y el usuario vuelve al default de su rol —
+   * distinto de `mode: 'none'`, que es "explícitamente no ve nada".
+   */
+  @Put(':id/scope/:dimension')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija (o borra, con mode=null) el alcance de un usuario en una dimensión. Queda asentado en identity.user_events.' })
+  setScope(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('dimension') dimension: string,
+    @Body() body: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setScope(id, dimension, body ?? {}, { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.9]` — Asignación MASIVA de los ejes de control (departamento, puesto,
+   * sucursal, estado). Es lo que evita el script: normalizar 116 usuarios de a
+   * uno por pantalla no es viable, y por eso el dato se quedaba viejo.
+   */
+  @Patch('bulk')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna departamento / puesto / sucursal / estado a varios usuarios de una vez. Un evento por usuario.' })
+  bulkAssign(
+    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });
+  }
+
+  /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
+  @Get(':id/events')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Últimos cambios registrados del usuario (identity.user_events)' })
+  events(@Param('id', new ParseUUIDPipe()) id: string, @Query('limit') limit?: string) {
+    return this.usersService.events(id, limit ? Number(limit) : undefined);
   }
 
   @Get(':id')

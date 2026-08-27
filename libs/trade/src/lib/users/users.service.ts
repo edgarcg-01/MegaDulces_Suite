@@ -661,4 +661,131 @@ export class UsersService {
       .orderBy('orden', 'asc')
       .select('code', 'name', 'org_labels', 'orden');
   }
+
+  // ═══════════════════════ [ID.9] administrable desde la UI ═══════════════════
+  // Regla de Edgar: el dato operativo se administra en /admin/*, no por script.
+  // Un script se justifica sólo para el backfill inicial de una fase.
+
+  /**
+   * Escribe el override de alcance de un usuario en UNA dimensión
+   * (`identity.user_scopes`). Hasta acá esto sólo se podía tocar por migración.
+   *
+   * `mode = null` BORRA el override y el usuario vuelve al default de su rol.
+   * Es distinto de `mode = 'none'`, que es "explícitamente no ve nada": uno
+   * hereda, el otro decide. La UI tiene que ofrecer las dos cosas.
+   */
+  async setScope(
+    id: string,
+    dimension: string,
+    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    requester: RequesterContext,
+  ) {
+    const dim = await this.knex('identity.scope_dimensions').where({ code: dimension }).first('code', 'supports_own');
+    if (!dim) throw new BadRequestException(`La dimensión de alcance "${dimension}" no existe.`);
+
+    const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const previo = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id, dimension })
+      .first('mode', 'values', 'mode_write');
+
+    // Heredar del rol = borrar la fila propia.
+    if (dto.mode == null) {
+      await this.knex('identity.user_scopes')
+        .where({ tenant_id: this.tenantId, user_id: id, dimension })
+        .del();
+      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      return { dimension, hereda_del_rol: true };
+    }
+
+    if (dto.mode === 'own' && !dim.supports_own) {
+      throw new BadRequestException(
+        `La dimensión "${dimension}" no soporta "own": no hay columna propia en el usuario de la que sacar el valor.`,
+      );
+    }
+    const values = dto.mode === 'listed' ? (dto.values ?? []).map(String).filter(Boolean) : null;
+    if (dto.mode === 'listed' && !values?.length) {
+      // El CHECK de la DB también lo rechaza, pero acá el mensaje es útil.
+      throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elegí valores o usá "none".');
+    }
+
+    const fila = {
+      tenant_id: this.tenantId,
+      user_id: id,
+      dimension,
+      mode: dto.mode,
+      values,
+      mode_write: dto.mode_write ?? null,
+      nota: dto.nota ?? null,
+      updated_by: requester.sub,
+      updated_at: this.knex.fn.now(),
+    };
+    await this.knex('identity.user_scopes')
+      .insert({ ...fila, created_by: requester.sub })
+      .onConflict(['tenant_id', 'user_id', 'dimension'])
+      .merge(fila);
+
+    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    return { dimension, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+  }
+
+  /**
+   * Asignación MASIVA de los ejes de control. Es lo que hacía falta para no
+   * depender de un script: normalizar 116 usuarios de a uno por pantalla no es
+   * viable, y por eso el dato se quedaba viejo.
+   *
+   * Sólo toca los campos que vengan. Valida los códigos contra su catálogo
+   * (400, no 500) y asienta un evento por usuario.
+   */
+  async bulkAssign(
+    dto: {
+      user_ids: string[];
+      department_code?: string | null;
+      position_code?: string | null;
+      warehouse_code?: string | null;
+      status?: string | null;
+    },
+    requester: RequesterContext,
+  ) {
+    const ids = (dto.user_ids ?? []).filter(Boolean);
+    if (!ids.length) throw new BadRequestException('Hay que seleccionar al menos un usuario.');
+
+    await this.assertOrgCodes(dto.department_code, dto.position_code, dto.warehouse_code);
+
+    const cambios: Record<string, unknown> = {};
+    for (const k of ['department_code', 'position_code', 'warehouse_code', 'status'] as const) {
+      if (dto[k] !== undefined) cambios[k] = dto[k];
+    }
+    if (!Object.keys(cambios).length) throw new BadRequestException('No hay ningún campo para cambiar.');
+
+    // Nadie se cambia a sí mismo el estado en un lote: el guard de
+    // auto-desactivación del update individual no aplicaría acá.
+    if (cambios['status'] && ids.includes(requester.sub)) {
+      throw new ForbiddenException('No puedes cambiar tu propio estado en una asignación masiva.');
+    }
+
+    return this.knex.transaction(async (trx) => {
+      const afectados = await trx('users')
+        .where({ tenant_id: this.tenantId })
+        .whereIn('id', ids)
+        .whereNull('deleted_at')
+        .update({ ...cambios, updated_at: trx.fn.now(), updated_by: requester.sub })
+        .returning(['id', 'username']);
+
+      for (const u of afectados) {
+        await this.recordEvent(trx, u.id, 'bulk_assigned', cambios, requester);
+      }
+      return { actualizados: afectados.length, campos: Object.keys(cambios), usuarios: afectados.map((u: any) => u.username) };
+    });
+  }
+
+  /** Bitácora del usuario, para el panel de detalle. */
+  async events(id: string, limit = 50) {
+    return this.knex('identity.user_events')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy('created_at', 'desc')
+      .limit(Math.min(200, Math.max(1, limit)))
+      .select('event', 'detalle', 'actor_username', 'created_at');
+  }
 }

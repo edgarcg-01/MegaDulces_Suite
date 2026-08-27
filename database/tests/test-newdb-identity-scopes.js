@@ -232,6 +232,56 @@ const knex = require('knex')({
         (ownMal.rows.length ? ` — ${ownMal.rows.map((r) => `${r.tabla}.${r.dimension}`).join(', ')}` : ''),
     );
 
+    // ── 9. [ID.9] administrable desde la UI ────────────────────────────────
+    // Regla de Edgar: el dato operativo se administra en /admin/*, no por
+    // script. Acá se prueban las dos operaciones que la pantalla necesita y que
+    // antes sólo existían dentro de una migración.
+    console.log('\n═══ 9. El alcance se puede editar, no sólo migrar ═══');
+    await knex.transaction(async (trx) => {
+      const u = await trx('identity.users')
+        .where({ tenant_id: tenant })
+        .whereNotIn(knex.raw('lower(role_name)'), GOD)
+        .whereNull('deleted_at')
+        .first('id', 'username');
+
+      // UPSERT del override — lo que hace `UsersService.setScope`.
+      const fila = { tenant_id: tenant, user_id: u.id, dimension: 'warehouse', mode: 'listed', values: ['01', '03'], nota: 'test-ui' };
+      await trx('identity.user_scopes').insert(fila).onConflict(['tenant_id', 'user_id', 'dimension']).merge(fila);
+      const puesto = await trx('identity.user_scopes')
+        .where({ tenant_id: tenant, user_id: u.id, dimension: 'warehouse' }).first('mode', 'values');
+      assert(puesto.mode === 'listed' && puesto.values.length === 2, `override editable: listed ['01','03'] sobre ${u.username}`);
+
+      // BORRAR el override = volver al default del rol. Es distinto de 'none':
+      // uno HEREDA, el otro DECIDE que no ve nada. La UI ofrece las dos.
+      await trx('identity.user_scopes').where({ tenant_id: tenant, user_id: u.id, dimension: 'warehouse' }).del();
+      const tras = await trx('identity.user_scopes')
+        .where({ tenant_id: tenant, user_id: u.id, dimension: 'warehouse' }).first('mode');
+      assert(!tras, 'borrar el override hace que herede del rol (distinto de mode "none")');
+
+      // La bitácora acepta el asiento que escribe el service.
+      await trx('identity.user_events').insert({
+        tenant_id: tenant, user_id: u.id, event: 'scope_changed',
+        detalle: JSON.stringify({ dimension: 'warehouse', a: { mode: 'listed' } }),
+        actor_username: 'test-ui',
+      });
+      const ev = await trx('identity.user_events')
+        .where({ tenant_id: tenant, user_id: u.id, event: 'scope_changed' }).first('actor_username');
+      assert(!!ev && ev.actor_username === 'test-ui', 'el cambio queda asentado en identity.user_events con su actor');
+
+      throw new Error('__rollback__');
+    }).catch((e) => { if (!/__rollback__/.test(e.message)) throw e; });
+
+    const limpio = await knex('identity.user_scopes').where({ nota: 'test-ui' }).count('* as n').first();
+    assert(Number(limpio.n) === 0, 'el rollback del bloque 9 no dejó basura');
+
+    // Append-only: `app_runtime` NO debe poder editar ni borrar la bitácora.
+    const grants = await knex.raw(
+      `SELECT privilege_type FROM information_schema.role_table_grants
+        WHERE table_schema='identity' AND table_name='user_events' AND grantee='app_runtime'`);
+    const tipos = grants.rows.map((r) => r.privilege_type);
+    assert(tipos.includes('SELECT') && tipos.includes('INSERT'), `app_runtime lee y asienta (${tipos.join(',')})`);
+    assert(!tipos.includes('UPDATE') && !tipos.includes('DELETE'), 'la bitácora es append-only: sin UPDATE ni DELETE');
+
     console.log(`\n═══════════ Resultado: ${pass} pass / ${fail} fail ═══════════`);
     if (fail) process.exitCode = 1;
   } catch (e) {
