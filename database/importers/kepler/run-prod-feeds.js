@@ -164,7 +164,9 @@ const STEPS = {
     path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
     path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
-    path.join(K, 'import-kepler-accounts.js'),   // dim cuentas contables → finance.kepler_accounts
+    // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
+    // sobre analytics.ledger_monthly (mig 20260826190000). Correrlo pegaría INSERT contra la vista.
+    // Pasó el gate de costo: fuente 2,548 filas, paridad 175/175 exacta, misma latencia de lectura.
     path.join(K, 'import-replenishment-cadence.js'), // cadencia de reabasto → commercial.replenishment_channel
     // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
     // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.

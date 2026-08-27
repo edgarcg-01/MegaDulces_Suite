@@ -1,5 +1,11 @@
 /* eslint-disable no-console */
 /**
+ * ⛔ RETIRADO 2026-08-26 — NO CORRER. `finance.kepler_accounts` ya es una VISTA derive-no-copy
+ * sobre `analytics.ledger_monthly` (mig 20260826190000): este INSERT ahora pega contra la vista
+ * y falla. Se conserva el archivo como documentación del decode (mismo criterio que
+ * import-erp-customers/promos/shipments, retirados en 2026-08-20). Si hiciera falta volver a
+ * materializar, corré el `down` de esa migración primero.
+ *
  * CB.13 (Fase 1) — Puebla finance.kepler_accounts (catálogo real de cuentas) desde
  * analytics.ledger_monthly, canónico = almacén 00 (CEDIS). Distinct cuenta con su
  * nombre + mayor. Idempotente (UPSERT por cuenta). Es la fuente de verdad para mapear
