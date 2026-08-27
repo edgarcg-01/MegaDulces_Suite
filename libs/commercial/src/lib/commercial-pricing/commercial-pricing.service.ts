@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
@@ -96,6 +97,8 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 @Injectable()
 export class CommercialPricingService {
+  private readonly logger = new Logger(CommercialPricingService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -814,11 +817,55 @@ export class CommercialPricingService {
     if (!UUID_REGEX.test(productId)) throw new BadRequestException('product_id inválido');
     const q = Math.max(1, Math.floor(Number(qty) || 1));
     return this.tk.run(async (trx) => {
-      const tiers = await trx('commercial.product_prices')
-        .where({ product_id: productId })
-        .whereNull('deleted_at')
-        .select('price', 'tax_rate', 'min_qty', 'price_list_id')
-        .orderBy('min_qty', 'asc');
+      // Fix #2 mayoreo: los quiebres por CANTIDAD ya no salen de las listas
+      // congeladas P1-P4/MAYOREO (fuente `catalogo_etiquetas`, freeze 2026-08-16,
+      // corruptamente baratas → subcotizaban), sino de la vista viva
+      // `analytics.product_volume_tiers` (derivada de kepler_ods.kdpv_prod_util;
+      // min_qty>1 y siempre < BASE). El ANCLA es BASE-MXN (min1): ignoramos a
+      // propósito las demás listas para que sus tiers congelados NO le ganen al
+      // mayoreo real por ser más baratos. Si un producto NO tiene BASE-MXN
+      // (~573 SKUs de DQ) caemos a todo lo vivo para que sigan pedibles.
+      const baseAnchor = await trx('commercial.product_prices as pp')
+        .join('commercial.price_lists as pl', function (this: any) {
+          this.on('pl.id', '=', 'pp.price_list_id').andOn('pl.tenant_id', '=', 'pp.tenant_id');
+        })
+        .where('pp.product_id', productId)
+        .whereNull('pp.deleted_at')
+        .where('pl.code', 'BASE-MXN')
+        .select('pp.price', 'pp.tax_rate', 'pp.min_qty', 'pp.price_list_id')
+        .orderBy('pp.min_qty', 'asc');
+      const base = baseAnchor.length
+        ? baseAnchor
+        : await trx('commercial.product_prices')
+            .where({ product_id: productId })
+            .whereNull('deleted_at')
+            .select('price', 'tax_rate', 'min_qty', 'price_list_id')
+            .orderBy('min_qty', 'asc');
+      // El IVA de los tiers de la vista lo hereda del precio base del producto;
+      // no aportan price_list_id (ningún caller de este método lo usa).
+      const taxDefault = base.length ? Number(base[0].tax_rate) : 0;
+      // Red de seguridad: la vista es una dependencia nueva sobre kepler_ods; si
+      // falla o aún no existe, NO rompemos la toma de pedido: caemos a BASE. La
+      // vista solo emite descuentos (< BASE), así que su ausencia nunca sobrecobra.
+      let viewTiers: Array<{ price: number; tax_rate: number; min_qty: number; price_list_id: string | null }> = [];
+      try {
+        const rows = await trx('analytics.product_volume_tiers')
+          .where({ product_id: productId })
+          .select('price', 'min_qty');
+        viewTiers = rows.map((r: { price: number; min_qty: number }) => ({
+          price: Number(r.price),
+          tax_rate: taxDefault,
+          min_qty: Number(r.min_qty),
+          price_list_id: null as string | null,
+        }));
+      } catch (err) {
+        this.logger.warn(
+          `product_volume_tiers no disponible para ${productId}; uso solo BASE. ${String((err as Error)?.message ?? err)}`,
+        );
+      }
+      const tiers = [...base, ...viewTiers].sort(
+        (a, b) => (Number(a.min_qty) || 1) - (Number(b.min_qty) || 1),
+      );
       if (!tiers.length) {
         return { product_id: productId, price: null, tax_rate: null, min_qty: null, min_purchase: null, price_list_id: null, source: null as string | null };
       }
