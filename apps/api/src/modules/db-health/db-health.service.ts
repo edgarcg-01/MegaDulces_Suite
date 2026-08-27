@@ -361,7 +361,11 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_receipts',       label: 'Feed recepciones (XA2001)',         cadence: 'cada 1-2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
-  { key: 'feed_catalog',        label: 'Feed catálogo',                     cadence: 'diario 02:00', warnH: 30,  critH: 50, maxRunH: 3 },
+  // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
+  // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
+  // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación
+  // más probable de que el feed_nightly muriera 2 noches (25 y 26-ago) sin que nadie lo viera.
+  { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
   // CDC WAL-decode (ADR-047): el consumidor on-prem (ods-cdc-wal.js --watch) late cada ~30s POR

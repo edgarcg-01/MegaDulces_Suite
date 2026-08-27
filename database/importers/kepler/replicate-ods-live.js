@@ -136,7 +136,15 @@ const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, m
 
 // Base de conexión al contenedor de replicas (localhost:5433). El replica de md_03 quedó con el
 // nombre del piloto (kepler_pilot); el resto es kepler_md_XX. Rename diferido (cosmético).
-const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+//
+// ODS_SOURCE_BASE existe para DESACOPLAR esta base de `DATABASE_URL_NEW`. Esa var la mueve dev
+// para apuntar la app a otra base (p. ej. la réplica de pruebas en .245); si el CDC la usa para
+// derivar `kepler_md_XX`, se queda buscando los replicas en el server equivocado y **se calla**:
+// `cycleAll` loguea "no conecta — skip" por rama y la pasada termina "bien" sin shipear nada.
+// Exactamente la clase de falla silenciosa que nos costó 2 días de kepler_ods viejo en prod.
+// Se deja `DATABASE_URL_NEW` como fallback por compatibilidad con los runners que aún no la setean.
+const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
+  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local
@@ -378,11 +386,13 @@ async function cycleAll({ apply, full }) {
     return;
   }
 
-  // Modo pg (on-prem/test): abre el cliente destino (default = base de replicas).
+  // Modo pg (on-prem/test): abre el cliente destino. DESTINO ≠ FUENTE — el default sale de
+  // DATABASE_URL_NEW (la base de la app), no de ODS_SOURCE_BASE (el contenedor de replicas).
   if (sink.sinkMode() === 'pg') {
-    DEST = new Client({ connectionString: DEST_URL || SUB_BASE, ssl: false, ...CONN });
+    const destStr = DEST_URL || process.env.DATABASE_URL_NEW || SUB_BASE;
+    DEST = new Client({ connectionString: destStr, ssl: false, ...CONN });
     await DEST.connect();
-    console.log(`  destino pg: ${new URL(DEST_URL || SUB_BASE).host}${new URL(DEST_URL || SUB_BASE).pathname}`);
+    console.log(`  destino pg: ${new URL(destStr).host}${new URL(destStr).pathname}`);
   }
 
   if (!WATCH_SEC) {
