@@ -318,6 +318,11 @@ const CHANNEL_ORDER: Record<string, number> = {
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
+// Canales CRUDOS de analytics.sales_daily / sales_boxes_monthly que NO son venta
+// real. `mayoreo` = forma_pago 'TI%' = traspaso interno CEDIS→sucursal (la venta
+// de mayoreo/telemarketing real vive en el canal `credito`). Decisión 2026-08-27:
+// unificar la definición de venta con Sell-Out excluyéndolo en TODO consumidor.
+const NON_SALE_RAW_CHANNELS = ['mayoreo'];
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
 const SELLOUT_STMT_TIMEOUT = '45s';
 
@@ -997,6 +1002,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       const rows = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('sale_date', '>=', from);
           if (to) qb.where('sale_date', '<=', to);
@@ -1038,6 +1044,7 @@ export class CommercialAnalyticsService {
         .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1139,6 +1146,7 @@ export class CommercialAnalyticsService {
         JOIN catalog.products p ON p.id = s.product_id
         LEFT JOIN catalog.categories cat ON cat.id = p.category_id AND cat.tenant_id = ?
         WHERE s.tenant_id = ?
+          AND s.channel NOT IN ('mayoreo')  -- =TI% traspaso interno, no es venta
           ${from ? `AND s.sale_date >= ?` : ''}
           ${to ? `AND s.sale_date <= ?` : ''}
         GROUP BY cat.id, cat.name
@@ -1244,6 +1252,7 @@ export class CommercialAnalyticsService {
       const rows = await trx('analytics.sales_daily AS s')
         .join('commercial.warehouses AS w', 'w.id', 's.warehouse_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1350,6 +1359,7 @@ export class CommercialAnalyticsService {
       // brand/category via EXISTS sobre catalog.products → compone con cualquier dimensión
       // sin chocar con los joins (alias p) que agregan las ramas producto/marca/categoria.
       const applyFilters = (qb: any) => {
+        qb.whereNotIn('s.channel', NON_SALE_RAW_CHANNELS); // mayoreo=TI% traspaso, no es venta
         if (channel) qb.andWhere('s.channel', channel);
         if (warehouseId) qb.andWhere('s.warehouse_id', warehouseId);
         if (brandIdEff) qb.whereExists(function (this: any) {
@@ -1488,6 +1498,7 @@ export class CommercialAnalyticsService {
       // el que dejaba el tablero en esqueletos — los otros 9 paneles ya tenían datos.
       const channels = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('sale_date', '>=', this.since30d(trx))
         .andWhere('sale_date', '<=', this.untilToday(trx))
         .groupBy('channel')
@@ -1596,6 +1607,7 @@ export class CommercialAnalyticsService {
         .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
           j.on('st.product_id', 's.product_id').andOn('st.tenant_id', 's.tenant_id'))
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .andWhere('p.is_promo', false)
@@ -1623,6 +1635,7 @@ export class CommercialAnalyticsService {
       if (netTotal === null && opts?.share) {
         const [tot] = await trx('analytics.sales_daily')
           .where('tenant_id', tenantId)
+          .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
           .andWhere('sale_date', '>=', this.since30d(trx))
           .andWhere('sale_date', '<=', this.untilToday(trx))
           .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
@@ -1658,6 +1671,7 @@ export class CommercialAnalyticsService {
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .groupBy('b.id', 'b.nombre')
@@ -1695,6 +1709,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('sale_date', '<=', this.untilToday(trx)) // nunca fechas futuras (parseo malo del feed)
         .modify((qb) => {
           if (from) qb.where('sale_date', '>=', from);
@@ -3436,8 +3451,9 @@ export class CommercialAnalyticsService {
 
     // Fuente CANÓNICA (primaria): modo AÑO → analytics.sales_boxes_monthly (piezas/kg + cajas ya
     // calculadas con v_product_box_factor = Kepler kdii.c84); modo RANGO → analytics.sales_daily
-    // (piezas/kg canónicas; cajas = piezas / factor canónico). Incluye TODOS los canales
-    // (mostrador/crédito/preventa/ruta, Kepler y Wincaja) = venta total real. Reemplaza a
+    // (piezas/kg canónicas; cajas = piezas / factor canónico). Incluye los canales de VENTA
+    // (mostrador/crédito/preventa/ruta, Kepler y Wincaja) y EXCLUYE `mayoreo` (=TI% traspaso
+    // interno, ver NON_SALE_RAW_CHANNELS) para igualar la definición de Sell-Out. Reemplaza a
     // product_sales_* (crudo: unidad vendida sin normalizar, solo U-D-10) que subcontaba el
     // crédito y no convertía a cajas los productos vendidos en paquete/granel.
     let year = 0, from = '', toIncl = '';
@@ -3490,6 +3506,7 @@ export class CommercialAnalyticsService {
             this.on('vbf.product_id', 'm.product_id').andOn('vbf.tenant_id', 'm.tenant_id');
           })
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .select('w.code as wcode', 'm.product_id as product_id')
           .select(trx.raw('sum(m.units) as units'))
           .select(trx.raw(`sum(CASE WHEN m.unit_kind = 'weight' THEN 0 ELSE m.units / GREATEST(COALESCE(vbf.box_factor, 1), 1) END) as boxes`))
@@ -3499,6 +3516,7 @@ export class CommercialAnalyticsService {
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`right(m.year_month, 2) as mes`))
           .select(trx.raw('sum(coalesce(m.pieces, 0) + coalesce(m.kg, 0)) as units'))
           .select(trx.raw('sum(coalesce(m.boxes, 0)) as boxes'))
@@ -3513,6 +3531,7 @@ export class CommercialAnalyticsService {
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .select('w.code as wcode', 'm.product_id as product_id')
           .select(trx.raw('sum(m.units) as units'))
           .groupByRaw('w.code, m.product_id');
@@ -3526,10 +3545,12 @@ export class CommercialAnalyticsService {
       if (isRange) {
         scopeWh = await trx('analytics.sales_daily as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .distinct('w.id as id', 'w.code as code', 'w.name as name');
       } else {
         scopeWh = await trx('analytics.sales_boxes_monthly as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .distinct('w.id as id', 'w.code as code', 'w.name as name');
       }
       if (whFilter) scopeWh = scopeWh.filter((w) => whFilter.includes(w.code));

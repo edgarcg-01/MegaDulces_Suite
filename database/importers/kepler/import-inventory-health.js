@@ -56,6 +56,7 @@ const SELECT_HEALTH = `
       LEFT JOIN analytics.product_box_price   bp  ON bp.tenant_id = sd.tenant_id AND bp.product_id = sd.product_id AND bp.cja_price > 0
       LEFT JOIN analytics.v_product_box_factor vbf ON vbf.tenant_id = sd.tenant_id AND vbf.product_id = sd.product_id
      WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND (sd.units > 0 OR sd.revenue > 0)
+       AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
      GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date, b.nombre, bp.cja_price, vbf.box_factor
   ), vel AS (
     SELECT product_id, warehouse_id,

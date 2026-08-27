@@ -52,6 +52,7 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
                sum(revenue)::numeric AS rev
           FROM analytics.sales_daily
          WHERE tenant_id = $1 AND sale_date >= current_date - $2::int
+           AND channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
          GROUP BY product_id, warehouse_id
       ),
       pf AS (
