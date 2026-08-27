@@ -319,14 +319,16 @@ const enTrx = async (fn) => {
     await enTrx(async (trx) => {
       const enc = await trx('identity.users')
         .whereNull('deleted_at')
-        .whereRaw(`LOWER(role_name) = 'encargado_sucursal'`)
+        // Nombres post-`[ID.14]`, con el viejo como respaldo por si el test
+        // corre contra un ambiente que todavía no normalizó el catálogo.
+        .whereRaw(`LOWER(role_name) IN ('encargado_tienda', 'encargado_sucursal')`)
         .first('id', 'username', 'role_name', 'tenant_id');
       const cajera = await trx('identity.role_permissions')
         .where({ tenant_id: tenant })
-        .whereRaw(`LOWER(role_name) = 'cajera'`)
+        .whereRaw(`LOWER(role_name) IN ('cajero', 'cajera')`)
         .first('role_name');
       if (!enc || !cajera) {
-        console.log('    — sin encargado_sucursal o rol cajera en este ambiente: se omite');
+        console.log('    — sin encargado de tienda o rol de cajero en este ambiente: se omite');
         return;
       }
       await trx('identity.user_roles').insert({
@@ -341,6 +343,79 @@ const enTrx = async (fn) => {
         `${enc.username} es encargado_sucursal Y cajera con UNA cuenta (${roles.map((r) => r.role_name).join(' + ')})`,
       );
     });
+
+    // ── 8b. Catálogo normalizado `[ID.14]` ────────────────────────────────
+    // Sólo se afirma lo que es INVARIANTE. "Ningún rol sin usuarios" NO lo es
+    // (un rol nuevo para una contratación futura nace sin gente), así que eso se
+    // REPORTA. Es la lección de las 3 aserciones que ya rompí escribiendo una
+    // foto como si fuera una regla.
+    console.log('\n═══ 8b. Catálogo de roles normalizado ═══');
+    const vivos = await knex('identity.role_permissions')
+      .where({ tenant_id: tenant })
+      .whereNull('deleted_at')
+      .select('role_name', 'kind', 'permissions');
+    assert(vivos.length > 0, `hay ${vivos.length} roles vivos`);
+
+    const malNombre = vivos.filter((r) => /[A-Z]|\s/.test(r.role_name));
+    assert(
+      malNombre.length === 0,
+      `ningún rol vivo con mayúsculas ni espacios${malNombre.length ? ` — ${malNombre.map((r) => `"${r.role_name}"`).join(', ')}` : ''}`,
+    );
+
+    const kinds = Array.from(new Set(vivos.map((r) => r.kind)));
+    assert(
+      kinds.every((k) => ['perfil', 'complemento'].includes(k)),
+      `kind sólo perfil|complemento (${kinds.join(', ')})`,
+    );
+    const complementos = vivos.filter((r) => r.kind === 'complemento');
+    assert(complementos.length > 0, `${complementos.length} rol/es marcados como complemento (tareas, no puestos)`);
+
+    // Invariante de verdad: nadie apuntando a un rol retirado. Un usuario cuyo
+    // rol está soft-deleted tiene permisos que ya nadie administra.
+    const enRetirado = await knex.raw(`
+      SELECT u.username, u.role_name
+        FROM identity.users u
+        JOIN identity.role_permissions rp
+          ON rp.tenant_id = u.tenant_id AND LOWER(rp.role_name) = LOWER(u.role_name)
+       WHERE u.deleted_at IS NULL AND rp.deleted_at IS NOT NULL`);
+    assert(
+      enRetirado.rows.length === 0,
+      `ningún usuario con un rol retirado${enRetirado.rows.length ? ` — ${enRetirado.rows.map((r) => `${r.username}:${r.role_name}`).join(', ')}` : ''}`,
+    );
+
+    // Se REPORTAN (no se afirman): roles sin gente y sets idénticos.
+    const sinGente = [];
+    for (const r of vivos) {
+      const n = await knex('identity.users')
+        .where({ tenant_id: tenant })
+        .whereNull('deleted_at')
+        .whereRaw('LOWER(role_name) = ?', [r.role_name.toLowerCase()])
+        .count('* as n')
+        .first();
+      if (Number(n.n) === 0) sinGente.push(r.role_name);
+    }
+    console.log(
+      sinGente.length
+        ? `    → ${sinGente.length} rol/es vivos sin usuarios (revisar si sobran): ${sinGente.join(', ')}`
+        : '    → todos los roles vivos tienen al menos un usuario',
+    );
+
+    const porSet = new Map();
+    for (const r of vivos) {
+      const clave = Object.entries(r.permissions ?? {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k)
+        .sort()
+        .join('|');
+      if (!clave) continue;
+      porSet.set(clave, [...(porSet.get(clave) ?? []), r.role_name]);
+    }
+    const gemelos = Array.from(porSet.values()).filter((v) => v.length > 1);
+    console.log(
+      gemelos.length
+        ? `    → ${gemelos.length} grupo/s de roles con permisos IDÉNTICOS: ${gemelos.map((g) => g.join('≡')).join(' · ')}`
+        : '    → no quedan roles con sets de permisos idénticos',
+    );
 
     // ── 9. Sin basura ──────────────────────────────────────────────────────
     console.log('\n═══ 9. Los rollbacks no dejaron nada ═══');
