@@ -53,10 +53,15 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler (SYNC.3): replicate-ods-live lee los replicas lógicos locales y empuja
-  // a kepler_ods.* de forma CONTINUA (~15s, tarea OdsLiveLoop). La marca last_push_at se escribe
-  // en cada corrida (aunque no cambie nada) → detecta si el pipe se detuvo. Umbral realtime.
-  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo ~15s (tarea OdsLiveLoop)' },
+  // Espejo crudo Kepler: el carril es el CDC WAL (7 consumidores `cdc-wal-XX` bajo PM2, uno por
+  // sucursal) que lee el WAL de los réplicas lógicos locales y empuja a kepler_ods.* por
+  // feeds-ingest. `last_push_at` la escribe el handler en cada batch (raw-upsert Y raw-delete) →
+  // detecta si el pipe se detuvo. Umbral realtime.
+  // El POLL (`replicate-ods-live`, tareas \Tienda\OdsLiveLoop + OdsFullMirror) quedó DESHABILITADO
+  // el 2026-08-26: escribía los timestamps +6h (pasaban por un Date de JS) y, al estar el timestamp
+  // en la PK, duplicaba filas contra lo que escribe el WAL — 1,120 pólizas duplicadas en kdc22608.
+  // Ver GOTCHAS §21. Los latidos por consumidor (`cdc_wal_00..06`) son el dead-man's switch fino.
+  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (CDC WAL, 7 consumidores PM2)' },
   // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
   // replicación lógica (SYNC.3) apareció un modo de falla nuevo: si UN replica (subscription)
   // se congela, la loop sigue shipeando data VIEJA de esa sucursal → last_push_at fresco pero
@@ -120,7 +125,7 @@ const APP_SOURCES: SourceCfg[] = [
                  'oficinas 00 · último mov. ' || coalesce(to_char(max(c9::date),'DD/MM'),'—') AS note_extra
             FROM kepler_ods.kdm1
            WHERE sucursal='00' AND c9::date <= current_date AND c9::date > current_date - 30`,
-    warnH: 48, critH: 120, cadence: 'continuo (replica lógica md_00 → OdsLiveLoop)',
+    warnH: 48, critH: 120, cadence: 'continuo (réplica lógica md_00 → CDC WAL)',
   },
   // (AUDIT 2026-08-21) Cobertura de FINANZAS de oficinas '00' en el ODS. El ship a prod usa un whitelist
   //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), import-kepler-bank-movements hace SKIP MUDO
@@ -133,7 +138,10 @@ const APP_SOURCES: SourceCfg[] = [
                  CASE WHEN count(*) > 0 THEN count(*)::text || ' cuentas banco (00) en ODS'
                       ELSE 'kdb1 oficinas 00 VACÍA — bank feed en SKIP; falta kdb1 en KP_ODS_TABLES del runner' END AS note_extra
             FROM kepler_ods.kdb1 WHERE btrim(sucursal)='00'`,
-    warnH: 24, critH: 48, cadence: 'continuo (OdsLiveLoop carril hash)',
+    // (2026-08-26) Con el poll deshabilitado este modo de falla se fue: la publicación del WAL
+    // (`ods_cdc_pub`) lleva TODAS las tablas de cada rama (319-350 según sucursal, verificado: 0 del
+    // ODS sin publicar), así que ya no hay whitelist que pueda omitir kdb1 en silencio.
+    warnH: 24, critH: 48, cadence: 'continuo (CDC WAL, sin whitelist)',
   },
   // (P0-2) Flota GPS: vehicle_positions es FUENTE ÚNICA; el FleetPoller @1min no late en cron_runs → si
   //        el poller muere (o faltan creds MAGNI en prod) el mapa sigue verde con datos viejos. Verde si
