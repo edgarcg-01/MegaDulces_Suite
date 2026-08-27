@@ -104,6 +104,15 @@ export class GoodsReceiptProofsController {
     return this.svc.confirmLineMatch(body, req?.user?.full_name || req?.user?.username);
   }
 
+  @Post('validate-bulk')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.13.2 — valida varias evidencias de una pasada, sólo el caso limpio (cuadra al peso + no la subió el propio revisor). El server revalida cada id y devuelve qué se omitió y por qué.',
+  })
+  validateBulk(@Body() body: { ids?: string[] }, @Req() req: AuthedRequest) {
+    return this.svc.validateBulk(body?.ids || [], req?.user?.full_name || req?.user?.username);
+  }
+
   @Post(':id/validate')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
   @ApiOperation({ summary: 'Valida la evidencia de la entrada. Auditado. Permiso especial COMPRAS_ENTRADAS_VALIDAR.' })
@@ -113,8 +122,10 @@ export class GoodsReceiptProofsController {
 
   @Post(':id/reject')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
-  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado. Permiso especial COMPRAS_ENTRADAS_VALIDAR.' })
-  reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
-    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
+  @ApiOperation({
+    summary: 'Rechaza la evidencia con motivo TIPIFICADO (ilegible|no_corresponde|total_no_cuadra|falta_hoja|duplicada|otro) + texto. Auditado + historial.',
+  })
+  reject(@Param('id') id: string, @Body() body: { motivo?: string; motivo_codigo?: string }, @Req() req: AuthedRequest) {
+    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, body?.motivo_codigo);
   }
 }

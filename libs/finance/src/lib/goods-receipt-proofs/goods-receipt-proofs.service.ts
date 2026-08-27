@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch, ScopeService } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
@@ -17,6 +17,14 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `evidencia_1` se mantiene por compatibilidad con registros viejos.
 export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'vale', 'orden_entrada', 'orden_recepcion', 'ticket', 'evidencia', 'evidencia_1'] as const;
 export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
+
+/**
+ * RE.13.2 — catálogo de motivos de rechazo. Con texto libre no se puede contestar "¿por qué
+ * se devuelve el 30% de lo que sube la sucursal 01?", que es justo el dato que le dice a la
+ * sucursal qué corregir. El front tiene su propia copia para las etiquetas.
+ */
+export const MOTIVOS_RECHAZO = ['ilegible', 'no_corresponde', 'total_no_cuadra', 'falta_hoja', 'duplicada', 'otro'] as const;
+export type MotivoRechazo = (typeof MOTIVOS_RECHAZO)[number];
 // RE.13.0 — estos dos eran constantes de módulo y son decisiones de NEGOCIO: la fecha de
 // arranque del proceso (mover el rezago fuera del SLA) y cuándo se considera que la factura
 // cuadra. Viven en `finance.receipt_settings` por tenant; acá quedan sólo como default para
@@ -183,6 +191,48 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * ¿Existe la columna/tabla? Cacheado por proceso. Sirve para que el código funcione en un
+   * entorno donde la migración de la fase todavía no corrió, **sin** un `try/catch` que
+   * envenenaría la transacción del request (25P02).
+   */
+  private objCache = new Map<string, boolean>();
+  private async existeCol(trx: any, schema: string, table: string, col: string): Promise<boolean> {
+    const k = `${schema}.${table}.${col}`;
+    const hit = this.objCache.get(k);
+    if (hit !== undefined) return hit;
+    const v = await trx.schema.withSchema(schema).hasColumn(table, col);
+    this.objCache.set(k, v);
+    return v;
+  }
+  private async existeTabla(trx: any, schema: string, table: string): Promise<boolean> {
+    const k = `${schema}.${table}`;
+    const hit = this.objCache.get(k);
+    if (hit !== undefined) return hit;
+    const v = await trx.schema.withSchema(schema).hasTable(table);
+    this.objCache.set(k, v);
+    return v;
+  }
+
+  /**
+   * RE.13.2 — deja la decisión en el historial append-only. Best-effort a propósito: si la
+   * tabla no existe (entorno sin la migración), la decisión igual se aplica. Perder una línea
+   * de historial es malo; no poder validar una factura es peor.
+   */
+  private async registrarHistorial(
+    trx: any,
+    p: { proof_id: string; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
+  ): Promise<void> {
+    if (!(await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))) return;
+    await trx('finance.goods_receipt_proof_history').insert({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      proof_id: p.proof_id, sucursal: p.sucursal, folio: p.folio,
+      status_from: p.status_from ?? null, status_to: p.status_to,
+      motivo_codigo: p.motivo_codigo ?? null, motivo: p.motivo ?? null,
+      changed_by: p.actor ?? null,
+    });
+  }
+
+  /**
    * Sucursales que el usuario puede LEER, ya intersectadas con lo que pidió por query param.
    * `null` = sin filtro (alcance `all` y no pidió nada) · `[]` = no ve ninguna (fail-closed).
    *
@@ -214,6 +264,7 @@ export class GoodsReceiptProofsService {
 
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
+      const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       const dep = trx('finance.goods_receipt_proofs')
         .select('sucursal', 'folio')
         .count('* as n')
@@ -221,6 +272,13 @@ export class GoodsReceiptProofsService {
         .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
         .select(trx.raw(`(array_agg(created_at ORDER BY created_at DESC))[1] AS last_at`))
         .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY created_at DESC))[1] AS last_disc`))
+        // Quién la subió (para la segregación de funciones: el revisor no valida lo propio) y
+        // por qué se devolvió (la sucursal necesita ver el motivo en su worklist).
+        .select(trx.raw(`(array_agg(created_by ORDER BY created_at DESC))[1] AS last_by`))
+        .select(trx.raw(`(array_agg(motivo_rechazo ORDER BY created_at DESC))[1] AS last_motivo`))
+        .select(trx.raw(conMotivoCol
+          ? `(array_agg(motivo_codigo ORDER BY created_at DESC))[1] AS last_motivo_codigo`
+          : `NULL::text AS last_motivo_codigo`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
         .groupBy('sucursal', 'folio')
         .as('d');
@@ -272,6 +330,9 @@ export class GoodsReceiptProofsService {
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
           trx.raw('d.last_disc::numeric AS discrepancy_amount'),
+          trx.raw('d.last_by AS deposit_by'),
+          trx.raw('d.last_motivo AS motivo_rechazo'),
+          trx.raw('d.last_motivo_codigo AS motivo_codigo'),
           trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
           // Días de antigüedad de la recepción (acotados a hoy) y días que la evidencia
           // lleva esperando decisión: son los dos relojes del proceso.
@@ -338,6 +399,13 @@ export class GoodsReceiptProofsService {
           `COUNT(*) FILTER (WHERE d.n IS NULL AND (current_date - LEAST(c.receipt_date, current_date)) > ?)::int AS atrasadas`,
           [cfg.sla_capture_days],
         ),
+        // El SLA del REVISOR: evidencia esperando decisión más de lo permitido. Es el número
+        // que le dice a la bandeja si va al día, y no se puede derivar del anterior.
+        trx.raw(
+          `COUNT(*) FILTER (WHERE d.last_status = 'recibido'
+             AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?)::int AS por_validar_atrasadas`,
+          [cfg.sla_review_days],
+        ),
       );
 
       return {
@@ -345,7 +413,7 @@ export class GoodsReceiptProofsService {
           entradas: Number(k.entradas), con_comprobante: Number(k.con_comprobante),
           validados: Number(k.validados), por_validar: Number(k.por_validar),
           rechazados: Number(k.rechazados), monto_pendiente: Number(k.monto_pendiente),
-          atrasadas: Number(k.atrasadas),
+          atrasadas: Number(k.atrasadas), por_validar_atrasadas: Number(k.por_validar_atrasadas),
         },
         // El alcance viaja al front para que la vista sepa si mostrar el selector de
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
@@ -706,7 +774,15 @@ export class GoodsReceiptProofsService {
         .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
         .select('sucursal', 'folio', 'receipt_date', 'oc_folio', 'vale_folio', trx.raw('monto::numeric AS monto'));
       const cedis_twins = twins.map((t: any) => ({ ...t, monto: Number(t.monto) }));
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins };
+      // RE.13.2 — la cadena de decisiones. El expediente que justifica un pago necesita el
+      // recorrido (quién subió, quién devolvió y por qué, quién validó), no el último estado.
+      const history = (await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))
+        ? await trx('finance.goods_receipt_proof_history')
+            .where({ tenant_id: tenantId, sucursal, folio })
+            .orderBy('changed_at', 'asc')
+            .select('status_from', 'status_to', 'motivo_codigo', 'motivo', 'changed_by', 'changed_at')
+        : [];
+      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins, history };
     });
   }
 
@@ -930,28 +1006,124 @@ export class GoodsReceiptProofsService {
     });
   }
 
-  /** El revisor valida la evidencia. Auditado. */
+  /**
+   * El revisor valida la evidencia. Auditado + historial.
+   *
+   * RE.13.2 — **segregación de funciones**: quien subió la evidencia no puede validarla. Dejó
+   * de ser un lujo cuando se aceptó que hay revisor POR SUCURSAL además del central: en una
+   * sucursal chica el que sube y el que revisa son el mismo puñado de gente, y sin esto el
+   * control documental no existe.
+   *
+   * La comparación es por el nombre con el que se firmó el `attach` (`created_by` es texto,
+   * no FK a usuario). Es lo que hay hoy; cuando `identity.people` esté (Fase ID.11) esto
+   * debería comparar ids.
+   */
   async validate(id: string, actor?: string) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const prev = await trx('finance.goods_receipt_proofs').where({ id })
+        .first('id', 'status', 'created_by', 'sucursal', 'folio');
+      if (!prev) throw new BadRequestException('evidencia no encontrada');
+      if (prev.status === 'validado') throw new BadRequestException('esta evidencia ya está validada');
+      if (this.mismaPersona(prev.created_by, actor)) {
+        throw new ForbiddenException('No podés validar la evidencia que vos mismo subiste — que la revise otra persona.');
+      }
       const [row] = await trx('finance.goods_receipt_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
         .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya validada');
+      // Otra sesión decidió entre el SELECT y el UPDATE (revisor central + local mirando la
+      // misma fila). No es un 500: es "alguien te ganó", y la UI avanza a la siguiente.
+      if (!row) throw new BadRequestException('otra persona ya decidió sobre esta evidencia');
+      await this.registrarHistorial(trx, {
+        proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+        status_from: prev.status, status_to: 'validado', actor,
+      });
       return row;
     });
   }
 
-  /** Rechaza (con motivo). Auditado. */
-  async reject(id: string, actor?: string, motivo?: string) {
+  /** ¿El actor es quien subió? Normaliza espacios/caso porque los dos lados son texto libre. */
+  private mismaPersona(a?: string | null, b?: string | null): boolean {
+    const n = (v?: string | null) => (v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return !!n(a) && n(a) === n(b);
+  }
+
+  /**
+   * Rechaza (con motivo TIPIFICADO). Auditado + historial.
+   *
+   * RE.13.2 — el motivo pasa a ser del catálogo: con texto libre no se puede contestar
+   * "¿por qué se devuelve el 30% de lo que sube la 01?", que es justo lo que le dice a la
+   * sucursal qué corregir. El texto libre sigue existiendo como detalle.
+   */
+  async reject(id: string, actor?: string, motivo?: string, motivoCodigo?: string) {
     this.tenantCtx.requireTenantId();
+    const code = (motivoCodigo || '').trim() || null;
+    if (code && !MOTIVOS_RECHAZO.includes(code as MotivoRechazo)) {
+      throw new BadRequestException(`motivo inválido: ${code}`);
+    }
+    const texto = (motivo || '').trim();
+    if ((!code || code === 'otro') && !texto) {
+      throw new BadRequestException('hace falta el motivo: elegí uno del catálogo o escribilo.');
+    }
     return this.tk.run(async (trx) => {
+      const prev = await trx('finance.goods_receipt_proofs').where({ id })
+        .first('id', 'status', 'sucursal', 'folio');
+      if (!prev) throw new BadRequestException('evidencia no encontrada');
+      if (prev.status === 'rechazado') throw new BadRequestException('esta evidencia ya está rechazada');
+      const patch: Record<string, unknown> = {
+        status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(),
+        motivo_rechazo: texto || null, updated_at: trx.fn.now(),
+      };
+      if (code && await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo')) {
+        patch['motivo_codigo'] = code;
+      }
       const [row] = await trx('finance.goods_receipt_proofs').where({ id }).whereIn('status', ['recibido', 'validado'])
-        .update({ status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
+        .update(patch).returning(['id', 'status']);
+      if (!row) throw new BadRequestException('otra persona ya decidió sobre esta evidencia');
+      await this.registrarHistorial(trx, {
+        proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+        status_from: prev.status, status_to: 'rechazado', motivo_codigo: code, motivo: texto || null, actor,
+      });
       return row;
     });
+  }
+
+  /**
+   * RE.13.2 — valida VARIAS de una pasada, pero **sólo el caso limpio**: la factura cuadra al
+   * peso (tolerancia del tenant) y no la subió el propio revisor. El server vuelve a
+   * comprobarlo por id — la UI no es la que decide qué es "limpio". Devuelve el resultado por
+   * id, no un booleano: el revisor tiene que poder ver qué se saltó y por qué.
+   */
+  async validateBulk(ids: string[], actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const lista = (ids || []).map(String).filter(Boolean).slice(0, 200);
+    if (!lista.length) throw new BadRequestException('no llegó ninguna evidencia');
+    const out: { id: string; ok: boolean; motivo?: string }[] = [];
+    for (const id of lista) {
+      try {
+        // Cada una en su propia trx: un descuadre en la 7ª no puede tumbar las 6 anteriores.
+        await this.tk.run(async (trx) => {
+          const prev = await trx('finance.goods_receipt_proofs').where({ id })
+            .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match');
+          if (!prev) throw new BadRequestException('no existe');
+          if (prev.status !== 'recibido') throw new BadRequestException(`ya está ${prev.status}`);
+          if (prev.monto_match !== true) throw new BadRequestException('el total no cuadra — se revisa a mano');
+          if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');
+          const [row] = await trx('finance.goods_receipt_proofs').where({ id }).where('status', 'recibido')
+            .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
+            .returning(['id']);
+          if (!row) throw new BadRequestException('otra persona ya decidió');
+          await this.registrarHistorial(trx, {
+            proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+            status_from: prev.status, status_to: 'validado', motivo: 'aprobación en lote (cuadra al peso)', actor,
+          });
+        });
+        out.push({ id, ok: true });
+      } catch (e: any) {
+        out.push({ id, ok: false, motivo: e?.message || 'no se pudo validar' });
+      }
+    }
+    return { validadas: out.filter((r) => r.ok).length, omitidas: out.filter((r) => !r.ok).length, detalle: out };
   }
 
   /**
