@@ -135,21 +135,22 @@ const knex = require('knex')({
     // ── 5. Coherencia de la materialización ────────────────────────────────
     console.log('\n═══ 5. Coherencia de la materialización ═══');
     for (const [dim, col] of [['warehouse', 'warehouse_code'], ['zone', 'zona_id']]) {
-      // Invariante REAL: lo que `[ID.3]` escribió como `all` corresponde a
-      // usuarios que efectivamente no tenían el dato.
-      const incoherentes = await knex.raw(
-        `SELECT u.username FROM identity.users u
+      // NO se afirma que un `all` implique "sin dato". Desde `[ID.8b]` un usuario
+      // corporativo tiene **base** en la sucursal `00` **y** alcance `all`, que
+      // es exactamente la separación de ejes del ADR-050: dónde estás vs qué ves.
+      // Afirmar que ese estado no existe sería volver a codificar como
+      // invariante una foto del momento en que corrió `[ID.3]` — el mismo error
+      // que ya se corrigió una vez en este archivo.
+      const baseYRed = await knex.raw(
+        `SELECT count(*) n FROM identity.users u
            JOIN identity.user_scopes us
              ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = ?
-          WHERE u.deleted_at IS NULL AND us.nota LIKE '[ID.3]%' AND us.mode = 'all'
-            AND u.${col} IS NOT NULL
-          ORDER BY 1 LIMIT 5`,
+          WHERE u.deleted_at IS NULL AND us.mode = 'all' AND u.${col} IS NOT NULL`,
         [dim],
       );
-      assert(
-        incoherentes.rows.length === 0,
-        `ningún '${dim}=all' de [ID.3] cayó sobre alguien que SÍ tenía ${col}` +
-          (incoherentes.rows.length ? ` — ${incoherentes.rows.map((r) => r.username).join(', ')}` : ''),
+      console.log(
+        `  · ${baseYRed.rows[0].n} usuario(s) con ${col} asignada Y alcance de ${dim} = toda la red ` +
+          `(corporativo; base ≠ visibilidad)`,
       );
 
       // Sin cobertura se REPORTA, no falla: es la pila de "asignale sucursal",
@@ -173,19 +174,19 @@ const knex = require('knex')({
           : `  · todos los usuarios sin ${col} tienen regla explícita de ${dim}`,
       );
     }
-    // Y el complemento: quien SÍ tiene sucursal no debe tener un `all` regalado.
-    const regalados = await knex.raw(
-      `SELECT u.username FROM identity.users u
-         JOIN identity.user_scopes us
-           ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = 'warehouse'
-        WHERE u.deleted_at IS NULL AND u.warehouse_code IS NOT NULL AND us.mode = 'all'
-          AND us.nota LIKE '[ID.3]%'
-        ORDER BY 1 LIMIT 5`,
+    // Invariante que SÍ vale: ninguna fila de alcance apunta a una dimensión
+    // que no existe en el catálogo, y ningún `listed` quedó sin valores. Eso no
+    // depende de cuándo corrió nada.
+    const rotas = await knex.raw(
+      `SELECT us.dimension, us.mode FROM identity.user_scopes us
+        WHERE us.dimension NOT IN (SELECT code FROM identity.scope_dimensions)
+           OR (us.mode = 'listed' AND COALESCE(cardinality(us.values), 0) = 0)
+        LIMIT 5`,
     );
     assert(
-      regalados.rows.length === 0,
-      'la materialización NO le dio "all" a nadie que ya tuviera sucursal' +
-        (regalados.rows.length ? ` — ${regalados.rows.map((r) => r.username).join(', ')}` : ''),
+      rotas.rows.length === 0,
+      'ninguna regla de alcance apunta a una dimensión inexistente ni es un `listed` vacío' +
+        (rotas.rows.length ? ` — ${rotas.rows.map((r) => `${r.dimension}/${r.mode}`).join(', ')}` : ''),
     );
 
     // ── 6. La vista ────────────────────────────────────────────────────────
