@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { GoodsReceiptsGateway } from './goods-receipts.gateway';
+import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 
 /**
  * RE.10 — Watcher near-real-time de nuevas órdenes de entrada. Kepler no emite webhooks:
@@ -22,6 +23,7 @@ export class GoodsReceiptsWatcherService {
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly gateway: GoodsReceiptsGateway,
+    private readonly twins: GoodsReceiptTwinsService,
   ) {}
 
   @Cron('0 */5 * * * *')
@@ -30,6 +32,11 @@ export class GoodsReceiptsWatcherService {
     if (this.running) return;
     this.running = true;
     try {
+      // RE.14.6 — aparear ANTES de anunciar. La copia de oficinas de una recepción ya capturada
+      // por la sucursal no es una orden nueva: si se anuncia, el capturista recibe un aviso y una
+      // fila pidiéndole evidencia de algo que ya cubrió. `ensureFresh` es no-op si el motor ya
+      // corrió hace menos de 90 s, así que esto no duplica el trabajo de su propio cron.
+      await this.twins.ensureFresh();
       const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
       for (const t of tenants) await this.scanTenant(t.id);
     } catch (e: any) {

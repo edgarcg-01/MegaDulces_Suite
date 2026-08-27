@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto } from './goods-receipt-proofs.service';
+import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
@@ -18,7 +19,10 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 @UseGuards(RolesGuard)
 @Controller('finance/goods-receipts')
 export class GoodsReceiptProofsController {
-  constructor(private readonly svc: GoodsReceiptProofsService) {}
+  constructor(
+    private readonly svc: GoodsReceiptProofsService,
+    private readonly twins: GoodsReceiptTwinsService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
@@ -78,7 +82,7 @@ export class GoodsReceiptProofsController {
   @ApiOperation({
     summary: 'RE.14 — pares de la MISMA recepción capturada dos veces (sucursal + oficinas 00): folio e importe de cada lado, regla y score del apareo. `estado=propuesto` = los que esperan dictamen y por eso siguen contándose dos veces.',
   })
-  twins(@Query() query: Record<string, unknown>) {
+  listTwins(@Query() query: Record<string, unknown>) {
     const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts/twins');
     return this.svc.twins({
       estado: query['estado'] as 'propuesto' | 'vigente' | 'todos',
@@ -86,6 +90,15 @@ export class GoodsReceiptProofsController {
       limit: query['limit'] ? Number(query['limit']) : undefined,
       warehouse_codes,
     });
+  }
+
+  @Post('twins/scan')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.14.6 — corre el motor de apareo AHORA para este tenant (el cron ya lo hace cada 5 min). Devuelve pares nuevos, propuestas y obsoletas limpiadas.',
+  })
+  scanTwins() {
+    return this.twins.pairNow();
   }
 
   // OJO con el orden: esta ruta va ANTES de `:sucursal/:folio`, o Nest resolvería

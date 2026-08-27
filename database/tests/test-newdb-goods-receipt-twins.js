@@ -10,7 +10,10 @@
  *   3. lo que se aplicó solo tiene con qué defenderse (score ≥ 0.75) y lo dudoso quedó esperando;
  *   4. los denormalizados (Δ importe/días) coinciden con los dos lados que dicen describir;
  *   5. **buscar por el folio de oficinas encuentra la orden de la sucursal** — el requisito
- *      operativo: el usuario llega con el folio que tiene en la mano, no con el nuestro.
+ *      operativo: el usuario llega con el folio que tiene en la mano, no con el nuestro;
+ *   6. el **motor** (RE.14.6) aparea solo sin romper nada: la ventana corta del cron no desaparea
+ *      pares válidos, la segunda corrida no encuentra nada nuevo, y el dictamen humano sobrevive
+ *      (si el motor lo pisara, dictaminar sería decorativo).
  *
  * Las pruebas que escriben corren dentro de UNA TRANSACCIÓN CON ROLLBACK.
  *
@@ -148,6 +151,60 @@ const one = async (sql, p = []) => (await knex.raw(sql, p)).rows[0];
     `SELECT count(*)::int n FROM analytics.erp_goods_receipt_dedup
       WHERE tenant_id=? AND decided_by='revisor_test'`, [T]);
   ok(limpio.n === 0, 'el ROLLBACK no dejó dictámenes de prueba en la tabla');
+
+  // ── 7. El MOTOR (RE.14.6): las dos funciones que aparean solas ────────────
+  const fns = await one(
+    `SELECT to_regprocedure('analytics.fn_goods_receipt_twin_candidates(uuid,date)') a,
+            to_regprocedure('analytics.fn_pair_goods_receipts(uuid,date)') b`);
+  ok(!!fns.a && !!fns.b, 'las dos funciones del motor existen (la lógica vive en la DB, no duplicada)');
+  const exec = await one(
+    `SELECT count(*)::int n FROM information_schema.routine_privileges
+      WHERE routine_schema='analytics' AND grantee='app_runtime' AND privilege_type='EXECUTE'
+        AND routine_name IN ('fn_goods_receipt_twin_candidates','fn_pair_goods_receipts')`);
+  ok(exec.n === 2, 'app_runtime puede ejecutarlas (el cron de la API corre con ese usuario)');
+
+  // La de candidatos SÓLO LEE: es lo que hace confiable el dry-run del CLI.
+  const antesN = (await one(`SELECT count(*)::int n FROM analytics.erp_goods_receipt_dedup WHERE tenant_id=?`, [T])).n;
+  const cands = await one(
+    `SELECT count(*)::int n, count(*) FILTER (WHERE status='auto')::int autos
+       FROM analytics.fn_goods_receipt_twin_candidates(?, (current_date - 45)::date)`, [T]);
+  const despuesN = (await one(`SELECT count(*)::int n FROM analytics.erp_goods_receipt_dedup WHERE tenant_id=?`, [T])).n;
+  ok(despuesN === antesN, 'calcular candidatos no escribe nada (dry-run confiable)');
+  ok(cands.n > 0 && cands.autos > 0, `la ventana de 45 días encuentra candidatos (${cands.n}, ${cands.autos} automáticos)`);
+
+  await knex.transaction(async (trx) => {
+    // Lo que rompía antes: con ventana corta, un par cuya copia de sucursal cae justo afuera no
+    // se formaba y la limpieza borraba su marca → el motor DESAPAREABA pares válidos cada corrida.
+    // La función arranca 15 días antes del corte justamente por esto.
+    const r1 = (await trx.raw(`SELECT * FROM analytics.fn_pair_goods_receipts(?, (current_date - 45)::date)`, [T])).rows[0];
+    ok(Number(r1.obsoletas) === 0, 'una corrida con ventana corta NO desaparea pares válidos (obsoletas = 0)');
+    const vivos = (await trx.raw(
+      `SELECT count(*)::int n FROM analytics.erp_goods_receipt_dedup
+        WHERE tenant_id=? AND status IN ('auto','confirmado')`, [T])).rows[0];
+    ok(vivos.n >= tot.vigentes, `los pares vigentes no bajan tras correr el motor (${vivos.n} ≥ ${tot.vigentes})`);
+
+    const r2 = (await trx.raw(`SELECT * FROM analytics.fn_pair_goods_receipts(?, (current_date - 45)::date)`, [T])).rows[0];
+    ok(Number(r2.nuevas) === 0, 'la segunda corrida no encuentra nada nuevo (idempotente)');
+
+    // La decisión humana tiene que sobrevivir al motor: si no, el dictamen es decorativo.
+    const p2 = (await trx.raw(
+      `SELECT cedis_folio FROM analytics.erp_goods_receipt_dedup
+        WHERE tenant_id=? AND status='auto' AND cedis_date >= (current_date - 45)::date LIMIT 1`, [T])).rows[0];
+    if (p2) {
+      await trx('analytics.erp_goods_receipt_dedup')
+        .where({ tenant_id: T, cedis_folio: p2.cedis_folio })
+        .update({ status: 'rechazado', decided_by: 'revisor_test' });
+      await trx.raw(`SELECT * FROM analytics.fn_pair_goods_receipts(?, (current_date - 45)::date)`, [T]);
+      const post = (await trx.raw(
+        `SELECT status, decided_by FROM analytics.erp_goods_receipt_dedup
+          WHERE tenant_id=? AND cedis_folio=?`, [T, p2.cedis_folio])).rows[0];
+      ok(post && post.status === 'rechazado' && post.decided_by === 'revisor_test',
+        'el motor NO pisa el dictamen humano ni lo vuelve a proponer');
+    } else {
+      ok(true, '(sin par vigente en la ventana para probar el candado del dictamen)');
+    }
+    throw new Error('ROLLBACK_INTENCIONAL');
+  }).catch((e) => { if (e.message !== 'ROLLBACK_INTENCIONAL') throw e; });
 
   console.log(fail ? `\n❌ ${fail} aserción(es) fallaron\n` : '\n✅ Todo verde\n');
   await knex.destroy();

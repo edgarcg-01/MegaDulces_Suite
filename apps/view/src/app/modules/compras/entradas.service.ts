@@ -77,6 +77,15 @@ export interface TwinPair {
   decided_at: string | null;
 }
 
+/** RE.14.6 — lo que encontró una corrida del motor de apareo. */
+export interface TwinScanResult {
+  nuevas: number;
+  marcadas: number;
+  propuestas: number;
+  obsoletas: number;
+  ms: number;
+}
+
 export interface TwinsReport {
   rows: TwinPair[];
   /** `monto_propuesto` = lo que hoy se cuenta dos veces por falta de dictamen. */
@@ -362,6 +371,13 @@ export class EntradasService {
       params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
     }
     return this.http.get<TwinsReport>(`${this.base}/twins`, { params });
+  }
+  /**
+   * RE.14.6 — corre el motor de apareo ahora. El cron ya lo hace cada 5 minutos; esto es para
+   * cuando alguien está mirando la bandeja y quiere ver lo de este momento.
+   */
+  scanTwins(): Observable<TwinScanResult | null> {
+    return this.http.post<TwinScanResult | null>(`${this.base}/twins/scan`, {});
   }
   /** Dictamina el par: `confirmar` (es la misma recepción) o `rechazar` (es compra de oficinas). */
   decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar'): Observable<{ cedis_folio: string; status: string }> {

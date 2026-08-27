@@ -54,14 +54,23 @@ import { Permission } from '../../../core/constants/permissions';
           <h1>Órdenes capturadas dos veces</h1>
           <p class="surf-page-sub">
             La misma recepción vive en el Kepler de la <strong>sucursal</strong> y en el de
-            <strong>oficinas</strong>. Acá se decide qué pares son la misma orden: la que se
-            confirma deja de contarse dos veces.
+            <strong>oficinas</strong>. El motor las enlaza solo cada 5 minutos; acá quedan las que
+            <strong>no puede afirmar sin una persona</strong>. La que se confirma deja de contarse
+            dos veces.
           </p>
         </div>
         <div class="eg-head">
           <app-segmented [options]="estadoOpts" [value]="estado()" (valueChange)="setEstado($any($event))" />
           <input pInputText type="search" class="eg-search" [ngModel]="search()" (ngModelChange)="setSearch($event)"
                  placeholder="Folio, proveedor o importe" aria-label="Buscar pares" />
+          @if (canDecide()) {
+            <button pButton type="button" class="p-button-sm p-button-text" [loading]="scanning()"
+                    (click)="buscarAhora()"
+                    title="El motor corre solo cada 5 minutos; esto lo dispara ahora para este tenant">
+              <span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span>
+              <span class="p-button-label">Buscar pares ahora</span>
+            </button>
+          }
         </div>
       </header>
 
@@ -221,6 +230,7 @@ export class ComprasEntradasGemelasComponent {
   readonly search = signal('');
   /** Folio en vuelo: bloquea sus botones sin congelar la tabla entera. */
   readonly decidiendo = signal<string | null>(null);
+  readonly scanning = signal(false);
 
   readonly estadoOpts = [
     { label: 'Por dictaminar', value: 'propuesto' },
@@ -255,6 +265,31 @@ export class ComprasEntradasGemelasComponent {
   reload() { this.error.set(null); this.pedir.next(); }
   setEstado(v: 'propuesto' | 'vigente' | 'todos') { this.estado.set(v); this.pedir.next(); }
   setSearch(v: string) { this.search.set(v || ''); this.pedir.next(); }
+
+  /**
+   * Dispara el motor de apareo. Existe porque el cron corre cada 5 minutos y quien está mirando
+   * la bandeja después de que oficinas capturó un bonche no tiene por qué esperar el tick.
+   */
+  buscarAhora() {
+    this.scanning.set(true);
+    this.svc.scanTwins().subscribe({
+      next: (r) => {
+        this.scanning.set(false);
+        this.toast.add({
+          severity: r?.nuevas ? 'success' : 'info',
+          summary: r?.nuevas ? `${r.nuevas} par(es) nuevo(s)` : 'Sin pares nuevos',
+          detail: r
+            ? `${r.propuestas} esperan dictamen${r.obsoletas ? ` · ${r.obsoletas} obsoleta(s) limpiada(s)` : ''}`
+            : 'El motor no devolvió resultado',
+        });
+        this.pedir.next();
+      },
+      error: (e) => {
+        this.scanning.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo correr el motor', detail: e?.error?.message || 'Intentá de nuevo' });
+      },
+    });
+  }
 
   /**
    * Dictamina y **saca la fila de la lista** en el filtro "por dictaminar": el trabajo se hace
