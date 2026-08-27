@@ -7,7 +7,7 @@
 
 ---
 
-## 0. Estado — aplicado el 2026-08-27 (local)
+## 0. Estado — **EN PROD** el 2026-08-27 (batches 222-225)
 
 | Sprint | Estado | Resultado medido |
 |---|---|---|
@@ -22,7 +22,27 @@ UI (parte de `[ID.9]`) | ✅ | Selector de **Complementos** + aviso "este rol es
 14 ganan (máx +2, cada uno listado) · **0 pierden**. Builds api + view verdes.
 Smokes `user-roles` 34/34 · `identity-scopes` 30/30 · `user-dto` 32/32.
 
-**Falta para prod:** las **4** migraciones a Railway + redeploy + re-login.
+**PROD (Railway, batches 222·223·224·225):** las 4 migraciones aplicadas sobre
+**117 usuarios**. Verificado con el arnés: **103 idénticos · 14 ganan · 0 PIERDEN**.
+Estado final allá: **30 perfiles + 2 complementos** (+15 retirados) · 118 perfiles
+base y 5 complementos en `user_roles` · **31 de 43 puestos proponen perfil** ·
+**0 usuarios con una tarea como perfil base**.
+
+Las 14 ganancias, todas listadas y todas de 1 o 2 permisos: los 9 `superadmin`
+absorbieron `PORTAL_B2B_ACCESS` y `FINANCE_EXPENSES_VER_ALL` al fusionarse
+`admin` (que en prod sí tenía 2 usuarios, así que fue por la rama de unión y esos
+2 no perdieron nada), y los 5 de finanzas ganaron 1-2 permisos de conciliación al
+consolidarse en `finanzas_operativo`.
+
+Dos diferencias de prod vs local que conviene tener presente: **`captura_gastos`
+no existe en prod** (los 22 nunca se crearon allá), y por eso prod tiene 2
+complementos en vez de 3.
+
+**Falta:** redeploy del código (api + view) + **re-login** — los permisos viajan
+en el JWT. El deploy está trabado hasta que `feat/gastos-hotfix` **y**
+`feat/id9-admin-ui` estén en `main`: Railway corre `migrate:latest` en el
+`preDeployCommand` y falla con "directory is corrupt" mientras haya migraciones
+aplicadas en prod cuyo archivo no esté en `main`.
 
 **Lo que queda como decisión, no como código:**
 - **12 puestos sin perfil** (choferes, receptor de mercancía, facturación,

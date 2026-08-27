@@ -96,17 +96,28 @@ function comparar(fa, fb) {
 
   try {
     // Unión igual que `getPermissionsForUser`: perfil base + complementos.
-    // El LEFT JOIN con user_roles y el fallback a users.role_name conviven a
-    // propósito: si `[ID.13]` no corrió todavía, la foto sigue siendo válida.
-    const filas = await knex.raw(`
-      WITH roles_de AS (
-        SELECT u.id, u.username, u.role_name AS perfil_base,
-               COALESCE(
+    //
+    // El COALESCE con `user_roles` NO alcanza para el caso "todavía no corrió
+    // `[ID.13]`": Postgres necesita que la tabla EXISTA para poder parsear la
+    // query, así que un fallback dentro del SQL falla con 42P01 antes de
+    // ejecutarse. Por eso se pregunta primero. Importa de verdad: la foto ANTES
+    // de la migración se saca contra una base que todavía no tiene la tabla.
+    const tieneUserRoles = (await knex.raw(`SELECT to_regclass('identity.user_roles') t`)).rows[0].t !== null;
+    const rolesExpr = tieneUserRoles
+      ? `COALESCE(
                  (SELECT array_agg(LOWER(ur.role_name))
                     FROM identity.user_roles ur
                    WHERE ur.tenant_id = u.tenant_id AND ur.user_id = u.id),
                  ARRAY[LOWER(u.role_name)]
-               ) AS roles,
+               )`
+      : `ARRAY[LOWER(u.role_name)]`;
+    if (!tieneUserRoles) {
+      console.log('(sin identity.user_roles todavía: la foto usa sólo users.role_name)');
+    }
+    const filas = await knex.raw(`
+      WITH roles_de AS (
+        SELECT u.id, u.username, u.role_name AS perfil_base,
+               ${rolesExpr} AS roles,
                u.tenant_id
           FROM identity.users u
          WHERE u.deleted_at IS NULL
