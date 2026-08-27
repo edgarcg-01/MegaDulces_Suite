@@ -124,6 +124,8 @@ export interface PendingExpiryLine {
   product_name: string | null;
   received_qty: number;
   declared_qty: number;
+  /** Capturado con fecha pero 🔴: espera autorización de un supervisor. */
+  held_qty: number;
   pending_qty: number;
   session_id: string;
   vale_folio: string;

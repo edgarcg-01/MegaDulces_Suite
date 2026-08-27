@@ -7,13 +7,14 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
 import { PendingExpiryLine, ReceivingSessionService } from '../receiving-session.service';
 import { ReceivingAuditorService } from '../receiving-auditor.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
@@ -46,7 +47,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
-    InputTextModule, InputNumberModule, DialogModule, ToastModule, PageTabsComponent,
+    InputTextModule, DialogModule, ToastModule, TooltipModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -71,61 +72,71 @@ const PLAZO_INTERMEDIO_DIAS = 90;
         </div>
       </header>
 
-      @if (!loading() && !rows().length) {
-        <div class="cpf-empty">
-          <i class="pi pi-check-circle" aria-hidden="true"></i>
-          <div>
-            <strong>Nada esperando fecha.</strong>
-            <p>Toda la mercancía aprobada en recepción tiene su lote y caducidad declarados.</p>
-          </div>
-        </div>
-      } @else {
+      @if (rows().length) {
         <div class="cpf-summary" role="status">
           <span><strong>{{ rows().length }}</strong> renglón(es) por fechar</span>
           <span class="cpf-dot" aria-hidden="true">·</span>
           <span><strong>{{ totalPendiente() }}</strong> unidades sin trazabilidad</span>
+          @if (totalRetenido() > 0) {
+            <span class="cpf-dot" aria-hidden="true">·</span>
+            <span><strong>{{ totalRetenido() }}</strong> retenidas por autorizar</span>
+          }
           @if (masViejo() > 0) {
             <span class="cpf-dot" aria-hidden="true">·</span>
             <span>el más viejo lleva <strong>{{ masViejo() }}</strong> día(s)</span>
           }
         </div>
-
-        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
-          [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100]">
-          <ng-template pTemplate="header">
-            <tr>
-              <th style="width:6.5rem">Espera</th>
-              <th style="width:7.5rem">SKU</th>
-              <th>Producto</th>
-              <th style="width:8rem" class="surf-num">Por fechar</th>
-              <th style="width:8rem" class="surf-num">Recibido</th>
-              <th style="width:9rem">Vale</th>
-              <th style="width:9rem">Almacén</th>
-              <th style="width:8rem"></th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-r>
-            <tr>
-              <td>
-                <p-tag [value]="r.dias_esperando + ' d'" [severity]="esperaSeverity(r.dias_esperando)"></p-tag>
-              </td>
-              <td class="surf-mono">{{ r.sku || '—' }}</td>
-              <td>{{ r.product_name || '—' }}</td>
-              <td class="surf-num"><strong>{{ r.pending_qty }}</strong></td>
-              <td class="surf-num surf-muted">{{ r.received_qty }}</td>
-              <td class="surf-mono">{{ r.vale_folio }}</td>
-              <td>{{ r.warehouse_code || r.warehouse_name || '—' }}</td>
-              <td>
-                @if (canCapture()) {
-                  <button pButton size="small" (click)="abrirDeclarar(r)">
-                    <span class="p-button-icon p-button-icon-left pi pi-calendar-plus" aria-hidden="true"></span> Fechar
-                  </button>
-                }
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
       }
+
+      <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+        [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100]">
+        <ng-template #header>
+          <tr>
+            <th style="width:6.5rem">Espera</th>
+            <th style="width:7.5rem">SKU</th>
+            <th>Producto</th>
+            <th style="width:8rem" class="surf-num">Por fechar</th>
+            <th style="width:8rem" class="surf-num">Retenido</th>
+            <th style="width:8rem" class="surf-num">Recibido</th>
+            <th style="width:9rem">Vale</th>
+            <th style="width:9rem">Almacén</th>
+            <th style="width:8rem"></th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-r>
+          <tr>
+            <td><p-tag [value]="r.dias_esperando + ' d'" [severity]="esperaSeverity(r.dias_esperando)"></p-tag></td>
+            <td class="surf-mono">{{ r.sku || '—' }}</td>
+            <td>{{ r.product_name || '—' }}</td>
+            <td class="surf-num"><strong>{{ r.pending_qty }}</strong></td>
+            <td class="surf-num">
+              @if (r.held_qty > 0) {
+                <p-tag [value]="r.held_qty" severity="danger"
+                  pTooltip="Ya tiene fecha pero quedó retenida: un supervisor debe autorizarla"></p-tag>
+              } @else { <span class="surf-muted">—</span> }
+            </td>
+            <td class="surf-num surf-muted">{{ r.received_qty }}</td>
+            <td class="surf-mono">{{ r.vale_folio }}</td>
+            <td>{{ r.warehouse_code || r.warehouse_name || '—' }}</td>
+            <td>
+              @if (canCapture() && r.pending_qty > 0) {
+                <button pButton size="small" (click)="abrirDeclarar(r)">
+                  <span class="p-button-icon p-button-icon-left pi pi-calendar-plus" aria-hidden="true"></span> Fechar
+                </button>
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="9" class="comm-empty-cell">
+            <div class="comm-empty">
+              <div class="comm-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+              <h3>Nada esperando fecha</h3>
+              <p>Toda la mercancía aprobada en recepción tiene su lote y caducidad declarados.</p>
+            </div>
+          </td></tr>
+        </ng-template>
+      </p-table>
 
       <!-- Declarar lote + caducidad de un renglón -->
       <p-dialog [(visible)]="declararVisible" [modal]="true" [style]="{ width: '30rem' }" header="Declarar caducidad">
@@ -152,14 +163,14 @@ const PLAZO_INTERMEDIO_DIAS = 90;
             }
 
             <label for="cpf-cant">Cantidad de este lote</label>
-            <p-inputNumber inputId="cpf-cant" [(ngModel)]="cantidad" [min]="1" [max]="sel()!.pending_qty"
-              [showButtons]="true" [useGrouping]="false"></p-inputNumber>
+            <input id="cpf-cant" pInputText type="number" [(ngModel)]="cantidad"
+              [min]="1" [max]="sel()!.pending_qty" step="1" />
             <p class="cpf-hint">
               Si la tarima trae varios lotes, se declara uno por vez: el renglón sigue en la lista con lo que falte.
             </p>
           </div>
         }
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton [text]="true" severity="secondary" (click)="declararVisible = false">Cancelar</button>
           <button pButton [disabled]="!puedeGuardar() || guardando()" (click)="guardar()">
             <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Guardar
@@ -178,13 +189,6 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       background:var(--surf-panel, #fafaf9); border:1px solid var(--surf-border, #e7e5e4); border-radius:.5rem;
     }
     .cpf-dot { opacity:.5; }
-    .cpf-empty {
-      display:flex; align-items:center; gap:.875rem;
-      padding:1.5rem; border:1px solid var(--surf-border, #e7e5e4); border-radius:.75rem;
-      background:var(--surf-panel, #fafaf9);
-    }
-    .cpf-empty i { font-size:1.5rem; color:#16a34a; }
-    .cpf-empty p { margin:.125rem 0 0; font-size:.8125rem; color:var(--surf-text-muted, #6b7280); }
     .cpf-form { display:flex; flex-direction:column; gap:.375rem; }
     .cpf-form label { font-size:.75rem; font-weight:600; margin-top:.5rem; }
     .cpf-ficha { display:grid; gap:.25rem; padding:.625rem .75rem; margin-bottom:.5rem;
@@ -203,6 +207,7 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
   private readonly auditor = inject(ReceivingAuditorService);
   private readonly comercial = inject(ComercialService);
   private readonly perms = inject(PermissionsService);
+  private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -226,9 +231,13 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
   ]);
 
   readonly totalPendiente = computed(() => this.rows().reduce((a, r) => a + Number(r.pending_qty), 0));
+  readonly totalRetenido = computed(() => this.rows().reduce((a, r) => a + Number(r.held_qty || 0), 0));
   readonly masViejo = computed(() => this.rows().reduce((a, r) => Math.max(a, Number(r.dias_esperando) || 0), 0));
 
-  canCapture = () => this.perms.has(Permission.COMMERCIAL_EXPIRY_CAPTURAR);
+  // Mismo criterio que la hoja de anaquel: manage-all o el permiso puntual del JWT.
+  private readonly puedeCapturar =
+    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
+  canCapture = () => this.puedeCapturar;
 
   /**
    * Días de vida que le quedan al producto contados desde hoy.
@@ -237,22 +246,25 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
    * input: construir la fecha en zona local corre el día a la anterior según la hora
    * y el resultado saldría desfasado por uno.
    */
-  readonly plazo = computed<number | null>(() => {
+  // Métodos, no `computed`: `vence` lo escribe `[(ngModel)]` sobre un campo plano,
+  // no una señal, así que un computed nunca se invalidaría y el semáforo no
+  // aparecería jamás. Como método se reevalúa en cada ciclo de detección.
+  plazo(): number | null {
     const v = (this.vence || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
     const hoy = new Date();
     const hoyUtc = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 12);
     const [y, m, d] = v.split('-').map(Number);
     return Math.round((Date.UTC(y, m - 1, d, 12) - hoyUtc) / 86400000);
-  });
+  }
 
-  readonly clasificacion = computed<'bueno' | 'intermedio' | 'malo'>(() => {
+  clasificacion(): 'bueno' | 'intermedio' | 'malo' {
     const p = this.plazo();
     if (p === null) return 'bueno';
     if (p < PLAZO_RIESGOSO_DIAS) return 'malo';
     if (p < PLAZO_INTERMEDIO_DIAS) return 'intermedio';
     return 'bueno';
-  });
+  }
 
   etiquetaPlazo(): string {
     switch (this.clasificacion()) {
@@ -275,8 +287,8 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.comercial.getWarehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (w) => this.warehouses.set(w || []),
+    this.comercial.listWarehouses(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (w: Warehouse[]) => this.warehouses.set(w || []),
       error: () => this.warehouses.set([]),
     });
     this.load();
@@ -288,8 +300,8 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
       .pendingExpiry({ warehouse_id: this.warehouseFilter || undefined, limit: 200 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.rows.set(r || []); this.loading.set(false); },
-        error: (e) => {
+        next: (r: PendingExpiryLine[]) => { this.rows.set(r || []); this.loading.set(false); },
+        error: (e: any) => {
           this.loading.set(false);
           this.toast.add({ severity: 'error', summary: 'No se pudo cargar', detail: e?.error?.message || 'Error' });
         },
@@ -321,7 +333,7 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (cap) => {
+        next: (cap: { verdict?: string; rule_broken?: string | null }) => {
           this.guardando.set(false);
           this.declararVisible = false;
           // El veredicto del auditor se comunica tal cual: rojo NO entra a FEFO
@@ -336,7 +348,7 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
           });
           this.load();
         },
-        error: (e) => {
+        error: (e: any) => {
           this.guardando.set(false);
           this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Error' });
         },

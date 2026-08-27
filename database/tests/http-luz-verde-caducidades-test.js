@@ -256,6 +256,43 @@ function check(name, cond, detail) {
     const sigue = (Array.isArray(bandeja2.body) ? bandeja2.body : []).find((p) => p.line_id === linea.id);
     check('el renglón con fecha ya no pide fecha', !sigue, sigue ? { pending: sigue.pending_qty } : undefined);
 
+    // Un 🔴 (fecha ANTERIOR a lo que ya hay en existencia) no reclasifica nada:
+    // queda retenido esperando autorización. La bandeja tiene que decirlo, no
+    // contarlo como fechado — si lo contara, diría "ya está" sobre mercancía que
+    // ningún lote registra.
+    console.log('\n-- 9b. Un rojo queda retenido, no fechado --');
+    const rojo = await req(
+      'POST',
+      '/commercial/receiving/evaluate',
+      {
+        warehouse_id: wh,
+        product_id: linea.product_id,
+        receiving_line_id: linea.id,
+        quantity: 1,
+        confirmed_lot: 'SMOKE-ROJO',
+        confirmed_expiry: '2026-09-15', // vence antes que el lote ya declarado
+      },
+      token,
+    );
+    check('la captura 🔴 se acepta pero queda retenida',
+      (rojo.status === 200 || rojo.status === 201) && rojo.body?.verdict === 'red',
+      { status: rojo.status, verdict: rojo.body?.verdict });
+    check('la 🔴 no escribió stock', !rojo.body?.stock_movement_id, rojo.body?.stock_movement_id);
+
+    const bandeja3 = await req(
+      'GET',
+      `/commercial/receiving/sessions/pending-expiry?warehouse_id=${wh}`,
+      null,
+      token,
+    );
+    const conRetenido = (Array.isArray(bandeja3.body) ? bandeja3.body : []).find((p) => p.line_id === linea.id);
+    check('el renglón vuelve a la bandeja mostrando lo retenido',
+      !!conRetenido && Number(conRetenido.held_qty) === 1,
+      conRetenido ? { held: conRetenido.held_qty, pending: conRetenido.pending_qty } : 'no está');
+    check('lo retenido NO se cuenta como declarado',
+      !conRetenido || Number(conRetenido.declared_qty) === cantidad,
+      conRetenido ? { declared: conRetenido.declared_qty, esperado: cantidad } : undefined);
+
     const stockTrasFecha = await leerStock();
     check('poner la fecha NO cambia el total del inventario', stockTrasFecha === despues, {
       antes: despues,

@@ -657,10 +657,20 @@ export class ReceivingSessionService {
           'w.code as warehouse_code',
           'w.name as warehouse_name',
           's.closed_at',
+          // Declarado = SÓLO lo aceptado, que es lo que de verdad quedó con lote
+          // fechado en existencia. Contar también lo retenido haría que la bandeja
+          // dijera "ya está fechado" sobre mercancía que ningún lote registra.
           trx.raw(`COALESCE((
             SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
-             WHERE c.receiving_line_id = l.id AND c.status <> 'rejected'
+             WHERE c.receiving_line_id = l.id AND c.status = 'accepted'
           ), 0)::numeric AS declared_qty`),
+          // Retenido = capturado con fecha pero 🔴, esperando que un supervisor
+          // autorice. No se le vuelve a pedir fecha al bodeguero (ya la puso) pero
+          // tampoco se declara resuelto: se muestra para que alguien lo persiga.
+          trx.raw(`COALESCE((
+            SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
+          ), 0)::numeric AS held_qty`),
           trx.raw(`GREATEST(0, (CURRENT_DATE - s.closed_at::date))::int AS dias_esperando`),
         )
         .orderBy('s.closed_at', 'asc')
@@ -669,13 +679,21 @@ export class ReceivingSessionService {
       // El filtro "le falta fecha" se aplica sobre el derivado (no se puede en WHERE
       // sin repetir la subconsulta) y se calcula el faltante real por renglón.
       return rows
-        .map((r: any) => ({
-          ...r,
-          received_qty: Number(r.received_qty) || 0,
-          declared_qty: Number(r.declared_qty) || 0,
-          pending_qty: Math.max(0, (Number(r.received_qty) || 0) - (Number(r.declared_qty) || 0)),
-        }))
-        .filter((r: any) => r.pending_qty > 0);
+        .map((r: any) => {
+          const recibido = Number(r.received_qty) || 0;
+          const declarado = Number(r.declared_qty) || 0;
+          const retenido = Number(r.held_qty) || 0;
+          return {
+            ...r,
+            received_qty: recibido,
+            declared_qty: declarado,
+            held_qty: retenido,
+            pending_qty: Math.max(0, recibido - declarado - retenido),
+          };
+        })
+        // Un renglón sale de la bandeja cuando ya no le falta fecha a nadie, pero
+        // sigue apareciendo si tiene retenidos: eso es trabajo abierto de otra persona.
+        .filter((r: any) => r.pending_qty > 0 || r.held_qty > 0);
     });
   }
 
