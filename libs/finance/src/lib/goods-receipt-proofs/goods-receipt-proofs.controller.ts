@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto } from './goods-receipt-proofs.service';
 import { RemisionLine } from '@megadulces/platform-core';
 
@@ -22,16 +22,34 @@ export class GoodsReceiptProofsController {
 
   @Get()
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
-  @ApiOperation({ summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs.' })
-  list(
-    @Query('estado') estado?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('search') search?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const q: ListReceiptsQuery = { estado, from, to, search, limit: limit ? Number(limit) : undefined };
+  @ApiOperation({
+    summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs. Scopeada por alcance (ADR-050), paginada y ordenable por antigüedad/riesgo.',
+  })
+  list(@Query() query: Record<string, unknown>) {
+    // `warehouse_codes` es el nombre canónico ([ID.5]); los 8 alias viejos (`sucursal`,
+    // `warehouse_code`, `branch`…) siguen funcionando y se loguean como deprecados.
+    const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts');
+    const q: ListReceiptsQuery = {
+      estado: query['estado'] as string,
+      from: query['from'] as string,
+      to: query['to'] as string,
+      search: query['search'] as string,
+      limit: query['limit'] ? Number(query['limit']) : undefined,
+      warehouse_codes,
+      dias_min: query['dias_min'] ? Number(query['dias_min']) : undefined,
+      carril: query['carril'] as ListReceiptsQuery['carril'],
+      orden: query['orden'] as ListReceiptsQuery['orden'],
+      page: query['page'] ? Number(query['page']) : undefined,
+      pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
+    };
     return this.svc.listReceipts(q);
+  }
+
+  @Get('settings')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({ summary: 'Parámetros vigentes del proceso: arranque, tolerancia del cuadre, SLA y tope de lote.' })
+  settings() {
+    return this.svc.getSettings();
   }
 
   @Get('match')
