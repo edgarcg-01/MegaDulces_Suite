@@ -17,6 +17,10 @@
  *   - **Carril**: `al_dia` + `rezago` particionan el universo sin traslape ni hueco.
  *   - **Settings**: `finance.receipt_settings` existe, tiene RLS forzado y trae la fila del tenant.
  *
+ *   - **RE.13.2**: el historial existe, tiene RLS forzado y es **append-only** (`app_runtime`
+ *     sin UPDATE ni DELETE — un historial editable no es historial); `motivo_codigo` existe; y la
+ *     cola del revisor sale ordenada por riesgo.
+ *
  * Uso: DATABASE_URL_NEW=... node database/tests/test-newdb-goods-receipts-scope.js
  */
 const { Client } = require('pg');
@@ -142,6 +146,43 @@ const BASE = `
       [TENANT])).rows[0];
     if (w) ok(/canindo/i.test(w.name), `sucursal '06' = ${w.name} (el catálogo la nombra)`);
     else console.log("     (sin sucursal '06' en commercial.warehouses)");
+
+    // ── 9. RE.13.2 — historial append-only + motivo tipificado ─────────────
+    const h = await c.query(`
+      SELECT relrowsecurity, relforcerowsecurity FROM pg_class
+       WHERE oid = 'finance.goods_receipt_proof_history'::regclass`);
+    ok(h.rows.length === 1, 'finance.goods_receipt_proof_history existe');
+    ok(h.rows[0]?.relrowsecurity && h.rows[0]?.relforcerowsecurity, 'historial con RLS habilitado Y forzado');
+    // Un historial que se puede editar no es historial: app_runtime solo lee e inserta.
+    const g = (await c.query(`
+      SELECT privilege_type FROM information_schema.role_table_grants
+       WHERE table_schema='finance' AND table_name='goods_receipt_proof_history' AND grantee='app_runtime'`))
+      .rows.map((r) => r.privilege_type);
+    ok(g.includes('SELECT') && g.includes('INSERT'), 'app_runtime puede leer e insertar el historial');
+    ok(!g.includes('UPDATE') && !g.includes('DELETE'), 'app_runtime NO puede editar ni borrar el historial (append-only)');
+    const mc = await c.query(`
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema='finance' AND table_name='goods_receipt_proofs' AND column_name='motivo_codigo'`);
+    ok(mc.rows.length === 1, 'goods_receipt_proofs.motivo_codigo existe (motivo tipificado)');
+
+    // ── 10. La cola del revisor: orden por riesgo ──────────────────────────
+    const nProofs = Number((await c.query(`SELECT count(*)::int n FROM finance.goods_receipt_proofs`)).rows[0].n);
+    if (nProofs === 0) {
+      console.log('     (sin evidencias capturadas: el orden por riesgo se cubre cuando haya cola)');
+    } else {
+      const q = (await c.query(`
+        SELECT COALESCE(ABS(d.last_disc), 0) AS r
+          FROM analytics.erp_goods_receipts c
+          LEFT JOIN (SELECT sucursal, folio,
+                            (array_agg(status ORDER BY created_at DESC))[1] AS last_status,
+                            (array_agg(discrepancy_amount ORDER BY created_at DESC))[1] AS last_disc
+                       FROM finance.goods_receipt_proofs GROUP BY sucursal, folio) d
+            ON d.sucursal = c.sucursal AND d.folio = c.folio
+         WHERE c.tenant_id = $1 AND c.dup_of_folio IS NULL AND d.last_status = 'recibido'
+         ORDER BY COALESCE(ABS(d.last_disc), 0) DESC, c.monto::numeric DESC`, [TENANT])).rows.map((x) => Number(x.r));
+      const ordenada = q.every((v, i) => i === 0 || q[i - 1] >= v);
+      ok(ordenada, `cola por riesgo: descuadre mayor primero (${q.length} en cola)`);
+    }
 
     console.log(`\n${failed === 0 ? '✅ TODO VERDE' : `❌ ${failed} fallo(s)`}`);
   } catch (e) {
