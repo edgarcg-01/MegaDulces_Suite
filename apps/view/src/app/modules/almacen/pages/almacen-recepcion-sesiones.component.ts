@@ -74,18 +74,9 @@ import { Permission } from '../../../core/constants/permissions';
 
       <p-dialog [visible]="newOpen()" (visibleChange)="newOpen.set($event)" [modal]="true" [style]="{ width: '520px' }" header="Nueva sesión de recepción" [dismissableMask]="true">
         <div class="rs-form">
-          <label class="rs-field"><span>Origen</span>
-            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" (onChange)="onSourceChange()" styleClass="rs-w"></p-select>
-          </label>
-
-          @if (newSource === 'manual') {
-            <label class="rs-field"><span>Almacén destino *</span>
-              <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="¿A qué almacén entra la mercancía?" styleClass="rs-w"></p-select>
-            </label>
-            <label class="rs-field"><span>Proveedor (opcional)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
-          } @else {
-            <!-- Un solo campo: el folio del papel. Sucursal, almacén y proveedor
-                 salen de la orden elegida — el operador no llena nada más. -->
+          @if (newSource === 'erp_receipt') {
+            <!-- Un solo campo, y es lo PRIMERO de la pantalla: el folio del papel.
+                 Sucursal, almacén y proveedor salen de la orden elegida. -->
             <label class="rs-field"><span>Folio del vale</span>
               <input pInputText [(ngModel)]="newErpFolio" (keyup.enter)="searchOrders()" (ngModelChange)="matches.set([])"
                      placeholder="Tecleá el folio y Enter — ej. 909" autofocus />
@@ -122,9 +113,20 @@ import { Permission } from '../../../core/constants/permissions';
                 }
               </div>
             }
+          } @else {
+            <label class="rs-field"><span>Almacén destino *</span>
+              <p-select [options]="warehouseOptions()" [(ngModel)]="newWarehouse" optionLabel="label" optionValue="value" placeholder="¿A qué almacén entra la mercancía?" styleClass="rs-w"></p-select>
+            </label>
+            <label class="rs-field"><span>Proveedor (opcional)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
           }
 
           <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir vale</button>
+
+          <!-- El caso normal es el vale del ERP; la entrada sin papel es la excepción,
+               así que el selector va al final y discreto, no encabezando el diálogo. -->
+          <label class="rs-field rs-origen"><span>Origen</span>
+            <p-select [options]="sourceOptions" [(ngModel)]="newSource" optionLabel="label" optionValue="value" (onChange)="onSourceChange()" styleClass="rs-w"></p-select>
+          </label>
         </div>
       </p-dialog>
 
@@ -155,6 +157,8 @@ import { Permission } from '../../../core/constants/permissions';
     .rs-warn { color: var(--warn-fg, #b45309); }
     .rs-serv { color: var(--text-color-secondary); font-style: italic; }
     .rs-nores { font-size: .8rem; color: var(--text-color-secondary); }
+    .rs-origen { margin-top: .9rem; padding-top: .7rem; border-top: 1px solid var(--surface-border); }
+    .rs-origen > span { font-size: .72rem; color: var(--text-color-secondary); }
     @media (pointer: coarse) { .rs-match { min-height: 44px; } }
   `, `
     .rs-head-actions { display: flex; gap: .5rem; align-items: center; }
@@ -203,7 +207,12 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   readonly creating = signal(false);
   newWarehouse = '';
   newSupplier = '';
-  newSource: 'manual' | 'erp_receipt' = 'manual';
+  /**
+   * El origen normal es el vale del ERP: el operador llega con el papel en la mano.
+   * Arrancar en 'manual' obligaba a cambiar el selector antes de poder teclear el
+   * folio, que es justo el paso de más que se quería quitar.
+   */
+  newSource: 'manual' | 'erp_receipt' = 'erp_receipt';
   newErpSucursal = '00';
   newErpFolio = '';
   readonly foundOrder = signal<ErpOrderLookup | null>(null);

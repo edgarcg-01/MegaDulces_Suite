@@ -132,7 +132,11 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <td class="rsd-mono">{{ l.sku || l.expected_sku || '—' }}</td>
             <td class="rsd-name">{{ l.product_name || l.expected_name || l.product_id || '—' }}</td>
             <td class="num">{{ l.expected_qty | number }}</td>
-            <td class="rsd-unit">{{ l.expected_unit || '—' }}</td>
+            <td class="rsd-unit" [class.rsd-unit-amb]="l.expected_unit === 'ambigua'">
+              @if (l.expected_unit === 'ambigua') {
+                <span title="El vale trae este producto con más de una unidad: confirmá cuál corresponde">⚠ ambigua</span>
+              } @else { {{ l.expected_unit || '—' }} }
+            </td>
             <td class="num rsd-rec">{{ l.received_qty | number }}</td>
             <td class="num rsd-decl" [class.rsd-decl-gap]="undeclared(l) > 0">
               {{ declared(l) | number }}
@@ -277,6 +281,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     :host ::ng-deep .rsd-mark { min-width: 64px; }
     .rsd-row-disc { background: var(--warn-soft-bg, #fffbeb); }
     .rsd-unit { font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--text-color-secondary); }
+    .rsd-unit-amb { color: var(--warn-fg, #b45309); font-weight: 600; font-family: inherit; }
     .rsd-vale { margin-bottom: 1rem; }
     .rsd-vale-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
     .rsd-vale-head h2 { font-size: .95rem; margin: 0; }
