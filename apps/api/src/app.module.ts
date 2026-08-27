@@ -16,6 +16,7 @@ import { VectorDatabaseModule } from '@megadulces/platform-core';
 import { Neo4jModule } from '@megadulces/platform-core';
 import { KeplerDatabaseModule } from '@megadulces/platform-core';
 import { AbilityModule } from '@megadulces/platform-core';
+import { ScopeModule } from '@megadulces/platform-core';
 import { UsersModule } from '@megadulces/trade';
 import { DailyCapturesModule } from '@megadulces/trade';
 import { PlanogramsModule } from '@megadulces/trade';
@@ -348,6 +349,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     Neo4jModule,
     KeplerDatabaseModule,
     AbilityModule,
+    // [ID.2] Alcance de datos (ADR-050). Global; lo consume /tienda/analisis-semanal.
+    ScopeModule,
     AuthModule,
     UsersModule,
     DailyCapturesModule,

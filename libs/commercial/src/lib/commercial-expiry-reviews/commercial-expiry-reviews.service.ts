@@ -39,7 +39,15 @@ const VALID_UNITS = ['caja', 'pieza', 'bulto', 'kg'] as const;
 export type LineUnit = (typeof VALID_UNITS)[number];
 type Condition = (typeof VALID_CONDITIONS)[number];
 
-export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ReviewFile {
+  role: string;
+  url: string;
+  public_id?: string;
+  kind?: string;
+  name?: string;
+  /** Firma efímera que devuelve /upload solo para la vista previa; NO se persiste. */
+  preview_url?: string;
+}
 
 export interface CreateReviewDto {
   warehouse_id: string;
@@ -226,7 +234,9 @@ export class CommercialExpiryReviewsService {
         })
         .returning('*');
       await this.touchReview(trx, reviewId, ctx?.userId);
-      return row;
+      // El GET del detalle firma los files (signFiles) pero esta respuesta salía cruda,
+      // así que el renglón recién agregado mostraba "sin vista previa" hasta recargar.
+      return this.signRowFiles(row);
     });
   }
 
@@ -254,7 +264,7 @@ export class CommercialExpiryReviewsService {
 
       const [row] = await trx('commercial.expiry_review_lines').where({ id: lineId }).update(patch).returning('*');
       await this.touchReview(trx, line.review_id, ctx?.userId);
-      return row;
+      return this.signRowFiles(row);
     });
   }
 
@@ -273,12 +283,24 @@ export class CommercialExpiryReviewsService {
 
   // ───── foto de evidencia (base64 → Railway Bucket; acepta imagen o PDF) ─────
 
+  /** Firma los `files` de un renglón para mostrarlos. No altera lo persistido. */
+  private async signRowFiles<T extends { files?: unknown }>(row: T): Promise<T> {
+    if (!row) return row;
+    const raw = typeof row.files === 'string' ? JSON.parse((row.files as string) || '[]') : row.files || [];
+    return { ...row, files: await this.storage.signFiles(raw as ReviewFile[]) };
+  }
+
   async uploadFile(dataUri: string, role = 'evidencia'): Promise<ReviewFile> {
     if (!dataUri) throw new BadRequestException('file_base64 requerido');
     const tenantId = this.tenantCtx.requireTenantId();
     // Caducidad = fotos de producto → putFile (imagen o PDF). url = key; la lectura la firma.
     const f = await this.storage.putFile(dataUri, `commercial/${tenantId}/expiry-reviews`);
-    return { role, url: f.key, public_id: f.key, kind: f.kind };
+    // `url` = la KEY (es lo que se persiste; la lectura la firma con signFiles).
+    // `preview_url` = firma efímera SOLO para que el operador vea lo que acaba de
+    // adjuntar antes de guardar el renglón. Antes el <img> recibía la key cruda →
+    // 404 → la caja de la foto se veía vacía. No se persiste ni reemplaza a `url`.
+    const previewUrl = await this.storage.signedUrl(f.key).catch(() => '');
+    return { role, url: f.key, public_id: f.key, kind: f.kind, preview_url: previewUrl || undefined };
   }
 
   // ───── submit → alimenta FEFO ─────

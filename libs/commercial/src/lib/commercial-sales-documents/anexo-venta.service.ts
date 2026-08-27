@@ -250,10 +250,9 @@ export class AnexoVentaService {
       else if (cajaOK && soldU === String(l.unidad_bulto)) soldFactor = cjaF;
       const qtyPz = cant * soldFactor;
       const precioPza = soldFactor > 0 ? (Number(l.precio_unitario) || 0) / soldFactor : 0;
-      // Unidad en que se VENDIÓ esta línea → para agrupar las líneas: caja (0) / paquete (1) / pieza (2).
+      // Grupo real de la línea (caja 0 / paquete 1 / pieza 2). Se fija MÁS ABAJO, tras armar la
+      // descomposición, porque depende de la unidad MAYOR que se muestra, no de la de venta.
       let tier = 2;
-      if (cajaOK && soldU === String(l.unidad_bulto)) tier = 0;
-      else if (paqOK && soldU === String(l.unidad_paq)) tier = 1;
 
       // Niveles de UNIDAD disponibles (mayor → menor), para el precio POR unidad.
       const unitLevels: { u: any; factor: number }[] = [];
@@ -272,6 +271,12 @@ export class AnexoVentaService {
         if (n > 0) compra.push({ n, u: lvl.u });
       }
       if (!compra.length) compra.push({ n: qtyPz, u: l.unidad_venta || l.unidad });
+
+      // El grupo se decide por la unidad MAYOR que realmente se MUESTRA (compra[0]), no por la
+      // unidad de venta de Kepler (kdm2.c11): casi todo se factura en PAQ pero el anexo lo muestra
+      // convertido a CJA, así que agrupar por c11 dejaba TODO en "pieza" y no salía separación.
+      const primaU = String(compra[0]?.u ?? '').trim().toUpperCase();
+      tier = /^(CJA|CJ|CAJA|CJS)$/.test(primaU) ? 0 : /^(PAQ|PQ|PAQUETE)$/.test(primaU) ? 1 : 2;
 
       // Cantidad: el mayor en grande, cada remanente debajo con "+" (se lee como suma).
       const qCell = compra.map((r, i) =>

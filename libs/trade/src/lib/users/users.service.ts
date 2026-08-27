@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -15,6 +16,8 @@ import { getDataScope, TenantContextService } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
+  /** Se asienta en la bitácora: un uuid solo no dice quién fue. */
+  username?: string;
   rules?: unknown[];
 }
 
@@ -22,6 +25,8 @@ const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
@@ -44,6 +49,71 @@ export class UsersService {
       .select('id')
       .first();
     return zone ? zone.id : null;
+  }
+
+  /**
+   * `[ID.7]` — La zona llega por tres nombres y hay que quedarse con uno.
+   *
+   * `zone_id` es el canónico; `zona_id` y `zona` son alias deprecados que se
+   * siguen aceptando para no romper al frontend actual. La precedencia es
+   * explícita (uuid canónico → uuid viejo → nombre resuelto) en vez de quedar
+   * al azar del orden de las propiedades del body.
+   *
+   * Devuelve `undefined` cuando NINGUNO vino, para poder distinguir en el
+   * update "no lo mandes" de "ponelo en null" (desasignar zona).
+   */
+  private async resolveZoneRef(dto: {
+    zone_id?: string;
+    zona_id?: string;
+    zona?: string;
+  }): Promise<string | null | undefined> {
+    if (dto.zone_id) return dto.zone_id;
+    if (dto.zona_id) return dto.zona_id;
+    if (dto.zona !== undefined) return this.resolveZonaId(dto.zona);
+    return undefined;
+  }
+
+  /**
+   * `[ID.8]` — Asienta un cambio en `identity.user_events`.
+   *
+   * Es append-only y **nunca hace fallar la operación**: si la bitácora se cae,
+   * el alta o el cambio de rol ya se hizo, y perder el asiento es mucho menos
+   * grave que dejar la operación a medias. El error se loguea, no se propaga.
+   *
+   * Se le pasa la trx cuando hay una abierta, para que el asiento viva o muera
+   * con la operación que describe.
+   */
+  private async recordEvent(
+    trx: Knex | Knex.Transaction,
+    userId: string,
+    event: string,
+    detalle: Record<string, unknown>,
+    requester: RequesterContext,
+  ): Promise<void> {
+    try {
+      await trx('identity.user_events').insert({
+        tenant_id: this.tenantId,
+        user_id: userId,
+        event,
+        detalle: JSON.stringify(detalle),
+        actor_user_id: requester.sub ?? null,
+        actor_username: requester.username ?? null,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo asentar el evento "${event}" del usuario ${userId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** Nombre de la zona a partir del uuid, para las respuestas de escritura. */
+  private async zoneNameOf(zonaId?: string | null): Promise<string | null> {
+    if (!zonaId) return null;
+    const z = await this.knex('zones')
+      .where({ id: zonaId, tenant_id: this.tenantId })
+      .select('name')
+      .first();
+    return z?.name ?? null;
   }
 
   private normalizeUsername(username: string): string {
@@ -116,15 +186,33 @@ export class UsersService {
   }
 
   /**
-   * Valida los ejes organizacionales contra su catálogo ANTES de escribir. Sin
-   * esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
+   * Valida los códigos de catálogo del usuario contra la DB ANTES de escribir.
+   * Sin esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
    * admin veía "Error al actualizar usuario" sin motivo y quedaba un error de
    * servidor en el log por un dato de entrada inválido.
+   *
+   * `warehouse_code` se sumó acá y se le quitó el `@Matches(/^[0-9]{2}$/)` del
+   * DTO: el regex validaba FORMA, no EXISTENCIA — aceptaba `'99'` feliz. Con el
+   * default de alcance en `own` desde `[ID.3]`, una sucursal mal escrita ya no
+   * es cosmética: deja al usuario sin ver nada y sin pista de por qué.
    */
   private async assertOrgCodes(
     departmentCode?: string | null,
     positionCode?: string | null,
+    warehouseCode?: string | null,
   ): Promise<void> {
+    if (warehouseCode) {
+      const wh = await this.knex('commercial.warehouses')
+        .where({ tenant_id: this.tenantId, code: warehouseCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!wh) {
+        throw new BadRequestException(
+          `La sucursal "${warehouseCode}" no existe en el catálogo de almacenes.`,
+        );
+      }
+    }
     if (departmentCode) {
       const dep = await this.knex('identity.departments')
         .where({ tenant_id: this.tenantId, code: departmentCode })
@@ -150,10 +238,13 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto, requester: RequesterContext) {
+    // `zone_id`/`zona_id`/`zona` salen del rest: los tres colapsan en una sola
+    // columna y la precedencia la decide `resolveZoneRef`.
     const {
       password,
-      zona,
-      zona_id: dtoZonaId,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
       role_name,
       username,
       ...rest
@@ -163,6 +254,7 @@ export class UsersService {
     await this.assertOrgCodes(
       createUserDto.department_code,
       createUserDto.position_code,
+      createUserDto.warehouse_code,
     );
 
     const normalizedUsername = this.normalizeUsername(username);
@@ -178,7 +270,7 @@ export class UsersService {
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const zona_id = dtoZonaId || (await this.resolveZonaId(zona));
+    const zona_id = (await this.resolveZoneRef(createUserDto)) ?? null;
     const normalizedRoleName = role_name.toLowerCase();
 
     const [user] = await this.knex('users')
@@ -190,6 +282,12 @@ export class UsersService {
         role_name: normalizedRoleName,
         username: normalizedUsername,
         updated_by: requester.sub,
+        created_by: requester.sub,
+        // `[ID.8]` La contraseña la eligió OTRO (el admin que da el alta), así
+        // que el dueño tiene que cambiarla. `created_by` además deja de estar
+        // vacío: en prod estaba en NULL para los 117 usuarios.
+        password_changed_at: this.knex.fn.now(),
+        must_change_password: true,
       })
       .returning([
         'id',
@@ -202,7 +300,10 @@ export class UsersService {
         'created_at',
       ]);
 
-    return { ...user, zona };
+    // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
+    // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
+    // devolver el que mandó el cliente sería devolverle su propio input.
+    return { ...user, zona: await this.zoneNameOf(zona_id) };
   }
 
   async findAll(
@@ -342,10 +443,12 @@ export class UsersService {
     updateUserDto: UpdateUserDto,
     requester: RequesterContext,
   ) {
+    // Los tres nombres de zona salen del rest (colapsan en una sola columna).
     const {
       password,
-      zona,
-      zona_id: dtoZonaId,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
       role_name,
       username,
       activo,
@@ -374,6 +477,7 @@ export class UsersService {
     await this.assertOrgCodes(
       updateUserDto.department_code,
       updateUserDto.position_code,
+      updateUserDto.warehouse_code,
     );
 
     // Defensa contra dejar al sistema sin superadmins activos.
@@ -402,10 +506,12 @@ export class UsersService {
       updateData['username'] = normalized;
     }
 
-    if (dtoZonaId !== undefined) {
-      updateData['zona_id'] = dtoZonaId;
-    } else if (zona !== undefined) {
-      updateData['zona_id'] = await this.resolveZonaId(zona);
+    // `undefined` = ninguno de los tres nombres vino → no se toca la columna.
+    // `null` = vino `zona: ''` o un nombre que no existe → se desasigna. La
+    // distinción importa: un PATCH que no menciona la zona no debe borrarla.
+    const zoneRef = await this.resolveZoneRef(updateUserDto);
+    if (zoneRef !== undefined) {
+      updateData['zona_id'] = zoneRef;
     }
 
     if (role_name !== undefined) {
@@ -437,16 +543,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const zoneName =
-      zona !== undefined
-        ? zona
-        : (
-            await this.knex('zones')
-              .where({ id: user.zona_id, tenant_id: this.tenantId })
-              .select('name')
-              .first()
-          )?.name;
-    return { ...user, zona: zoneName };
+    return { ...user, zona: await this.zoneNameOf(user.zona_id) };
   }
 
   async remove(id: string, requester: RequesterContext) {
