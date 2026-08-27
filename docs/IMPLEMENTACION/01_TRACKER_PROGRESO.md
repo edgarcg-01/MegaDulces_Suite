@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-08-27 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — la misma orden capturada dos veces: 970 pares apareados, $19.7M que dejan de contarse dos veces)
+**Última actualización:** 2026-08-27 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — gemelas sucursal↔oficinas con motor automático · Fase RE.15 — plan de UI: auditoría de las 6 pantallas contra DESIGN.md)
 
 ---
 
@@ -935,6 +935,19 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
   - 🐞 **Una colisión de unicidad tiraba la corrida entera**: si la canónica ya tenía marca del motor con otro folio de oficinas, el UPSERT reventaba. Ahora el conflicto se limpia antes de escribir.
   - Smoke ampliado a **21/21** (incluye: el dictamen humano sobrevive al motor, y el dry-run no escribe).
 - [ ] **[RE.14.7]** ⬜ Wincaja (30/32/50): el motor ya los incluye como canónicos, pero la landing está vacía en local → **sin medir** si oficinas también los espeja.
+
+### RE.15 — Las pantallas de entradas al canon de diseño (plan)
+
+Auditadas las 6 pantallas contra `DESIGN.md` (checklist pre-vuelo + Operations + datos densos). Las 4 nuevas funcionan y respetan la estructura, pero **cada una inventó su ritmo visual** y ninguna usa las piezas compartidas. Medido: **286 espaciados a mano contra 4 usos de `--sp-*`**, y **`--surface-sunken` no existe** (28 usos en 7 pantallas → toda superficie "hundida" cae al color de la card, en light y en dark). Plan completo en [`FASE_RE15_UI_ENTRADAS.md`](FASES/FASE_RE15_UI_ENTRADAS.md).
+
+- [ ] **[RE.15.0]** ⬜ **Tokens** ⛔ ruta crítica — `--surface-sunken`→`--surface-2`, espaciado a `--sp-*`, `--fs-*` (gemelas: 0 usos hoy), `.mono`→`--font-mono` (las cifras no salen en Geist Mono), densidad `--row-h-*` + `--tap-min` en touch, `--action`→`--warn-*` donde marca "revisar".
+- [ ] **[RE.15.1]** ⬜ **Gemelas al canon** — `surf-table--sticky/frozen-first/compact` (ver D1), KPIs → `MetricStrip` modo `composition` (los 3 estados suman al total de pares), fila orientada al diff, teclado como revisión.
+- [ ] **[RE.15.2]** ⬜ **Confianza del dato** — `FreshnessPill` (el server ya manda `frescura` y las 3 nuevas la tiran), `ContextHelp` × 4 (la pantalla con más jerga del proyecto, cero ayuda), y el contrato §X del motor de gemelas: falta **reversa explícita** y **ruta de escalación**.
+- [ ] **[RE.15.3]** ⬜ **Matriz de estados** — `LoadState` para los 3 (hoy sólo error), empties con CTA accionable, overflow 10×.
+- [ ] **[RE.15.4]** ⬜ **Estado en la URL** — filtros/selección a query params (Compras 360 ya lo hace).
+- [ ] **[RE.15.5]** ⬜ **INP < 200ms medido** en las dos vistas densas (200 filas sin virtualizar).
+- [ ] **[RE.15.6]** ⬜ **QA visual light + dark + móvil** 🚧 **requiere navegador**: o lo corre Edgar con el checklist de 14 puntos, o se autoriza levantar dev servers y lo automatizo con Playwright.
+- ⚖️ **Decisiones de Edgar:** **D1** `p-table` vs tabla cruda + clases canónicas (choque explícito entre "PrimeNG-first" y la licencia comercial de PrimeNG v22; recomiendo cruda) · **D2** 5 items de sidebar vs 2 + `PageTabs` (recomiendo 2 por trabajo) · **D3** el legacy de 1,799 líneas: dejar de crecerlo y mover su diálogo de 72rem a `SidePeek`.
 
 **Pendiente prod (13.0–13.4 + 13.6 + 14):** migs `20260827130000_receipt_settings` + `20260827140000_goods_receipt_proof_history` + `20260827150000_entradas_validar_trim` + `20260827160000_goods_receipt_twins` + `20260827170000_fn_pair_goods_receipts` a Railway + redeploy api/view + **correr `detect-goods-receipt-duplicates.js --apply` una vez** (barrido histórico; de ahí en adelante el cron de la API lo mantiene) + configurar alcance de capturistas. Sin permisos nuevos → no requiere re-login.
 
