@@ -158,7 +158,8 @@ export class VehicleWitnessAuditService {
     return { open: findings.length, resolved };
   }
 
-  @Cron('0 25 4 * * *')
+  // 04:25 MX — 10 min después de pod-geo-audit, con el nightly (03:00) ya terminado.
+  @Cron('0 25 4 * * *', { timeZone: 'America/Mexico_City' })
   async generateAll(): Promise<void> {
     if (this.running) return;
     this.running = true;

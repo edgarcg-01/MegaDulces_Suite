@@ -46,6 +46,28 @@ export class UsersService {
     return zone ? zone.id : null;
   }
 
+  /**
+   * `[ID.7]` — La zona llega por tres nombres y hay que quedarse con uno.
+   *
+   * `zone_id` es el canónico; `zona_id` y `zona` son alias deprecados que se
+   * siguen aceptando para no romper al frontend actual. La precedencia es
+   * explícita (uuid canónico → uuid viejo → nombre resuelto) en vez de quedar
+   * al azar del orden de las propiedades del body.
+   *
+   * Devuelve `undefined` cuando NINGUNO vino, para poder distinguir en el
+   * update "no lo mandes" de "ponelo en null" (desasignar zona).
+   */
+  private async resolveZoneRef(dto: {
+    zone_id?: string;
+    zona_id?: string;
+    zona?: string;
+  }): Promise<string | null | undefined> {
+    if (dto.zone_id) return dto.zone_id;
+    if (dto.zona_id) return dto.zona_id;
+    if (dto.zona !== undefined) return this.resolveZonaId(dto.zona);
+    return undefined;
+  }
+
   private normalizeUsername(username: string): string {
     return username.toLowerCase().trim();
   }
@@ -116,15 +138,33 @@ export class UsersService {
   }
 
   /**
-   * Valida los ejes organizacionales contra su catálogo ANTES de escribir. Sin
-   * esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
+   * Valida los códigos de catálogo del usuario contra la DB ANTES de escribir.
+   * Sin esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
    * admin veía "Error al actualizar usuario" sin motivo y quedaba un error de
    * servidor en el log por un dato de entrada inválido.
+   *
+   * `warehouse_code` se sumó acá y se le quitó el `@Matches(/^[0-9]{2}$/)` del
+   * DTO: el regex validaba FORMA, no EXISTENCIA — aceptaba `'99'` feliz. Con el
+   * default de alcance en `own` desde `[ID.3]`, una sucursal mal escrita ya no
+   * es cosmética: deja al usuario sin ver nada y sin pista de por qué.
    */
   private async assertOrgCodes(
     departmentCode?: string | null,
     positionCode?: string | null,
+    warehouseCode?: string | null,
   ): Promise<void> {
+    if (warehouseCode) {
+      const wh = await this.knex('commercial.warehouses')
+        .where({ tenant_id: this.tenantId, code: warehouseCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!wh) {
+        throw new BadRequestException(
+          `La sucursal "${warehouseCode}" no existe en el catálogo de almacenes.`,
+        );
+      }
+    }
     if (departmentCode) {
       const dep = await this.knex('identity.departments')
         .where({ tenant_id: this.tenantId, code: departmentCode })
@@ -150,10 +190,13 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto, requester: RequesterContext) {
+    // `zone_id`/`zona_id`/`zona` salen del rest: los tres colapsan en una sola
+    // columna y la precedencia la decide `resolveZoneRef`.
     const {
       password,
-      zona,
-      zona_id: dtoZonaId,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
       role_name,
       username,
       ...rest
@@ -163,6 +206,7 @@ export class UsersService {
     await this.assertOrgCodes(
       createUserDto.department_code,
       createUserDto.position_code,
+      createUserDto.warehouse_code,
     );
 
     const normalizedUsername = this.normalizeUsername(username);
@@ -178,7 +222,7 @@ export class UsersService {
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const zona_id = dtoZonaId || (await this.resolveZonaId(zona));
+    const zona_id = (await this.resolveZoneRef(createUserDto)) ?? null;
     const normalizedRoleName = role_name.toLowerCase();
 
     const [user] = await this.knex('users')
@@ -202,7 +246,7 @@ export class UsersService {
         'created_at',
       ]);
 
-    return { ...user, zona };
+    return { ...user, zona: _zonaLegacy };
   }
 
   async findAll(
@@ -342,10 +386,12 @@ export class UsersService {
     updateUserDto: UpdateUserDto,
     requester: RequesterContext,
   ) {
+    // Los tres nombres de zona salen del rest (colapsan en una sola columna).
     const {
       password,
-      zona,
-      zona_id: dtoZonaId,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
       role_name,
       username,
       activo,
@@ -374,6 +420,7 @@ export class UsersService {
     await this.assertOrgCodes(
       updateUserDto.department_code,
       updateUserDto.position_code,
+      updateUserDto.warehouse_code,
     );
 
     // Defensa contra dejar al sistema sin superadmins activos.
@@ -402,10 +449,12 @@ export class UsersService {
       updateData['username'] = normalized;
     }
 
-    if (dtoZonaId !== undefined) {
-      updateData['zona_id'] = dtoZonaId;
-    } else if (zona !== undefined) {
-      updateData['zona_id'] = await this.resolveZonaId(zona);
+    // `undefined` = ninguno de los tres nombres vino → no se toca la columna.
+    // `null` = vino `zona: ''` o un nombre que no existe → se desasigna. La
+    // distinción importa: un PATCH que no menciona la zona no debe borrarla.
+    const zoneRef = await this.resolveZoneRef(updateUserDto);
+    if (zoneRef !== undefined) {
+      updateData['zona_id'] = zoneRef;
     }
 
     if (role_name !== undefined) {
@@ -438,8 +487,8 @@ export class UsersService {
     }
 
     const zoneName =
-      zona !== undefined
-        ? zona
+      _zonaLegacy !== undefined
+        ? _zonaLegacy
         : (
             await this.knex('zones')
               .where({ id: user.zona_id, tenant_id: this.tenantId })

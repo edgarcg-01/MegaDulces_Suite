@@ -164,7 +164,9 @@ const STEPS = {
     path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
     path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
-    path.join(K, 'import-kepler-accounts.js'),   // dim cuentas contables → finance.kepler_accounts
+    // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
+    // sobre analytics.ledger_monthly (mig 20260826190000). Correrlo pegaría INSERT contra la vista.
+    // Pasó el gate de costo: fuente 2,548 filas, paridad 175/175 exacta, misma latencia de lectura.
     path.join(K, 'import-replenishment-cadence.js'), // cadencia de reabasto → commercial.replenishment_channel
     // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
     // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
@@ -296,11 +298,16 @@ function run(entry) {
 // Barre node huérfanos de una corrida previa (scripts de ESTE modo, vivos > timeout+3min
 // → colgados). El umbral protege una corrida concurrente legítima de otro modo (joven).
 // Se apoya en kill-stale-feeds.ps1 (Windows) para evitar el infierno de comillas inline.
+// TODO el cuerpo va dentro del try: esto es limpieza best-effort y NO puede tumbar la corrida.
+// Lo que pasó el 25 y el 26-ago: `names` se calculaba FUERA del try, tiró ERR_INVALID_ARG_TYPE
+// (un step `[ruta, ...flags]` llegando a basename) y se llevó el modo `nightly` entero — y encima
+// antes del primer latido, así que ni `cron_runs` registró el intento.
 function sweepStaleOrphans(steps) {
   if (process.platform !== 'win32') return;
-  const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
-  const names = [...new Set(steps.map((s) => path.basename(s)))].join(',');
   try {
+    const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
+    // pathOf: una entrada puede ser `[ruta, ...flags]` (ver arriba); basename() sobre el Array explota.
+    const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
     const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
       '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
       { encoding: 'utf8', timeout: 30000 });
@@ -336,11 +343,15 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'default localhost:5433/postgres_platform') + ')');
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
-  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
 
-  // Latido de arranque (solo en corridas reales). NUNCA lanza (cron-heartbeat traga errores).
+  // El latido va PRIMERO, antes de cualquier otra cosa. Si el runner se cae despues (o se lo
+  // matan), queda un latido 'running' que envejece y Salud BD lo marca en rojo por maxRunH: es
+  // el dead-man's switch. Cuando el latido iba DESPUES del sweep, el crash del 25 y 26-ago no
+  // dejo rastro en cron_runs — el nightly simplemente no existio dos noches y nadie se entero.
   const hbKey = `feed_${MODE}`;
   if (APPLY) await hb.begin(hbKey, FEED_LABELS[MODE] || `Feed ${MODE}`);
+
+  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
 
   let failed = 0;
   const failedSteps = [];

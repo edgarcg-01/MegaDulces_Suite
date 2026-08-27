@@ -134,6 +134,19 @@ usa la hora local del proceso = MX. Los crons viejos escritos asumiendo UTC (`'0
 **Regla:** todo `@Cron` con hora fija lleva `{ timeZone: 'America/Mexico_City' }` y la hora en wall-clock MX.
 Los intervalos (`*/5`, `*/15`) no dependen de TZ. Escaloná los batches pesados de madrugada.
 
+**Verificado en prod (2026-08-26), porque es fácil sacar la conclusión al revés.** `vehicle-witness-audit`
+declaraba `@Cron('0 25 4 * * *')` **sin** `timeZone` y sus 581 hallazgos `vehicle_stop_no_capture` se crean a las
+**04:25 MX / 10:25 UTC**: dispara a la hora que dice. La TZ del proceso la fija el
+[`Dockerfile`](../Dockerfile) (`ln -sf .../America/Mexico_City /etc/localtime` + `TZ=America/Mexico_City`; igual
+en `Dockerfile.worker`). O sea: **un cron sin `timeZone` NO está corriendo 6h corrido hoy** — el corrimiento de
+6h es el de un cron *escrito asumiendo UTC*, que es otra cosa. Antes de "arreglar" un `@Cron` sin `timeZone`,
+comprobá a qué hora escribe de verdad (`created_at AT TIME ZONE 'America/Mexico_City'` en la tabla que puebla).
+
+**¿Y entonces por qué pinearlo?** Porque el comportamiento correcto depende de una línea del Dockerfile: si
+alguien saca el `TZ`, los crons pineados siguen bien y los que no, se corren 6h en silencio. El `timeZone`
+explícito pone la intención en el código, no en el entorno. Al 2026-08-26 quedan pineados los 4 que faltaban
+(`cleanOldPhotos`, `pod-geo-audit`, `vehicle-witness-audit`, `trip-builder-scanner`).
+
 ---
 
 ## 8. Verificar builds y tests (no te mientas a vos mismo)
@@ -159,6 +172,15 @@ Los intervalos (`*/5`, `*/15`) no dependen de TZ. Escaloná los batches pesados 
 - Commiteá tu trabajo verde **de inmediato** con paths explícitos, aunque sea a mitad de tarea. (El entorno tiene
   automatización de git que a veces **revierte** lo no commiteado.)
 - Flujo de equipo: rama por feature + PR + review + CI verde. `main` protegida. Ver [ONBOARDING.md](../ONBOARDING.md) §8.
+- ⛔ **`git checkout -b mi-rama origin/main` + `git push` apunta a `main`.** Este repo tiene
+  `push.default = upstream`, y crear la rama así le deja `origin/main` como upstream → **el push resuelve el
+  destino al upstream, no a una rama con tu nombre**. Pasó el 2026-08-26: `git push -u origin fix/cron-timezone-explicit`
+  respondió `! [remote rejected] fix/cron-timezone-explicit -> main (protected branch hook declined)`. Lo único que
+  lo frenó fue la protección de `main`.
+  **Cómo evitarlo:** creá la rama sin upstream (`git switch -c mi-rama` estando en el commit base, o
+  `git branch --unset-upstream` después), o pusheá siempre con refspec explícito:
+  `git push -u origin mi-rama:refs/heads/mi-rama` — con `src:dst` el `push.default` no participa.
+  Si ya te pasó, no hay daño: el hook rechaza antes de escribir.
 
 ---
 
@@ -214,3 +236,200 @@ del `tsc` actual, 0 errores, exit code correcto (1 si hay error) → usable en C
 `tsconfig.ts7.json` es standalone a propósito: TS 7 **removió `baseUrl`** (`TS5102`) y exige `paths`
 relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.base.json`. Si cambian los
 `paths` de la base, replicarlos ahí.
+
+---
+
+## 13. Feeds on-prem — "tarea Running" NO significa que el feed corra
+
+Los loops del CDC del ODS (`\Tienda\OdsLiveLoop`, `\Tienda\OdsFullMirror`) son un `.cmd` con `:loop` que
+relanza `node` cada iteración. Si el `node` se cuelga, **la tarea sigue en `Running` y el proceso sigue
+vivo** — se ve todo sano y no se está replicando nada. Pasó: 2 días congelado (24-ago 05:18 → 26-ago),
+con `kepler_ods` viejo en prod y con él **toda la capa derive-no-copy** que cuelga de ahí.
+
+**La señal real es el `mtime` del log, no el estado de la tarea ni el proceso:**
+
+```bash
+ls -l --time-style=+%Y-%m-%d_%H:%M /c/KeplerRunner/logs/*.log     # ¿cuál se quedó atrás?
+```
+
+Confirmación: si el proceso lleva minutos vivo con ~0s de CPU, está colgado, no trabajando.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'replicate-ods-live' } |
+  ForEach-Object { "pid={0} arrancado={1:HH:mm} cpu_s={2}" -f $_.ProcessId, $_.CreationDate, [math]::Round($_.UserModeTime/1e7) }
+```
+
+**Arreglo:** matar el `node`. El `:loop` del `.cmd` sigue vivo esperándolo → arranca pasada nueva solo.
+No hace falta reiniciar la tarea.
+
+**Frescura del lado destino** (lo que hay que mirar para saber si prod está al día):
+
+```sql
+SELECT count(*) FROM kepler_ods._sync_status WHERE last_push_at > now() - interval '10 min';
+```
+
+Ojo con dos cosas al diagnosticar:
+- El `FeedGuardian` **no** cubre estos loops (vigila los modos de `run-feeds.cmd`), así que nadie avisa.
+- `{"code":404,"message":"Application not found"}` es el **edge de Railway**, no `feeds-ingest` (la app
+  responde `{"error":"not found"}`). Para saber si la app está viva: `POST /ingest/raw-upsert` sin key
+  debe dar **401**; un 404 ahí sí es la app caída.
+
+## 14. Espejo de feeds a la réplica de pruebas (`FEEDS_MIRROR_URL`)
+
+`lib/sink.js` puede aplicar cada changeset a una **segunda** DB además del destino primario (una lectura
+del origen local → dos destinos). Hoy: `192.168.0.245:5432/platform_test` (estructura de prod, sin data).
+
+- Se prende con `FEEDS_MIRROR_URL` en `.env` (cubre los loops del ODS, que sí cargan dotenv) y en
+  `C:\KeplerRunner\run-feeds.cmd` (para `import-branch-stock-live` / `-goods-receipts` / `-purchase-docs`,
+  que **no** cargan dotenv — y así debe quedar: con dotenv, una corrida manual apuntaría a la copia stale
+  de `localhost:5433` en vez de fallar).
+- Es **best-effort**: si el espejo falla, el feed primario sigue igual. Quitar la env = rollback total.
+- Al agregar un `Client` de pg de larga vida a un importer, **`unref()` el socket** o el proceso no termina
+  nunca (los importers cierran con `process.exitCode`, no `process.exit()`) → ver gotcha #13.
+- Solo replica **hacia adelante**: el watermark ya viene avanzado, la réplica no tiene historia.
+- Smoke: `node database/importers/_smoke-sink-mirror.js` (7 aserciones, no toca prod).
+
+## 15. `run-prod-feeds.js` — un step `[ruta, ...flags]` puede matar el modo entero
+
+Una entrada de `STEPS` puede ser una ruta **o** `[ruta, ...flags]`. El archivo tiene `pathOf(entry)`
+para eso, pero cualquier función que use la entrada cruda con `path.basename()` tira
+`ERR_INVALID_ARG_TYPE` **antes de correr el primer paso** → el modo completo muere al arrancar.
+
+Ya pasó: el commit que agregó el primer step-array (24-ago-2026) dejó el **`nightly` de prod sin
+correr el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`,
+`inventory-health`, `reorder-policy` ni DRP. Nadie se enteró: el runner sale con código ≠ 0 pero
+**nada mira el resultado del nightly**.
+
+Al tocar `STEPS` o cualquier helper que lo recorra: **siempre `pathOf(s)`**, nunca la entrada cruda.
+Y para verificar que un modo arranca, alcanza el dry-run (sin `--apply`):
+
+```bash
+node database/importers/kepler/run-prod-feeds.js <modo> | head -3
+```
+
+## 16. Trampas chicas de los feeds on-prem (ya vividas)
+
+- **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
+  nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
+  Pasar siempre por `tr -d '\r'`.
+- **El réplica lógico de la sucursal 03 se llama `kepler_pilot`** (nombre del piloto, rename
+  diferido), no `kepler_md_03`. Existe además un `md_03` que es un **sobrante congelado en junio**:
+  usarlo da data vieja sin ningún error. La resolución canónica está en `localDbName()` de
+  `replicate-ods-live.js`.
+- **`sslmode=no-verify` no existe en libpq.** Es cosa de node-postgres. Para `psql`/`pg_dump` contra
+  el proxy de Railway va `sslmode=require`.
+- **Editar un `.cmd` que está corriendo** corre el offset de lectura de `cmd.exe` y puede hacerle
+  ejecutar un fragmento partido. Si el cambio es un reemplazo de **igual largo** (p. ej. rotar una
+  key por otra del mismo tamaño) no se mueve ningún byte y es inofensivo. Si cambia el tamaño:
+  detener la tarea, editar, arrancar.
+- **`session_replication_role = replica`** (como superuser) apaga triggers y chequeo de FK — sirve
+  para cargas masivas sin pelear el orden entre tablas. Lo que **no** apaga son los índices UNIQUE.
+
+## 17. `DATABASE_URL_NEW` tiene DOS roles — y moverla calla el CDC
+
+Esa var significa dos cosas distintas según quién la lee:
+
+| Quién | Para qué la usa |
+|---|---|
+| API (`new-database.module.ts`) | conexión **admin** (`KNEX_NEW_DB_ADMIN`, REFRESH de MVs) |
+| `knexfile-newdb.js` | destino de las **migraciones** |
+| `replicate-ods-live.js` / `ods-cdc-wal.js` | **BASE de la FUENTE**: de ahí derivan `kepler_md_XX` (los replicas lógicos del contenedor `:5433`) |
+
+Ese tercer uso es la trampa. Si dev mueve `DATABASE_URL_NEW` para apuntar la app a otra base
+(p. ej. la réplica de pruebas en `.245`), el CDC se va a buscar los replicas al server equivocado
+y **se calla**: loguea `no conecta — skip` por rama y la pasada termina "bien" sin shipear nada.
+`kepler_ods` en prod se congela en silencio y con él toda la capa derive-no-copy.
+
+**Desde 2026-08-26 la fuente tiene env propia: `ODS_SOURCE_BASE`** (fallback a `DATABASE_URL_NEW`
+por compatibilidad). Está fijada explícitamente en `run-ods-live-loop.cmd`,
+`run-ods-full-mirror.cmd`, `run-ods-loop.cmd` y en `ecosystem.cdc.config.js` — ahí **sin** fallback
+a `DATABASE_URL_NEW`, porque heredarla reintroduce la trampa.
+
+Al mover la app a otra base, mover **las dos**:
+
+- `DATABASE_URL_NEW_RUNTIME` → rol **`app_runtime`** (con RLS). NUNCA `postgres`: el runtime tiene
+  que ejercitar RLS o los bugs de aislamiento entre tenants no aparecen en dev.
+- `DATABASE_URL_NEW` → rol `postgres` (admin: migraciones + REFRESH MV).
+
+Y verificar que el rol `app_runtime` existe **con la contraseña correcta** en el server destino: en
+`.245` existía con una contraseña vieja del snapshot de junio y ninguna credencial de la máquina
+servía. Sin eso el API no arranca contra esa base.
+
+## 18. Rotar `FEEDS_INGEST_KEY` deja ciegos a los consumidores WAL (y su alerta también)
+
+Los 7 `cdc-wal-XX` de PM2 heredaban la key **del shell del operador** al momento de
+`pm2 start`. Al rotarla (Railway + los `.cmd` de KeplerRunner) esos procesos siguen con la
+vieja en memoria → **`HTTP 401` en cada flush, cada 3 segundos**, con `pm2 ls` diciendo
+`online`. Vivido el 2026-08-26.
+
+Lo que lo vuelve traicionero: **el latido de esos consumidores viaja por el MISMO sink**. Si el
+sink no autoriza, tampoco late — el dead-man's switch de Salud BD (`cdc_wal_00..06`) se queda
+mudo exactamente cuando hace falta. Un sensor que depende del canal que vigila no sirve.
+
+**Al rotar la key, la lista completa es:**
+
+1. Railway (`railway variables -s feeds-ingest --set …`).
+2. Los `.cmd` de `C:\KeplerRunner` (6 archivos). Generá la key nueva **del mismo largo** que la
+   vieja: el reemplazo no mueve bytes y editar un `.cmd` en ejecución deja de ser riesgoso.
+3. `.env` del repo (`FEEDS_INGEST_KEY`) — de ahí la lee `ecosystem.cdc.config.js`.
+4. **`pm2 restart cdc-wal-00 … cdc-wal-06 --update-env`** + `pm2 save` (si no, un reboot
+   resucita con la vieja).
+5. Verificar: que los `*-error.log` de PM2 dejen de crecer **y** que `analytics.cron_runs`
+   muestre `cdc_wal_0*` con `updated_at` fresco. Lo primero solo no alcanza.
+
+`ecosystem.cdc.config.js` ahora carga el `.env` del repo y **lanza** si la key falta: fallar al
+arrancar es mucho mejor que 7 procesos logueando 401 en silencio.
+## 19. derive-no-copy tiene un GATE DE COSTO (no todo lo derivable puede ser vista)
+
+La regla "todo lo derivable sale del ODS" necesita un calificador: **derivable Y barato de derivar
+por query**. Medido en prod el 2026-08-26 sobre `analytics.stock_movements`, el mismo derive que el
+importer corre server-side, pero como vista:
+
+| query (almacén con 57,933 líneas en 120d) | tabla | vista derivada |
+|---|---|---|
+| agregado x producto, 1 almacén, 30d | 259 ms | **133,807 ms** (517×) |
+| drill-down por folio | 154 ms | 13,734 ms (89×) |
+| serie diaria, 1 almacén, 30d | 239 ms | 61,910 ms (259×) |
+| tipos de documento, 1 almacén, 120d | 542 ms | **timeout (>180 s)** |
+
+**Por qué:** el join a `kdm2` va envuelto en `btrim()` y casts (`(l.c4)::int`) → ningún índice
+aplica; y `warehouse_id`/`product_id` **nacen del join** (con `commercial.warehouses` y
+`catalog.products`), así que el filtro del consumidor no baja al scan del ODS. Los ~1.9 GB de esa
+tabla no son copia redundante: son una **proyección indexada**. Reproducí la medición con
+[`database/scripts/bench-ods-derive-stock-movements.js`](../database/scripts/bench-ods-derive-stock-movements.js)
+antes de proponer el refactor otra vez.
+
+**Corolario contra-intuitivo:** las tablas grandes son grandes *porque* son caras de derivar. Los
+candidatos reales a vista son los **chicos** (miles de filas, lookups puntuales), no los GB.
+
+**Segundo filtro, antes del costo: ¿cuántos escritores tiene la tabla?** Varias `analytics.*` que
+parecen espejo de Kepler son **uniones**: `stock_movements` = Kepler + Wincaja (`source_branch LIKE
+'W%'`, y Wincaja vive en otra DB) + re-derivación por bloques de `services/feeds-ingest`;
+`gl_polizas`/`gl_poliza_lines` = Kepler + ContPAQi (columna `source`). Una vista solo puede cubrir
+la mitad que sale del ODS.
+
+**Y si la tabla está en un schema con RLS, el filtro de tenant se muda ADENTRO de la vista.** Una
+vista no hereda RLS. `finance.kepler_accounts` tenía RLS forzada con `tenant_id =
+current_tenant_id()` y su lector (CB.13) **no filtra tenant** — confía en la policy. Al convertirla
+(mig `20260826190000`) el `WHERE tenant_id = current_tenant_id()` va dentro de la vista: mismas
+semánticas (sin tenant en sesión → 0 filas) y el smoke lo verifica *como superusuario*, a quien la
+RLS no aplicaría.
+
+## 20. `MAX(texto)` para desempatar depende del COLLATION → el mismo importer da distinto por DB
+
+`import-kepler-accounts.js` resolvía "¿cuál de los N nombres de esta cuenta uso?" con
+`MAX(cuenta_nombre)`, que es orden alfabético. Para la cuenta `605-005`, renombrada en Kepler
+(`MANTENIMIENTO CAMARAS SEGUTRID` → `MANT. NO BREAK`):
+
+- prod (`en_US.utf8`) → elige `MANT. NO BREAK`
+- réplica .245 (`Spanish_Mexico.1252`) → elige `MANTENIMIENTO CAMARAS SEGUTRID`
+
+Mismo código, misma data, **dos resultados**, porque `en_US` ignora la puntuación al comparar y
+`Spanish_Mexico.1252` no. Eran 3 cuentas afectadas. Si tenés que elegir una fila de un grupo,
+desempatá por un criterio **semántico** (`ORDER BY anio_mes DESC` = el valor vigente), no
+alfabético; y si el orden textual es inevitable, pinealo con `COLLATE "C"`.
+
+Aplica igual a `DISTINCT ON ... ORDER BY texto`, `MIN()`, `string_agg(... ORDER BY texto)` y a
+cualquier fingerprint md5 armado con `string_agg` ordenado por texto: entre DBs con collation
+distinto, el hash cambia sin que cambie la data.

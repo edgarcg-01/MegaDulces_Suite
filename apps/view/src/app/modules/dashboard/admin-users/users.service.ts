@@ -42,8 +42,8 @@ export interface UserCreatePayload {
   username: string;
   password: string;
   nombre?: string;
-  zona?: string;
-  zona_id?: string | null;
+  /** `[ID.7]` canónico. El backend sigue aceptando `zona`/`zona_id` deprecados. */
+  zone_id?: string | null;
   role_name: string;
   supervisor_id?: string | null;
   warehouse_code?: string | null;
@@ -55,8 +55,8 @@ export interface UserUpdatePayload {
   username?: string;
   password?: string;
   nombre?: string;
-  zona?: string;
-  zona_id?: string | null;
+  /** `[ID.7]` canónico. El backend sigue aceptando `zona`/`zona_id` deprecados. */
+  zone_id?: string | null;
   role_name?: string;
   supervisor_id?: string | null;
   activo?: boolean;

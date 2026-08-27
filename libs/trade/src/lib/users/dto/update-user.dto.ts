@@ -1,85 +1,23 @@
-import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsBoolean,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { IsBoolean, IsOptional } from 'class-validator';
+import { UserWriteDto } from './user-write.dto';
 
-export class UpdateUserDto {
-  @ApiProperty({ description: 'Nombre de usuario', required: false })
-  @IsOptional()
-  @IsString()
-  @MinLength(3)
-  @MaxLength(64)
-  @Matches(/^[a-z0-9._-]+$/i, {
-    message: 'username solo admite letras, números, ".", "_" y "-"',
-  })
-  username?: string;
-
-  @ApiProperty({ description: 'Nueva contraseña', required: false })
-  @IsOptional()
-  @IsString()
-  @MinLength(6)
-  @MaxLength(128)
-  password?: string;
-
-  @ApiProperty({ description: 'Nombre completo', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  nombre?: string;
-
-  @ApiProperty({ description: 'Nombre de zona — se resuelve a zona_id', required: false })
-  @IsOptional()
-  @IsString()
-  zona?: string;
-
-  @ApiProperty({ description: 'ID de zona (UUID)', required: false })
-  @IsOptional()
-  @IsUUID()
-  zona_id?: string;
-
-  @ApiProperty({ description: 'Rol del sistema', required: false })
-  @IsOptional()
-  @IsString()
-  role_name?: string;
-
+/**
+ * `[ID.7]` — Edición de usuario: `UserWriteDto` con todo opcional.
+ *
+ * `PartialType` es lo que mata la duplicación: antes este archivo repetía 9
+ * campos literal del create, y las dos listas ya habían divergido (el create
+ * exigía `department_code`, el update no; el update aceptaba
+ * `finance_expense_area_ids`, el create no).
+ *
+ * `activo` vive SÓLO acá: un alta nace activa, y "dar de baja" es una operación
+ * de edición. El ciclo de vida completo (`invited | active | suspended |
+ * terminated` + `must_change_password`) llega en `[ID.8]`; hasta entonces esto
+ * sigue siendo el booleano de siempre.
+ */
+export class UpdateUserDto extends PartialType(UserWriteDto) {
   @ApiProperty({ description: 'Estado activo o inactivo', required: false })
   @IsOptional()
   @IsBoolean()
   activo?: boolean;
-
-  @ApiProperty({ description: 'ID del supervisor (UUID)', required: false })
-  @IsOptional()
-  @IsUUID()
-  supervisor_id?: string;
-
-  @ApiProperty({ description: 'Departamento del organigrama (identity.departments.code)', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  department_code?: string | null;
-
-  @ApiProperty({ description: 'Puesto del organigrama (identity.positions.code)', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  position_code?: string | null;
-
-  @ApiProperty({ description: "Sucursal Kepler ('00'..'05'). Vacío = ve todas (rol global).", required: false })
-  @IsOptional()
-  @IsString()
-  @Matches(/^[0-9]{2}$/, { message: "warehouse_code debe ser 2 dígitos ('00'..'05')" })
-  warehouse_code?: string;
-
-  @ApiProperty({ description: 'IDs de áreas de gasto que el usuario puede ver (finance.expense_areas). Vacío = ninguna salvo que tenga FINANCE_EXPENSES_VER_ALL.', required: false, type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsUUID('all', { each: true })
-  finance_expense_area_ids?: string[];
 }
