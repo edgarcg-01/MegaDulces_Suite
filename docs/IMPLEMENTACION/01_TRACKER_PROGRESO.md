@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-08-27 (Fase RE.13 — órdenes de entrada en 4 pantallas por trabajo; 13.0 + 13.1 en código local)
+**Última actualización:** 2026-08-27 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — la misma orden capturada dos veces: 970 pares apareados, $19.7M que dejan de contarse dos veces)
 
 ---
 
@@ -919,7 +919,21 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 - [ ] **[RE.13.7]** ⬜ Cola offline en la captura de sucursal (sólo si la red lo pide de verdad).
 - [ ] **[RE.13.8]** ⬜ PDF/XLSX del expediente para contabilidad.
 
-**Pendiente prod (13.0–13.4 + 13.6):** migs `20260827130000_receipt_settings` + `20260827140000_goods_receipt_proof_history` + `20260827150000_entradas_validar_trim` a Railway + redeploy api/view + configurar alcance de capturistas. Sin permisos nuevos → no requiere re-login.
+### RE.14 — La misma orden capturada dos veces (sucursal + oficinas 9.95)
+
+**El hecho:** cada recepción se captura en el Kepler de la **sucursal** y otra vez en el de **oficinas** (sucursal `'00'`, servidor 9.95). La de la sucursal es la canónica (trae los productos); la de oficinas es captura contable (un renglón `VENTAS AL 0 %` con el total). Medido: **0% hasta nov-2025 → 17% en enero → 55% de las recepciones de sucursal en ago-2026**. Sin aparear, ese dinero se cuenta dos veces y a la sucursal se le pide evidencia de una orden ya cubierta.
+
+- [x] **[RE.14.1]** 🧪 **La tabla de pares aprende a dudar** (2026-08-27) — mig `20260827160000`: `match_rule`/`match_score`, denorm de los dos lados (importe, fecha y **proveedor de cada catálogo**), `delta_monto`/`delta_dias`, `status propuesto|auto|confirmado|rechazado` + `decided_by/at`, índice único parcial `ux_grd_canonica_viva` (el par es 1:1) y lookup inverso. La vista `erp_goods_receipts` ahora **sólo oculta los pares vigentes** (`auto`/`confirmado`): ocultar la copia de oficinas es afirmar que ese dinero no existe.
+- [x] **[RE.14.2]** 🧪 **Detector con cascada de reglas** (2026-08-27) — `detect-goods-receipt-duplicates.js` reescrito: `exacta` 1.00 / `monto_fecha` .90 / `centavos` .75 / `sugerida` .50, pareo 1:1 determinista, y dos puertas para aplicar solo — la copia de oficinas es de **puro concepto** (no puede ser recepción por su cuenta) **o** es coincidencia irrepetible con **un solo candidato de cada lado**. Local: **970 pares auto = $19.7M que dejan de contarse dos veces** + 77 propuestas. Idempotente.
+  - Por qué no alcanzaba la igualdad estricta de RE.12: los dos servidores capturan por separado → el total no casa al centavo (HERSHEY: `$79,009.21` vs `$79,007.79`) y **el nombre del proveedor no es la misma llave** (`DIONICIO CALDERON` = `BOTANAS CALDERON`).
+  - En la DB local el mecanismo estaba **sin correr** (0 marcas) → el filtro `dup_of_folio IS NULL` era un no-op.
+- [x] **[RE.14.3]** 🧪 **Backend: cuadra con las dos, busca por cualquiera** (2026-08-27) — `origen` + `gemela_*` por fila; la búsqueda (últimos 4 dígitos y difusa) mira **los dos folios** en la lista y en el enlace de evidencia; `detail` acepta el folio de oficinas (→ canónica + `redirigido_de`, y el 403 dice a qué sucursal apuntaba); el cuadre de `attach` acepta **cualquiera de los dos importes** y etiqueta `discrepancy_kind='gemela'` cuando sólo casa con oficinas; `GET /twins` + `POST /twins/:folio/decide` (`_VALIDAR`, firmado). Guard `hayPares()` para código-antes-de-migración.
+- [x] **[RE.14.4]** 🧪 **El par se ve en las 4 pantallas** (2026-08-27) — nueva `/compras/entradas/gemelas` (+ sidebar) con los dos lados enfrentados y el KPI de lo que se cuenta dos veces por no dictaminar; el diálogo de captura avisa del otro importe y **el cuadre del cliente compara contra los dos** (antes decía "no cuadra" sobre algo que el server guardaba cuadrado); rama nueva del veredicto compartido ("cuadra con la captura de oficinas", `warn` en vez de `bad`); cuarta cifra "Oficinas" en revisión; folio de oficinas bajo el folio en la vista global.
+- [x] **[RE.14.5]** 🧪 **Smoke** (2026-08-27) — `test-newdb-goods-receipt-twins` **16/16** en la regression + fix: el smoke de alcance no cargaba `dotenv` y su fallback pegaba en el Docker de pgvector.
+- [ ] **[RE.14.6]** ⬜ **Correr el detector en el cron de feeds** (nightly, después de `import-goods-receipts`). Hoy es manual: sin cron, cada recepción nueva nace contada dos veces hasta la próxima corrida.
+- [ ] **[RE.14.7]** ⬜ Wincaja (30/32/50): el motor ya los incluye como canónicos, pero la landing está vacía en local → **sin medir** si oficinas también los espeja.
+
+**Pendiente prod (13.0–13.4 + 13.6 + 14):** migs `20260827130000_receipt_settings` + `20260827140000_goods_receipt_proof_history` + `20260827150000_entradas_validar_trim` + `20260827160000_goods_receipt_twins` a Railway + redeploy api/view + **correr `detect-goods-receipt-duplicates.js --apply` desde LAN** + configurar alcance de capturistas. Sin permisos nuevos → no requiere re-login.
 
 **Decisión abierta:** qué valor le ponemos a `reception_start` el día del arranque. El rezago anterior son **11,047 entradas** (vs 1,096 en el carril vivo); recomendado dejarlo en carril propio para que el semáforo del día signifique algo.
 

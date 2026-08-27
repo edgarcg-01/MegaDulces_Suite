@@ -1,6 +1,6 @@
 # Fase RE.13 — Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global)
 
-> **Estado:** 🧪 **RE.13.0 → 13.4 EN CÓDIGO (local, builds + smoke 23/23 verdes)** — 2026-08-27.
+> **Estado:** 🧪 **RE.13.0 → 13.4 + 13.6 + RE.14 EN CÓDIGO (local, builds + smokes verdes)** — 2026-08-27.
 > Las **4 pantallas** existen y la global ya tiene su lente de cumplimiento. Decisiones cerradas
 > con Edgar el mismo día. Falta 13.5 (SLA/avisos) y 13.6 (permisos y alcance, **gate de despliegue**).
 > **Depende de:** Fase RE (recepción) · **Fase ID / ADR-050** (alcance de datos + normalización de
@@ -347,3 +347,83 @@ que lo hace sostenible.
 - No migra el histórico del Excel de recepción (eso sigue siendo RE.9).
 - No cambia el contenido de los roles más allá de recortar `_VALIDAR` (H6): el alcance es un eje
   aparte y lo administra Fase ID.
+
+
+---
+
+## 10. RE.14 — La misma orden capturada dos veces (sucursal + oficinas)
+
+Apareció trabajando las 4 pantallas y no estaba en el plan: **cada recepción se captura dos veces**.
+La sucursal la captura en su Kepler; **oficinas** (servidor `9.95`, sucursal `'00'` en el ODS) la
+vuelve a capturar en el suyo. No es una réplica: cada una tiene folio, vale y póliza propios.
+
+### 10.1 Lo que dice la data
+
+| | sucursal `01`–`06` | oficinas `'00'` |
+|---|---|---|
+| renglones | los productos (12–20 en promedio) | casi siempre **uno**: SKU `0000x` `VENTAS AL 0 %` con el total |
+| qué es | recepción operativa, movió inventario | captura **contable** |
+| canónica | **sí** | no |
+
+Adopción de la práctica, medida sobre las recepciones de sucursal que tienen copia en oficinas:
+**0% hasta nov-2025 · 17% en ene-2026 · 51% en jul · 55% en ago-2026**. Va creciendo, así que el
+problema empeora solo.
+
+Cobertura por sucursal tras el apareo (ago-2026, ventana desde ene-2026): `01` 280/398 · `02`
+259/626 · `03` 374/862 · `04` 81/287 · `05` 31/207 · `06` 22/31.
+
+### 10.2 Las dos trampas del apareo
+
+1. **Los importes no casan al centavo.** Son dos capturas independientes: HERSHEY 2026-08-17,
+   sucursal 06 `$79,009.21` vs oficinas `$79,007.79` — **$1.42**. Con igualdad estricta (lo que
+   hacía RE.12) ese par no se encuentra, y la recepción se cuenta dos veces.
+2. **El nombre del proveedor no es la misma llave.** Cada servidor tiene su catálogo:
+   `DIONICIO CALDERON` (sucursal 06) es `BOTANAS CALDERON` (oficinas), mismo día y mismo importe.
+   Similitud trigram 0.35 — por debajo de cualquier umbral razonable. Ese par **no se puede
+   afirmar solo**: lo dictamina una persona.
+
+Y un tercer hallazgo: en la DB local el mecanismo de RE.12 estaba **sin correr** (0 marcas), así
+que el filtro `dup_of_folio IS NULL` era un no-op y el dinero se contaba dos veces igual.
+
+### 10.3 Cómo se resolvió
+
+**Apareo con regla y score**, en cascada: `exacta` 1.00 (mismo día + importe + proveedor) ·
+`monto_fecha` 0.90 (±7 días) · `centavos` 0.75 (|Δ| ≤ max($5, 0.05%) + proveedor igual o trigram
+≥ .45) · `sugerida` 0.50 (mismo importe, ±15 días, otro proveedor). Pareo **1:1 determinista**
+(mejor por folio de oficinas, y de esos el mejor por canónica); los empates dejan filas sin
+aparear a propósito — preferimos no aparear a aparear mal.
+
+**Dos puertas para aplicarlo solo** (`status='auto'`, que oculta la copia):
+
+- la copia de oficinas es de **puro concepto** → no puede ser una recepción de mercancía por su
+  cuenta, así que ocultarla **no puede perder una compra real**; o
+- es **coincidencia irrepetible**: mismo día, importe al centavo, mismo proveedor y **un solo
+  candidato de cada lado**. Esto rescata las recepciones grandes que oficinas sí capturó con
+  detalle ($288,993.54 de BOLSAS DE LOS ALTOS el mismo día). La **unicidad** es la parte que
+  importa: con dos candidatos iguales se aparea mal la mitad de las veces.
+
+Todo lo demás queda **`propuesto`**: no oculta nada y espera dictamen. Resultado local: **970
+pares automáticos ($19.7M que dejan de contarse dos veces) + 77 propuestas ($843k)**.
+
+### 10.4 Lo que cambia para cada usuario
+
+- **Capturista**: sube **una vez** y cuadra con las dos capturas. Si la factura casa con el importe
+  de oficinas y no con el de su sucursal, la pantalla lo dice así — no le dice "el documento cobra
+  de más", que lo mandaría a reclamarle a un proveedor que no se equivocó.
+- **Revisor**: cuarta cifra "Oficinas" cuando existe y difiere, y `discrepancy_kind='gemela'` en vez
+  de "Descuadre". La diferencia queda visible, atribuida a **nuestras dos capturas**.
+- **Cualquiera**: buscar por **cualquiera de los dos folios** encuentra la orden (últimos 4 dígitos
+  y buscador difuso, en la lista y en el enlace de evidencia). El detalle acepta el folio de
+  oficinas y devuelve la canónica diciendo de dónde vino. Antes era un falso negativo: "no
+  encuentro la orden".
+- **Quien dictamina** (`_VALIDAR`): `/compras/entradas/gemelas`, con los dos lados enfrentados, sus
+  dos importes, su Δ y el proveedor de cada catálogo. El KPI dice **cuánto dinero se cuenta dos
+  veces por no decidir**, que es el costo de dejar la bandeja llena.
+
+### 10.5 Lo que queda
+
+- **RE.14.6** — meter el detector en el cron de feeds (nightly, después de `import-goods-receipts`).
+  Hoy es manual: cada recepción nueva nace contada dos veces hasta la próxima corrida.
+- **RE.14.7** — Wincaja (`30`/`32`/`50`): el motor ya los toma como canónicos, pero la landing está
+  vacía en local, así que **no está medido** si oficinas también los espeja.
+- **Prod**: mig `20260827160000` + correr `detect-goods-receipt-duplicates.js --apply` **desde LAN**.
