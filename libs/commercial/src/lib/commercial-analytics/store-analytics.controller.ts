@@ -1,12 +1,13 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission, ScopeService } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
 import { WeeklyAnalyticsService } from './weekly-analytics.service';
 
 /**
  * Análisis semanal para el proyecto Tienda (/tienda/analisis-semanal).
  *
- * `[ID.4]` — **Primer dominio migrado al alcance de datos** (Fase ID / ADR-050).
+ * `[ID.4]` — Primer dominio migrado al alcance de datos (Fase ID / ADR-050).
+ * `[ID.5]` — Y primero en usar el contrato canónico de params.
  *
  * Antes acá vivía el patrón fail-OPEN que se repetía en 41 módulos:
  *
@@ -16,14 +17,18 @@ import { WeeklyAnalyticsService } from './weekly-analytics.service';
  * respetaba el query param** — con 83 de 117 usuarios sin sucursal en prod, el
  * default real era "ve toda la red". Y no había forma de decir "ve la 01 y la 03".
  *
- * Ahora el alcance lo resuelve `ScopeService` (`user_scopes` → `role_scopes` →
- * `none`) y `intersect()` recorta lo que el usuario pidió a lo que puede ver:
- *   - alcance `all` sin `?warehouse_code` → sin filtro (igual que antes);
- *   - alcance `all` con `?warehouse_code=03` → esa;
+ * Ahora `ScopeService.readParam()` hace las tres cosas de una: lee el nombre
+ * (canónico o cualquiera de los alias viejos), normaliza la llave (acepta
+ * código y uuid) y recorta lo pedido al alcance del usuario:
+ *   - alcance `all` sin filtro pedido → sin filtro (igual que antes);
+ *   - alcance `all` con `?warehouse_codes=03` → esa;
  *   - alcance `own`/`listed` → sus sucursales, y si pide otra se le **recorta**
  *     en silencio (lista vacía → series en cero) en vez de 403: este endpoint
  *     alimenta un tablero de varios widgets y un 403 rompe la pantalla entera.
  */
+
+const WH = CANONICAL_PARAM.warehouse; // 'warehouse_codes'
+const DESC_WH = `Sucursal o CSV de sucursales. Se recorta a lo que tu alcance permite. Acepta los nombres viejos (warehouse_code, sucursal, branch…) y valores en código o uuid.`;
 
 @ApiTags('store')
 @ApiBearerAuth()
@@ -35,35 +40,18 @@ export class StoreAnalyticsController {
     private readonly scope: ScopeService,
   ) {}
 
-  /** CSV o valor único → lista. `?warehouse_code=01,03` también funciona. */
-  private pedido(raw?: string): string[] | null {
-    const v = (raw || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    return v.length ? v : null;
-  }
-
-  private async sucursales(raw?: string): Promise<string[] | null> {
-    const scope = await this.scope.current();
-    return this.scope.intersect(scope, 'warehouse', this.pedido(raw));
-  }
-
   @Get('weekly')
   @RequirePermissions(Permission.STORE_ANALYTICS_VER)
   @ApiQuery({ name: 'week', required: false, description: "Cualquier día de la semana objetivo (ISO 'YYYY-MM-DD'). Default: semana actual." })
   @ApiQuery({ name: 'weeks', required: false, description: 'Nº de semanas de la tendencia (4–26, default 12).' })
-  @ApiQuery({ name: 'warehouse_code', required: false, description: 'Sucursal o CSV de sucursales. Se recorta a lo que tu alcance permite.' })
+  @ApiQuery({ name: WH, required: false, description: DESC_WH })
   @ApiOperation({ summary: 'Tienda — análisis semanal: KPIs semana vs anterior + tendencia + desglose por sucursal y producto. Acotado por tu alcance de sucursales.' })
-  async weekly(
-    @Query('week') week?: string,
-    @Query('weeks') weeks?: string,
-    @Query('warehouse_code') warehouseCode?: string,
-  ) {
+  async weekly(@Query() query: Record<string, unknown>) {
+    const weeks = query['weeks'];
     return this.weeklySvc.weekly({
-      week,
+      week: query['week'] as string | undefined,
       weeks: weeks ? Number(weeks) : undefined,
-      warehouse_codes: await this.sucursales(warehouseCode),
+      warehouse_codes: await this.scope.readParam(query, 'warehouse', 'store/analytics/weekly'),
     });
   }
 
@@ -71,13 +59,13 @@ export class StoreAnalyticsController {
   @RequirePermissions(Permission.STORE_ANALYTICS_VER)
   @ApiQuery({ name: 'from', required: true, description: "Inicio del rango (ISO 'YYYY-MM-DD', inclusivo)." })
   @ApiQuery({ name: 'to', required: true, description: "Fin del rango (ISO 'YYYY-MM-DD', inclusivo)." })
-  @ApiQuery({ name: 'warehouse_code', required: false, description: 'Sucursal o CSV de sucursales. Se recorta a lo que tu alcance permite.' })
+  @ApiQuery({ name: WH, required: false, description: DESC_WH })
   @ApiOperation({ summary: 'Tienda — análisis por rango personalizado: venta, tickets, ticket promedio, productos por ticket, margen, unidades + serie diaria y top productos (vs período previo). Acotado por tu alcance de sucursales.' })
-  async range(
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('warehouse_code') warehouseCode?: string,
-  ) {
-    return this.weeklySvc.range({ from, to, warehouse_codes: await this.sucursales(warehouseCode) });
+  async range(@Query() query: Record<string, unknown>) {
+    return this.weeklySvc.range({
+      from: query['from'] as string | undefined,
+      to: query['to'] as string | undefined,
+      warehouse_codes: await this.scope.readParam(query, 'warehouse', 'store/analytics/range'),
+    });
   }
 }

@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { isPlatformAdminRole } from '../ability/ability.factory';
+import { parseScopeParam } from './scope-params';
 import {
   ResolvedDimension,
   ScopeSource,
@@ -97,6 +98,18 @@ const UNIVERSO_SQL: Record<ScopeDimension, { sql: string; label: string }> = {
            WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY name`,
     label: 'Cliente',
   },
+};
+
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Tabla y columna legible de cada dimensión, para traducir uuid/etiqueta → llave canónica. */
+const TRADUCCION: Record<ScopeDimension, { tabla: string; etiqueta: string }> = {
+  warehouse: { tabla: 'commercial.warehouses', etiqueta: 'code' },
+  zone: { tabla: 'trade.zones', etiqueta: 'name' },
+  route: { tabla: 'trade.catalogs', etiqueta: 'value' },
+  brand: { tabla: 'catalog.brands', etiqueta: 'nombre' },
+  expense_area: { tabla: 'finance.expense_areas', etiqueta: 'name' },
+  customer: { tabla: 'commercial.customers', etiqueta: 'name' },
 };
 
 @Injectable()
@@ -293,6 +306,74 @@ export class ScopeService {
     if (d.mode === 'none') return [];
     if (!limpio.length) return d.values;
     return limpio.filter((v) => d.values.includes(v));
+  }
+
+  // ───────────────────────── params del request ─────────────────────────
+
+  /**
+   * `[ID.5]` — Lee la dimensión del query del request y devuelve la lista YA
+   * recortada al alcance del usuario, en la **llave canónica** de la dimensión.
+   *
+   * Reemplaza el `const effective = user?.x || query.x` de cada controller y
+   * resuelve de una las tres cosas que hoy están sueltas:
+   *   1. **el nombre**: acepta el canónico (`warehouse_codes`) y los 16 alias
+   *      viejos, avisando la deprecación una vez por alias;
+   *   2. **el tipo de llave**: `?warehouse_id=<uuid>` y `?warehouses=03` llegan
+   *      al mismo lugar — verificado que hoy conviven en el mismo dominio;
+   *   3. **el alcance**: `intersect()` recorta lo pedido a lo permitido.
+   *
+   * Devuelve `null` cuando no hay que filtrar (alcance `all` y nada pedido).
+   */
+  async readParam(
+    query: Record<string, unknown> | undefined,
+    dim: ScopeDimension,
+    ruta?: string,
+  ): Promise<string[] | null> {
+    const { values } = parseScopeParam(query, dim, ruta);
+    const pedido = values ? await this.aLlaveCanonica(dim, values) : null;
+    return this.intersect(await this.current(), dim, pedido);
+  }
+
+  /**
+   * Lleva los valores a la llave canónica de la dimensión (`ref_key`).
+   *
+   * Existe porque el mismo dominio hoy recibe las dos formas: en
+   * `commercial-analytics`, `warehouse_id` es UUID (`s.warehouse_id`) y
+   * `warehouses` son códigos (`commercial.warehouses.code`). Traducir acá, una
+   * vez, es lo que permite migrar los endpoints sin romper a quien ya manda una
+   * u otra forma.
+   *
+   * Lo que no se puede resolver se **descarta y se loguea**: dejarlo pasar lo
+   * volvería un `IN (...)` que no matchea nada y el filtro se leería como
+   * "sin resultados" en vez de "escribiste mal el parámetro".
+   */
+  private async aLlaveCanonica(dim: ScopeDimension, values: string[]): Promise<string[]> {
+    const esUuid = (v: string) => UUID_RX.test(v);
+    const refKey = dim === 'warehouse' ? 'code' : 'id';
+
+    // Ya vienen en la llave buena → nada que hacer.
+    const canonicos = values.filter((v) => (refKey === 'id' ? esUuid(v) : !esUuid(v)));
+    const aTraducir = values.filter((v) => !canonicos.includes(v));
+    if (!aTraducir.length) return canonicos;
+
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { tabla, etiqueta } = TRADUCCION[dim];
+    // Dos caminos: uuid → llave canónica, o etiqueta legible → llave canónica.
+    const { rows } = await this.knex.raw(
+      `SELECT ${refKey}::text AS canon, id::text AS id, ${etiqueta}::text AS label
+         FROM ${tabla}
+        WHERE tenant_id = ? AND (id::text = ANY(?) OR ${etiqueta}::text = ANY(?))`,
+      [tenantId, aTraducir, aTraducir],
+    );
+
+    const traducidos = rows.map((r: any) => r.canon);
+    const perdidos = aTraducir.filter(
+      (v) => !rows.some((r: any) => r.id === v || r.label === v || r.canon === v),
+    );
+    if (perdidos.length) {
+      this.logger.warn(`${dim}: ${perdidos.length} valor(es) no existen y se descartan: ${perdidos.slice(0, 5).join(', ')}`);
+    }
+    return canonicos.concat(traducidos).filter((v, i, a) => a.indexOf(v) === i);
   }
 
   // ───────────────────────── enumeración (UI) ─────────────────────────

@@ -8,11 +8,16 @@
  *      (la trampa clásica: se lee "restringido" y funciona como "no ve nada").
  *   3. RLS habilitado + FORZADO en las dos tablas.
  *   4. Orden de resolución: override de usuario GANA sobre default de rol.
- *   5. Cobertura de la materialización: TODO usuario no-god sin sucursal/zona
- *      asignada tiene su fila `all` explícita. Esto es lo que verifica que
- *      nadie se queda sin acceso el día que `[ID.4]` prenda el resolver, y se
- *      comprueba con `NOT EXISTS` en vez de con conjuntos, así corre igual en
- *      local (que no tiene sucursales de 2 dígitos) y en prod.
+ *   5. Coherencia de la materialización. OJO con el matiz: "todo usuario sin
+ *      sucursal tiene un `all` explícito" NO es un invariante — es una foto del
+ *      padrón que existía cuando corrió `[ID.3]`. Un usuario que llegue después
+ *      (alta nueva, restore, sync desde otro ambiente con `created_at` viejo)
+ *      cae al default del rol, que es `own`, y sin sucursal asignada eso es
+ *      "no ve nada". **Eso es el fail-closed funcionando, no una regresión.**
+ *      Así que acá se afirma lo que sí es invariante — que lo materializado es
+ *      coherente y que nadie con sucursal recibió un `all` de regalo — y los
+ *      usuarios sin cobertura se REPORTAN como pendientes, no se tratan como
+ *      falla. Quien vigila que nadie pierda acceso es `snapshot-user-scope.js`.
  *   6. `public.users` expone `warehouse_id` (la vista se había quedado atrás).
  *   7. Todo rol no-god tiene sus 6 defaults.
  *   8. Ningún `own` en dimensiones que no lo soportan (`supports_own = false`),
@@ -127,25 +132,45 @@ const knex = require('knex')({
     const sucio = await knex('identity.user_scopes').where({ nota: 'test' }).count('* as n').first();
     assert(Number(sucio.n) === 0, 'el rollback no dejó basura');
 
-    // ── 5. Cobertura de la materialización ─────────────────────────────────
-    console.log('\n═══ 5. Cobertura: nadie pierde acceso ═══');
+    // ── 5. Coherencia de la materialización ────────────────────────────────
+    console.log('\n═══ 5. Coherencia de la materialización ═══');
     for (const [dim, col] of [['warehouse', 'warehouse_code'], ['zone', 'zona_id']]) {
-      const huecos = await knex.raw(
+      // Invariante REAL: lo que `[ID.3]` escribió como `all` corresponde a
+      // usuarios que efectivamente no tenían el dato.
+      const incoherentes = await knex.raw(
+        `SELECT u.username FROM identity.users u
+           JOIN identity.user_scopes us
+             ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = ?
+          WHERE u.deleted_at IS NULL AND us.nota LIKE '[ID.3]%' AND us.mode = 'all'
+            AND u.${col} IS NOT NULL
+          ORDER BY 1 LIMIT 5`,
+        [dim],
+      );
+      assert(
+        incoherentes.rows.length === 0,
+        `ningún '${dim}=all' de [ID.3] cayó sobre alguien que SÍ tenía ${col}` +
+          (incoherentes.rows.length ? ` — ${incoherentes.rows.map((r) => r.username).join(', ')}` : ''),
+      );
+
+      // Sin cobertura se REPORTA, no falla: es la pila de "asignale sucursal",
+      // que es exactamente lo que el fail-closed vuelve visible.
+      const sinCobertura = await knex.raw(
         `SELECT u.username FROM identity.users u
           WHERE u.deleted_at IS NULL
             AND u.${col} IS NULL
             AND lower(u.role_name) NOT IN (?, ?)
             AND NOT EXISTS (
               SELECT 1 FROM identity.user_scopes us
-               WHERE us.tenant_id = u.tenant_id AND us.user_id = u.id
-                 AND us.dimension = ? AND us.mode = 'all')
-          ORDER BY 1 LIMIT 5`,
+               WHERE us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = ?)
+          ORDER BY 1`,
         [...GOD, dim],
       );
-      assert(
-        huecos.rows.length === 0,
-        `todo usuario sin ${col} tiene ${dim}=all explícito` +
-          (huecos.rows.length ? ` — faltan: ${huecos.rows.map((r) => r.username).join(', ')}` : ''),
+      const n = sinCobertura.rows.length;
+      console.log(
+        n
+          ? `  · ${n} usuario(s) sin ${col} y sin regla de ${dim} → caen al default del rol (fail-closed). ` +
+            `Pendientes: ${sinCobertura.rows.slice(0, 5).map((r) => r.username).join(', ')}${n > 5 ? '…' : ''}`
+          : `  · todos los usuarios sin ${col} tienen regla explícita de ${dim}`,
       );
     }
     // Y el complemento: quien SÍ tiene sucursal no debe tener un `all` regalado.

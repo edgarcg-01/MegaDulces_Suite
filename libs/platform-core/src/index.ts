@@ -71,6 +71,7 @@ export * from './lib/phone/mx-phone';
 export * from './lib/scope/scope.module';
 export * from './lib/scope/scope.service';
 export * from './lib/scope/scope.types';
+export * from './lib/scope/scope-params';
 
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';

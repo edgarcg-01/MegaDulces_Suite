@@ -380,8 +380,10 @@ export class AdminUsersComponent implements OnInit {
       username: ['', Validators.required],
       password: [''],
       nombre: [''],
-      zona: [''],
-      zona_id: [''],
+      // `[ID.7]` Un solo control de zona. Antes había `zona` (nombre) + `zona_id`
+      // (uuid) y una suscripción traduciendo uno en el otro: dos entradas para
+      // el mismo hecho = dos formas de quedar en desacuerdo.
+      zone_id: [null as string | null],
       role_name: ['', Validators.required],
       supervisor_id: [null],
       warehouse_code: [null],
@@ -413,20 +415,6 @@ export class AdminUsersComponent implements OnInit {
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((code: string | null) => this.positionPick.set(code ?? null));
 
-    // Al cambiar la zona por nombre, resolver y guardar zona_id.
-    this.userForm
-      .get('zona')
-      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((zonaName) => {
-        if (zonaName) {
-          const selectedZone = this.zones().find((z) => z.value === zonaName);
-          this.userForm
-            .get('zona_id')
-            ?.setValue(selectedZone ? selectedZone.id : null);
-        } else {
-          this.userForm.get('zona_id')?.setValue(null);
-        }
-      });
   }
 
   ngOnInit(): void {
@@ -616,8 +604,7 @@ export class AdminUsersComponent implements OnInit {
       username: user.username,
       password: '',
       nombre: user.nombre,
-      zona: user.zona,
-      zona_id: user.zona_id,
+      zone_id: user.zona_id ?? null,
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       warehouse_code: user.warehouse_code ?? null,
