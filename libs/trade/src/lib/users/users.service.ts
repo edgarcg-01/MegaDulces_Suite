@@ -664,7 +664,54 @@ export class UsersService {
       .where({ tenant_id: this.tenantId })
       .whereNull('deleted_at')
       .orderBy('orden', 'asc')
-      .select('code', 'name', 'org_labels', 'orden');
+      // `[ID.15]` `department_code` y `default_role` viajan con el puesto: es lo
+      // que permite que el alta PROPONGA en vez de pedirle al que da de alta que
+      // adivine entre 28 roles. `default_role` puede venir NULL — hay 20 puestos
+      // para los que todavía no existe un perfil que les quede.
+      .select('code', 'name', 'org_labels', 'orden', 'department_code', 'default_role');
+  }
+
+  /**
+   * `[ID.15]` — Lo que el sistema PROPONE para un puesto.
+   *
+   * El alta deja de ser "elegí un rol de esta lista larga" y pasa a ser
+   * "persona + puesto + sucursal", con el departamento y el perfil ya sugeridos.
+   * Ahí muere el crecimiento del catálogo: nadie inventa un rol para dar de alta
+   * a alguien.
+   */
+  async proposeForPosition(positionCode: string) {
+    const pos = await this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId, code: positionCode })
+      .whereNull('deleted_at')
+      .first('code', 'name', 'department_code', 'default_role');
+    if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
+
+    const dept = pos.department_code
+      ? await this.knex('identity.departments')
+          .where({ tenant_id: this.tenantId, code: pos.department_code })
+          .first('code', 'name')
+      : null;
+
+    // El alcance por default NO sale del puesto: vive en `identity.role_scopes`
+    // (por rol, desde `[ID.3]`). Se devuelve para que la pantalla lo muestre,
+    // pero la fuente sigue siendo una sola.
+    const alcance = pos.default_role
+      ? await this.knex('identity.role_scopes')
+          .where({ tenant_id: this.tenantId, role_name: pos.default_role })
+          .orderBy('dimension')
+          .select('dimension', 'mode', 'values', 'mode_write')
+      : [];
+
+    return {
+      position_code: pos.code,
+      position_name: pos.name,
+      department_code: pos.department_code ?? null,
+      department_name: dept?.name ?? null,
+      role_name: pos.default_role ?? null,
+      /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
+      sin_perfil: !pos.default_role,
+      alcance,
+    };
   }
 
   // ═══════════════════════ [ID.9] administrable desde la UI ═══════════════════

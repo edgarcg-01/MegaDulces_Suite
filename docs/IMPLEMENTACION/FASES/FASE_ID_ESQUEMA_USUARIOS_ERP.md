@@ -7,6 +7,27 @@
 
 ---
 
+## 0. Estado — aplicado el 2026-08-27 (local)
+
+| Sprint | Estado | Resultado medido |
+|---|---|---|
+`[ID.13]` **N:M** | ✅ | `identity.user_roles` + `users.kind` + `users.expires_at`. 142 perfiles base migrados, 0 huérfanos. Smoke 34/34 |
+`[ID.14]` **catálogo** | ✅ | **47 → 28 roles** (25 perfiles + 3 complementos). 14 retirados · 14 renombrados · 5 fusionados. **Cero pérdidas** de permisos |
+`[ID.15]` **el puesto propone** | ✅ | 43 puestos con departamento, **23 proponen perfil**; 20 sin perfil, listados |
+`[ID.16]` **RH** | ⚠️ BLOCKED | `hr.*` existe pero **no hay módulo ni pantalla**: los permisos gatearían el vacío |
+UI (parte de `[ID.9]`) | ✅ | Selector de **Complementos** + aviso "este rol es una tarea" + el puesto autocompleta departamento y perfil |
+
+**Verificación:** `snapshot-user-permissions.js` antes/después → 128 idénticos ·
+14 ganan (máx +2, cada uno listado) · **0 pierden**. Builds api + view verdes.
+Smokes `user-roles` 34/34 · `identity-scopes` 30/30 · `user-dto` 32/32.
+
+**Falta para prod:** las 3 migraciones a Railway + redeploy + re-login. Y lo que
+es decisión de Edgar, no código: los **22** que tienen `captura_gastos` como
+perfil base, los **20 puestos sin perfil** y los **5 tipos de usuario que no
+existen** (§3).
+
+---
+
 ## 1. Qué es la empresa hoy — la superficie que un usuario puede tocar
 
 | Dimensión | Cuánto | Dónde |
@@ -248,19 +269,32 @@ independientemente de su puesto. Es exactamente lo que hoy se disfraza de rol.
 
 ## 7. Plan por sprints
 
-| Sprint | Qué | Riesgo | Verificación |
+| Sprint | Qué | Estado | Verificación |
 |---|---|---|---|
-`[ID.13]` | `users.kind` + `identity.user_roles` N:M (con `role_name` como perfil base, compatible) | bajo — aditivo | smoke: 2 roles en una cuenta ⇒ unión de permisos |
-`[ID.14]` | Normalizar el catálogo: renombrar a función, fusionar los 11 pares, retirar (soft-delete) los 13 muertos | **medio** — toca a todos | diff de permisos efectivos por usuario **antes/después = 0 pérdidas** + `snapshot-user-scope` |
-`[ID.15]` | `positions.default_role` + `default_scope`; el alta propone perfil y alcance | bajo | smoke: alta por puesto ⇒ perfil y alcance esperados |
-`[ID.16]` | Permisos de **RH** (`RH_ASISTENCIA_*`, `RH_EMPLEADOS_*`) + workspace en `authz-tree` + perfil `rh` | bajo | receta de permiso (6 touch-points) |
+`[ID.13]` | `users.kind` + `identity.user_roles` N:M (con `role_name` como perfil base, compatible) | ✅ | smoke 34/34: unión de permisos, trigger bidireccional, degradación del perfil anterior |
+`[ID.14]` | Normalizar el catálogo: renombrar a función, fusionar, retirar los muertos | ✅ | `snapshot-user-permissions`: **0 pierden**, 14 ganan (máx +2) |
+`[ID.15]` | `positions.default_role`; el alta propone departamento y perfil | ✅ | 23/43 puestos proponen perfil; los 20 restantes reportados |
+`[ID.16]` | Permisos de **RH** + workspace en `authz-tree` + perfil `rh` | ⚠️ BLOCKED | no hay módulo `hr` en `libs/` ni pantalla: el permiso no gatearía nada |
 `[ID.17]` | Perfil `direccion` (lectura global) + `auditor_externo` con `expires_at` | bajo | smoke: escritura denegada en los 99 módulos |
 `[ID.18]` | **Cuentas de servicio**: los feeds dejan de escribir sin identidad; `created_by` real | medio | los importers escriben con su cuenta |
 `[ID.19]` | `person_id` → `identity.people`; la UI muestra "misma persona, 2 cuentas" | medio | las 6 personas duplicadas colapsan a 6 registros |
 `[ID.20]` | Higiene de contraseñas: rotar los 2 hashes compartidos por 10 cuentas + `must_change_password` | bajo | ningún hash repetido |
 
-**MVP = ID.13 + ID.14 + ID.15 + ID.16.** Con eso el padrón queda administrable y
-la empresa entera tiene dónde caer.
+**MVP = ID.13 + ID.14 + ID.15.** `[ID.16]` cambió de forma al ir a construirlo:
+**`hr.*` no tiene módulo ni pantalla**, así que los permisos `RH_*` gatearían el
+vacío. Lo que hace falta primero es el módulo de asistencia; los permisos salen
+con él, en el mismo sprint, con la receta de 6 touch-points.
+
+Dos cosas que se decidieron distinto al construir:
+
+- **`positions.default_scope` no se hizo.** El alcance por default ya vive en
+  `identity.role_scopes` (por rol, desde `[ID.3]`); duplicarlo en el puesto
+  crearía dos fuentes de verdad para la misma pregunta, y cuando se contradicen
+  gana la que nadie recuerda.
+- **`superadmin` no se renombró a `admin_plataforma`.** Ese nombre está escrito
+  como literal en `ELEVATED_ROLES` y en `isPlatformAdminRole`; renombrarlo sin
+  tocar el código deja a los 7 gods sin god-mode. Se consolidó `admin` dentro de
+  `superadmin` (con unión de permisos) y se retiró `sistemas`.
 
 Precondición heredada de la auditoría de campos: **`commercial.warehouses.zone_id`**
 (sin eso `gerente_zona` no puede expandir zona → sucursales) y la **topología de

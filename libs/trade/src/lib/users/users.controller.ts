@@ -112,9 +112,20 @@ export class UsersController {
 
   @Get('positions')
   @RequirePermissions(Permission.USUARIOS_VER)
-  @ApiOperation({ summary: 'Catálogo de puestos canonicalizados del ORGANIGRAMA 2026' })
+  @ApiOperation({ summary: 'Catálogo de puestos del ORGANIGRAMA 2026, con el departamento y el perfil base que cada uno propone' })
   getPositions() {
     return this.usersService.getPositions();
+  }
+
+  /**
+   * `[ID.15]` — Qué propone el sistema para un puesto: departamento, perfil base
+   * y el alcance que trae ese perfil. Declarado antes de `:id` a propósito.
+   */
+  @Get('positions/:code/propuesta')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Departamento + perfil base + alcance que el sistema propone para un puesto (el alta ya no adivina)' })
+  proposeForPosition(@Param('code') code: string) {
+    return this.usersService.proposeForPosition(code);
   }
 
   /**
