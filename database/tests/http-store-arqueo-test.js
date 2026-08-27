@@ -44,8 +44,13 @@ const SUP_PASS = 'supervisor_arqueo_smoke';
 /** Sucursales sintéticas: 2 asignadas + 1 fuera de alcance. */
 const MIAS = ['ZA', 'ZB'];
 const AJENA = 'ZC';
-const FECHA = '2026-07-02';
-const CAJA = '9';
+// Fecha de HOY: la ventana de turnos por arquear es de días recientes (el server
+// la capa en 30), así que una fecha fija terminaría cayéndose sola con el tiempo.
+const FECHA = new Date().toISOString().slice(0, 10);
+/** La caja la asigna Kepler por turno — el test la fija por sucursal, como el ERP. */
+const CAJA_DE = { ZA: '8', ZB: '7', ZC: '8' };
+/** Folio del turno de Kepler. Es la llave que ata arqueo ↔ corte (SM.12). */
+const TURNO_DE = { ZA: '7001', ZB: '7002', ZC: '7003' };
 /**
  * El `username` ES el código de cajero de Kepler, en MAYÚSCULAS — verificado contra
  * `analytics.cash_cuts` (`upper(username) = upper(cajero_cierre)`). El backend lo
@@ -79,6 +84,9 @@ async function cleanup(pg, userIds) {
   await pg.query(`DELETE FROM reconciliation.discrepancies WHERE tenant_id=$1 AND (entity->>'sucursal') = ANY($2)`, [M, sucs]).catch(() => {});
   await pg.query(`DELETE FROM reconciliation.blind_counts WHERE tenant_id=$1 AND warehouse_code = ANY($2)`, [M, sucs]).catch(() => {});
   await pg.query(`DELETE FROM analytics.cash_cuts WHERE tenant_id=$1 AND warehouse_code = ANY($2)`, [M, sucs]).catch(() => {});
+  // Turnos sintéticos en el ODS. Las sucursales ZA/ZB/ZC no existen en Kepler, así
+  // que el CDC nunca las toca — pero se limpian igual, no se dejan colgadas.
+  await pg.query(`DELETE FROM kepler_ods.kdpv_folio_caja WHERE sucursal = ANY($1)`, [sucs]).catch(() => {});
   if (ids.length) await pg.query(`DELETE FROM identity.user_scopes WHERE tenant_id=$1 AND user_id = ANY($2::uuid[])`, [M, ids]).catch(() => {});
   await pg.query(`DELETE FROM identity.users WHERE tenant_id=$1 AND username = ANY($2)`, [M, [USER, SUP_USER]]).catch(() => {});
   await pg.query(`DELETE FROM identity.role_scopes WHERE tenant_id=$1 AND role_name = ANY($2)`, [M, [ROLE, SUP_ROLE]]).catch(() => {});
@@ -151,22 +159,67 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
     await pg.query(
       `INSERT INTO analytics.cash_cuts (tenant_id, warehouse_code, caja, folio, business_date, cajero_cierre, efectivo_esperado, efectivo_contado, efectivo_diff, total_venta)
        VALUES ($1,$2,$3,$4,$5,$6,5000,5000,0,5000) ON CONFLICT DO NOTHING`,
-      [M, wh, CAJA, `SMK-${wh}`, FECHA, CAJERO],
+      [M, wh, CAJA_DE[wh], TURNO_DE[wh], FECHA, CAJERO],
     );
     await pg.query(
       `INSERT INTO reconciliation.blind_counts (tenant_id, tipo, warehouse_code, caja, business_date, cajero_code, denominations, total_contado, captured_by)
        VALUES ($1,'cierre',$2,$3,$4,$5,'{"1000":4}'::jsonb,4000,'smoke')
        ON CONFLICT DO NOTHING`,
-      [M, wh, CAJA, FECHA, CAJERO],
+      [M, wh, CAJA_DE[wh], FECHA, CAJERO],
     );
   }
-  check('3 cortes + 3 arqueos sintéticos sembrados', true);
+  // Una compañera en otra caja de la MISMA sucursal: es lo que la cajera NO debe
+  // ver y la encargada sí.
+  await pg.query(
+    `INSERT INTO reconciliation.blind_counts (tenant_id, tipo, warehouse_code, caja, business_date, cajero_code, denominations, total_contado, captured_by)
+     VALUES ($1,'cierre',$2,'5',$3,'OTRA_CAJERA','{"500":2}'::jsonb,1000,'otra_cajera')
+     ON CONFLICT DO NOTHING`,
+    [M, MIAS[0], FECHA],
+  );
+  check('3 cortes + 3 arqueos sintéticos + 1 de otra cajera sembrados', true);
+
+  // SM.12 — Los TURNOS que Kepler abre. `c8` = cajera asignada, `c2` = caja,
+  // `c6` = hora de apertura, `c10='1800-01-01'` = todavía abierto.
+  // ZB va CERRADO (su corte ya existe en cash_cuts) y los otros dos ABIERTOS: el
+  // endpoint tiene que listar los dos estados — lo que decide si toca arquear es
+  // que Kepler abrió el turno y todavía no hay conteo, no que ya haya cerrado.
+  for (const wh of [...MIAS, AJENA]) {
+    const cerrado = wh === MIAS[1];
+    await pg.query(
+      `INSERT INTO kepler_ods.kdpv_folio_caja (sucursal, c1, c2, c3, c5, c6, c7, c8, c10, c11, c13, c15, c25, c35)
+       VALUES ($1,$1,$2,$3::numeric,$4::timestamp,'08:15:00','GERENTE',$5,$6::timestamp,$7,'01',0,0,0)
+       ON CONFLICT (sucursal, c1, c2, c3) DO NOTHING`,
+      [wh, CAJA_DE[wh], TURNO_DE[wh], FECHA, CAJERO, cerrado ? FECHA : '1800-01-01', cerrado ? '20:30:00' : null],
+    );
+  }
+  check('3 turnos sembrados en el ODS (2 abiertos + 1 cerrado)', true);
+
+  console.log('\n── 2b. Kepler dice cuándo: turnos por arquear ──');
+  const clPre = await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: USER, password: PASS });
+  const cajeraPre = clPre.body?.access_token;
+  const tur = await req('GET', '/store/arqueo/turnos?dias=90', cajeraPre);
+  const turnos = Array.isArray(tur.body) ? tur.body : [];
+  check('GET /store/arqueo/turnos 200', tur.status === 200, `status=${tur.status} body=${JSON.stringify(tur.body).slice(0, 120)}`);
+  check('solo los turnos de SUS sucursales (2 de 3)', turnos.length === 2, `n=${turnos.length} sucs=${turnos.map((t) => t.warehouse_code).join(',')}`);
+  check(`el turno de la sucursal ajena (${AJENA}) no aparece`, !turnos.some((t) => t.warehouse_code === AJENA));
+  check('el turno trae caja, hora y cajero (lo que Kepler ya sabe)',
+    turnos.every((t) => t.caja && t.hora_apertura && t.cajero_code === CAJERO),
+    JSON.stringify(turnos[0] || {}).slice(0, 140));
+  check('el turno NO trae montos (sigue siendo ciego)',
+    turnos.every((t) => !tiene(t, 'esperado') && !tiene(t, 'efectivo_esperado') && !tiene(t, 'total_venta')));
+  check('la caja la dice Kepler, no la cajera',
+    turnos.find((t) => t.warehouse_code === MIAS[1])?.caja === CAJA_DE[MIAS[1]],
+    `caja=${turnos.find((t) => t.warehouse_code === MIAS[1])?.caja}`);
+  check('distingue turno abierto de cerrado',
+    turnos.find((t) => t.warehouse_code === MIAS[0])?.abierto === true
+    && turnos.find((t) => t.warehouse_code === MIAS[1])?.abierto === false,
+    turnos.map((t) => `${t.warehouse_code}:abierto=${t.abierto}:hc=${t.hora_cierre}`).join(' '));
 
   console.log('\n── 2. Supervisor: SÍ ve esperado y diferencia ──');
   const sup = await req('GET', '/store/arqueo?limit=200', admin);
   const supRows = Array.isArray(sup.body) ? sup.body.filter((r) => [...MIAS, AJENA].includes(r.warehouse_code)) : [];
   check('GET /store/arqueo 200 (supervisor)', sup.status === 200, `status=${sup.status}`);
-  check('supervisor ve las 3 sucursales sintéticas', supRows.length === 3, `n=${supRows.length}`);
+  check('supervisor ve los 4 arqueos sintéticos (3 sucursales + otra cajera)', supRows.length === 4, `n=${supRows.length}`);
   check('supervisor recibe `esperado`', supRows.length > 0 && supRows.every((r) => tiene(r, 'esperado')));
   check('supervisor recibe `diff_real`', supRows.length > 0 && supRows.every((r) => tiene(r, 'diff_real')));
   const conCuadre = supRows.find((r) => r.esperado != null);
@@ -186,6 +239,15 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('ve las 2 sucursales asignadas', MIAS.every((w) => rows.some((r) => r.warehouse_code === w)), `sucs=${[...new Set(rows.map((r) => r.warehouse_code))].join(',')}`);
   check(`NO ve la sucursal ajena (${AJENA})`, !rows.some((r) => r.warehouse_code === AJENA));
   check('no se cuela ninguna sucursal fuera del alcance', rows.every((r) => MIAS.includes(r.warehouse_code)), `sucs=${[...new Set(rows.map((r) => r.warehouse_code))].join(',')}`);
+  // La sucursal sola no alcanza: en una tienda con 5 cajas le mostraría el conteo
+  // de sus compañeras (y con eso, cuánto entregó cada una).
+  check('y SOLO ve sus propios arqueos, no los de otras cajas',
+    rows.every((r) => (r.cajero_code || '').toUpperCase() === CAJERO),
+    `cajeros=${[...new Set(rows.map((r) => r.cajero_code))].join(',')}`);
+  const supTodos = await req('GET', '/store/arqueo?limit=200', admin);
+  check('la encargada SÍ ve los de toda la tienda (varias cajeras)',
+    Array.isArray(supTodos.body) && supTodos.body.some((r) => (r.cajero_code || '').toUpperCase() !== CAJERO),
+    `n=${(supTodos.body || []).length}`);
 
   console.log('\n── 4. Cajera: el historial no trae el cuadre ──');
   check('historial SIN `esperado`', rows.length > 0 && rows.every((r) => !tiene(r, 'esperado')));
@@ -199,8 +261,23 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   // respetara, el motor no encontraría el turno (el corte es de CAJERA_SMOKE) y
   // el paso 6 se caería solo. Contado $3,000 vs esperado $5,000 → faltante de
   // $2,000 que la cajera NO debe ver y el supervisor SÍ debe recibir.
+  const sinTurno = await req('POST', '/store/arqueo', cajera, {
+    warehouse_code: MIAS[1], caja: '99', business_date: FECHA, tipo: 'cierre',
+    denominations: { '500': 1 },
+  });
+  check('sin turno de Kepler NO se puede arquear (400)', sinTurno.status === 400, `status=${sinTurno.status}`);
+  const turnoAjeno = await req('POST', '/store/arqueo', cajera, {
+    warehouse_code: MIAS[0], cash_cut_folio: TURNO_DE[AJENA], caja: '1', business_date: FECHA, tipo: 'cierre',
+    denominations: { '500': 1 },
+  });
+  check('tampoco un turno que no es suyo (400)', turnoAjeno.status === 400, `status=${turnoAjeno.status}`);
+
+  // Se manda una CAJA y un CAJERO falseados a propósito: los dos los manda Kepler
+  // vía el turno, no el body. Contado $3,000 vs esperado $5,000 → faltante de
+  // $2,000 que la cajera NO debe ver y el supervisor SÍ debe recibir.
   const okPost = await req('POST', '/store/arqueo', cajera, {
-    warehouse_code: MIAS[1], caja: CAJA, business_date: FECHA, tipo: 'cierre',
+    warehouse_code: MIAS[1], cash_cut_folio: TURNO_DE[MIAS[1]],
+    caja: '99', business_date: '2020-01-01', tipo: 'cierre',
     cajero_code: 'OTRA_PERSONA', denominations: { '500': 6 },
   });
   check('captura en sucursal asignada 200/201', [200, 201].includes(okPost.status), `status=${okPost.status} body=${JSON.stringify(okPost.body).slice(0, 120)}`);
@@ -210,15 +287,15 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('la respuesta NO trae `ambiguous` (filtraría que hay varios cortes)', !tiene(okPost.body, 'ambiguous'));
   check('la respuesta confirma su total contado ($3,000)', Number(okPost.body?.total_contado) === 3000, `total=${okPost.body?.total_contado}`);
   const atrib = await pg.query(
-    `SELECT cajero_code, captured_by FROM reconciliation.blind_counts
-      WHERE tenant_id=$1 AND warehouse_code=$2 AND caja=$3 AND business_date=$4`, [M, MIAS[1], CAJA, FECHA]);
+    `SELECT id, cajero_code, captured_by FROM reconciliation.blind_counts
+      WHERE tenant_id=$1 AND warehouse_code=$2 AND caja=$3 AND business_date=$4`, [M, MIAS[1], CAJA_DE[MIAS[1]], FECHA]);
   check('el arqueo queda a nombre de QUIEN lo captura, no del body',
     atrib.rows.length === 1 && atrib.rows[0].cajero_code === CAJERO,
     `cajero_code=${atrib.rows[0]?.cajero_code} (esperado ${CAJERO}), filas=${atrib.rows.length}`);
   check('y se sella quién lo capturó', atrib.rows[0]?.captured_by === USER, `captured_by=${atrib.rows[0]?.captured_by}`);
 
   const badPost = await req('POST', '/store/arqueo', cajera, {
-    warehouse_code: AJENA, caja: CAJA, business_date: FECHA, tipo: 'cierre',
+    warehouse_code: AJENA, cash_cut_folio: TURNO_DE[AJENA], caja: CAJA_DE[AJENA], business_date: FECHA, tipo: 'cierre',
     cajero_code: 'SMOKE3', denominations: { '500': 2 },
   });
   check('captura en sucursal AJENA rechazada con 403', badPost.status === 403, `status=${badPost.status}`);
@@ -236,7 +313,33 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('con el faltante REAL que la cajera no vio (+$2,000)',
     disc.rows.length > 0 && Number(disc.rows[0].d) === 2000, `diferencia=${disc.rows[0]?.d}`);
 
-  console.log('\n── 7. Cleanup ──');
+  console.log('\n── 7. La encargada valida presencialmente ──');
+  const arqId = atrib.rows[0]?.id;
+  const noPuede = await req('POST', `/store/arqueo/${arqId}/validar`, cajera, {});
+  check('la cajera NO puede validar su propio arqueo (403)', noPuede.status === 403, `status=${noPuede.status}`);
+  const val = await req('POST', `/store/arqueo/${arqId}/validar`, admin, { nota: 'contado en el lugar' });
+  check('la encargada sí valida (200/201)', [200, 201].includes(val.status), `status=${val.status} body=${JSON.stringify(val.body).slice(0, 120)}`);
+  const firmado = await pg.query(
+    `SELECT validado_por, validado_at, validado_nota, cash_cut_folio, caja_kepler
+       FROM reconciliation.blind_counts WHERE tenant_id=$1 AND id=$2`, [M, arqId]);
+  check('queda firmado con quién y cuándo',
+    firmado.rows[0]?.validado_por === SUP_USER && !!firmado.rows[0]?.validado_at,
+    `por=${firmado.rows[0]?.validado_por} at=${firmado.rows[0]?.validado_at}`);
+  check('y el arqueo quedó atado al turno de Kepler',
+    firmado.rows[0]?.cash_cut_folio === TURNO_DE[MIAS[1]] && firmado.rows[0]?.caja_kepler === CAJA_DE[MIAS[1]],
+    `folio=${firmado.rows[0]?.cash_cut_folio} caja=${firmado.rows[0]?.caja_kepler}`);
+
+  // Recontar borra la firma: un arqueo distinto es un arqueo sin validar.
+  await req('POST', '/store/arqueo', cajera, {
+    warehouse_code: MIAS[1], cash_cut_folio: TURNO_DE[MIAS[1]], caja: CAJA_DE[MIAS[1]], business_date: FECHA,
+    tipo: 'cierre', denominations: { '500': 8 },
+  });
+  const refirma = await pg.query(
+    `SELECT validado_at, total_contado::numeric t FROM reconciliation.blind_counts WHERE tenant_id=$1 AND id=$2`, [M, arqId]);
+  check('recapturar el conteo BORRA la validación', refirma.rows[0]?.validado_at === null && Number(refirma.rows[0]?.t) === 4000,
+    `validado_at=${refirma.rows[0]?.validado_at} total=${refirma.rows[0]?.t}`);
+
+  console.log('\n── 8. Cleanup ──');
   await cleanup(pg, [userId, supId]);
   check('fixtures eliminados', true);
 

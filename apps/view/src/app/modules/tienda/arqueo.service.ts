@@ -16,8 +16,28 @@ import { environment } from '../../../environments/environment';
  */
 export type ArqueoTipo = 'cierre' | 'relevo';
 
+/**
+ * Un turno de caja que Kepler abrió a nombre del usuario. Es lo que habilita la
+ * captura: sin turno no hay arqueo. **No trae montos** — dice qué contar, no
+ * cuánto debería haber.
+ */
+export interface Turno {
+  warehouse_code: string;
+  warehouse_name: string | null;
+  caja: string;
+  folio: string;
+  business_date: string;
+  hora_apertura: string | null;
+  hora_cierre: string | null;
+  cajero_code: string | null;
+  turno: string | null;
+  abierto: boolean;
+}
+
 export interface ArqueoDto {
   warehouse_code?: string; // ignorado si el usuario está scopeado a una sucursal
+  /** Folio del turno de Kepler. Obligatorio para la cajera: la caja y la fecha salen de ahí. */
+  cash_cut_folio?: string;
   caja: string;
   business_date: string; // 'YYYY-MM-DD'
   tipo?: ArqueoTipo;
@@ -44,6 +64,9 @@ export interface ArqueoRow {
   id: string; tipo: ArqueoTipo; warehouse_code: string; caja: string; business_date: string; turno: string | null;
   cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
   captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
+  cash_cut_folio?: string | null; caja_kepler?: string | null; turno_abierto_at?: string | null;
+  /** `validado_at` nulo = pendiente de que la encargada lo firme presencialmente. */
+  validado_por?: string | null; validado_at?: string | null; validado_nota?: string | null;
   esperado?: number | null; diff_real?: number | null;
 }
 
@@ -52,8 +75,18 @@ export class ArqueoService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/store/arqueo`;
 
+  /** Turnos que Kepler abrió a nombre del usuario y todavía no arqueó. */
+  turnos(dias?: number): Observable<Turno[]> {
+    return this.http.get<Turno[]>(`${this.base}/turnos${dias ? '?dias=' + dias : ''}`);
+  }
+
   submit(dto: ArqueoDto): Observable<ArqueoResult> {
     return this.http.post<ArqueoResult>(this.base, dto);
+  }
+
+  /** La encargada firma el arqueo tras contarlo en el lugar. */
+  validar(id: string, nota?: string): Observable<unknown> {
+    return this.http.post(`${this.base}/${id}/validar`, { nota });
   }
 
   list(q?: { from?: string; to?: string; limit?: number; warehouse_codes?: string[] }): Observable<ArqueoRow[]> {

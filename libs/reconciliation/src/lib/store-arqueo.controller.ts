@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
@@ -106,14 +106,63 @@ export class StoreArqueoController {
     return body?.cajero_code?.trim().toUpperCase() || propio;
   }
 
+  @Get('turnos')
+  @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda — turnos de caja que Kepler abrió a tu nombre y todavía no arqueaste. Es lo que habilita la captura (sin turno no hay arqueo).' })
+  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás (default 2, máx 30).' })
+  async turnos(@ReqUser() user: AuthUser, @Query('dias') dias?: string) {
+    const scope = (await this.scope.current()).dims.warehouse;
+    return this.blind.turnosPendientes({
+      cajeroCode: user?.username,
+      warehouseCodes: scope.mode === 'all' ? null : scope.values,
+      dias: dias ? Number(dias) : undefined,
+    });
+  }
+
+  /**
+   * Kepler manda: la caja, la fecha y la hora salen del turno, no del formulario.
+   *
+   * Kepler ya sabe qué caja le tocó a quién y desde qué hora (abre el renglón con
+   * `caja`, `cajera asignada` y `hora de apertura`). Dejar que la cajera teclee la
+   * caja es abrir la puerta a arquear la caja de otra, o un turno que no existió.
+   * Para la cajera el turno es **obligatorio** y sus datos **mandan** sobre el body.
+   * El supervisor puede capturar sin turno (relevo, contingencia, caja sin Kepler).
+   */
+  private async anclarAlTurno(body: BlindCountDto, warehouse_code: string, cajero_code: string | undefined, revela: boolean) {
+    const folio = body?.cash_cut_folio ? String(body.cash_cut_folio).trim() : '';
+    if (!folio) {
+      if (revela) return {}; // supervisor: puede capturar a mano
+      throw new BadRequestException(
+        'Elegí el turno de caja que vas a arquear. Si no aparece ninguno es que Kepler todavía no abrió tu caja.',
+      );
+    }
+    const turno = await this.blind.buscarTurno(warehouse_code, folio, revela ? undefined : cajero_code);
+    if (!turno) {
+      throw new BadRequestException(
+        revela
+          ? `No existe el turno ${folio} en la sucursal ${warehouse_code}.`
+          : 'Ese turno no es tuyo o ya no existe en Kepler.',
+      );
+    }
+    return {
+      cash_cut_folio: turno.folio,
+      caja: turno.caja,                 // la caja la dice Kepler, no el formulario
+      caja_kepler: turno.caja,
+      business_date: String(turno.business_date).slice(0, 10),
+      turno: turno.turno || undefined,
+      turno_abierto_at: turno.abierto_at || null,
+    };
+  }
+
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
-  @ApiOperation({ summary: 'Tienda — la cajera captura su arqueo CIEGO. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
+  @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
   async submit(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
     const revela = this.revela(user);
     const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
     const cajero_code = this.atribuir(body, user, revela);
-    const res = await this.blind.submit({ ...body, warehouse_code, cajero_code }, user?.username);
+    const delTurno = await this.anclarAlTurno(body, warehouse_code, cajero_code, revela);
+    const res = await this.blind.submit({ ...body, warehouse_code, cajero_code, ...delTurno }, user?.username);
     // Sin revelación, `matched`/`ambiguous` tampoco tienen sentido (no hay nada
     // que comparar del lado de la cajera) y `ambiguous` filtraría que hay más de
     // un corte en su caja. Respuesta mínima: se guardó y cuánto contó.
@@ -128,17 +177,36 @@ export class StoreArqueoController {
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  @ApiOperation({ summary: 'Tienda — historial de arqueos de las sucursales asignadas al usuario (sin esperado ni diferencia salvo supervisor).' })
+  @ApiOperation({ summary: 'Tienda — historial de arqueos. La cajera ve SOLO los suyos; la encargada, los de sus sucursales (con esperado, diferencia y el botón de validar).' })
   async list(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    const revela = this.revela(user);
     const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo');
     const limit = query['limit'];
     const rows = await this.blind.list({
       from: query['from'] as string | undefined,
       to: query['to'] as string | undefined,
       warehouse_codes,
+      // La encargada supervisa la tienda entera (todas las cajas); la cajera ve
+      // SOLO lo suyo. Filtrar solo por sucursal le mostraría el conteo de sus
+      // compañeras — y con eso, cuánto entregó cada una.
+      cajero_code: revela ? undefined : (user?.username || ' '),
       limit: limit ? Number(limit) : undefined,
     });
-    const revela = this.revela(user);
     return rows.map((r) => this.proyectar(r, revela));
+  }
+
+  /**
+   * SM.12 — La encargada va al lugar, cuenta con la cajera y firma.
+   *
+   * Gateado por `RECONCILIATION_VER`, que es lo que separa a la encargada de la
+   * cajera (`encargado_tienda` lo tiene, `cajero` no): validar tu propio arqueo
+   * sería firmarte a vos mismo. Recapturar el conteo **borra la firma** — un
+   * arqueo distinto es un arqueo sin validar (ver `submit`).
+   */
+  @Post(':id/validar')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'Tienda — la encargada valida presencialmente el arqueo de la cajera (queda firmado con su usuario y la hora).' })
+  async validar(@Param('id', new ParseUUIDPipe()) id: string, @ReqUser() user: AuthUser, @Body() body?: { nota?: string }) {
+    return this.blind.validar(id, user?.username, body?.nota);
   }
 }

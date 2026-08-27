@@ -267,7 +267,14 @@ export class StoreService {
    *    del supervisor se duplicaba en cada caja que abrió (bug ago-2026).
    * `cobrando` = ticket en los últimos 15 min.
    */
-  async openSessions(warehouseCode?: string): Promise<any> {
+  /**
+   * `warehouses`: alcance ya resuelto (`ScopeService`). `null` = sin filtro
+   * (alcance `all`); `[]` = no ve ninguna sucursal → tablero vacío, no un 403:
+   * son 3 KPIs y una tabla, y un error rompe la pantalla entera.
+   */
+  async openSessions(warehouses?: string[] | null): Promise<any> {
+    const vacio = Array.isArray(warehouses) && warehouses.length === 0;
+    const filtrar = Array.isArray(warehouses) && warehouses.length > 0;
     const k = this.knex;
     const todayMX = `(now() AT TIME ZONE '${TZ}')::date`;
 
@@ -284,9 +291,47 @@ export class StoreService {
         k.raw('MAX(ticket_ts) OVER (PARTITION BY warehouse_code, caja) AS last_ts'),
         k.raw('cajero AS last_cajero'))
       .orderBy([{ column: 'warehouse_code' }, { column: 'caja' }, { column: 'ticket_ts', order: 'desc' }]);
-    if (warehouseCode) actQ.andWhere('warehouse_code', warehouseCode);
+    if (filtrar) actQ.whereIn('warehouse_code', warehouses as string[]);
+    if (vacio) actQ.whereRaw('false');
     const act = await actQ;
     const actMap = new Map(act.map((a: any) => [`${a.warehouse_code}|${a.caja}`, a]));
+
+    /**
+     * SM.13 — La venta del día también sale de Kepler (ODS), no solo del poller.
+     *
+     * `store_live_tickets` lo llena un poller aparte: si se cae, la página decía
+     * "$0 vendido" con las cajas cobrando — un cero que parece un dato. El ODS trae
+     * los documentos de venta (`kdm1` U/D/10, `c5`=caja, `c16`=total) por el mismo
+     * CDC que todo lo demás. **Verificado contra el corte de Kepler**: por caja
+     * reproduce `venta_total` al centavo (suc01 caja2 $74,642.11, caja3 $35,601.40,
+     * caja4 $24,887.48).
+     *
+     * Se toma el MAYOR de las dos fuentes por caja, no una u otra: las dos miden lo
+     * mismo (la venta acumulada del día, que solo crece) y cada una puede ir
+     * rezagada — el mayor es simplemente la menos vieja. El poller sigue mandando
+     * en "último ticket"/"cobrando ahora", donde lo que importa son los segundos.
+     */
+    const odsQ = this.knex('kepler_ods.kdm1')
+      .whereRaw(`c2 = 'U' AND c3 = 'D' AND c4 = 10`)
+      .andWhereRaw(`c9::date = ${todayMX}`)
+      .whereNotNull('c5')
+      .groupBy('sucursal', k.raw('c5::bigint::text'))
+      .select(
+        k.raw('sucursal AS warehouse_code'),
+        // `c5` es NUMERIC en el ODS y `cash_sessions.caja` es TEXT: sin castear, el
+        // cruce por llave compuesta erra en silencio (un '1.0' no matchea a '1').
+        k.raw('c5::bigint::text AS caja'),
+        k.raw('COUNT(*)::int AS tickets'),
+        k.raw('ROUND(SUM(c16::numeric), 2) AS venta'),
+      );
+    if (filtrar) odsQ.whereIn('sucursal', warehouses as string[]);
+    if (vacio) odsQ.whereRaw('false');
+    // El ODS puede no estar disponible (entorno sin CDC): degradar al poller, no romper.
+    const ods: any[] = await odsQ.catch((e: any) => {
+      this.logger.warn(`venta por caja desde el ODS no disponible: ${e?.message || e}`);
+      return [];
+    });
+    const odsMap = new Map(ods.map((o: any) => [`${o.warehouse_code}|${o.caja}`, o]));
 
     const sesQ = k('analytics.cash_sessions as s')
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
@@ -297,18 +342,23 @@ export class StoreService {
         k.raw('pc.nombre AS cajero_nombre'),
         k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at')
       .orderBy('s.warehouse_code').orderBy('s.caja');
-    if (warehouseCode) sesQ.andWhere('s.warehouse_code', warehouseCode);
+    if (filtrar) sesQ.whereIn('s.warehouse_code', warehouses as string[]);
+    if (vacio) sesQ.whereRaw('false');
     const sesiones = await sesQ;
 
     const NOW = Date.now();
     const open_cajas = sesiones.map((s: any) => {
-      const a: any = actMap.get(`${s.warehouse_code}|${s.caja}`);
+      const key = `${s.warehouse_code}|${s.caja}`;
+      const a: any = actMap.get(key);
+      const o: any = odsMap.get(key);
       const lastMs = a?.last_ts ? new Date(a.last_ts).getTime() : null;
       const idleMin = lastMs != null ? Math.round((NOW - lastMs) / 60000) : null;
       return {
         warehouse_code: s.warehouse_code, warehouse_name: s.warehouse_name, caja: s.caja,
         cajero: s.cajero_code, cajero_nombre: s.cajero_nombre || null, abrio: s.abrio,
-        tickets: a ? Number(a.tickets) : 0, venta: a ? Number(a.venta) : 0,
+        // El mayor de poller y ODS: los dos son prefijos de la misma venta del día.
+        tickets: Math.max(a ? Number(a.tickets) : 0, o ? Number(o.tickets) : 0),
+        venta: Math.max(a ? Number(a.venta) : 0, o ? Number(o.venta) : 0),
         last_ticket: a?.last_ticket || null, idle_min: idleMin,
         cobrando: idleMin != null && idleMin <= 15,
       };
