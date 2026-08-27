@@ -64,8 +64,15 @@ export class ExpenseProofsController {
     return this.svc.statusByFolio();
   }
 
+  @Get('proof-by-folio')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: 'Estado del expediente de UN folio (para saber en qué momento está la captura). Accesible al capturista.' })
+  proofByFolio(@Query('folio') folio: string) {
+    return this.svc.proofByFolio(folio || '');
+  }
+
   // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
-  // 'departamentos' y 'status-by-folio'.
+  // 'departamentos', 'status-by-folio' y 'proof-by-folio'.
   @Get(':id')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Detalle de una solicitud con los adjuntos re-firmados (para el visor de quien revisa).' })
@@ -92,6 +99,22 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Alta de la solicitud de reembolso (con los archivos ya subidos).' })
   create(@Body() body: CreateExpenseProofDto, @Req() req: AuthedRequest) {
     return this.svc.create(body, req?.user?.full_name || req?.user?.username);
+  }
+
+  // MOMENTO 3 — el capturista sube la evidencia DESPUÉS de aprobar (gasto comprobable).
+  @Post(':id/evidence')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: 'Sube la evidencia de un gasto ya APROBADO y comprobable; corre el cuadre por visión y cierra (validada/revision).' })
+  addEvidence(@Param('id') id: string, @Body() body: CreateExpenseProofDto, @Req() req: AuthedRequest) {
+    return this.svc.addEvidence(id, body, req?.user?.full_name || req?.user?.username);
+  }
+
+  // MOMENTO 2 — el aprobador aprueba la solicitud capturada. Mismo permiso que validar.
+  @Post(':id/approve')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: 'Aprueba la solicitud capturada (con reclasificación opcional). Comprobable → aprobada (falta evidencia); no comprobable → validada. Auditado.' })
+  approve(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
+    return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body);
   }
 
   // Validar el gasto lo hace UNA persona (Tesorería). FINANCE_FINDINGS_GESTIONAR lo

@@ -236,7 +236,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
                 <td class="ta-r">
                   @switch (etapaDeFila(r)) {
                     @case ('capturar') {
-                      <button type="button" class="so-act" (click)="$event.stopPropagation(); adjuntar(r)"
+                      <button type="button" class="so-act" (click)="$event.stopPropagation(); capturar(r)"
                               title="Capturar el expediente" [attr.aria-label]="'Capturar el expediente de ' + r.folio">
                         <i class="pi pi-upload" aria-hidden="true"></i>
                       </button>
@@ -455,18 +455,18 @@ export class FinanzasSolicitudesComponent {
     if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
 
     const p = this.proofStatus()[r.folio];
-    // Sin expediente todavía, o rechazado: hay que (volver a) capturarlo —clasificar y,
-    // si el gasto lo lleva, subir la evidencia.
+    // Sin expediente todavía, o devuelto: el capturista debe (re)capturar la solicitud.
     if (!p || p.status === 'rechazada') return 'capturar';
-    // Falta la solicitud firmada (obligatoria siempre): el aprobador NO puede validar sin
-    // ella, así que el tablero no debe decir "por validar" — sigue en captura (evita el
-    // desacuerdo tablero-vs-peek en expedientes legacy).
+    // Falta la solicitud firmada (obligatoria siempre): sin ella no se aprueba → sigue en
+    // captura (evita el desacuerdo tablero-vs-peek en expedientes legacy).
     if (p.solicitud === false) return 'capturar';
-    // Comprobable pero sin su evidencia (estado inconsistente / legacy): sigue faltando.
-    if (p.requiere_evidencia && p.comprobante === false) return 'capturar';
-    // Capturado: le toca decidir a quien aprueba.
-    if (p.status !== 'validada') return 'validar';
-    return 'completo';
+    // Ya validada → cerrado.
+    if (p.status === 'validada') return 'completo';
+    // Aprobado y comprobable pero SIN evidencia todavía: le toca al capturista subirla
+    // (segundo momento, en «Capturar gasto»).
+    if (p.status === 'aprobada' && p.requiere_evidencia && p.comprobante === false) return 'capturar';
+    // recibida (por aprobar) / revision (por validar): le toca al aprobador.
+    return 'validar';
   }
 
   /** Cuántas y cuánto hay en cada etapa, sobre lo cargado. Es el embudo, y se ve siempre. */
@@ -538,9 +538,9 @@ export class FinanzasSolicitudesComponent {
     const base: Record<string, string> = {
       autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
-      capturar: `El gasto se ejerció y falta capturar el expediente: clasificarlo (fiscal / no fiscal / no comprobable) y, si lo lleva, subir la evidencia.`,
-      validar: `Expediente capturado, esperando que Tesorería lo revise y lo marque validado.`,
-      completo: `Expediente cerrado: validado, con su evidencia — o declarado no comprobable con motivo.`,
+      capturar: `Le toca al capturista, en «Capturar gasto»: registrar la solicitud (subir la firmada + clasificarla), o —si ya se aprobó y es comprobable— subir la evidencia.`,
+      validar: `Le toca al aprobador: aprobar la solicitud recién capturada, o validar la evidencia que quedó en revisión.`,
+      completo: `Expediente cerrado: validado con su evidencia — o declarado no comprobable con motivo.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
       todas: `Todas las etapas juntas, en orden de fecha.`,
     };
@@ -806,6 +806,17 @@ export class FinanzasSolicitudesComponent {
 
   verExpediente(r: ExpenseRequestRow) { this.sel.set(r); this.peekOpen.set(true); }
   adjuntar(r: ExpenseRequestRow) { this.sel.set(r); this.peekOpen.set(false); this.dlgOpen.set(true); }
+  /**
+   * Acción de la etapa "capturar". Sin expediente (o devuelto) → abre el diálogo para
+   * capturar la solicitud (crea 'recibida'). Si ya hay expediente vivo (p.ej. aprobado y
+   * esperando evidencia), NO se dialoga —crearía una fila duplicada—: se abre el peek, y
+   * la evidencia la sube el capturista en «Capturar gasto».
+   */
+  capturar(r: ExpenseRequestRow) {
+    const p = this.proofStatus()[r.folio];
+    if (p && p.status !== 'rechazada') { this.verExpediente(r); return; }
+    this.adjuntar(r);
+  }
 
   trasResolver() {
     this.toast.add({ severity: 'success', summary: 'Resuelto', detail: `Solicitud ${this.sel()?.folio ?? ''}` });

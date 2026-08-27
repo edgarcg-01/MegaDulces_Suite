@@ -71,15 +71,16 @@ const ETIQUETAS: Record<string, string> = {
              por encabezado en vez de por un paréntesis en la etiqueta. -->
         <h4 class="ep-sec">Papeles adjuntos</h4>
         <ul class="ep-check">
-          <li [class.ok]="tieneComprobante() || !necesitaEvidencia()" [class.no]="necesitaEvidencia() && !tieneComprobante()">
-            <i class="pi" [class.pi-check-circle]="tieneComprobante() || !necesitaEvidencia()" [class.pi-times-circle]="necesitaEvidencia() && !tieneComprobante()" aria-hidden="true"></i>
+          <!-- La evidencia NO es requisito para aprobar: se sube DESPUÉS, y la sube el
+               capturista desde «Capturar gasto». Acá sólo se refleja si ya llegó. -->
+          <li [class.ok]="tieneComprobante() || !necesitaEvidencia()">
+            <i class="pi" [class.pi-check-circle]="tieneComprobante() || !necesitaEvidencia()" [class.pi-clock]="necesitaEvidencia() && !tieneComprobante()" aria-hidden="true"></i>
             <span>Evidencia del gasto</span>
             <em>
               @if (!necesitaEvidencia()) { no aplica — gasto no comprobable }
               @else if (tieneComprobante()) { adjunta }
-              @else { obligatoria — sin esto no se aprueba }
+              @else { la sube el capturista después de aprobar }
             </em>
-            @if (necesitaEvidencia() && !tieneComprobante()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
           </li>
           <!-- Va en los TRES tipos de gasto: el gasto puede no ser comprobable, la
                autorización firmada nunca deja de existir. -->
@@ -87,7 +88,7 @@ const ETIQUETAS: Record<string, string> = {
             <i class="pi" [class.pi-check-circle]="tieneSolicitud()" [class.pi-times-circle]="!tieneSolicitud()" aria-hidden="true"></i>
             <span>Solicitud firmada</span>
             <em>{{ tieneSolicitud() ? 'adjunta' : 'obligatoria — sin esto no se aprueba' }}</em>
-            @if (!tieneSolicitud()) { <button type="button" class="ep-add" (click)="attach.emit()">Agregar</button> }
+            @if (!tieneSolicitud() && !proof()) { <button type="button" class="ep-add" (click)="attach.emit()">Capturar</button> }
           </li>
         </ul>
         <h4 class="ep-sec">En Kepler</h4>
@@ -128,11 +129,18 @@ const ETIQUETAS: Record<string, string> = {
         } @else {
           <div class="ep-broken">
             <i class="pi pi-inbox" aria-hidden="true"></i>
-            <span>{{ proof()?.storage_ok === false ? 'Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisá a sistemas.' : 'Esta solicitud todavía no tiene evidencia adjunta.' }}</span>
+            <span>
+              @if (proof()?.storage_ok === false) { Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisá a sistemas. }
+              @else if (!proof()) { Esta solicitud todavía no se captura. }
+              @else if (necesitaEvidencia()) { La evidencia la sube el capturista después de aprobar, desde «Capturar gasto». }
+              @else { Gasto no comprobable: no lleva evidencia. }
+            </span>
           </div>
-          <button pButton type="button" class="p-button-sm" (click)="attach.emit()">
-            <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
-            <span class="p-button-label">Adjuntar evidencia</span></button>
+          @if (!proof()) {
+            <button pButton type="button" class="p-button-sm" (click)="attach.emit()">
+              <span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span>
+              <span class="p-button-label">Capturar solicitud</span></button>
+          }
         }
 
         <!-- Los campos que Kepler ya guarda. Antes había que teclearlos de nuevo en otra
@@ -155,16 +163,30 @@ const ETIQUETAS: Record<string, string> = {
 
         @if (puedeResolver() && proof()) {
           <div class="ep-acts">
-            @if (proof()!.status !== 'validada') {
-              <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !puedeValidar()" (click)="resolver('validar')">
-                <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validado</span></button>
+            @switch (proof()!.status) {
+              @case ('recibida') {
+                <!-- Momento 2: el aprobador APRUEBA. Sólo exige la solicitud firmada; la
+                     evidencia (si el gasto la lleva) la sube el capturista DESPUÉS. -->
+                <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !tieneSolicitud()" (click)="resolver('aprobar')">
+                  <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                @if (!tieneSolicitud()) { <span class="ep-acts-why">Falta la solicitud firmada: sin ella no se puede aprobar.</span> }
+              }
+              @case ('aprobada') {
+                <span class="ep-acts-why"><i class="pi pi-clock" aria-hidden="true"></i> Aprobada — esperando que el capturista suba la evidencia.</span>
+              }
+              @case ('validada') { <!-- ya validada: sólo queda poder revertir (botón de abajo) --> }
+              @default {
+                <!-- revision / rechazada: validación manual, con la evidencia ya subida. -->
+                <button pButton type="button" severity="success" [loading]="acting()" [disabled]="acting() || !puedeValidar()" (click)="resolver('validar')">
+                  <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validado</span></button>
+                @if (!puedeValidar()) { <span class="ep-acts-why">{{ porQueNoValida() }}</span> }
+              }
             }
             <!-- Von Restorff: la que cierra en negativo va discreta y separada de la diaria. -->
             @if (proof()!.status !== 'rechazada') {
               <button pButton type="button" severity="danger" text [disabled]="acting()" (click)="showReject.set(true)">
-                <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">No validado</span></button>
+                <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">{{ proof()!.status === 'recibida' ? 'No aprobar' : 'No validado' }}</span></button>
             }
-            @if (!puedeValidar()) { <span class="ep-acts-why">{{ porQueNoValida() }}</span> }
           </div>
         }
       }
@@ -419,13 +441,15 @@ export class ExpenseEvidencePeekComponent {
     this.showReject.set(false);
     this.resolver('rechazar', m);
   }
-  resolver(accion: 'validar' | 'rechazar', motivo?: string) {
+  resolver(accion: 'aprobar' | 'validar' | 'rechazar', motivo?: string) {
     const p = this.proof();
     if (!p || this.acting()) return;
     this.acting.set(true);
-    const req = accion === 'validar'
-      ? this.svc.validate(p.id)
-      : this.svc.reject(p.id, motivo);
+    const req = accion === 'aprobar'
+      ? this.svc.approve(p.id)
+      : accion === 'validar'
+        ? this.svc.validate(p.id)
+        : this.svc.reject(p.id, motivo);
     req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.acting.set(false); this.onToggle(false); this.resolved.emit(); },
       error: () => this.acting.set(false),
