@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -103,6 +104,17 @@ export class UsersController {
     return this.usersService.getZones();
   }
 
+  /**
+   * `[ID.23]` — Sucursales con su zona. El alta elige sucursal y deriva la zona
+   * de acá, en vez de preguntar las dos cosas por separado.
+   */
+  @Get('branches')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Sucursales (código de 2 dígitos) con la zona que cada una declara' })
+  getBranches() {
+    return this.usersService.getBranches();
+  }
+
   @Get('departments')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Catálogo de departamentos del organigrama (eje organizacional)' })
@@ -147,6 +159,26 @@ export class UsersController {
       role_name: scope.roleName,
       dimensions: await this.scope.describe(scope),
     };
+  }
+
+  /**
+   * `[ID.21]` — Permisos VIGENTES del usuario en sesión.
+   *
+   * SIN `@RequirePermissions` y antes de `:id`, por lo mismo que `me/scope`:
+   * preguntar por lo tuyo no puede exigir un permiso. Es lo que le permite al
+   * front refrescar el menú cuando le cambian el acceso, sin re-login.
+   */
+  @Get('me/access')
+  @ApiOperation({ summary: 'Permisos y reglas vigentes del usuario en sesión (frescos de DB, no del JWT)' })
+  async myAccess(@ReqUser() user: AuthUser & { role_name?: string }) {
+    const res = await this.usersService.accessFor(user.sub, user.role_name);
+    // Nunca contestar un mapa vacío: el front reemplaza su snapshot con esto y
+    // se quedaría sin menú. Vacío = algo salió mal (token legacy sin tenant,
+    // usuario sin rol) y la respuesta honesta es un error, no "cero permisos".
+    if (!res.permissions || Object.keys(res.permissions).length === 0) {
+      throw new NotFoundException('No se pudieron resolver los permisos vigentes.');
+    }
+    return res;
   }
 
   /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
@@ -227,6 +259,36 @@ export class UsersController {
     @ReqUser() user: AuthUser,
   ) {
     return this.usersService.setRoles(id, body?.roles ?? [], { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.21]` — Permisos de una persona en tres capas: los del puesto, los suyos
+   * propios (de más / de menos) y los efectivos.
+   */
+  @Get(':id/permissions')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Permisos de un usuario: los que le da su puesto, los propios (de más/de menos) y los efectivos' })
+  userPermissions(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.permissions(id);
+  }
+
+  /**
+   * `[ID.21]` — Fija los permisos propios del usuario (la diferencia contra su
+   * puesto). PUT: la lista que llega es la final; lo que no venga vuelve al
+   * estándar del puesto.
+   */
+  @Put(':id/permissions')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija los permisos propios de un usuario (allow=true concede de más, allow=false quita). Queda asentado en identity.user_events.' })
+  setUserPermissions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { overrides?: Array<{ permission_key: string; allow: boolean; nota?: string | null }> },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setPermissions(id, body?.overrides ?? [], {
+      sub: user.sub,
+      username: user.username,
+    });
   }
 
   /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */

@@ -17,6 +17,9 @@
 `[ID.16]` **RH** | ⚠️ BLOCKED | `hr.*` existe pero **no hay módulo ni pantalla**: los permisos gatearían el vacío |
 `[ID.17]` **perfiles que faltaban** | ✅ | Los **27** con una tarea como perfil base re-basados (`0 ganan / 0 pierden`) · `direccion` (79 permisos, todos lectura, `mode_write='none'`) · `auditor_externo` (16, con vencimiento) · `svc_feeds` (`kind='servicio'`, login rechazado) · 8 puestos más con perfil |
 UI (parte de `[ID.9]`) | ✅ | Selector de **Complementos** + aviso "este rol es una tarea" + el puesto autocompleta departamento y perfil |
+`[ID.21]` **permisos por persona** | 🧪 local | `identity.user_permissions` (la **diferencia** contra el estándar del puesto). Smoke 28/28 |
+`[ID.22]` **el puesto manda** | 🧪 local | El alta pasó de 5 preguntas a 2: puesto + sucursal. Departamento y nivel de acceso derivados |
+`[ID.23]` **sucursal → zona** | 🧪 local | `commercial.warehouses.zone_id` + `GET /users/branches`. 6/7 sucursales con plaza |
 
 **Verificación:** `snapshot-user-permissions.js` antes/después → 128 idénticos ·
 14 ganan (máx +2, cada uno listado) · **0 pierden**. Builds api + view verdes.
@@ -328,6 +331,80 @@ Dos cosas que se decidieron distinto al construir:
 Precondición heredada de la auditoría de campos: **`commercial.warehouses.zone_id`**
 (sin eso `gerente_zona` no puede expandir zona → sucursales) y la **topología de
 camiones** (`source_warehouse_id`) para el eje ruta de los 34 de Rutas.
+
+---
+
+## 7bis. `[ID.21-23]` — El permiso baja a la persona y el alta pregunta menos
+
+Los tres sprints salen de la misma observación de Edgar: **el puesto debería dar
+el estándar, y la persona debería poder diferir de él**. Hasta acá el permiso
+sólo existía a nivel rol, y ese es el origen medible de los 47 roles.
+
+### `[ID.21]` Permisos por persona
+
+    efectivos = unión(perfil base + complementos)  ±  overrides de la persona
+
+`identity.user_permissions` guarda **la diferencia**, no el conjunto: `allow=true`
+es "de más", `allow=false` es "de menos", y el override **gana** sobre el rol (al
+revés no serviría de nada). El rol sigue siendo el paquete del puesto — se edita
+una vez y aplica a los 20 que lo tienen.
+
+Por qué la diferencia y no el set completo: hace legible la pantalla. Se puede
+decir *"tiene 2 permisos de más que su puesto"* en vez de obligar a comparar 162
+casillas contra las de un compañero. El caso que lo motivó, medido: **`cajero` son
+27 personas con los mismos 3 permisos**; para que una viera costos había que
+inflarle el rol a las 27, clonar el rol para una sola, o abrirle otra cuenta.
+
+Tres cosas que el service **rechaza** en vez de dejar pasar:
+
+1. **Overrides sobre `superadmin`/`admin`.** `buildAbility` les da `manage:all` y
+   el guard corta ahí, antes de mirar el mapa: un `allow=false` quedaría guardado
+   y no haría nada. Peor que no poder, porque el admin cree que revocó.
+2. **Otorgar lo que quien edita no tiene.** Con `USUARIOS_GESTIONAR` alcanzaba
+   para darse cualquier permiso del sistema.
+3. **Editarse los permisos propios** (salvo superadmin, que ya tiene todo).
+
+Y el detalle que hace que "dinámico" sea verdad: los permisos viajan en el JWT
+(ADR-050), así que el backend aplicaba el cambio en ≤30s pero **el menú seguía
+mostrando lo de antes hasta re-login**. `GET /users/me/access` devuelve los
+permisos vigentes y el front refresca al arrancar. **Ni el endpoint ni el front
+aceptan un mapa vacío**: reemplazar el snapshot con `{}` dejaría a la persona sin
+menú — un fail-closed en el camino de arranque. Ante la duda gana el JWT.
+
+### `[ID.22]` El puesto manda
+
+El alta pedía 5 cosas y tres eran consecuencia de otra. Ahora el puesto va
+primero, y el departamento y el nivel de acceso se derivan de él. Regla única
+para los dos: **si el valor coincide con lo que el puesto propone, no se
+pregunta.** El select aparece cuando falta, cuando el puesto no propone nada (los
+12 sin perfil) o cuando el valor **diverge** — porque una divergencia es una
+decisión que alguien tomó, y esconderla es cómo el dato se queda viejo.
+
+### `[ID.23]` Sucursal → zona
+
+`commercial.warehouses.zone_id` (la precondición que la auditoría de campos ya
+había marcado). Lo que la data dijo, y que contradice "es lo mismo con dos
+nombres":
+
+- 8 zonas vs 7 sucursales. No hay biyección.
+- `LA PIEDAD RD` tiene **3 sucursales** (01, 02, 03): la zona no está contenida
+  en una sucursal, es la plaza que las tres comparten. Sucursal → zona es una
+  función; al revés no.
+- **4 zonas no tienen sucursal**: `MORELIA ABASTOS` y `MORELIA MADERO` son los
+  almacenes sin código Kepler (MD-30/MD-32), y `ZAMORA VECINAL` / `LA PIEDAD
+  VECINAL` **no son un lugar sino un tipo de ruta** sobre la misma plaza.
+- De 143 usuarios: 75 tienen zona, 37 sucursal, **8 las dos**.
+
+Por eso la columna vive en la sucursal y la zona del usuario **sigue existiendo**:
+para el vendedor de ruta vecinal la zona es su territorio, no la tienda donde está
+parado. El formulario hace **una** pregunta en el caso normal y dos sólo cuando
+divergen de verdad. `04 Yurécuaro` queda sin plaza a propósito: no hay zona que le
+corresponda y elegirle una sería inventarla.
+
+**Lo que ya existía y no había que construir:** "ver otras sucursales" es alcance,
+no permiso — `identity.user_scopes` dimensión `warehouse` con `mode='listed'` lo
+resuelve desde `[ID.2]`, y cambiarlo **no exige re-login** (TTL 30s). Lo que falta
+es la UI: hoy ningún componente del front llama a `/users/:id/scope` (`[ID.6]`).
 
 ---
 

@@ -119,6 +119,44 @@ export interface UserRolesResponse {
   roles: UserRoleRow[];
 }
 
+/**
+ * `[ID.23]` Sucursal con la zona (plaza) que declara. `zone_id` puede ser NULL:
+ * hay sucursales sin plaza definida y el formulario tiene que decirlo.
+ */
+export interface BranchOption {
+  code: string;
+  name: string;
+  zone_id: string | null;
+  zone_name: string | null;
+}
+
+/** `[ID.21]` Una excepción de permisos de la persona contra el estándar de su puesto. */
+export interface PermissionOverride {
+  permission_key: string;
+  /** true = lo tiene de más · false = se le quitó lo que el puesto le daba. */
+  allow: boolean;
+  nota?: string | null;
+  granted_by_username?: string | null;
+  created_at?: string;
+}
+
+export interface UserPermissionsResponse {
+  user_id: string;
+  username: string;
+  nombre?: string;
+  perfil_base: string;
+  roles: UserRoleRow[];
+  /** `superadmin`/`admin`: pasan por `manage:all`, los overrides no les aplican. */
+  platform_admin: boolean;
+  /** Claves que le da la unión de sus roles (el estándar del puesto). */
+  del_puesto: string[];
+  /** Lo que realmente aplica = del_puesto ± overrides. */
+  efectivos: string[];
+  overrides: PermissionOverride[];
+  de_mas: string[];
+  de_menos: string[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class UsersService {
   private http = inject(HttpClient);
@@ -202,6 +240,30 @@ export class UsersService {
     return this.http.put<{ user_id: string; complementos: string[]; agregados: string[]; quitados: string[] }>(
       `${this.apiUrl}/${id}/roles`,
       { roles },
+    );
+  }
+
+  /** `[ID.23]` Sucursales con su zona: el alta elige sucursal y deriva la zona. */
+  getBranches(): Observable<BranchOption[]> {
+    return this.http.get<BranchOption[]>(`${this.apiUrl}/branches`);
+  }
+
+  /** `[ID.21]` Permisos de la persona en tres capas (puesto / propios / efectivos). */
+  getUserPermissions(id: string): Observable<UserPermissionsResponse> {
+    return this.http.get<UserPermissionsResponse>(`${this.apiUrl}/${id}/permissions`);
+  }
+
+  /**
+   * `[ID.21]` Fija los permisos propios. PUT: lo que no venga en la lista vuelve
+   * al estándar del puesto.
+   */
+  setUserPermissions(
+    id: string,
+    overrides: PermissionOverride[],
+  ): Observable<{ user_id: string; agregados: string[]; quitados: string[] }> {
+    return this.http.put<{ user_id: string; agregados: string[]; quitados: string[] }>(
+      `${this.apiUrl}/${id}/permissions`,
+      { overrides },
     );
   }
 }

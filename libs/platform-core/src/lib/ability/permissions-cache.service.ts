@@ -35,6 +35,8 @@ export class PermissionsCacheService {
   private cache = new Map<string, CacheEntry>();
   /** `[ID.13]` Lista de roles por usuario (perfil base + complementos). */
   private rolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
+  /** `[ID.21]` Diferencia de permisos de cada persona contra su puesto. */
+  private overridesCache = new Map<string, { overrides: Record<string, boolean>; expiresAt: number }>();
 
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
@@ -111,12 +113,54 @@ export class PermissionsCacheService {
   }
 
   /**
-   * `[ID.13]` Permisos EFECTIVOS del usuario = unión de todos sus roles.
+   * `[ID.21]` Overrides de permisos de UNA persona contra el estándar de su
+   * puesto (`identity.user_permissions`). Devuelve sólo la diferencia.
    *
-   * La unión es por `true` gana: un complemento sólo puede sumar. Poner un
-   * permiso en `false` en un rol no le quita lo que otro rol le concede — para
-   * quitar hay que quitar el rol. Es la semántica menos sorpresiva y la que
-   * hace que `captura_gastos` (1 permiso) funcione como complemento.
+   * Mismo fallback que `getRolesForUser`: si la tabla no existe todavía se
+   * devuelve `{}` y el usuario queda con lo que le da su rol. El peor caso es el
+   * comportamiento anterior, nunca "cero permisos".
+   */
+  async getOverridesForUser(
+    userId: string | undefined,
+    tenantId: string | undefined,
+  ): Promise<Record<string, boolean>> {
+    if (!userId || !tenantId) return {};
+    const now = Date.now();
+    const key = `ovr:${tenantId}:${userId}`;
+    const cached = this.overridesCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.overrides;
+
+    let overrides: Record<string, boolean> = {};
+    try {
+      // tenant_id explícito: `KNEX_CONNECTION` es superusuario y NO aplica RLS.
+      const rows = await this.knex('identity.user_permissions')
+        .where({ tenant_id: tenantId, user_id: userId })
+        .select('permission_key', 'allow');
+      overrides = Object.fromEntries(
+        rows.map((r: { permission_key: string; allow: boolean }) => [r.permission_key, r.allow]),
+      );
+    } catch (e: any) {
+      this.logger.warn(
+        `user_permissions no disponible (${e?.message}); se usan solo los permisos del rol`,
+      );
+    }
+    this.overridesCache.set(key, { overrides, expiresAt: now + TTL_MS });
+    return overrides;
+  }
+
+  /**
+   * `[ID.13]` + `[ID.21]` Permisos EFECTIVOS del usuario:
+   *
+   *     unión(perfil base + complementos)  ±  overrides de la persona
+   *
+   * La unión de roles es por `true` gana: un complemento sólo puede sumar. Poner
+   * un permiso en `false` en un rol no le quita lo que otro rol le concede — para
+   * quitar hay que quitar el rol. Es la semántica menos sorpresiva y la que hace
+   * que `captura_gastos` (1 permiso) funcione como complemento.
+   *
+   * `[ID.21]` El override de la PERSONA sí gana sobre el rol, en los dos
+   * sentidos. Es lo que permite que dos personas con el mismo puesto no tengan
+   * forzosamente el mismo acceso, sin clonar el rol para una sola.
    */
   async getPermissionsForUser(
     userId: string | undefined,
@@ -124,28 +168,41 @@ export class PermissionsCacheService {
     primaryRole?: string,
   ): Promise<Record<string, boolean>> {
     const roles = await this.getRolesForUser(userId, tenantId, primaryRole);
+    let efectivos: Record<string, boolean>;
     if (roles.length <= 1) {
-      return this.getPermissionsForRole(roles[0] ?? primaryRole ?? '', tenantId);
-    }
-    const efectivos: Record<string, boolean> = {};
-    for (const rol of roles) {
-      const perms = await this.getPermissionsForRole(rol, tenantId);
-      for (const [k, v] of Object.entries(perms)) {
-        if (v === true) efectivos[k] = true;
-        else if (!(k in efectivos)) efectivos[k] = v;
+      // Copia: lo que devuelve `getPermissionsForRole` es el objeto CACHEADO del
+      // rol. Aplicarle el override encima sin copiar se lo aplicaría a todos los
+      // usuarios de ese rol hasta que expire el TTL.
+      efectivos = { ...(await this.getPermissionsForRole(roles[0] ?? primaryRole ?? '', tenantId)) };
+    } else {
+      efectivos = {};
+      for (const rol of roles) {
+        const perms = await this.getPermissionsForRole(rol, tenantId);
+        for (const [k, v] of Object.entries(perms)) {
+          if (v === true) efectivos[k] = true;
+          else if (!(k in efectivos)) efectivos[k] = v;
+        }
       }
+    }
+    const overrides = await this.getOverridesForUser(userId, tenantId);
+    for (const [k, allow] of Object.entries(overrides)) {
+      efectivos[k] = allow;
     }
     return efectivos;
   }
 
-  /** `[ID.13]` Llamar al asignar/quitar un complemento a un usuario. */
+  /** `[ID.13]` + `[ID.21]` Llamar al cambiar complementos o permisos de un usuario. */
   invalidateUser(userId: string, tenantId?: string): void {
     if (tenantId) {
       this.rolesCache.delete(`roles:${tenantId}:${userId}`);
+      this.overridesCache.delete(`ovr:${tenantId}:${userId}`);
       return;
     }
     for (const k of Array.from(this.rolesCache.keys())) {
       if (k.endsWith(`:${userId}`)) this.rolesCache.delete(k);
+    }
+    for (const k of Array.from(this.overridesCache.keys())) {
+      if (k.endsWith(`:${userId}`)) this.overridesCache.delete(k);
     }
   }
 
@@ -179,5 +236,6 @@ export class PermissionsCacheService {
   invalidateAll(): void {
     this.cache.clear();
     this.rolesCache.clear();
+    this.overridesCache.clear();
   }
 }

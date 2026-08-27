@@ -8,6 +8,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { PwaInstallService } from './core/services/pwa-install.service';
 import { StatusBarService } from './core/services/status-bar.service';
 import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
+import { AuthService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
@@ -27,6 +28,7 @@ export class AppComponent implements OnInit {
   // Side-effect: StatusBarService se suscribe al ThemeService al instanciarse.
   // Inyectarlo acá garantiza que el effect arranque al boot de la app.
   private statusBar = inject(StatusBarService);
+  private auth = inject(AuthService);
 
   private updatePending = false;
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;
@@ -52,6 +54,11 @@ export class AppComponent implements OnInit {
   ngOnInit() {
     // Primero la grabadora: si algo se cuelga al arrancar, queremos tenerlo registrado.
     this.diag.start();
+    // `[ID.21]` Permisos frescos al arrancar: los del JWT pueden tener horas y
+    // ahora se editan por persona. Sin esto, quitarle un permiso a alguien no se
+    // ve en el menú hasta que vuelva a entrar. Best-effort — si falla, queda el
+    // snapshot del token.
+    this.auth.refreshAccess();
     this.setupPwaInstall();
     this.setupAutoUpdate();
   }

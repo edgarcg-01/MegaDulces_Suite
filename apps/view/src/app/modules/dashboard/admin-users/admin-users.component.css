@@ -233,6 +233,111 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
   border-top: 1px solid var(--border-color);
 }
 
+/* ── [ID.22]/[ID.23] Valor DERIVADO (no se pregunta, se muestra) ──────────
+   Renglón de una línea en vez de un campo: la diferencia visual entre "esto
+   lo decidís vos" y "esto ya se sabe" es justamente la que hacía que el alta
+   se sintiera un interrogatorio de 5 preguntas. */
+.au-derived {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.au-derived-k {
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.au-derived-v { color: var(--text-main); font-weight: 600; }
+.au-derived-btn {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: var(--fs-micro);
+  color: var(--action);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.au-derived-btn:hover { color: var(--text-main); }
+
+/* ── [ID.21] Permisos de la persona ─────────────────────────────────────── */
+.au-perms {
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+  background: var(--surface-ground);
+}
+.au-perms-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.au-perms-head > i { font-size: 0.7rem; color: var(--text-faint); }
+.au-perms-t { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+.au-perms-sum { margin-left: auto; font-size: var(--fs-micro); color: var(--text-muted); }
+.au-perms-plus { color: var(--ok-fg); margin-left: 4px; }
+.au-perms-minus { color: var(--bad-fg); margin-left: 4px; }
+.au-perms-note { padding: 0 var(--sp-3) var(--sp-2); margin: 0; }
+.au-perms-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+:host ::ng-deep .au-perms-search { flex: 1; }
+:host ::ng-deep .au-perms-search input { width: 100%; font-size: var(--fs-sm); }
+
+.au-perms-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-3);
+  /* Tope de alto: la lista puede traer 160 renglones cuando se busca, y el
+     side-peek no debe crecer sin fin. */
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.au-perm {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border-color) 45%, transparent);
+}
+.au-perm:last-child { border-bottom: 0; }
+.au-perm-lbl {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.au-perm-nm {
+  font-size: var(--fs-sm);
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.au-perm-tag {
+  flex: none;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+/* La excepción es lo único que hay que poder leer de un barrido. */
+.au-perm-exc .au-perm-nm { font-weight: 600; }
+.au-perm-plus { color: var(--ok-fg); font-weight: 600; }
+.au-perm-minus { color: var(--bad-fg); font-weight: 600; }
+
 /* ── Móvil: el índice se vuelve una tira horizontal sobre la tabla. ─────── */
 @media (max-width: 900px) {
   .au-grid { grid-template-columns: minmax(0, 1fr); }

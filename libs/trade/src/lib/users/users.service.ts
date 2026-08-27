@@ -13,7 +13,13 @@ import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { getDataScope, TenantContextService, PermissionsCacheService } from '@megadulces/platform-core';
+import {
+  getDataScope,
+  TenantContextService,
+  PermissionsCacheService,
+  Permission,
+  buildAbility,
+} from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
@@ -645,6 +651,29 @@ export class UsersService {
    * No confundir con los roles: el departamento describe dónde trabaja la
    * persona, el rol describe qué puede hacer en la app.
    */
+  /**
+   * `[ID.23]` — Sucursales con la ZONA que cada una declara.
+   *
+   * Existe para que el alta pregunte una sola vez: se elige la sucursal y la zona
+   * se deriva de acá. Antes el formulario listaba las sucursales desde una
+   * constante hardcodeada del front (`STORE_BRANCHES`), que además de no traer la
+   * zona se desincroniza de la DB sin que nadie se entere.
+   *
+   * `zone_id` puede venir NULL: hay sucursales sin plaza definida (04 Yurécuaro)
+   * y el formulario tiene que poder decirlo en vez de rellenar cualquier cosa.
+   */
+  async getBranches() {
+    return this.knex('commercial.warehouses as w')
+      .leftJoin('trade.zones as z', function () {
+        this.on('z.tenant_id', '=', 'w.tenant_id').andOn('z.id', '=', 'w.zone_id');
+      })
+      .where({ 'w.tenant_id': this.tenantId })
+      .whereNull('w.deleted_at')
+      .whereRaw(`w.code ~ '^[0-9]{2}$'`)
+      .orderBy('w.code')
+      .select('w.code', 'w.name', 'w.zone_id', 'z.name as zone_name');
+  }
+
   async getDepartments() {
     return this.knex('identity.departments')
       .where({ tenant_id: this.tenantId })
@@ -957,6 +986,233 @@ export class UsersService {
     this.permsCache?.invalidateUser?.(id, this.tenantId);
 
     return { user_id: id, complementos: canonicos, agregados, quitados };
+  }
+
+  /**
+   * `[ID.21]` — Acceso VIGENTE del usuario en sesión, para que el front no dependa
+   * del snapshot del JWT.
+   *
+   * El problema concreto: los permisos viajan en el token (ADR-050), así que el
+   * backend aplica un cambio en ≤30s pero el MENÚ sigue mostrando lo de antes
+   * hasta que la persona vuelve a entrar. Con permisos por usuario eso se vuelve
+   * la queja principal — "le di el permiso y no le aparece". El front llama esto
+   * al arrancar y refresca su mapa sin re-login.
+   *
+   * Devuelve también `rules` de CASL: es lo que consume `PermissionsService` del
+   * front, y recalcularlo acá evita que el front tenga que saber cómo se arma.
+   */
+  async accessFor(userId: string, roleName?: string) {
+    const permisos =
+      (await this.permsCache?.getPermissionsForUser?.(userId, this.tenantId, roleName)) ??
+      (await (async () => {
+        // Sin cache (tests): se reconstruye desde la misma fuente.
+        const detalle = await this.permissions(userId);
+        return Object.fromEntries(detalle.efectivos.map((k: string) => [k, true]));
+      })());
+    const ability = buildAbility(permisos, { roleName });
+    return { user_id: userId, role_name: roleName ?? null, permissions: permisos, rules: ability.rules };
+  }
+
+  /**
+   * `[ID.21]` — Permisos de una persona: lo que le da su puesto, lo que tiene de
+   * más o de menos, y lo que aplica de verdad.
+   *
+   * Devuelve las tres capas por separado en vez de un solo mapa aplanado, porque
+   * la pregunta que se hace frente a la pantalla no es "qué puede hacer" sino
+   * "por qué puede hacer esto" — y la respuesta útil es "se lo da el puesto" o
+   * "alguien se lo dio a él, con esta nota, este día".
+   */
+  async permissions(id: string) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'nombre', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const roles = await this.knex('identity.user_roles')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy([{ column: 'is_primary', order: 'desc' }, { column: 'role_name' }])
+      .select('role_name', 'is_primary');
+    // Fallback: si no hay filas (usuario viejo, migración sin correr) el perfil
+    // base sigue siendo `users.role_name`. Mismo criterio que el guard.
+    const nombresRol = roles.length ? roles.map((r) => r.role_name) : [user.role_name].filter(Boolean);
+
+    // El estándar del puesto = unión de los roles, `true` gana.
+    const delPuesto: Record<string, boolean> = {};
+    if (nombresRol.length) {
+      const filas = await this.knex('identity.role_permissions')
+        .where({ tenant_id: this.tenantId })
+        .whereRaw(
+          `LOWER(role_name) = ANY(?)`,
+          [nombresRol.map((r: string) => String(r).toLowerCase())],
+        )
+        .select('permissions');
+      for (const f of filas as Array<{ permissions: Record<string, boolean> }>) {
+        for (const [k, v] of Object.entries(f.permissions ?? {})) {
+          if (v === true) delPuesto[k] = true;
+        }
+      }
+    }
+
+    const overrides = await this.knex('identity.user_permissions')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy('permission_key')
+      .select('permission_key', 'allow', 'nota', 'granted_by_username', 'created_at', 'updated_at');
+
+    const efectivos: Record<string, boolean> = { ...delPuesto };
+    for (const o of overrides) {
+      if (o.allow) efectivos[o.permission_key] = true;
+      else delete efectivos[o.permission_key];
+    }
+
+    return {
+      user_id: id,
+      username: user.username,
+      nombre: user.nombre,
+      perfil_base: user.role_name,
+      roles,
+      // `superadmin` pasa por `manage:all` antes de mirar el mapa: los overrides
+      // no le muerden. La UI lo dice en vez de mostrar casillas que no hacen nada.
+      platform_admin: ELEVATED_ROLES.has(String(user.role_name ?? '').toLowerCase()),
+      del_puesto: Object.keys(delPuesto).sort(),
+      efectivos: Object.keys(efectivos).sort(),
+      overrides,
+      de_mas: overrides.filter((o) => o.allow).map((o) => o.permission_key),
+      de_menos: overrides.filter((o) => !o.allow).map((o) => o.permission_key),
+    };
+  }
+
+  /**
+   * `[ID.21]` — Fija los permisos PROPIOS de una persona (la diferencia contra el
+   * estándar de su puesto). Semántica de PUT: la lista que llega es la final.
+   *
+   * Tres cosas que este método NO deja hacer, y el motivo:
+   *
+   *   1. **Overrides sobre un rol de plataforma.** `buildAbility` le da
+   *      `manage:all` a superadmin/admin y el guard corta ahí. Un `allow=false`
+   *      quedaría guardado y no haría nada: peor que no poder, porque el admin
+   *      cree que revocó. Se rechaza con el motivo.
+   *   2. **Otorgar lo que quien edita no tiene.** Con `USUARIOS_GESTIONAR`
+   *      alcanzaría para darse a sí mismo cualquier permiso del sistema. Un
+   *      superadmin está exento (ya tiene todo).
+   *   3. **Darse permisos a uno mismo.** Un no-superadmin editando su propia
+   *      ficha es exactamente el camino de escalación, aunque el permiso ya lo
+   *      tenga por rol.
+   */
+  async setPermissions(
+    id: string,
+    overrides: Array<{ permission_key: string; allow: boolean; nota?: string | null }>,
+    requester: RequesterContext,
+  ) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub, tenant_id: this.tenantId })
+      .first('role_name');
+    const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+
+    const pedidos = (overrides ?? []).filter((o) => o && o.permission_key);
+    if (ELEVATED_ROLES.has(String(user.role_name ?? '').toLowerCase()) && pedidos.length) {
+      throw new BadRequestException(
+        `"${user.role_name}" ya tiene acceso total por rol: los permisos por usuario no le aplican. ` +
+          `Para limitar a esta persona hay que cambiarle el perfil base.`,
+      );
+    }
+
+    // Claves válidas = el enum. El CHECK de la tabla valida la FORMA; esto valida
+    // que EXISTA. Un permiso mal escrito se guarda feliz y no hace nada.
+    const validas = new Set<string>(Object.values(Permission) as string[]);
+    for (const o of pedidos) {
+      if (!validas.has(o.permission_key)) {
+        throw new BadRequestException(`El permiso "${o.permission_key}" no existe.`);
+      }
+    }
+
+    if (!esSuperadmin) {
+      if (requester.sub === id) {
+        throw new ForbiddenException(
+          'No puedes editar tus propios permisos. Pedíselo a un superadmin.',
+        );
+      }
+      const propios = await this.permsCache?.getPermissionsForUser?.(
+        requester.sub,
+        this.tenantId,
+        requesterRow?.role_name,
+      );
+      const otorgando = pedidos.filter((o) => o.allow).map((o) => o.permission_key);
+      const sinTener = otorgando.filter((k) => propios?.[k] !== true);
+      if (sinTener.length) {
+        throw new ForbiddenException(
+          `No puedes otorgar permisos que no tenés: ${sinTener.join(', ')}.`,
+        );
+      }
+    }
+
+    const previos = await this.knex('identity.user_permissions')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .select('permission_key', 'allow');
+    const previoDe = new Map<string, boolean>(previos.map((p) => [p.permission_key, p.allow]));
+    const pedidoDe = new Map<string, { allow: boolean; nota?: string | null }>(
+      pedidos.map((o) => [o.permission_key, { allow: !!o.allow, nota: o.nota ?? null }]),
+    );
+
+    const quitados = Array.from(previoDe.keys()).filter((k) => !pedidoDe.has(k));
+    const cambiados = Array.from(pedidoDe.entries()).filter(
+      ([k, v]) => !previoDe.has(k) || previoDe.get(k) !== v.allow,
+    );
+    if (!quitados.length && !cambiados.length) {
+      return { user_id: id, overrides: pedidos, agregados: [], quitados: [], sin_cambios: true };
+    }
+
+    await this.knex.transaction(async (trx) => {
+      if (quitados.length) {
+        await trx('identity.user_permissions')
+          .where({ tenant_id: this.tenantId, user_id: id })
+          .whereIn('permission_key', quitados)
+          .del();
+      }
+      for (const [key, v] of pedidoDe.entries()) {
+        const fila = {
+          tenant_id: this.tenantId,
+          user_id: id,
+          permission_key: key,
+          allow: v.allow,
+          nota: v.nota,
+          granted_by: requester.sub,
+          granted_by_username: requester.username ?? null,
+          updated_at: trx.fn.now(),
+        };
+        await trx('identity.user_permissions')
+          .insert(fila)
+          .onConflict(['tenant_id', 'user_id', 'permission_key'])
+          .merge(fila);
+      }
+      await this.recordEvent(
+        trx,
+        id,
+        'permissions_changed',
+        {
+          concedidos: cambiados.filter(([, v]) => v.allow).map(([k]) => k),
+          revocados: cambiados.filter(([, v]) => !v.allow).map(([k]) => k),
+          vueltos_al_puesto: quitados,
+          perfil_base: user.role_name,
+        },
+        requester,
+      );
+    });
+
+    // El guard cachea los overrides 30s: sin esto el cambio tarda medio minuto
+    // en aplicar y parece que no se guardó.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    return {
+      user_id: id,
+      overrides: pedidos,
+      agregados: cambiados.map(([k]) => k),
+      quitados,
+    };
   }
 
   /** Bitácora del usuario, para el panel de detalle. */
