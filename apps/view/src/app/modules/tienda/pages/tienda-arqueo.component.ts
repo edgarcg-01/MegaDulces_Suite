@@ -97,7 +97,17 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
               <p-datepicker [(ngModel)]="aDate" (ngModelChange)="dirty.set(true)" dateFormat="dd/mm/yy"
                             [showIcon]="true" appendTo="body" styleClass="arq-date" inputStyleClass="arq-fld" />
             </label>
-            <label class="arq-lbl">{{ aTipo() === 'relevo' ? 'Cajero saliente' : 'Cajero' }} <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
+            <label class="arq-lbl">{{ aTipo() === 'relevo' ? 'Cajero saliente' : 'Cajero' }}
+              @if (revela) {
+                <!-- Supervisor: puede capturar por otra persona (relevo, cajera sin acceso). -->
+                <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="opcional">
+              } @else {
+                <!-- Cajera: el arqueo queda a SU nombre y no es editable — firmar un conteo
+                     de efectivo a nombre de otro no es un campo de formulario. El backend
+                     lo impone igual; esto solo lo hace visible. -->
+                <span class="arq-fijo" [title]="'El arqueo queda a tu nombre (' + aCajero + ')'">{{ aCajero || '—' }}</span>
+              }
+            </label>
             @if (aTipo() === 'relevo') { <label class="arq-lbl">Cajero entrante <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label> }
           </div>
 
@@ -218,6 +228,9 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     :host ::ng-deep .arq-fld { font-size: .82rem; padding: .35rem .6rem; }
     :host ::ng-deep .arq-fld-sm { width: 5.5rem; }
     .arq-fld-suc { width: 11rem; }
+    .arq-fijo { display: inline-flex; align-items: center; min-height: 1.9rem; padding: .35rem .6rem; font-size: .82rem; font-weight: 600;
+                font-variant-numeric: tabular-nums; color: var(--text-main); background: var(--surface-hover-bg);
+                border: 1px dashed var(--border-color); border-radius: var(--r-sm, 8px); }
     :host ::ng-deep .arq-num { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
     :host ::ng-deep .arq-date .p-datepicker-input { width: 8.5rem; }
     .arq-block { display: block; margin: .8rem 0; }
@@ -299,14 +312,15 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
 
   ngOnInit() {
-    // SM.9 — autofill del cajero: las cajeras loguean con username = su código de
-    // caja. Prellenamos el código (en MAYÚSCULAS, como viene en el corte de Kepler)
-    // solo cuando el usuario tiene sucursal propia (= es una cajera, no un rol
-    // global). Así solo cuenta el dinero.
-    if (this.auth.user()?.warehouse_code) {
-      const u = this.auth.user()?.username;
-      if (u) this.aCajero = u.toUpperCase();
-    }
+    // El arqueo se atribuye a quien lo está haciendo. El `username` ES el código
+    // de cajero de Kepler — verificado: `upper(username) = upper(cash_cuts.cajero_cierre)`
+    // liga a cada cajera con sus cortes (10c02→48, 42dmar→204, 54tysl→120) — y en
+    // MAYÚSCULAS porque así lo guarda el ERP. Es la llave con la que el motor
+    // encuentra el turno, así que se llena SIEMPRE, no solo cuando hay sucursal
+    // propia (antes se saltaba para roles globales y el campo quedaba vacío).
+    // Para la cajera es fijo; el supervisor lo puede cambiar (captura por otro).
+    const u = this.auth.user()?.username;
+    if (u) this.aCajero = u.toUpperCase();
     this.dataScope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (w) => {
         this.sucursales.set(w);

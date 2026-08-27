@@ -86,13 +86,34 @@ export class StoreArqueoController {
     );
   }
 
+  /**
+   * A nombre de QUIÉN queda el arqueo.
+   *
+   * El `username` **es** el código de cajero de Kepler: verificado contra
+   * `analytics.cash_cuts`, `upper(username) = upper(cajero_cierre)` liga a cada
+   * cajera con sus cortes (`10c02`→48, `42dmar`→204, `54tysl`→120…). Va en
+   * MAYÚSCULAS porque así lo guarda el ERP, y es la llave con la que
+   * `BlindCountService.compare()` encuentra el turno.
+   *
+   * A la cajera se le **impone** su propio usuario: firmar un conteo de efectivo
+   * a nombre de otra persona no es un campo de formulario. El supervisor sí puede
+   * capturar por alguien (arqueo de relevo, cajera sin acceso), y si no dice nada
+   * queda a su nombre.
+   */
+  private atribuir(body: BlindCountDto, user: AuthUser, revela: boolean): string | undefined {
+    const propio = user?.username?.trim().toUpperCase() || undefined;
+    if (!revela) return propio;
+    return body?.cajero_code?.trim().toUpperCase() || propio;
+  }
+
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
-  @ApiOperation({ summary: 'Tienda — la cajera captura su arqueo CIEGO. Devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
+  @ApiOperation({ summary: 'Tienda — la cajera captura su arqueo CIEGO. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
   async submit(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
-    const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
-    const res = await this.blind.submit({ ...body, warehouse_code }, user?.username);
     const revela = this.revela(user);
+    const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
+    const cajero_code = this.atribuir(body, user, revela);
+    const res = await this.blind.submit({ ...body, warehouse_code, cajero_code }, user?.username);
     // Sin revelación, `matched`/`ambiguous` tampoco tienen sentido (no hay nada
     // que comparar del lado de la cajera) y `ambiguous` filtraría que hay más de
     // un corte en su caja. Respuesta mínima: se guardó y cuánto contó.

@@ -46,6 +46,13 @@ const MIAS = ['ZA', 'ZB'];
 const AJENA = 'ZC';
 const FECHA = '2026-07-02';
 const CAJA = '9';
+/**
+ * El `username` ES el código de cajero de Kepler, en MAYÚSCULAS — verificado contra
+ * `analytics.cash_cuts` (`upper(username) = upper(cajero_cierre)`). El backend lo
+ * estampa solo; el test siembra los cortes con ese mismo código para que el motor
+ * encuentre el turno.
+ */
+const CAJERO = USER.toUpperCase();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -143,14 +150,14 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   for (const wh of [...MIAS, AJENA]) {
     await pg.query(
       `INSERT INTO analytics.cash_cuts (tenant_id, warehouse_code, caja, folio, business_date, cajero_cierre, efectivo_esperado, efectivo_contado, efectivo_diff, total_venta)
-       VALUES ($1,$2,$3,$4,$5,'SMOKE',5000,5000,0,5000) ON CONFLICT DO NOTHING`,
-      [M, wh, CAJA, `SMK-${wh}`, FECHA],
+       VALUES ($1,$2,$3,$4,$5,$6,5000,5000,0,5000) ON CONFLICT DO NOTHING`,
+      [M, wh, CAJA, `SMK-${wh}`, FECHA, CAJERO],
     );
     await pg.query(
       `INSERT INTO reconciliation.blind_counts (tenant_id, tipo, warehouse_code, caja, business_date, cajero_code, denominations, total_contado, captured_by)
-       VALUES ($1,'cierre',$2,$3,$4,'SMOKE','{"1000":4}'::jsonb,4000,'smoke')
+       VALUES ($1,'cierre',$2,$3,$4,$5,'{"1000":4}'::jsonb,4000,'smoke')
        ON CONFLICT DO NOTHING`,
-      [M, wh, CAJA, FECHA],
+      [M, wh, CAJA, FECHA, CAJERO],
     );
   }
   check('3 cortes + 3 arqueos sintéticos sembrados', true);
@@ -187,13 +194,14 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('pero SÍ trae su total contado', rows.length > 0 && rows.every((r) => tiene(r, 'total_contado')));
 
   console.log('\n── 5. Cajera: captura dentro y fuera del alcance ──');
-  // `cajero_code` = el mismo del corte sembrado: es la llave con la que el motor
-  // encuentra el turno. Con otro cajero no habría corte que comparar y el paso 6
-  // (autolineado) no probaría nada. Contado $3,000 vs esperado $5,000 → faltante
-  // de $2,000 que la cajera NO debe ver y el supervisor SÍ debe recibir.
+  // Se manda un `cajero_code` FALSEADO a propósito: el arqueo tiene que quedar a
+  // nombre de quien lo captura, no de quien diga el body. Si el backend lo
+  // respetara, el motor no encontraría el turno (el corte es de CAJERA_SMOKE) y
+  // el paso 6 se caería solo. Contado $3,000 vs esperado $5,000 → faltante de
+  // $2,000 que la cajera NO debe ver y el supervisor SÍ debe recibir.
   const okPost = await req('POST', '/store/arqueo', cajera, {
     warehouse_code: MIAS[1], caja: CAJA, business_date: FECHA, tipo: 'cierre',
-    cajero_code: 'SMOKE', denominations: { '500': 6 },
+    cajero_code: 'OTRA_PERSONA', denominations: { '500': 6 },
   });
   check('captura en sucursal asignada 200/201', [200, 201].includes(okPost.status), `status=${okPost.status} body=${JSON.stringify(okPost.body).slice(0, 120)}`);
   check('la respuesta dice reveal=false', okPost.body?.reveal === false, `reveal=${okPost.body?.reveal}`);
@@ -201,6 +209,13 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('la respuesta NO trae `diff_real`', !tiene(okPost.body, 'diff_real'));
   check('la respuesta NO trae `ambiguous` (filtraría que hay varios cortes)', !tiene(okPost.body, 'ambiguous'));
   check('la respuesta confirma su total contado ($3,000)', Number(okPost.body?.total_contado) === 3000, `total=${okPost.body?.total_contado}`);
+  const atrib = await pg.query(
+    `SELECT cajero_code, captured_by FROM reconciliation.blind_counts
+      WHERE tenant_id=$1 AND warehouse_code=$2 AND caja=$3 AND business_date=$4`, [M, MIAS[1], CAJA, FECHA]);
+  check('el arqueo queda a nombre de QUIEN lo captura, no del body',
+    atrib.rows.length === 1 && atrib.rows[0].cajero_code === CAJERO,
+    `cajero_code=${atrib.rows[0]?.cajero_code} (esperado ${CAJERO}), filas=${atrib.rows.length}`);
+  check('y se sella quién lo capturó', atrib.rows[0]?.captured_by === USER, `captured_by=${atrib.rows[0]?.captured_by}`);
 
   const badPost = await req('POST', '/store/arqueo', cajera, {
     warehouse_code: AJENA, caja: CAJA, business_date: FECHA, tipo: 'cierre',
