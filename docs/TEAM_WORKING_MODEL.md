@@ -97,6 +97,26 @@ Los 2 devs en sus máquinas NO necesitan worktrees (cada clon ya está aislado):
 
 Cada dev, el día 1: *"Leé `docs/CLAUDE_ONBOARDING.md` y seguí el protocolo."* Y por tarea, el `task → doc map` de ese protocolo dice qué leer (DB→GOTCHAS, permiso→GOTCHAS §4, feeds→ERP_KEPLER, UI→DESIGN).
 
+## 7. Deploy: `main` NO despliega, `production` sí
+
+Railway auto-deploya la rama **`production`**, NO `main`. Así, mergear N PRs a `main` NO
+dispara N builds que se pisan (antes cada merge = un deploy, 4 merges seguidos = 4 builds,
+varios quedaban FAILED por superados). `main` es integración; `production` es lo que corre en prod.
+
+**Ciclo:**
+```
+PRs → main (review + CI, CERO deploys)     ← se acumulan los merges del día
+.\scripts\deploy-prod.ps1                   ← fast-forward production→main = UN solo deploy
+```
+
+`deploy-prod.ps1` muestra qué commits entran y hace `git push origin main:production`.
+Railway arranca UN build de `production`. `main` puede tener 5 merges y prod se entera de todos
+en un solo deploy, cuando vos decidís soltar.
+
+**Setup en Railway (una vez, en el dashboard):** en cada servicio que sirve código de este repo
+(MegaDulces = api+view, Portal_MegaDulces, Vendor_MegaDulces, y worker/feeds-ingest si aplican) →
+Settings → Source → **Branch = `production`** (hoy están en `main`). Los servicios de DB no se tocan.
+
 ---
 
 **Resumen:** dividir por dominio vertical + un sync diario para las zonas compartidas + disciplina de migraciones. El código modular hace el resto. Los problemas conocidos (permisos, sidebar, migraciones concurrentes) se contienen coordinando, no evitando.
