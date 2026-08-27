@@ -88,7 +88,13 @@ export class KeplerConsolidadoService {
    * (single source of truth = el script; mismo patrón que mega-dulces-sync).
    * El script lee DATABASE_URL_KEPLER_CONSOLIDADO + DATABASE_URL_NEW del env.
    */
-  @Cron('0 0 4 * * *') // 04:00 todos los días
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 1 import-rotation-from-consolidado del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async rotationFeed(): Promise<void> {
     if (!this.db) return; // env no seteado → inerte
     if (this.rotationRunning) {
@@ -128,7 +134,13 @@ export class KeplerConsolidadoService {
    * Best-sellers VIVOS de la red → catalog.top_sellers_live (portal home/catálogo).
    * Nightly (ventana 90d cambia lento). 04:15, tras la rotación.
    */
-  @Cron('0 15 4 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 2 import-top-sellers-from-consolidado del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async topSellersFeed(): Promise<void> {
     if (!this.db) return;
     if (this.topSellersRunning) {
@@ -147,7 +159,13 @@ export class KeplerConsolidadoService {
    * Markup % por producto → catalog.products.markup_pct (KV.4). Nightly 04:40,
    * ANTES del fact (el fact usa markup para el costo). Lee una sucursal Kepler.
    */
-  @Cron('0 40 4 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 3 import-margin del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async marginFeed(): Promise<void> {
     if (!this.db) return;
     if (this.marginRunning) {
@@ -167,7 +185,13 @@ export class KeplerConsolidadoService {
    * command-center / ABC / margen / demanda. Nightly 04:45, tras top-sellers.
    * Ventana 13 meses, bulk staging+merge.
    */
-  @Cron('0 45 4 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 4 import-sales-fact del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async salesFactFeed(): Promise<void> {
     if (!this.db) return;
     if (this.salesFactRunning) {
@@ -186,7 +210,13 @@ export class KeplerConsolidadoService {
    * Stats por producto (ABC/share/rolling) → analytics.product_sales_stats (KV.2).
    * Server-side desde sales_daily. Nightly 04:50, tras el fact.
    */
-  @Cron('0 50 4 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 5 import-sales-stats del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async statsFeed(): Promise<void> {
     if (!this.db) return;
     if (this.salesStatsRunning) {
@@ -205,7 +235,13 @@ export class KeplerConsolidadoService {
    * Salud de inventario → analytics.inventory_health (KV.5): stock × velocidad =
    * días de cobertura + status. Nightly 04:55, tras stats (necesita sales_daily).
    */
-  @Cron('0 55 4 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 9 import-inventory-health del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async healthFeed(): Promise<void> {
     if (!this.db) return;
     if (this.invHealthRunning) {
@@ -243,7 +279,13 @@ export class KeplerConsolidadoService {
    * Historial de compra por cliente → analytics.customer_product_sales (KV.3).
    * Nightly 05:10. Base de Customer 360 (vendedor/televenta/portal).
    */
-  @Cron('0 10 5 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 17 import-customer-sales del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async customerSalesFeed(): Promise<void> {
     if (!this.db) return;
     if (this.custSalesRunning) { this.logger.warn('Skip customerSalesFeed: corrida anterior aún activa'); return; }
@@ -258,7 +300,13 @@ export class KeplerConsolidadoService {
   /**
    * KV.8 — Dims de logística (rutas/choferes/flota) → logistics.*. Nightly 05:15.
    */
-  @Cron('0 15 5 * * *')
+  // RETIRADO 2026-08-26: duplicaba exacto el paso 18 import-logistics-dims del runner on-prem
+  // (run-prod-feeds.js modo nightly), que ES el camino de producción. Ademas en prod
+  // era INERTE: DATABASE_URL_KEPLER_CONSOLIDADO no está seteado en el servicio (y no
+  // puede estarlo: el consolidado vive en la LAN, que Railway no alcanza) → el @Cron
+  // disparaba cada noche y caía en el `if (!this.db) return`. Corriendo el API on-prem
+  // sí escribía, o sea doble-escritura contra el mismo destino. El método queda
+  // invocable a mano (mismo criterio que promosFeed/customersFeed más abajo).
   async logisticsDimsFeed(): Promise<void> {
     if (!this.db) return;
     if (this.logDimsRunning) { this.logger.warn('Skip logisticsDimsFeed: corrida anterior aún activa'); return; }

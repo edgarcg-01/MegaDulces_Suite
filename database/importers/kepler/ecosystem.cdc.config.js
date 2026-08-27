@@ -26,16 +26,33 @@
  */
 const path = require('path');
 const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
+// Lee el .env del repo (gitignored) para que FEEDS_INGEST_KEY salga de UN lugar y cada
+// `pm2 restart` tome la vigente. Antes se heredaba del shell del operador: al rotar la key,
+// los 7 consumidores quedaron tirando `HTTP 401` cada 3 s — sin alerta, porque su latido
+// también viaja por el mismo sink (si el sink no autoriza, tampoco late: el dead-man's switch
+// se queda mudo justo cuando hace falta). Vivido el 2026-08-26.
+require('dotenv').config({ path: path.join(REPO, '.env') });
 const SCRIPT = 'database/importers/kepler/ods-cdc-wal.js';
 const BRANCHES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 
-// Empuja a prod por feeds-ingest (ingress gratis). DATABASE_URL_NEW = BASE local :5433 (el consumidor
-// le cambia el nombre de la DB por sucursal). FEEDS_INGEST_KEY se hereda del entorno (secreto).
+// Empuja a prod por feeds-ingest (ingress gratis). ODS_SOURCE_BASE = BASE local :5433 (el consumidor
+// le cambia el nombre de la DB por sucursal). FEEDS_INGEST_KEY sale del .env (ver arriba).
+//
+// Antes esto seteaba DATABASE_URL_NEW, que es la base de la APP: dev la mueve (p. ej. a la réplica
+// de pruebas en .245) y entonces el consumidor se va a buscar los `kepler_md_XX` al server
+// equivocado y se calla. La fuente ahora tiene env propia. NO poner DATABASE_URL_NEW acá: el
+// destino de este consumidor es http (feeds-ingest), no una DB.
 const env = {
   FEEDS_SINK: 'http',
   FEEDS_INGEST_URL: process.env.FEEDS_INGEST_URL || 'https://feeds-ingest-production.up.railway.app',
-  DATABASE_URL_NEW: process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
+  FEEDS_INGEST_KEY: process.env.FEEDS_INGEST_KEY, // del .env; sin esto todo POST da 401
+  // Sin fallback a DATABASE_URL_NEW a propósito: si dev la movió, heredarla reintroduce la trampa.
+  ODS_SOURCE_BASE: process.env.ODS_SOURCE_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
 };
+if (!env.FEEDS_INGEST_KEY) {
+  // Fallar acá es MUCHO mejor que arrancar 7 procesos que loguean 401 cada 3 s en silencio.
+  throw new Error('FEEDS_INGEST_KEY ausente (ni en el .env del repo ni en el entorno) — no arranco el CDC.');
+}
 const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true, env };
 
 module.exports = {

@@ -246,7 +246,7 @@ export class UsersService {
         'created_at',
       ]);
 
-    return { ...user, zona };
+    return { ...user, zona: _zonaLegacy };
   }
 
   async findAll(
@@ -487,8 +487,8 @@ export class UsersService {
     }
 
     const zoneName =
-      zona !== undefined
-        ? zona
+      _zonaLegacy !== undefined
+        ? _zonaLegacy
         : (
             await this.knex('zones')
               .where({ id: user.zona_id, tenant_id: this.tenantId })

@@ -239,6 +239,147 @@ relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.b
 
 ---
 
+## 13. Feeds on-prem — "tarea Running" NO significa que el feed corra
+
+Los loops del CDC del ODS (`\Tienda\OdsLiveLoop`, `\Tienda\OdsFullMirror`) son un `.cmd` con `:loop` que
+relanza `node` cada iteración. Si el `node` se cuelga, **la tarea sigue en `Running` y el proceso sigue
+vivo** — se ve todo sano y no se está replicando nada. Pasó: 2 días congelado (24-ago 05:18 → 26-ago),
+con `kepler_ods` viejo en prod y con él **toda la capa derive-no-copy** que cuelga de ahí.
+
+**La señal real es el `mtime` del log, no el estado de la tarea ni el proceso:**
+
+```bash
+ls -l --time-style=+%Y-%m-%d_%H:%M /c/KeplerRunner/logs/*.log     # ¿cuál se quedó atrás?
+```
+
+Confirmación: si el proceso lleva minutos vivo con ~0s de CPU, está colgado, no trabajando.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'replicate-ods-live' } |
+  ForEach-Object { "pid={0} arrancado={1:HH:mm} cpu_s={2}" -f $_.ProcessId, $_.CreationDate, [math]::Round($_.UserModeTime/1e7) }
+```
+
+**Arreglo:** matar el `node`. El `:loop` del `.cmd` sigue vivo esperándolo → arranca pasada nueva solo.
+No hace falta reiniciar la tarea.
+
+**Frescura del lado destino** (lo que hay que mirar para saber si prod está al día):
+
+```sql
+SELECT count(*) FROM kepler_ods._sync_status WHERE last_push_at > now() - interval '10 min';
+```
+
+Ojo con dos cosas al diagnosticar:
+- El `FeedGuardian` **no** cubre estos loops (vigila los modos de `run-feeds.cmd`), así que nadie avisa.
+- `{"code":404,"message":"Application not found"}` es el **edge de Railway**, no `feeds-ingest` (la app
+  responde `{"error":"not found"}`). Para saber si la app está viva: `POST /ingest/raw-upsert` sin key
+  debe dar **401**; un 404 ahí sí es la app caída.
+
+## 14. Espejo de feeds a la réplica de pruebas (`FEEDS_MIRROR_URL`)
+
+`lib/sink.js` puede aplicar cada changeset a una **segunda** DB además del destino primario (una lectura
+del origen local → dos destinos). Hoy: `192.168.0.245:5432/platform_test` (estructura de prod, sin data).
+
+- Se prende con `FEEDS_MIRROR_URL` en `.env` (cubre los loops del ODS, que sí cargan dotenv) y en
+  `C:\KeplerRunner\run-feeds.cmd` (para `import-branch-stock-live` / `-goods-receipts` / `-purchase-docs`,
+  que **no** cargan dotenv — y así debe quedar: con dotenv, una corrida manual apuntaría a la copia stale
+  de `localhost:5433` en vez de fallar).
+- Es **best-effort**: si el espejo falla, el feed primario sigue igual. Quitar la env = rollback total.
+- Al agregar un `Client` de pg de larga vida a un importer, **`unref()` el socket** o el proceso no termina
+  nunca (los importers cierran con `process.exitCode`, no `process.exit()`) → ver gotcha #13.
+- Solo replica **hacia adelante**: el watermark ya viene avanzado, la réplica no tiene historia.
+- Smoke: `node database/importers/_smoke-sink-mirror.js` (7 aserciones, no toca prod).
+
+## 15. `run-prod-feeds.js` — un step `[ruta, ...flags]` puede matar el modo entero
+
+Una entrada de `STEPS` puede ser una ruta **o** `[ruta, ...flags]`. El archivo tiene `pathOf(entry)`
+para eso, pero cualquier función que use la entrada cruda con `path.basename()` tira
+`ERR_INVALID_ARG_TYPE` **antes de correr el primer paso** → el modo completo muere al arrancar.
+
+Ya pasó: el commit que agregó el primer step-array (24-ago-2026) dejó el **`nightly` de prod sin
+correr el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`,
+`inventory-health`, `reorder-policy` ni DRP. Nadie se enteró: el runner sale con código ≠ 0 pero
+**nada mira el resultado del nightly**.
+
+Al tocar `STEPS` o cualquier helper que lo recorra: **siempre `pathOf(s)`**, nunca la entrada cruda.
+Y para verificar que un modo arranca, alcanza el dry-run (sin `--apply`):
+
+```bash
+node database/importers/kepler/run-prod-feeds.js <modo> | head -3
+```
+
+## 16. Trampas chicas de los feeds on-prem (ya vividas)
+
+- **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
+  nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
+  Pasar siempre por `tr -d '\r'`.
+- **El réplica lógico de la sucursal 03 se llama `kepler_pilot`** (nombre del piloto, rename
+  diferido), no `kepler_md_03`. Existe además un `md_03` que es un **sobrante congelado en junio**:
+  usarlo da data vieja sin ningún error. La resolución canónica está en `localDbName()` de
+  `replicate-ods-live.js`.
+- **`sslmode=no-verify` no existe en libpq.** Es cosa de node-postgres. Para `psql`/`pg_dump` contra
+  el proxy de Railway va `sslmode=require`.
+- **Editar un `.cmd` que está corriendo** corre el offset de lectura de `cmd.exe` y puede hacerle
+  ejecutar un fragmento partido. Si el cambio es un reemplazo de **igual largo** (p. ej. rotar una
+  key por otra del mismo tamaño) no se mueve ningún byte y es inofensivo. Si cambia el tamaño:
+  detener la tarea, editar, arrancar.
+- **`session_replication_role = replica`** (como superuser) apaga triggers y chequeo de FK — sirve
+  para cargas masivas sin pelear el orden entre tablas. Lo que **no** apaga son los índices UNIQUE.
+
+## 17. `DATABASE_URL_NEW` tiene DOS roles — y moverla calla el CDC
+
+Esa var significa dos cosas distintas según quién la lee:
+
+| Quién | Para qué la usa |
+|---|---|
+| API (`new-database.module.ts`) | conexión **admin** (`KNEX_NEW_DB_ADMIN`, REFRESH de MVs) |
+| `knexfile-newdb.js` | destino de las **migraciones** |
+| `replicate-ods-live.js` / `ods-cdc-wal.js` | **BASE de la FUENTE**: de ahí derivan `kepler_md_XX` (los replicas lógicos del contenedor `:5433`) |
+
+Ese tercer uso es la trampa. Si dev mueve `DATABASE_URL_NEW` para apuntar la app a otra base
+(p. ej. la réplica de pruebas en `.245`), el CDC se va a buscar los replicas al server equivocado
+y **se calla**: loguea `no conecta — skip` por rama y la pasada termina "bien" sin shipear nada.
+`kepler_ods` en prod se congela en silencio y con él toda la capa derive-no-copy.
+
+**Desde 2026-08-26 la fuente tiene env propia: `ODS_SOURCE_BASE`** (fallback a `DATABASE_URL_NEW`
+por compatibilidad). Está fijada explícitamente en `run-ods-live-loop.cmd`,
+`run-ods-full-mirror.cmd`, `run-ods-loop.cmd` y en `ecosystem.cdc.config.js` — ahí **sin** fallback
+a `DATABASE_URL_NEW`, porque heredarla reintroduce la trampa.
+
+Al mover la app a otra base, mover **las dos**:
+
+- `DATABASE_URL_NEW_RUNTIME` → rol **`app_runtime`** (con RLS). NUNCA `postgres`: el runtime tiene
+  que ejercitar RLS o los bugs de aislamiento entre tenants no aparecen en dev.
+- `DATABASE_URL_NEW` → rol `postgres` (admin: migraciones + REFRESH MV).
+
+Y verificar que el rol `app_runtime` existe **con la contraseña correcta** en el server destino: en
+`.245` existía con una contraseña vieja del snapshot de junio y ninguna credencial de la máquina
+servía. Sin eso el API no arranca contra esa base.
+
+## 18. Rotar `FEEDS_INGEST_KEY` deja ciegos a los consumidores WAL (y su alerta también)
+
+Los 7 `cdc-wal-XX` de PM2 heredaban la key **del shell del operador** al momento de
+`pm2 start`. Al rotarla (Railway + los `.cmd` de KeplerRunner) esos procesos siguen con la
+vieja en memoria → **`HTTP 401` en cada flush, cada 3 segundos**, con `pm2 ls` diciendo
+`online`. Vivido el 2026-08-26.
+
+Lo que lo vuelve traicionero: **el latido de esos consumidores viaja por el MISMO sink**. Si el
+sink no autoriza, tampoco late — el dead-man's switch de Salud BD (`cdc_wal_00..06`) se queda
+mudo exactamente cuando hace falta. Un sensor que depende del canal que vigila no sirve.
+
+**Al rotar la key, la lista completa es:**
+
+1. Railway (`railway variables -s feeds-ingest --set …`).
+2. Los `.cmd` de `C:\KeplerRunner` (6 archivos). Generá la key nueva **del mismo largo** que la
+   vieja: el reemplazo no mueve bytes y editar un `.cmd` en ejecución deja de ser riesgoso.
+3. `.env` del repo (`FEEDS_INGEST_KEY`) — de ahí la lee `ecosystem.cdc.config.js`.
+4. **`pm2 restart cdc-wal-00 … cdc-wal-06 --update-env`** + `pm2 save` (si no, un reboot
+   resucita con la vieja).
+5. Verificar: que los `*-error.log` de PM2 dejen de crecer **y** que `analytics.cron_runs`
+   muestre `cdc_wal_0*` con `updated_at` fresco. Lo primero solo no alcanza.
+
+`ecosystem.cdc.config.js` ahora carga el `.env` del repo y **lanza** si la key falta: fallar al
+arrancar es mucho mejor que 7 procesos logueando 401 en silencio.
 ## 19. derive-no-copy tiene un GATE DE COSTO (no todo lo derivable puede ser vista)
 
 La regla "todo lo derivable sale del ODS" necesita un calificador: **derivable Y barato de derivar

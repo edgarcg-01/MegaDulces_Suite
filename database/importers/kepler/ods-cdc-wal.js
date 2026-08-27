@@ -26,7 +26,12 @@ const WATCH = process.argv.includes('--watch');
 const DROP_SLOT = process.argv.includes('--drop-slot');
 const SECONDS = Number((process.argv.find((a) => a.startsWith('--seconds=')) || '').split('=')[1]) || 20;
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// ODS_SOURCE_BASE = contenedor de replicas lógicas (:5433). Desacoplada de DATABASE_URL_NEW a
+// propósito: esa var la mueve dev para apuntar la app a otra base, y si de ahí se derivan los
+// `kepler_md_XX` el consumidor WAL se queda buscando los replicas en el server equivocado
+// (y calla). Fallback a DATABASE_URL_NEW por compatibilidad. Ver replicate-ods-live.js.
+const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
+  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const PUB = 'ods_cdc_pub';
 // OJO: los nombres de replication slot son ÚNICOS POR CLUSTER (no por DB). Las 7 ramas viven en el
 // MISMO postmaster :5433 → hay que usar un slot por rama (ods_cdc_<code>); si todas usaran 'ods_cdc'
