@@ -55,6 +55,27 @@ const SETTINGS_DEFAULT: ReceiptSettings = {
 const SETTINGS_TTL_MS = 60_000;
 
 /**
+ * Normaliza una columna `date` de Postgres a `'AAAA-MM-DD'`.
+ *
+ * `node-pg` devuelve `date` como **objeto `Date`** (no como string), así que el
+ * `String(row.reception_start).slice(0, 10)` que vivía acá producía `'Sat Aug 01'` — y ese
+ * texto volvía al SQL como parámetro de fecha: `22007 la sintaxis de entrada no es válida para
+ * tipo date`, con toda la lista de entradas devolviendo 500. Pasó desapercibido porque mientras
+ * `finance.receipt_settings` no tuvo fila, `settings()` caía al default (que ya era un string).
+ *
+ * Se arma con los componentes **locales**, no con `toISOString()`: pg parsea el `date` como
+ * medianoche local, y en un huso positivo el ISO devolvería el día anterior.
+ */
+function soloFecha(v: unknown, fallback: string): string {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  const s = String(v ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback;
+}
+
+/**
  * Cómo se elige "la última evidencia" de una entrada. **No es cosmético**: de esto sale si la
  * entrada está en la cola del revisor, si el capturista la ve como devuelta y qué motivo se le
  * muestra.
@@ -216,7 +237,7 @@ export class GoodsReceiptProofsService {
       const row = await trx('finance.receipt_settings').where({ tenant_id: tenantId }).first();
       if (row) {
         v = {
-          reception_start: String(row.reception_start).slice(0, 10),
+          reception_start: soloFecha(row.reception_start, RECEPTION_START_DEFAULT),
           match_tolerance: Number(row.match_tolerance),
           sla_capture_days: Number(row.sla_capture_days),
           sla_review_days: Number(row.sla_review_days),
