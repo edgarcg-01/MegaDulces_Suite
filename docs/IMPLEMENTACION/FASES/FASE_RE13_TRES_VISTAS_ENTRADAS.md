@@ -420,10 +420,45 @@ pares automáticos ($19.7M que dejan de contarse dos veces) + 77 propuestas ($84
   dos importes, su Δ y el proveedor de cada catálogo. El KPI dice **cuánto dinero se cuenta dos
   veces por no decidir**, que es el costo de dejar la bandeja llena.
 
-### 10.5 Lo que queda
+### 10.5 El motor (RE.14.6)
 
-- **RE.14.6** — meter el detector en el cron de feeds (nightly, después de `import-goods-receipts`).
-  Hoy es manual: cada recepción nueva nace contada dos veces hasta la próxima corrida.
+Un apareo que hay que correr a mano no es un proceso: **cada recepción nueva nace contada dos
+veces** y se queda así hasta que alguien se acuerde. Ahora se aparea solo cada 5 minutos.
+
+**La cascada se mudó a la DB** (`analytics.fn_goods_receipt_twin_candidates`, que sólo lee, y
+`analytics.fn_pair_goods_receipts`, que aplica). La razón no es elegancia: son **tres** los
+consumidores del mismo apareo —el cron de la API, el CLI de backfill y el smoke— y el CLI es Node
+plano en `database/` que no puede importar de `libs/`. Con la lógica en TypeScript había que
+mantener dos copias del SQL que decide *qué dinero deja de contarse*; con la lógica en la DB hay
+una sola, y corre donde están los datos.
+
+**Ventana corta a propósito**: 45 días cuesta ~3 s, el histórico completo **~45 s**. Un cron no
+paga el barrido histórico cada 5 minutos; eso se hace una vez con el CLI.
+
+**El orden importa**: el watcher de órdenes nuevas llama al motor **antes** de anunciar. La copia
+de oficinas de una recepción que la sucursal ya capturó no es una orden nueva — anunciarla le pide
+al capturista evidencia de algo que ya cubrió. Y el que llega tarde **espera** la corrida en vuelo
+en vez de saltarse el turno: saltárselo era exactamente anunciar antes de que el apareo terminara.
+
+Dos bugs que salieron de medirlo, no de leerlo:
+
+1. **La ventana corta desapareaba pares válidos.** La regla más floja tolera ±15 días, así que la
+   copia de sucursal podía caer justo antes del corte: sin candidato, y como la limpieza borra las
+   marcas sin candidato, el par vigente se destruía. **3 pares perdidos** en la primera corrida con
+   45 días. La función arranca 15 días antes del corte y el smoke fija la invariante
+   (`obsoletas = 0` en una corrida con ventana).
+2. **Una colisión de unicidad tiraba la corrida entera.** Si una canónica ya tenía marca del motor
+   apuntando a otro folio de oficinas, el UPSERT violaba `ux_grd_canonica_viva`. Ahora el conflicto
+   se limpia antes de escribir: gana lo recién calculado, y las marcas humanas nunca entran ahí.
+
+`nuevas` se cuenta antes del UPSERT porque es el único número que sirve para loguear: `marcadas`
+son todas las de la ventana (casi siempre las mismas), y un cron que reporta "405 marcas" cada 5
+minutos tapa el log justo cuando pasó algo.
+
+### 10.6 Lo que queda
+
 - **RE.14.7** — Wincaja (`30`/`32`/`50`): el motor ya los toma como canónicos, pero la landing está
   vacía en local, así que **no está medido** si oficinas también los espeja.
-- **Prod**: mig `20260827160000` + correr `detect-goods-receipt-duplicates.js --apply` **desde LAN**.
+- **Prod**: migs `20260827160000` + `20260827170000`, y correr
+  `detect-goods-receipt-duplicates.js --apply` **una vez** para el histórico; de ahí en adelante lo
+  mantiene el cron de la API.
