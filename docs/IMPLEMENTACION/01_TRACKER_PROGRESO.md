@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-08-27 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — gemelas sucursal↔oficinas con motor automático · Fase RE.15 — plan de UI: auditoría de las 6 pantallas contra DESIGN.md)
+**Última actualización:** 2026-08-27 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — gemelas sucursal↔oficinas con motor automático · Fase RE.15 — auditoría de UI contra DESIGN.md · **Fase RE.16 — de 6 pantallas a 3, una por rol: Centro de control, arrastrar el PDF a su fila, sólo PDF**)
 
 ---
 
@@ -947,7 +947,23 @@ Auditadas las 6 pantallas contra `DESIGN.md` (checklist pre-vuelo + Operations +
 - [ ] **[RE.15.4]** ⬜ **Estado en la URL** — filtros/selección a query params (Compras 360 ya lo hace).
 - [ ] **[RE.15.5]** ⬜ **INP < 200ms medido** en las dos vistas densas (200 filas sin virtualizar).
 - [ ] **[RE.15.6]** ⬜ **QA visual light + dark + móvil** 🚧 **requiere navegador**: o lo corre Edgar con el checklist de 14 puntos, o se autoriza levantar dev servers y lo automatizo con Playwright.
-- ⚖️ **Decisiones de Edgar:** **D1** `p-table` vs tabla cruda + clases canónicas (choque explícito entre "PrimeNG-first" y la licencia comercial de PrimeNG v22; recomiendo cruda) · **D2** 5 items de sidebar vs 2 + `PageTabs` (recomiendo 2 por trabajo) · **D3** el legacy de 1,799 líneas: dejar de crecerlo y mover su diálogo de 72rem a `SidePeek`.
+- ⚖️ **Decisiones de Edgar:** **D1** `p-table` vs tabla cruda + clases canónicas (choque explícito entre "PrimeNG-first" y la licencia comercial de PrimeNG v22; recomiendo cruda) → **resuelta en RE.16: tabla cruda + clases canónicas** · **D2** 5 items de sidebar vs 2 + `PageTabs` → **resuelta en RE.16: 3 items, uno por oficio** · **D3** el legacy de 1,799 líneas: dejar de crecerlo → **pasó a ser la pestaña Órdenes**; su diálogo de 72rem a `SidePeek` sigue pendiente.
+
+### RE.16 — Tres pantallas, una por rol · Centro de control · sólo PDF 🧪 2026-08-27
+
+De **6 pantallas a 3** y de **5 items de sidebar a 3**, uno por oficio. Dos correcciones de Edgar dispararon el rediseño: **sólo se puede subir PDF** (revierte la apertura a imágenes de RE.13.1 — el expediente sostiene un pago) y **todos capturan en lap o escritorio**, no en el celular. Detalle en [`FASE_RE16_TRES_PANTALLAS.md`](FASES/FASE_RE16_TRES_PANTALLAS.md).
+
+- [x] **[RE.16.0]** 🧪 **Sólo PDF** — `uploadFile`: `putFile`→`putPdf`; `runOcr` rechaza no-PDF antes de gastar la llamada a Claude; el front explica **la salida** (escanear a PDF), no sólo el "no". El rechazo vive en 3 lugares a propósito: el `accept` es una sugerencia y **el arrastre no lo respeta**.
+- [x] **[RE.16.1]** 🧪 **`PUT /finance/goods-receipts/settings`** (`_VALIDAR`, firmado, rangos validados) + **`responsables[]` por sucursal en `coverage`**. Existía sólo el GET desde RE.13.0: los 5 parámetros se movían con `UPDATE` a mano, contra la regla de administrar el dato operativo desde la UI. **Hallazgo en vivo:** 29 personas con `_GESTIONAR` (12 de red) y **las sucursales 00, 04 y 06 sin nadie** que pueda subir — 0% ahí no es gente que no trabaja, es un permiso que falta.
+- [x] **[RE.16.2]** 🧪 **Centro de control** `/compras/entradas/control` con 4 pestañas (`PageTabs`, cada una gateada): Por sucursal · Órdenes · Capturadas dos veces · Ajustes.
+- [x] **[RE.16.3]** 🧪 **Pantalla de Ajustes** — los 5 parámetros, cada uno diciendo **qué se rompe** si se mueve.
+- [x] **[RE.16.4]** 🧪 **Pendientes rediseñada** — tabla densa de escritorio (~25 órdenes a la vista, eran 8), **arrastrar el PDF sobre su fila = 1 interacción** (eran 4), panel lateral en vez de diálogo modal, estado en la URL.
+- [x] **[RE.16.5]** 🧪 **El lote se absorbe** — soltar N PDFs sobre la tabla ES el lote de CEDIS; se borró `/compras/entradas/lote` y su componente (547 líneas). **Un solo camino de guardado** (`attach-bulk` agrupando por expediente): tener dos fue cómo el lote creó dos evidencias de la misma entrada.
+- [x] **[RE.16.6]** 🧪 **Vocabulario único** — *Sin factura → Por revisar → Validada*, con *Devuelta* como único regreso. Había ≥4 maneras de nombrar lo mismo.
+- [x] **[RE.16.7]** 🧪 **`ContextHelp` topic `compras-entradas`** + `FreshnessPill` + `LoadState` en los 3 estados + **`--surface-sunken`→`--surface-2`** en las 4 pantallas de Compras (el token no existe: toda superficie "hundida" caía al color de la card). Cierra RE.15.2/15.3/15.4 para estas pantallas; quedan 9 usos en Finanzas (otro carril).
+- [x] **[RE.16.8]** 🧪 **Compras 360**: la tabla de cobertura se mudó al Centro de control; queda el titular + link. Dos copias de la misma tabla terminan contradiciéndose.
+- 🚧 **Sin verificación visual** (no hay API local; dev servers prohibidos). Builds `view`+`api` verdes; smokes de entradas verdes.
+- **Pendiente prod:** redeploy `api` + `view`. **Sin migraciones nuevas** (el PUT escribe en `finance.receipt_settings`, que ya existe) y **sin re-login** (no hay permisos nuevos).
 
 **Pendiente prod (13.0–13.4 + 13.6 + 14):** migs `20260827130000_receipt_settings` + `20260827140000_goods_receipt_proof_history` + `20260827150000_entradas_validar_trim` + `20260827160000_goods_receipt_twins` + `20260827170000_fn_pair_goods_receipts` a Railway + redeploy api/view + **correr `detect-goods-receipt-duplicates.js --apply` una vez** (barrido histórico; de ahí en adelante el cron de la API lo mantiene) + configurar alcance de capturistas. Sin permisos nuevos → no requiere re-login.
 

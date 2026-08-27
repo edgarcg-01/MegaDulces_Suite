@@ -53,6 +53,7 @@
 | [`FASES/FASE_KV_EXPLOTACION_KEPLER.md`](FASES/FASE_KV_EXPLOTACION_KEPLER.md) | 📝 **Plan listo 2026-06-30** (ventas/márgenes/demanda/clientes Kepler) | 9 sprints |
 | [`FASES/FASE_MAAT_FINANZAS_AI.md`](FASES/FASE_MAAT_FINANZAS_AI.md) | 📝 **Plan listo 2026-07-06** (ADR-028: AI de Finanzas — conocimiento + chat tool-use + motor de patrones + aprendizaje) | 7 sprints |
 | [`FASES/FASE_RE15_UI_ENTRADAS.md`](FASES/FASE_RE15_UI_ENTRADAS.md) | 📝 **Plan listo 2026-08-27** (las 6 pantallas de entradas al canon de DESIGN.md: auditoria medida + 7 sprints + 3 decisiones de Edgar) | 7 sprints |
+| [`FASES/FASE_RE16_TRES_PANTALLAS.md`](FASES/FASE_RE16_TRES_PANTALLAS.md) | 🧪 **En codigo 2026-08-27** (de 6 pantallas a 3 una por rol + Centro de control 4 pestanas + arrastrar el PDF a su fila + solo PDF; lote absorbido) | RE.16.0-16.8 |
 
 ### Referencia Kepler (ERP)
 

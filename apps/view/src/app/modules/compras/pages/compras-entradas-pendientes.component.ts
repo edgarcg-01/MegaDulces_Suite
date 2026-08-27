@@ -489,7 +489,7 @@ interface Hoja {
     /* Fila objetivo del arrastre: anillo interno + fondo de acción. Es la única cosa naranja
        de la pantalla, y por eso se ve. */
     .ep-table tbody tr.is-drop > td {
-      background: var(--action-soft, color-mix(in oklab, var(--action) 10%, transparent));
+      background: color-mix(in oklab, var(--action) 10%, transparent);
       box-shadow: inset 0 1.5px 0 var(--action), inset 0 -1.5px 0 var(--action);
     }
     .ep-table tbody tr.is-open > td { background: var(--table-hover); }

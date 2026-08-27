@@ -408,8 +408,8 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-q { display: grid; gap: .15rem; width: 100%; text-align: left; background: transparent; border: 0;
       border-left: 3px solid transparent; padding: .5rem .7rem; cursor: pointer; font: inherit; }
     .rv-queue li + li .rv-q { border-top: 1px solid var(--border-color); }
-    .rv-q:hover { background: var(--surface-hover, var(--surface-sunken)); }
-    .rv-q.on { background: var(--surface-sunken); border-left-color: var(--action); }
+    .rv-q:hover { background: var(--surface-hover, var(--surface-2)); }
+    .rv-q.on { background: var(--surface-2); border-left-color: var(--action); }
     .rv-q.bad .rv-q-delta { color: var(--bad-fg); }
     .rv-q-top, .rv-q-bot { display: flex; align-items: baseline; gap: .4rem; }
     .rv-q-prov { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
@@ -434,7 +434,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-verdict.is-muted .rv-v-s { color: var(--text-muted); }
 
     .rv-tri { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .6rem; margin: 0 0 .8rem; }
-    .rv-tri > div { padding: .5rem .7rem; background: var(--surface-sunken, var(--card-bg));
+    .rv-tri > div { padding: .5rem .7rem; background: var(--surface-2);
       border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
     .rv-tri dt { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .rv-tri dd { margin: .1rem 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.05rem; font-weight: 600; }
@@ -442,7 +442,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-tri > div.off dd { color: var(--bad-fg); }
 
     .rv-decide { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .6rem .7rem; margin-bottom: .8rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); background: var(--surface-sunken, var(--card-bg)); }
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); background: var(--surface-2); }
     .rv-pos { margin-left: auto; font-size: var(--fs-xs, .75rem); color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .rv-block { margin: 0; display: flex; align-items: center; gap: .4rem; font-size: var(--fs-sm, .85rem); color: var(--warn-fg, var(--bad-fg)); }
 
@@ -485,7 +485,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-doc-head { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .35rem .5rem;
       border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs, .75rem); }
     .rv-doc-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rv-doc-frame { height: 52vh; background: var(--surface-sunken); }
+    .rv-doc-frame { height: 52vh; background: var(--surface-2); }
     .rv-doc-frame iframe, .rv-doc-frame img { width: 100%; height: 100%; border: 0; object-fit: contain; display: block; }
     .rv-doc-empty { display: grid; place-items: center; gap: .4rem; padding: 2.5rem 1rem; color: var(--text-muted); text-align: center; }
     .rv-doc-empty .pi { font-size: 1.4rem; }
@@ -496,7 +496,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-empty-link { color: var(--action); font-size: var(--fs-sm, .85rem); }
     .rv-skel { display: grid; gap: .4rem; }
     .rv-sk { border-radius: var(--r-sm, .35rem);
-      background: linear-gradient(90deg, var(--border-color) 25%, var(--surface-sunken) 50%, var(--border-color) 75%);
+      background: linear-gradient(90deg, var(--border-color) 25%, var(--surface-2) 50%, var(--border-color) 75%);
       background-size: 200% 100%; animation: rv-sh 1.2s infinite; }
     .rv-sk-v { height: 3.4rem; } .rv-sk-t { height: 4rem; } .rv-sk-r { height: 1.6rem; }
     @keyframes rv-sh { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

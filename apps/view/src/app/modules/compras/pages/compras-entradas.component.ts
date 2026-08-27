@@ -784,7 +784,7 @@ interface AttachFile {
     .cb-match.bad { color: var(--bad-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
-    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
+    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .cb-cobro > div { display: flex; flex-direction: column; gap: .15rem; }
     .cb-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
@@ -882,7 +882,7 @@ interface AttachFile {
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
     /* RE.12 — copia CEDIS (espejo) adjunta a la vista de la canónica */
-    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
+    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-2); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
     .cb-twin .pi-clone, .cb-twin .pi-directions { color: var(--action); }
     .cb-twin-meta { font-variant-numeric: tabular-nums; }
     .cb-twin-folio { color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .35rem; }
@@ -894,7 +894,7 @@ interface AttachFile {
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
     .cb-comp-empty i { font-size: .75rem; opacity: .7; }
     /* preview antes de subir */
-    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-2); }
     .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
     .cb-preview-pdf { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; }
     .cb-preview-pdf > i { font-size: 1.8rem; color: var(--bad-fg); }
@@ -903,7 +903,7 @@ interface AttachFile {
     .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
     /* multi-archivo: set de 3–4 fotos de la recepción */
     .cb-files { display: flex; flex-direction: column; gap: .5rem; }
-    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-file-card.primary { border-color: var(--action); box-shadow: inset 3px 0 0 var(--action); }
     .cb-file-thumb { flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: #00000010; }
     .cb-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -920,7 +920,7 @@ interface AttachFile {
     .cb-file-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .cb-file-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
     /* foto-primero: enlace de la entrada por OCR / búsqueda manual */
-    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-link-hint { margin: 0; font-size: .82rem; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; }
     .cb-link-head { font-size: .82rem; font-weight: 600; color: var(--text-main); }
     .cb-link-search { display: flex; gap: .4rem; }
@@ -932,7 +932,7 @@ interface AttachFile {
     .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
     .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE (#4) — checklist de completitud por fuente (Kepler/Wincaja), packet-aware */
-    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .45rem; }
+    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-2); display: flex; flex-direction: column; gap: .45rem; }
     .cb-checklist-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; color: var(--text-main); }
     .cb-chk-ok { display: inline-flex; align-items: center; gap: .3rem; color: var(--ok-fg); font-weight: 600; }
     .cb-chk-miss { color: var(--warn-soft-fg, #b26a00); font-weight: 600; }
@@ -966,7 +966,7 @@ interface AttachFile {
     .cb-addmore-drop { font-size: .74rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
     /* RE.7 — dropzone de arrastre del PDF (dispara el OCR solo) */
-    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; transition: border-color .15s, background .15s; }
+    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); text-align: center; transition: border-color .15s, background .15s; }
     .cb-drop.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
     .cb-drop-ico { font-size: 2rem; color: var(--bad-fg); }
     .cb-drop-main { font-size: .88rem; color: var(--text-main); }
@@ -975,7 +975,7 @@ interface AttachFile {
     .cb-drop-opt { border-style: dotted; opacity: .82; }
     .cb-opt-tag { display: inline-block; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, .3rem); padding: 0 .3rem; margin-right: .35rem; vertical-align: middle; }
     /* OCR por-archivo + duplicados */
-    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
     .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
     .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg, #fdecea); border: 1px solid var(--bad-border, #f5c2c0); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
@@ -987,7 +987,7 @@ interface AttachFile {
     .cb-explains-none { font-size: .82rem; margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
     .cb-explains-hint { font-size: .76rem; margin: 0; }
     .cb-explains-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
-    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-sunken, var(--card-bg)); font-size: .82rem; }
+    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-2); font-size: .82rem; }
     .cb-explains-folio { color: var(--text-main); }
     .cb-explains-fecha { font-size: .76rem; white-space: nowrap; }
     .cb-explains-motivo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
@@ -1044,7 +1044,7 @@ interface AttachFile {
     .cb-doc-frame { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: #00000010; height: 64vh; min-height: 24rem; display: flex; }
     .cb-doc-frame iframe { width: 100%; height: 100%; border: 0; background: #fff; }
     .cb-doc-frame img { width: 100%; height: 100%; object-fit: contain; }
-    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-2); }
     .cb-doc-empty .pi { font-size: 1.9rem; opacity: .5; }
     .cb-view-filebtn.on { border-color: var(--action); color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
   `],

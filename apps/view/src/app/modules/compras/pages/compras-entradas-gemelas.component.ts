@@ -196,7 +196,7 @@ import { Permission } from '../../../core/constants/permissions';
     .eg-table th { text-align: left; font-weight: 600; font-size: .7rem; letter-spacing: .02em; text-transform: uppercase;
       color: var(--text-muted); padding: .5rem .7rem; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     .eg-table td { padding: .5rem .7rem; border-bottom: 1px solid var(--border-color); vertical-align: top; }
-    .eg-table tbody tr:hover { background: var(--surface-sunken, var(--card-bg)); }
+    .eg-table tbody tr:hover { background: var(--surface-2); }
     .eg-table tr.busy { opacity: .55; }
     .eg-table .mono { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; }
@@ -213,7 +213,7 @@ import { Permission } from '../../../core/constants/permissions';
     .eg-empty { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 3rem 1rem; color: var(--text-muted); }
     .eg-empty i { font-size: 1.6rem; }
     .eg-skel { display: grid; gap: .35rem; padding: .9rem; }
-    .eg-sk-row { height: 2.2rem; border-radius: var(--r-sm, .4rem); background: var(--surface-sunken, var(--card-bg)); }
+    .eg-sk-row { height: 2.2rem; border-radius: var(--r-sm, .4rem); background: var(--surface-2); }
     @media (prefers-reduced-motion: no-preference) {
       .eg-sk-row { animation: eg-pulse 1.2s ease-in-out infinite; }
       @keyframes eg-pulse { 50% { opacity: .45; } }
