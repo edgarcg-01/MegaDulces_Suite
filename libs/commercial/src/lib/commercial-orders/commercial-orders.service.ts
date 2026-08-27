@@ -40,6 +40,12 @@ export type DeliveryChannel = 'phone' | 'whatsapp' | 'social' | 'walk_in';
 export interface CreateDraftDto {
   customer_id: string;
   warehouse_id: string;
+  /**
+   * Integridad preventa: id local del pedido en el device (Dexie). Si viene, el
+   * backend deduplica por (tenant_id, client_uuid) → un reintento de sync tras
+   * respuesta perdida devuelve el MISMO pedido en vez de crear un duplicado.
+   */
+  client_uuid?: string;
   notes?: string;
   /**
    * J.6.6: tipo de entrega. `route` (default) = entrega por ruta regular;
@@ -141,8 +147,24 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(dto.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
 
+    if (dto.client_uuid && !UUID_REGEX.test(dto.client_uuid))
+      throw new BadRequestException('client_uuid inválido');
+
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();
+
+      // Idempotencia (Fix #1 preventa): si el device ya creó este pedido y
+      // reintenta (respuesta perdida), devolver el existente en vez de duplicar.
+      // El índice único parcial (tenant_id, client_uuid) es el backstop ante la
+      // carrera concurrente rara: el perdedor aborta y el device reintenta → acá
+      // lo encuentra. NO se consume folio en el camino de dedup.
+      if (dto.client_uuid) {
+        const dup = await trx('commercial.orders')
+          .where({ client_uuid: dto.client_uuid })
+          .whereNull('deleted_at')
+          .first();
+        if (dup) return dup;
+      }
 
       // Validar customer + warehouse activos
       const customer = await trx('commercial.customers')
@@ -188,6 +210,7 @@ export class CommercialOrdersService {
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           code,
+          client_uuid: dto.client_uuid || null,
           customer_id: dto.customer_id,
           user_id: userId,
           warehouse_id: dto.warehouse_id,
@@ -697,7 +720,8 @@ export class CommercialOrdersService {
       throw new BadRequestException('orderId inválido');
 
     return this.tk.run(async (trx) => {
-      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      // FOR UPDATE (Fix #4): bloqueo del pedido para serializar la transición.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       if (order.status !== 'pending_approval') {
         throw new ConflictException(
@@ -765,7 +789,9 @@ export class CommercialOrdersService {
       throw new BadRequestException('orderId inválido');
 
     return this.tk.run(async (trx) => {
-      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      // FOR UPDATE (Fix #4): bloqueo del pedido → evita doble reserva de stock si
+      // el device reintenta place (o el vendedor da doble-tap) de forma solapada.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       await this.enforceOrderOwnership(trx, order);
 
@@ -905,7 +931,8 @@ export class CommercialOrdersService {
       throw new BadRequestException('orderId inválido');
 
     const fulfilled = await this.tk.run(async (trx) => {
-      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      // FOR UPDATE (Fix #4): bloqueo del pedido para serializar reserva+consumo.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       await this.enforceOrderOwnership(trx, order);
       if (order.status === 'fulfilled')
@@ -974,7 +1001,9 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
-    const order = await trx('commercial.orders').where({ id: orderId }).first();
+    // FOR UPDATE (Fix #4): bloqueo del pedido → el consumo de inventario no puede
+    // ejecutarse dos veces en transacciones solapadas (doble decremento físico).
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
     if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
 
     // Idempotencia para uso desde hooks: si no está confirmed, no-op.
@@ -1377,7 +1406,9 @@ export class CommercialOrdersService {
       throw new BadRequestException('orderId inválido');
 
     return this.tk.run(async (trx) => {
-      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      // FOR UPDATE (Fix #4): bloqueo del pedido → la liberación de stock al cancelar
+      // no compite con un confirm/fulfill solapado.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       await this.enforceOrderOwnership(trx, order);
       if (order.status === 'cancelled')
@@ -1849,7 +1880,10 @@ export class CommercialOrdersService {
   // ─────────────────────────────────────────────────────────────────
 
   private async requireDraft(trx: any, orderId: string) {
-    const order = await trx('commercial.orders').where({ id: orderId }).first();
+    // FOR UPDATE (Fix #4 integridad): serializa transiciones concurrentes del
+    // mismo pedido (doble-tap del vendedor / reintento solapado) para que el
+    // guard de estado no deje pasar dos veces → evita doble reserva de stock.
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
     if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
     if (order.status !== 'draft')
       throw new ConflictException(
@@ -1865,7 +1899,9 @@ export class CommercialOrdersService {
    *     stock SÍ reservado → cualquier delta debe re-reservar/liberar.
    */
   private async requireEditableForLines(trx: any, orderId: string) {
-    const order = await trx('commercial.orders').where({ id: orderId }).first();
+    // FOR UPDATE (Fix #4): serializa ediciones de líneas concurrentes → sin esto
+    // dos updates a líneas distintas recalculan el total con lost-update.
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
     if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
     if (order.status !== 'draft' && order.status !== 'pending_approval')
       throw new ConflictException(

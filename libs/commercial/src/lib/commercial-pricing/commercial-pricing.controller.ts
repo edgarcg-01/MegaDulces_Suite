@@ -19,6 +19,7 @@ import {
 } from './commercial-pricing.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 @ApiTags('commercial-pricing')
@@ -38,7 +39,8 @@ export class CommercialPricingController {
   }
 
   @Get('price-lists')
-  @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
+  // Interfaz vendedor independiente (catálogo del take-order): VENDOR_APP_ACCESS.
+  @RequireAnyPermission(Permission.COMMERCIAL_PRICING_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Listar price lists. customer_b2b solo ve su default_price_list (+ tenant default si la suya no es default). Sin esto vería todas las listas (VIP, wholesaler, etc.).',
@@ -82,7 +84,7 @@ export class CommercialPricingController {
   // ───── product_prices ─────
 
   @Get('price-lists/:id/prices')
-  @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
+  @RequireAnyPermission(Permission.COMMERCIAL_PRICING_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Listar precios (paginado) de una price list. J.6.7: con ?warehouse_id=X incluye stock_available. M.1: incluye sku, barcode, category_name. ?search filtra por nombre/sku/barcode. customer_b2b solo puede listar prices de SU price list.',
@@ -115,7 +117,7 @@ export class CommercialPricingController {
   }
 
   @Get('price-lists/:id/top-sellers')
-  @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
+  @RequireAnyPermission(Permission.COMMERCIAL_PRICING_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Top sellers de una price list (lee MATERIALIZED VIEW products_top_sellers). Default limit=20, máx 1000. Incluye sales_rank, units_sold, revenue, last_sold_at + precio del price_list del customer.',
