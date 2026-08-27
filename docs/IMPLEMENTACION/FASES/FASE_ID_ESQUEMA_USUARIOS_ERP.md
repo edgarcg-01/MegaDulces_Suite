@@ -15,16 +15,25 @@
 `[ID.14]` **catálogo** | ✅ | **47 → 28 roles** (25 perfiles + 3 complementos). 14 retirados · 14 renombrados · 5 fusionados. **Cero pérdidas** de permisos |
 `[ID.15]` **el puesto propone** | ✅ | 43 puestos con departamento, **23 proponen perfil**; 20 sin perfil, listados |
 `[ID.16]` **RH** | ⚠️ BLOCKED | `hr.*` existe pero **no hay módulo ni pantalla**: los permisos gatearían el vacío |
+`[ID.17]` **perfiles que faltaban** | ✅ | Los **27** con una tarea como perfil base re-basados (`0 ganan / 0 pierden`) · `direccion` (79 permisos, todos lectura, `mode_write='none'`) · `auditor_externo` (16, con vencimiento) · `svc_feeds` (`kind='servicio'`, login rechazado) · 8 puestos más con perfil |
 UI (parte de `[ID.9]`) | ✅ | Selector de **Complementos** + aviso "este rol es una tarea" + el puesto autocompleta departamento y perfil |
 
 **Verificación:** `snapshot-user-permissions.js` antes/después → 128 idénticos ·
 14 ganan (máx +2, cada uno listado) · **0 pierden**. Builds api + view verdes.
 Smokes `user-roles` 34/34 · `identity-scopes` 30/30 · `user-dto` 32/32.
 
-**Falta para prod:** las 3 migraciones a Railway + redeploy + re-login. Y lo que
-es decisión de Edgar, no código: los **22** que tienen `captura_gastos` como
-perfil base, los **20 puestos sin perfil** y los **5 tipos de usuario que no
-existen** (§3).
+**Falta para prod:** las **4** migraciones a Railway + redeploy + re-login.
+
+**Lo que queda como decisión, no como código:**
+- **12 puestos sin perfil** (choferes, receptor de mercancía, facturación,
+  mayoreo, checador, RH, intendencia). Se asignan desde la UI cuando exista el
+  criterio; inventarles un set de permisos es lo que llevó a 47 roles.
+- **`administrativo` y `piso_tienda` tienen 0 permisos.** Es fiel a lo que esa
+  gente puede hacer hoy. Cuando quieras darles algo, se edita **un** perfil.
+- **`proveedor` y `rh` no se crearon**: no hay portal de proveedor ni módulo de
+  asistencia. Serían roles muertos.
+- **`[ID.18]`**: que los ~40 importers escriban `created_by = svc_feeds`. La
+  identidad ya existe; falta usarla.
 
 ---
 
@@ -144,11 +153,11 @@ usa, cuál es su **eje de alcance**, quién lo supervisa y si es empleado o no.
 
 | # | Tipo | Empleado | App | Eje de alcance | Hoy |
 |---|---|---|---|---|---|
-1 | **Dirección** — lectura global, cero gestión | sí | Web | red completa, **solo lectura** | ❌ no existe: la única forma de ver todo es `superadmin` (con escritura) |
-2 | **Administrador de plataforma** — sistemas | sí | Web | todo | ⚠️ existe ×3 (`admin`/`superadmin`/`sistemas`) |
+1 | **Dirección** — lectura global, cero gestión | sí | Web | red completa, **solo lectura** | ✅ `[ID.17]` perfil `direccion`: 79 permisos de lectura + `mode_write='none'` en las 6 dimensiones |
+2 | **Administrador de plataforma** — sistemas | sí | Web | todo | ✅ `[ID.14]` uno solo (`superadmin`); `admin` fusionado y `sistemas` retirado |
 3 | **Gerente / supervisor de zona** | sí | Web + Vendedor | **zona** → expande a sus sucursales | ⚠️ rol muerto `gerente_de_zona`; falta `warehouses.zone_id` |
 4 | **Encargado de sucursal** | sí | Web + Vendedor | **su sucursal** | ✅ 6 usuarios |
-5 | **Piso de tienda** (anaquelista, empaquetador, surtidor, vendedor de piso) | sí | Web mínima / móvil | su sucursal | ❌ 0 cuentas para 6 puestos |
+5 | **Piso de tienda** (anaquelista, empaquetador, surtidor, vendedor de piso) | sí | Web mínima / móvil | su sucursal | 🔨 `[ID.17]` perfil `piso_tienda` creado (0 permisos) y los 6 puestos ya lo proponen; falta decidir qué le toca ver |
 6 | **Cajero / caja general** | sí | POS + Web mínima | **su sucursal + su caja** | ✅ 27, pero como cuentas-terminal |
 7 | **Vendedor de ruta** (RD / vecinal / suplente) | sí | **Vendedor** | **su ruta / camión** | ⚠️ 34 usuarios, eje ruta **sin cargar** |
 8 | **Supervisor de ruta** | sí | Vendedor + Web | sus rutas | ✅ 3 |
@@ -164,11 +173,11 @@ usa, cuál es su **eje de alcance**, quién lo supervisa y si es empleado o no.
 18 | **Contabilidad / fiscal** | sí | Web | red completa | ⚠️ rol muerto |
 19 | **Marketing / trade** | sí | Web | zona o red | ✅ 6 en 4 roles |
 20 | **Recursos Humanos** | sí | Web | **su sitio (checador)** | ❌ **0 permisos en el sistema** |
-21 | **Capturista de gasto** (complemento, no rol) | sí | Web | su propio comprobante | ⚠️ 22 usuarios como "rol" |
+21 | **Capturista de gasto** (complemento, no rol) | sí | Web | su propio comprobante | ✅ `[ID.17]` los 22 pasaron a perfil `administrativo` + complemento `captura_gastos` |
 22 | **Cliente B2B** | **no** | **Portal** | **su propio cliente** | ✅ 3 |
 23 | **Proveedor** (sube factura / consulta su OC) | **no** | Portal proveedor | su propio proveedor | ❌ no existe (lo pide Fase RE/CC) |
-24 | **Contador / auditor externo** | **no** | Web, solo lectura, **con vencimiento** | contabilidad + finanzas | ❌ no existe (y el contable es externo — Fase CP) |
-25 | **Cuenta de servicio** (feeds, crons, réplica, bot WhatsApp) | **n/a** | API | lo que su tarea necesita | ❌ los feeds corren como superusuario de Postgres, **sin identidad** → `created_by` vacío en los 117 |
+24 | **Contador / auditor externo** | **no** | Web, solo lectura, **con vencimiento** | contabilidad + finanzas | ✅ `[ID.17]` perfil `auditor_externo` + `users.expires_at` con corte en el login |
+25 | **Cuenta de servicio** (feeds, crons, réplica, bot WhatsApp) | **n/a** | API | lo que su tarea necesita | 🔨 `[ID.17]` `svc_feeds` (`kind='servicio'`, login rechazado por kind + hash inutilizable). Falta que los importers lo usen (`[ID.18]`) |
 
 **5 tipos que un ERP necesita y hoy no existen:** dirección, RH, proveedor,
 auditor externo y cuenta de servicio. Los tres primeros son negocio; los dos

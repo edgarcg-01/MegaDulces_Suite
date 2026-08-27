@@ -147,6 +147,14 @@ export class AuthMtService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    // `[ID.17]` Una cuenta de SERVICIO no entra con contraseña. Existe para que
+    // los feeds y las tareas programadas tengan identidad (`created_by`), no para
+    // que alguien se loguee con ella. El hash guardado además no es un bcrypt
+    // válido, así que esto es la segunda barrera, no la única.
+    if (user.kind === 'servicio') {
+      throw new UnauthorizedException('Esta es una cuenta de servicio: no tiene acceso interactivo.');
+    }
+
     // `[ID.13]` Cuentas con vencimiento (contador/auditor externo). Se corta
     // ANTES de comparar el password: una cuenta vencida no es una credencial
     // inválida, es una cuenta que dejó de existir para efectos de acceso. Se

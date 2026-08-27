@@ -25,6 +25,7 @@
  * Correr: node database/tests/test-newdb-user-roles.js
  */
 
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 
@@ -384,15 +385,21 @@ const enTrx = async (fn) => {
     );
 
     // Se REPORTAN (no se afirman): roles sin gente y sets idénticos.
+    // Se cuenta la gente por perfil base **y** por complemento: desde `[ID.14]`
+    // un rol puede tener 0 usuarios como base y 22 como complemento
+    // (`captura_gastos`), y contar sólo `role_name` lo reportaría como si sobrara.
     const sinGente = [];
     for (const r of vivos) {
-      const n = await knex('identity.users')
-        .where({ tenant_id: tenant })
-        .whereNull('deleted_at')
-        .whereRaw('LOWER(role_name) = ?', [r.role_name.toLowerCase()])
-        .count('* as n')
-        .first();
-      if (Number(n.n) === 0) sinGente.push(r.role_name);
+      const n = await knex.raw(
+        `SELECT (
+           (SELECT count(*) FROM identity.users u
+             WHERE u.tenant_id = ? AND u.deleted_at IS NULL AND LOWER(u.role_name) = ?)
+           + (SELECT count(*) FROM identity.user_roles ur
+               WHERE ur.tenant_id = ? AND LOWER(ur.role_name) = ? AND NOT ur.is_primary)
+         )::int AS n`,
+        [tenant, r.role_name.toLowerCase(), tenant, r.role_name.toLowerCase()],
+      );
+      if (n.rows[0].n === 0) sinGente.push(r.role_name);
     }
     console.log(
       sinGente.length
@@ -416,6 +423,87 @@ const enTrx = async (fn) => {
         ? `    → ${gemelos.length} grupo/s de roles con permisos IDÉNTICOS: ${gemelos.map((g) => g.join('≡')).join(' · ')}`
         : '    → no quedan roles con sets de permisos idénticos',
     );
+
+    // ── 8c. Los perfiles que faltaban `[ID.17]` ───────────────────────────
+    console.log('\n═══ 8c. direccion / auditor_externo / cuenta de servicio ═══');
+    const ESCRITURA =
+      /GESTIONAR|CREAR|EDITAR|BORRAR|APROBAR|CONFIRMAR|CANCELAR|FULFILL|CAPTURAR|REGISTRAR|AJUSTAR|ASIGNAR|CONTAR|RECIBIR|RECONCILIAR|OPERATE|_USE|PASSWORDS|CONFIGURAR|REVERSAR|VERIFICAR|DESPACHAR|SUPERVISAR|ACCESS|REFRESH|LIQUIDATION|NOTIFICAR/;
+
+    const dir = vivos.find((r) => r.role_name === 'direccion');
+    assert(!!dir, 'existe el perfil "direccion"');
+    if (dir) {
+      const otorgados = Object.entries(dir.permissions ?? {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k);
+      const escribe = otorgados.filter((k) => ESCRITURA.test(k));
+      assert(otorgados.length > 50, `"direccion" ve mucho: ${otorgados.length} permisos`);
+      assert(
+        escribe.length === 0,
+        `y NO escribe nada${escribe.length ? ` — tiene ${escribe.join(', ')}` : ''}`,
+      );
+      const alc = await knex('identity.role_scopes')
+        .where({ tenant_id: tenant, role_name: 'direccion' })
+        .select('dimension', 'mode', 'mode_write');
+      assert(alc.length === 6, `"direccion" tiene las 6 dimensiones configuradas (${alc.length})`);
+      assert(
+        alc.every((a) => a.mode === 'all' && a.mode_write === 'none'),
+        've toda la red con escritura "none" — el caso que `mode_write` existía para poder expresar',
+      );
+    }
+
+    const aud = vivos.find((r) => r.role_name === 'auditor_externo');
+    assert(!!aud, 'existe el perfil "auditor_externo"');
+    if (aud) {
+      const otorgados = Object.entries(aud.permissions ?? {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k);
+      const fuera = otorgados.filter((k) => !/^(FISCAL_|FINANCE_|RECONCILIATION_)/.test(k));
+      assert(otorgados.length > 0, `"auditor_externo" tiene ${otorgados.length} permisos`);
+      assert(
+        fuera.length === 0,
+        `y sólo de contabilidad/finanzas${fuera.length ? ` — se le colaron ${fuera.join(', ')}` : ''}`,
+      );
+      assert(otorgados.every((k) => !ESCRITURA.test(k)), 'todos de lectura');
+    }
+
+    const svc = await knex('identity.users')
+      .where({ tenant_id: tenant, username: 'svc_feeds' })
+      .first('id', 'kind', 'password_hash');
+    assert(!!svc, 'existe la cuenta de servicio "svc_feeds"');
+    if (svc) {
+      assert(svc.kind === 'servicio', `su kind es "servicio" (${svc.kind})`);
+      // Un bcrypt siempre arranca con `$2`. Que NO lo sea es deliberado: aunque
+      // el chequeo por `kind` del login se cayera, ninguna contraseña matchea.
+      assert(!/^\$2/.test(svc.password_hash ?? ''), 'su hash NO es un bcrypt válido: ninguna contraseña puede matchear');
+    }
+    // El login la rechaza por `kind` — se verifica en la fuente, igual que el
+    // test del DTO lee los decoradores reales.
+    const authSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../apps/api/src/modules/auth-mt/auth-mt.service.ts'),
+      'utf8',
+    );
+    assert(/kind === 'servicio'/.test(authSrc), 'auth-mt corta el login de las cuentas de servicio');
+    assert(/expires_at/.test(authSrc), 'auth-mt corta el login de las cuentas vencidas');
+
+    // Invariante nuevo: nadie puede tener una TAREA como perfil base. Es lo que
+    // pasaba con los 22 de `captura_gastos`, y a diferencia de "todo rol tiene
+    // usuarios" esto SÍ es una regla: un complemento no describe un puesto.
+    const tareaDeBase = await knex.raw(`
+      SELECT u.username, u.role_name
+        FROM identity.users u
+        JOIN identity.role_permissions rp
+          ON rp.tenant_id = u.tenant_id AND LOWER(rp.role_name) = LOWER(u.role_name)
+       WHERE u.deleted_at IS NULL AND rp.kind = 'complemento'
+       ORDER BY 1`);
+    assert(
+      tareaDeBase.rows.length === 0,
+      `nadie tiene una tarea como perfil base${tareaDeBase.rows.length ? ` — ${tareaDeBase.rows.length}: ${tareaDeBase.rows.slice(0, 5).map((r) => `${r.username}:${r.role_name}`).join(', ')}` : ''}`,
+    );
+    const conComplemento = await knex('identity.user_roles')
+      .where({ tenant_id: tenant, is_primary: false })
+      .countDistinct('user_id as n')
+      .first();
+    console.log(`    → ${conComplemento.n} usuario/s con al menos un complemento`);
 
     // ── 9. Sin basura ──────────────────────────────────────────────────────
     console.log('\n═══ 9. Los rollbacks no dejaron nada ═══');
