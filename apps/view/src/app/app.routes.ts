@@ -493,6 +493,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // RE.13.3 — captura por lote (CEDIS: 74% del volumen, ~30/día). Soltar el bonche y
+        // confirmar el enlace, en vez de 8 interacciones por entrada.
+        path: 'entradas/lote',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-lote.component').then(m => m.ComprasEntradasLoteComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)]
+      },
+      {
         // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
         // alcance). Permiso propio: VALIDAR no lo tiene el capturista.
         path: 'entradas/revision',

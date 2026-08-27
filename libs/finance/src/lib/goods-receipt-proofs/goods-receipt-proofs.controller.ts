@@ -87,6 +87,15 @@ export class GoodsReceiptProofsController {
     return this.svc.attach(body, req?.user?.full_name || req?.user?.username);
   }
 
+  @Post('attach-bulk')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({
+    summary: 'RE.13.3 — adjunta VARIOS expedientes (captura por lote de CEDIS). Cada uno en su propia transacción: un duplicado en el archivo 12 no tira los 11 anteriores. Devuelve el resultado por expediente.',
+  })
+  attachBulk(@Body() body: { items?: AttachReceiptDto[] }, @Req() req: AuthedRequest) {
+    return this.svc.attachBulk(body?.items || [], req?.user?.full_name || req?.user?.username);
+  }
+
   @Post('reconcile')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
   @ApiOperation({ summary: 'RE.11.2 — Concilia los renglones de la remisión (OCR) contra las líneas Kepler de la entrada. Resuelve SKU (alias→barcode→descripción) + cuadra cantidad con box_factor. No guarda.' })

@@ -787,6 +787,48 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * `[RE.13.3]` — Adjunta VARIOS expedientes de una pasada (captura por lote de CEDIS).
+   *
+   * CEDIS son ~30 entradas/día hábil (74% del volumen de la red) y las facturas llegan ya
+   * digitales. Con el flujo de a una —dos pasos, diálogo modal, buscar el folio a mano— son
+   * unas 8 interacciones por entrada: **240 al día**. Acá el humano suelta el bonche, el
+   * servidor lo enlaza por folio y él sólo confirma.
+   *
+   * **Cada item en su propia transacción**, a propósito: si el archivo 12 trae un duplicado o
+   * un folio que no existe, los 11 anteriores tienen que quedar guardados. Devuelve el
+   * resultado por item — el capturista tiene que ver qué se quedó afuera y por qué.
+   *
+   * Reusa `attach()` tal cual (dedup por hash, alcance de escritura, cuadre con la tolerancia
+   * del tenant): el lote no es un camino paralelo con reglas propias, es el mismo camino N veces.
+   */
+  async attachBulk(items: AttachReceiptDto[], actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const lista = Array.isArray(items) ? items.filter((i) => i && i.sucursal && i.folio) : [];
+    if (!lista.length) throw new BadRequestException('no llegó ningún expediente');
+    const cfg = await this.tk.run(async (trx) => this.settings(trx));
+    if (lista.length > cfg.bulk_max_files) {
+      throw new BadRequestException(`el lote no puede pasar de ${cfg.bulk_max_files} archivos (llegaron ${lista.length})`);
+    }
+    const detalle: { sucursal: string; folio: string; ok: boolean; monto_match?: boolean; motivo?: string }[] = [];
+    for (const item of lista) {
+      const ref = { sucursal: String(item.sucursal), folio: String(item.folio) };
+      try {
+        const r = await this.attach(item, actor);
+        detalle.push({ ...ref, ok: true, monto_match: !!r.monto_match });
+      } catch (e: any) {
+        detalle.push({ ...ref, ok: false, motivo: e?.message || 'no se pudo adjuntar' });
+      }
+    }
+    const guardadas = detalle.filter((d) => d.ok);
+    return {
+      guardadas: guardadas.length,
+      omitidas: detalle.length - guardadas.length,
+      cuadran: guardadas.filter((d) => d.monto_match).length,
+      detalle,
+    };
+  }
+
+  /**
    * RE.11.2 — Conciliación POR LÍNEA: empata cada renglón de la remisión del proveedor
    * (OCR) contra las líneas de la orden de entrada de Kepler (`erp_goods_receipt_lines`,
    * que ya traen el SKU interno + nombre + cantidad). Resuelve el SKU en cascada:

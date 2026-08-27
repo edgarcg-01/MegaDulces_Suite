@@ -529,6 +529,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // RE.13.1 — "Pendientes" es la worklist del capturista (lo que le falta subir);
         // "Órdenes de entrada" es la vista completa con auditoría por línea.
         { label: 'Pendientes de subir',  icon: 'pi pi-camera',       route: '/compras/entradas',       permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Captura por lote',      icon: 'pi pi-clone',       route: '/compras/entradas/lote', permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
         { label: 'Revisión de facturas',  icon: 'pi pi-verified',    route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
         { label: 'Órdenes de entrada',   icon: 'pi pi-inbox',        route: '/compras/entradas/todas', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],

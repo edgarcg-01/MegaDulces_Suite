@@ -244,6 +244,14 @@ export interface AttachReceipt {
   comentarios?: string;
 }
 
+/** RE.13.3 — resultado del lote: por expediente, no un booleano. */
+export interface AttachBulkResult {
+  guardadas: number;
+  omitidas: number;
+  cuadran: number;
+  detalle: { sucursal: string; folio: string; ok: boolean; monto_match?: boolean; motivo?: string }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class EntradasService {
   private readonly http = inject(HttpClient);
@@ -287,6 +295,14 @@ export class EntradasService {
   /** Adjunta la evidencia a la entrada (archivos ya subidos + OCR). */
   attach(body: AttachReceipt): Observable<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }> {
     return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }>(`${this.base}/attach`, body);
+  }
+  /**
+   * RE.13.3 — adjunta varios expedientes de una pasada (lote de CEDIS). Cada uno va en su
+   * propia transacción del lado del server: un duplicado en el archivo 12 no tira los 11
+   * anteriores, y la respuesta dice qué quedó afuera y por qué.
+   */
+  attachBulk(items: AttachReceipt[]): Observable<AttachBulkResult> {
+    return this.http.post<AttachBulkResult>(`${this.base}/attach-bulk`, { items });
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string, motivo_codigo?: string): Observable<any> {
