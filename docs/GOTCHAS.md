@@ -497,3 +497,27 @@ versión de ese script reportó **1527/1527 huérfanas** en un mes cerrado y lo 
 1,527 asientos legítimos fue el guard de `--max-pct`. Si vas a comparar llaves entre el ODS y el
 origen y la PK incluye un timestamp, normalizá al día (`date_trunc`) — y sólo si verificaste que el
 origen guarda esa columna siempre a medianoche.
+
+### §21–22 — aplicado el 2026-08-27 (qué números cambiaron)
+
+Por si alguien nota que un tablero "bajó" sin explicación:
+
+- **Poll deshabilitado** (`\Tienda\OdsLiveLoop` + `OdsFullMirror`). Antes de apagarlo se verificó que
+  los 7 consumidores WAL entregaban en vivo y que `ods_cdc_pub` cubre **todas** las tablas de cada
+  rama (319–350 según sucursal; **ninguna** tabla del ODS quedó sin publicar en las 7).
+- **Dedup (§21): 1,141 filas borradas** — `kdc22608` 1,120 · `kduf` 15 · `kdpv_bitacora_precios` 6.
+  Verificado por dos caminos: 0 duplicados restantes, y los conteos `kdc22608` origen-vs-ODS
+  cuadran ahora en las 7 sucursales (30,161 = 30,161; antes +1,120). `orglogtbl_26` se omitió sola
+  (1,281,402 filas con hora real en el origen).
+- **Reconciliación (§22): 4,424 filas borradas** — `kdpord` 4,285 · `kdii` 133 · `kdud` 6. Dry-run
+  posterior: *"sin residuo, el ODS coincide con las réplicas en todo lo comparado"*.
+- **Efecto visible:** `analytics.erp_shipments` es VISTA sobre `kepler_ods.kdpord`, y la consumen la
+  pantalla de analytics y una tool de Thot ("cuánto se embarcó", "% embarcado"). Pasó de
+  **76,499 → 72,269 filas · 69,732 → 65,780 folios · 3,347,950 → 3,159,289 unidades**: son
+  **−188,661 unidades en 3,952 folios** que ya no existían en Kepler y se estaban contando. El
+  tablero no se rompió: dejó de sobre-reportar.
+
+**Lo que NO se arregló:** el corrimiento +6 h en sí. Quedan ~5.7 M filas con la hora corrida en 39
+tablas, pero como filas ÚNICAS (no duplican) y con el origen a medianoche, el `::date` de los
+consumidores sigue correcto. Corregirlas es una migración aparte (toca PKs). Con el poll apagado no
+entran filas corridas nuevas.
