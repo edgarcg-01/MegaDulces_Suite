@@ -164,8 +164,16 @@ export class BlindCountService {
     return { matched: true, ambiguous: false, folio: cut.folio, esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal, kepler_enmascaro: keplerEnmascaro };
   }
 
-  /** Lista arqueos ciegos con su comparación (para la consola). */
-  async list(q: { from?: string; to?: string; warehouse_code?: string; limit?: number }) {
+  /**
+   * Lista arqueos ciegos con su comparación (para la consola).
+   *
+   * `warehouse_codes` es el alcance ya resuelto por `ScopeService` (`[ID.4]`):
+   * `null` = sin filtro (alcance `all`), `[]` = no ve ninguna sucursal → cero
+   * filas, no un 403 (un historial vacío es una respuesta legítima; un error
+   * rompe la pantalla). `warehouse_code` (singular) queda para los llamadores
+   * que todavía filtran a mano — la consola del supervisor.
+   */
+  async list(q: { from?: string; to?: string; warehouse_code?: string; warehouse_codes?: string[] | null; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
     return this.tk.run(async (trx) => {
@@ -185,6 +193,10 @@ export class BlindCountService {
           trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
         .orderBy('bc.captured_at', 'desc').limit(limit);
       if (q.warehouse_code) b.where('bc.warehouse_code', q.warehouse_code);
+      if (q.warehouse_codes) {
+        if (!q.warehouse_codes.length) b.whereRaw('false');
+        else b.whereIn('bc.warehouse_code', q.warehouse_codes);
+      }
       if (q.from) b.where('bc.business_date', '>=', q.from);
       if (q.to) b.where('bc.business_date', '<=', q.to);
       const rows = await b;

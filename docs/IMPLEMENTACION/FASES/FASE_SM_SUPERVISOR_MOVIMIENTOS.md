@@ -205,6 +205,28 @@ Builds api+view OK. Smoke DB verde: join liga arqueo→corte (diff_real $500, in
 
 **Pendiente prod:** mig `20260730120000` a Railway + redeploy api+view + re-login.
 
+## SM.10 — El arqueo de la cajera, ciego de verdad + alcance real (✅ local 2026-08-27)
+
+Tres huecos que quedaron abiertos en SM.9, los tres en `/tienda/arqueo`.
+
+**1. El ciego dejaba de serlo al primer guardado.** `StoreArqueoController` quitaba los `kepler_*` pero seguía devolviendo `esperado` y `diff_real`, y la pantalla los revelaba ("Guardar y **revelar diferencia**"). Con la diferencia en la mano el esperado se despeja (`esperado = contado + diferencia`), y como `submit` es un **UPSERT** por `(sucursal, caja, fecha, cajero, tipo)`, la cajera podía recapturar "ajustando" hasta cuadrar — que es exactamente el mecanismo detrás del 73 % de cortes exactos al centavo de SM.7. Ahora:
+
+- el backend **no manda los campos**: `proyectar()` los quita salvo `RECONCILIATION_VER` (o admin de plataforma). Se ocultan `esperado` y `diff_real` **juntos**, a propósito;
+- el `submit` de la cajera responde lo mínimo (`tipo`, `total_contado`, `reveal:false`); se quitó también `ambiguous`, que filtraba que hay más de un corte en su caja;
+- el **autolineado SM.9 no cambia**: el descuadre se levanta igual en la bandeja del supervisor + WS. Ocultar el número a la cajera no es dejar de detectarlo.
+
+**2. El alcance venía de la ficha, no del alcance** (`[ID.4]`, ADR-050). Vivía acá el fail-OPEN `user?.warehouse_code || query.warehouse_code`. Ahora la lectura va por `ScopeService.readParam()` (`warehouse_codes[]`) y la escritura por `assertCanWrite` → **403** al capturar fuera, no un filtro que se salta mandando otro `warehouse_code` en el body. Se puede expresar "la 01 y la 03" con un `user_scopes` `listed`; con una sola sucursal el comportamiento es idéntico al de antes. `BlindCountService.list` acepta `warehouse_codes` (`[]` → cero filas, no 403: un historial vacío es una respuesta legítima).
+
+**3. Las flechas del pad sumaban billetes.** El conteo usaba `p-inputnumber`, cuyo spinner incrementa con ↑/↓ — una flecha de más cambia el conteo de una denominación sin que la cajera lo note, y eso es un descuadre fabricado por la UI. Pasó a input de texto con navegación propia: **↑ sube, ↓/Enter bajan**, el foco selecciona lo que hay y sólo entran dígitos.
+
+Además: `DataScopeService` en el front (`GET /users/me/scope`, cacheado — primer consumidor del alcance desde la UI) alimenta el selector de sucursal, la columna Sucursal del historial cuando hay más de una, y el empty-state "tu usuario no tiene sucursal asignada".
+
+**Verificado.** Smoke `http-store-arqueo-test.js` **28/28** contra `platform_test` (afirma la AUSENCIA de las claves, no su valor: un `esperado: null` seguiría siendo un contrato que filtra) + contraste con un supervisor sembrado que sí las recibe + el faltante de $2,000 que la cajera no vio y la bandeja sí registró. Builds api+view verdes. Padrón: las **27 cajeras** (`rol cajero`) resuelven `own` con sucursal asignada → nadie pierde acceso; y ese rol **sólo** tiene los permisos de arqueo (sin `STORE_ANALYTICS_VER` ni `STORE_LIVE_VER`), así que no hay otra pantalla por donde ver la venta.
+
+**Pendiente prod:** migs **`20260826120000` + `20260826121000`** (alcance) en Railway — sin ellas `ScopeService` no tiene de dónde leer — + redeploy api+view. **No requiere re-login** (el alcance no viaja en el JWT).
+
+**Decisión abierta (Edgar):** `auxiliar_tienda` (3 usuarios) captura arqueo y tiene `STORE_ANALYTICS_VER` pero no `RECONCILIATION_VER` → con este cambio deja de ver la diferencia en el arqueo, pero puede ver la venta en Análisis. O se le quita la analítica, o se lo trata como supervisor.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
