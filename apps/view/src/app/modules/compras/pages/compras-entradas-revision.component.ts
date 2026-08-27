@@ -20,7 +20,7 @@ import {
 } from '../entradas.service';
 import { ComprasService, AdjustmentForEntradaRow } from '../compras.service';
 import { receiptVerdict, lineasTotal, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
-import { branchName } from '../../../core/constants/store-branches';
+import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -71,6 +71,12 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
               <strong>{{ r.kpis.por_validar }}</strong> por validar
               @if (r.kpis.por_validar_atrasadas > 0) {
                 <em [title]="'Más de ' + r.settings.sla_review_days + ' días esperando'">· {{ r.kpis.por_validar_atrasadas }} vencidas</em>
+              }
+              <!-- Sin topes silenciosos: la cola trae 200 por pasada; si hay más, se dice. -->
+              @if (cortada(r)) {
+                <em class="rv-cut" [title]="'La cola trae ' + cola().length + ' por pasada; al cerrar estas aparecen las que siguen'">
+                  · mostrando {{ cola().length }}
+                </em>
               }
             </span>
             @if (decididasHoy() > 0) { <span class="rv-done">{{ decididasHoy() }} decididas</span> }
@@ -380,6 +386,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-count strong { color: var(--text-main); font-size: 1.05rem; }
     .rv-count.late em { font-style: normal; color: var(--bad-fg); }
     .rv-done { font-size: var(--fs-xs, .75rem); color: var(--ok-fg); }
+    .rv-cut { font-style: normal; color: var(--text-muted); font-size: var(--fs-xs, .75rem); }
 
     .rv-filters { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .8rem; }
     .rv-search { flex: 1 1 14rem; min-width: 10rem; }
@@ -540,12 +547,15 @@ export class ComprasEntradasRevisionComponent {
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /** Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales. */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? Array.from(new Set(this.cola().map((r) => r.sucursal))).sort();
+    const a = this.alcance() ?? STORE_BRANCHES.map((b) => b.code);
     return a.map((c) => ({ label: this.suc(c), value: c }));
   });
 
   noCuadra(c: EntradaRow): boolean { return !c.monto_match; }
+  /** ¿La cola quedó cortada por el tope de la pasada? (o por el filtro de descuadre) */
+  cortada(r: EntradasReport): boolean { return r.kpis.por_validar > this.cola().length; }
 
   /**
    * Quien subió la evidencia soy yo → no puedo validarla.

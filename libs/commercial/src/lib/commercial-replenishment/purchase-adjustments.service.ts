@@ -56,6 +56,9 @@ const grupoOf = (cat: string | null): string => (cat ? (GRUPO[cat] || 'sin_clasi
  * ~3 de cada 4 ajustes son comerciales — pintarlos todos como error convierte $12M de
  * descuentos ganados en una alarma falsa.
  */
+/** Ver `PROOF_ORDER` en `goods-receipt-proofs.service.ts`: mismo orden, mismo motivo. */
+const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
+
 const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
 
 @Injectable()
@@ -379,13 +382,17 @@ export class PurchaseAdjustmentsService {
     // "cuadra" a la vez, tomando cada mitad de un depósito distinto.
     const dep = trx('finance.goods_receipt_proofs')
       .select('sucursal', 'folio').count('* as n')
-      .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
-      .select(trx.raw(`(array_agg(monto_match ORDER BY created_at DESC))[1] AS any_match`))
+      // El orden de TODOS los array_agg es el mismo (`PROOF_ORDER`) y lleva desempate: `now()`
+      // es el inicio de la transacción y el request entero corre en una, así que dos evidencias
+      // del mismo request empatan en `created_at` y sin desempate el resultado es indefinido.
+      // En empate gana la pendiente. Debe coincidir con el de `goods-receipt-proofs.service`.
+      .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
+      .select(trx.raw(`(array_agg(monto_match ORDER BY ${PROOF_ORDER}))[1] AS any_match`))
       // RE.13.4 — el lente de CUMPLIMIENTO necesita el descuadre y quién decidió, no sólo
       // si cuadra: la pregunta de esa vista es "¿en qué anda el proceso?", no "¿cuánto costó?".
-      .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY created_at DESC))[1] AS last_disc`))
-      .select(trx.raw(`(array_agg(validated_by ORDER BY created_at DESC))[1] AS last_by`))
-      .select(trx.raw(`(array_agg(created_at ORDER BY created_at DESC))[1] AS last_at`))
+      .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY ${PROOF_ORDER}))[1] AS last_disc`))
+      .select(trx.raw(`(array_agg(validated_by ORDER BY ${PROOF_ORDER}))[1] AS last_by`))
+      .select(trx.raw(`(array_agg(created_at ORDER BY ${PROOF_ORDER}))[1] AS last_at`))
       .groupBy('sucursal', 'folio').as('d');
     const b = trx('analytics.erp_goods_receipts as c')
       .leftJoin(adj, (j: any) => { j.on('c.sucursal', 'a.sucursal').andOn('c.folio', 'a.entrada_folio'); })

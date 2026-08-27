@@ -113,7 +113,7 @@ interface Hoja {
           <span class="lt-c muted">{{ hojas().length }} archivos</span>
           <button pButton type="button" [loading]="guardando()" [disabled]="!listas().length || procesando()" (click)="guardar()">
             <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-            <span class="p-button-label">Guardar {{ listas().length }} enlazadas</span>
+            <span class="p-button-label">Guardar {{ nExpedientes() }} {{ nExpedientes() === 1 ? 'entrada' : 'entradas' }}</span>
           </button>
         </div>
 
@@ -208,8 +208,10 @@ interface Hoja {
         </div>
 
         <p class="lt-hint">
-          Las que no cuadran <strong>se pueden guardar igual</strong>: el revisor decide. Las
-          duplicadas y las que no tienen entrada enlazada quedan afuera hasta que las resuelvas.
+          Varias hojas enlazadas a la <strong>misma entrada</strong> se guardan como un solo
+          expediente. Las que no cuadran <strong>se pueden guardar igual</strong>: el revisor
+          decide. Las duplicadas y las que no tienen entrada enlazada quedan afuera hasta que
+          las resuelvas.
         </p>
       }
     </div>
@@ -308,6 +310,14 @@ export class ComprasEntradasLoteComponent {
   n(e: EstadoHoja): number { return this.hojas().filter((h) => h.estado === e).length; }
   /** Lo que se puede mandar: enlazada, sin duplicar, y todavía no guardada. */
   readonly listas = computed(() => this.hojas().filter((h) => h.estado === 'enlazada' && h.entrada && !h.dupDe));
+  /**
+   * Cuántos EXPEDIENTES se van a crear — no cuántos archivos. Una factura de 2 hojas son 2
+   * archivos y una sola entrada, y el botón que prometía "2" mentía sobre lo que iba a pasar.
+   */
+  readonly nExpedientes = computed(() => {
+    const k = new Set(this.listas().map((h) => `${h.entrada!.sucursal}|${h.entrada!.folio}`));
+    return k.size;
+  });
 
   constructor() {
     this.svc.settings().subscribe({ next: (s) => this.cfg.set(s), error: () => void 0 });
@@ -470,12 +480,26 @@ export class ComprasEntradasLoteComponent {
         }
       }
       if (!subidas.length) { this.guardando.set(false); return; }
-      const items: AttachReceipt[] = subidas.map(({ h, file }) => ({
-        sucursal: h.entrada!.sucursal, folio: h.entrada!.folio, files: [file], ocr: h.ocr,
+      // AGRUPAR por entrada antes de mandar. Una factura de 2 hojas son 2 archivos pero UN
+      // expediente: mandando un item por archivo, el server creaba dos evidencias para la
+      // misma entrada (el dedup por hash no las cruza porque son hojas distintas) y el
+      // revisor veía la misma factura dos veces.
+      const porEntrada = new Map<string, { h: Hoja; file: ProofFile }[]>();
+      for (const s of subidas) {
+        const k = `${s.h.entrada!.sucursal}|${s.h.entrada!.folio}`;
+        porEntrada.set(k, [...(porEntrada.get(k) || []), s]);
+      }
+      const items: AttachReceipt[] = [...porEntrada.values()].map((grupo) => ({
+        sucursal: grupo[0].h.entrada!.sucursal,
+        folio: grupo[0].h.entrada!.folio,
+        files: grupo.map((g) => g.file),
+        // La lectura que manda para el cuadre es la de la hoja que trae importe.
+        ocr: (grupo.find((g) => g.h.total != null || g.h.subtotal != null) || grupo[0]).h.ocr,
       }));
       try {
         const r = await firstValueFrom(this.svc.attachBulk(items));
-        // Cada renglón sabe qué le pasó: el server contesta por expediente.
+        // Cada renglón sabe qué le pasó: el server contesta por expediente, y todas las hojas
+        // de un expediente comparten su resultado.
         for (const { h } of subidas) {
           const d = r.detalle.find((x) => x.sucursal === h.entrada!.sucursal && x.folio === h.entrada!.folio);
           if (d?.ok) this.parchar(h.id, { estado: 'guardada' });

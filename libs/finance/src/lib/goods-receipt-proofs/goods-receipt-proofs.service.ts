@@ -54,6 +54,22 @@ const SETTINGS_DEFAULT: ReceiptSettings = {
 };
 const SETTINGS_TTL_MS = 60_000;
 
+/**
+ * Cómo se elige "la última evidencia" de una entrada. **No es cosmético**: de esto sale si la
+ * entrada está en la cola del revisor, si el capturista la ve como devuelta y qué motivo se le
+ * muestra.
+ *
+ * El desempate existe porque `created_at` **empata de verdad**: `now()` en Postgres es el
+ * instante de INICIO DE LA TRANSACCIÓN, y en esta app **todo el request corre en una sola
+ * transacción**, así que dos evidencias insertadas en el mismo request comparten `created_at`
+ * al microsegundo y `ORDER BY created_at DESC` queda indefinido — verificado: devolvía
+ * 'rechazado' para una entrada que acababa de recibir una recaptura.
+ *
+ * En empate gana la **pendiente**: una evidencia esperando decisión tiene que quedar en la
+ * cola. El `id` cierra el orden para que la respuesta sea siempre la misma.
+ */
+const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
+
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   // Por-archivo (RE.5.2): hash del contenido (anti-hoja-duplicada) + OCR propio (cada hoja se lee).
@@ -265,19 +281,22 @@ export class GoodsReceiptProofsService {
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
+      // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
+      // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
+      // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
       const dep = trx('finance.goods_receipt_proofs')
         .select('sucursal', 'folio')
         .count('* as n')
-        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
-        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
-        .select(trx.raw(`(array_agg(created_at ORDER BY created_at DESC))[1] AS last_at`))
-        .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY created_at DESC))[1] AS last_disc`))
+        .select(trx.raw(`(array_agg(id ORDER BY ${PROOF_ORDER}))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(created_at ORDER BY ${PROOF_ORDER}))[1] AS last_at`))
+        .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY ${PROOF_ORDER}))[1] AS last_disc`))
         // Quién la subió (para la segregación de funciones: el revisor no valida lo propio) y
         // por qué se devolvió (la sucursal necesita ver el motivo en su worklist).
-        .select(trx.raw(`(array_agg(created_by ORDER BY created_at DESC))[1] AS last_by`))
-        .select(trx.raw(`(array_agg(motivo_rechazo ORDER BY created_at DESC))[1] AS last_motivo`))
+        .select(trx.raw(`(array_agg(created_by ORDER BY ${PROOF_ORDER}))[1] AS last_by`))
+        .select(trx.raw(`(array_agg(motivo_rechazo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo`))
         .select(trx.raw(conMotivoCol
-          ? `(array_agg(motivo_codigo ORDER BY created_at DESC))[1] AS last_motivo_codigo`
+          ? `(array_agg(motivo_codigo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo_codigo`
           : `NULL::text AS last_motivo_codigo`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
         .groupBy('sucursal', 'folio')
@@ -591,8 +610,8 @@ export class GoodsReceiptProofsService {
       const cfg = await this.settings(trx);
       const dep = trx('finance.goods_receipt_proofs')
         .select('sucursal', 'folio').count('* as n')
-        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
-        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(id ORDER BY ${PROOF_ORDER}))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
         .groupBy('sucursal', 'folio').as('d');
       const sel = () => {
         const qb = trx('analytics.erp_goods_receipts as c')

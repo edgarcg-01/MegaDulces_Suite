@@ -14,8 +14,9 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr } from '../entradas.service';
-import { branchName } from '../../../core/constants/store-branches';
+import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
+import { motivoLabel } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -188,7 +189,9 @@ interface Hoja {
                 <span class="ep-monto">{{ money(c.monto) }}</span>
                 <span class="ep-estado">
                   @if (c.deposit_status === 'rechazado') {
-                    <p-tag value="Devuelta" severity="danger" />
+                    <!-- El motivo va EN la fila: el catálogo tipificado sólo sirve si el que
+                         tiene que corregir lo ve sin abrir nada. -->
+                    <p-tag [value]="'Devuelta: ' + porQue(c)" severity="danger" [title]="porQue(c)" />
                   } @else if (c.deposit_status === 'validado') {
                     <p-tag value="Validada" severity="success" />
                   } @else if (c.deposits > 0) {
@@ -239,7 +242,10 @@ interface Hoja {
           @if (t.deposit_status === 'rechazado') {
             <div class="ep-cap-rej">
               <i class="pi pi-undo" aria-hidden="true"></i>
-              <span>Esta evidencia te la devolvieron. Subí de nuevo la factura correcta.</span>
+              <span>
+                Te la devolvieron: <strong>{{ porQue(t) }}</strong>@if (t.motivo_rechazo && t.motivo_codigo) { — {{ t.motivo_rechazo }} }.
+                Subí de nuevo la factura corregida.
+              </span>
             </div>
           }
 
@@ -468,13 +474,22 @@ export class ComprasEntradasPendientesComponent {
   readonly sinAlcance = computed(() => { const a = this.alcance(); return !!a && a.length === 0; });
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
   readonly unaSucursal = computed(() => { const a = this.alcance(); return a && a.length === 1 ? this.suc(a[0]) : null; });
+  /**
+   * Con alcance `all` las opciones salen del CATÁLOGO, no de las filas de la página: con
+   * pageSize 50 sobre 1,096 entradas, derivarlas de `rows()` ofrecía sólo las sucursales que
+   * cayeron en la primera página — el resto era invisible aunque el usuario pudiera verlas.
+   */
   readonly sucursalOpts = computed(() => {
     const a = this.alcance();
-    const codes = a ?? Array.from(new Set(this.rows().map((r) => r.sucursal))).sort();
+    const codes = a ?? STORE_BRANCHES.map((b) => b.code);
     return codes.map((c) => ({ label: this.suc(c), value: c }));
   });
 
   suc(code: string): string { return branchName(code) || code; }
+  /** Por qué la devolvieron, en llano: el código del catálogo y, si no hay, el texto libre. */
+  porQue(c: EntradaRow): string {
+    return motivoLabel(c.motivo_codigo) || (c.motivo_rechazo || '').trim() || 'sin motivo registrado';
+  }
   money = money;
   ultimos4(folio: string): string { const d = String(folio || '').replace(/\D/g, ''); return d.slice(-4) || folio; }
   kb(b: number): string { return b >= 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; }
