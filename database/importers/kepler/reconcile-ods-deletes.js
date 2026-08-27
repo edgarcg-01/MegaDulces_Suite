@@ -218,8 +218,10 @@ async function main() {
           for (const c of keyCols) o[c.name] = r[c.name];
           return o;
         });
-        const n = await ship('raw-delete', { rows, tenantId: M, meta: shipMeta });
-        borradasRama += Number(n) || 0;
+        // `client: dst` para que funcione en los DOS modos del sink: en `pg` aplica en proceso contra
+        // esta conexión (el modo pg lanza si no se le pasa cliente) y en `http` lo ignora.
+        const r = await ship('raw-delete', { rows, tenantId: M, client: dst, meta: shipMeta });
+        borradasRama += Number(r && (r.rowCount ?? r)) || 0;
       }
     }
     console.log(`  sucursal ${code}: ${revisadas} tablas comparadas · ${APPLY ? borradasRama + ' filas borradas' : 'dry-run'}`);
