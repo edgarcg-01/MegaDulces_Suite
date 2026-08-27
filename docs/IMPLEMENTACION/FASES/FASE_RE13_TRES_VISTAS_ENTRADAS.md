@@ -1,7 +1,8 @@
 # Fase RE.13 — Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global)
 
-> **Estado:** 🧪 **RE.13.0 + 13.1 + 13.2 + 13.3 EN CÓDIGO (local, builds + smoke 23/23 verdes)** — 2026-08-27.
-> Las **4 pantallas** existen. Decisiones cerradas con Edgar el mismo día. Falta 13.4 (vista C), 13.5 (SLA/avisos) y 13.6 (permisos y alcance, que es **gate de despliegue**).
+> **Estado:** 🧪 **RE.13.0 → 13.4 EN CÓDIGO (local, builds + smoke 23/23 verdes)** — 2026-08-27.
+> Las **4 pantallas** existen y la global ya tiene su lente de cumplimiento. Decisiones cerradas
+> con Edgar el mismo día. Falta 13.5 (SLA/avisos) y 13.6 (permisos y alcance, **gate de despliegue**).
 > **Depende de:** Fase RE (recepción) · **Fase ID / ADR-050** (alcance de datos + normalización de
 > usuarios) · CC ext (evidencia de entradas).
 > **Tesis:** una pantalla que sirve a tres trabajos no sirve bien a ninguno. Se parte por **trabajo**,
@@ -299,7 +300,7 @@ ponemos el día del arranque** y qué hacemos con lo anterior:
 Numeración: **RE.13** (RE.11 = conciliación por línea y RE.12 = copias CEDIS ya están tomadas en
 código, aunque el doc de la Fase RE todavía no las liste — deuda de doc aparte).
 
-> **Avance al 2026-08-27:** 13.0, 13.1, 13.2 y 13.3 ✅ en código local (builds api + view verdes, smoke
+> **Avance al 2026-08-27:** 13.0 → 13.4 ✅ en código local (builds api + view verdes, smoke
 > `test-newdb-goods-receipts-scope` **23/23** en la regression). **Sin verificar por HTTP**: no
 > hay API local levantada y la regla del repo es no arrancar dev servers — la integración con
 > `ScopeService` sobre el request real se valida en el primer arranque.
@@ -313,7 +314,7 @@ código, aunque el doc de la Fase RE todavía no las liste — deuda de doc apar
 | **RE.13.1** ✅ | **Vista A-suc.** Componente nuevo y chico (~350 líneas) que reemplaza el actual en `/compras/entradas`: worklist scopeada + semáforo de días + banner de devueltas + progreso del día + **cámara/imagen** (H1) + compresión en cliente. El wizard de captura se extrae a componente compartido. | `apps/view/.../compras/pages/` (nuevo), `entradas.service.ts` | L |
 | **RE.13.2** ✅ | **Vista B.** `/compras/entradas/revision`: cola + master-detail permanente + siguiente automático + atajos + lote por tolerancia + **motivo tipificado** (migración aditiva `motivo_codigo`) + guard de segregación de funciones (H7) + aviso de colisión entre revisor central y local + `finance.goods_receipt_proof_history` (H9, patrón `order_status_history`). El expediente se muda del diálogo actual (código ya escrito y probado). | migración newdb, service, controller, componente nuevo, nav | L |
 | **RE.13.3** ✅ | **Vista A-cedis.** `/compras/entradas/lote`: drop de N archivos + OCR con concurrencia limitada + tabla de conciliación del lote + `POST /attach-bulk` transaccional + contadores. Reusa `ocr`/`match`/`upload`. | componente nuevo, 1 endpoint | L |
-| **RE.13.4** | **Vista C.** Lente de cumplimiento + `GET /finance/goods-receipts/coverage` (por sucursal, con el carril de rezago) + deep-links a A/B + columnas nuevas en el export. Puede ir **en paralelo** desde el día 1: su backend ya existe casi completo. | `purchase-adjustments.service.ts`, `compras-compras360.component.ts` | M |
+| **RE.13.4** ✅ | **Vista C.** Lente de cumplimiento + `GET /finance/goods-receipts/coverage` (por sucursal, con el carril de rezago) + deep-links a A/B + columnas nuevas en el export. Puede ir **en paralelo** desde el día 1: su backend ya existe casi completo. | `purchase-adjustments.service.ts`, `compras-compras360.component.ts` | M |
 | **RE.13.5** | **SLA + avisos** (cierra RE.3/RE.4 y el H8): `@Cron` → `finance.findings` (sin evidencia > SLA · descuadre > umbral · por validar > SLA) + WS al capturista cuando le devuelven y al revisor cuando le entra trabajo. Reusa `FINANCE_NOTIFIER_PORT` y el patrón de detectores Maat. | scanner nuevo, gateway existente | M |
 | **RE.13.6** | **Permisos:** limpiar el grant de `_VALIDAR` (H6) y dejar sólo los roles que revisan de verdad + configurar el alcance de los revisores locales (`listed`) en `identity.*`. Configuración + migración de datos + verificación con el snapshot de ID.0. | seeds/migración, `identity.*` | S |
 | RE.13.7 *(diferible)* | Cola offline en la captura de sucursal — sólo si la red lo pide de verdad. | — | M |
