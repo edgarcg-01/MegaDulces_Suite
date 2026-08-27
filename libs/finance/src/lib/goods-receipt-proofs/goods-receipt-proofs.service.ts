@@ -70,6 +70,33 @@ const SETTINGS_TTL_MS = 60_000;
  */
 const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
 
+/**
+ * `[RE.14.3]` — **La misma recepción está capturada dos veces**: en el Kepler de la sucursal y
+ * otra vez en el servidor de oficinas (9.95, sucursal `'00'`). La canónica es la de sucursal —
+ * es la que trae los productos; la de oficinas es la captura contable (un renglón de concepto
+ * con el total).
+ *
+ * Estos son los estados de par que **valen como espejo**: `'propuesto'` (el detector duda) y
+ * `'rechazado'` (una persona dijo que no lo es) NO cuentan, porque tratar un par dudoso como
+ * espejo esconde una compra que sí existe. Ver `analytics.erp_goods_receipt_dedup`.
+ */
+const PAR_VIGENTE = ['auto', 'confirmado'];
+/** Columnas del par + de qué servidor viene la fila. Se comparten entre la lista y el enlace. */
+const GEMELA_SELECT = [
+  'gem.cedis_folio AS gemela_folio',
+  'gem.cedis_date AS gemela_date',
+  'gem.cedis_monto::numeric AS gemela_monto',
+  'gem.delta_monto::numeric AS gemela_delta',
+  'gem.match_rule AS gemela_regla',
+  'gem.match_score::numeric AS gemela_score',
+];
+/** Sin la tabla de pares al día (prod puede correr el código antes de la migración) → NULLs. */
+const GEMELA_NULLS = [
+  'NULL::text AS gemela_folio', 'NULL::date AS gemela_date', 'NULL::numeric AS gemela_monto',
+  'NULL::numeric AS gemela_delta', 'NULL::text AS gemela_regla', 'NULL::numeric AS gemela_score',
+];
+const ORIGEN_SELECT = `(CASE WHEN c.sucursal = '00' THEN 'oficinas' ELSE 'sucursal' END) AS origen`;
+
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   // Por-archivo (RE.5.2): hash del contenido (anti-hoja-duplicada) + OCR propio (cada hoja se lee).
@@ -220,6 +247,29 @@ export class GoodsReceiptProofsService {
     this.objCache.set(k, v);
     return v;
   }
+  /**
+   * `[RE.14.3]` — ¿está la tabla de pares con las columnas de RE.14? Si no (prod desplegado
+   * antes de la migración), las vistas siguen funcionando sin la columna de gemela en vez de
+   * tronar con «column gem.cedis_monto does not exist».
+   */
+  private async hayPares(trx: any): Promise<boolean> {
+    return this.existeCol(trx, 'analytics', 'erp_goods_receipt_dedup', 'cedis_monto');
+  }
+
+  /**
+   * LEFT JOIN al par de la misma recepción capturada en oficinas. Alias `gem`, colgado de la
+   * CANÓNICA (`c` = la de sucursal). No abre filas: el índice único parcial
+   * `ux_grd_canonica_viva` garantiza a lo más un par vigente por canónica.
+   */
+  private conGemela(qb: any, trx: any, tenantId: string) {
+    return qb.leftJoin('analytics.erp_goods_receipt_dedup as gem', (j: any) => {
+      j.on('gem.dup_of_sucursal', 'c.sucursal')
+        .andOn('gem.dup_of_folio', 'c.folio')
+        .andOn('gem.tenant_id', trx.raw('?', [tenantId]))
+        .andOnIn('gem.status', PAR_VIGENTE);
+    });
+  }
+
   private async existeTabla(trx: any, schema: string, table: string): Promise<boolean> {
     const k = `${schema}.${table}`;
     const hit = this.objCache.get(k);
@@ -281,6 +331,7 @@ export class GoodsReceiptProofsService {
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
+      const hayPares = await this.hayPares(trx);
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
@@ -308,6 +359,9 @@ export class GoodsReceiptProofsService {
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
           .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
+        // RE.14.3 — el par entra en el `base()` y no sólo en el select porque **también se busca
+        // por él**: el usuario tiene en la mano el folio de oficinas tan seguido como el suyo.
+        if (hayPares) this.conGemela(b, trx, tenantId);
         // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
         if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
         // Carril: el rezago anterior al arranque se trabaja aparte para que el semáforo del
@@ -330,10 +384,20 @@ export class GoodsReceiptProofsService {
         // difuso (proveedor/RFC/OC).
         const term = (q.search || '').trim();
         if (/^\d{1,4}$/.test(term)) {
-          b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [term.padStart(4, '0')]);
+          // Los últimos 4 dígitos matchean el folio de la sucursal **o el de oficinas**: los dos
+          // son "el folio de esa orden" para quien pregunta. Paréntesis obligatorios — sin ellos
+          // el OR se lleva por delante el resto de los filtros del WHERE.
+          const suf = term.padStart(4, '0');
+          b.whereRaw(
+            hayPares
+              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+            hayPares ? [suf, suf] : [suf],
+          );
         } else {
           applySmartSearch(b, q.search, {
-            columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'],
+            columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              ...(hayPares ? ['gem.cedis_folio'] : [])],
             numeric: ['c.monto'],
           });
         }
@@ -357,6 +421,11 @@ export class GoodsReceiptProofsService {
           // lleva esperando decisión: son los dos relojes del proceso.
           trx.raw('(current_date - LEAST(c.receipt_date, current_date))::int AS dias'),
           trx.raw(`(current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date)::int AS dias_espera`),
+          // RE.14.3 — de qué servidor salió la fila y, si la recepción está capturada dos veces,
+          // el folio y el importe de la otra copia. Sin esto el usuario ve un folio que no
+          // reconoce y no tiene con qué saber que es la misma orden.
+          trx.raw(ORIGEN_SELECT),
+          ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)),
         )
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -382,6 +451,9 @@ export class GoodsReceiptProofsService {
       const rows = (await b).map((r: any) => ({
         ...r,
         monto: Number(r.monto),
+        gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
+        gemela_delta: r.gemela_delta == null ? null : Number(r.gemela_delta),
+        gemela_score: r.gemela_score == null ? null : Number(r.gemela_score),
         discrepancy_amount: r.discrepancy_amount == null ? null : Number(r.discrepancy_amount),
         dias: Number(r.dias),
         dias_espera: r.dias_espera == null ? null : Number(r.dias_espera),
@@ -613,6 +685,7 @@ export class GoodsReceiptProofsService {
         .select(trx.raw(`(array_agg(id ORDER BY ${PROOF_ORDER}))[1] AS last_id`))
         .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
         .groupBy('sucursal', 'folio').as('d');
+      const hayPares = await this.hayPares(trx);
       const sel = () => {
         const qb = trx('analytics.erp_goods_receipts as c')
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
@@ -622,7 +695,12 @@ export class GoodsReceiptProofsService {
           .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
             'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
             trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
-            trx.raw('d.last_status AS deposit_status'));
+            trx.raw('d.last_status AS deposit_status'), trx.raw(ORIGEN_SELECT),
+            ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)));
+        // RE.14.3 — el par viaja en el enlace porque el folio y el importe de oficinas son llaves
+        // de búsqueda tan válidas como los de la sucursal: la factura que tiene el capturista en
+        // la mano puede casar con cualquiera de las dos capturas.
+        if (hayPares) this.conGemela(qb, trx, tenantId);
         if (alcance) { if (alcance.length) qb.whereIn('c.sucursal', alcance); else qb.whereRaw('false'); }
         return qb;
       };
@@ -632,20 +710,51 @@ export class GoodsReceiptProofsService {
         const b = sel();
         // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
         if (/^\d{1,4}$/.test(search)) {
-          b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [search.padStart(4, '0')]);
+          const suf = search.padStart(4, '0');
+          b.whereRaw(
+            hayPares
+              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+            hayPares ? [suf, suf] : [suf],
+          );
         } else {
-          applySmartSearch(b, search, { columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'], numeric: ['c.monto'] });
+          applySmartSearch(b, search, {
+            columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              ...(hayPares ? ['gem.cedis_folio'] : [])],
+            numeric: ['c.monto'],
+          });
         }
         rows = await order(b);
       } else {
         // FOLIO primero (preciso, evita falsos positivos). Solo si NO hay match por folio, cae a MONTO (±$2).
-        if (cands.length) rows = await order(sel().whereIn('c.folio', cands));
-        if (!rows.length && total != null) rows = await order(sel().whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]));
+        // El folio y el importe se buscan en las DOS capturas de la misma recepción (la de
+        // sucursal y la de oficinas): si no, una factura que casa con la copia de oficinas no
+        // encuentra nada y el capturista concluye que "la orden no existe".
+        if (cands.length) {
+          rows = await order(sel().where((w: any) => {
+            w.whereIn('c.folio', cands);
+            if (hayPares) w.orWhereIn('gem.cedis_folio', cands);
+          }));
+        }
+        if (!rows.length && total != null) {
+          rows = await order(sel().where((w: any) => {
+            w.whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]);
+            if (hayPares) w.orWhereRaw('gem.cedis_monto BETWEEN ? AND ?', [total - 2, total + 2]);
+          }));
+        }
       }
       const entradas = rows.map((r: any) => ({
         ...r, monto: Number(r.monto), monto_match: false,
-        folio_match: cands.length ? cands.indexOf(String(r.folio).trim()) >= 0 : false,
-        total_match: total != null ? Math.abs(Number(r.monto) - total) <= 2 : false,
+        gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
+        gemela_delta: r.gemela_delta == null ? null : Number(r.gemela_delta),
+        gemela_score: r.gemela_score == null ? null : Number(r.gemela_score),
+        folio_match: cands.length
+          ? (cands.indexOf(String(r.folio).trim()) >= 0 || cands.indexOf(String(r.gemela_folio || '').trim()) >= 0)
+          : false,
+        total_match: total != null
+          ? (Math.abs(Number(r.monto) - total) <= 2
+            || (r.gemela_monto != null && Math.abs(Number(r.gemela_monto) - total) <= 2))
+          : false,
       }));
       return { entradas };
     });
@@ -793,12 +902,33 @@ export class GoodsReceiptProofsService {
       const receiptMonto = Number(entrada.monto) || 0;
       const ocrTotal = o.total != null ? Number(o.total) : null;
       const ocrSubtotal = o.subtotal != null ? Number(o.subtotal) : null;
+      // RE.14.3 — **el cuadre es contra las DOS capturas.** La misma recepción está en el Kepler
+      // de la sucursal y en el de oficinas, y los dos importes no siempre coinciden al centavo
+      // (HERSHEY: $79,009.21 vs $79,007.79). Si la factura casa con cualquiera de los dos, el
+      // documento cuadra: la diferencia es entre nuestras dos capturas, no con el proveedor, y
+      // no tiene por qué frenarle la subida a la sucursal.
+      const gem = (await this.hayPares(trx))
+        ? await trx('analytics.erp_goods_receipt_dedup')
+            .where({ tenant_id: this.tenantCtx.requireTenantId(), dup_of_sucursal: sucursal, dup_of_folio: folio })
+            .whereIn('status', PAR_VIGENTE)
+            .first('cedis_folio', trx.raw('cedis_monto::numeric AS cedis_monto'))
+        : null;
+      const gemelaMonto = gem?.cedis_monto != null ? Number(gem.cedis_monto) : null;
       // Cuadra si el total O el subtotal de la remisión ≈ el valor Kepler (IVA
       // puede o no estar incluido según el producto — dulce a granel suele ser 0%).
-      const near = (v: number | null) => v != null && Math.abs(v - receiptMonto) <= cfg.match_tolerance;
-      const montoMatch = ocrTotal != null || ocrSubtotal != null ? (near(ocrTotal) || near(ocrSubtotal)) : null;
+      const cerca = (v: number | null, ref: number | null) =>
+        v != null && ref != null && Math.abs(v - ref) <= cfg.match_tolerance;
+      const hayLectura = ocrTotal != null || ocrSubtotal != null;
+      const cuadraCanonica = hayLectura ? (cerca(ocrTotal, receiptMonto) || cerca(ocrSubtotal, receiptMonto)) : null;
+      const cuadraGemela = hayLectura ? (cerca(ocrTotal, gemelaMonto) || cerca(ocrSubtotal, gemelaMonto)) : null;
+      const montoMatch = cuadraCanonica === null ? null : (cuadraCanonica || cuadraGemela === true);
       // RE.2 — clasifica y persiste el descuadre factura-vs-entrada (antes solo en vivo).
-      const disc = this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
+      // RE.14.3 — cuando cuadra sólo con la copia de oficinas, el descuadre contra la de sucursal
+      // NO se borra: se etiqueta `gemela` con su monto, que es lo que le dice al revisor "esto no
+      // es problema de la factura, es que nuestras dos capturas difieren".
+      const disc = (cuadraCanonica === false && cuadraGemela === true)
+        ? { kind: 'gemela', amount: Math.min(...[ocrTotal, ocrSubtotal].filter((v): v is number => v != null).map((v) => Math.abs(v - receiptMonto))) }
+        : this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
 
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({
@@ -826,7 +956,10 @@ export class GoodsReceiptProofsService {
           created_by: actor || null,
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
-      this.logger.log(`remisión adjunta a entrada ${sucursal}/${folio} (match=${montoMatch}) por ${actor || '?'}`);
+      this.logger.log(
+        `remisión adjunta a entrada ${sucursal}/${folio} (match=${montoMatch}` +
+        `${gem ? `, gemela oficinas 00/${gem.cedis_folio}${cuadraCanonica === false ? ' — cuadró con ella' : ''}` : ''}) por ${actor || '?'}`,
+      );
       return row;
     });
   }
@@ -834,13 +967,36 @@ export class GoodsReceiptProofsService {
   /** Detalle: la entrada + sus remisiones adjuntas. */
   async detail(sucursal: string, folio: string) {
     const tenantId = this.tenantCtx.requireTenantId();
-    // RE.13.0 — el detalle es una URL adivinable (`/:sucursal/:folio`): sin esto, el alcance de
-    // la lista era decorativo. `canRead` es la misma resolución que filtra la lista.
+    // RE.14.3 — **se puede pedir por el folio de oficinas.** La misma recepción está capturada
+    // dos veces y el usuario llega con el folio que tiene en la mano; si es el de oficinas ('00')
+    // y es espejo de una canónica, el detalle es el de la canónica (la que trae los productos y
+    // la que lleva la evidencia). `redirigido_de` deja dicho de dónde vino, para que la pantalla
+    // pueda explicar "el 00/0009136 que buscaste es el 03/0000909 de 8 Esquinas".
+    let redirigido_de: { sucursal: string; folio: string } | null = null;
+    // El alcance se resuelve FUERA de `tk.run` (regla del repo: `ScopeService` no vive dentro de
+    // la transacción con RLS). El chequeo se hace más abajo, cuando ya sabemos qué entrada es.
     const alcance = await this.scope.current();
-    if (!this.scope.canRead(alcance, 'warehouse', sucursal)) {
-      throw new BadRequestException(`la entrada ${sucursal}/${folio} no está en tu alcance`);
-    }
     return this.tk.run(async (trx) => {
+      if (sucursal === '00' && await this.hayPares(trx)) {
+        const par = await trx('analytics.erp_goods_receipt_dedup')
+          .where({ tenant_id: tenantId, cedis_folio: folio })
+          .whereIn('status', PAR_VIGENTE)
+          .first('dup_of_sucursal', 'dup_of_folio');
+        if (par?.dup_of_folio) {
+          redirigido_de = { sucursal, folio };
+          sucursal = par.dup_of_sucursal;
+          folio = par.dup_of_folio;
+        }
+      }
+      // RE.13.0 — el detalle es una URL adivinable (`/:sucursal/:folio`): sin esto, el alcance de
+      // la lista era decorativo. `canRead` es la misma resolución que filtra la lista.
+      if (!this.scope.canRead(alcance, 'warehouse', sucursal)) {
+        // El mensaje dice a dónde apuntaba el folio de oficinas: sin eso, el capturista de CEDIS
+        // ve un 403 sobre una sucursal que él no escribió en ningún lado.
+        throw new BadRequestException(redirigido_de
+          ? `la orden ${redirigido_de.sucursal}/${redirigido_de.folio} de oficinas es copia de ${sucursal}/${folio}, que no está en tu alcance`
+          : `la entrada ${sucursal}/${folio} no está en tu alcance`);
+      }
       const entrada = await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: tenantId, sucursal, folio })
         .first('sucursal', 'folio', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
@@ -879,10 +1035,28 @@ export class GoodsReceiptProofsService {
       }));
       // RE.12 — copia(s) CEDIS ('00') que son espejo de esta canónica: se muestran en su vista
       // (misma recepción, otra póliza) para que no se pida evidencia por separado.
-      const twins = await trx('analytics.erp_goods_receipts')
-        .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
-        .select('sucursal', 'folio', 'receipt_date', 'oc_folio', 'vale_folio', trx.raw('monto::numeric AS monto'));
-      const cedis_twins = twins.map((t: any) => ({ ...t, monto: Number(t.monto) }));
+      // RE.14.3 — sale de la tabla de pares y no de la vista, por dos razones: la vista sólo
+      // expone `dup_of_*` de los pares VIGENTES (una propuesta sin dictaminar no aparecería, y es
+      // justo la que hay que poder confirmar acá), y los importes/fechas ya están denormalizados
+      // → no hay que volver a barrer la vista viva sobre `kepler_ods`.
+      const pares = (await this.hayPares(trx))
+        ? await trx('analytics.erp_goods_receipt_dedup')
+            .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
+            .whereNot('status', 'rechazado')
+            .select('cedis_folio', 'cedis_date', 'match_rule', 'status', 'decided_by', 'decided_at',
+              trx.raw('cedis_monto::numeric AS cedis_monto'),
+              trx.raw('delta_monto::numeric AS delta_monto'),
+              trx.raw('match_score::numeric AS match_score'), 'delta_dias')
+        : [];
+      const cedis_twins = pares.map((p: any) => ({
+        sucursal: '00', folio: p.cedis_folio, receipt_date: p.cedis_date,
+        oc_folio: null, vale_folio: null,
+        monto: p.cedis_monto == null ? null : Number(p.cedis_monto),
+        delta_monto: p.delta_monto == null ? null : Number(p.delta_monto),
+        delta_dias: p.delta_dias == null ? null : Number(p.delta_dias),
+        match_rule: p.match_rule, match_score: p.match_score == null ? null : Number(p.match_score),
+        status: p.status, decided_by: p.decided_by, decided_at: p.decided_at,
+      }));
       // RE.13.2 — la cadena de decisiones. El expediente que justifica un pago necesita el
       // recorrido (quién subió, quién devolvió y por qué, quién validó), no el último estado.
       const history = (await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))
@@ -891,7 +1065,116 @@ export class GoodsReceiptProofsService {
             .orderBy('changed_at', 'asc')
             .select('status_from', 'status_to', 'motivo_codigo', 'motivo', 'changed_by', 'changed_at')
         : [];
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins, history };
+      return {
+        entrada: { ...entrada, monto: Number(entrada.monto), origen: sucursal === '00' ? 'oficinas' : 'sucursal' },
+        lineas, deposits: depSigned, cedis_twins, history, redirigido_de,
+      };
+    });
+  }
+
+  /**
+   * `[RE.14.3]` — **Los pares sucursal ↔ oficinas**: la lista de la misma recepción capturada dos
+   * veces, con el importe de cada lado y la regla con la que se apareó.
+   *
+   * Es a la vez una vista de consulta ("¿cuál es el de oficinas de esta orden?") y una bandeja de
+   * trabajo: los `'propuesto'` son los que el detector NO se animó a dar por espejo —importe y
+   * fecha casan pero el proveedor no coincide entre catálogos, o la copia de oficinas trae
+   * productos propios— y mientras nadie dictamine, **esa recepción se sigue contando dos veces**.
+   *
+   * Se sirve de la tabla de pares y no de la vista: los importes, fechas y proveedores de los dos
+   * lados están denormalizados ahí, así que la bandeja no vuelve a barrer `kepler_ods`.
+   *
+   * Alcance: se filtra por la **canónica** (la de sucursal), que es la dueña del documento.
+   */
+  async twins(q: { estado?: 'propuesto' | 'vigente' | 'todos'; warehouse_codes?: string[] | null; search?: string; limit?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayPares(trx))) return { rows: [], kpis: { propuestos: 0, vigentes: 0, monto_propuesto: 0 }, total: 0 };
+      const base = () => {
+        const b = trx('analytics.erp_goods_receipt_dedup as p')
+          .where('p.tenant_id', tenantId)
+          .whereNotNull('p.dup_of_folio');
+        if (alcance) { if (alcance.length) b.whereIn('p.dup_of_sucursal', alcance); else b.whereRaw('false'); }
+        if (q.estado === 'propuesto') b.where('p.status', 'propuesto');
+        else if (q.estado === 'vigente') b.whereIn('p.status', PAR_VIGENTE);
+        else b.whereNot('p.status', 'rechazado');
+        applySmartSearch(b, q.search, {
+          columns: ['p.cedis_folio', 'p.dup_of_folio', 'p.suc_prov', 'p.cedis_prov'],
+          numeric: ['p.cedis_monto'],
+        });
+        return b;
+      };
+      const rows = (await base()
+        .select('p.cedis_folio', 'p.dup_of_sucursal as sucursal', 'p.dup_of_folio as folio',
+          'p.suc_date', 'p.cedis_date', 'p.suc_prov', 'p.cedis_prov', 'p.match_rule', 'p.status',
+          'p.decided_by', 'p.decided_at', 'p.delta_dias',
+          trx.raw('p.suc_monto::numeric AS suc_monto'), trx.raw('p.cedis_monto::numeric AS cedis_monto'),
+          trx.raw('p.delta_monto::numeric AS delta_monto'), trx.raw('p.match_score::numeric AS match_score'))
+        // Lo dudoso primero, y dentro de eso el dinero más grande: es el orden en que conviene
+        // gastar la atención de la persona que dictamina.
+        .orderByRaw(`(p.status = 'propuesto') DESC`)
+        .orderByRaw('ABS(p.cedis_monto) DESC NULLS LAST')
+        .limit(limit))
+        .map((r: any) => ({
+          ...r,
+          suc_monto: r.suc_monto == null ? null : Number(r.suc_monto),
+          cedis_monto: r.cedis_monto == null ? null : Number(r.cedis_monto),
+          delta_monto: r.delta_monto == null ? null : Number(r.delta_monto),
+          match_score: r.match_score == null ? null : Number(r.match_score),
+          delta_dias: r.delta_dias == null ? null : Number(r.delta_dias),
+        }));
+      const [k] = await base().select(
+        trx.raw(`COUNT(*) FILTER (WHERE p.status = 'propuesto')::int AS propuestos`),
+        trx.raw(`COUNT(*) FILTER (WHERE p.status IN ('auto','confirmado'))::int AS vigentes`),
+        trx.raw(`COALESCE(SUM(p.cedis_monto::numeric) FILTER (WHERE p.status = 'propuesto'), 0)::numeric AS monto_propuesto`),
+        trx.raw('COUNT(*)::int AS total'),
+      );
+      return {
+        rows,
+        kpis: {
+          propuestos: Number(k.propuestos), vigentes: Number(k.vigentes),
+          // Lo que hoy está contado dos veces por falta de dictamen. Es el costo de no decidir.
+          monto_propuesto: Number(k.monto_propuesto),
+        },
+        total: Number(k.total),
+        alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+      };
+    });
+  }
+
+  /**
+   * `[RE.14.3]` — Dictamina un par: **sí es la misma recepción** (`confirmar`) o **no lo es**
+   * (`rechazar`). Confirmar oculta la copia de oficinas del conteo; rechazar la devuelve a la
+   * lista como compra propia y **la saca de la rueda del detector**, que no la vuelve a proponer.
+   *
+   * Es una decisión sobre dinero (mueve lo que se cuenta), así que va con `_VALIDAR` y queda
+   * firmada. El alcance de ESCRITURA se exige sobre la canónica: la orden es de esa sucursal.
+   */
+  async decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar', actor?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const folio = (cedisFolio || '').trim();
+    if (!folio) throw new BadRequestException('folio de oficinas requerido');
+    if (decision !== 'confirmar' && decision !== 'rechazar') throw new BadRequestException('decisión inválida');
+    const par = await this.tk.run(async (trx) => (await this.hayPares(trx))
+      ? trx('analytics.erp_goods_receipt_dedup')
+          .where({ tenant_id: tenantId, cedis_folio: folio })
+          .first('dup_of_sucursal', 'dup_of_folio', 'status')
+      : null);
+    if (!par) throw new BadRequestException(`no hay par registrado para la orden de oficinas 00/${folio}`);
+    await this.scope.assertCanWrite('warehouse', par.dup_of_sucursal);
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('analytics.erp_goods_receipt_dedup')
+        .where({ tenant_id: tenantId, cedis_folio: folio })
+        .update({
+          status: decision === 'confirmar' ? 'confirmado' : 'rechazado',
+          decided_by: actor || null,
+          decided_at: trx.fn.now(),
+        })
+        .returning(['cedis_folio', 'dup_of_sucursal', 'dup_of_folio', 'status']);
+      this.logger.log(`par 00/${folio} ↔ ${par.dup_of_sucursal}/${par.dup_of_folio}: ${row.status} por ${actor || '?'}`);
+      return row;
     });
   }
 

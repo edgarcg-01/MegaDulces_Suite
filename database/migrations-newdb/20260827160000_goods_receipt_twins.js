@@ -110,6 +110,8 @@ const COLS = [
   ['match_score', 'numeric(4,3)'],  // 0..1 — qué tan sólido es el par
   ['suc_date', 'date'],             // denorm de la canónica (la de sucursal)
   ['suc_monto', 'numeric(14,2)'],
+  ['suc_prov', 'text'],             // el proveedor de CADA lado: es el dato con el que una
+  ['cedis_prov', 'text'],           // persona dictamina (cada servidor tiene su catálogo)
   ['cedis_date', 'date'],           // denorm de la copia de oficinas
   ['cedis_monto', 'numeric(14,2)'],
   ['delta_monto', 'numeric(14,2)'], // cedis_monto - suc_monto: la diferencia que hay que explicar

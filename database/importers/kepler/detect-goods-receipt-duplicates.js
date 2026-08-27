@@ -185,15 +185,17 @@ const SCORE = `CASE regla WHEN 'exacta' THEN 1.000 WHEN 'monto_fecha' THEN 0.900
   const up = await db.query(
     `INSERT INTO analytics.erp_goods_receipt_dedup
        (tenant_id, cedis_folio, dup_of_sucursal, dup_of_folio, match_rule, match_score,
-        suc_date, suc_monto, cedis_date, cedis_monto, delta_monto, delta_dias, status, computed_at)
+        suc_date, suc_monto, suc_prov, cedis_date, cedis_monto, cedis_prov,
+        delta_monto, delta_dias, status, computed_at)
      SELECT $1::uuid, cedis_folio, sucursal, folio, regla, score,
-            suc_date, suc_monto, cedis_date, cedis_monto, delta_monto, delta_dias, status, now()
+            suc_date, suc_monto, suc_prov, cedis_date, cedis_monto, cedis_prov,
+            delta_monto, delta_dias, status, now()
        FROM _par
      ON CONFLICT (tenant_id, cedis_folio) DO UPDATE
        SET dup_of_sucursal = EXCLUDED.dup_of_sucursal, dup_of_folio = EXCLUDED.dup_of_folio,
            match_rule = EXCLUDED.match_rule, match_score = EXCLUDED.match_score,
-           suc_date = EXCLUDED.suc_date, suc_monto = EXCLUDED.suc_monto,
-           cedis_date = EXCLUDED.cedis_date, cedis_monto = EXCLUDED.cedis_monto,
+           suc_date = EXCLUDED.suc_date, suc_monto = EXCLUDED.suc_monto, suc_prov = EXCLUDED.suc_prov,
+           cedis_date = EXCLUDED.cedis_date, cedis_monto = EXCLUDED.cedis_monto, cedis_prov = EXCLUDED.cedis_prov,
            delta_monto = EXCLUDED.delta_monto, delta_dias = EXCLUDED.delta_dias,
            status = EXCLUDED.status, computed_at = now()
        WHERE analytics.erp_goods_receipt_dedup.status NOT IN ('confirmado', 'rechazado')`, [T]);

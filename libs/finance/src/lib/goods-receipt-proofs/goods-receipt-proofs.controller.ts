@@ -73,9 +73,35 @@ export class GoodsReceiptProofsController {
     return this.svc.matchByOcr({ folio, total: total ? Number(total) : undefined, fecha, search });
   }
 
+  @Get('twins')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.14 — pares de la MISMA recepción capturada dos veces (sucursal + oficinas 00): folio e importe de cada lado, regla y score del apareo. `estado=propuesto` = los que esperan dictamen y por eso siguen contándose dos veces.',
+  })
+  twins(@Query() query: Record<string, unknown>) {
+    const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts/twins');
+    return this.svc.twins({
+      estado: query['estado'] as 'propuesto' | 'vigente' | 'todos',
+      search: query['search'] as string,
+      limit: query['limit'] ? Number(query['limit']) : undefined,
+      warehouse_codes,
+    });
+  }
+
+  // OJO con el orden: esta ruta va ANTES de `:sucursal/:folio`, o Nest resolvería
+  // `twins/<folio>/decide` como el detalle de la sucursal "twins".
+  @Post('twins/:cedis_folio/decide')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.14 — dictamina un par: confirmar (es la misma recepción → deja de contarse dos veces) o rechazar (es compra propia de oficinas → vuelve a contarse y el detector no la repropone). Firmado.',
+  })
+  decideTwin(@Param('cedis_folio') cedisFolio: string, @Body() body: { decision?: 'confirmar' | 'rechazar' }, @Req() req: AuthedRequest) {
+    return this.svc.decideTwin(cedisFolio, body?.decision as 'confirmar' | 'rechazar', req?.user?.full_name || req?.user?.username);
+  }
+
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
-  @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas.' })
+  @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas. Acepta el folio de OFICINAS (00): si es espejo, devuelve la canónica de sucursal + `redirigido_de`.' })
   detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
     return this.svc.detail(sucursal, folio);
   }
