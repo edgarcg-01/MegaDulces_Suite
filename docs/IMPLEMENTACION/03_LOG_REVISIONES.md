@@ -56,6 +56,26 @@ Un renglón cuyo **SKU no existe en el catálogo** no puede entrar a inventario:
 2. **La API en runtime lee `DATABASE_URL_NEW_RUNTIME`** (rol `app_runtime`), no `DATABASE_URL_NEW`. Sin ella cae al fallback `192.168.0.245` y el login da 500. Y `PermissionsCacheService` resuelve permisos por `KNEX_CONNECTION` (la legacy) filtrando por `tenant_id`, así que en local `DATABASE_URL` **también** tiene que apuntar a `postgres_platform` o todo endpoint con permiso da 500 por `relation "role_permissions" does not exist`.
 3. **44 de 96 suites traen `password: 'superoot'` hardcodeada** (sólo 3 leen `SUPEROOT_INITIAL_PASSWORD`). En cualquier máquina donde esa variable sea otra, esas suites no pueden loguearse y la regresión completa es inutilizable como red de seguridad: 46 rojos que no dicen nada del código. Vale la pena unificarlas a `process.env.SUPEROOT_INITIAL_PASSWORD || 'superoot'` en su propio commit.
 
+### 6b. Tres hallazgos que sólo aparecieron al abrir la pantalla
+
+Los tres pasaban `nx build view` sin una queja.
+
+1. **La tabla no pintaba nada.** `thead` y `tbody` quedaban vacíos y sólo se veía el paginador. Causa: usé `<ng-template pTemplate="header">`, la API vieja de PrimeNG, que en esta versión **no engancha**. El proyecto usa `#header` / `#body` / `#emptymessage` — **612 usos contra 2** del `pTemplate`. El mismo error en el diálogo dejó al `#footer` sin proyectar, o sea **un diálogo sin botones**: no se podía guardar. Regla práctica: en este repo, template de PrimeNG = `#nombre`, nunca `pTemplate`.
+2. **Un `computed()` sobre un campo que no es señal nunca se invalida.** El semáforo de plazo leía `vence`, escrito por `[(ngModel)]` sobre una propiedad plana: el `computed` no se recalculaba jamás y el semáforo no aparecía nunca. Pasó a ser método.
+3. **La bandeja contaba como "declarado" lo que estaba retenido.** `pending_qty` restaba toda captura no rechazada, incluidas las 🔴 que esperan autorización y **no reclasifican nada**. Reproducido en la UI: declaré 5 unidades con fecha anterior a la existente → veredicto rojo → el renglón bajó de 105 a 100 por fechar **sin que se creara el lote**. Esas 5 unidades quedaban fuera del radar: ni fechadas en el ledger ni pendientes en la bandeja. Ahora *declarado* = sólo `accepted`, y lo retenido va en su propia columna (`held_qty`) con el renglón **todavía** en la lista, porque es trabajo abierto de otra persona, no algo resuelto.
+
+### 6c. Cobertura de permisos en prod (decisión de configuración, no de código)
+
+Medido sobre los 48 roles del tenant:
+
+| Permiso | Presente en | En `true` |
+|---|---|---|
+| `COMMERCIAL_INVENTORY_RECIBIR` | 5 roles | **0** |
+| `COMMERCIAL_EXPIRY_CAPTURAR` | 11 roles | **1** (`encargado_sucursal`, 6 usuarios) |
+| `COMMERCIAL_INVENTORY_VER` | 46 roles | 19 |
+
+O sea: la bandeja de Caducidades la verían 6 personas, y **Recepción (el vale de entrada) no la puede usar ningún rol** salvo lo que resuelva `superadmin` (7 usuarios) por manage-all. Otorgar permisos es escribir en prod, así que queda como decisión pendiente, no como cambio hecho. Nota lateral: `PageTabs` filtra por permiso **literal** y no honra manage-all, así que un superadmin no ve esas pestañas aunque el guard de ruta sí lo deje entrar.
+
 ### 7. Pendiente
 
 - Redeploy `api` + `view` (el código de WMS-REC.4 y .5 está en local; la mig `20260825180000` ya está en Railway como Batch 216, la `20260825120000` falta confirmar).
