@@ -493,6 +493,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
+        // alcance). Permiso propio: VALIDAR no lo tiene el capturista.
+        path: 'entradas/revision',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-revision.component').then(m => m.ComprasEntradasRevisionComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
+      },
+      {
         // CC ext — la vista completa (auditoría por línea + conciliación + validación). Sigue
         // viva mientras RE.13.2 (bandeja de revisión) y RE.13.3 (lote CEDIS) no la absorban:
         // acá está el único camino "tengo el papel y no sé de qué entrada es".

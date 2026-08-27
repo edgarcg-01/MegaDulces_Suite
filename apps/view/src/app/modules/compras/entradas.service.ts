@@ -38,6 +38,21 @@ export interface EntradaRow {
   atrasada: boolean;
   /** |factura − entrada| de la última evidencia (null si no hay OCR con importe). */
   discrepancy_amount: number | null;
+  // RE.13.2 — quién subió (segregación de funciones: el revisor no valida lo propio) y por
+  // qué se devolvió (la sucursal lo necesita en su worklist).
+  deposit_by: string | null;
+  motivo_rechazo: string | null;
+  motivo_codigo: string | null;
+}
+
+/** RE.13.2 — una decisión en la cadena del expediente. */
+export interface ProofHistoryEntry {
+  status_from: string | null;
+  status_to: string;
+  motivo_codigo: string | null;
+  motivo: string | null;
+  changed_by: string | null;
+  changed_at: string;
 }
 
 /** RE.13.0 — parámetros del proceso (los define el tenant, no el código). */
@@ -86,6 +101,8 @@ export interface EntradasReport {
     entradas: number; con_comprobante: number; validados: number; monto_pendiente: number;
     // RE.13.0 — lo que las vistas nuevas necesitan contar sin traerse las filas.
     por_validar: number; rechazados: number; atrasadas: number;
+    /** SLA del REVISOR: evidencia esperando decisión más de lo permitido. */
+    por_validar_atrasadas: number;
   };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];
@@ -215,6 +232,8 @@ export interface EntradaDetail {
   deposits: ReceiptDeposit[];
   // RE.12 — copia(s) CEDIS ('00') espejo de esta canónica (misma recepción, otra póliza).
   cedis_twins?: { sucursal: string; folio: string; receipt_date: string | null; oc_folio: string | null; vale_folio: string | null; monto: number }[];
+  /** RE.13.2 — cadena de decisiones (quién subió, quién devolvió y por qué, quién validó). */
+  history?: ProofHistoryEntry[];
 }
 
 export interface AttachReceipt {
@@ -270,7 +289,13 @@ export class EntradasService {
     return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }>(`${this.base}/attach`, body);
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
-  reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+  reject(id: string, motivo?: string, motivo_codigo?: string): Observable<any> {
+    return this.http.post(`${this.base}/${id}/reject`, { motivo, motivo_codigo });
+  }
+  /** RE.13.2 — valida varias; el server revalida cada id y dice qué omitió y por qué. */
+  validateBulk(ids: string[]): Observable<{ validadas: number; omitidas: number; detalle: { id: string; ok: boolean; motivo?: string }[] }> {
+    return this.http.post<{ validadas: number; omitidas: number; detalle: { id: string; ok: boolean; motivo?: string }[] }>(`${this.base}/validate-bulk`, { ids });
+  }
   /** RE.11.2 — concilia los renglones de la remisión contra las líneas Kepler de la entrada. */
   reconcile(sucursal: string, folio: string, lines: RemisionLine[]): Observable<ReconcileResult> {
     return this.http.post<ReconcileResult>(`${this.base}/reconcile`, { sucursal, folio, lines });

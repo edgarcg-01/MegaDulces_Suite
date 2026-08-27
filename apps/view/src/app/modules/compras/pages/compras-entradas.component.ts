@@ -23,6 +23,7 @@ import { money, moneyShort } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
@@ -1722,84 +1723,24 @@ export class ComprasEntradasComponent {
   adjGrupoSev(g: AdjustmentGrupo): 'success' | 'warn' | 'danger' | 'secondary' { return ({ comercial: 'success', operacional: 'warn', error: 'danger', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[g] || 'secondary'; }
 
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
-  lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
+  lineasTotal(lineas: EntradaLinea[]): number { return lineasTotal(lineas); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= ComprasEntradasComponent.EPS; }
 
-  /** Dos importes son el mismo por debajo de esto (centavos de redondeo del OCR). */
-  private static readonly EPS = 1;
-  /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
-  private static readonly IVA = 0.16;
+  /** Los umbrales viven en `receipt-verdict.ts`: son los mismos que usa la bandeja. */
+  private static readonly EPS = EPS;
 
-  /** "1 renglón" / "2 renglones". Un plural mal puesto es de lo primero que se nota. */
-  plural(n: number, sing: string, plur: string): string { return `${n} ${n === 1 ? sing : plur}`; }
+  plural(n: number, sing: string, plur: string): string { return plural(n, sing, plur); }
 
   /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
-  private depForCuadre(d: EntradaDetail) {
-    const deps = d.deposits || [];
-    return deps.find((x) => x.status === 'validado') ?? deps[0] ?? null;
-  }
+  private depForCuadre(d: EntradaDetail) { return depForCuadre(d); }
 
   /**
-   * La respuesta de esta pantalla, en llano.
-   *
-   * El diálogo se llama "documento vs OCR" pero las tres cifras comparables —lo que Kepler
-   * registró, la suma de los renglones y lo que dice el papel del proveedor— vivían en tres
-   * bloques distintos, así que no se podían comparar. Esto las junta y, sobre todo, dice qué
-   * significa la diferencia: un descuadre que resulta ser exactamente el IVA no es un
-   * problema, y un delta crudo de $1,234.56 no le dice eso a nadie.
+   * La respuesta de esta pantalla, en llano. La lógica vive en `receipt-verdict.ts` porque la
+   * **bandeja de revisión** (RE.13.2) muestra el mismo veredicto: dos copias garantizaban que
+   * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
    */
-  cuadre(d: EntradaDetail) {
-    const E = ComprasEntradasComponent.EPS;
-    const kepler = Number(d.entrada.monto) || 0;
-    const lineas = this.lineasTotal(d.lineas);
-    const dep = this.depForCuadre(d);
-    const ocr = dep?.ocr_monto != null ? Number(dep.ocr_monto) : null;
-    const delta = ocr == null ? null : Number((ocr - kepler).toFixed(2));
-    const conIva = Math.abs(lineas * (1 + ComprasEntradasComponent.IVA) - kepler) <= E;
-    // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
-    const ocrMeta = !dep ? 'sin remisión adjunta'
-      : ocr == null ? 'el OCR no leyó el total'
-      : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
-    // Q.2 también acá: los renglones son el SUBTOTAL (cantidad x costo, kdm2) y el total de
-    // Kepler (c16) va con impuestos, así que casi siempre difieren. Dejar la diferencia a la
-    // vista sin explicarla hace dudar de un dato que está bien — y en dulcería no es solo
-    // IVA: hay IEPS, por eso no se afirma "16%" salvo que el número lo confirme.
-    const nLin = this.plural(d.lineas.length, 'renglón', 'renglones');
-    const dImp = Number((kepler - lineas).toFixed(2));
-    const lineasMeta =
-      Math.abs(dImp) <= E ? `${nLin} · igual al total, sin impuestos`
-      : conIva ? `${nLin} · subtotal; Kepler suma el IVA (+${money(dImp)})`
-      : dImp > 0 ? `${nLin} · subtotal; Kepler suma impuestos (+${money(dImp)})`
-      : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
-
-    if (!dep) {
-      return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'Falta la remisión del proveedor',
-        lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
-    }
-    if (ocr == null) {
-      return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento está, pero no se pudo leer su total',
-        lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
-    }
-    if (Math.abs(delta as number) <= E) {
-      return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento cuadra con Kepler',
-        lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
-    }
-    const dif = Math.abs(delta as number);
-    const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
-    // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
-    const pista = Math.abs(dif - lineas * ComprasEntradasComponent.IVA) <= E
-      ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
-      : this.explains().length
-        ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
-        : '';
-    return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-      titulo: `${sentido} ${money(dif)}`,
-      lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
-  }
+  cuadre(d: EntradaDetail) { return receiptVerdict(d, this.explains().length > 0); }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
