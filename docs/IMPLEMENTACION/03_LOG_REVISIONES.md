@@ -6,6 +6,67 @@
 
 ---
 
+## 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del bodeguero
+
+**Disparador:** decisión de negocio sobre cómo se reparte el trabajo real de la bodega — *"en el área de recepción teclea el folio, verifica lo que mandaron y al dar luz verde, pum, le aparezca a la sección de caducidades para que el bodeguero le pueda poner sus fechas"*. Es un cambio de planes respecto a lo construido en WMS-REC.4, y revisa ADR-044.
+
+### 1. Qué se invirtió
+
+ADR-044 decía *"el alta de existencia la hace **siempre** la captura de lote"* y listaba como **rechazada** la alternativa *"que el renglón escriba stock al cerrar el vale"*, dejando esta compuerta escrita: *"que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario"*. **Esa compuerta se cruzó.**
+
+| Momento | Quién | Inventario |
+|---|---|---|
+| Recepción: folio → verificar → **luz verde** | operador | la mercancía **entra**, lote `NA` (sin fecha) |
+| Caducidades: declarar lote + caducidad | bodeguero | **reclasifica** `NA` → lote fechado, **el total no se mueve** |
+
+El motivo es operativo, no técnico: son dos personas en dos momentos. Atarlos obligaba a mantener el vale abierto mientras alguien recorría la tarima leyendo etiquetas, y dejaba al inventario negando mercancía que ya estaba aprobada y en el piso.
+
+### 2. Cómo se evita el doble conteo (que era justo lo que motivaba la decisión original)
+
+Sigue habiendo **un solo asiento por mercancía recibida**, y no por convención sino por construcción:
+
+- **El cierre da de alta lo recibido menos lo que una captura ya dio de alta.** La pantalla del auditor permite capturar con el vale abierto; sin ese descuento, capturar-y-luego-cerrar contaba doble. El descuento se calcula uniendo la captura con su movimiento (`movement_type = 'in'`), o sea contra el ledger, no contra un flag.
+- **La captura le pregunta al ledger** si la sesión del renglón ya generó el alta (`reference_type='receiving_session'`). Si sí, **reclasifica** (`assignLotToUndeclared`); si no, **suma** (`recordMovement('in')`, que es el caso de la captura suelta sin vale). Es la misma marca que usa el cierre para ser idempotente, así que las dos piezas no pueden desincronizarse.
+- **La reclasificación reusa el invariante que ya existía** en vez de reimplementarlo: sube el lote fechado y re-escribe `stock.quantity` **con su mismo valor**. Eso dispara `trg_rebalance_stock_lots` —que corre en `UPDATE OF quantity`, no sólo cuando el valor cambia— y el trigger recalcula `NA = stock − Σ(otros lotes)`, bajando exactamente lo declarado.
+- Se asienta en la bitácora como **`adjust` con cantidad 0**, que es la verdad literal: el total no cambió, cambió de qué lote es. Y ese movimiento sirve de marca de idempotencia en `receiving_lot_captures.stock_movement_id`.
+
+El veredicto 🔴 sigue sin liberar nada a FEFO hasta que un supervisor autorice, y el 409 por capturas retenidas sin resolver se mantiene. Lo que dejó de frenar el cierre es la **ausencia** de fechas.
+
+### 3. Lo nuevo visible
+
+- `GET /commercial/receiving/sessions/pending-expiry` — derivado, sin tabla ni columna nuevas: renglones de vales cerrados donde `Σ(capturas) < received_qty`, con `pending_qty`, vale de origen, almacén y **días esperando**.
+- Página **`/almacen/inventory/por-fechar`** (tab "Por fechar", permiso `COMMERCIAL_EXPIRY_CAPTURAR`), ordenada por antigüedad porque el costo de no saber cuándo vence algo crece con el tiempo que lleva en el piso. Semáforo de plazo (corto <30 d, intermedio <90 d) y declaración **parcial**: si la tarima trae varios lotes se declara uno por vez y el renglón sigue en la lista con lo que falte.
+- El auditor ahora acepta capturas con el vale `open` **y** `closed` (cerrado es el caso normal del flujo nuevo); sólo `cancelled` se rechaza, porque fechar mercancía de un vale anulado no describe nada real. Esa validación la habíamos escrito para el flujo viejo y quedó invertida.
+
+**Nada se borró:** las hojas de inspección de anaquel (P2.6) siguen en su ruta y su tab.
+
+### 4. Hallazgo lateral que se hizo visible en vez de filtrarse
+
+Un renglón cuyo **SKU no existe en el catálogo** no puede entrar a inventario: no hay producto al que asignarle existencia. Antes esto se filtraba en silencio —el operador confirmaba cantidades, cerraba, y no pasaba nada. Medido en prod: **23 de 89,257** renglones históricos (0.03%), o sea es raro pero real. Ahora el vale lo dice **antes** de cerrar (`progress.sin_catalogo` → banner) y el cierre lo registra como `warn` nombrando cuántos renglones quedaron fuera.
+
+### 5. Verificación
+
+- Smoke nuevo `database/tests/http-luz-verde-caducidades-test.js` — **22/22** contra los endpoints reales: luz verde → alta en `NA` → bandeja con su faltante → captura sobre vale cerrado → reclasificación. Afirma explícitamente lo que podría romperse: que el stock sube *exactamente* lo recibido, que entró sin caducidad inventada, que re-cerrar no duplica, que fechar **no** mueve el total, que `NA` baja lo declarado y que `SUM(lotes) = stock` sigue valiendo.
+- Vecino `http-vale-entrada-autollenado-test.js` — **30/30**. Estaba fallando 12 aserciones por interferencia entre suites: al dejar el folio ya recibido, su primer `open` chocaba con el guard de duplicado. Se le puso `force: true` a ese `open` (ahí prueba el autollenado, no el guard, que tiene sus propias aserciones) para que deje de depender de que el folio esté virgen.
+- `nx build api` y `nx build view` OK.
+
+### 6. Dos trampas de entorno, ninguna del cambio (quedan anotadas porque cuestan horas)
+
+1. **`localhost` resuelve a IPv6 `::1` en esta máquina y Docker no contesta ahí** → `read ECONNRESET`. Con `.env` tal cual, la API muere al arrancar (el cliente de Redis tira una excepción no capturada) y **casi toda la regresión falla** sin relación con el código. Con `127.0.0.1` arranca. Aplica a `DATABASE_URL*`, `REDIS_URL`, `DB_HOST`, `NEW_DB_HOST`.
+2. **La API en runtime lee `DATABASE_URL_NEW_RUNTIME`** (rol `app_runtime`), no `DATABASE_URL_NEW`. Sin ella cae al fallback `192.168.0.245` y el login da 500. Y `PermissionsCacheService` resuelve permisos por `KNEX_CONNECTION` (la legacy) filtrando por `tenant_id`, así que en local `DATABASE_URL` **también** tiene que apuntar a `postgres_platform` o todo endpoint con permiso da 500 por `relation "role_permissions" does not exist`.
+3. **44 de 96 suites traen `password: 'superoot'` hardcodeada** (sólo 3 leen `SUPEROOT_INITIAL_PASSWORD`). En cualquier máquina donde esa variable sea otra, esas suites no pueden loguearse y la regresión completa es inutilizable como red de seguridad: 46 rojos que no dicen nada del código. Vale la pena unificarlas a `process.env.SUPEROOT_INITIAL_PASSWORD || 'superoot'` en su propio commit.
+
+### 7. Pendiente
+
+- Redeploy `api` + `view` (el código de WMS-REC.4 y .5 está en local; la mig `20260825180000` ya está en Railway como Batch 216, la `20260825120000` falta confirmar).
+- PR #27 (`fix/vale-folio-default-y-guards`) sigue abierta — sin ella Recepción no abre con el folio en prod.
+- Validación visual de la bandeja en browser.
+- Rotar la credencial de prod que se pegó en el chat (`RUNBOOKS/ROTACION_SECRETOS.md`).
+
+**Lesson learned:** cuando una validación existe para hacer cumplir un orden de trabajo (*"el vale debe estar abierto para capturar"*), al invertir el orden esa validación no queda obsoleta: queda **invertida**, y rechaza justo el caso normal. Conviene buscarlas explícitamente al cambiar un flujo, porque el compilador no las encuentra y el síntoma aparece hasta el final del recorrido.
+
+---
+
 ## 2026-08-26 — Réplica de pruebas en .245 (estructura de prod) + espejo del sink · y el CDC del ODS llevaba 2 días colgado
 
 **Disparador:** Edgar pidió una copia de prod en `.245` para usarla de pruebas — **estructura, no data** — y que *"la bd local que alimenta a prod también alimente .245"*.

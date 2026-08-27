@@ -90,8 +90,11 @@ function check(name, cond, detail) {
 
     // ── 3. Abrir el vale SIN mandar almacén ──────────────────────────────
     console.log('\n── 3. Abrir sin elegir almacén (se deriva de la orden) ──');
+    // force:true porque acá se prueba el AUTOLLENADO, no el guard de duplicado (ese
+    // tiene sus propias aserciones más abajo). Sin esto, la suite depende de que el
+    // folio esté virgen y falla en cadena cuando otra corrida ya lo recibió.
     const open = await req('POST', '/commercial/receiving/sessions', {
-      source_kind: 'erp_receipt', erp_sucursal: target.sucursal, erp_folio: target.folio,
+      source_kind: 'erp_receipt', erp_sucursal: target.sucursal, erp_folio: target.folio, force: true,
     }, token);
     check('abre sin warehouse_id en el body', open.status === 200 || open.status === 201, {
       status: open.status, msg: open.body?.message,
