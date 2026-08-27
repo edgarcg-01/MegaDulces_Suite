@@ -474,19 +474,28 @@ export class GoodsReceiptProofsService {
     });
   }
 
-  /** Sube UN archivo (remisión/factura/evidencia) a Cloudinary. Imagen o PDF. */
+  /**
+   * Sube UN archivo (remisión/factura/evidencia) al bucket privado. **Imagen o PDF.**
+   *
+   * RE.13.1 — antes era `putPdf`, que rechaza imágenes. Eso venía de la migración de
+   * Cloudinary (donde el problema era servir PDFs), pero dejaba al capturista de sucursal
+   * sin poder subir NADA desde el celular: tiene el papel en la mano y una cámara, no un
+   * escáner. `putFile` es el mismo camino que ya usa `bank-capture` para las fotos de ficha
+   * que llegan por WhatsApp; guarda el ContentType real y `signFiles` firma la lectura igual.
+   * El OCR ya aceptaba imagen desde siempre — el tapón estaba sólo en el almacenamiento.
+   */
   async uploadFile(dataUri: string, role = 'remision'): Promise<ReceiptFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!RECEIPT_FILE_ROLES.includes(role as ReceiptFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      // Solo PDF → Railway Bucket (privado). Se guarda la KEY en public_id; la URL de lectura
-      // es prefirmada al mostrar (signFiles), no permanente.
-      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/goods-receipts`);
+      // Bucket PRIVADO. Se guarda la KEY en public_id; la URL de lectura es prefirmada al
+      // mostrar (signFiles), no permanente.
+      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/goods-receipts`);
       // url = key (placeholder truthy para no romper filtros `f.url`); la lectura la firma (signFiles).
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado" → mensaje directo al usuario
+      if (e?.status === 400) throw e; // "no configurado" → mensaje directo al usuario
       this.logger.error(`fallo subiendo remisión (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }

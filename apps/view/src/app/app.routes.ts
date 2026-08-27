@@ -486,8 +486,17 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]
       },
       {
-        // CC ext — comprobantes de orden de entrada (remisión/factura + OCR sobre X-A-40).
+        // RE.13.1 — "Mis pendientes": la worklist del capturista de sucursal (scopeada por
+        // alcance, lo más viejo primero, con cámara). Es la puerta del proceso.
         path: 'entradas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // CC ext — la vista completa (auditoría por línea + conciliación + validación). Sigue
+        // viva mientras RE.13.2 (bandeja de revisión) y RE.13.3 (lote CEDIS) no la absorban:
+        // acá está el único camino "tengo el papel y no sé de qué entrada es".
+        path: 'entradas/todas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },

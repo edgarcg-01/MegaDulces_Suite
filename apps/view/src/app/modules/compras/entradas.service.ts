@@ -29,6 +29,44 @@ export interface EntradaRow {
   monto_match: boolean;
   /** fecha capturada adelante de hoy: el renglón se ordena como si fuera de hoy y se marca */
   fecha_futura: boolean;
+  // RE.13.0 — los dos relojes del proceso + el veredicto de atraso ya resuelto por el server.
+  /** días desde la recepción, acotados a hoy (una fecha futura cuenta 0, no negativo). */
+  dias: number;
+  /** días que la evidencia lleva esperando decisión (null si no hay evidencia). */
+  dias_espera: number | null;
+  /** pasó el SLA que le aplica: captura si no tiene evidencia, revisión si la tiene. */
+  atrasada: boolean;
+  /** |factura − entrada| de la última evidencia (null si no hay OCR con importe). */
+  discrepancy_amount: number | null;
+}
+
+/** RE.13.0 — parámetros del proceso (los define el tenant, no el código). */
+export interface ReceiptSettings {
+  reception_start: string;
+  match_tolerance: number;
+  sla_capture_days: number;
+  sla_review_days: number;
+  bulk_max_files: number;
+}
+
+/** RE.13.0 — qué sucursales puede ver el usuario. `null` = todas (alcance `all`). */
+export interface EntradasAlcance {
+  sucursales: string[] | null;
+  total_visibles: number | null;
+}
+
+/** RE.13.0 — filtros del listado. `warehouse_codes` es el nombre canónico ([ID.5]). */
+export interface EntradasQuery {
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | '';
+  from?: string;
+  to?: string;
+  search?: string;
+  warehouse_codes?: string[];
+  dias_min?: number;
+  carril?: 'al_dia' | 'rezago' | 'todo';
+  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  page?: number;
+  pageSize?: number;
 }
 
 /** Frescura de UNA fuente (rama Kepler o sucursal Wincaja) de la lista de entradas. */
@@ -44,9 +82,19 @@ export interface EntradaFrescura {
 }
 
 export interface EntradasReport {
-  kpis: { entradas: number; con_comprobante: number; validados: number; monto_pendiente: number };
+  kpis: {
+    entradas: number; con_comprobante: number; validados: number; monto_pendiente: number;
+    // RE.13.0 — lo que las vistas nuevas necesitan contar sin traerse las filas.
+    por_validar: number; rechazados: number; atrasadas: number;
+  };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];
+  /** total del universo filtrado: antes la lista cortaba en 300 sin decirlo. */
+  total: number;
+  page: number;
+  pageSize: number;
+  alcance: EntradasAlcance;
+  settings: ReceiptSettings;
 }
 
 /** Un archivo ya subido a una entrada (o su duplicado) — para reportar dónde ya vive. */
@@ -182,10 +230,18 @@ export class EntradasService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/goods-receipts`;
 
-  list(q: { estado?: string; from?: string; to?: string; search?: string } = {}): Observable<EntradasReport> {
+  list(q: EntradasQuery = {}): Observable<EntradasReport> {
     let params = new HttpParams();
-    for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
+    for (const [k, v] of Object.entries(q)) {
+      if (v == null || v === '') continue;
+      // `warehouse_codes=01,03` — el backend acepta CSV o repetido; CSV mantiene la URL corta.
+      params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
+    }
     return this.http.get<EntradasReport>(this.base, { params });
+  }
+  /** Parámetros vigentes del proceso (arranque, tolerancia, SLA, tope de lote). */
+  settings(): Observable<ReceiptSettings> {
+    return this.http.get<ReceiptSettings>(`${this.base}/settings`);
   }
   /** Detalle de la entrada + sus líneas (kdm2) para auditar renglón por renglón. */
   detail(sucursal: string, folio: string): Observable<EntradaDetail> {

@@ -526,7 +526,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
         { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
-        { label: 'Órdenes de entrada', icon: 'pi pi-inbox',         route: '/compras/entradas',      permission: Permission.COMPRAS_ENTRADAS_VER },
+        // RE.13.1 — "Pendientes" es la worklist del capturista (lo que le falta subir);
+        // "Órdenes de entrada" es la vista completa con auditoría por línea.
+        { label: 'Pendientes de subir',  icon: 'pi pi-camera',       route: '/compras/entradas',       permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Órdenes de entrada',   icon: 'pi pi-inbox',        route: '/compras/entradas/todas', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {

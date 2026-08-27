@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
 import { money, moneyShort } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
@@ -1044,7 +1044,9 @@ export class ComprasEntradasComponent {
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
-  readonly estadoSel = signal<string>('pendiente');
+  // RE.13.0 — el estado del listado ahora es un tipo cerrado (`EntradasQuery`), no un string
+  // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
+  readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
   readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
@@ -1249,7 +1251,7 @@ export class ComprasEntradasComponent {
     ];
   }
 
-  setEstado(v: string) { this.estadoSel.set(v); this.load(); }
+  setEstado(v: string) { this.estadoSel.set((v || '') as Exclude<EntradasQuery['estado'], undefined>); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
 
   load() {
