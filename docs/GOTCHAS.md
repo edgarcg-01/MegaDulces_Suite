@@ -433,3 +433,67 @@ alfabético; y si el orden textual es inevitable, pinealo con `COLLATE "C"`.
 Aplica igual a `DISTINCT ON ... ORDER BY texto`, `MIN()`, `string_agg(... ORDER BY texto)` y a
 cualquier fingerprint md5 armado con `string_agg` ordenado por texto: entre DBs con collation
 distinto, el hash cambia sin que cambie la data.
+
+---
+
+## 21. El ODS corre los timestamps +6h por un carril y no por el otro → filas DUPLICADAS
+
+Medido en prod el 2026-08-26. `kepler_ods` guarda los `timestamp without time zone` **+6 h**
+respecto del origen por el carril del **poll**, y sin corrimiento por el carril del **WAL**:
+
+| | origen (`:5433/kepler_pilot`) | `kepler_ods` |
+|---|---|---|
+| `kdm1.c9` (fecha del documento) | `2025-01-01 00:00:00` | `2025-01-01 06:00:00` |
+| `kdc22607.c2` (fecha del asiento) | `2026-07-01 00:00:00` | `2026-07-01 06:00:00` |
+
+**Por qué:** `replicate-ods-live.js` hace `SELECT` y node-postgres devuelve un `Date` de JS, que
+interpreta el valor como hora **local** (MX, `TZ` fijada en el Dockerfile) y al re-escribirlo lo
+serializa como UTC → +6 h. `ods-cdc-wal.js` no: pgoutput entrega los valores como **texto** y nunca
+pasan por un `Date`. **La fuente fiel es el WAL.**
+
+**Hoy es inocuo para los consumidores** — y por poco: en el origen **100 %** de esos valores están a
+medianoche y 0 % después de las 18:00, así que +6 h no cruza el día y todo `c9::date` sigue dando la
+fecha correcta. El día que Kepler guarde una hora real, los documentos de la tarde caen al día
+siguiente.
+
+**Lo que NO es inocuo: duplica filas.** El timestamp es parte de la PK, así que la misma fila lógica
+entra dos veces (una a `00:00`, otra a `06:00`) y el UPSERT no puede colapsarlas. En `kdc22608`
+(pólizas del mes abierto): 04 tiene 1,105 filas a las 06:00 + 200 a las 00:00 = **200 grupos
+duplicados**; el total son **1,120 filas extra** en 6 sucursales (el CEDIS `00` tiene 0). **Eso
+duplica asientos en la balanza y en el P&L de Maat** si se leen del ODS. El mes CERRADO `kdc22607`
+cuadra exacto: el problema es de lo que se sigue escribiendo.
+
+**Por qué sigue pasando:** los dos carriles están vivos a la vez (`\Tienda\OdsLiveLoop` +
+`\Tienda\OdsFullMirror` en `Running` y los 7 `cdc-wal-XX` de PM2). El cutover CDC.6 preveía
+**apagar el poll** tras validar en sombra y no se hizo, así que los duplicados crecen a diario.
+
+**Arreglo:** completar el cutover (apagar el poll) o normalizar su renderizado de timestamps
+(mandar texto, no `Date`); después deduplicar quedándose con la fila del WAL. Diagnóstico
+reproducible: `database/importers/kepler/reconcile-ods-deletes.js` los cuenta y NO los borra.
+
+## 22. El ODS conserva filas borradas aguas arriba (el poll es ciego a los DELETE)
+
+Mismo día, mismo origen. El poll es UPSERT-only: **no puede ver un DELETE**. El WAL sí los aplica
+(handler `raw-delete`), pero sólo trae cambios posteriores a la creación de su slot. Todo lo borrado
+antes de esa ventana —o durante un hueco del consumidor, como los **2 días congelados** del
+24 al 26-ago— queda en el ODS para siempre. Medido:
+
+| tabla | fuente | ODS | Δ | residuo |
+|---|---|---|---|---|
+| `kdpord` | 77,343 | 81,148 | **+3,805** | 4.92 % |
+| `kdii` | 66,534 | 66,667 | +133 | 0.20 % |
+| `kdud` | 8,233 | 8,239 | +6 | 0.07 % |
+| `kdm1` / `kdm2` | — | — | **−212 / −1,159** | atraso normal del CDC, no residuo |
+
+Verificado por muestreo además del conteo: de 400 llaves de `kdpord`/sucursal 01 tomadas del ODS,
+**29 (7.2 %) ya no existen** en la réplica.
+
+**Antes de repointear cualquier importer al ODS, reconciliá.** Un feed que lea `kdpord` del ODS ve
+pedidos que ya no existen. `reconcile-ods-deletes.js` hace el anti-join por PK y manda los borrados
+por el sink; corré primero en dry-run.
+
+**Y ojo con la llave:** el corrimiento de timestamps del §21 rompe la comparación por PK. La primera
+versión de ese script reportó **1527/1527 huérfanas** en un mes cerrado y lo único que evitó borrar
+1,527 asientos legítimos fue el guard de `--max-pct`. Si vas a comparar llaves entre el ODS y el
+origen y la PK incluye un timestamp, normalizá al día (`date_trunc`) — y sólo si verificaste que el
+origen guarda esa columna siempre a medianoche.
