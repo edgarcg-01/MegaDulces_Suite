@@ -3434,9 +3434,13 @@ export class CommercialAnalyticsService {
     const term = (q.search || '').trim();
     const tenantId = this.tenantCtx.requireTenantId();
 
-    // Modo AÑO → product_sales_monthly (columnas por mes). Modo RANGO → product_sales_daily
-    // (una Venta/Costo del período). El diario suma EXACTO al mensual (misma fuente/filtro).
-    let year = 0, from = '', toIncl = '', toExcl = '';
+    // Fuente CANÓNICA (primaria): modo AÑO → analytics.sales_boxes_monthly (piezas/kg + cajas ya
+    // calculadas con v_product_box_factor = Kepler kdii.c84); modo RANGO → analytics.sales_daily
+    // (piezas/kg canónicas; cajas = piezas / factor canónico). Incluye TODOS los canales
+    // (mostrador/crédito/preventa/ruta, Kepler y Wincaja) = venta total real. Reemplaza a
+    // product_sales_* (crudo: unidad vendida sin normalizar, solo U-D-10) que subcontaba el
+    // crédito y no convertía a cajas los productos vendidos en paquete/granel.
+    let year = 0, from = '', toIncl = '';
     if (isRange) {
       if (!this.isIsoDate(q.from!) || !this.isIsoDate(q.to!)) throw new BadRequestException('from/to inválido (ISO 8601)');
       from = q.from!; toIncl = q.to!;
@@ -3444,10 +3448,9 @@ export class CommercialAnalyticsService {
     } else {
       year = Number(q.year) || new Date().getFullYear();
       if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
-      from = `${year}-01-01`; toExcl = `${year + 1}-01-01`;
+      from = `${year}-01-01`;
     }
-    const src = isRange ? 'analytics.product_sales_daily as m' : 'analytics.product_sales_monthly as m';
-    const dcol = isRange ? 'm.sale_date' : 'm.month';
+    const ymFrom = `${year}-01`, ymTo = `${year}-12`; // bounds de year_month (texto) para sales_boxes_monthly
 
     // SAL.6 — días del período (cobertura) + ventana anterior (tendencia).
     const DAY = 86400000;
@@ -3468,10 +3471,6 @@ export class CommercialAnalyticsService {
     }
 
     const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
-      const applyDate = (qb: any) => {
-        qb.where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
-        if (isRange) qb.andWhere(dcol, '<=', toIncl); else qb.andWhere(dcol, '<', toExcl);
-      };
       const applyFilters = (qb: any) => {
         if (whFilter) qb.whereIn('w.code', whFilter);
         if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -3480,44 +3479,59 @@ export class CommercialAnalyticsService {
         if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
       };
 
-      // Venta por (sucursal, producto[, mes]).
-      const sq = trx(src)
-        .join('catalog.products as p', 'p.id', 'm.product_id')
-        .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .sum({ units: 'm.units' });
-      applyDate(sq);
+      // Venta por (sucursal, producto[, mes]) desde la fuente CANÓNICA: `units` = base natural
+      // (piezas para pieza, kg para granel) · `boxes` = cajas con el factor canónico. Todos los canales.
+      let sq: any;
       if (isRange) {
-        sq.select('w.code as wcode', 'm.product_id as product_id').groupByRaw('w.code, m.product_id');
+        sq = trx('analytics.sales_daily as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+            this.on('vbf.product_id', 'm.product_id').andOn('vbf.tenant_id', 'm.tenant_id');
+          })
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
+          .select(trx.raw(`sum(CASE WHEN m.unit_kind = 'weight' THEN 0 ELSE m.units / GREATEST(COALESCE(vbf.box_factor, 1), 1) END) as boxes`))
+          .groupByRaw('w.code, m.product_id');
       } else {
-        sq.select('w.code as wcode', 'm.product_id as product_id', trx.raw(`to_char(m.month,'MM') as mes`))
-          .groupByRaw(`w.code, m.product_id, to_char(m.month,'MM')`);
+        sq = trx('analytics.sales_boxes_monthly as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`right(m.year_month, 2) as mes`))
+          .select(trx.raw('sum(coalesce(m.pieces, 0) + coalesce(m.kg, 0)) as units'))
+          .select(trx.raw('sum(coalesce(m.boxes, 0)) as boxes'))
+          .groupByRaw('w.code, m.product_id, right(m.year_month, 2)');
       }
       applyFilters(sq);
 
       // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
       let prevRows: any[] = [];
       if (isRange && prevFrom && prevTo) {
-        const pq = trx('analytics.product_sales_daily as m')
+        const pq = trx('analytics.sales_daily as m')
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
-          .sum({ units: 'm.units' })
           .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
           .groupByRaw('w.code, m.product_id');
         applyFilters(pq);
         prevRows = await pq;
       }
 
-      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto
-      // activo en cada sucursal, aunque no tenga venta NI existencia (Venta 0 / Exist 0).
-      // La matriz sucursal×producto se arma en Node desde 3 queries planas (no cartesiano SQL).
-      // Scope de sucursales = las que tuvieron venta en el período (excluye rutas/Cedis sin
-      // venta). Con filtro de sucursal/marca la matriz se achica sola.
-      const swq = trx(src).join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
-      if (isRange) swq.andWhere(dcol, '<=', toIncl); else swq.andWhere(dcol, '<', toExcl);
-      swq.distinct('w.id as id', 'w.code as code', 'w.name as name');
-      let scopeWh: any[] = await swq;
+      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto activo en
+      // cada sucursal en scope (venta 0 / exist 0 permitidos). Scope = sucursales con venta en el período.
+      let scopeWh: any[];
+      if (isRange) {
+        scopeWh = await trx('analytics.sales_daily as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      } else {
+        scopeWh = await trx('analytics.sales_boxes_monthly as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      }
       if (whFilter) scopeWh = scopeWh.filter((w) => whFilter.includes(w.code));
 
       const pq2 = trx('catalog.products as p')
@@ -3527,11 +3541,14 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.product_label_prices as lp', function (this: any) {
           this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
         })
+        .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+          this.on('vbf.product_id', 'p.id').andOn('vbf.tenant_id', 'p.tenant_id');
+        })
         .where('p.tenant_id', tenantId).andWhere('p.activo', true)
         .select(
           'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
           'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
-          'lp.pack_size as pack_size', 'lp.box_size as box_size',
+          'lp.pack_size as pack_size', 'lp.box_size as box_size', 'vbf.box_factor as box_factor',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
           's.name as supplier', 'b.nombre as brand', 'cat.name as categoria', 'p.rotation_tier as rotation_tier',
         );
@@ -3554,10 +3571,12 @@ export class CommercialAnalyticsService {
 
     // Merge en Node.
     const monthsSet = new Set<string>();
-    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units
+    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units (piezas/kg canónicas)
     const totalByKey = new Map<string, number>();                 // modo rango: units del período
+    const boxesByKey = new Map<string, number>();                 // cajas canónicas del período (ambos modos)
     for (const r of salesRows as any[]) {
       const key = `${r.wcode}|${r.product_id}`;
+      boxesByKey.set(key, (boxesByKey.get(key) ?? 0) + (Number(r.boxes) || 0));
       if (isRange) {
         totalByKey.set(key, Number(r.units) || 0);
       } else {
@@ -3591,7 +3610,7 @@ export class CommercialAnalyticsService {
         if (isGhost(p)) continue;
         allMeta.push({
           wcode: w.code, wname: w.name, product_id: p.product_id, sku: p.sku, nombre: p.nombre,
-          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size,
+          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size, box_factor: p.box_factor,
           cost_with_tax: p.cost_with_tax, cost_per_case: p.cost_per_case, supplier: p.supplier,
           brand: p.brand, categoria: p.categoria, rotation_tier: p.rotation_tier,
           stock_qty: stockMap.get(`${w.code}|${p.product_id}`) ?? 0,
@@ -3638,12 +3657,19 @@ export class CommercialAnalyticsService {
       // estricto de etiquetas → un producto SIN etiqueta mostraba Costo x Caja $565.20
       // pero Pz/Cja y Exist. Cja en "—" (incoherente; caso 83769 GUSTINOS /20KG).
       const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
-      const boxF = Number(r.box_size) > 0 ? Number(r.box_size)
-        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0);
+      // boxF = factor de caja CANÓNICO (v_product_box_factor = Kepler kdii.c84); cae a la etiqueta y
+      // luego a factor_sale solo si falta el canónico. Mismo factor en venta, existencia y costo.
+      const boxF = Number(r.box_factor) > 1 ? Number(r.box_factor)
+        : (Number(r.box_size) > 0 ? Number(r.box_size)
+        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0));
+      const weightUnit = unitSale === 'KG' || unitSale === 'KGS' || unitSale === 'KILO' || unitSale === 'KILOS';
       const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : (paqUnit ? existPaq : null);
       const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : (cjaUnit ? existPaq : null);
-      const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : (paqUnit ? round(ventaTotal, 2) : null);
-      const ventaCajas = pieceUnit && boxF > 0 ? round(ventaTotal / boxF, 2) : (cjaUnit ? round(ventaTotal, 2) : null);
+      // Venta en CAJAS: ya viene en cajas de la fuente canónica (piezas ÷ factor canónico, TODA
+      // unidad incl. paquete). Granel (kg) no tiene caja → "—".
+      const ventaCajas = weightUnit ? null : round(boxesByKey.get(key) ?? 0, 2);
+      // Paquetes: desde las piezas canónicas (ventaTotal) ÷ pzas por paquete.
+      const ventaPaquetes = weightUnit ? null : (packF > 0 ? round(ventaTotal / packF, 2) : null);
       const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
       const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
       const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
