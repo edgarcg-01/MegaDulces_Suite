@@ -172,6 +172,15 @@ explícito pone la intención en el código, no en el entorno. Al 2026-08-26 que
 - Commiteá tu trabajo verde **de inmediato** con paths explícitos, aunque sea a mitad de tarea. (El entorno tiene
   automatización de git que a veces **revierte** lo no commiteado.)
 - Flujo de equipo: rama por feature + PR + review + CI verde. `main` protegida. Ver [ONBOARDING.md](../ONBOARDING.md) §8.
+- ⛔ **`git checkout -b mi-rama origin/main` + `git push` apunta a `main`.** Este repo tiene
+  `push.default = upstream`, y crear la rama así le deja `origin/main` como upstream → **el push resuelve el
+  destino al upstream, no a una rama con tu nombre**. Pasó el 2026-08-26: `git push -u origin fix/cron-timezone-explicit`
+  respondió `! [remote rejected] fix/cron-timezone-explicit -> main (protected branch hook declined)`. Lo único que
+  lo frenó fue la protección de `main`.
+  **Cómo evitarlo:** creá la rama sin upstream (`git switch -c mi-rama` estando en el commit base, o
+  `git branch --unset-upstream` después), o pusheá siempre con refspec explícito:
+  `git push -u origin mi-rama:refs/heads/mi-rama` — con `src:dst` el `push.default` no participa.
+  Si ya te pasó, no hay daño: el hook rechaza antes de escribir.
 
 ---
 
