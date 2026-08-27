@@ -188,6 +188,36 @@ export class UsersController {
     return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });
   }
 
+  /**
+   * `[ID.13]` — Roles del usuario: perfil base + complementos, con el conteo de
+   * permisos de cada uno.
+   */
+  @Get(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Perfil base y complementos de un usuario (identity.user_roles) con sus permisos otorgados' })
+  userRoles(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.roles(id);
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS del usuario desde la UI.
+   *
+   * Semántica de PUT: la lista que llega es la lista final. El perfil base no se
+   * cambia acá (eso es `role_name` en el formulario) — así "sumarle una tarea a
+   * alguien" y "cambiarle el puesto" quedan como dos acciones distintas, que es
+   * lo que son.
+   */
+  @Put(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija los complementos (roles extra) de un usuario. Devuelve qué se agregó y qué se quitó. Queda asentado en identity.user_events.' })
+  setUserRoles(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { roles?: string[] },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setRoles(id, body?.roles ?? [], { sub: user.sub, username: user.username });
+  }
+
   /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
   @Get(':id/events')
   @RequirePermissions(Permission.USUARIOS_VER)

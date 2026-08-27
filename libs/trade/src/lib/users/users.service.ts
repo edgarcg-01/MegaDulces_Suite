@@ -6,13 +6,14 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { getDataScope, TenantContextService } from '@megadulces/platform-core';
+import { getDataScope, TenantContextService, PermissionsCacheService } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
@@ -30,6 +31,10 @@ export class UsersService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
+    // `[ID.13]` Optional: el cache vive en platform-core y este service se
+    // instancia en tests sin él. Sin cache el complemento tarda el TTL (30s)
+    // en verse; con cache se ve al instante.
+    @Optional() private readonly permsCache?: PermissionsCacheService,
   ) {}
 
   /**
@@ -778,6 +783,133 @@ export class UsersService {
       }
       return { actualizados: afectados.length, campos: Object.keys(cambios), usuarios: afectados.map((u: any) => u.username) };
     });
+  }
+
+  /**
+   * `[ID.13]` — Roles de un usuario: el perfil base + los complementos.
+   *
+   * Devuelve además el conteo de permisos de cada uno, que es lo que hace la
+   * pantalla legible: "cajero (3 permisos) + captura_gastos (1)" dice mucho más
+   * que dos nombres sueltos.
+   */
+  async roles(id: string) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const filas = await this.knex('identity.user_roles as ur')
+      .leftJoin('identity.role_permissions as rp', function () {
+        this.on('rp.tenant_id', '=', 'ur.tenant_id').andOn('rp.role_name', '=', 'ur.role_name');
+      })
+      .where({ 'ur.tenant_id': this.tenantId, 'ur.user_id': id })
+      .orderBy([{ column: 'ur.is_primary', order: 'desc' }, { column: 'ur.role_name' }])
+      .select(
+        'ur.role_name',
+        'ur.is_primary',
+        'ur.nota',
+        'ur.created_at',
+        this.knex.raw(`(
+          SELECT count(*) FROM jsonb_each(coalesce(rp.permissions, '{}'::jsonb)) e
+           WHERE e.value = 'true'
+        )::int AS permisos`),
+      );
+
+    return {
+      user_id: id,
+      username: user.username,
+      perfil_base: user.role_name,
+      roles: filas,
+    };
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS de un usuario (el perfil base no se toca
+   * acá: eso sigue siendo `role_name` en el formulario del usuario).
+   *
+   * Es la operación que resuelve dos cosas medidas en prod:
+   *   - la encargada de sucursal que además cobra en caja no necesita una
+   *     segunda cuenta con username de terminal;
+   *   - `captura_gastos` (22 usuarios, 1 permiso) deja de ser un "rol" que
+   *     además le pisaba el departamento a la persona.
+   *
+   * Recibe la lista COMPLETA de complementos deseados (semántica de PUT): lo
+   * que no venga se quita. Devuelve qué se agregó y qué se quitó para que la
+   * UI y la bitácora digan exactamente eso.
+   */
+  async setRoles(id: string, roleNames: string[], requester: RequesterContext) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const pedidos = Array.from(new Set((roleNames ?? []).map((r) => String(r).trim()).filter(Boolean)));
+
+    // Los nombres se resuelven contra el catálogo (case-insensitive, igual que
+    // el resto del sistema) y se guarda el CANÓNICO: la FK compuesta lo exige y
+    // un rol con distinto case = 0 permisos silenciosos.
+    const catalogo = await this.knex('identity.role_permissions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .select('role_name');
+    const porLower = new Map<string, string>(
+      catalogo.map((r: { role_name: string }) => [r.role_name.toLowerCase(), r.role_name]),
+    );
+
+    const canonicos: string[] = [];
+    for (const p of pedidos) {
+      const c = porLower.get(p.toLowerCase());
+      if (!c) throw new BadRequestException(`El rol "${p}" no existe en el catálogo.`);
+      // El perfil base no se administra como complemento: si viene, se ignora
+      // en silencio en vez de crear una fila que el trigger va a pelear.
+      if (c.toLowerCase() !== String(user.role_name ?? '').toLowerCase()) canonicos.push(c);
+    }
+
+    const previos: string[] = await this.knex('identity.user_roles')
+      .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+      .pluck('role_name');
+
+    const agregados = canonicos.filter((c) => !previos.includes(c));
+    const quitados = previos.filter((p) => !canonicos.includes(p));
+    if (!agregados.length && !quitados.length) {
+      return { user_id: id, complementos: canonicos, agregados: [], quitados: [] };
+    }
+
+    await this.knex.transaction(async (trx) => {
+      if (quitados.length) {
+        await trx('identity.user_roles')
+          .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+          .whereIn('role_name', quitados)
+          .del();
+      }
+      for (const rol of agregados) {
+        const fila = {
+          tenant_id: this.tenantId,
+          user_id: id,
+          role_name: rol,
+          is_primary: false,
+          updated_by: requester.sub,
+          updated_at: trx.fn.now(),
+        };
+        await trx('identity.user_roles')
+          .insert({ ...fila, created_by: requester.sub })
+          .onConflict(['tenant_id', 'user_id', 'role_name'])
+          .merge(fila);
+      }
+      await this.recordEvent(
+        trx,
+        id,
+        'roles_changed',
+        { agregados, quitados, complementos: canonicos, perfil_base: user.role_name },
+        requester,
+      );
+    });
+
+    // El guard cachea la LISTA de roles 30s; sin esto el complemento nuevo
+    // tarda hasta medio minuto en verse y parece que no se guardó.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    return { user_id: id, complementos: canonicos, agregados, quitados };
   }
 
   /** Bitácora del usuario, para el panel de detalle. */
