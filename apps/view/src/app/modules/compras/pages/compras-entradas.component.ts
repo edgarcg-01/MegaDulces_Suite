@@ -129,7 +129,16 @@ interface AttachFile {
                      title="Fecha capturada adelante de hoy en el ERP"></i>
                 }
               </td>
-              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
+              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button>
+                <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
+                     porque esta pantalla es donde alguien llega con "tengo este número": el par
+                     tiene que ser visible sin abrir el detalle. -->
+                @if (c.gemela_folio) {
+                  <em class="cb-gem" [title]="'Oficinas capturó la misma recepción como 00/' + c.gemela_folio + (c.gemela_monto != null ? ' por ' + money(c.gemela_monto) : '')">
+                    <i class="pi pi-link" aria-hidden="true"></i> 00/{{ c.gemela_folio }}
+                  </em>
+                }
+              </td>
               <td>
                 @if (c.proveedor_code) {
                   <button type="button" class="cb-reflink" (click)="inspect.set(refProv(c.proveedor_code))"
@@ -480,12 +489,27 @@ interface AttachFile {
           </strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
         </div>
+        @if (d.redirigido_de) {
+          <div class="cb-twin"><i class="pi pi-directions" aria-hidden="true"></i>
+            <span>Buscaste <strong class="mono">{{ d.redirigido_de.sucursal }}/{{ d.redirigido_de.folio }}</strong>,
+              el folio con el que <strong>oficinas</strong> capturó esta recepción. Lo que ves es el documento de la
+              sucursal, que es el que trae los productos y el que lleva la evidencia.</span>
+          </div>
+        }
         @if (d.cedis_twins?.length) {
           <div class="cb-twin"><i class="pi pi-clone" aria-hidden="true"></i>
-            <span>Incluye la copia de <strong>CEDIS</strong> (misma recepción, otra póliza) — no requiere evidencia aparte:</span>
+            <span>La misma recepción está capturada también en <strong>oficinas</strong> (servidor 9.95) —
+              no requiere evidencia aparte:</span>
             @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) {
               <button type="button" class="cb-twin-folio cb-reflink mono" (click)="inspect.set(refEnt(t.sucursal, t.folio))"
-                      [attr.aria-label]="'Abrir la copia CEDIS ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+                      [attr.aria-label]="'Abrir la copia de oficinas ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+              <span class="cb-twin-meta">
+                {{ t.monto == null ? '' : money(t.monto) }}<!--
+                --><!-- El delta entre nuestras dos capturas: pequeño pero hay que poder verlo,
+                        porque es lo que explica un "no cuadra" que no es del proveedor. -->
+                @if (t.delta_monto) { · Δ {{ money(t.delta_monto) }} }
+                @if (t.status === 'propuesto') { · <strong>sin dictaminar</strong> }
+              </span>
             }
           </div>
         }
@@ -794,6 +818,8 @@ interface AttachFile {
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
     .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
+    /* El folio de oficinas es contexto, no la identidad de la fila: se lee en segundo plano. */
+    .cb-gem { display: block; font-style: normal; font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
 
@@ -853,7 +879,8 @@ interface AttachFile {
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
     /* RE.12 — copia CEDIS (espejo) adjunta a la vista de la canónica */
     .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
-    .cb-twin .pi-clone { color: var(--action); }
+    .cb-twin .pi-clone, .cb-twin .pi-directions { color: var(--action); }
+    .cb-twin-meta { font-variant-numeric: tabular-nums; }
     .cb-twin-folio { color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .35rem; }
     /* columna Remisión clickable */
     .cb-comp-cell { cursor: pointer; }
@@ -1751,8 +1778,11 @@ export class ComprasEntradasComponent {
     return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
 
-  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra' } as Record<string, string>)[k] || k; }
-  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  // `gemela` (RE.14) no es un descuadre con el proveedor: la factura cuadra con la captura de
+  // oficinas y la diferencia es contra la de la sucursal. Etiquetarla como "Descuadre" mandaría
+  // a reclamarle a quien no se equivocó.
+  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
+  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   /**

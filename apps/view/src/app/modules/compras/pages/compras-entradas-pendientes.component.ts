@@ -239,6 +239,17 @@ interface Hoja {
             <div class="ta-r"><dt>Total en Kepler</dt><dd class="ep-cap-monto">{{ money(t.monto) }}</dd></div>
           </dl>
 
+          @if (t.gemela_monto != null && t.gemela_delta) {
+            <!-- La misma recepción está capturada también en oficinas y con otro importe. Si no
+                 se dice acá, la factura "no cuadra" por unos centavos que no son del proveedor. -->
+            <p class="ep-cap-gem">
+              <i class="pi pi-link" aria-hidden="true"></i>
+              Oficinas la capturó como <strong class="mono">00/{{ t.gemela_folio }}</strong> por
+              <strong>{{ money(t.gemela_monto) }}</strong> ({{ money(t.gemela_delta) }} de diferencia con la de acá).
+              La factura cuadra si coincide con cualquiera de los dos.
+            </p>
+          }
+
           @if (t.deposit_status === 'rechazado') {
             <div class="ep-cap-rej">
               <i class="pi pi-undo" aria-hidden="true"></i>
@@ -289,7 +300,8 @@ interface Hoja {
             @if (cuadre() !== null) {
               <div class="ep-cuadre" [class.ok]="cuadre()" [class.bad]="!cuadre()" role="status">
                 <i class="pi" [ngClass]="cuadre() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
-                @if (cuadre()) { <span>La factura <strong>cuadra</strong> con el total de Kepler.</span> }
+                @if (cuadre() && cuadrePorGemela()) { <span>La factura <strong>cuadra</strong> con el total que capturó <strong>oficinas</strong>; con el de acá difiere {{ money(dif()) }}.</span> }
+                @else if (cuadre()) { <span>La factura <strong>cuadra</strong> con el total de Kepler.</span> }
                 @else { <span>La factura difiere <strong>{{ money(dif()) }}</strong> del total de Kepler. Se puede guardar: el revisor decide.</span> }
               </div>
             }
@@ -402,6 +414,10 @@ interface Hoja {
     .ep-cap-head dt { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .ep-cap-head dd { margin: 0; font-weight: 600; }
     .ep-cap-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .ep-cap-gem { display: flex; align-items: flex-start; gap: .4rem; margin: .5rem 0 0; padding: .45rem .6rem;
+      font-size: .76rem; line-height: 1.35; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg));
+      border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
+    .ep-cap-gem .pi-link { color: var(--action); margin-top: .12rem; }
     .ep-cap-head .ta-r { margin-left: auto; text-align: right; }
     .ep-cap-rej { display: flex; gap: .5rem; align-items: center; padding: .5rem .7rem; font-size: var(--fs-sm, .85rem);
       color: var(--bad-fg); border: 1px solid color-mix(in oklab, var(--bad-fg) 35%, var(--border-color)); border-radius: var(--r-sm, .35rem); }
@@ -576,12 +592,29 @@ export class ComprasEntradasPendientesComponent {
   /** La hoja fiscal (la que trae importe) manda el cuadre. */
   private readonly fiscal = computed(() => this.hojas().find((h) => h.total != null || h.subtotal != null) || null);
   /** `null` = todavía no se puede opinar (sin lectura con importe). */
+  /**
+   * RE.14.4 — cuadra contra **las dos capturas** de la misma recepción (la de la sucursal y la
+   * de oficinas), igual que el servidor. Si acá se compara sólo contra una, la pantalla dice "no
+   * cuadra" sobre una factura que el server guarda como cuadrada — y el capturista se queda con
+   * la duda de a quién creerle.
+   */
   readonly cuadre = computed<boolean | null>(() => {
     const t = this.abierta(); const f = this.fiscal();
     if (!t || !f) return null;
     const tol = this.report()?.settings?.match_tolerance ?? 1;
-    const cerca = (v: number | null | undefined) => v != null && Math.abs(Number(v) - t.monto) <= tol;
-    return cerca(f.total) || cerca(f.subtotal);
+    const cerca = (v: number | null | undefined, ref: number | null) =>
+      v != null && ref != null && Math.abs(Number(v) - ref) <= tol;
+    return cerca(f.total, t.monto) || cerca(f.subtotal, t.monto)
+      || cerca(f.total, t.gemela_monto) || cerca(f.subtotal, t.gemela_monto);
+  });
+  /** true cuando cuadró con la de oficinas y NO con la de la sucursal (hay que poder decirlo). */
+  readonly cuadrePorGemela = computed(() => {
+    const t = this.abierta(); const f = this.fiscal();
+    if (!t || !f || t.gemela_monto == null) return false;
+    const tol = this.report()?.settings?.match_tolerance ?? 1;
+    const cerca = (v: number | null | undefined, ref: number) => v != null && Math.abs(Number(v) - ref) <= tol;
+    const conSuc = cerca(f.total, t.monto) || cerca(f.subtotal, t.monto);
+    return !conSuc && (cerca(f.total, t.gemela_monto) || cerca(f.subtotal, t.gemela_monto));
   });
   readonly dif = computed(() => {
     const t = this.abierta(); const f = this.fiscal();

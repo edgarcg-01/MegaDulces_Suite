@@ -166,6 +166,13 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                   <div><dt>Kepler</dt><dd>{{ money(q.kepler) }}</dd><p>total registrado, con impuestos</p></div>
                   <div><dt>Σ renglones</dt><dd>{{ money(q.lineas) }}</dd><p>{{ q.lineasMeta }}</p></div>
                   <div [class.off]="q.tone === 'bad'"><dt>Documento (OCR)</dt><dd>{{ q.ocr != null ? money(q.ocr) : '—' }}</dd><p>{{ q.ocrMeta }}</p></div>
+                  <!-- RE.14.4 — la cuarta cifra sólo aparece cuando existe y aporta: la misma
+                       recepción capturada en oficinas con OTRO importe. Es lo que explica un
+                       descuadre de centavos sin tener que dudar de la factura. -->
+                  @if (q.gemela?.monto != null && q.gemela?.delta) {
+                    <div><dt>Oficinas</dt><dd>{{ money(q.gemela!.monto!) }}</dd>
+                      <p>misma recepción, folio {{ q.gemela!.folio }} · {{ money(q.gemela!.delta!) }} vs la de la sucursal</p></div>
+                  }
                 </dl>
               }
 

@@ -43,6 +43,46 @@ export interface EntradaRow {
   deposit_by: string | null;
   motivo_rechazo: string | null;
   motivo_codigo: string | null;
+  // RE.14.3 — la MISMA recepción está capturada dos veces: en el Kepler de la sucursal y en el
+  // de oficinas (9.95, sucursal '00'). `origen` dice de qué servidor salió esta fila; los
+  // `gemela_*` describen la otra copia, cuando la hay.
+  origen?: 'sucursal' | 'oficinas';
+  /** folio con el que oficinas capturó la misma recepción (null si no está apareada). */
+  gemela_folio: string | null;
+  gemela_date: string | null;
+  gemela_monto: number | null;
+  /** oficinas − sucursal: la diferencia entre nuestras dos capturas, no con el proveedor. */
+  gemela_delta: number | null;
+  gemela_regla: string | null;
+  gemela_score: number | null;
+}
+
+/** RE.14.3 — un par de la misma recepción capturada dos veces, con los dos lados a la vista. */
+export interface TwinPair {
+  cedis_folio: string;
+  sucursal: string;
+  folio: string;
+  suc_date: string | null;
+  cedis_date: string | null;
+  suc_monto: number | null;
+  cedis_monto: number | null;
+  suc_prov: string | null;
+  cedis_prov: string | null;
+  delta_monto: number | null;
+  delta_dias: number | null;
+  match_rule: string | null;
+  match_score: number | null;
+  status: 'propuesto' | 'auto' | 'confirmado' | 'rechazado';
+  decided_by: string | null;
+  decided_at: string | null;
+}
+
+export interface TwinsReport {
+  rows: TwinPair[];
+  /** `monto_propuesto` = lo que hoy se cuenta dos veces por falta de dictamen. */
+  kpis: { propuestos: number; vigentes: number; monto_propuesto: number };
+  total: number;
+  alcance?: EntradasAlcance;
 }
 
 /** RE.13.2 — una decisión en la cadena del expediente. */
@@ -255,8 +295,18 @@ export interface EntradaDetail {
   };
   lineas: EntradaLinea[];
   deposits: ReceiptDeposit[];
-  // RE.12 — copia(s) CEDIS ('00') espejo de esta canónica (misma recepción, otra póliza).
-  cedis_twins?: { sucursal: string; folio: string; receipt_date: string | null; oc_folio: string | null; vale_folio: string | null; monto: number }[];
+  // RE.12/RE.14 — copia(s) de OFICINAS ('00') de esta misma recepción, con la regla del apareo y
+  // su estado: `propuesto` todavía no cuenta como espejo (espera dictamen).
+  cedis_twins?: {
+    sucursal: string; folio: string; receipt_date: string | null;
+    oc_folio: string | null; vale_folio: string | null; monto: number | null;
+    delta_monto?: number | null; delta_dias?: number | null;
+    match_rule?: string | null; match_score?: number | null;
+    status?: 'propuesto' | 'auto' | 'confirmado' | 'rechazado';
+    decided_by?: string | null; decided_at?: string | null;
+  }[];
+  /** RE.14.3 — se pidió por el folio de oficinas y el server resolvió a la canónica. */
+  redirigido_de?: { sucursal: string; folio: string } | null;
   /** RE.13.2 — cadena de decisiones (quién subió, quién devolvió y por qué, quién validó). */
   history?: ProofHistoryEntry[];
 }
@@ -301,6 +351,24 @@ export class EntradasService {
     return this.http.get<CoverageReport>(`${this.base}/coverage`, { params });
   }
   /** Parámetros vigentes del proceso (arranque, tolerancia, SLA, tope de lote). */
+  /**
+   * RE.14.3 — pares de la misma recepción capturada dos veces. `estado='propuesto'` trae los que
+   * esperan dictamen: mientras nadie decida, esa recepción se sigue contando dos veces.
+   */
+  twins(q: { estado?: 'propuesto' | 'vigente' | 'todos'; search?: string; limit?: number; warehouse_codes?: string[] } = {}): Observable<TwinsReport> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(q)) {
+      if (v == null || v === '') continue;
+      params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
+    }
+    return this.http.get<TwinsReport>(`${this.base}/twins`, { params });
+  }
+  /** Dictamina el par: `confirmar` (es la misma recepción) o `rechazar` (es compra de oficinas). */
+  decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar'): Observable<{ cedis_folio: string; status: string }> {
+    return this.http.post<{ cedis_folio: string; status: string }>(
+      `${this.base}/twins/${encodeURIComponent(cedisFolio)}/decide`, { decision });
+  }
+
   settings(): Observable<ReceiptSettings> {
     return this.http.get<ReceiptSettings>(`${this.base}/settings`);
   }

@@ -532,6 +532,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Captura por lote',      icon: 'pi pi-clone',       route: '/compras/entradas/lote', permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
         { label: 'Revisión de facturas',  icon: 'pi pi-verified',    route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
         { label: 'Órdenes de entrada',   icon: 'pi pi-inbox',        route: '/compras/entradas/todas', permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Capturadas dos veces', icon: 'pi pi-link',         route: '/compras/entradas/gemelas', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {

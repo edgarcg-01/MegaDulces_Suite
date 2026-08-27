@@ -515,6 +515,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
+        // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
+        path: 'entradas/gemelas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-gemelas.component').then(m => m.ComprasEntradasGemelasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',
         loadComponent: () => import('./modules/compras/pages/compras-descuentos.component').then(m => m.ComprasDescuentosComponent),

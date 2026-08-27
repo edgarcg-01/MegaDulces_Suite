@@ -31,6 +31,18 @@ export interface ReceiptVerdict {
   lineasMeta: string;
   titulo: string;
   lectura: string;
+  /** RE.14 — la otra captura de la MISMA recepción (oficinas), cuando el par está vigente. */
+  gemela: { folio: string; monto: number | null; delta: number | null } | null;
+}
+
+/**
+ * `[RE.14.4]` — La copia de oficinas que **vale como espejo**. Un par apenas `propuesto` no se
+ * usa para explicar el cuadre: si el apareo todavía no está dictaminado, apoyarse en él sería
+ * justificar una factura con un documento que quizá no es de esta recepción. `status` puede venir
+ * indefinido en respuestas viejas del server, donde `cedis_twins` sólo traía pares vigentes.
+ */
+export function gemelaVigente(d: EntradaDetail) {
+  return (d.cedis_twins || []).find((t) => (t.status ?? 'auto') !== 'propuesto' && t.monto != null) || null;
 }
 
 export function lineasTotal(lineas: EntradaLinea[]): number {
@@ -58,6 +70,10 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
   const dep = depForCuadre(d);
   const ocr = dep?.ocr_monto != null ? Number(dep.ocr_monto) : null;
   const delta = ocr == null ? null : Number((ocr - kepler).toFixed(2));
+  const gv = gemelaVigente(d);
+  const gemela = gv
+    ? { folio: gv.folio, monto: gv.monto, delta: gv.monto == null ? null : Number((gv.monto - kepler).toFixed(2)) }
+    : null;
   const conIva = Math.abs(lineas * (1 + IVA) - kepler) <= EPS;
   // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
   const ocrMeta = !dep ? 'sin remisión adjunta'
@@ -76,21 +92,30 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
     : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
 
   if (!dep) {
-    return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+    return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
       titulo: 'Falta la remisión del proveedor',
       lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
   }
   if (ocr == null) {
-    return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+    return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
       titulo: 'El documento está, pero no se pudo leer su total',
       lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
   }
   if (Math.abs(delta as number) <= EPS) {
-    return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+    return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
       titulo: 'El documento cuadra con Kepler',
       lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
   }
   const dif = Math.abs(delta as number);
+  // RE.14.4 — la MISMA recepción está capturada dos veces y los dos importes no siempre casan al
+  // centavo. Si la factura coincide con la captura de oficinas, el papel del proveedor está bien:
+  // lo que difiere son NUESTRAS dos capturas. Decirle "el documento cobra de más" al capturista
+  // lo manda a pelearse con un proveedor que no se equivocó.
+  if (gemela?.monto != null && Math.abs(ocr - gemela.monto) <= EPS) {
+    return { tone: 'warn', icon: 'pi-clone', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+      titulo: 'Cuadra con la captura de oficinas, no con la de la sucursal',
+      lectura: `La remisión dice ${money(ocr)} y coincide con lo que oficinas capturó en su folio ${gemela.folio} (${money(gemela.monto)}). La de la sucursal dice ${money(kepler)}: la diferencia de ${money(dif)} es entre nuestras dos capturas, no con el proveedor.` };
+  }
   const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
   // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
   const pista = Math.abs(dif - lineas * IVA) <= EPS
@@ -98,7 +123,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
     : hayAjustes
       ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
       : '';
-  return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
+  return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
     titulo: `${sentido} ${money(dif)}`,
     lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
 }
