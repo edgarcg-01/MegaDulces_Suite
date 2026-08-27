@@ -132,14 +132,14 @@ interface DraftLine {
             <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
             <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
             <th class="ec-r" pSortableColumn="on_hand" title="Existencia en CAJAS. Almacenes Wincaja (Morelia) se convierten por su factor_venta; el resto por piezas/caja (c84).">Existencia (cajas) <p-sorticon field="on_hand" /></th>
-            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sorticon field="min_stock" /></th>
-            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sorticon field="reorder_point" /></th>
-            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sorticon field="max_stock" /></th>
-            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sorticon field="safety_stock" /></th>
-            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sorticon field="in_transit" /></th>
-            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sorticon field="suggested_qty" /></th>
-            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sorticon field="transfer_in" /></th>
-            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sorticon field="buy_qty" /></th>
+            <th class="ec-r" pSortableColumn="min_stock" title="Mínimo, en CAJAS.">Mín <p-sorticon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point" title="Punto de reorden, en CAJAS.">Reorden <p-sorticon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock" title="Máximo, en CAJAS.">Máx <p-sorticon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock" title="Colchón (safety stock), en CAJAS.">Colchón <p-sorticon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit" title="OC en tránsito por recibir, en CAJAS.">OC a recibir <p-sorticon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty" title="Sugerido a pedir, en CAJAS = objetivo − existencia − tránsito.">Sugerido <p-sorticon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar. En CAJAS.">Traspaso <p-sorticon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor. En CAJAS.">Comprar <p-sorticon field="buy_qty" /></th>
             <th pSortableColumn="accion">Acción <p-sorticon field="accion" /></th>
             <th>Estado</th>
             <th pSortableColumn="supplier_name">Proveedor <p-sorticon field="supplier_name" /></th>
