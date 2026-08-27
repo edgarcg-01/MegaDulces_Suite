@@ -134,6 +134,19 @@ usa la hora local del proceso = MX. Los crons viejos escritos asumiendo UTC (`'0
 **Regla:** todo `@Cron` con hora fija lleva `{ timeZone: 'America/Mexico_City' }` y la hora en wall-clock MX.
 Los intervalos (`*/5`, `*/15`) no dependen de TZ. Escaloná los batches pesados de madrugada.
 
+**Verificado en prod (2026-08-26), porque es fácil sacar la conclusión al revés.** `vehicle-witness-audit`
+declaraba `@Cron('0 25 4 * * *')` **sin** `timeZone` y sus 581 hallazgos `vehicle_stop_no_capture` se crean a las
+**04:25 MX / 10:25 UTC**: dispara a la hora que dice. La TZ del proceso la fija el
+[`Dockerfile`](../Dockerfile) (`ln -sf .../America/Mexico_City /etc/localtime` + `TZ=America/Mexico_City`; igual
+en `Dockerfile.worker`). O sea: **un cron sin `timeZone` NO está corriendo 6h corrido hoy** — el corrimiento de
+6h es el de un cron *escrito asumiendo UTC*, que es otra cosa. Antes de "arreglar" un `@Cron` sin `timeZone`,
+comprobá a qué hora escribe de verdad (`created_at AT TIME ZONE 'America/Mexico_City'` en la tabla que puebla).
+
+**¿Y entonces por qué pinearlo?** Porque el comportamiento correcto depende de una línea del Dockerfile: si
+alguien saca el `TZ`, los crons pineados siguen bien y los que no, se corren 6h en silencio. El `timeZone`
+explícito pone la intención en el código, no en el entorno. Al 2026-08-26 quedan pineados los 4 que faltaban
+(`cleanOldPhotos`, `pod-geo-audit`, `vehicle-witness-audit`, `trip-builder-scanner`).
+
 ---
 
 ## 8. Verificar builds y tests (no te mientas a vos mismo)
