@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
  * Lista las órdenes de entrada de Kepler (X-A-40) y les adjunta la remisión/factura
- * del proveedor (imagen/PDF) con OCR. No escribe a Kepler. Backend en `libs/finance`
+ * del proveedor (**sólo PDF** desde 2026-08-27) con OCR. No escribe a Kepler. Backend en `libs/finance`
  * (las evidencias viven en el schema `finance`), ruta `/finance/goods-receipts`.
  */
 
@@ -133,9 +133,21 @@ export interface EntradasQuery {
   pageSize?: number;
 }
 
+/** RE.16 — quién tiene permiso de subir en una sucursal. `propio` = su ficha la apunta ahí. */
+export interface CoverageResponsable {
+  username: string;
+  nombre: string | null;
+  alcance: 'propio' | 'asignado';
+}
+
 /** RE.13.4 — cobertura del proceso por sucursal (la tabla de "¿quién no está subiendo?"). */
 export interface CoverageRow {
   sucursal: string;
+  /**
+   * RE.16 — quiénes pueden subir acá. Vacío NO es "nadie trabaja": es un permiso que falta,
+   * y son dos conversaciones distintas. Sin esto el tablero acusa al inocente.
+   */
+  responsables: CoverageResponsable[];
   entradas: number;
   con_evidencia: number;
   validadas: number;
@@ -156,6 +168,8 @@ export interface CoverageReport {
   rows: CoverageRow[];
   /** Lo anterior al arranque, aparte: mezclarlo al % lo vuelve inservible para exigir. */
   rezago: { entradas: number; monto: number };
+  /** RE.16 — cuántos ven/suben en la red entera. Aparte, o ninguna sucursal se ve huérfana. */
+  responsables_red?: number;
 }
 
 /** Frescura de UNA fuente (rama Kepler o sucursal Wincaja) de la lista de entradas. */
@@ -388,11 +402,18 @@ export class EntradasService {
   settings(): Observable<ReceiptSettings> {
     return this.http.get<ReceiptSettings>(`${this.base}/settings`);
   }
+  /**
+   * RE.16 — guarda los parámetros del proceso (pestaña Ajustes del Centro de control). Hasta
+   * ahora sólo existía el GET: la fecha de arranque y el SLA se movían con un UPDATE a mano.
+   */
+  saveSettings(p: Partial<ReceiptSettings>): Observable<ReceiptSettings> {
+    return this.http.put<ReceiptSettings>(`${this.base}/settings`, p);
+  }
   /** Detalle de la entrada + sus líneas (kdm2) para auditar renglón por renglón. */
   detail(sucursal: string, folio: string): Observable<EntradaDetail> {
     return this.http.get<EntradaDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
   }
-  /** Corre OCR sobre una hoja (data URI, imagen/PDF) — preview, no guarda. Devuelve
+  /** Corre OCR sobre una hoja (data URI, **sólo PDF**) — preview, no guarda. Devuelve
    *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */
   ocr(file_base64: string, role?: string): Observable<RemisionOcr> {
     return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64, role });
@@ -406,7 +427,7 @@ export class EntradasService {
     if (q.search) p = p.set('search', q.search);
     return this.http.get<{ entradas: EntradaRow[] }>(`${this.base}/match`, { params: p });
   }
-  /** Sube la remisión a Cloudinary y devuelve su referencia. */
+  /** Sube la remisión (**sólo PDF**) al bucket privado y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'remision'): Observable<ProofFile> {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });
   }

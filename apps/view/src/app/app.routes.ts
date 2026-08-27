@@ -493,34 +493,49 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
-        // RE.13.3 — captura por lote (CEDIS: 74% del volumen, ~30/día). Soltar el bonche y
-        // confirmar el enlace, en vez de 8 interacciones por entrada.
-        path: 'entradas/lote',
-        loadComponent: () => import('./modules/compras/pages/compras-entradas-lote.component').then(m => m.ComprasEntradasLoteComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)]
-      },
-      {
         // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
         // alcance). Permiso propio: VALIDAR no lo tiene el capturista.
         path: 'entradas/revision',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-revision.component').then(m => m.ComprasEntradasRevisionComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
       },
+
+      // ── RE.16 — Centro de control: lo que el administrador OBSERVA, en 4 pestañas ────────
+      // Antes eran items de sidebar sueltos y se leían como módulos distintos. Las rutas
+      // viejas quedan como redirect: hay links pegados en chats y en Compras 360.
       {
-        // CC ext — la vista completa (auditoría por línea + conciliación + validación). Sigue
-        // viva mientras RE.13.2 (bandeja de revisión) y RE.13.3 (lote CEDIS) no la absorban:
-        // acá está el único camino "tengo el papel y no sé de qué entrada es".
-        path: 'entradas/todas',
+        // RE.16.2 — cobertura por sucursal + quién tiene permiso de subir en cada una.
+        path: 'entradas/control',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-control.component').then(m => m.ComprasEntradasControlComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // CC ext — la vista completa (auditoría por línea + conciliación + validación). Es el
+        // único camino "tengo el papel y no sé de qué entrada es", por eso sigue viva.
+        path: 'entradas/control/ordenes',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
         // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
         // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
-        path: 'entradas/gemelas',
+        path: 'entradas/control/gemelas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-gemelas.component').then(m => m.ComprasEntradasGemelasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
+      {
+        // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
+        // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
+        path: 'entradas/control/ajustes',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-ajustes.component').then(m => m.ComprasEntradasAjustesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
+      },
+
+      // Rutas viejas → su lugar nuevo. `lote` desaparece como pantalla: soltar N PDFs en la
+      // tabla de pendientes ES el lote (una pantalla menos que aprender).
+      { path: 'entradas/lote', redirectTo: 'entradas', pathMatch: 'full' },
+      { path: 'entradas/todas', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
+      { path: 'entradas/gemelas', redirectTo: 'entradas/control/gemelas', pathMatch: 'full' },
       {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',

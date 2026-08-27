@@ -3,7 +3,7 @@ import { money } from '../../shared/util';
 
 /**
  * `[RE.13.2]` — El veredicto de una recepción, en llano. **Función pura y compartida**:
- * la usan la vista completa (`/compras/entradas/todas`) y la bandeja de revisión
+ * la usan la vista completa (`/compras/entradas/control/ordenes`) y la bandeja de revisión
  * (`/compras/entradas/revision`), que es exactamente la pantalla donde este texto ES el
  * trabajo. Vivía dentro del componente de 1,826 líneas; copiarlo habría garantizado que
  * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.

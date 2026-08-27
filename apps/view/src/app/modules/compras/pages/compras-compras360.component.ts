@@ -116,65 +116,20 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales de compras" />
       }
 
-      <!-- RE.13.4 — Cobertura por sucursal: la tabla que contesta "¿quién no está subiendo?".
-           Un % global no sirve para actuar: con CEDIS pesando el 74% del volumen, la red puede
-           verse bien mientras una sucursal chica lleva tres semanas sin subir nada. -->
+      <!-- RE.16 — la tabla de cobertura por sucursal se MUDÓ al Centro de control, que es donde
+           el administrador ya está mirando el proceso (y donde ahora también dice quién tiene
+           permiso de subir en cada sucursal). Acá queda el titular y el link: dos copias de la
+           misma tabla es cómo se terminan contradiciendo. -->
       @if (lente() === 'cumplimiento') {
         @if (cov(); as cv) {
-          <section class="c3-cov" aria-label="Cobertura por sucursal">
-            <div class="c3-cov-head">
-              <h2>Cobertura del proceso por sucursal</h2>
-              <span class="c3-cov-sub">
-                desde el arranque ({{ cv.settings.reception_start }}) · vencidas = más de
-                {{ cv.settings.sla_capture_days }} días sin factura
-              </span>
-              @if (cv.rezago.entradas > 0) {
-                <span class="c3-cov-rez" [title]="'Entradas anteriores al arranque: no entran al % ni al SLA'">
-                  rezago aparte: {{ cv.rezago.entradas }} · {{ moneyShort(cv.rezago.monto) }}
-                </span>
-              }
-            </div>
-            <div class="c3-cov-table" role="table">
-              <div class="c3-cov-h" role="row">
-                <span role="columnheader">Sucursal</span>
-                <span role="columnheader" class="ta-r">Entradas</span>
-                <span role="columnheader">Con factura</span>
-                <span role="columnheader" class="ta-r">Validadas</span>
-                <span role="columnheader" class="ta-r">Vencidas</span>
-                <span role="columnheader" class="ta-r">Antigüedad p50 / p90</span>
-                <span role="columnheader" class="ta-r">$ por comprobar</span>
-                <span role="columnheader"></span>
-              </div>
-              @for (c of cv.rows; track c.sucursal) {
-                <div class="c3-cov-r" role="row" [class.cero]="c.pct_evidencia === 0">
-                  <span role="cell" class="c3-cov-suc">{{ suc(c.sucursal) }}</span>
-                  <span role="cell" class="ta-r c3-num">{{ c.entradas }}</span>
-                  <span role="cell" class="c3-cov-bar">
-                    <span class="c3-cov-track"><span [style.width.%]="c.pct_evidencia"></span></span>
-                    <em>{{ c.pct_evidencia }}%</em>
-                  </span>
-                  <span role="cell" class="ta-r c3-num">{{ c.validadas }}</span>
-                  <span role="cell" class="ta-r c3-num" [class.c3-neg]="c.atrasadas > 0">{{ c.atrasadas }}</span>
-                  <span role="cell" class="ta-r c3-num" [title]="'La mitad de lo pendiente lleva ' + c.dias_p50 + ' días o más; el 10% peor, ' + c.dias_p90"
-                        [class.c3-neg]="c.dias_p50 > cv.settings.sla_capture_days">{{ c.dias_p50 }} / {{ c.dias_p90 }}</span>
-                  <span role="cell" class="ta-r c3-num">{{ moneyShort(c.monto_pendiente) }}</span>
-                  <span role="cell" class="c3-cov-act">
-                    @if (c.entradas > c.con_evidencia) {
-                      <a [routerLink]="['/compras/entradas']" [queryParams]="{ suc: c.sucursal }" class="c3-linkbtn"
-                         title="Abrir la worklist de esa sucursal">pendientes</a>
-                    }
-                    @if (c.por_validar > 0) {
-                      <a [routerLink]="['/compras/entradas/revision']" [queryParams]="{ suc: c.sucursal }" class="c3-linkbtn"
-                         [title]="c.por_validar + ' esperando decisión'">revisar {{ c.por_validar }}</a>
-                    }
-                  </span>
-                </div>
-              }
-              @if (!cv.rows.length) {
-                <div class="c3-cov-r" role="row"><span class="muted">Sin sucursales en tu alcance.</span></div>
-              }
-            </div>
-          </section>
+          <p class="c3-cov-link">
+            <b>{{ covPct(cv) }}%</b> de las órdenes tienen factura desde el arranque ({{ cv.settings.reception_start }})
+            @if (covVencidas(cv) > 0) { · <b class="c3-neg">{{ covVencidas(cv) }} vencidas</b> }
+            @if (cv.rezago.entradas > 0) {
+              · <span class="muted" title="Entradas anteriores al arranque: no entran al % ni al SLA">rezago aparte {{ cv.rezago.entradas }} · {{ moneyShort(cv.rezago.monto) }}</span>
+            }
+            <a [routerLink]="['/compras/entradas/control']" class="c3-linkbtn">ver el detalle por sucursal</a>
+          </p>
         } @else if (covLoading()) {
           <p class="c3-cov-load"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Calculando cobertura…</p>
         }
@@ -594,31 +549,13 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     .c3-dep-ocr em { font-style:normal; color:var(--text-faint); margin-right:.3rem; }
 
 
-    /* RE.13.4 — cobertura por sucursal + columnas del lente de cumplimiento */
-    .c3-cov { margin: 0 0 1rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; }
-    .c3-cov-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; padding: .6rem .8rem;
-      background: var(--surface-sunken, var(--card-bg)); border-bottom: 1px solid var(--border-color); }
-    .c3-cov-head h2 { margin: 0; font-size: 1rem; }
-    .c3-cov-sub { font-size: var(--fs-xs, .75rem); color: var(--text-muted); }
-    .c3-cov-rez { margin-left: auto; font-size: var(--fs-xs, .75rem); color: var(--text-muted);
-      border: 1px dashed var(--border-color); border-radius: var(--r-sm, .35rem); padding: .1rem .45rem; }
-    .c3-cov-table { display: grid; }
-    .c3-cov-h, .c3-cov-r { display: grid; gap: .6rem; align-items: center; padding: .4rem .8rem;
-      grid-template-columns: minmax(7rem, 1fr) 5rem minmax(7rem, 1fr) 5rem 5rem 8rem 8rem minmax(8rem, auto); }
-    .c3-cov-h { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .c3-cov-r { border-top: 1px solid var(--border-color); font-size: var(--fs-sm, .85rem); }
-    .c3-cov-r.cero { background: color-mix(in oklab, var(--bad-fg) 5%, transparent); }
-    .c3-cov-suc { font-weight: 600; }
-    .c3-cov-bar { display: flex; align-items: center; gap: .4rem; }
-    .c3-cov-track { flex: 1; height: .4rem; min-width: 3rem; border-radius: 99px; background: var(--border-color); overflow: hidden; }
-    .c3-cov-track > span { display: block; height: 100%; background: var(--ok-fg); border-radius: 99px; }
-    .c3-cov-bar em { font-style: normal; font-size: var(--fs-xs, .75rem); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .c3-cov-act { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+    /* RE.16 — la tabla de cobertura se mudó al Centro de control; acá queda el titular. */
+    .c3-cov-link { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap;
+      margin: 0 0 1rem; font-size: var(--fs-sm, .85rem); color: var(--text-muted); }
+    .c3-cov-link b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .c3-cov-link b.c3-neg { color: var(--bad-fg); }
+    .c3-cov-link a { margin-left: auto; }
     .c3-cov-load { color: var(--text-muted); font-size: var(--fs-sm, .85rem); }
-    @media (max-width: 68rem) {
-      .c3-cov-h { display: none; }
-      .c3-cov-r { grid-template-columns: 1fr 1fr; }
-    }
     .c3-dias { font-variant-numeric: tabular-nums; font-weight: 600; border-radius: var(--r-sm, .35rem); padding: .05rem .3rem; }
     .c3-dias.is-ok { color: var(--text-muted); }
     .c3-dias.is-warn { color: var(--warn-fg, var(--bad-fg)); background: color-mix(in oklab, var(--warn-fg, var(--bad-fg)) 10%, transparent); }
@@ -665,6 +602,13 @@ export class ComprasCompras360Component implements OnInit {
     });
   }
   suc(code: string): string { return branchName(code) || code; }
+  /** Titular de la cobertura: el detalle por sucursal vive en el Centro de control. */
+  covPct(cv: CoverageReport): number {
+    const e = cv.rows.reduce((s, r) => s + r.entradas, 0);
+    const c = cv.rows.reduce((s, r) => s + r.con_evidencia, 0);
+    return e ? Math.round((c / e) * 100) : 0;
+  }
+  covVencidas(cv: CoverageReport): number { return cv.rows.reduce((s, r) => s + r.atrasadas, 0); }
   /** Tres niveles sobre el SLA del tenant, igual que la worklist del capturista. */
   tonoDias(r: Compras360Row): 'ok' | 'warn' | 'bad' {
     const sla = this.cov()?.settings?.sla_capture_days ?? 3;

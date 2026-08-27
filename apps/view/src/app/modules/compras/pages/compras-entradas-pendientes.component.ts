@@ -2,18 +2,22 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
-import { Subject, forkJoin, of, switchMap, catchError, map } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
+import { Subject, of, switchMap, catchError, firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr } from '../entradas.service';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import {
+  EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr, AttachReceipt,
+} from '../entradas.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { motivoLabel } from '../receipt-verdict';
@@ -21,45 +25,64 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
-/** Una hoja en el sobre de esta entrada, con su estado de lectura y subida. */
+/** En qué punto va una hoja de la bandeja. `enlazada` = ya sabe a qué entrada pertenece. */
+type EstadoHoja = 'leyendo' | 'enlazada' | 'ambigua' | 'sin_match' | 'duplicada' | 'guardada' | 'error';
+
+/** Un PDF en la bandeja, con su lectura y la entrada a la que va. */
 interface Hoja {
   id: number;
   name: string;
   dataUri: string;
-  kind: 'image' | 'pdf';
   bytes: number;
-  leyendo: boolean;
+  estado: EstadoHoja;
   sha256?: string;
-  folio?: string | null;
+  folioOcr?: string | null;
   total?: number | null;
   subtotal?: number | null;
   fecha?: string | null;
   rfc?: string | null;
-  dupDe?: string | null;   // ya subida antes → bloquea guardar
   ocr?: Partial<RemisionOcr>;
+  /** A qué orden de entrada va. Se preselecciona si el PDF se soltó sobre una fila. */
+  entrada?: EntradaRow | null;
+  /** Se enlazó por importe y no por folio: vale decirlo, es un enlace más débil. */
+  porMonto?: boolean;
+  candidatas?: EntradaRow[];
+  dupDe?: string | null;
+  motivo?: string;
+  busqueda?: string;
+  buscando?: boolean;
 }
 
 /**
- * `[RE.13.1]` — **Mis pendientes**: la worklist del capturista de sucursal.
+ * `[RE.16.4]` — **Pendientes de subir**: la worklist del que tiene las facturas.
  *
- * Es una lista de TAREAS, no un reporte. La pantalla anterior (`/compras/entradas`,
- * 1,826 líneas) hacía cuatro trabajos a la vez y ninguno bien para este usuario:
- * ordenaba por lo más RECIENTE (escondiendo el atraso), no filtraba por sucursal (el
- * de Yurécuaro con 16 entradas navegaba entre las 815 de CEDIS), cortaba en 300 filas
- * en silencio, y sólo aceptaba PDF — o sea el que tiene el papel en la mano y un
- * celular no podía subir nada.
+ * Rediseñada sobre dos hechos que corrigieron el diseño anterior:
  *
- * Acá: sólo lo tuyo, lo más viejo primero, con los días a la vista, y la cámara.
- * La auditoría por línea, los ajustes del proveedor y la validación NO viven acá:
- * son el trabajo del revisor (`/compras/entradas/revision`) y de Compras 360.
+ *  1. **Todos capturan en lap o escritorio**, no en el celular junto a la mercancía. La lista
+ *     apilada de 56 px por renglón mostraba 8 órdenes donde caben 25, y el diálogo modal tapaba
+ *     justo la tabla que hay que seguir mirando. Ahora: tabla densa + panel lateral.
+ *  2. **El PDF ya existe** en la carpeta del escáner. Adjuntarlo costaba cuatro interacciones
+ *     (botón → diálogo → elegir archivo → guardar); ahora **se arrastra sobre su fila** y es una.
+ *
+ * Y con eso desaparece una pantalla: **soltar varios PDFs a la vez ES el lote de CEDIS**. La
+ * bandeja es la misma lista de hojas, sólo cambia de dónde salió la entrada — de la fila donde
+ * se soltó, o del folio que leyó el OCR. Guardar es un solo camino (`attach-bulk`, agrupando por
+ * expediente), así que no hay dos lógicas de guardado que se puedan ir separando con el tiempo.
+ *
+ * Vocabulario único de la fase: **Sin factura → Por revisar → Validada**, con **Devuelta** como
+ * el único camino de regreso. Antes cada pantalla les daba un nombre distinto.
+ *
+ * Lo que NO vive acá: la auditoría por línea, los ajustes del proveedor y la validación. Son el
+ * trabajo del revisor (`/compras/entradas/revision`) y del Centro de control.
  */
 @Component({
   selector: 'app-compras-entradas-pendientes',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule, DialogModule,
-    TagModule, ToastModule, SegmentedComponent, LoadStateComponent,
+    CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule,
+    TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
+    FreshnessPillComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
   template: `
@@ -70,8 +93,8 @@ interface Hoja {
         <div class="surf-page-head-text">
           <h1>Pendientes de subir</h1>
           <p class="surf-page-sub">
-            Subí la <strong>factura del proveedor</strong> de cada orden de entrada. Lo más
-            atrasado va primero. La comparo contra el total de Kepler.
+            Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
+            contra Kepler y te digo si cuadra antes de guardar. Lo más atrasado va primero.
           </p>
         </div>
         <div class="ep-head-actions">
@@ -80,8 +103,12 @@ interface Hoja {
                       optionLabel="label" optionValue="value" placeholder="Todas las mías" [showClear]="true"
                       styleClass="ep-sel" ariaLabel="Sucursal" appendTo="body" />
           } @else if (unaSucursal(); as s) {
-            <span class="ep-suc-fija" title="Tu alcance es esta sucursal"><i class="pi pi-building" aria-hidden="true"></i> {{ s }}</span>
+            <span class="ep-suc-fija" pTooltip="Tu alcance es esta sucursal" tooltipPosition="bottom">
+              <i class="pi pi-building" aria-hidden="true"></i> {{ s }}
+            </span>
           }
+          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
+          <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
             <span class="p-button-label">Actualizar</span>
@@ -90,8 +117,8 @@ interface Hoja {
       </header>
 
       @if (sinAlcance()) {
-        <!-- Fail-closed explicado: sin sucursal en la ficha no hay filas, y una tabla vacía
-             se lee como "el sistema no funciona". -->
+        <!-- Fail-closed explicado: sin sucursal en la ficha no hay filas, y una tabla vacía se
+             lee como "el sistema no funciona". -->
         <div class="ep-block" role="status">
           <i class="pi pi-lock" aria-hidden="true"></i>
           <div>
@@ -103,34 +130,27 @@ interface Hoja {
       } @else {
 
         @if (report(); as r) {
-          <!-- El marcador del día: cuánto falta y cuánto está vencido. Un capturista no
-               necesita "$ por comprobar"; necesita saber si puede irse a su casa. -->
-          <div class="ep-scoreboard" [class.done]="faltan(r) === 0">
+          <!-- Answer-first (DESIGN Q.1): una oración con lo que falta, antes de la tabla. -->
+          <p class="ep-verdict" [class.is-done]="faltan(r) === 0" [class.is-late]="r.kpis.atrasadas > 0">
             @if (faltan(r) === 0) {
-              <i class="pi pi-check-circle" aria-hidden="true"></i>
-              <p class="ep-sb-main">Todo al día — no te falta subir nada</p>
+              <i class="pi pi-check-circle" aria-hidden="true"></i> Todo al día — no te falta subir nada.
             } @else {
-              <div class="ep-sb-nums">
-                <span class="ep-sb-big">{{ faltan(r) }}</span>
-                <span class="ep-sb-lbl">te faltan<br />de {{ r.kpis.entradas }}</span>
-              </div>
-              <div class="ep-sb-bar" [attr.aria-label]="'Avance ' + avance(r) + '%'">
-                <span [style.width.%]="avance(r)"></span>
-              </div>
-              <span class="ep-sb-pct">{{ avance(r) }}% subido</span>
+              Te faltan <b>{{ faltan(r) }}</b> facturas de {{ r.kpis.entradas }}
               @if (r.kpis.atrasadas > 0) {
-                <button type="button" class="ep-sb-late" (click)="soloAtrasadas()"
-                        [title]="'Más de ' + r.settings.sla_capture_days + ' días sin factura'">
-                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  {{ r.kpis.atrasadas }} vencidas
+                · <button type="button" class="ep-late-btn" (click)="soloAtrasadas()"
+                          [pTooltip]="'Más de ' + r.settings.sla_capture_days + ' días sin factura'" tooltipPosition="bottom">
+                  {{ r.kpis.atrasadas }} ya pasaron los {{ r.settings.sla_capture_days }} días
                 </button>
               }
+              <span class="ep-bar" [attr.aria-label]="avance(r) + '% subido'">
+                <span [style.width.%]="avance(r)"></span>
+              </span>
+              <em>{{ avance(r) }}% subido</em>
             }
-          </div>
+          </p>
 
           @if (r.kpis.rechazados > 0 && estado() !== 'rechazado') {
-            <!-- Antes, una evidencia devuelta se quedaba muerta: el que la subió nunca se
-                 enteraba. Es lo primero que tiene que ver al entrar. -->
+            <!-- Una factura devuelta se quedaba muerta: el que la subió nunca se enteraba. -->
             <button type="button" class="ep-returned" (click)="setEstado('rechazado')">
               <i class="pi pi-undo" aria-hidden="true"></i>
               <span><strong>{{ r.kpis.rechazados }}</strong> te {{ r.kpis.rechazados === 1 ? 'la devolvieron' : 'las devolvieron' }} — hay que volver a subirlas</span>
@@ -145,311 +165,447 @@ interface Hoja {
                  placeholder="Últimos 4 del folio (ej. 0397) o proveedor…" class="ep-search" aria-label="Buscar entrada" />
           @if (rezago()) {
             <button pButton type="button" class="p-button-sm p-button-text" (click)="setRezago(false)"
-                    title="Volver al periodo del proceso">
+                    pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
               <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
               <span class="p-button-label">Salir del rezago</span>
             </button>
           } @else if (report()?.settings; as cfg) {
             <button pButton type="button" class="p-button-sm p-button-text ep-rezago" (click)="setRezago(true)"
-                    [title]="'Entradas anteriores al ' + cfg.reception_start + ' — fuera del proceso vivo'">
+                    [pTooltip]="'Entradas anteriores al ' + cfg.reception_start + ' — fuera del proceso vivo'" tooltipPosition="bottom">
               <span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span>
               <span class="p-button-label">Ver rezago</span>
             </button>
           }
+          <span class="ep-sp"></span>
+          @if (canManage()) {
+            <label class="ep-pick small">
+              <i class="pi pi-file-pdf" aria-hidden="true"></i> Elegir PDFs…
+              <input type="file" accept="application/pdf" multiple (change)="onFiles($event)" hidden />
+            </label>
+          }
         </div>
 
-        @if (error()) {
-          <app-load-state [error]="error()" (retry)="reload()" />
-        } @else if (loading() && !report()) {
-          <div class="ep-skel" aria-busy="true" aria-label="Cargando pendientes">
-            @for (i of [1,2,3,4,5,6]; track i) { <span class="ep-sk-row"></span> }
-          </div>
-        } @else if (rows().length === 0) {
-          <div class="ep-empty">
-            <i class="pi pi-check-circle" aria-hidden="true"></i>
-            <p>{{ estado() === 'pendiente' ? 'No te falta ninguna factura en este filtro.' : 'Sin entradas para este filtro.' }}</p>
-          </div>
-        } @else {
-          <!-- Un solo organismo para las dos formas: en angosto cada renglón se apila
-               (celular, junto a la mercancía) y en ancho se alinea en columnas. -->
-          <ul class="ep-list" [class.loading]="loading()">
-            @for (c of rows(); track c.sucursal + '/' + c.folio) {
-              <li class="ep-row" [class.late]="c.atrasada">
-                <span class="ep-dias" [class]="'is-' + tono(c)" [title]="c.dias + ' días desde la recepción'">
-                  {{ c.dias }}<em>d</em>
-                </span>
-                <span class="ep-folio" [title]="'Folio ' + c.folio">
-                  <b>{{ ultimos4(c.folio) }}</b>
-                  @if (variasSucursales()) { <em class="ep-suc">{{ suc(c.sucursal) }}</em> }
-                </span>
-                <span class="ep-prov" [title]="c.proveedor_nombre || ''">
-                  {{ c.proveedor_nombre || c.proveedor_code || '—' }}
-                  <em>{{ c.receipt_date | date:'dd/MM' }}@if (c.fecha_futura) { <i class="pi pi-exclamation-triangle" title="Fecha capturada adelantada en el ERP"></i> }</em>
-                </span>
-                <span class="ep-monto">{{ money(c.monto) }}</span>
-                <span class="ep-estado">
-                  @if (c.deposit_status === 'rechazado') {
-                    <!-- El motivo va EN la fila: el catálogo tipificado sólo sirve si el que
-                         tiene que corregir lo ve sin abrir nada. -->
-                    <p-tag [value]="'Devuelta: ' + porQue(c)" severity="danger" [title]="porQue(c)" />
-                  } @else if (c.deposit_status === 'validado') {
-                    <p-tag value="Validada" severity="success" />
-                  } @else if (c.deposits > 0) {
-                    <p-tag value="Enviada" severity="info" />
-                    @if (!c.monto_match) { <i class="pi pi-exclamation-triangle ep-nomatch" title="El total de la factura no cuadra con Kepler"></i> }
+        <div class="ep-body" [class.has-panel]="hojas().length > 0">
+          <!-- Zona de soltado de TODA la tabla: si el PDF no cae sobre una fila, se enlaza por
+               el folio que lea el OCR. Es el camino "tengo el papel y no sé de qué orden es". -->
+          <div class="ep-tablewrap" [class.dragging]="dragTabla()"
+               (dragover)="onDragOverTabla($event)" (dragleave)="onDragLeaveTabla($event)" (drop)="onDropTabla($event)">
+            @if (error()) {
+              <app-load-state [error]="error()" (retry)="reload()" />
+            } @else if (loading() && !report()) {
+              <app-load-state [loading]="true" [skeletonRows]="10" />
+            } @else if (rows().length === 0) {
+              <app-load-state [isEmpty]="true" emptyIcon="pi-check-circle"
+                              [emptyTitle]="estado() === 'pendiente' ? 'No te falta ninguna factura' : 'Sin entradas en este filtro'"
+                              [emptyHint]="estado() === 'pendiente' ? 'Cuando el ERP registre una orden nueva, aparece acá sola.' : 'Probá con otro estado o quitá el buscador.'"
+                              [emptyCta]="estado() === 'pendiente' ? null : 'Ver lo que falta subir'"
+                              emptyCtaIcon="pi pi-list" (cta)="setEstado('pendiente')" />
+            } @else {
+              <table class="surf-table surf-table--sticky surf-table--frozen-first surf-table--compact ep-table"
+                     [class.loading]="loading()">
+                <thead>
+                  <tr>
+                    <th scope="col" class="ta-r" pTooltip="Días desde la recepción" tooltipPosition="top">Días</th>
+                    <th scope="col">Folio</th>
+                    <th scope="col">Proveedor</th>
+                    <th scope="col" class="ta-r">Recepción</th>
+                    <th scope="col" class="ta-r">Total Kepler</th>
+                    <th scope="col">Factura</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of rows(); track c.sucursal + '/' + c.folio) {
+                    <tr [class.is-drop]="dragFila() === clave(c)"
+                        [class.is-open]="abierta() && clave(abierta()!) === clave(c)"
+                        (dragover)="onDragOverFila($event, c)" (dragleave)="onDragLeaveFila($event)"
+                        (drop)="onDropFila($event, c)">
+                      <td class="ta-r ep-dias" [class]="'is-' + tono(c)">{{ c.dias }}<em>d</em></td>
+                      <td class="ep-folio">
+                        <b class="mono" [pTooltip]="'Folio ' + c.folio" tooltipPosition="top">{{ ultimos4(c.folio) }}</b>
+                        @if (variasSucursales()) { <em>{{ suc(c.sucursal) }}</em> }
+                      </td>
+                      <td class="ep-prov">
+                        <span [pTooltip]="c.proveedor_nombre || ''" tooltipPosition="top">{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
+                        @if (c.deposit_status === 'rechazado') {
+                          <!-- El motivo va EN la fila: el catálogo tipificado sólo sirve si el que
+                               tiene que corregir lo ve sin abrir nada. -->
+                          <p-tag [value]="'Devuelta: ' + porQue(c)" severity="danger" styleClass="ep-tag" />
+                        }
+                      </td>
+                      <td class="ta-r mono">
+                        {{ c.receipt_date | date:'dd/MM' }}
+                        @if (c.fecha_futura) {
+                          <i class="pi pi-exclamation-triangle ep-warn" pTooltip="Fecha capturada adelantada en el ERP" tooltipPosition="top"></i>
+                        }
+                      </td>
+                      <td class="ta-r mono ep-monto">{{ money(c.monto) }}</td>
+                      <td class="ep-cta">
+                        @if (dragFila() === clave(c)) {
+                          <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Soltá acá el PDF</b>
+                        } @else if (c.deposit_status === 'validado') {
+                          <span class="ep-ok"><i class="pi pi-check" aria-hidden="true"></i> Validada</span>
+                        } @else if (c.deposit_status === 'recibido') {
+                          <span class="ep-wait">Por revisar
+                            @if (!c.monto_match) {
+                              <i class="pi pi-exclamation-triangle ep-warn" pTooltip="El total de la factura no cuadra con Kepler" tooltipPosition="top"></i>
+                            }
+                          </span>
+                        } @else if (canManage()) {
+                          <label class="ep-rowpick">
+                            <span>{{ c.deposit_status === 'rechazado' ? 'Soltar el PDF corregido' : 'Soltar PDF' }} · <b>elegir</b></span>
+                            <input type="file" accept="application/pdf" multiple hidden (change)="onFilesFila($event, c)" />
+                          </label>
+                        }
+                      </td>
+                    </tr>
                   }
-                </span>
-                <span class="ep-act">
-                  @if (canManage()) {
-                    <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="c.deposits > 0" (click)="abrir(c)">
-                      <span class="p-button-icon p-button-icon-left pi" [ngClass]="c.deposits > 0 ? 'pi-plus' : 'pi-camera'" aria-hidden="true"></span>
-                      <span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Subir factura' }}</span>
-                    </button>
-                  }
-                </span>
-              </li>
-            }
-          </ul>
+                </tbody>
+              </table>
 
-          @if (report(); as r) {
-            <div class="ep-pager">
-              <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong></span>
-              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
-                <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
-              </button>
-              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="hasta() >= r.total || loading()" (click)="irPagina(page() + 1)">
-                <span class="p-button-label">Siguiente</span><span class="p-button-icon pi pi-angle-right" aria-hidden="true"></span>
-              </button>
-            </div>
+              @if (report(); as r) {
+                <div class="ep-pager">
+                  <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong></span>
+                  <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
+                    <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
+                  </button>
+                  <button pButton type="button" class="p-button-sm p-button-text" [disabled]="hasta() >= r.total || loading()" (click)="irPagina(page() + 1)">
+                    <span class="p-button-label">Siguiente</span><span class="p-button-icon pi pi-angle-right" aria-hidden="true"></span>
+                  </button>
+                </div>
+              }
+            }
+
+            @if (dragTabla() && !dragFila()) {
+              <div class="ep-dropveil" aria-hidden="true">
+                <div>
+                  <i class="pi pi-download" aria-hidden="true"></i>
+                  <b>Soltá los PDFs</b>
+                  <em>los enlazo por el folio que traigan</em>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (hojas().length) {
+            <!-- Panel lateral y no diálogo: la tabla se sigue viendo, que es lo que da contexto. -->
+            <aside class="ep-panel" aria-label="Facturas en preparación">
+              <header class="ep-panel-h">
+                <b>{{ hojas().length }} {{ hojas().length === 1 ? 'PDF' : 'PDFs' }} en preparación</b>
+                <span class="ep-sp"></span>
+                <button type="button" class="ep-x" (click)="limpiar()" aria-label="Vaciar la bandeja">
+                  <i class="pi pi-times" aria-hidden="true"></i>
+                </button>
+              </header>
+
+              <div class="ep-panel-b">
+                @for (h of hojas(); track h.id) {
+                  <article class="ep-hoja" [class.bad]="h.estado === 'duplicada' || h.estado === 'error'"
+                           [class.ok]="h.estado === 'enlazada' || h.estado === 'guardada'">
+                    <header class="ep-hoja-h">
+                      <i class="pi pi-file-pdf" aria-hidden="true"></i>
+                      <b [pTooltip]="h.name" tooltipPosition="top">{{ h.name }}</b>
+                      <span class="ep-sp"></span>
+                      <button type="button" class="ep-x" (click)="quitar(h)" [attr.aria-label]="'Quitar ' + h.name">
+                        <i class="pi pi-times" aria-hidden="true"></i>
+                      </button>
+                    </header>
+
+                    @switch (h.estado) {
+                      @case ('leyendo') {
+                        <p class="ep-hoja-s"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo la factura…</p>
+                      }
+                      @case ('duplicada') {
+                        <p class="ep-hoja-s is-bad">Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar.</p>
+                      }
+                      @case ('error') {
+                        <p class="ep-hoja-s is-bad">{{ h.motivo || 'No se pudo procesar' }}</p>
+                      }
+                      @case ('guardada') {
+                        <p class="ep-hoja-s is-ok"><i class="pi pi-check" aria-hidden="true"></i> Enviada.</p>
+                      }
+                      @case ('enlazada') {
+                        <dl class="ep-kv">
+                          <div><dt>Va a la entrada</dt><dd class="mono">{{ h.entrada!.sucursal }}/{{ ultimos4(h.entrada!.folio) }}</dd></div>
+                          <div><dt>{{ h.entrada!.proveedor_nombre ? 'Proveedor' : 'Código' }}</dt><dd>{{ h.entrada!.proveedor_nombre || h.entrada!.proveedor_code || '—' }}</dd></div>
+                          <div><dt>Total en Kepler</dt><dd class="mono">{{ money(h.entrada!.monto) }}</dd></div>
+                          <div><dt>Leí en la factura</dt><dd class="mono">{{ h.total != null ? money(h.total) : (h.subtotal != null ? money(h.subtotal) : '—') }}</dd></div>
+                        </dl>
+                        @if (h.porMonto) {
+                          <p class="ep-hoja-s">Enlazada por <b>importe</b> (la factura no traía folio legible) — verificá que sea la orden correcta.</p>
+                        }
+                        @if (h.entrada!.gemela_monto != null && h.entrada!.gemela_delta) {
+                          <!-- La misma recepción también está capturada en oficinas y con otro
+                               importe. Sin esto, la factura "no cuadra" por centavos que no son
+                               del proveedor. -->
+                          <p class="ep-hoja-s">
+                            <i class="pi pi-clone" aria-hidden="true"></i>
+                            Oficinas la capturó como <b class="mono">00/{{ h.entrada!.gemela_folio }}</b> por
+                            <b>{{ money(h.entrada!.gemela_monto!) }}</b>. Cuadra con cualquiera de los dos.
+                          </p>
+                        }
+                        @if (cuadre(h) !== null) {
+                          <p class="ep-cuadre" [class.ok]="cuadre(h)" [class.bad]="!cuadre(h)" role="status">
+                            @if (cuadre(h) && porGemela(h)) {
+                              <i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra con la captura de <b>oficinas</b>; con la de la sucursal difiere {{ money(dif(h)) }}.
+                            } @else if (cuadre(h)) {
+                              <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> con el total de Kepler.
+                            } @else {
+                              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Difiere <b>{{ money(dif(h)) }}</b>. Se puede enviar: el revisor decide.
+                            }
+                          </p>
+                        }
+                        <button type="button" class="ep-link" (click)="desenlazar(h)">cambiar de entrada</button>
+                      }
+                      @default {
+                        <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a
+                             la vista y un buscador por folio. -->
+                        <p class="ep-hoja-s">
+                          @if (h.estado === 'ambigua') { Hay más de una orden que le queda. Elegí cuál: }
+                          @else { No encontré la orden de esta factura. Buscala por folio o proveedor: }
+                          @if (h.total != null) { <em>(leí {{ money(h.total) }}@if (h.folioOcr) { · folio {{ h.folioOcr }} })</em> }
+                        </p>
+                        <div class="ep-find">
+                          <input pInputText [ngModel]="h.busqueda" (ngModelChange)="setBusqueda(h, $event)"
+                                 (keyup.enter)="buscar(h)" placeholder="Folio o proveedor" class="ep-find-in"
+                                 [attr.aria-label]="'Buscar la entrada de ' + h.name" />
+                          <button pButton type="button" class="p-button-sm" [loading]="!!h.buscando" (click)="buscar(h)">
+                            <span class="p-button-label">Buscar</span>
+                          </button>
+                        </div>
+                        @for (e of h.candidatas || []; track e.sucursal + '/' + e.folio) {
+                          <button type="button" class="ep-cand" (click)="elegir(h, e)">
+                            <b class="mono">{{ e.sucursal }}/{{ ultimos4(e.folio) }}</b>
+                            <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                            <em class="mono">{{ money(e.monto) }}</em>
+                          </button>
+                        }
+                      }
+                    }
+                  </article>
+                }
+              </div>
+
+              <footer class="ep-panel-f">
+                @if (capError()) { <p class="ep-err">{{ capError() }}</p> }
+                <p class="ep-panel-n">
+                  {{ nExpedientes() }} {{ nExpedientes() === 1 ? 'expediente' : 'expedientes' }} listo{{ nExpedientes() === 1 ? '' : 's' }}
+                  @if (nBloqueadas()) { · {{ nBloqueadas() }} sin resolver }
+                </p>
+                <button pButton type="button" class="ep-send" [loading]="guardando()" [disabled]="!nExpedientes() || guardando()"
+                        (click)="guardar()">
+                  <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+                  <span class="p-button-label">Enviar {{ nExpedientes() > 1 ? nExpedientes() + ' facturas' : 'la factura' }}</span>
+                </button>
+              </footer>
+            </aside>
           }
+        </div>
+
+        @if (canManage()) {
+          <!-- El lote dejó de ser una pantalla: soltar N archivos ES el lote. Se dice acá porque
+               nadie descubre solo una interacción que no está escrita. -->
+          <p class="ep-lote-hint">
+            <b>¿Muchas de una vez?</b> Soltá <b>varios PDFs</b> en cualquier parte de la tabla: los
+            enlazo por folio y sólo confirmás. Hasta {{ tope() }} por vez.
+          </p>
         }
       }
     </div>
-
-    <!-- Hoja de captura: la entrada ya está elegida (viene del renglón), así que acá sólo
-         se trata de la foto. Sin buscador de folio, sin selector de rol, sin checklist. -->
-    <p-dialog [visible]="abierta() !== null" (visibleChange)="onCerrar($event)" [modal]="true" [draggable]="false"
-              [style]="{ width: '34rem', maxWidth: '96vw' }" [breakpoints]="{ '640px': '100vw' }"
-              [header]="abierta() ? 'Factura de la entrada ' + abierta()!.folio : ''">
-      @if (abierta(); as t) {
-        <div class="ep-cap">
-          <dl class="ep-cap-head">
-            <div><dt>Proveedor</dt><dd>{{ t.proveedor_nombre || t.proveedor_code || '—' }}</dd></div>
-            <div><dt>Fecha</dt><dd>{{ t.receipt_date | date:'dd/MM/yy' }}</dd></div>
-            <div class="ta-r"><dt>Total en Kepler</dt><dd class="ep-cap-monto">{{ money(t.monto) }}</dd></div>
-          </dl>
-
-          @if (t.gemela_monto != null && t.gemela_delta) {
-            <!-- La misma recepción está capturada también en oficinas y con otro importe. Si no
-                 se dice acá, la factura "no cuadra" por unos centavos que no son del proveedor. -->
-            <p class="ep-cap-gem">
-              <i class="pi pi-link" aria-hidden="true"></i>
-              Oficinas la capturó como <strong class="mono">00/{{ t.gemela_folio }}</strong> por
-              <strong>{{ money(t.gemela_monto) }}</strong> ({{ money(t.gemela_delta) }} de diferencia con la de acá).
-              La factura cuadra si coincide con cualquiera de los dos.
-            </p>
-          }
-
-          @if (t.deposit_status === 'rechazado') {
-            <div class="ep-cap-rej">
-              <i class="pi pi-undo" aria-hidden="true"></i>
-              <span>
-                Te la devolvieron: <strong>{{ porQue(t) }}</strong>@if (t.motivo_rechazo && t.motivo_codigo) { — {{ t.motivo_rechazo }} }.
-                Subí de nuevo la factura corregida.
-              </span>
-            </div>
-          }
-
-          @if (!hojas().length) {
-            <div class="ep-drop">
-              <label class="ep-pick primary">
-                <i class="pi pi-camera" aria-hidden="true"></i> Tomar foto
-                <input type="file" accept="image/*" capture="environment" (change)="onFiles($event)" hidden />
-              </label>
-              <label class="ep-pick">
-                <i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
-                <input type="file" accept="image/*,application/pdf" multiple (change)="onFiles($event)" hidden />
-              </label>
-              <p class="ep-drop-hint">Foto o PDF de la factura. Si son varias hojas, agregalas todas.</p>
-            </div>
-          } @else {
-            <ul class="ep-hojas">
-              @for (h of hojas(); track h.id) {
-                <li class="ep-hoja" [class.dup]="!!h.dupDe">
-                  <span class="ep-hoja-th">
-                    @if (h.kind === 'image') { <img [src]="h.dataUri" [alt]="h.name" /> }
-                    @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
-                  </span>
-                  <span class="ep-hoja-body">
-                    <b [title]="h.name">{{ h.name }}</b>
-                    <em>
-                      @if (h.leyendo) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo la factura… }
-                      @else if (h.dupDe) { <span class="bad">Ya subida en la entrada {{ h.dupDe }}</span> }
-                      @else if (h.total != null) { Total leído {{ money(h.total) }}@if (h.folio) { · folio {{ h.folio }} } }
-                      @else { No se pudo leer el total — se guarda igual }
-                      · {{ kb(h.bytes) }}
-                    </em>
-                  </span>
-                  <button type="button" class="ep-hoja-x" (click)="quitar(h)" [attr.aria-label]="'Quitar ' + h.name">
-                    <i class="pi pi-times" aria-hidden="true"></i>
-                  </button>
-                </li>
-              }
-            </ul>
-
-            @if (cuadre() !== null) {
-              <div class="ep-cuadre" [class.ok]="cuadre()" [class.bad]="!cuadre()" role="status">
-                <i class="pi" [ngClass]="cuadre() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
-                @if (cuadre() && cuadrePorGemela()) { <span>La factura <strong>cuadra</strong> con el total que capturó <strong>oficinas</strong>; con el de acá difiere {{ money(dif()) }}.</span> }
-                @else if (cuadre()) { <span>La factura <strong>cuadra</strong> con el total de Kepler.</span> }
-                @else { <span>La factura difiere <strong>{{ money(dif()) }}</strong> del total de Kepler. Se puede guardar: el revisor decide.</span> }
-              </div>
-            }
-
-            <label class="ep-pick small">
-              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra hoja
-              <input type="file" accept="image/*,application/pdf" multiple (change)="onFiles($event)" hidden />
-            </label>
-          }
-
-          @if (capError()) { <p class="ep-cap-err">{{ capError() }}</p> }
-        </div>
-      }
-      <ng-template #footer>
-        <button pButton type="button" text (click)="cerrar()"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" [loading]="guardando()" [disabled]="!puedeGuardar()" (click)="guardar()">
-          <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-          <span class="p-button-label">Enviar factura</span>
-        </button>
-      </ng-template>
-    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
-    .ep { container-type: inline-size; }
-    .ep-head-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-    .ep-suc-fija { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-xs, .75rem);
-      color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); padding: .18rem .5rem; }
 
-    /* Marcador: el número grande es lo que falta, no lo que se hizo. */
-    .ep-scoreboard { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-      padding: .8rem 1rem; margin-bottom: .85rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
-    .ep-scoreboard.done { color: var(--ok-fg); border-color: color-mix(in oklab, var(--ok-fg) 35%, var(--border-color)); }
-    .ep-scoreboard.done .pi { font-size: 1.15rem; }
-    .ep-sb-main { margin: 0; font-weight: 600; }
-    .ep-sb-nums { display: flex; align-items: baseline; gap: .45rem; }
-    .ep-sb-big { font-size: 1.9rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-    .ep-sb-lbl { font-size: var(--fs-xs, .75rem); color: var(--text-muted); line-height: 1.15; }
-    .ep-sb-bar { flex: 1 1 8rem; height: .4rem; border-radius: 99px; background: var(--border-color); overflow: hidden; min-width: 6rem; }
-    .ep-sb-bar > span { display: block; height: 100%; background: var(--ok-fg); border-radius: 99px; transition: width .3s ease; }
-    @media (prefers-reduced-motion: reduce) { .ep-sb-bar > span { transition: none; } }
-    .ep-sb-pct { font-size: var(--fs-xs, .75rem); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .ep-sb-late { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid currentColor;
-      background: transparent; color: var(--bad-fg); border-radius: var(--r-sm, .35rem); padding: .2rem .55rem;
-      font: inherit; font-size: var(--fs-xs, .75rem); cursor: pointer; }
-    .ep-sb-late:hover { background: color-mix(in oklab, var(--bad-fg) 8%, transparent); }
+    .ep-head-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .ep-suc-fija {
+      display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs);
+      color: var(--text-muted); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm, .35rem); padding: .18rem .5rem;
+    }
 
-    .ep-returned { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
-      padding: .6rem .9rem; margin-bottom: .85rem; cursor: pointer; font: inherit;
-      color: var(--bad-fg); background: color-mix(in oklab, var(--bad-fg) 7%, transparent);
-      border: 1px solid color-mix(in oklab, var(--bad-fg) 35%, var(--border-color)); border-radius: var(--r-md, .5rem); }
+    /* Answer-first: una oración, no una caja de KPIs. */
+    .ep-verdict {
+      display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+      margin: var(--sp-4) 0 var(--sp-3); font-size: var(--fs-h3); color: var(--text-main);
+    }
+    .ep-verdict b { font-variant-numeric: tabular-nums; }
+    .ep-verdict.is-done { color: var(--ok-fg); font-weight: 600; }
+    .ep-verdict.is-late b { color: var(--bad-fg); }
+    .ep-verdict em { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ep-late-btn {
+      font: inherit; font-size: var(--fs-sm); color: var(--bad-fg); background: none; border: 0;
+      border-bottom: 1px solid currentColor; padding: 0; cursor: pointer;
+    }
+    .ep-bar { flex: 0 1 10rem; height: 4px; border-radius: var(--r-pill, 999px); background: var(--border-color); overflow: hidden; }
+    .ep-bar > span { display: block; height: 100%; background: var(--ok-fg); }
+
+    .ep-returned {
+      display: flex; align-items: center; gap: var(--sp-2); width: 100%; text-align: left;
+      padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); cursor: pointer; font: inherit;
+      font-size: var(--fs-sm); color: var(--bad-fg);
+      background: color-mix(in oklab, var(--bad-fg) 7%, transparent);
+      border: 1px solid color-mix(in oklab, var(--bad-fg) 35%, var(--border-color));
+      border-radius: var(--r-md, .5rem);
+    }
     .ep-returned > span { flex: 1; }
 
-    .ep-block { display: flex; gap: .8rem; align-items: flex-start; padding: 1.1rem 1.2rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
-    .ep-block .pi { font-size: 1.2rem; color: var(--text-muted); }
-    .ep-block-t { margin: 0 0 .2rem; font-weight: 600; }
-    .ep-block-s { margin: 0; color: var(--text-muted); font-size: var(--fs-sm, .85rem); max-width: 46ch; }
-
-    .ep-filters { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .85rem; }
-    .ep-search { flex: 1 1 18rem; min-width: 12rem; }
-
-    .ep-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-color);
-      border-radius: var(--r-md, .5rem); overflow: hidden; }
-    .ep-list.loading { opacity: .6; }
-    .ep-row { display: grid; align-items: center; gap: .2rem .8rem; padding: .55rem .8rem;
-      grid-template-columns: 3rem 1fr auto; grid-template-areas: 'dias folio act' 'dias prov act' 'dias monto est'; }
-    .ep-row + .ep-row { border-top: 1px solid var(--border-color); }
-    .ep-row:hover { background: var(--surface-hover, var(--surface-sunken)); }
-    @container (min-width: 46rem) {
-      .ep-row { grid-template-columns: 3.2rem 6.5rem minmax(10rem, 1fr) 8rem 7.5rem auto;
-        grid-template-areas: 'dias folio prov monto est act'; }
+    .ep-block {
+      display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-4) var(--sp-5);
+      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2);
     }
-    .ep-dias { grid-area: dias; display: inline-flex; align-items: baseline; justify-content: center; gap: .05rem;
-      font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1rem;
-      border-radius: var(--r-sm, .35rem); padding: .15rem .3rem; }
-    .ep-dias em { font-style: normal; font-size: .65em; opacity: .75; }
+    .ep-block .pi { font-size: 1.2rem; color: var(--text-muted); }
+    .ep-block-t { margin: 0 0 var(--sp-1); font-weight: 600; }
+    .ep-block-s { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 46ch; }
+
+    .ep-filters { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+    .ep-search { flex: 0 1 22rem; min-width: 12rem; }
+    .ep-sp { flex: 1 1 auto; }
+
+    /* Tabla + panel: el panel sólo ocupa lugar cuando hay algo en preparación. */
+    .ep-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+    .ep-body.has-panel { grid-template-columns: minmax(0, 1fr) 22rem; }
+    @media (max-width: 68rem) { .ep-body.has-panel { grid-template-columns: minmax(0, 1fr); } }
+
+    .ep-tablewrap {
+      position: relative; overflow-x: auto;
+      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--card-bg);
+    }
+    .ep-tablewrap.dragging { border-color: var(--action); }
+
+    .ep-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .ep-table.loading { opacity: .6; }
+    .ep-table th {
+      text-align: left; font-weight: 600; font-size: var(--fs-micro); letter-spacing: .03em;
+      text-transform: uppercase; color: var(--text-muted); white-space: nowrap;
+      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
+    }
+    .ep-table td {
+      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
+      height: var(--row-h-md); vertical-align: middle;
+    }
+    .ep-table tbody tr:last-child td { border-bottom: 0; }
+    .ep-table .mono, .ep-folio b { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
+    .ta-r { text-align: right; }
+
+    /* Fila objetivo del arrastre: anillo interno + fondo de acción. Es la única cosa naranja
+       de la pantalla, y por eso se ve. */
+    .ep-table tbody tr.is-drop > td {
+      background: var(--action-soft, color-mix(in oklab, var(--action) 10%, transparent));
+      box-shadow: inset 0 1.5px 0 var(--action), inset 0 -1.5px 0 var(--action);
+    }
+    .ep-table tbody tr.is-open > td { background: var(--table-hover); }
+
+    .ep-dias { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ep-dias em { font-style: normal; font-size: .7em; opacity: .7; }
     .ep-dias.is-ok { color: var(--text-muted); }
-    .ep-dias.is-warn { color: var(--warn-fg, var(--bad-fg)); background: color-mix(in oklab, var(--warn-fg, var(--bad-fg)) 10%, transparent); }
-    .ep-dias.is-bad { color: var(--bad-fg); background: color-mix(in oklab, var(--bad-fg) 12%, transparent); }
-    .ep-folio { grid-area: folio; }
-    .ep-folio b { font-family: var(--font-mono); font-size: 1.05rem; letter-spacing: .02em; }
-    .ep-suc { display: block; font-style: normal; font-size: var(--fs-micro, .72rem); color: var(--text-muted); }
-    .ep-prov { grid-area: prov; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ep-prov em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); margin-left: .4rem; }
-    .ep-monto { grid-area: monto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
-    .ep-estado { grid-area: est; display: inline-flex; align-items: center; gap: .3rem; }
-    .ep-nomatch { color: var(--bad-fg); }
-    .ep-act { grid-area: act; }
-    @container (min-width: 46rem) { .ep-monto, .ep-estado { justify-self: end; } .ep-monto { text-align: right; } }
+    .ep-dias.is-warn { color: var(--warn-fg); }
+    .ep-dias.is-bad { color: var(--bad-fg); }
 
-    .ep-pager { display: flex; align-items: center; gap: .5rem; justify-content: flex-end;
-      margin-top: .6rem; font-size: var(--fs-xs, .75rem); color: var(--text-muted); }
-    .ep-skel { display: grid; gap: .35rem; }
-    .ep-sk-row { height: 2.6rem; border-radius: var(--r-sm, .35rem);
-      background: linear-gradient(90deg, var(--border-color) 25%, var(--surface-sunken) 50%, var(--border-color) 75%);
-      background-size: 200% 100%; animation: ep-sh 1.2s infinite; }
-    @keyframes ep-sh { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-    @media (prefers-reduced-motion: reduce) { .ep-sk-row { animation: none; } }
-    .ep-empty { display: grid; place-items: center; gap: .5rem; padding: 3rem 1rem; color: var(--text-muted); }
-    .ep-empty .pi { font-size: 1.6rem; color: var(--ok-fg); }
-    .ep-empty p { margin: 0; }
+    .ep-folio b { font-size: var(--fs-body); }
+    .ep-folio em { display: block; font-style: normal; font-size: var(--fs-micro); color: var(--text-faint); }
+    .ep-prov { max-width: 22rem; }
+    .ep-prov > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ep-monto { font-weight: 600; }
+    .ep-warn { color: var(--warn-fg); margin-left: .25rem; }
 
-    /* Hoja de captura */
-    .ep-cap { display: flex; flex-direction: column; gap: .85rem; }
-    .ep-cap-head { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 0; padding: .65rem .85rem;
-      background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
-    .ep-cap-head > div { display: flex; flex-direction: column; gap: .1rem; }
-    .ep-cap-head dt { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .ep-cap-head dd { margin: 0; font-weight: 600; }
-    .ep-cap-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .ep-cap-gem { display: flex; align-items: flex-start; gap: .4rem; margin: .5rem 0 0; padding: .45rem .6rem;
-      font-size: .76rem; line-height: 1.35; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg));
-      border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
-    .ep-cap-gem .pi-link { color: var(--action); margin-top: .12rem; }
-    .ep-cap-head .ta-r { margin-left: auto; text-align: right; }
-    .ep-cap-rej { display: flex; gap: .5rem; align-items: center; padding: .5rem .7rem; font-size: var(--fs-sm, .85rem);
-      color: var(--bad-fg); border: 1px solid color-mix(in oklab, var(--bad-fg) 35%, var(--border-color)); border-radius: var(--r-sm, .35rem); }
-    .ep-drop { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; padding: 1.2rem;
-      border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); }
-    .ep-pick { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer;
-      padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem);
-      font-weight: 600; min-height: 2.75rem; /* toque cómodo en celular */ }
+    .ep-cta { white-space: nowrap; font-size: var(--fs-xs); }
+    .ep-drophere { color: var(--action); font-weight: 600; }
+    .ep-ok { color: var(--ok-fg); }
+    .ep-wait { color: var(--text-muted); }
+    .ep-rowpick { color: var(--text-faint); cursor: pointer; }
+    .ep-rowpick b { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid currentColor; }
+    .ep-rowpick:hover b { color: var(--action); }
+    .ep-rowpick:focus-within { outline: 2px solid var(--action-ring, var(--action)); outline-offset: 2px; }
+
+    .ep-dropveil {
+      position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+      background: color-mix(in oklab, var(--card-bg) 82%, transparent);
+    }
+    .ep-dropveil > div { display: grid; justify-items: center; gap: var(--sp-1); color: var(--action); }
+    .ep-dropveil .pi { font-size: 1.6rem; }
+    .ep-dropveil em { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); }
+
+    .ep-pager {
+      display: flex; align-items: center; gap: var(--sp-2); justify-content: flex-end;
+      padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color);
+      font-size: var(--fs-xs); color: var(--text-muted);
+    }
+
+    /* Panel lateral */
+    .ep-panel {
+      position: sticky; top: var(--sp-2);
+      display: flex; flex-direction: column; max-height: calc(100vh - 9rem);
+      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--card-bg);
+    }
+    .ep-panel-h {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
+      font-size: var(--fs-sm);
+    }
+    .ep-panel-b { flex: 1 1 auto; overflow-y: auto; padding: var(--sp-3); display: grid; gap: var(--sp-3); }
+    .ep-panel-f {
+      display: grid; gap: var(--sp-2); padding: var(--sp-3);
+      border-top: 1px solid var(--border-color); background: var(--surface-2);
+    }
+    .ep-panel-n { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ep-send { width: 100%; justify-content: center; }
+    .ep-err { margin: 0; font-size: var(--fs-xs); color: var(--bad-fg); }
+
+    .ep-hoja {
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem);
+      padding: var(--sp-2); display: grid; gap: var(--sp-2);
+    }
+    .ep-hoja.ok { border-color: color-mix(in oklab, var(--ok-fg) 30%, var(--border-color)); }
+    .ep-hoja.bad { border-color: color-mix(in oklab, var(--bad-fg) 40%, var(--border-color)); }
+    .ep-hoja-h { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); }
+    .ep-hoja-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ep-hoja-h .pi-file-pdf { color: var(--text-faint); }
+    .ep-hoja-s { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+    .ep-hoja-s.is-bad { color: var(--bad-fg); }
+    .ep-hoja-s.is-ok { color: var(--ok-fg); }
+    .ep-hoja-s em { font-style: normal; color: var(--text-faint); }
+
+    .ep-kv { margin: 0; display: grid; gap: var(--sp-1); font-size: var(--fs-xs); }
+    .ep-kv > div { display: flex; align-items: baseline; gap: var(--sp-2); }
+    .ep-kv dt { flex: 0 0 8.5rem; color: var(--text-faint); }
+    .ep-kv dd { margin: 0; color: var(--text-main); font-weight: 600; }
+    .mono { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
+
+    .ep-cuadre { margin: 0; font-size: var(--fs-xs); line-height: 1.4; }
+    .ep-cuadre.ok { color: var(--ok-fg); }
+    .ep-cuadre.bad { color: var(--warn-fg); }
+
+    .ep-link {
+      justify-self: start; font: inherit; font-size: var(--fs-micro); color: var(--text-faint);
+      background: none; border: 0; padding: 0; cursor: pointer; border-bottom: 1px solid currentColor;
+    }
+    .ep-link:hover { color: var(--action); }
+
+    .ep-find { display: flex; gap: var(--sp-2); }
+    .ep-find-in { flex: 1 1 auto; min-width: 0; }
+    .ep-cand {
+      display: flex; align-items: baseline; gap: var(--sp-2); width: 100%; text-align: left;
+      font: inherit; font-size: var(--fs-xs); cursor: pointer;
+      padding: var(--sp-1) var(--sp-2); background: none;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem);
+    }
+    .ep-cand:hover { border-color: var(--action); }
+    .ep-cand > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+
+    .ep-x { background: none; border: 0; color: var(--text-faint); cursor: pointer; padding: .2rem; }
+    .ep-x:hover { color: var(--bad-fg); }
+
+    .ep-pick {
+      display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer;
+      padding: .35rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem);
+      font-size: var(--fs-sm); color: var(--text-muted);
+    }
     .ep-pick:hover { border-color: var(--action); color: var(--action); }
-    .ep-pick.primary { background: var(--action); border-color: var(--action); color: #fff; }
-    .ep-pick.primary:hover { filter: brightness(1.06); color: #fff; }
-    .ep-pick.small { align-self: flex-start; padding: .35rem .7rem; font-weight: 500; min-height: 2.25rem; font-size: var(--fs-sm, .85rem); }
     .ep-pick:focus-within { outline: 2px solid var(--action-ring, var(--action)); outline-offset: 2px; }
-    .ep-drop-hint { flex: 1 1 100%; margin: 0; color: var(--text-muted); font-size: var(--fs-xs, .75rem); }
-    .ep-hojas { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
-    .ep-hoja { display: flex; gap: .6rem; align-items: center; padding: .45rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
-    .ep-hoja.dup { border-color: var(--bad-fg); }
-    .ep-hoja-th { width: 2.6rem; height: 2.6rem; flex: 0 0 auto; display: grid; place-items: center;
-      overflow: hidden; border-radius: var(--r-sm, .35rem); background: var(--surface-sunken); }
-    .ep-hoja-th img { width: 100%; height: 100%; object-fit: cover; }
-    .ep-hoja-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    .ep-hoja-body b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm, .85rem); }
-    .ep-hoja-body em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
-    .ep-hoja-body .bad { color: var(--bad-fg); }
-    .ep-hoja-x { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; padding: .3rem; }
-    .ep-hoja-x:hover { color: var(--bad-fg); }
-    .ep-cuadre { display: flex; gap: .5rem; align-items: center; padding: .5rem .7rem; font-size: var(--fs-sm, .85rem);
-      border-radius: var(--r-sm, .35rem); border: 1px solid var(--border-color); }
-    .ep-cuadre.ok { color: var(--ok-fg); border-color: color-mix(in oklab, var(--ok-fg) 35%, var(--border-color)); }
-    .ep-cuadre.bad { color: var(--warn-fg, var(--bad-fg)); border-color: color-mix(in oklab, var(--warn-fg, var(--bad-fg)) 35%, var(--border-color)); }
-    .ep-cap-err { margin: 0; color: var(--bad-fg); font-size: var(--fs-sm, .85rem); }
+
+    .ep-lote-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ep-lote-hint b { color: var(--text-main); }
+
+    :host ::ng-deep .ep-tag { margin-left: var(--sp-2); }
   `],
 })
 export class ComprasEntradasPendientesComponent {
@@ -459,10 +615,12 @@ export class ComprasEntradasPendientesComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   readonly report = signal<EntradasReport | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly cargadoAt = signal<number | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
 
   /** Sin `undefined`: `''` ya significa "todas" y el segmented necesita un string siempre. */
@@ -474,10 +632,15 @@ export class ComprasEntradasPendientesComponent {
   search = '';
   private readonly pageSize = 50;
 
+  /**
+   * Vocabulario único de la fase. Antes cada pantalla nombraba distinto lo mismo
+   * ("Pendientes/Enviadas/Devueltas" acá, "Con remisión" allá): cuatro personas hablando del
+   * mismo expediente con cuatro palabras es una discusión garantizada.
+   */
   readonly estadoOpts = [
-    { label: 'Pendientes', value: 'pendiente' },
+    { label: 'Sin factura', value: 'pendiente' },
     { label: 'Devueltas', value: 'rechazado' },
-    { label: 'Enviadas', value: 'por_validar' },
+    { label: 'Por revisar', value: 'por_validar' },
     { label: 'Validadas', value: 'validado' },
     { label: 'Todas', value: '' },
   ];
@@ -502,13 +665,14 @@ export class ComprasEntradasPendientesComponent {
   });
 
   suc(code: string): string { return branchName(code) || code; }
+  clave(c: EntradaRow): string { return `${c.sucursal}/${c.folio}`; }
   /** Por qué la devolvieron, en llano: el código del catálogo y, si no hay, el texto libre. */
   porQue(c: EntradaRow): string {
     return motivoLabel(c.motivo_codigo) || (c.motivo_rechazo || '').trim() || 'sin motivo registrado';
   }
   money = money;
   ultimos4(folio: string): string { const d = String(folio || '').replace(/\D/g, ''); return d.slice(-4) || folio; }
-  kb(b: number): string { return b >= 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; }
+  tope(): number { return this.report()?.settings?.bulk_max_files ?? 50; }
 
   faltan(r: EntradasReport): number { return Math.max(0, r.kpis.entradas - r.kpis.con_comprobante); }
   avance(r: EntradasReport): number {
@@ -550,21 +714,40 @@ export class ComprasEntradasPendientesComponent {
         }));
       }),
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe((r) => { if (r) { this.report.set(r); } this.loading.set(false); });
-    // Deep-link desde la cobertura de Compras 360: `?suc=03` aterriza en esa sucursal (si el
-    // alcance no la incluye, el server la recorta y la lista sale vacía — no se filtra a mano).
-    const suc = this.route.snapshot.queryParamMap.get('suc');
+    ).subscribe((r) => {
+      if (r) { this.report.set(r); this.cargadoAt.set(Date.now()); }
+      this.loading.set(false);
+    });
+    // Estado en la URL: el link "las pendientes de la 03" se puede pegar en un chat, y el
+    // deep-link desde el Centro de control aterriza donde dice.
+    const qp = this.route.snapshot.queryParamMap;
+    const suc = qp.get('suc');
     if (suc) this.sucursalSel.set(suc);
+    const est = qp.get('estado');
+    if (est && this.estadoOpts.some((o) => o.value === est)) {
+      this.estado.set(est as Exclude<EntradasQuery['estado'], undefined>);
+    }
     this.reload();
   }
 
   reload(): void { this.pedir.next(); }
   private volverAlInicio(): void { this.page.set(1); this.diasMin.set(undefined); }
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        suc: this.sucursalSel() || null,
+        estado: this.estado() === 'pendiente' ? null : this.estado() || null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
   setEstado(v: string): void {
     this.estado.set((v || '') as Exclude<EntradasQuery['estado'], undefined>);
-    this.volverAlInicio(); this.reload();
+    this.volverAlInicio(); this.syncUrl(); this.reload();
   }
-  setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.reload(); }
+  setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.syncUrl(); this.reload(); }
   setRezago(v: boolean): void { this.rezago.set(v); this.volverAlInicio(); this.reload(); }
   soloAtrasadas(): void {
     const sla = this.report()?.settings?.sla_capture_days ?? 3;
@@ -572,95 +755,312 @@ export class ComprasEntradasPendientesComponent {
   }
   irPagina(n: number): void { this.page.set(Math.max(1, n)); this.reload(); }
 
-  // ─────────────────────────── captura ───────────────────────────
-  readonly abierta = signal<EntradaRow | null>(null);
+  // ═════════════════════════ bandeja de PDFs ═════════════════════════
   readonly hojas = signal<Hoja[]>([]);
   readonly guardando = signal(false);
   readonly capError = signal('');
+  /** La fila abierta en el panel (la última sobre la que se soltó algo). */
+  readonly abierta = signal<EntradaRow | null>(null);
+  readonly dragTabla = signal(false);
+  readonly dragFila = signal<string | null>(null);
   private seq = 0;
+  /** De 3 en 3: cada hoja es una llamada de visión y un lote son 30. */
+  private static readonly EN_VUELO = 3;
 
-  abrir(c: EntradaRow): void { this.abierta.set(c); this.hojas.set([]); this.capError.set(''); }
-  cerrar(): void { this.abierta.set(null); this.hojas.set([]); this.capError.set(''); }
-  onCerrar(v: boolean): void { if (!v) this.cerrar(); }
-  quitar(h: Hoja): void { this.hojas.update((l) => l.filter((x) => x.id !== h.id)); }
+  /** Cuántos EXPEDIENTES se van a crear — no cuántos archivos. Dos hojas de una factura son uno. */
+  readonly listas = computed(() => this.hojas().filter((h) => h.estado === 'enlazada' && h.entrada && !h.dupDe));
+  readonly nExpedientes = computed(() =>
+    new Set(this.listas().map((h) => `${h.entrada!.sucursal}|${h.entrada!.folio}`)).size);
+  readonly nBloqueadas = computed(() =>
+    this.hojas().filter((h) => h.estado === 'ambigua' || h.estado === 'sin_match' || h.estado === 'duplicada' || h.estado === 'error').length);
 
-  readonly leyendoAlguna = computed(() => this.hojas().some((h) => h.leyendo));
-  readonly hayDup = computed(() => this.hojas().some((h) => !!h.dupDe));
-  readonly puedeGuardar = computed(() =>
-    this.hojas().length > 0 && !this.leyendoAlguna() && !this.hayDup() && !this.guardando());
-
-  /** La hoja fiscal (la que trae importe) manda el cuadre. */
-  private readonly fiscal = computed(() => this.hojas().find((h) => h.total != null || h.subtotal != null) || null);
-  /** `null` = todavía no se puede opinar (sin lectura con importe). */
-  /**
-   * RE.14.4 — cuadra contra **las dos capturas** de la misma recepción (la de la sucursal y la
-   * de oficinas), igual que el servidor. Si acá se compara sólo contra una, la pantalla dice "no
-   * cuadra" sobre una factura que el server guarda como cuadrada — y el capturista se queda con
-   * la duda de a quién creerle.
-   */
-  readonly cuadre = computed<boolean | null>(() => {
-    const t = this.abierta(); const f = this.fiscal();
-    if (!t || !f) return null;
-    const tol = this.report()?.settings?.match_tolerance ?? 1;
-    const cerca = (v: number | null | undefined, ref: number | null) =>
-      v != null && ref != null && Math.abs(Number(v) - ref) <= tol;
-    return cerca(f.total, t.monto) || cerca(f.subtotal, t.monto)
-      || cerca(f.total, t.gemela_monto) || cerca(f.subtotal, t.gemela_monto);
-  });
-  /** true cuando cuadró con la de oficinas y NO con la de la sucursal (hay que poder decirlo). */
-  readonly cuadrePorGemela = computed(() => {
-    const t = this.abierta(); const f = this.fiscal();
-    if (!t || !f || t.gemela_monto == null) return false;
-    const tol = this.report()?.settings?.match_tolerance ?? 1;
-    const cerca = (v: number | null | undefined, ref: number) => v != null && Math.abs(Number(v) - ref) <= tol;
-    const conSuc = cerca(f.total, t.monto) || cerca(f.subtotal, t.monto);
-    return !conSuc && (cerca(f.total, t.gemela_monto) || cerca(f.subtotal, t.gemela_monto));
-  });
-  readonly dif = computed(() => {
-    const t = this.abierta(); const f = this.fiscal();
-    if (!t || !f) return 0;
-    const cands = [f.total, f.subtotal].filter((v): v is number => v != null);
-    if (!cands.length) return 0;
-    return Math.min(...cands.map((v) => Math.abs(v - t.monto)));
-  });
-
-  async onFiles(ev: Event): Promise<void> {
+  // ── arrastre ──
+  onDragOverTabla(e: DragEvent): void {
+    if (!this.canManage()) return;
+    e.preventDefault();
+    this.dragTabla.set(true);
+  }
+  onDragLeaveTabla(e: DragEvent): void {
+    // `relatedTarget` fuera del contenedor: sin esto, pasar sobre una fila apaga el resaltado
+    // del contenedor y el velo titila.
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return;
+    this.dragTabla.set(false);
+    this.dragFila.set(null);
+  }
+  onDropTabla(e: DragEvent): void {
+    e.preventDefault();
+    const fila = this.dragFila();
+    this.dragTabla.set(false);
+    this.dragFila.set(null);
+    // Si cayó sobre una fila, ya lo manejó `onDropFila` (el evento burbujea).
+    if (fila) return;
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) void this.agregar(files, null);
+  }
+  onDragOverFila(e: DragEvent, c: EntradaRow): void {
+    if (!this.canManage()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.dragFila.set(this.clave(c));
+    this.dragTabla.set(true);
+  }
+  onDragLeaveFila(e: DragEvent): void {
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return;
+    this.dragFila.set(null);
+  }
+  onDropFila(e: DragEvent, c: EntradaRow): void {
+    e.preventDefault();
+    e.stopPropagation();
+    this.dragFila.set(null);
+    this.dragTabla.set(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) void this.agregar(files, c);
+  }
+  onFiles(ev: Event): void {
     const input = ev.target as HTMLInputElement;
     const files = Array.from(input.files || []);
-    input.value = ''; // permite volver a elegir el mismo archivo
-    for (const file of files) {
-      const esPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-      let dataUri: string;
-      try {
-        // Una foto de celular son 3–6 MB en base64 sobre la red de una sucursal: se
-        // reduce ANTES de salir del teléfono. El PDF va tal cual (ya viene liviano).
-        dataUri = esPdf ? await this.leer(file) : await this.comprimir(file);
-      } catch {
-        this.capError.set(`No se pudo leer ${file.name}.`);
+    input.value = '';
+    if (files.length) void this.agregar(files, null);
+  }
+  onFilesFila(ev: Event, c: EntradaRow): void {
+    const input = ev.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (files.length) void this.agregar(files, c);
+  }
+
+  /**
+   * `destino` = la entrada sobre la que se soltó. Si viene, no hace falta adivinar nada: el
+   * usuario ya dijo de qué orden es y el enlace por folio sólo podría contradecirlo.
+   */
+  private async agregar(files: File[], destino: EntradaRow | null): Promise<void> {
+    if (!this.canManage()) return;
+    this.capError.set('');
+    if (destino) this.abierta.set(destino);
+
+    const espacio = this.tope() - this.hojas().length;
+    if (espacio <= 0) {
+      this.toast.add({
+        severity: 'warn',
+        summary: `La bandeja llegó al tope de ${this.tope()}`,
+        detail: 'Enviá lo que hay y seguí con el resto.',
+      });
+      return;
+    }
+    const lote = files.slice(0, espacio);
+    if (lote.length < files.length) {
+      this.toast.add({
+        severity: 'warn',
+        summary: `Se tomaron ${lote.length} de ${files.length}`,
+        detail: `El tope es ${this.tope()} archivos por vez (se cambia en el Centro de control).`,
+      });
+    }
+
+    const nuevas: Hoja[] = [];
+    for (const f of lote) {
+      // Sólo PDF. El `accept` del input es una sugerencia (se puede elegir "todos los archivos")
+      // y el arrastre no lo respeta en absoluto, así que el filtro real va acá y en el server.
+      // El mensaje dice la SALIDA, no sólo el "no".
+      const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      if (!esPdf) {
+        this.capError.set(`${f.name} no es PDF. Escaneá la factura a PDF y volvé a soltarla.`);
         continue;
       }
-      const h: Hoja = {
-        id: ++this.seq, name: file.name || (esPdf ? 'factura.pdf' : 'factura.jpg'),
-        dataUri, kind: esPdf ? 'pdf' : 'image',
+      let dataUri: string;
+      try { dataUri = await this.leer(f); } catch { this.capError.set(`No se pudo leer ${f.name}.`); continue; }
+      nuevas.push({
+        id: ++this.seq,
+        name: f.name || 'factura.pdf',
+        dataUri,
         bytes: Math.round((dataUri.length - (dataUri.indexOf(',') + 1)) * 0.75),
-        leyendo: true,
-      };
-      this.hojas.update((l) => [...l, h]);
-      // OCR: además de leer el total, deja la lectura del lado del server (es la que
-      // manda para el cuadre) y detecta la hoja ya subida antes.
-      this.svc.ocr(dataUri, 'factura').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (o) => this.parchar(h.id, {
-          leyendo: false, sha256: o.sha256, folio: o.folio, total: o.total, subtotal: o.subtotal,
-          fecha: o.fecha, rfc: o.rfc, ocr: o,
-          dupDe: o.duplicate ? `${o.duplicate.sucursal}/${o.duplicate.folio}` : null,
-        }),
-        error: () => this.parchar(h.id, { leyendo: false }),
+        estado: 'leyendo',
+        entrada: destino,
+        busqueda: '',
       });
+    }
+    if (!nuevas.length) return;
+    this.hojas.update((l) => [...l, ...nuevas]);
+    await this.procesar(nuevas);
+  }
+
+  /**
+   * Lee y enlaza con concurrencia acotada. El pool es a mano y no con `forkJoin` porque 30
+   * llamadas de visión en paralelo es exactamente cómo se choca con el rate-limit del proveedor.
+   */
+  private async procesar(lote: Hoja[]): Promise<void> {
+    const cola = [...lote];
+    const obreros = Array.from(
+      { length: Math.min(ComprasEntradasPendientesComponent.EN_VUELO, cola.length) },
+      async () => { for (;;) { const h = cola.shift(); if (!h) return; await this.leerYEnlazar(h); } },
+    );
+    await Promise.all(obreros);
+  }
+
+  private async leerYEnlazar(h: Hoja): Promise<void> {
+    try {
+      const o = await firstValueFrom(this.svc.ocr(h.dataUri, 'factura'));
+      this.parchar(h.id, {
+        sha256: o.sha256, folioOcr: o.folio, total: o.total, subtotal: o.subtotal,
+        fecha: o.fecha, rfc: o.rfc, ocr: o,
+      });
+      if (o.duplicate) {
+        this.parchar(h.id, { estado: 'duplicada', dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}` });
+        return;
+      }
+      // Soltada sobre una fila: la entrada ya la eligió el usuario, no se busca nada.
+      if (h.entrada) { this.parchar(h.id, { estado: 'enlazada' }); return; }
+      // FOLIO primero (preciso), MONTO como respaldo — la misma prioridad del server.
+      const r = await firstValueFrom(this.svc.matchByOcr({
+        folio: o.folio || undefined,
+        total: o.total ?? o.subtotal ?? undefined,
+        fecha: o.fecha || undefined,
+      }));
+      const cands = r?.entradas || [];
+      if (cands.length === 1) {
+        this.parchar(h.id, { estado: 'enlazada', entrada: cands[0], porMonto: !o.folio, candidatas: [] });
+      } else if (cands.length > 1) {
+        this.parchar(h.id, { estado: 'ambigua', candidatas: cands.slice(0, 5) });
+      } else {
+        this.parchar(h.id, { estado: 'sin_match', candidatas: [] });
+      }
+    } catch (e: any) {
+      this.parchar(h.id, { estado: 'error', motivo: e?.error?.message || 'No se pudo leer el PDF' });
     }
   }
 
   private parchar(id: number, p: Partial<Hoja>): void {
     this.hojas.update((l) => l.map((h) => (h.id === id ? { ...h, ...p } : h)));
+  }
+
+  elegir(h: Hoja, e: EntradaRow): void {
+    this.parchar(h.id, { entrada: e, estado: 'enlazada', candidatas: [], porMonto: !h.folioOcr });
+  }
+  desenlazar(h: Hoja): void {
+    this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });
+  }
+  quitar(h: Hoja): void { this.hojas.update((l) => l.filter((x) => x.id !== h.id)); }
+  limpiar(): void { this.hojas.set([]); this.capError.set(''); this.abierta.set(null); }
+  setBusqueda(h: Hoja, v: string): void { this.parchar(h.id, { busqueda: v }); }
+
+  buscar(h: Hoja): void {
+    const q = (h.busqueda || '').trim();
+    if (!q) return;
+    this.parchar(h.id, { buscando: true });
+    this.svc.matchByOcr({ search: q }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        const cands = r?.entradas || [];
+        this.parchar(h.id, { buscando: false, candidatas: cands.slice(0, 8), estado: cands.length ? 'ambigua' : 'sin_match' });
+      },
+      error: () => this.parchar(h.id, { buscando: false }),
+    });
+  }
+
+  // ── cuadre (por hoja: en un lote cada una tiene su entrada) ──
+  private cfgTol(): number { return this.report()?.settings?.match_tolerance ?? 1; }
+  private cerca(v: number | null | undefined, ref: number | null | undefined): boolean {
+    return v != null && ref != null && Math.abs(Number(v) - Number(ref)) <= this.cfgTol();
+  }
+  /**
+   * `null` = todavía no se puede opinar. Cuadra contra **las dos capturas** de la misma
+   * recepción (sucursal y oficinas), igual que el servidor: si acá se compara sólo contra una,
+   * la pantalla dice "no cuadra" sobre una factura que el server guarda como cuadrada y el
+   * capturista se queda sin saber a quién creerle.
+   */
+  cuadre(h: Hoja): boolean | null {
+    if (!h.entrada || (h.total == null && h.subtotal == null)) return null;
+    return this.cerca(h.total, h.entrada.monto) || this.cerca(h.subtotal, h.entrada.monto)
+      || this.cerca(h.total, h.entrada.gemela_monto) || this.cerca(h.subtotal, h.entrada.gemela_monto);
+  }
+  /** Cuadró con la de oficinas y NO con la de la sucursal: hay que poder decirlo. */
+  porGemela(h: Hoja): boolean {
+    if (!h.entrada || h.entrada.gemela_monto == null) return false;
+    const conSuc = this.cerca(h.total, h.entrada.monto) || this.cerca(h.subtotal, h.entrada.monto);
+    return !conSuc && (this.cerca(h.total, h.entrada.gemela_monto) || this.cerca(h.subtotal, h.entrada.gemela_monto));
+  }
+  dif(h: Hoja): number {
+    if (!h.entrada) return 0;
+    const cands = [h.total, h.subtotal].filter((v): v is number => v != null);
+    if (!cands.length) return 0;
+    return Math.min(...cands.map((v) => Math.abs(v - h.entrada!.monto)));
+  }
+
+  // ── guardar (UN camino: agrupa por expediente y manda el lote) ──
+  /**
+   * `attach-bulk` también para un solo expediente. Tener dos caminos de guardado —uno para la
+   * captura de una y otro para el lote— fue exactamente cómo el lote terminó creando dos
+   * evidencias para la misma entrada cuando la factura traía dos hojas.
+   */
+  guardar(): void {
+    const listas = this.listas();
+    if (!listas.length || this.guardando()) return;
+    this.capError.set('');
+    this.guardando.set(true);
+
+    void (async () => {
+      const subidas: { h: Hoja; file: ProofFile }[] = [];
+      for (const h of listas) {
+        try {
+          const up = await firstValueFrom(this.svc.uploadFile(h.dataUri, 'factura'));
+          subidas.push({
+            h,
+            file: {
+              ...up, role: 'factura', name: h.name, sha256: h.sha256,
+              ocr_folio: h.folioOcr ?? null, ocr_total: h.total ?? null,
+              ocr_fecha: h.fecha ?? null, ocr_rfc: h.rfc ?? null,
+            },
+          });
+        } catch (e: any) {
+          this.parchar(h.id, { estado: 'error', motivo: e?.error?.message || 'No se pudo subir el archivo' });
+        }
+      }
+      if (!subidas.length) {
+        this.guardando.set(false);
+        this.capError.set('No se pudo subir ningún archivo. Reintentá.');
+        return;
+      }
+
+      // AGRUPAR por entrada antes de mandar: una factura de 2 hojas son 2 archivos pero UN
+      // expediente. Un item por archivo crea dos evidencias de la misma entrada (el dedup por
+      // hash no las cruza, son hojas distintas) y el revisor ve la misma factura dos veces.
+      const porEntrada = new Map<string, { h: Hoja; file: ProofFile }[]>();
+      for (const s of subidas) {
+        const k = `${s.h.entrada!.sucursal}|${s.h.entrada!.folio}`;
+        porEntrada.set(k, [...(porEntrada.get(k) || []), s]);
+      }
+      const items: AttachReceipt[] = [...porEntrada.values()].map((grupo) => ({
+        sucursal: grupo[0].h.entrada!.sucursal,
+        folio: grupo[0].h.entrada!.folio,
+        files: grupo.map((g) => g.file),
+        // La lectura que manda para el cuadre es la de la hoja que trae importe.
+        ocr: (grupo.find((g) => g.h.total != null || g.h.subtotal != null) || grupo[0]).h.ocr,
+      }));
+
+      try {
+        const r = await firstValueFrom(this.svc.attachBulk(items));
+        // Cada hoja sabe qué le pasó: el server contesta por expediente y todas las hojas de un
+        // expediente comparten su resultado.
+        for (const { h } of subidas) {
+          const d = r.detalle.find((x) => x.sucursal === h.entrada!.sucursal && x.folio === h.entrada!.folio);
+          if (d?.ok) this.parchar(h.id, { estado: 'guardada' });
+          else this.parchar(h.id, { estado: 'error', motivo: d?.motivo || 'No se pudo adjuntar' });
+        }
+        this.guardando.set(false);
+        this.toast.add({
+          severity: r.omitidas ? 'warn' : 'success',
+          summary: `${r.guardadas} ${r.guardadas === 1 ? 'factura enviada' : 'facturas enviadas'}`,
+          detail: r.omitidas
+            ? `${r.omitidas} quedaron afuera — el motivo está en su renglón.`
+            : `${r.cuadran} cuadran al peso; el resto lo mira el revisor.`,
+        });
+        // Las guardadas salen de la bandeja; lo que falló se queda con su motivo a la vista.
+        this.hojas.update((l) => l.filter((h) => h.estado !== 'guardada'));
+        if (!this.hojas().length) this.abierta.set(null);
+        this.reload();
+      } catch (e: any) {
+        this.guardando.set(false);
+        this.capError.set(e?.error?.message || 'No se pudo enviar. Reintentá.');
+      }
+    })();
   }
 
   private leer(file: File): Promise<string> {
@@ -670,60 +1070,5 @@ export class ComprasEntradasPendientesComponent {
       fr.onerror = () => rej(fr.error);
       fr.readAsDataURL(file);
     });
-  }
-
-  /** Reduce el lado mayor a 1,600 px y baja a JPEG 0.8 — legible para el OCR y del humano. */
-  private async comprimir(file: File): Promise<string> {
-    const raw = await this.leer(file);
-    try {
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('imagen ilegible')); i.src = raw;
-      });
-      const max = 1600;
-      const esc = Math.min(1, max / Math.max(img.width, img.height));
-      if (esc === 1 && raw.length < 1_500_000) return raw;
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(img.width * esc); cv.height = Math.round(img.height * esc);
-      cv.getContext('2d')?.drawImage(img, 0, 0, cv.width, cv.height);
-      return cv.toDataURL('image/jpeg', 0.8);
-    } catch {
-      return raw; // si el navegador no pudo decodificar, va la original
-    }
-  }
-
-  guardar(): void {
-    const t = this.abierta();
-    const hojas = this.hojas();
-    if (!t || !hojas.length || this.guardando()) return;
-    this.capError.set('');
-    this.guardando.set(true);
-    forkJoin(hojas.map((h) => this.svc.uploadFile(h.dataUri, 'factura').pipe(map((up) => ({ h, up })))))
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (subidas) => {
-          const files: ProofFile[] = subidas.map(({ h, up }) => ({
-            ...up, role: 'factura', name: h.name,
-            sha256: h.sha256, ocr_folio: h.folio ?? null, ocr_total: h.total ?? null,
-            ocr_fecha: h.fecha ?? null, ocr_rfc: h.rfc ?? null,
-          }));
-          const f = this.fiscal();
-          this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files, ocr: f?.ocr })
-            .pipe(takeUntilDestroyed(this.destroyRef))
-            .subscribe({
-              next: (res) => {
-                this.guardando.set(false);
-                this.cerrar();
-                this.toast.add({
-                  severity: res.monto_match ? 'success' : 'warn',
-                  summary: `Factura enviada — entrada ${t.folio}`,
-                  detail: res.monto_match ? 'El total cuadra ✓' : 'Guardada; el total no cuadra y el revisor la va a mirar.',
-                });
-                this.reload();
-              },
-              error: (e) => { this.guardando.set(false); this.capError.set(e?.error?.message || 'No se pudo enviar la factura.'); },
-            });
-        },
-        error: (e) => { this.guardando.set(false); this.capError.set(e?.error?.message || 'No se pudo subir el archivo. Reintentá.'); },
-      });
   }
 }

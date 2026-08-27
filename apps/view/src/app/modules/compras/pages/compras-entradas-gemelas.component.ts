@@ -10,6 +10,8 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, TwinPair, TwinsReport } from '../entradas.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
@@ -43,7 +45,7 @@ import { Permission } from '../../../core/constants/permissions';
   selector: 'app-compras-entradas-gemelas',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent, LoadStateComponent, PageTabsComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in eg">
@@ -51,7 +53,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Órdenes capturadas dos veces</h1>
+          <h1>Centro de control · Capturadas dos veces</h1>
           <p class="surf-page-sub">
             La misma recepción vive en el Kepler de la <strong>sucursal</strong> y en el de
             <strong>oficinas</strong>. El motor las enlaza solo cada 5 minutos; acá quedan las que
@@ -73,6 +75,8 @@ import { Permission } from '../../../core/constants/permissions';
           }
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <section class="surf-card eg-card">
         @if (report(); as r) {
@@ -223,6 +227,7 @@ export class ComprasEntradasGemelasComponent {
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly tabs = ENTRADAS_CONTROL_TABS;
   readonly report = signal<TwinsReport | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);

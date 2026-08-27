@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
-import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto } from './goods-receipt-proofs.service';
+import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, ReceiptSettings } from './goods-receipt-proofs.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { RemisionLine } from '@megadulces/platform-core';
 
@@ -10,7 +10,7 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 /**
  * Fase CC (extensión) — Comprobantes de Orden de Entrada. Lista las órdenes de
  * entrada de Kepler (X-A-40) y les adjunta la remisión/factura del proveedor
- * (imagen/PDF) con OCR. Captura/adjunto a nivel VER (el capturista); validación/
+ * (**sólo PDF** desde 2026-08-27) con OCR. Captura/adjunto a nivel VER (el capturista); validación/
  * rechazo a nivel VALIDAR (permiso especial restringido — que no todos validen).
  * No escribe a Kepler.
  */
@@ -70,6 +70,15 @@ export class GoodsReceiptProofsController {
     return this.svc.getSettings();
   }
 
+  @Put('settings')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'Guarda los parámetros del proceso (arranque, tolerancia del cuadre, SLA, tope de lote). Pestaña Ajustes del Centro de control. Firmado.',
+  })
+  saveSettings(@Body() body: Partial<ReceiptSettings>, @Req() req: AuthedRequest) {
+    return this.svc.saveSettings(body || {}, req?.user?.full_name || req?.user?.username);
+  }
+
   @Get('match')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'FOTO-PRIMERO: dado el OCR de la Aplica Orden Entrada (folio/total) o un texto, devuelve las entradas candidatas para enlazar la evidencia.' })
@@ -121,14 +130,14 @@ export class GoodsReceiptProofsController {
 
   @Post('ocr')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
-  @ApiOperation({ summary: 'Corre OCR sobre una hoja (imagen/PDF), devuelve los campos + hash + si es duplicada (misma hoja o folio ya subido). Preview, no guarda.' })
+  @ApiOperation({ summary: 'Corre OCR sobre una hoja (sólo PDF), devuelve los campos + hash + si es duplicada (misma hoja o folio ya subido). Preview, no guarda.' })
   ocr(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.runOcr(body?.file_base64 || '', body?.role);
   }
 
   @Post('upload')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
-  @ApiOperation({ summary: 'Sube la remisión/factura (imagen/PDF) a Cloudinary y devuelve su referencia.' })
+  @ApiOperation({ summary: 'Sube la remisión/factura (sólo PDF) al bucket privado y devuelve su referencia (KEY, se firma al leer).' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'remision');
   }

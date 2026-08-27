@@ -25,6 +25,8 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
@@ -55,7 +57,7 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -64,10 +66,12 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Órdenes de entrada — factura del proveedor</h1>
-          <p class="surf-page-sub">Identificá la entrada por los <strong>últimos 4 dígitos</strong> de su folio y subí solo la <strong>factura del proveedor</strong> · el OCR la compara contra el total de Kepler · pendiente → validado/rechazado</p>
+          <h1>Centro de control · Órdenes</h1>
+          <p class="surf-page-sub">Todas las órdenes de entrada de la red, con filtros completos. Buscá por los <strong>últimos 4 dígitos</strong> del folio, o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio: <strong>Pendientes de subir</strong> y <strong>Revisión</strong>.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
@@ -1055,6 +1059,7 @@ export class ComprasEntradasComponent {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly tabs = ENTRADAS_CONTROL_TABS;
   // RE.10 — órdenes de entrada nuevas detectadas por WS (pill "N nuevas — actualizar").
   readonly newCount = signal(0);
 

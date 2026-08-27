@@ -234,6 +234,53 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * Guarda los parámetros del proceso. Existía el GET desde RE.13.0 pero **no el PUT**: la
+   * fecha de arranque y el SLA sólo se podían mover con un UPDATE a mano en la DB, contra la
+   * regla de que el dato operativo se administra desde la interfaz. Esto es la pestaña
+   * "Ajustes" del Centro de control.
+   *
+   * Los rangos se validan acá porque cada uno rompe algo distinto si se va de rango:
+   * `reception_start` hacia atrás mete el rezago histórico (que nunca tendrá comprobante) al
+   * % de cobertura y el número deja de servir para exigirle a nadie; una tolerancia grande
+   * hace que "cuadra" deje de significar algo.
+   */
+  async saveSettings(p: Partial<ReceiptSettings>, actor?: string): Promise<ReceiptSettings> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cur = await this.getSettings();
+    const next: ReceiptSettings = {
+      reception_start: (p.reception_start ?? cur.reception_start).slice(0, 10),
+      match_tolerance: p.match_tolerance != null ? Number(p.match_tolerance) : cur.match_tolerance,
+      sla_capture_days: p.sla_capture_days != null ? Number(p.sla_capture_days) : cur.sla_capture_days,
+      sla_review_days: p.sla_review_days != null ? Number(p.sla_review_days) : cur.sla_review_days,
+      bulk_max_files: p.bulk_max_files != null ? Number(p.bulk_max_files) : cur.bulk_max_files,
+    };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next.reception_start)) {
+      throw new BadRequestException('reception_start debe ser una fecha AAAA-MM-DD');
+    }
+    const rango = (v: number, min: number, max: number, campo: string) => {
+      if (!Number.isFinite(v) || v < min || v > max) {
+        throw new BadRequestException(`${campo} fuera de rango (${min}–${max})`);
+      }
+    };
+    rango(next.match_tolerance, 0, 500, 'match_tolerance');
+    rango(next.sla_capture_days, 1, 60, 'sla_capture_days');
+    rango(next.sla_review_days, 1, 60, 'sla_review_days');
+    rango(next.bulk_max_files, 1, 200, 'bulk_max_files');
+
+    await this.tk.run(async (trx) => {
+      await trx('finance.receipt_settings')
+        .insert({ tenant_id: tenantId, ...next, updated_at: trx.fn.now(), updated_by: actor || null })
+        .onConflict('tenant_id')
+        .merge();
+    });
+    // El cache es por proceso y tiene TTL de 1 min; se invalida acá para que el cambio se vea
+    // en el mismo click (en varias instancias, el TTL cierra la diferencia).
+    this.settingsCache.delete(tenantId);
+    this.logger.log(`receipt_settings actualizados por ${actor || 'sistema'}: arranque=${next.reception_start} tol=${next.match_tolerance} sla=${next.sla_capture_days}/${next.sla_review_days} lote=${next.bulk_max_files}`);
+    return next;
+  }
+
+  /**
    * ¿Existe la columna/tabla? Cacheado por proceso. Sirve para que el código funcione en un
    * entorno donde la migración de la fase todavía no corrió, **sin** un `try/catch` que
    * envenenaría la transacción del request (25P02).
@@ -527,6 +574,59 @@ export class GoodsReceiptProofsService {
    *
    * Respeta el alcance: un revisor local ve su renglón, el central ve la red.
    */
+  /**
+   * Quién puede subir en cada sucursal, resuelto igual que `ScopeService` pero para TODOS a
+   * la vez: rol con `COMPRAS_ENTRADAS_GESTIONAR` × alcance de escritura sobre `warehouse`
+   * (override del usuario > default del rol; `own` = su propia sucursal).
+   *
+   * Por qué está en el Centro de control y no es cosmético: una sucursal con 0% de cobertura
+   * y **cero responsables** no es gente que no trabaja, es un permiso que falta — y son dos
+   * conversaciones completamente distintas. Sin esta columna, el tablero acusa al inocente.
+   *
+   * Los de alcance `red` (mode `all`) se cuentan aparte: aparecen en las 7 sucursales y si
+   * se mezclan, ninguna se ve nunca huérfana.
+   */
+  private async responsablesPorSucursal(trx: any): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    // `permissions -> 'KEY' IS NOT NULL` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+    const r = await trx.raw(`
+      WITH puede AS (
+        SELECT lower(role_name) AS rn
+          FROM identity.role_permissions
+         WHERE tenant_id = ?
+           AND permissions -> 'COMPRAS_ENTRADAS_GESTIONAR' IS NOT NULL
+           AND (permissions -> 'COMPRAS_ENTRADAS_GESTIONAR')::text = 'true'
+      )
+      SELECT u.username, u.nombre, u.warehouse_code,
+             COALESCE(us.mode_write, us.mode, rs.mode_write, rs.mode, 'none') AS modo,
+             COALESCE(us.values, rs.values)                                   AS vals
+        FROM identity.users u
+        JOIN puede p ON p.rn = lower(u.role_name)
+        LEFT JOIN identity.user_scopes us
+               ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = 'warehouse'
+        LEFT JOIN identity.role_scopes rs
+               ON rs.tenant_id = u.tenant_id AND lower(rs.role_name) = lower(u.role_name) AND rs.dimension = 'warehouse'
+       WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+       ORDER BY u.username`,
+      [tenantId, tenantId]);
+
+    const out = new Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]>() as any;
+    let red = 0;
+    const push = (suc: string, x: any, alcance: 'propio' | 'asignado') => {
+      const k = String(suc).trim();
+      if (!k) return;
+      if (!out.has(k)) out.set(k, []);
+      out.get(k).push({ username: x.username, nombre: x.nombre ?? null, alcance });
+    };
+    for (const x of r.rows || []) {
+      if (x.modo === 'all') { red++; continue; }
+      if (x.modo === 'own') { if (x.warehouse_code) push(x.warehouse_code, x, 'propio'); continue; }
+      if (x.modo === 'listed') { for (const v of x.vals || []) push(v, x, 'asignado'); }
+    }
+    out.red = red;
+    return out;
+  }
+
   async coverage(q: { warehouse_codes?: string[] | null; from?: string; to?: string } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const alcance = await this.sucursalesVisibles(q.warehouse_codes);
@@ -578,6 +678,8 @@ export class GoodsReceiptProofsService {
 
       // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
       // cobertura, el número deja de servir para exigirle a nadie.
+      const resp = await this.responsablesPorSucursal(trx);
+
       const rez = await trx.raw(`
         SELECT COUNT(*)::int AS entradas, COALESCE(SUM(monto::numeric), 0)::numeric AS monto
           FROM analytics.erp_goods_receipts c
@@ -587,8 +689,11 @@ export class GoodsReceiptProofsService {
 
       return {
         settings: cfg,
+        // `responsables_red` es uno solo para todo el tablero: son los que ven la red entera.
+        responsables_red: (resp as any).red ?? 0,
         rows: (r.rows || []).map((x: any) => ({
           sucursal: x.sucursal,
+          responsables: resp.get(String(x.sucursal)) ?? [],
           entradas: Number(x.entradas),
           con_evidencia: Number(x.con_evidencia),
           validadas: Number(x.validadas),
@@ -761,14 +866,17 @@ export class GoodsReceiptProofsService {
   }
 
   /**
-   * Sube UN archivo (remisión/factura/evidencia) al bucket privado. **Imagen o PDF.**
+   * Sube UN archivo (remisión/factura/evidencia) al bucket privado. **Sólo PDF.**
    *
-   * RE.13.1 — antes era `putPdf`, que rechaza imágenes. Eso venía de la migración de
-   * Cloudinary (donde el problema era servir PDFs), pero dejaba al capturista de sucursal
-   * sin poder subir NADA desde el celular: tiene el papel en la mano y una cámara, no un
-   * escáner. `putFile` es el mismo camino que ya usa `bank-capture` para las fotos de ficha
-   * que llegan por WhatsApp; guarda el ContentType real y `signFiles` firma la lectura igual.
-   * El OCR ya aceptaba imagen desde siempre — el tapón estaba sólo en el almacenamiento.
+   * Historia de la decisión, porque va y viene: RE.13.1 lo abrió a imágenes (`putFile`)
+   * pensando en el capturista con el papel en la mano y sólo un celular. **2026-08-27 se
+   * vuelve a cerrar a PDF por decisión de Edgar**: todos los que capturan trabajan en lap
+   * con el escáner al lado, el expediente sostiene un pago (una foto torcida de una hoja
+   * de tres no lo sostiene) y el PDF junta las hojas en UN archivo. La cámara no se pierde:
+   * la app de Archivos/Cámara del celular escanea a PDF, endereza y agrupa.
+   *
+   * El rechazo vive en TRES lugares a propósito — `accept` del input (sugerencia), el front
+   * (mensaje que dice la salida) y acá (la única frontera que no se puede saltar).
    */
   async uploadFile(dataUri: string, role = 'remision'): Promise<ReceiptFile> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -777,7 +885,8 @@ export class GoodsReceiptProofsService {
     try {
       // Bucket PRIVADO. Se guarda la KEY en public_id; la URL de lectura es prefirmada al
       // mostrar (signFiles), no permanente.
-      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/goods-receipts`);
+      // putPdf ya rechaza cualquier cosa que no sea PDF con 400 "Solo se aceptan archivos PDF."
+      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/goods-receipts`);
       // url = key (placeholder truthy para no romper filtros `f.url`); la lectura la firma (signFiles).
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
@@ -788,7 +897,7 @@ export class GoodsReceiptProofsService {
   }
 
   /**
-   * Corre OCR sobre CUALQUIER hoja (imagen/PDF) — ahora cada archivo se lee, no solo la ★.
+   * Corre OCR sobre la hoja (**sólo PDF**, igual que `uploadFile`) — cada archivo se lee, no solo la ★.
    * Además detecta DUPLICADOS: la misma hoja (hash de contenido) o un folio de remisión/factura
    * ya subido antes. Preview, no guarda. `role` afina el dedup de folio (solo remisión/factura).
    */
@@ -796,6 +905,11 @@ export class GoodsReceiptProofsService {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
+    // Mismo criterio que `uploadFile`: si no se va a poder guardar, no se gasta una llamada
+    // a Claude leyéndolo. El mensaje dice la salida, no sólo el "no".
+    if (mediaType !== 'application/pdf') {
+      throw new BadRequestException('Solo se aceptan PDF. Escaneá la factura a PDF y volvé a subirla.');
+    }
     const sha256 = createHash('sha256').update(base64).digest('hex');
     let fields: RemisionFields;
     let ocr_status: string;

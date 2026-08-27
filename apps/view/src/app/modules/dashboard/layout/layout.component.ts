@@ -526,13 +526,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
         { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
-        // RE.13.1 — "Pendientes" es la worklist del capturista (lo que le falta subir);
-        // "Órdenes de entrada" es la vista completa con auditoría por línea.
-        { label: 'Pendientes de subir',  icon: 'pi pi-camera',       route: '/compras/entradas',       permission: Permission.COMPRAS_ENTRADAS_VER },
-        { label: 'Captura por lote',      icon: 'pi pi-clone',       route: '/compras/entradas/lote', permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        { label: 'Revisión de facturas',  icon: 'pi pi-verified',    route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
-        { label: 'Órdenes de entrada',   icon: 'pi pi-inbox',        route: '/compras/entradas/todas', permission: Permission.COMPRAS_ENTRADAS_VER },
-        { label: 'Capturadas dos veces', icon: 'pi pi-link',         route: '/compras/entradas/gemelas', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // RE.16 — facturas de entrada: TRES items, uno por oficio. Eran cinco y se leían como
+        // cinco módulos sueltos; el lote se absorbió en Pendientes (soltar N PDFs) y "todas" +
+        // "gemelas" viven como pestañas del Centro de control.
+        { label: 'Pendientes de subir',  icon: 'pi pi-file-pdf',   route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Revisión de facturas', icon: 'pi pi-verified',   route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
+        { label: 'Centro de control',    icon: 'pi pi-sitemap',    route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {
