@@ -11,6 +11,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { EntradasService, CoverageReport, CoverageRow } from '../entradas.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -47,7 +49,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
   imports: [
     CommonModule, RouterLink, ButtonModule, TooltipModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
-    SegmentedComponent, ContextHelpComponent,
+    SegmentedComponent, ContextHelpComponent, TableDensityComponent,
   ],
   template: `
     <div class="surf-page in ec">
@@ -64,6 +66,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
           </p>
         </div>
         <div class="ec-head">
+          <app-table-density />
           <app-freshness-pill [since]="cargadoAt()" label="calculado" [staleAfterSec]="300" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"
@@ -113,7 +116,8 @@ type Periodo = 'arranque' | 'mes' | 'semana';
           <div class="ec-scroll">
             <!-- Acá el modificador frozen-first SÍ corresponde: 10 columnas con scroll y la
                  primera es la identificadora (la sucursal). -->
-            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first ec-table">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first ec-table"
+                   [class.is-dense]="density.dense()">
               <thead>
                 <tr>
                   <th scope="col">Sucursal</th>
@@ -271,6 +275,7 @@ export class ComprasEntradasControlComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
 
