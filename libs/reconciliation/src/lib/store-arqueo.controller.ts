@@ -203,6 +203,50 @@ export class StoreArqueoController {
   }
 
   /**
+   * SM.14 — Historial de arqueos: detalle + acumulado por cajera.
+   *
+   * Mismo recorte que el listado: la cajera ve solo los suyos (y el "por cajera"
+   * le queda con una sola fila, la propia), la encargada ve los de sus sucursales
+   * con el esperado, la diferencia y quién validó cada uno.
+   */
+  @Get('historial')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiQuery({ name: 'from', required: false, description: "Desde (ISO 'YYYY-MM-DD')." })
+  @ApiQuery({ name: 'to', required: false, description: "Hasta (ISO 'YYYY-MM-DD')." })
+  @ApiQuery({ name: 'cajero', required: false, description: 'Código de cajera. Ignorado si sos cajera (siempre vos).' })
+  @ApiQuery({ name: 'sin_validar', required: false, description: '`true` = solo los que faltan firmar.' })
+  @ApiOperation({ summary: 'Tienda — historial de arqueos por cajera, con quién lo capturó y quién lo validó.' })
+  async historial(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    const revela = this.revela(user);
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/historial');
+    const limit = query['limit'];
+    const res = await this.blind.historial({
+      from: query['from'] as string | undefined,
+      to: query['to'] as string | undefined,
+      warehouse_codes,
+      // A la cajera se le fuerza el suyo; la encargada puede filtrar por una.
+      cajero_code: revela ? ((query['cajero'] as string) || undefined) : (user?.username || ' '),
+      solo_sin_validar: String(query['sin_validar'] ?? '') === 'true',
+      limit: limit ? Number(limit) : undefined,
+    });
+    const arqueos = res.arqueos.map((r: any) => this.proyectar(r, revela));
+    if (revela) return { ...res, arqueos };
+    // El AGREGADO también revela: `faltante_total` sobre un solo arqueo ES la
+    // diferencia de ese arqueo, y de ahí sale el esperado. `proyectar()` limpia
+    // las filas pero no el resumen — hay que recortarlo aparte.
+    return {
+      arqueos,
+      por_cajera: res.por_cajera.map((g: any) => ({
+        cajero_code: g.cajero_code, cajero_nombre: g.cajero_nombre, warehouse_code: g.warehouse_code,
+        arqueos: g.arqueos, total_contado: g.total_contado,
+        sin_validar: g.sin_validar, ultima_fecha: g.ultima_fecha,
+      })),
+      totales: { arqueos: res.totales.arqueos, sin_validar: res.totales.sin_validar },
+    };
+  }
+
+  /**
    * SM.12 — La encargada va al lugar, cuenta con la cajera y firma.
    *
    * Gateado por `RECONCILIATION_VER`, que es lo que separa a la encargada de la

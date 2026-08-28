@@ -78,6 +78,23 @@ export interface ArqueoRow {
   kepler_enmascaro?: boolean; diff_real?: number | null;
 }
 
+/**
+ * Acumulado por cajera. Los campos de diferencia solo llegan a quien valida —
+ * el agregado también revela: un `faltante_total` sobre un único arqueo ES la
+ * diferencia de ese arqueo.
+ */
+export interface ArqueoPorCajera {
+  cajero_code: string | null; cajero_nombre: string | null; warehouse_code: string;
+  arqueos: number; total_contado: number; sin_validar: number; ultima_fecha: string | null;
+  con_diferencia?: number; faltante_total?: number; sobrante_total?: number;
+}
+
+export interface ArqueoHistorial {
+  arqueos: ArqueoRow[];
+  por_cajera: ArqueoPorCajera[];
+  totales: { arqueos: number; sin_validar: number; faltante_total?: number; sobrante_total?: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ArqueoService {
   private readonly http = inject(HttpClient);
@@ -90,6 +107,18 @@ export class ArqueoService {
 
   submit(dto: ArqueoDto): Observable<ArqueoResult> {
     return this.http.post<ArqueoResult>(this.base, dto);
+  }
+
+  /** Historial con el acumulado por cajera. */
+  historial(q?: { from?: string; to?: string; cajero?: string; sin_validar?: boolean; limit?: number }): Observable<ArqueoHistorial> {
+    const p = new URLSearchParams();
+    if (q?.from) p.set('from', q.from);
+    if (q?.to) p.set('to', q.to);
+    if (q?.cajero) p.set('cajero', q.cajero);
+    if (q?.sin_validar) p.set('sin_validar', 'true');
+    if (q?.limit) p.set('limit', String(q.limit));
+    const qs = p.toString();
+    return this.http.get<ArqueoHistorial>(`${this.base}/historial${qs ? '?' + qs : ''}`);
   }
 
   /** La encargada firma el arqueo tras contarlo en el lugar. */

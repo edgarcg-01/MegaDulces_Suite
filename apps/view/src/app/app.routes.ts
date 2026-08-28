@@ -746,6 +746,11 @@ export const routes: Routes = [
         canDeactivate: [unsavedChangesGuard]
       },
       {
+        path: 'arqueos',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-historial.component').then(m => m.TiendaArqueoHistorialComponent),
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_VER)]
+      },
+      {
         path: 'analisis-semanal',
         loadComponent: () => import('./modules/tienda/pages/tienda-weekly.component').then(m => m.TiendaWeeklyComponent),
         canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]

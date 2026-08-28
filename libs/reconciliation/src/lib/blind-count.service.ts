@@ -308,6 +308,72 @@ export class BlindCountService {
   }
 
   /**
+   * SM.14 — Historial de arqueos: el detalle más el acumulado **por cajera**.
+   *
+   * El agregado contesta la pregunta que el detalle no: no "qué pasó el martes"
+   * sino "a quién le pasa seguido". Por eso separa faltantes de sobrantes en vez
+   * de sumarlos — una cajera con +$500 y −$500 no cuadra en promedio, tiene dos
+   * errores; netearlos la haría ver perfecta.
+   *
+   * `sin_validar` sale acá para que la encargada vea de un vistazo qué le falta
+   * firmar, sin recorrer el detalle.
+   */
+  async historial(q: {
+    from?: string; to?: string; warehouse_codes?: string[] | null;
+    cajero_code?: string; solo_sin_validar?: boolean; limit?: number;
+  }) {
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
+    const arqueos = await this.list({ ...q, limit });
+    const filtrados = q.solo_sin_validar ? arqueos.filter((a: any) => !a.validado_at) : arqueos;
+
+    const acc = new Map<string, any>();
+    for (const a of filtrados as any[]) {
+      const key = (a.cajero_code || '—').toUpperCase();
+      let g = acc.get(key);
+      if (!g) {
+        g = {
+          cajero_code: a.cajero_code || null, cajero_nombre: a.cajero_nombre || null,
+          warehouse_code: a.warehouse_code, arqueos: 0, total_contado: 0,
+          con_diferencia: 0, faltante_total: 0, sobrante_total: 0,
+          sin_validar: 0, ultima_fecha: null as string | null,
+        };
+        acc.set(key, g);
+      }
+      g.arqueos++;
+      g.total_contado = Math.round((g.total_contado + Number(a.total_contado || 0)) * 100) / 100;
+      if (!a.validado_at) g.sin_validar++;
+      const f = String(a.business_date).slice(0, 10);
+      if (!g.ultima_fecha || f > g.ultima_fecha) g.ultima_fecha = f;
+      const d = a.diff_real;
+      if (d != null && Math.abs(Number(d)) >= ARQ_UMBRAL) {
+        g.con_diferencia++;
+        // Faltante y sobrante NO se netean: son dos errores distintos.
+        if (Number(d) > 0) g.faltante_total = Math.round((g.faltante_total + Number(d)) * 100) / 100;
+        else g.sobrante_total = Math.round((g.sobrante_total - Number(d)) * 100) / 100;
+      }
+    }
+    // `Array.from`, NO `[...acc.values()]`: con el target de compilación de la lib
+    // el helper de spread no reconoce el iterador de Map y lo mete como ÚNICO
+    // elemento — y un iterador serializa a `{}`, así que la respuesta salía con
+    // una fila vacía y los totales en NaN, sin romperse. Mismo landmine que ya
+    // estaba anotado para el spread de Set en `[ID.5]`.
+    const por_cajera = Array.from(acc.values()).sort(
+      (a, b) => (b.faltante_total + b.sobrante_total) - (a.faltante_total + a.sobrante_total) || b.arqueos - a.arqueos,
+    );
+
+    return {
+      arqueos: filtrados,
+      por_cajera,
+      totales: {
+        arqueos: filtrados.length,
+        sin_validar: filtrados.filter((a: any) => !a.validado_at).length,
+        faltante_total: Math.round(por_cajera.reduce((s, g) => s + g.faltante_total, 0) * 100) / 100,
+        sobrante_total: Math.round(por_cajera.reduce((s, g) => s + g.sobrante_total, 0) * 100) / 100,
+      },
+    };
+  }
+
+  /**
    * Lista arqueos ciegos con su comparación (para la consola).
    *
    * `warehouse_codes` es el alcance ya resuelto por `ScopeService` (`[ID.4]`):
