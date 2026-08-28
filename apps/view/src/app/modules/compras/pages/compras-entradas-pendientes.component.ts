@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subject, of, switchMap, catchError, firstValueFrom } from 'rxjs';
+import { Subject, of, switchMap, catchError, debounceTime, firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -162,8 +162,50 @@ interface Hoja {
 
         <div class="ep-filters">
           <app-segmented [options]="estadoOpts" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Qué mostrar" />
-          <input pInputText [(ngModel)]="search" (keyup.enter)="reload()" (blur)="reload()"
-                 placeholder="Últimos 4 del folio (ej. 0397) o proveedor…" class="ep-search" aria-label="Buscar entrada" />
+          <!--
+            Buscador con sugerencias. Antes había que teclear y adivinar: se filtraba recién al
+            salir del campo o al dar Enter, y si no aparecía nada no se sabía si el folio estaba
+            mal escrito o simplemente no había entrada. Ahora el resultado se ve mientras se
+            escribe, con proveedor e importe, que es lo que permite reconocer la orden correcta.
+          -->
+          <div class="ep-ac" role="combobox" [attr.aria-expanded]="sugOpen()" aria-haspopup="listbox">
+            <input pInputText [ngModel]="search()" (ngModelChange)="onSearch($event)"
+                   (keydown)="onSearchKey($event)" (focus)="abrirSug()" (blur)="cerrarSug()"
+                   placeholder="Últimos 4 del folio (ej. 0397) o proveedor…" class="ep-search"
+                   aria-label="Buscar entrada" autocomplete="off"
+                   [attr.aria-activedescendant]="sugIdx() >= 0 ? 'sug-' + sugIdx() : null" />
+            @if (search()) {
+              <button type="button" class="ep-ac-x" (click)="limpiarBusqueda()" aria-label="Limpiar la búsqueda">
+                <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+            @if (sugOpen()) {
+              <ul class="ep-ac-list" role="listbox" aria-label="Entradas que coinciden">
+                @if (sugLoading()) {
+                  <li class="ep-ac-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando…</li>
+                } @else if (!sug().length) {
+                  <!-- Decir POR QUÉ no hay nada: el filtro de estado es la causa más común. -->
+                  <li class="ep-ac-msg">
+                    Nada con «{{ search() }}» entre las <b>{{ etiquetaEstado() }}</b>.
+                    <button type="button" class="ep-link" (mousedown)="$event.preventDefault()" (click)="buscarEnTodas()">
+                      Buscar en todas
+                    </button>
+                  </li>
+                } @else {
+                  @for (e of sug(); track e.sucursal + '/' + e.folio; let i = $index) {
+                    <li [id]="'sug-' + i" role="option" [attr.aria-selected]="sugIdx() === i"
+                        class="ep-ac-op" [class.on]="sugIdx() === i"
+                        (mousedown)="$event.preventDefault()" (click)="elegirSug(e)" (mouseenter)="sugIdx.set(i)">
+                      <b class="mono">{{ ultimos4(e.folio) }}</b>
+                      <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                      <em class="mono">{{ money(e.monto) }}</em>
+                      <i class="ep-ac-d" [class.late]="e.atrasada">{{ e.dias }}d</i>
+                    </li>
+                  }
+                }
+              </ul>
+            }
+          </div>
           @if (rezago()) {
             <button pButton type="button" class="p-button-sm p-button-text" (click)="setRezago(false)"
                     pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
@@ -500,8 +542,35 @@ interface Hoja {
     .ep-block-s { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 46ch; }
 
     .ep-filters { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
-    .ep-search { flex: 0 1 22rem; min-width: 12rem; }
+    .ep-search { width: 100%; }
     .ep-sp { flex: 1 1 auto; }
+
+    /* Buscador con sugerencias */
+    .ep-ac { position: relative; flex: 0 1 24rem; min-width: 14rem; }
+    .ep-ac-x {
+      position: absolute; right: .4rem; top: 50%; transform: translateY(-50%);
+      background: none; border: 0; padding: .25rem; cursor: pointer; color: var(--text-faint);
+    }
+    .ep-ac-x:hover { color: var(--text-main); }
+    .ep-ac-list {
+      position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+      margin: 0; padding: var(--sp-1); list-style: none;
+      max-height: 19rem; overflow-y: auto;
+      background: var(--card-bg); border: 1px solid var(--border-color);
+      border-radius: var(--r-md, .5rem); box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+    }
+    .ep-ac-msg { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
+    .ep-ac-op {
+      display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer;
+      padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm, .4rem); font-size: var(--fs-sm);
+    }
+    .ep-ac-op.on { background: var(--table-hover); }
+    .ep-ac-op b { font-size: var(--fs-body); }
+    .ep-ac-op > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; color: var(--text-muted); }
+    .ep-ac-op em { font-style: normal; color: var(--text-main); }
+    .ep-ac-d { font-style: normal; font-size: var(--fs-micro); color: var(--text-faint); min-width: 2.2rem; text-align: right; }
+    .ep-ac-d.late { color: var(--bad-fg); font-weight: 600; }
 
     /* Tabla + panel: el panel sólo ocupa lugar cuando hay algo en preparación. */
     .ep-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
@@ -667,7 +736,8 @@ export class ComprasEntradasPendientesComponent {
   readonly rezago = signal(false);
   readonly diasMin = signal<number | undefined>(undefined);
   readonly page = signal(1);
-  search = '';
+  /** Señal, no propiedad suelta: el buscador con sugerencias reacciona a cada tecla. */
+  readonly search = signal('');
   private readonly pageSize = 50;
 
   /**
@@ -737,7 +807,7 @@ export class ComprasEntradasPendientesComponent {
         this.error.set(null);
         const q: EntradasQuery = {
           estado: this.estado(),
-          search: this.search || undefined,
+          search: this.search().trim() || undefined,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
           dias_min: this.diasMin(),
@@ -765,6 +835,7 @@ export class ComprasEntradasPendientesComponent {
     if (est && this.estadoOpts.some((o) => o.value === est)) {
       this.estado.set(est as Exclude<EntradasQuery['estado'], undefined>);
     }
+    this.escucharTeclas();
     this.reload();
   }
 
@@ -792,6 +863,98 @@ export class ComprasEntradasPendientesComponent {
     this.estado.set('pendiente'); this.diasMin.set(sla + 1); this.page.set(1); this.reload();
   }
   irPagina(n: number): void { this.page.set(Math.max(1, n)); this.reload(); }
+
+  // ─────────────────── buscador con sugerencias ───────────────────
+  readonly sug = signal<EntradaRow[]>([]);
+  readonly sugOpen = signal(false);
+  readonly sugLoading = signal(false);
+  /** Fila resaltada del desplegable. −1 = ninguna (Enter aplica el texto crudo). */
+  readonly sugIdx = signal(-1);
+  private readonly teclas = new Subject<string>();
+
+  /**
+   * Sugerencias contra el MISMO filtro que la tabla (estado, sucursal, carril): si el
+   * desplegable ofreciera entradas que la lista no muestra, elegir una dejaría la tabla vacía
+   * y sin explicación. Cuando no hay coincidencias se ofrece explícitamente buscar en todas.
+   */
+  private escucharTeclas(): void {
+    this.teclas.pipe(
+      debounceTime(220),
+      switchMap((q) => {
+        const t = q.trim();
+        if (t.length < 2) { this.sug.set([]); this.sugLoading.set(false); return of(null); }
+        this.sugLoading.set(true);
+        return this.svc.list({
+          estado: this.estado(),
+          search: t,
+          warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
+          carril: this.rezago() ? 'rezago' : 'al_dia',
+          orden: 'antiguedad',
+          page: 1,
+          pageSize: 8,
+        }).pipe(catchError(() => of(null)));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((r) => {
+      this.sugLoading.set(false);
+      this.sug.set(r?.rows ?? []);
+      this.sugIdx.set(-1);
+    });
+  }
+
+  onSearch(v: string): void {
+    this.search.set(v ?? '');
+    this.sugOpen.set(true);
+    this.teclas.next(this.search());
+  }
+  abrirSug(): void { if (this.search().trim().length >= 2) this.sugOpen.set(true); }
+  /** El cierre va con un respiro: un click sobre una opción dispara el blur del input primero. */
+  cerrarSug(): void { setTimeout(() => this.sugOpen.set(false), 120); }
+
+  onSearchKey(e: KeyboardEvent): void {
+    const n = this.sug().length;
+    if (e.key === 'ArrowDown' && n) { e.preventDefault(); this.sugOpen.set(true); this.sugIdx.set((this.sugIdx() + 1) % n); return; }
+    if (e.key === 'ArrowUp' && n) { e.preventDefault(); this.sugIdx.set((this.sugIdx() - 1 + n) % n); return; }
+    if (e.key === 'Escape') { this.sugOpen.set(false); this.sugIdx.set(-1); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const sel = this.sug()[this.sugIdx()];
+      // Con una fila resaltada gana ella; sin resaltar, se aplica lo tecleado tal cual.
+      if (sel) this.elegirSug(sel);
+      else { this.sugOpen.set(false); this.volverAlInicio(); this.reload(); }
+    }
+  }
+
+  /** Elegir una sugerencia deja la tabla con ESA entrada: lista para soltarle el PDF. */
+  elegirSug(e: EntradaRow): void {
+    this.search.set(this.ultimos4(e.folio));
+    this.sugOpen.set(false);
+    this.sugIdx.set(-1);
+    this.volverAlInicio();
+    this.reload();
+  }
+
+  limpiarBusqueda(): void {
+    this.search.set('');
+    this.sug.set([]);
+    this.sugOpen.set(false);
+    this.volverAlInicio();
+    this.reload();
+  }
+
+  /** Salida del vacío: el filtro de estado es la causa más común de "no aparece". */
+  buscarEnTodas(): void {
+    this.estado.set('');
+    this.syncUrl();
+    this.volverAlInicio();
+    this.reload();
+    this.teclas.next(this.search());
+  }
+
+  /** Para el mensaje de "no hay nada": nombrar el filtro que está tapando el resultado. */
+  etiquetaEstado(): string {
+    return (this.estadoOpts.find((o) => o.value === this.estado())?.label || 'todas').toLowerCase();
+  }
 
   // ═════════════════════════ bandeja de PDFs ═════════════════════════
   readonly hojas = signal<Hoja[]>([]);
