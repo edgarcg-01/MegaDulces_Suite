@@ -199,7 +199,9 @@ import { Permission } from '../../../core/constants/permissions';
     .eg-table tbody tr:hover { background: var(--surface-2); }
     .eg-table tr.busy { opacity: .55; }
     .eg-table .mono { font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
+    /* Calificado: `.eg-table th` (0,1,1) le ganaba a `.ta-r` (0,1,0) — el encabezado quedaba a
+       la izquierda y su columna de importes a la derecha. */
+    .eg-table th.ta-r, .eg-table td.ta-r, .ta-r { text-align: right; }
     .eg-sub, .eg-prov { display: block; font-style: normal; font-size: .7rem; color: var(--text-muted); }
     .eg-prov { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Los dos datos que cambian la decisión se marcan; el resto queda neutro. */

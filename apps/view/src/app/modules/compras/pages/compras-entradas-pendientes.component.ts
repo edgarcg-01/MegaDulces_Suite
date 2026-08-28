@@ -5,6 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subject, of, switchMap, catchError, firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
+import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
@@ -80,7 +81,7 @@ interface Hoja {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule,
+    CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, SelectModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent,
   ],
@@ -185,7 +186,7 @@ interface Hoja {
           }
         </div>
 
-        <div class="ep-body" [class.has-panel]="hojas().length > 0">
+        <div class="ep-body">
           <!-- Zona de soltado de TODA la tabla: si el PDF no cae sobre una fila, se enlaza por
                el folio que lea el OCR. Es el camino "tengo el papel y no sé de qué orden es". -->
           <div class="ep-tablewrap" [class.dragging]="dragTabla()"
@@ -286,119 +287,6 @@ interface Hoja {
             }
           </div>
 
-          @if (hojas().length) {
-            <!-- Panel lateral y no diálogo: la tabla se sigue viendo, que es lo que da contexto. -->
-            <aside class="ep-panel" aria-label="Facturas en preparación">
-              <header class="ep-panel-h">
-                <b>{{ hojas().length }} {{ hojas().length === 1 ? 'PDF' : 'PDFs' }} en preparación</b>
-                <span class="ep-sp"></span>
-                <button type="button" class="ep-x" (click)="limpiar()" aria-label="Vaciar la bandeja">
-                  <i class="pi pi-times" aria-hidden="true"></i>
-                </button>
-              </header>
-
-              <div class="ep-panel-b">
-                @for (h of hojas(); track h.id) {
-                  <article class="ep-hoja" [class.bad]="h.estado === 'duplicada' || h.estado === 'error'"
-                           [class.ok]="h.estado === 'enlazada' || h.estado === 'guardada'">
-                    <header class="ep-hoja-h">
-                      <i class="pi pi-file-pdf" aria-hidden="true"></i>
-                      <b [pTooltip]="h.name" tooltipPosition="top">{{ h.name }}</b>
-                      <span class="ep-sp"></span>
-                      <button type="button" class="ep-x" (click)="quitar(h)" [attr.aria-label]="'Quitar ' + h.name">
-                        <i class="pi pi-times" aria-hidden="true"></i>
-                      </button>
-                    </header>
-
-                    @switch (h.estado) {
-                      @case ('leyendo') {
-                        <p class="ep-hoja-s"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo la factura…</p>
-                      }
-                      @case ('duplicada') {
-                        <p class="ep-hoja-s is-bad">Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar.</p>
-                      }
-                      @case ('error') {
-                        <p class="ep-hoja-s is-bad">{{ h.motivo || 'No se pudo procesar' }}</p>
-                      }
-                      @case ('guardada') {
-                        <p class="ep-hoja-s is-ok"><i class="pi pi-check" aria-hidden="true"></i> Enviada.</p>
-                      }
-                      @case ('enlazada') {
-                        <dl class="ep-kv">
-                          <div><dt>Va a la entrada</dt><dd class="mono">{{ h.entrada!.sucursal }}/{{ ultimos4(h.entrada!.folio) }}</dd></div>
-                          <div><dt>{{ h.entrada!.proveedor_nombre ? 'Proveedor' : 'Código' }}</dt><dd>{{ h.entrada!.proveedor_nombre || h.entrada!.proveedor_code || '—' }}</dd></div>
-                          <div><dt>Total en Kepler</dt><dd class="mono">{{ money(h.entrada!.monto) }}</dd></div>
-                          <div><dt>Leí en la factura</dt><dd class="mono">{{ h.total != null ? money(h.total) : (h.subtotal != null ? money(h.subtotal) : '—') }}</dd></div>
-                        </dl>
-                        @if (h.porMonto) {
-                          <p class="ep-hoja-s">Enlazada por <b>importe</b> (la factura no traía folio legible) — verificá que sea la orden correcta.</p>
-                        }
-                        @if (h.entrada!.gemela_monto != null && h.entrada!.gemela_delta) {
-                          <!-- La misma recepción también está capturada en oficinas y con otro
-                               importe. Sin esto, la factura "no cuadra" por centavos que no son
-                               del proveedor. -->
-                          <p class="ep-hoja-s">
-                            <i class="pi pi-clone" aria-hidden="true"></i>
-                            Oficinas la capturó como <b class="mono">00/{{ h.entrada!.gemela_folio }}</b> por
-                            <b>{{ money(h.entrada!.gemela_monto!) }}</b>. Cuadra con cualquiera de los dos.
-                          </p>
-                        }
-                        @if (cuadre(h) !== null) {
-                          <p class="ep-cuadre" [class.ok]="cuadre(h)" [class.bad]="!cuadre(h)" role="status">
-                            @if (cuadre(h) && porGemela(h)) {
-                              <i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra con la captura de <b>oficinas</b>; con la de la sucursal difiere {{ money(dif(h)) }}.
-                            } @else if (cuadre(h)) {
-                              <i class="pi pi-check-circle" aria-hidden="true"></i> <b>Cuadra</b> con el total de Kepler.
-                            } @else {
-                              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Difiere <b>{{ money(dif(h)) }}</b>. Se puede enviar: el revisor decide.
-                            }
-                          </p>
-                        }
-                        <button type="button" class="ep-link" (click)="desenlazar(h)">cambiar de entrada</button>
-                      }
-                      @default {
-                        <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a
-                             la vista y un buscador por folio. -->
-                        <p class="ep-hoja-s">
-                          @if (h.estado === 'ambigua') { Hay más de una orden que le queda. Elegí cuál: }
-                          @else { No encontré la orden de esta factura. Buscala por folio o proveedor: }
-                          @if (h.total != null) { <em>(leí {{ money(h.total) }}@if (h.folioOcr) { · folio {{ h.folioOcr }} })</em> }
-                        </p>
-                        <div class="ep-find">
-                          <input pInputText [ngModel]="h.busqueda" (ngModelChange)="setBusqueda(h, $event)"
-                                 (keyup.enter)="buscar(h)" placeholder="Folio o proveedor" class="ep-find-in"
-                                 [attr.aria-label]="'Buscar la entrada de ' + h.name" />
-                          <button pButton type="button" class="p-button-sm" [loading]="!!h.buscando" (click)="buscar(h)">
-                            <span class="p-button-label">Buscar</span>
-                          </button>
-                        </div>
-                        @for (e of h.candidatas || []; track e.sucursal + '/' + e.folio) {
-                          <button type="button" class="ep-cand" (click)="elegir(h, e)">
-                            <b class="mono">{{ e.sucursal }}/{{ ultimos4(e.folio) }}</b>
-                            <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
-                            <em class="mono">{{ money(e.monto) }}</em>
-                          </button>
-                        }
-                      }
-                    }
-                  </article>
-                }
-              </div>
-
-              <footer class="ep-panel-f">
-                @if (capError()) { <p class="ep-err">{{ capError() }}</p> }
-                <p class="ep-panel-n">
-                  {{ nExpedientes() }} {{ nExpedientes() === 1 ? 'expediente' : 'expedientes' }} listo{{ nExpedientes() === 1 ? '' : 's' }}
-                  @if (nBloqueadas()) { · {{ nBloqueadas() }} sin resolver }
-                </p>
-                <button pButton type="button" class="ep-send" [loading]="guardando()" [disabled]="!nExpedientes() || guardando()"
-                        (click)="guardar()">
-                  <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-                  <span class="p-button-label">Enviar {{ nExpedientes() > 1 ? nExpedientes() + ' facturas' : 'la factura' }}</span>
-                </button>
-              </footer>
-            </aside>
-          }
         </div>
 
         @if (canManage()) {
@@ -411,6 +299,161 @@ interface Hoja {
         }
       }
     </div>
+
+    <!--
+      Ventana de confirmación. Antes esto era un panel lateral, con el argumento de "que la
+      tabla se siga viendo"; en uso real **la persona no se enteraba de que había pasado algo**
+      al soltar el PDF. Soltar un archivo es el acto que dispara un envío: pide una ventana
+      modal que muestre el análisis y pregunte, no una zona que aparece al costado.
+
+      Se abre sola al soltar y se va sola al enviar: soltar → leer → confirmar → listo.
+    -->
+    <p-dialog [visible]="hojas().length > 0" (visibleChange)="onCerrarDialogo($event)" [modal]="true"
+              [draggable]="false" [closable]="!guardando()" [closeOnEscape]="!guardando()"
+              [style]="{ width: '44rem', maxWidth: '95vw' }" [breakpoints]="{ '720px': '96vw' }"
+              [header]="tituloDialogo()">
+      <div class="ep-dlg">
+        @for (h of hojas(); track h.id) {
+          <article class="ep-an" [class.bad]="h.estado === 'duplicada' || h.estado === 'error'">
+            @if (hojas().length > 1) {
+              <header class="ep-an-h">
+                <i class="pi pi-file-pdf" aria-hidden="true"></i>
+                <b [pTooltip]="h.name" tooltipPosition="top">{{ h.name }}</b>
+                <span class="ep-sp"></span>
+                <button type="button" class="ep-x" (click)="quitar(h)" [attr.aria-label]="'Quitar ' + h.name">
+                  <i class="pi pi-times" aria-hidden="true"></i>
+                </button>
+              </header>
+            }
+
+            @switch (h.estado) {
+              @case ('leyendo') {
+                <p class="ep-an-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo <b>{{ h.name }}</b>…</p>
+              }
+              @case ('duplicada') {
+                <p class="ep-an-msg is-bad">
+                  <i class="pi pi-ban" aria-hidden="true"></i>
+                  Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar.
+                </p>
+              }
+              @case ('error') {
+                <p class="ep-an-msg is-bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ h.motivo || 'No se pudo procesar' }}</p>
+              }
+              @case ('guardada') {
+                <!-- Instante entre que el server confirma y la hoja sale de la bandeja. Sin esta
+                     rama caería en el @default y mostraría el buscador de entrada por un frame. -->
+                <p class="ep-an-msg"><i class="pi pi-check" aria-hidden="true"></i> Enviada.</p>
+              }
+              @case ('enlazada') {
+                <!-- El veredicto primero, en una oración. Lo que sigue es el respaldo. -->
+                <p class="ep-veredicto" [class.ok]="cuadre(h)" [class.warn]="cuadre(h) === false" role="status">
+                  @if (cuadre(h) && porGemela(h)) {
+                    <i class="pi pi-check-circle" aria-hidden="true"></i>
+                    <span><b>Cuadra</b> con la captura de <b>oficinas</b>. Con la de la sucursal difiere {{ money(dif(h)) }}, y eso es normal: es la misma compra capturada dos veces.</span>
+                  } @else if (cuadre(h)) {
+                    <i class="pi pi-check-circle" aria-hidden="true"></i>
+                    <span>La factura <b>cuadra</b> con el total de Kepler.</span>
+                  } @else if (cuadre(h) === false) {
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <span>La factura difiere <b>{{ money(dif(h)) }}</b> del total de Kepler. Se puede enviar igual: el revisor decide.</span>
+                  } @else {
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    <span>No pude leer el importe de la factura, así que no puedo comparar. Se puede enviar igual.</span>
+                  }
+                </p>
+
+                <!-- El análisis: qué dice Kepler contra qué dice el papel, renglón por renglón. -->
+                <table class="ep-cmp">
+                  <thead>
+                    <tr><th scope="col"></th><th scope="col">En Kepler</th><th scope="col">En la factura</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Entrada</th>
+                      <td class="mono">{{ h.entrada!.sucursal }}/{{ h.entrada!.folio }}</td>
+                      <td class="mono">{{ h.folioOcr || '—' }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Proveedor</th>
+                      <td>{{ h.entrada!.proveedor_nombre || h.entrada!.proveedor_code || '—' }}</td>
+                      <td>{{ h.ocr?.proveedor || '—' }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Fecha</th>
+                      <td class="mono">{{ h.entrada!.receipt_date | date:'dd/MM/yy' }}</td>
+                      <td class="mono">{{ h.fecha || '—' }}</td>
+                    </tr>
+                    <tr class="ep-cmp-total">
+                      <th scope="row">Total</th>
+                      <td class="mono">{{ money(h.entrada!.monto) }}</td>
+                      <td class="mono" [class.is-ok]="cuadre(h)" [class.is-warn]="cuadre(h) === false">
+                        {{ h.total != null ? money(h.total) : (h.subtotal != null ? money(h.subtotal) + ' (subtotal)' : '—') }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                @if (h.porMonto) {
+                  <p class="ep-an-msg">
+                    <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                    La enlacé por <b>importe</b>, no por folio (la factura no traía uno legible). Verificá que la entrada sea la correcta.
+                  </p>
+                }
+                @if (h.entrada!.gemela_monto != null && h.entrada!.gemela_delta) {
+                  <p class="ep-an-msg">
+                    <i class="pi pi-clone" aria-hidden="true"></i>
+                    Oficinas capturó esta misma recepción como <b class="mono">00/{{ h.entrada!.gemela_folio }}</b>
+                    por <b>{{ money(h.entrada!.gemela_monto!) }}</b>.
+                  </p>
+                }
+                <button type="button" class="ep-link" (click)="desenlazar(h)">No es esta entrada — cambiarla</button>
+              }
+              @default {
+                <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a la
+                     vista y un buscador por folio. -->
+                <p class="ep-an-msg">
+                  @if (h.estado === 'ambigua') { Hay más de una orden que le queda a <b>{{ h.name }}</b>. Elegí cuál: }
+                  @else { No encontré la orden de <b>{{ h.name }}</b>. Buscala por folio o proveedor: }
+                  @if (h.total != null) { <em>(leí {{ money(h.total) }}@if (h.folioOcr) { · folio {{ h.folioOcr }} })</em> }
+                </p>
+                <div class="ep-find">
+                  <input pInputText [ngModel]="h.busqueda" (ngModelChange)="setBusqueda(h, $event)"
+                         (keyup.enter)="buscar(h)" placeholder="Folio o proveedor" class="ep-find-in"
+                         [attr.aria-label]="'Buscar la entrada de ' + h.name" />
+                  <button pButton type="button" class="p-button-sm" [loading]="!!h.buscando" (click)="buscar(h)">
+                    <span class="p-button-label">Buscar</span>
+                  </button>
+                </div>
+                @for (e of h.candidatas || []; track e.sucursal + '/' + e.folio) {
+                  <button type="button" class="ep-cand" (click)="elegir(h, e)">
+                    <b class="mono">{{ e.sucursal }}/{{ ultimos4(e.folio) }}</b>
+                    <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                    <em class="mono">{{ money(e.monto) }}</em>
+                  </button>
+                }
+              }
+            }
+          </article>
+        }
+
+        @if (capError()) { <p class="ep-err">{{ capError() }}</p> }
+      </div>
+
+      <ng-template #footer>
+        <span class="ep-dlg-n">
+          @if (leyendo()) { Leyendo… }
+          @else if (nBloqueadas()) { {{ nBloqueadas() }} sin resolver }
+        </span>
+        <button pButton type="button" text [disabled]="guardando()" (click)="limpiar()">
+          <span class="p-button-label">Cancelar</span>
+        </button>
+        <button pButton type="button" [loading]="guardando()" [disabled]="!nExpedientes() || guardando() || leyendo()"
+                (click)="guardar()">
+          <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+          <span class="p-button-label">{{ nExpedientes() > 1 ? 'Enviar ' + nExpedientes() + ' facturas' : 'Sí, enviar la factura' }}</span>
+        </button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -462,8 +505,6 @@ interface Hoja {
 
     /* Tabla + panel: el panel sólo ocupa lugar cuando hay algo en preparación. */
     .ep-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
-    .ep-body.has-panel { grid-template-columns: minmax(0, 1fr) 22rem; }
-    @media (max-width: 68rem) { .ep-body.has-panel { grid-template-columns: minmax(0, 1fr); } }
 
     .ep-tablewrap {
       position: relative; overflow-x: auto;
@@ -484,7 +525,9 @@ interface Hoja {
     }
     .ep-table tbody tr:last-child td { border-bottom: 0; }
     .ep-table .mono, .ep-folio b { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
+    /* La regla base `.ep-table th` (0,1,1) le gana a un `.ta-r` suelto (0,1,0): el encabezado
+       se iba a la izquierda mientras su columna quedaba a la derecha. Va calificado. */
+    .ep-table th.ta-r, .ep-table td.ta-r, .ta-r { text-align: right; }
 
     /* Fila objetivo del arrastre: anillo interno + fondo de acción. Es la única cosa naranja
        de la pantalla, y por eso se ve. */
@@ -530,49 +573,44 @@ interface Hoja {
       font-size: var(--fs-xs); color: var(--text-muted);
     }
 
-    /* Panel lateral */
-    .ep-panel {
-      position: sticky; top: var(--sp-2);
-      display: flex; flex-direction: column; max-height: calc(100vh - 9rem);
-      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--card-bg);
-    }
-    .ep-panel-h {
-      display: flex; align-items: center; gap: var(--sp-2);
-      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
-      font-size: var(--fs-sm);
-    }
-    .ep-panel-b { flex: 1 1 auto; overflow-y: auto; padding: var(--sp-3); display: grid; gap: var(--sp-3); }
-    .ep-panel-f {
-      display: grid; gap: var(--sp-2); padding: var(--sp-3);
-      border-top: 1px solid var(--border-color); background: var(--surface-2);
-    }
-    .ep-panel-n { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
-    .ep-send { width: 100%; justify-content: center; }
-    .ep-err { margin: 0; font-size: var(--fs-xs); color: var(--bad-fg); }
+    /* Ventana de confirmación */
+    .ep-dlg { display: grid; gap: var(--sp-4); }
+    .ep-an { display: grid; gap: var(--sp-3); }
+    .ep-an + .ep-an { padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+    .ep-an-h { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); }
+    .ep-an-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ep-an-h .pi-file-pdf { color: var(--text-faint); }
+    .ep-an-msg { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0;
+      font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
+    .ep-an-msg.is-bad { color: var(--bad-fg); }
+    .ep-an-msg em { font-style: normal; color: var(--text-faint); }
 
-    .ep-hoja {
-      border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem);
-      padding: var(--sp-2); display: grid; gap: var(--sp-2);
+    /* El veredicto en una oración, antes de la tabla del análisis (DESIGN Q.1). */
+    .ep-veredicto {
+      display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0;
+      padding: var(--sp-3); border-radius: var(--r-sm, .4rem);
+      font-size: var(--fs-body); line-height: 1.45;
+      border: 1px solid var(--border-color); background: var(--surface-2); color: var(--text-main);
     }
-    .ep-hoja.ok { border-color: color-mix(in oklab, var(--ok-fg) 30%, var(--border-color)); }
-    .ep-hoja.bad { border-color: color-mix(in oklab, var(--bad-fg) 40%, var(--border-color)); }
-    .ep-hoja-h { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); }
-    .ep-hoja-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ep-hoja-h .pi-file-pdf { color: var(--text-faint); }
-    .ep-hoja-s { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
-    .ep-hoja-s.is-bad { color: var(--bad-fg); }
-    .ep-hoja-s.is-ok { color: var(--ok-fg); }
-    .ep-hoja-s em { font-style: normal; color: var(--text-faint); }
+    .ep-veredicto .pi { font-size: 1.05rem; margin-top: .1rem; }
+    .ep-veredicto.ok { color: var(--ok-fg); border-color: color-mix(in oklab, var(--ok-fg) 35%, var(--border-color)); }
+    .ep-veredicto.warn { color: var(--warn-fg); border-color: color-mix(in oklab, var(--warn-fg) 35%, var(--border-color)); }
+    .ep-veredicto b { font-weight: 700; }
 
-    .ep-kv { margin: 0; display: grid; gap: var(--sp-1); font-size: var(--fs-xs); }
-    .ep-kv > div { display: flex; align-items: baseline; gap: var(--sp-2); }
-    .ep-kv dt { flex: 0 0 8.5rem; color: var(--text-faint); }
-    .ep-kv dd { margin: 0; color: var(--text-main); font-weight: 600; }
+    /* Kepler contra el papel, renglón por renglón. */
+    .ep-cmp { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .ep-cmp th, .ep-cmp td { padding: var(--sp-2) var(--sp-3); text-align: left; border-bottom: 1px solid var(--border-color); }
+    .ep-cmp thead th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
+    .ep-cmp tbody th { font-weight: 400; color: var(--text-muted); width: 8rem; }
+    .ep-cmp tbody td { color: var(--text-main); }
+    .ep-cmp tr:last-child th, .ep-cmp tr:last-child td { border-bottom: 0; }
+    .ep-cmp-total th, .ep-cmp-total td { font-weight: 700; font-size: var(--fs-body); }
+    .ep-cmp td.is-ok { color: var(--ok-fg); }
+    .ep-cmp td.is-warn { color: var(--warn-fg); }
     .mono { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
 
-    .ep-cuadre { margin: 0; font-size: var(--fs-xs); line-height: 1.4; }
-    .ep-cuadre.ok { color: var(--ok-fg); }
-    .ep-cuadre.bad { color: var(--warn-fg); }
+    .ep-dlg-n { margin-right: auto; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ep-err { margin: 0; font-size: var(--fs-xs); color: var(--bad-fg); }
 
     .ep-link {
       justify-self: start; font: inherit; font-size: var(--fs-micro); color: var(--text-faint);
@@ -773,6 +811,25 @@ export class ComprasEntradasPendientesComponent {
     new Set(this.listas().map((h) => `${h.entrada!.sucursal}|${h.entrada!.folio}`)).size);
   readonly nBloqueadas = computed(() =>
     this.hojas().filter((h) => h.estado === 'ambigua' || h.estado === 'sin_match' || h.estado === 'duplicada' || h.estado === 'error').length);
+  /** El OCR todavía corre: el botón de enviar espera, o se manda sin saber si cuadra. */
+  readonly leyendo = computed(() => this.hojas().some((h) => h.estado === 'leyendo'));
+
+  /** Título de la ventana: dice de qué entrada se trata, no "Adjuntar archivo". */
+  tituloDialogo(): string {
+    const l = this.hojas();
+    if (l.length > 1) return `Revisar ${l.length} facturas antes de enviar`;
+    const e = l[0]?.entrada;
+    return e ? `Factura de la entrada ${e.sucursal}/${this.ultimos4(e.folio)}` : 'Revisar la factura antes de enviar';
+  }
+
+  /**
+   * Cerrar la ventana descarta lo que había en la bandeja. No se pierde nada del lado del
+   * servidor —todavía no se subió nada—, pero sí la lectura del OCR, así que la única puerta
+   * es explícita: el botón Cancelar o la ✕. Mientras se está enviando no se puede cerrar.
+   */
+  onCerrarDialogo(visible: boolean): void {
+    if (!visible && !this.guardando()) this.limpiar();
+  }
 
   // ── arrastre ──
   onDragOverTabla(e: DragEvent): void {

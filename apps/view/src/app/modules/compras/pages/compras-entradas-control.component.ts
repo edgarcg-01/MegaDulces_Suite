@@ -235,7 +235,9 @@ type Periodo = 'arranque' | 'mes' | 'semana';
       position: sticky; bottom: 0;
     }
     .ec-table .mono { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; }
+    /* Calificado: `.ec-table th` (0,1,1) le ganaba a `.ta-r` (0,1,0) y dejaba el encabezado
+       alineado al lado contrario que su columna. */
+    .ec-table th.ta-r, .ec-table td.ta-r, .ta-r { text-align: right; }
 
     .ec-suc b { display: block; color: var(--text-main); font-weight: 600; }
     .ec-suc em { font-style: normal; font-size: var(--fs-micro); color: var(--text-faint); }
