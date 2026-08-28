@@ -525,8 +525,8 @@ interface Hoja {
     }
     .ep-table tbody tr:last-child td { border-bottom: 0; }
     .ep-table .mono, .ep-folio b { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
-    /* La regla base `.ep-table th` (0,1,1) le gana a un `.ta-r` suelto (0,1,0): el encabezado
-       se iba a la izquierda mientras su columna quedaba a la derecha. Va calificado. */
+    /* Calificado a propósito: la regla base .ep-table th (0,1,1) le gana a un .ta-r suelto
+       (0,1,0), y el encabezado se iba a la izquierda mientras su columna quedaba a la derecha. */
     .ep-table th.ta-r, .ep-table td.ta-r, .ta-r { text-align: right; }
 
     /* Fila objetivo del arrastre: anillo interno + fondo de acción. Es la única cosa naranja
