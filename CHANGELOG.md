@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — la pantalla de validación: arqueo de Kepler vs el nuestro (SM.12.1, 2026-08-27)
+- El historial de la encargada muestra ahora **los tres números en el orden en que se leen**: `Esperado` (lo que debería haber) · **`Arqueo Kepler`** (lo que el ERP declara que se contó) · **`Nuestro arqueo`** (el conteo ciego, destacado porque es el que vale) · `Diferencia`, con la palabra *faltan* / *sobran* debajo para que el signo no se preste a confusión.
+- `kepler_contado` (c25) **se estaba cortando para todos**, incluida la encargada: `proyectar()` lo quitaba junto con el resto de los `kepler_*`. Ahora se le devuelve a quien valida — comparar ese número con el nuestro es literalmente su trabajo: los dos dicen haber contado el mismo cajón y casi nunca coinciden. A la cajera se le sigue quitando todo.
+- Chip **enmascaró** cuando Kepler cerró el corte cuadrado y el conteo real dice otra cosa.
+- Verificado con el escenario: Ana $18,430.50 esperado / Kepler declara lo mismo / contamos $17,190.50 → **faltan $1,240** (enmascaró) · Rosa cuadra en los tres · Luz $6,120 esperado / Kepler lo mismo / contamos $6,300 → **sobran $180** (enmascaró).
+
+
 ### Added — un cero mudo deja de ser posible en Cajas abiertas (SM.13.1, 2026-08-27)
 - **"0 cajas abiertas" tenía dos causas opuestas y se veían igual**: la tienda está cerrada, o dejamos de recibir datos de Kepler. No es hipotético — en ago-2026 el CDC estuvo **2 días congelado** con la tarea en `Running` y nadie se enteró; durante esas 48 h esta pantalla habría dicho "no hay cajas abiertas" y todo el mundo lo habría creído.
 - El endpoint devuelve ahora **dos relojes distintos**: `al`/`minutos` (cuándo corrió el importer — ¿nos llegan datos?) y `ultimo_dia` (de qué día son — ¿son de hoy?). Hacen falta los dos: el importer puede correr puntual y aun así traer el día equivocado si el CDC que lo alimenta se quedó atrás. Con más de 45 min sin noticias, o con el último día conocido distinto de hoy, la pantalla pone un aviso y el empty-state cambia de "no hay cajas abiertas" a "puede ser falta de datos y no que estén cerradas".

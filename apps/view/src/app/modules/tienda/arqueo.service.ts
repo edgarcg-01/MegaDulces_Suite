@@ -67,7 +67,15 @@ export interface ArqueoRow {
   cash_cut_folio?: string | null; caja_kepler?: string | null; turno_abierto_at?: string | null;
   /** `validado_at` nulo = pendiente de que la encargada lo firme presencialmente. */
   validado_por?: string | null; validado_at?: string | null; validado_nota?: string | null;
-  esperado?: number | null; diff_real?: number | null;
+  /**
+   * Los tres números de la validación, solo para quien valida:
+   *   `esperado`        — lo que Kepler dice que debería haber
+   *   `kepler_contado`  — lo que Kepler declara que se contó (casi siempre == esperado)
+   *   `total_contado`   — nuestro conteo ciego: **el que vale**
+   * `kepler_enmascaro` = Kepler dio el corte por cuadrado y el conteo real dice otra cosa.
+   */
+  esperado?: number | null; kepler_contado?: number | null; kepler_diff?: number | null;
+  kepler_enmascaro?: boolean; diff_real?: number | null;
 }
 
 @Injectable({ providedIn: 'root' })

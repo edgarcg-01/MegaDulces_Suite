@@ -59,10 +59,17 @@ export class StoreArqueoController {
   /**
    * Quita todo lo que permita deducir el esperado. `diff_real` se va junto con
    * `esperado` a propósito: publicar uno de los dos es publicar los dos.
+   *
+   * A quien valida se le devuelve TODO, incluido el arqueo que declaró Kepler
+   * (`kepler_contado`): la comparación entre ese número y el nuestro es
+   * literalmente el trabajo de la encargada — los dos dicen haber contado el
+   * mismo cajón y casi nunca coinciden.
    */
   private proyectar<T extends Record<string, any>>(r: T, revela: boolean) {
     const { kepler_enmascaro, kepler_contado, kepler_diff, esperado, diff_real, ...ciego } = r;
-    return revela ? { ...ciego, esperado, diff_real } : ciego;
+    return revela
+      ? { ...ciego, esperado, diff_real, kepler_contado, kepler_diff, kepler_enmascaro }
+      : ciego;
   }
 
   /**

@@ -222,8 +222,17 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
               <tr>
                 <th>Fecha</th>
                 @if (variasSucursales()) { <th>Sucursal</th> }
-                <th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th>
-                @if (revela) { <th class="ta-r">Diferencia</th> }
+                <th>Caja</th><th>Cajero</th>
+                @if (revela) {
+                  <!-- Los tres números de la validación, en el orden en que se leen:
+                       lo que debería haber · lo que Kepler declara · lo que contamos. -->
+                  <th class="ta-r">Esperado</th>
+                  <th class="ta-r">Arqueo Kepler</th>
+                  <th class="ta-r">Nuestro arqueo</th>
+                  <th class="ta-r">Diferencia</th>
+                } @else {
+                  <th class="ta-r">Contado</th>
+                }
                 <th>Validado</th>
               </tr>
             </ng-template>
@@ -233,9 +242,23 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
                 <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }</td>
                 <td>{{ b.cajero_nombre || b.cajero_code || '—' }}@if (b.tipo === 'relevo' && b.cajero_entrante) { <span class="muted"> → {{ b.cajero_entrante }}</span> }</td>
-                <td class="ta-r">{{ money(b.total_contado) }}</td>
                 @if (revela) {
-                  <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}</td>
+                  <td class="ta-r muted">{{ b.esperado != null ? money(b.esperado) : '—' }}</td>
+                  <td class="ta-r">
+                    {{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}
+                    @if (b.kepler_enmascaro) {
+                      <!-- Kepler cerró el corte "cuadrado" y el conteo real dice otra cosa. -->
+                      <span class="arq-mask" title="Kepler dio este corte por cuadrado">enmascaró</span>
+                    }
+                  </td>
+                  <!-- El nuestro es el que vale: va destacado. -->
+                  <td class="ta-r strong">{{ money(b.total_contado) }}</td>
+                  <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">
+                    {{ b.diff_real != null ? signed(b.diff_real) : '—' }}
+                    @if (b.diff_real != null && b.diff_real !== 0) { <span class="arq-dif-l">{{ b.diff_real > 0 ? 'faltan' : 'sobran' }}</span> }
+                  </td>
+                } @else {
+                  <td class="ta-r strong">{{ money(b.total_contado) }}</td>
                 }
                 <td>
                   @if (b.validado_at) {
@@ -303,6 +326,10 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-ev-v { font-size: .95rem; font-variant-numeric: tabular-nums; }
     .arq-mt { margin: .6rem 0 0; font-size: .78rem; }
     .arq-table { font-variant-numeric: tabular-nums; }
+    .arq-mask { display: inline-block; margin-left: .35rem; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
+                font-weight: 700; padding: .05rem .3rem; border-radius: 4px; color: var(--bad-fg);
+                background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
+    .arq-dif-l { display: block; font-size: .62rem; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; opacity: .75; }
     .arq-ok { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--ok-fg); font-weight: 600; }
     :host ::ng-deep .arq-tag-mini { margin-left: .3rem; transform: scale(.8); }
     .arq-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
@@ -363,7 +390,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   readonly submitLabel = computed(() =>
     this.aTipo() === 'relevo' ? 'Sellar relevo' : (this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo'));
-  readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 1 : 0));
+  readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */
   hasUnsavedChanges(): boolean { return this.dirty(); }

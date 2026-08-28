@@ -335,7 +335,9 @@ export class BlindCountService {
           'bc.validado_por', 'bc.validado_at', 'bc.validado_nota',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
           'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo',
-          trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
+          trx.raw('cc.efectivo_esperado::numeric AS esperado'),
+          trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
+          trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
         .orderBy('bc.captured_at', 'desc').limit(limit);
       if (q.warehouse_code) b.where('bc.warehouse_code', q.warehouse_code);
       if (q.warehouse_codes) {
@@ -354,13 +356,17 @@ export class BlindCountService {
         const esperado = r.tipo === 'relevo' ? null : (r.esperado != null ? Number(r.esperado) : null);
         const diffReal = esperado != null ? Math.round((esperado - total) * 100) / 100 : null;
         const keplerDiff = r.tipo === 'relevo' ? null : (r.kepler_diff != null ? Number(r.kepler_diff) : null);
+        // El arqueo que DECLARÓ Kepler (c25), al lado del nuestro. Es la
+        // comparación que valida la encargada: los dos dicen contar el mismo
+        // cajón y casi nunca coinciden.
+        const keplerContado = r.tipo === 'relevo' ? null : (r.kepler_contado != null ? Number(r.kepler_contado) : null);
         return {
           id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
           cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
           cash_cut_folio: r.cash_cut_folio || null, caja_kepler: r.caja_kepler || null, turno_abierto_at: r.turno_abierto_at || null,
           validado_por: r.validado_por || null, validado_at: r.validado_at || null, validado_nota: r.validado_nota || null,
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
-          esperado, kepler_diff: keplerDiff, diff_real: diffReal,
+          esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,
           kepler_enmascaro: keplerDiff != null && diffReal != null && Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50,
         };
       });
