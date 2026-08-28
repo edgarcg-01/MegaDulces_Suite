@@ -75,6 +75,22 @@ export interface TwinPair {
   status: 'propuesto' | 'auto' | 'confirmado' | 'rechazado';
   decided_by: string | null;
   decided_at: string | null;
+  // RE.17.3 — cuántos renglones tiene cada lado. Es la señal que decide de un vistazo: la copia
+  // de sucursal lista productos (12–20) y la de oficinas suele traer uno de concepto.
+  suc_lineas: number | null;
+  cedis_lineas: number | null;
+}
+
+/** RE.17.3 — los renglones de un lado del par (los de Kepler, no los del OCR). */
+export interface TwinSideLines {
+  sucursal: string;
+  folio: string;
+  lineas: EntradaLinea[];
+}
+
+export interface TwinLines {
+  sucursal: TwinSideLines;
+  oficinas: TwinSideLines;
 }
 
 /** RE.14.6 — lo que encontró una corrida del motor de apareo. */
@@ -392,6 +408,13 @@ export class EntradasService {
    */
   scanTwins(): Observable<TwinScanResult | null> {
     return this.http.post<TwinScanResult | null>(`${this.base}/twins/scan`, {});
+  }
+  /**
+   * RE.17.3 — los renglones de los DOS lados del par. Se pide al expandir la fila y no con la
+   * lista: son dos consultas contra el ODS por par, y la bandeja trae hasta 200.
+   */
+  twinLines(cedisFolio: string): Observable<TwinLines> {
+    return this.http.get<TwinLines>(`${this.base}/twins/${encodeURIComponent(cedisFolio)}/lines`);
   }
   /** Dictamina el par: `confirmar` (es la misma recepción) o `rechazar` (es compra de oficinas). */
   decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar'): Observable<{ cedis_folio: string; status: string }> {
