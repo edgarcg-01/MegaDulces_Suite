@@ -17,6 +17,15 @@
  * El nº de sucursal para el filtro kdm1.c1 se deriva del `md_NN` de la URL (kdm1 arrastra
  * réplicas de otras sucursales → filtrar la propia). analytics.* sin RLS → tenant_id explícito.
  *
+ * FUENTE: el ODS, vía el shim `md` (CDC.8, mig 20260827130000). Antes abría una conexión POR
+ * SUCURSAL a `:5433/kepler_md_XX` — o sea 7 conexiones a la LAN desde el runner on-prem, con su
+ * timeout y su modo de falla propio. Ahora lee de `kepler_ods` en la MISMA conexión de destino,
+ * fijando `app.kepler_sucursal` en cada vuelta: `md.kdm1` es una vista sobre
+ * `kepler_ods.kdm1 WHERE sucursal = current_setting('app.kepler_sucursal')`, que reproduce la DB de
+ * esa sucursal tal cual (incluidas las réplicas cruzadas que el `c1=$1` de abajo ya filtra).
+ * **El SQL no cambió ni un carácter** — el shim existe justo para eso. El `md_NN` de la URL del MAP
+ * se sigue usando, pero sólo como fuente del número de sucursal: ya no se conecta ahí.
+ *
  *   node database/importers/kepler/import-in-transit.js          # dry-run
  *   node database/importers/kepler/import-in-transit.js --apply  # commit
  */
@@ -68,6 +77,14 @@ const IN_TRANSIT_SQL = `
   try {
     console.log(`\n=== OC en tránsito Kepler → analytics.purchase_in_transit (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
+    // El shim `md` es la fuente ahora (ya no hay conexiones per-branch): sin él no hay de dónde leer.
+    if (!(await db.query(`SELECT to_regclass('md.kdm1') AS t`)).rows[0].t) {
+      throw new Error('falta el esquema md (shim del ODS) — corré la migración 20260827130000_kepler_ods_md_shim');
+    }
+    // Crea sólo las vistas que falten (el ODS gana un kdc2YYMM por mes). Sin `force` es una query
+    // al catálogo, no 225 DDL.
+    await db.query(`SELECT md.refresh_shim() AS n`);
+
     const prods = (await db.query(`SELECT id, sku FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
     const skuToId = new Map(prods.map((p) => [p.sku, p.id]));
     console.log(`  catálogo prod con sku: ${skuToId.size}`);
@@ -84,15 +101,16 @@ const IN_TRANSIT_SQL = `
       const suc = branchNum(m.url);
       if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal de la URL — skip`); continue; }
 
-      let src;
-      // statement_timeout: si la query aún tardara, falla rápido (loggeado) en vez de dejar
-      // colgado al orquestador hasta su timeout de 10 min y morir con código 124.
-      try { src = new Client({ connectionString: m.url, connectionTimeoutMillis: 8000, statement_timeout: 240000 }); await src.connect(); }
-      catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
-
+      // REPOINTEADO AL ODS (CDC.8). Antes abría una conexión por sucursal a :5433/kepler_md_XX.
+      // Ahora lee del ODS por el shim `md`, en la MISMA conexión, fijando la sucursal de la sesión:
+      // `md.kdm1` es una vista sobre `kepler_ods.kdm1 WHERE sucursal = current_setting(...)`, o sea
+      // la DB de esa sucursal tal cual. **El SQL de arriba no cambió** — eso es todo el punto.
       let matched = 0, unmatched = 0, ocs = 0;
       try {
-        const rows = (await src.query(IN_TRANSIT_SQL, [suc])).rows;
+        // set_config y no SET: SET no acepta parámetros. `false` = alcance de sesión (se sobreescribe
+        // en cada vuelta del loop). Si esto no se fija, las vistas devuelven 0 filas, no 7 copias.
+        await db.query(`SELECT set_config('app.kepler_sucursal', $1, false)`, [suc]);
+        const rows = (await db.query(IN_TRANSIT_SQL, [suc])).rows;
         const staged = [];
         for (const r of rows) {
           const pid = skuToId.get(r.sku);
@@ -108,8 +126,8 @@ const IN_TRANSIT_SQL = `
         summary.push({ code: m.code, suc, matched, unmatched, ocs });
         touched.push(warehouseId);
       } catch (e) {
-        console.log(`  ⚠ ${m.code}: error leyendo kdm1/kdm2 (${e.message}) — skip`);
-      } finally { await src.end(); }
+        console.log(`  ⚠ ${m.code}: error leyendo kdm1/kdm2 por md.* (${e.message}) — skip`);
+      }
     }
     console.table(summary);
 

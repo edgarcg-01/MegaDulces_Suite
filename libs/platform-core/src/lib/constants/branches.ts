@@ -19,6 +19,9 @@ export const KEPLER_BRANCH_NAMES: Readonly<Record<string, string>> = Object.free
   '03': '8 Esquinas',
   '04': 'Yurécuaro',
   '05': 'Zamora Centro',
+  // Canindo pasó a tener sucursal Kepler propia (`md_06`) desde el 2026-08-15; antes sólo
+  // existía del lado Wincaja ('50', que se conserva abajo para los registros previos).
+  '06': 'Canindo',
   // Wincaja (mostrador)
   '30': 'Morelia Abastos',
   '32': 'Morelia Madero',

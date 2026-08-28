@@ -113,6 +113,7 @@ async function main() {
 
   const resumen = [];
   const duplicados = [];
+  const omitidasPorTamano = [];
   let totalBorradas = 0, totalSkip = 0;
 
   for (const code of branches) {
@@ -139,7 +140,11 @@ async function main() {
       const odsCount = Number((await dst.query(
         `SELECT count(*)::bigint n FROM kepler_ods.${tabla} WHERE btrim(sucursal)=$1`, [code])).rows[0].n);
       if (!odsCount) continue;
-      if (odsCount > MAX_KEYS && !INCLUDE_BIG) continue;
+      if (odsCount > MAX_KEYS && !INCLUDE_BIG) {
+        // Nunca en silencio: un cap invisible se lee como "revisé todo" cuando no revisé nada.
+        omitidasPorTamano.push(`${code}/${tabla} (${odsCount})`);
+        continue;
+      }
 
       // LLAVE A PRUEBA DEL CORRIMIENTO DE TIMESTAMPS. El ODS guarda los `timestamp without time
       // zone` **+6h** respecto del origen (medido 2026-08-26: origen `2026-07-01 00:00:00` → ODS
@@ -230,6 +235,13 @@ async function main() {
   }
 
   console.log(`\n${'─'.repeat(70)}`);
+  if (omitidasPorTamano.length) {
+    console.log(`⚠ OMITIDAS POR TAMAÑO (${omitidasPorTamano.length}) — pasá --include-big para revisarlas:`);
+    console.log('   ' + omitidasPorTamano.slice(0, 12).join(' · ') + (omitidasPorTamano.length > 12 ? ` … (+${omitidasPorTamano.length - 12})` : ''));
+    console.log('   OJO: acá se esconde residuo real. Medido 2026-08-27: el delta GLOBAL de kdm2 era');
+    console.log('   negativo (−1,159 = atraso del CDC) pero POR SUCURSAL había residuo (+484 en la 01,');
+    console.log('   +150 en la 06, +28 en la 00) y eso descuadraba el tránsito de compras.');
+  }
   if (!resumen.length) console.log('Sin residuo: el ODS coincide con las réplicas en todo lo comparado.');
   else {
     const porTabla = {};
