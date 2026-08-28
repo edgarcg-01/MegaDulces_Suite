@@ -115,6 +115,17 @@ export class UsersController {
     return this.usersService.getBranches();
   }
 
+  /**
+   * `[ID.24.1]` — Rutas con la zona que implican. Alimenta el selector de ruta
+   * de la gente de eje `ruta`, que hasta acá no tenía dónde guardarla.
+   */
+  @Get('routes')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Rutas del catálogo con su zona derivada y cuántas tiendas trae cada una' })
+  getRoutes() {
+    return this.usersService.getRoutes();
+  }
+
   @Get('departments')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Catálogo de departamentos del organigrama (eje organizacional)' })

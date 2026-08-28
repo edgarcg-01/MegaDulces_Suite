@@ -408,6 +408,89 @@ es la UI: hoy ningún componente del front llama a `/users/:id/scope` (`[ID.6]`)
 
 ---
 
+## 7ter. `[ID.24]` — El eje: la columna que divide poblaciones
+
+### Ruta y CRM no son el mismo negocio
+
+| | Eje RUTA (trade) | Eje CRM (comercial) |
+|---|---|---|
+Objeto | `trade.stores` — **1,581** tiendas de terceros | cliente — 292 en la app, los reales en Kepler |
+Llave | zona → ruta → tienda | sucursal (inventario y factura) + ruta de venta |
+Pregunta | ¿se visitó? ¿cómo está exhibido? | ¿qué compró? ¿cuánto debe? |
+Dinero | no hay | es todo |
+Actividad 90 días | **0 capturas** | 2 pedidos en la app · **2,191 facturas Kepler** |
+
+Sólo **69 de los 292** clientes están ligados a una tienda de trade
+(`customers.store_id`), y la ruta de venta viaja como **texto** (`sales_route`,
+282/292) con los mismos nombres del catálogo de trade pero sin FK: `route_id`
+está en 0/292.
+
+### El inventario real
+
+**9 sucursales**, no 7: las 7 de Kepler (`00`–`06`, y la `00` **no vende al
+público**: es CEDIS + oficinas) más `MD-30` y `MD-32`, los almacenes de Morelia
+que sólo existen en Wincaja. Más **14 almacenes `kind='truck'`** — los camiones,
+inventario que se mueve, no un lugar; ninguno declara de qué sucursal carga.
+
+**8 zonas, en tres sabores**:
+
+| Zona | Tiendas | Rutas | Sucursales | De ruta | Qué es |
+|---|---|---|---|---|---|
+`LA PIEDAD RD` | 588 | 6 | **3** (01·02·03) | 11 de 24 | plaza: sucursales y ruta |
+`ZAMORA` | 37 | 3 | 1 (05) | 4 de 6 | plaza |
+`CANINDO` | 20 | 2 | 1 (06) | 2 de 3 | plaza |
+`MORELIA MADERO` | 208 | 3 | 0 | 5 de 5 | territorio — su almacén es `MD-32` |
+`MORELIA ABASTOS` | 0 | 0 | 0 | 6 de 9 | territorio — su almacén es `MD-30` |
+`ZAMORA VECINAL` | 1 | 1 | 0 | 3 de 3 | **tipo de ruta**, no lugar |
+`LA PIEDAD VECINAL` | 0 | 0 | 0 | 3 de 3 | **tipo de ruta**, no lugar |
+`OFICINAS` | 0 | 0 | 1 (00) | **0 de 22** | **administrativa** |
+
+`OFICINAS` no es una zona: es relleno. Esas 22 personas tienen zona sólo porque
+el formulario exigía una.
+
+### La columna
+
+**`scope_axis` en el puesto, con fallback al departamento.** Los datos deciden
+las dos mitades:
+
+- **En el puesto**, porque dentro de `ruta_directa` conviven `vendedor_ruta` (31,
+  eje = su ruta) y `supervisor_rd` (3, eje = la zona entera). Dos ejes en un
+  departamento ⇒ el departamento no alcanza.
+- **También en el departamento**, porque **77 de 149** usuarios no tienen puesto
+  y sólo 7 no tienen departamento.
+
+La evidencia de que el eje ya existía sin estar escrito:
+
+    ruta_directa  →  34 personas, 34 con zona, **0 con sucursal**
+    cajas         →  27 personas,  0 con zona, **27 con sucursal**
+
+Cobertura: **142 de 149** (63 red · 40 sucursal · 31 ruta · 3 zona · 3 cliente ·
+2 cartera). **El eje no otorga nada** — el alcance sigue en `role_scopes` /
+`user_scopes`; esto decide qué pregunta el alta y de dónde sale la zona.
+
+### Lo que el eje destapó
+
+Cruzar "cuál es tu eje" contra "qué dice tu `role_scopes`" mostró un patrón:
+**`own` en una dimensión que no es tu eje significa "nada"**, porque resuelve al
+valor de tu ficha y ahí no hay valor. Fail-closed silencioso — pantalla vacía,
+sin error.
+
+- **32 de oficina con `zone: own` sin zona** y **25 con `warehouse: own` sin
+  sucursal**: un gerente de compras que no ve ninguna sucursal. Corregido a `all`
+  en los 13 roles cuya gente es 100% eje `red`. No es una ampliación inventada:
+  es lo que `[ID.3]` decidió para la población administrativa y quedó mal escrito.
+- **31 con sucursal y sin zona**: acá el modo estaba bien y faltaba el dato,
+  derivable desde `[ID.23]`. Se llenó.
+- **31 de eje ruta con `warehouse: own`**: se reporta y **no se toca**. Que un
+  vendedor vea o no el inventario de una sucursal es una decisión de negocio;
+  `all` y `none` son las dos defendibles y ninguna es obviamente correcta.
+
+Y el gate que queda escrito en el smoke: **no activar `route: own` mientras haya
+gente de eje ruta sin ruta asignada** (hoy 28). Primero se asignan desde
+/admin/usuarios, después se aprieta.
+
+---
+
 ## 8. Decisiones que necesito
 
 1. **¿`user_roles` N:M?** Es el cambio de fondo. Sin él, la encargada-cajera sigue

@@ -48,6 +48,8 @@ import {
   DepartmentOption,
   PositionOption,
   BranchOption,
+  RouteOption,
+  ScopeAxis,
   PermissionOverride,
   UserPermissionsResponse,
 } from './users.service';
@@ -402,9 +404,25 @@ export class AdminUsersComponent implements OnInit {
    * territorio y no una tienda) o cuando alguien pide ajustarla a mano.
    */
   readonly zonaManual = signal(false);
-  readonly zonaEsEditable = computed(
-    () => this.zonaManual() || !this.branchPick() || !this.zonaDeLaSucursal()?.zone_id,
-  );
+  /**
+   * `[ID.24]` La zona se muestra derivada cuando HAY de dónde derivarla — de la
+   * ruta (gana, es el territorio real del vendedor) o de la sucursal. Se vuelve
+   * pregunta cuando el eje es `zona` (supervisores: su zona es el dato, no una
+   * consecuencia), cuando no hay de dónde derivar, o cuando se pide ajustar.
+   */
+  readonly zonaEsEditable = computed(() => {
+    if (this.zonaManual()) return true;
+    if (this.ejeActivo() === 'zona') return true;
+    return !this.zonaDerivada();
+  });
+  /** De dónde sale la zona hoy: la ruta primero, la sucursal después. */
+  readonly zonaDerivada = computed<{ zone_id: string; zone_name: string; de: string } | null>(() => {
+    const r = this.zonaDeLaRuta();
+    if (r?.zone_id && r.zone_name) return { zone_id: r.zone_id, zone_name: r.zone_name, de: `la ruta ${r.name}` };
+    const b = this.zonaDeLaSucursal();
+    if (b?.zone_id && b.zone_name) return { zone_id: b.zone_id, zone_name: b.zone_name, de: `la sucursal ${b.code}` };
+    return null;
+  });
 
   // Roles que el usuario actual puede asignar (oculta superadmin si no lo es).
   // `[ID.14]` Los COMPLEMENTOS quedan fuera de esta lista: son tareas, no
@@ -585,6 +603,52 @@ export class AdminUsersComponent implements OnInit {
     () => !!this.branchPick() && !this.zonaDeLaSucursal()?.zone_id,
   );
 
+  // ── `[ID.24]` El EJE: qué pregunta le corresponde a esta persona ──────────
+  /**
+   * Eje de alcance resuelto `puesto → departamento`. Es la columna que faltaba:
+   * la medición decía que cada población ya llena UN campo y deja el otro vacío
+   * (ruta_directa: 34/34 con zona y 0 con sucursal · cajas: 0 con zona y 27/27
+   * con sucursal), pero no había dónde declararlo, así que el alta preguntaba
+   * las dos cosas a todo el mundo.
+   *
+   * `null` = no se sabe (sin puesto y sin departamento, 7 personas) → se
+   * preguntan las dos, que es el comportamiento de antes.
+   */
+  readonly ejeActivo = computed<ScopeAxis | null>(() => {
+    const pos = this.puestoPropuesta();
+    if (pos?.scope_axis) return pos.scope_axis;
+    const dept = this.departmentOptions().find((d) => d.code === this.deptPick());
+    return dept?.scope_axis ?? null;
+  });
+  /** Etiqueta del eje para explicarlo en la pantalla, no sólo aplicarlo. */
+  readonly ejeTexto = computed(() => {
+    switch (this.ejeActivo()) {
+      case 'ruta': return 'Trabaja en ruta: se le asigna una ruta y la zona sale de ella.';
+      case 'zona': return 'Supervisa una plaza completa: se le asigna la zona, no una ruta.';
+      case 'sucursal': return 'Está en una tienda o almacén: se le asigna la sucursal y la zona sale de ella.';
+      case 'red': return 'Es de oficinas: su alcance es la red, no un lugar. No se le pide zona ni sucursal.';
+      case 'cartera': return 'Televenta: su universo son los clientes que atiende, no un lugar.';
+      case 'cliente': return 'Externo: su acceso es a su propio cliente.';
+      default: return '';
+    }
+  });
+
+  /** `[ID.24.1]` Catálogo de rutas con la zona que cada una implica. */
+  readonly routes = signal<RouteOption[]>([]);
+  readonly routeOptions = computed(() =>
+    this.routes().map((r) => ({
+      label: r.zone_name ? `${r.name} — ${r.zone_name}` : `${r.name} (sin tiendas cargadas)`,
+      value: r.id,
+    })),
+  );
+  private readonly routePick = signal<string | null>(null);
+  readonly zonaDeLaRuta = computed(() => {
+    const id = this.routePick();
+    return id ? this.routes().find((r) => r.id === id) ?? null : null;
+  });
+  /** La ruta elegida no tiene tiendas, así que no puede derivar zona (8 de 23). */
+  readonly rutaPickSinZona = computed(() => !!this.routePick() && !this.zonaDeLaRuta()?.zone_id);
+
   constructor() {
     this.userForm = this.fb.group({
       username: ['', Validators.required],
@@ -597,6 +661,9 @@ export class AdminUsersComponent implements OnInit {
       role_name: ['', Validators.required],
       supervisor_id: [null],
       warehouse_code: [null],
+      // `[ID.24.1]` La ruta de la persona. Antes no existía y se la adivinaba
+      // por la zona — `LA PIEDAD RD` tiene 6 rutas.
+      route_id: [null as string | null],
       department_code: [null],
       position_code: [null],
       finance_expense_area_ids: [[] as string[]],
@@ -648,24 +715,35 @@ export class AdminUsersComponent implements OnInit {
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((code: string | null) => this.deptPick.set(code ?? null));
 
-    // `[ID.23]` Sucursal → zona. El alta pregunta la sucursal y la zona sale de
-    // acá: es la mitad del "no preguntes dos veces lo mismo". Sólo rellena
-    // cuando la zona está vacía o cuando coincide con la plaza de la sucursal
-    // anterior — así no le pisa una zona que alguien puso a propósito (el
-    // vendedor de ruta vecinal parado en la sucursal 02).
+    // `[ID.23]`/`[ID.24]` Ruta y sucursal alimentan la MISMA derivación de zona.
+    // Sólo rellena cuando la zona está vacía o cuando coincide con la que se
+    // derivaba antes — así no le pisa una zona que alguien puso a propósito.
+    const redevirarZona = (antes: string | null) => {
+      const nueva = this.zonaDerivada()?.zone_id ?? null;
+      if (!nueva) return;
+      const actual = this.userForm.get('zone_id')?.value ?? null;
+      if (!actual || actual === antes) {
+        this.userForm.get('zone_id')?.setValue(nueva);
+        this.zonaManual.set(false);
+      }
+    };
+
     this.userForm
       .get('warehouse_code')
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((code: string | null) => {
-        const anterior = this.zonaDeLaSucursal()?.zone_id ?? null;
+        const antes = this.zonaDerivada()?.zone_id ?? null;
         this.branchPick.set(code ?? null);
-        const nueva = this.zonaDeLaSucursal()?.zone_id ?? null;
-        if (!nueva) return;
-        const actual = this.userForm.get('zone_id')?.value ?? null;
-        if (!actual || actual === anterior) {
-          this.userForm.get('zone_id')?.setValue(nueva);
-          this.zonaManual.set(false);
-        }
+        redevirarZona(antes);
+      });
+
+    this.userForm
+      .get('route_id')
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((id: string | null) => {
+        const antes = this.zonaDerivada()?.zone_id ?? null;
+        this.routePick.set(id ?? null);
+        redevirarZona(antes);
       });
   }
 
@@ -686,6 +764,7 @@ export class AdminUsersComponent implements OnInit {
     this.loadSupervisors();
     this.loadZones();
     this.loadBranches();
+    this.loadRoutes();
     this.loadFinanceAreas();
 
     // Estado de la vista en la URL (DESIGN §9): ?dept=compras vuelve al mismo
@@ -705,6 +784,17 @@ export class AdminUsersComponent implements OnInit {
       .subscribe({
         next: (data) => { if (data?.length) this.branches.set(data); },
         error: () => { /* se queda el fallback de STORE_BRANCHES */ },
+      });
+  }
+
+  /** `[ID.24.1]` Rutas con su zona. Best-effort: sin ellas el selector queda vacío. */
+  loadRoutes(): void {
+    this.usersService
+      .getRoutes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => this.routes.set(data || []),
+        error: () => this.routes.set([]),
       });
   }
 
@@ -827,6 +917,7 @@ export class AdminUsersComponent implements OnInit {
     this.loadSupervisors();
     this.loadZones();
     this.loadBranches();
+    this.loadRoutes();
     this.loadOrgCatalogs();
   }
 
@@ -848,6 +939,7 @@ export class AdminUsersComponent implements OnInit {
     this.permisosAbierto.set(false);
     this.permisoFiltro.set('');
     this.branchPick.set(null);
+    this.routePick.set(null);
     this.zonaManual.set(false);
     this.departamentoManual.set(false);
     this.perfilManual.set(false);
@@ -892,6 +984,7 @@ export class AdminUsersComponent implements OnInit {
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       warehouse_code: user.warehouse_code ?? null,
+      route_id: user.route_id ?? null,
       department_code: user.department_code ?? null,
       position_code: user.position_code ?? null,
       finance_expense_area_ids: user.finance_expense_area_ids ?? [],
@@ -929,12 +1022,14 @@ export class AdminUsersComponent implements OnInit {
     this.departamentoManual.set(false);
     this.perfilManual.set(false);
     this.branchPick.set(user.warehouse_code ?? null);
-    // Si la zona guardada no es la plaza de su sucursal, es una divergencia que
+    this.routePick.set(user.route_id ?? null);
+    // Si la zona guardada NO es la que hoy se derivaría, es una divergencia que
     // alguien decidió: se muestra el select abierto en vez de esconderla.
-    this.zonaManual.set(
-      !!user.zona_id && !!user.warehouse_code &&
-      user.zona_id !== (this.branches().find((b) => b.code === user.warehouse_code)?.zone_id ?? null),
-    );
+    const derivable =
+      this.routes().find((r) => r.id === user.route_id)?.zone_id ??
+      this.branches().find((b) => b.code === user.warehouse_code)?.zone_id ??
+      null;
+    this.zonaManual.set(!!user.zona_id && !!derivable && user.zona_id !== derivable);
     this.usersService
       .getUserPermissions(user.id)
       .pipe(takeUntilDestroyed(this.destroyRef))

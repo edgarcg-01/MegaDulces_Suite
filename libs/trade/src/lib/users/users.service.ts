@@ -85,6 +85,48 @@ export class UsersService {
   }
 
   /**
+   * `[ID.24]` — La zona se DERIVA, no se pregunta.
+   *
+   * Las dos derivaciones están verificadas contra la data, no supuestas:
+   *   - **ruta → zona**: de las 15 rutas con tiendas cargadas, **ninguna cruza
+   *     de zona**. Es una función.
+   *   - **sucursal → zona**: `commercial.warehouses.zone_id` (`[ID.23]`).
+   *
+   * Precedencia: la ruta gana. Para el vendedor de ruta vecinal parado en la
+   * sucursal 02, su zona es su territorio (`LA PIEDAD VECINAL`), no la plaza de
+   * la tienda donde está — y ese es justo el caso que se perdía al derivar de la
+   * sucursal.
+   *
+   * Devuelve `undefined` cuando NO se puede derivar (ruta sin tiendas cargadas,
+   * sucursal sin plaza, persona de oficinas). `undefined` significa **no toques
+   * lo que ya tiene**: una zona en blanco es peor que una zona vieja, porque
+   * `zone: own` la usa para filtrar y dejaría a la persona sin ver nada.
+   */
+  private async derivarZona(
+    routeId?: string | null,
+    warehouseCode?: string | null,
+  ): Promise<string | undefined> {
+    if (routeId) {
+      const r = await this.knex('trade.stores')
+        .where({ tenant_id: this.tenantId, ruta_id: routeId })
+        .whereNull('deleted_at')
+        .whereNotNull('zona_id')
+        .select('zona_id')
+        .first();
+      if (r?.zona_id) return r.zona_id;
+    }
+    if (warehouseCode) {
+      const w = await this.knex('commercial.warehouses')
+        .where({ tenant_id: this.tenantId, code: warehouseCode })
+        .whereNull('deleted_at')
+        .select('zone_id')
+        .first();
+      if (w?.zone_id) return w.zone_id;
+    }
+    return undefined;
+  }
+
+  /**
    * `[ID.8]` — Asienta un cambio en `identity.user_events`.
    *
    * Es append-only y **nunca hace fallar la operación**: si la bitácora se cae,
@@ -211,7 +253,23 @@ export class UsersService {
     departmentCode?: string | null,
     positionCode?: string | null,
     warehouseCode?: string | null,
+    routeId?: string | null,
   ): Promise<void> {
+    // `[ID.24.1]` La FK de `users.route_id` apunta a `trade.catalogs`, que guarda
+    // TODOS los catálogos: la FK sola aceptaría un concepto o una ubicación como
+    // "ruta". Que sea del catálogo de rutas no se expresa en una FK, así que se
+    // valida acá — mismo motivo por el que `warehouse_code` dejó de confiar en
+    // un regex de forma.
+    if (routeId) {
+      const ruta = await this.knex('trade.catalogs')
+        .where({ tenant_id: this.tenantId, id: routeId, catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .select('id')
+        .first();
+      if (!ruta) {
+        throw new BadRequestException('La ruta seleccionada no existe en el catálogo de rutas.');
+      }
+    }
     if (warehouseCode) {
       const wh = await this.knex('commercial.warehouses')
         .where({ tenant_id: this.tenantId, code: warehouseCode })
@@ -266,6 +324,7 @@ export class UsersService {
       createUserDto.department_code,
       createUserDto.position_code,
       createUserDto.warehouse_code,
+      createUserDto.route_id,
     );
 
     const normalizedUsername = this.normalizeUsername(username);
@@ -281,7 +340,14 @@ export class UsersService {
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const zona_id = (await this.resolveZoneRef(createUserDto)) ?? null;
+    // `[ID.24]` La zona se deriva de la ruta o de la sucursal. Sólo se respeta la
+    // que venga explícita cuando no hay de dónde derivarla — así el alta deja de
+    // preguntar lo mismo dos veces y la zona no puede quedar en desacuerdo con
+    // el lugar donde la persona trabaja.
+    const zona_id =
+      (await this.derivarZona(createUserDto.route_id, createUserDto.warehouse_code)) ??
+      (await this.resolveZoneRef(createUserDto)) ??
+      null;
     const normalizedRoleName = role_name.toLowerCase();
 
     const [user] = await this.knex('users')
@@ -357,6 +423,8 @@ export class UsersService {
         'u.activo',
         'u.supervisor_id',
         'u.warehouse_code',
+        // [ID.24.1] La ruta de la persona: su eje, si es de ruta.
+        'u.route_id',
         'u.department_code',
         'dp.name as department_name',
         'u.position_code',
@@ -417,6 +485,8 @@ export class UsersService {
         'u.supervisor_id',
         'u.supervisor_id as parent_supervisor',
         'u.warehouse_code',
+        // `[ID.24.1]` La ruta de la persona: su eje, si es de ruta.
+        'u.route_id',
         'u.department_code',
         'dp.name as department_name',
         'u.position_code',
@@ -489,6 +559,7 @@ export class UsersService {
       updateUserDto.department_code,
       updateUserDto.position_code,
       updateUserDto.warehouse_code,
+      updateUserDto.route_id,
     );
 
     // Defensa contra dejar al sistema sin superadmins activos.
@@ -523,6 +594,19 @@ export class UsersService {
     const zoneRef = await this.resolveZoneRef(updateUserDto);
     if (zoneRef !== undefined) {
       updateData['zona_id'] = zoneRef;
+    }
+
+    // `[ID.24]` Si cambió la ruta o la sucursal, la zona se RE-DERIVA. Sin esto
+    // se puede mover a alguien de plaza y dejarle la zona anterior, que es
+    // exactamente la clase de desacuerdo silencioso que el eje vino a matar.
+    // Sólo pisa cuando hay de dónde derivar, y nunca contra una zona que vino
+    // explícita en el mismo request (ahí manda quien la escribió).
+    if (zoneRef === undefined && (updateUserDto.route_id !== undefined || updateUserDto.warehouse_code !== undefined)) {
+      const derivada = await this.derivarZona(
+        updateUserDto.route_id,
+        updateUserDto.warehouse_code,
+      );
+      if (derivada) updateData['zona_id'] = derivada;
     }
 
     if (role_name !== undefined) {
@@ -679,7 +763,41 @@ export class UsersService {
       .where({ tenant_id: this.tenantId })
       .whereNull('deleted_at')
       .orderBy('orden', 'asc')
-      .select('code', 'name', 'orden');
+      // `[ID.24]` `scope_axis` viaja con el departamento: es el FALLBACK del eje
+      // para los 77 usuarios sin puesto asignado (sólo 7 no tienen departamento).
+      .select('code', 'name', 'orden', 'scope_axis');
+  }
+
+  /**
+   * `[ID.24.1]` — Rutas con la zona que cada una implica.
+   *
+   * Alimenta el selector de ruta del alta para la gente de eje `ruta`. La zona
+   * viene calculada acá y no en el front porque sale de las TIENDAS de la ruta
+   * (no hay columna de zona en el catálogo de rutas), y eso es una query, no un
+   * dato que el formulario deba saber armar.
+   *
+   * Devuelve también `tiendas`: una ruta con 0 tiendas no puede derivar zona, y
+   * la pantalla tiene que poder decirlo en vez de dejar la zona en blanco sin
+   * explicación. Hoy son 8 de 23.
+   */
+  async getRoutes() {
+    const filas = await this.knex.raw(
+      `SELECT c.id::text AS id,
+              c.value AS name,
+              count(s.id)::int AS tiendas,
+              (array_agg(z.id::text ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_id,
+              (array_agg(z.name  ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_name
+         FROM trade.catalogs c
+         LEFT JOIN trade.stores s
+           ON s.tenant_id = c.tenant_id AND s.ruta_id = c.id AND s.deleted_at IS NULL
+         LEFT JOIN trade.zones z
+           ON z.tenant_id = s.tenant_id AND z.id = s.zona_id
+        WHERE c.tenant_id = ? AND c.catalog_id = 'rutas' AND c.deleted_at IS NULL
+        GROUP BY c.id, c.value, c.orden
+        ORDER BY c.orden, c.value`,
+      [this.tenantId],
+    );
+    return filas.rows;
   }
 
   /**
@@ -697,7 +815,9 @@ export class UsersService {
       // que permite que el alta PROPONGA en vez de pedirle al que da de alta que
       // adivine entre 28 roles. `default_role` puede venir NULL — hay 20 puestos
       // para los que todavía no existe un perfil que les quede.
-      .select('code', 'name', 'org_labels', 'orden', 'department_code', 'default_role');
+      // `[ID.24]` `scope_axis` NULL = hereda del departamento. El front resuelve
+      // `puesto → departamento` con las dos listas que ya carga.
+      .select('code', 'name', 'org_labels', 'orden', 'department_code', 'default_role', 'scope_axis');
   }
 
   /**
@@ -712,13 +832,13 @@ export class UsersService {
     const pos = await this.knex('identity.positions')
       .where({ tenant_id: this.tenantId, code: positionCode })
       .whereNull('deleted_at')
-      .first('code', 'name', 'department_code', 'default_role');
+      .first('code', 'name', 'department_code', 'default_role', 'scope_axis');
     if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
 
     const dept = pos.department_code
       ? await this.knex('identity.departments')
           .where({ tenant_id: this.tenantId, code: pos.department_code })
-          .first('code', 'name')
+          .first('code', 'name', 'scope_axis')
       : null;
 
     // El alcance por default NO sale del puesto: vive en `identity.role_scopes`
@@ -739,6 +859,13 @@ export class UsersService {
       role_name: pos.default_role ?? null,
       /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
       sin_perfil: !pos.default_role,
+      /**
+       * `[ID.24]` El EJE del puesto: qué pregunta corresponde hacerle a esta
+       * persona. `ruta` → su ruta · `sucursal` → su tienda · `zona` → la plaza
+       * que supervisa · `red` → nada (oficinas) · `cartera` → televenta ·
+       * `cliente` → externo. Resolución puesto → departamento.
+       */
+      scope_axis: pos.scope_axis ?? dept?.scope_axis ?? null,
       alcance,
     };
   }

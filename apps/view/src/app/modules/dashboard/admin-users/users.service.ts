@@ -14,6 +14,8 @@ export interface User {
   supervisor_id?: string;
   /** Sucursal Kepler asignada ('00'..'05'). NULL = ve todas (rol global). */
   warehouse_code?: string | null;
+  /** `[ID.24.1]` Ruta de la persona. Su eje, si es de ruta. */
+  route_id?: string | null;
   /** Departamento del organigrama (Fase UN). NULL = sin asignar. */
   department_code?: string | null;
   department_name?: string | null;
@@ -47,6 +49,7 @@ export interface UserCreatePayload {
   role_name: string;
   supervisor_id?: string | null;
   warehouse_code?: string | null;
+  route_id?: string | null;
   department_code?: string | null;
   position_code?: string | null;
 }
@@ -61,6 +64,7 @@ export interface UserUpdatePayload {
   supervisor_id?: string | null;
   activo?: boolean;
   warehouse_code?: string | null;
+  route_id?: string | null;
   department_code?: string | null;
   position_code?: string | null;
   finance_expense_area_ids?: string[] | null;
@@ -84,6 +88,8 @@ export interface DepartmentOption {
   code: string;
   name: string;
   orden?: number;
+  /** `[ID.24]` Eje del departamento: el fallback de los 77 usuarios sin puesto. */
+  scope_axis?: ScopeAxis | null;
 }
 
 /** Puesto canonicalizado del ORGANIGRAMA 2026 (identity.positions). */
@@ -100,6 +106,8 @@ export interface PositionOption {
    * que le quede (20 de los 43 puestos están así) y hay que elegirlo a mano.
    */
   default_role?: string | null;
+  /** `[ID.24]` Eje del puesto. NULL = hereda el del departamento. */
+  scope_axis?: ScopeAxis | null;
 }
 
 /** `[ID.13]` Un rol del usuario: el perfil base o un complemento. */
@@ -117,6 +125,24 @@ export interface UserRolesResponse {
   username: string;
   perfil_base: string;
   roles: UserRoleRow[];
+}
+
+/**
+ * `[ID.24]` El EJE de alcance: qué pregunta le corresponde a cada población.
+ *
+ * Sale de `positions.scope_axis` con fallback a `departments.scope_axis`. NO
+ * otorga acceso (eso sigue en `role_scopes`/`user_scopes`, ADR-050): decide qué
+ * pregunta el alta y de dónde se deriva la zona.
+ */
+export type ScopeAxis = 'ruta' | 'zona' | 'sucursal' | 'red' | 'cartera' | 'cliente';
+
+/** `[ID.24.1]` Ruta con la zona que implica. `zone_id` NULL = ruta sin tiendas cargadas. */
+export interface RouteOption {
+  id: string;
+  name: string;
+  tiendas: number;
+  zone_id: string | null;
+  zone_name: string | null;
 }
 
 /**
@@ -246,6 +272,11 @@ export class UsersService {
   /** `[ID.23]` Sucursales con su zona: el alta elige sucursal y deriva la zona. */
   getBranches(): Observable<BranchOption[]> {
     return this.http.get<BranchOption[]>(`${this.apiUrl}/branches`);
+  }
+
+  /** `[ID.24.1]` Rutas con su zona derivada. El eje de la gente de ruta. */
+  getRoutes(): Observable<RouteOption[]> {
+    return this.http.get<RouteOption[]>(`${this.apiUrl}/routes`);
   }
 
   /** `[ID.21]` Permisos de la persona en tres capas (puesto / propios / efectivos). */

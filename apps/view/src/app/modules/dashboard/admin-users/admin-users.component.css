@@ -251,6 +251,25 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
   color: var(--text-muted);
 }
 .au-derived-v { color: var(--text-main); font-weight: 600; }
+/* De dónde salió el valor. Sin esto, "Zona: ZAMORA" parece una decisión que
+   alguien tomó y no una consecuencia de la ruta o la sucursal elegida. */
+.au-derived-de { font-size: var(--fs-micro); color: var(--text-faint); }
+
+/* [ID.24] El eje del puesto, explicado antes de preguntar. */
+.au-eje {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  color: var(--text-muted);
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+}
+.au-eje > i { color: var(--action); margin-top: 1px; }
 .au-derived-btn {
   margin-left: auto;
   background: none;

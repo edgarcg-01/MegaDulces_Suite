@@ -320,36 +320,61 @@
       </div>
     }
 
-    <!-- ── [ID.23] Sucursal, y la zona sale de ella ─────────────────────────
-         Cada sucursal declara su plaza (`commercial.warehouses.zone_id`), así que
-         acá se pregunta UNA cosa. La zona sigue existiendo porque no es el mismo
-         eje: hay 4 zonas que son territorio de ruta y no tienen sucursal, y la
-         plaza LA PIEDAD RD tiene 3 sucursales. Cuando divergen, se ve. ───────── -->
-    <div class="au-field">
-      <label for="warehouse_code">Sucursal</label>
-      <p-select id="warehouse_code" [options]="branchOptions()" formControlName="warehouse_code"
-                placeholder="Sin sucursal (ruta / oficinas)" [showClear]="true"
-                optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">Dónde está parada la persona. Define su zona y qué tienda ve en el monitor.</small>
-    </div>
+    <!-- ── [ID.24] El EJE del puesto decide qué se pregunta ─────────────────
+         La medición: `ruta_directa` son 34 personas con zona y CERO con
+         sucursal; `cajas` son 27 con sucursal y CERO con zona. Cada población
+         ya llenaba un solo campo — sólo faltaba declarar cuál. Ahora se pregunta
+         el eje que corresponde y nada más. ────────────────────────────────── -->
+    @if (ejeTexto(); as txt) {
+      <p class="au-eje"><i class="pi pi-compass" aria-hidden="true"></i> {{ txt }}</p>
+    }
 
-    @if (zonaEsEditable()) {
+    @if (ejeActivo() === 'ruta') {
       <div class="au-field">
-        <label for="zona">Zona</label>
-        <p-select id="zona" [options]="zones()" formControlName="zone_id" placeholder="Selecciona zona"
-                  optionLabel="label" optionValue="id" appendTo="body" styleClass="w-full"></p-select>
-        @if (branchPickSinPlaza()) {
-          <small class="au-err">La sucursal elegida todavía no tiene zona definida (se configura en /comercial/almacenes): hay que elegirla a mano.</small>
+        <label for="route_id">Ruta</label>
+        <p-select id="route_id" [options]="routeOptions()" formControlName="route_id"
+                  placeholder="Sin ruta asignada" [showClear]="true" [filter]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        @if (rutaPickSinZona()) {
+          <small class="au-err">Esa ruta no tiene tiendas cargadas, así que no define zona: hay que elegirla a mano.</small>
         } @else {
-          <small class="au-hint">Territorio de trabajo. Para ruta vecinal puede no coincidir con la plaza de la sucursal.</small>
+          <small class="au-hint">Su territorio. La zona sale de acá — ninguna ruta cruza de zona.</small>
         }
       </div>
-    } @else {
-      <div class="au-derived">
-        <span class="au-derived-k">Zona</span>
-        <span class="au-derived-v">{{ zonaDeLaSucursal()?.zone_name }}</span>
-        <button type="button" class="au-derived-btn" (click)="zonaManual.set(true)">Ajustar</button>
+    }
+
+    @if (ejeActivo() === 'sucursal' || ejeActivo() === null) {
+      <div class="au-field">
+        <label for="warehouse_code">Sucursal</label>
+        <p-select id="warehouse_code" [options]="branchOptions()" formControlName="warehouse_code"
+                  placeholder="Sin sucursal" [showClear]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        <small class="au-hint">Dónde está parada la persona. Define su zona y qué tienda ve en el monitor.</small>
       </div>
+    }
+
+    @if (ejeActivo() !== 'red' && ejeActivo() !== 'cartera' && ejeActivo() !== 'cliente') {
+      @if (zonaEsEditable()) {
+        <div class="au-field">
+          <label for="zona">Zona</label>
+          <p-select id="zona" [options]="zones()" formControlName="zone_id" placeholder="Selecciona zona"
+                    optionLabel="label" optionValue="id" appendTo="body" styleClass="w-full"></p-select>
+          @if (branchPickSinPlaza()) {
+            <small class="au-err">La sucursal elegida todavía no tiene zona definida (se configura en /comercial/almacenes): hay que elegirla a mano.</small>
+          } @else if (ejeActivo() === 'zona') {
+            <small class="au-hint">La plaza que supervisa. Acá la zona ES el dato, no una consecuencia.</small>
+          } @else {
+            <small class="au-hint">Territorio de trabajo.</small>
+          }
+        </div>
+      } @else {
+        <div class="au-derived">
+          <span class="au-derived-k">Zona</span>
+          <span class="au-derived-v">{{ zonaDerivada()?.zone_name }}</span>
+          <span class="au-derived-de">de {{ zonaDerivada()?.de }}</span>
+          <button type="button" class="au-derived-btn" (click)="zonaManual.set(true)">Ajustar</button>
+        </div>
+      }
     }
 
     <div class="au-field">
