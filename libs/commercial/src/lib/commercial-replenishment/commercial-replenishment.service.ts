@@ -215,7 +215,11 @@ export class CommercialReplenishmentService {
     return `CASE WHEN w.code IN ('MD-30','MD-32') AND wcf.factor_venta > 1
                  THEN wcf.factor_venta ELSE GREATEST(COALESCE(cbf.box_factor, 1), 1) END`;
   }
-  private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
+  // OC a recibir, en UNIDADES DE STOCK (que es la unidad de `oh`/`target` acá). Sale del fact
+  // `analytics.replenishment_plan`, que lo deriva del ODS en cajas → ×bf lo devuelve exacto a
+  // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
+  // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
+  private inTransit() { return 'COALESCE(rpl.transit_cajas * rpl.bf, 0)'; }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
@@ -301,9 +305,9 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
-        // RA.5 — analytics.purchase_in_transit (sin RLS → tenant_id explícito en el ON)
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
@@ -490,8 +494,8 @@ export class CommercialReplenishmentService {
           j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
         .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
           j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
         .leftJoin(
           trx.raw(`(SELECT rp2.product_id, SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
@@ -1130,7 +1134,7 @@ export class CommercialReplenishmentService {
     const whIds = this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(pit.qty_in_transit,0)';
+      const it = 'COALESCE(rpl.transit_cajas * rpl.bf, 0)';   // fact → unidades de stock (ver inTransit())
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
@@ -1189,7 +1193,7 @@ export class CommercialReplenishmentService {
                        AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
                   LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
                   LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                  LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
+                  LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
                  WHERE rp.tenant_id=rc.tenant_id AND rp.warehouse_id=rc.warehouse_id
               ) x
           ) agg ON true

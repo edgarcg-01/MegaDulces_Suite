@@ -39,7 +39,53 @@ const urBody = `SELECT z.product_id,
          GROUP BY sd.product_id, ch) z
   GROUP BY z.product_id`;
 
-const CTE = `
+// TRÁNSITO (OC a recibir) — DERIVADO del ODS acá mismo, sin importer ni tabla intermedia.
+// Cadena Kepler: OC `X-A-35` sin orden de entrada `X-A-40` aguas abajo vía su vale `X-A-37`
+// (back-pointer c37=grupo / c39=folio). Ventana de 120 d: una OC abierta es reciente, y sin el
+// filtro el NOT EXISTS correlacionado barre todo el histórico de kdm1.
+//
+// ⚠ UNIDAD: `kdm2.c9` viene en la unidad de `c11` — PAQ/PZA/KG/CJA mezcladas en la MISMA OC — y el
+// NOMBRE de la unidad no sirve para convertir (en la sucursal 03 las líneas 'PZA' traen ratio de
+// costo 13.5: son cajas). El DINERO sí: `c9 × c12` es invariante a la unidad, así que
+// `c12 / costo_por_unidad_de_stock` = cuántas unidades de stock trae la línea. Debajo de 1.5× ya
+// está en unidad de stock (~95 % de las líneas, mediana 1.00); arriba se usa el ratio topado en el
+// factor de caja. Se divide por `bf` acá, con los MISMOS factores que el resto del fact (`econ`),
+// así la conversión ocurre UNA vez y `t` ya sale en CAJAS.
+//
+// Esto reemplazó a `import-in-transit.js` + `analytics.purchase_in_transit` (2026-08-28): mientras
+// fueron un importer y una tabla aparte, el rename `qty_in_transit` → `transit_cajas` se comió la
+// conversión y el motor restaba ~bf veces de más. Ver GOTCHAS §25.
+const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
+const trOds = `
+  tr AS (
+    SELECT w.id AS warehouse_id, COALESCE(al.canonical_product_id, e.product_id) AS product_id,
+           SUM((l.c9 * CASE
+                 WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
+                 WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
+                 ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
+               ) / GREATEST(e.bf, 1)) AS t
+      FROM kepler_ods.kdm1 oc
+      JOIN kepler_ods.kdm2 l
+        ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
+      JOIN commercial.warehouses w
+        ON w.tenant_id=$1 AND w.deleted_at IS NULL AND COALESCE(w.kepler_code, w.code)=oc.c1
+      JOIN econ e ON e.sku = l.c8
+      LEFT JOIN commercial.product_aliases al
+        ON al.tenant_id=$1 AND al.alias_product_id=e.product_id AND al.deleted_at IS NULL
+     WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
+       AND oc.c9::date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
+       AND NOT EXISTS (
+         SELECT 1 FROM kepler_ods.kdm1 vale
+         JOIN kepler_ods.kdm1 oe
+           ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
+          AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
+        WHERE vale.sucursal=oc.sucursal AND vale.c1=oc.c1
+          AND vale.c2='X' AND vale.c3='A' AND vale.c4='37' AND vale.c37='35' AND vale.c39=oc.c6)
+     GROUP BY 1, 2)`;
+// Sin ODS (dev local sin réplica) el fact se arma igual, con tránsito 0 — no revienta.
+const trEmpty = `tr AS (SELECT NULL::uuid AS warehouse_id, NULL::uuid AS product_id, 0::numeric AS t WHERE false)`;
+
+const cte = (tr) => `
   WITH ur AS (${urBody}),
   pf AS (SELECT id AS product_id, sku, nombre, supplier_id, category_id,
                 COALESCE(factor_sale,1)::numeric fs, COALESCE(cost_with_tax,0)::numeric cwt
@@ -83,10 +129,7 @@ const CTE = `
             FROM commercial.stock s
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=s.tenant_id AND al.alias_product_id=s.product_id AND al.deleted_at IS NULL
            WHERE s.tenant_id=$1 GROUP BY 1,2),
-  tr AS (SELECT COALESCE(al.canonical_product_id, pit.product_id) AS product_id, pit.warehouse_id, sum(pit.qty_in_transit) AS t
-           FROM analytics.purchase_in_transit pit
-           LEFT JOIN commercial.product_aliases al ON al.tenant_id=pit.tenant_id AND al.alias_product_id=pit.product_id AND al.deleted_at IS NULL
-          WHERE pit.tenant_id=$1 GROUP BY 1,2),
+  ${tr},
   whs AS (SELECT w.id, w.source_warehouse_id,
                  -- hub REAL = tiene sucursales que surte (source_warehouse_id NULL solo no basta:
                  -- RUTA/aislados sin hijos NO son hub → su stock no es "sobrante de red")
@@ -113,10 +156,7 @@ const PROJECT = `
                 WHEN w.is_hub THEN COALESCE(cd.eff, 0)
                 ELSE COALESCE(d.daily_pieces, 0) END AS eff_daily,
            COALESCE(s.quantity, 0) AS stock_pz,
-           -- El tránsito llega en UNIDADES DE STOCK (igual que stock_pz) → ÷bf para cajas, exactamente
-           -- como stock_pz / bf aguas abajo. Sin esta división el motor restaba bf veces de más y el
-           -- pedido salía en cero (fix 2026-08-28; ver la nota de unidad en import-in-transit).
-           round((COALESCE(t.t, 0) / e.bf)::numeric, 2) AS transit_cajas,
+           round(COALESCE(t.t, 0)::numeric, 2) AS transit_cajas,   -- ya viene en CAJAS del CTE tr
            e.suf, e.bf,
            e.real_cost * e.bf AS caja_cost,
            round(e.ratio, 4) AS price_ratio,
@@ -149,6 +189,11 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
   await db.connect();
   try {
     console.log(`\n=== REPLENISHMENT PLAN → analytics.replenishment_plan (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    // El tránsito se deriva del ODS (no hay tabla ni importer). Sin ODS el fact igual se arma.
+    const hasOds = !!(await db.query(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0].t;
+    const CTE = cte(hasOds ? trOds : trEmpty);
+    if (!hasOds) console.log('  ⚠ sin kepler_ods → tránsito = 0 (dev local sin réplica)');
+
     const s = await db.query(`${CTE} SELECT count(*)::int filas, count(DISTINCT b.product_id)::int prods,
                                      count(DISTINCT b.warehouse_id)::int whs FROM base b JOIN econ e ON e.product_id=b.product_id`, [M]);
     console.log(`  filas almacén×producto=${Number(s.rows[0].filas).toLocaleString()} · productos=${s.rows[0].prods} · almacenes=${s.rows[0].whs}`);
