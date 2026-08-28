@@ -1,6 +1,8 @@
 # Fase RE.17 — Las 6 pantallas de órdenes de entrada, contra DESIGN.md
 
-> **Estado:** 🔨 EN CÓDIGO (local) — 2026-08-28.
+> **Estado:** 🧪 **RE.17.0 → 17.7 EN CÓDIGO (local), builds `view` + `api` verdes** — 2026-08-28.
+> **Falta:** verificación visual (dev servers prohibidos y los MCP de navegador no conectaron) y
+> redeploy. **Sin migraciones nuevas y sin permisos nuevos** → no requiere re-login.
 > **Depende de:** [RE.13](FASE_RE13_TRES_VISTAS_ENTRADAS.md) (las 4 pantallas por oficio) ·
 > [RE.16](FASE_RE16_TRES_PANTALLAS.md) (Centro de control en pestañas) · CC ext (evidencia) ·
 > [`DESIGN.md`](../../../DESIGN.md) (checklist de 18 puntos, §O.2 Compras, §Q comprensión, §datos densos).
