@@ -93,6 +93,30 @@ export interface PositionOption {
   /** Etiquetas literales del PDF que se colapsaron en este puesto. */
   org_labels?: string[];
   orden?: number;
+  /** `[ID.15]` Departamento del puesto. El alta lo propone. */
+  department_code?: string | null;
+  /**
+   * `[ID.15]` Perfil base que el puesto propone. NULL = todavía no hay un perfil
+   * que le quede (20 de los 43 puestos están así) y hay que elegirlo a mano.
+   */
+  default_role?: string | null;
+}
+
+/** `[ID.13]` Un rol del usuario: el perfil base o un complemento. */
+export interface UserRoleRow {
+  role_name: string;
+  is_primary: boolean;
+  nota?: string | null;
+  /** Permisos otorgados por ese rol — hace legible "cajero (3) + captura_gastos (1)". */
+  permisos: number;
+  created_at?: string;
+}
+
+export interface UserRolesResponse {
+  user_id: string;
+  username: string;
+  perfil_base: string;
+  roles: UserRoleRow[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -159,5 +183,25 @@ export class UsersService {
 
   getPositions(): Observable<PositionOption[]> {
     return this.http.get<PositionOption[]>(`${this.apiUrl}/positions`);
+  }
+
+  /** `[ID.13]` Perfil base + complementos de un usuario. */
+  getUserRoles(id: string): Observable<UserRolesResponse> {
+    return this.http.get<UserRolesResponse>(`${this.apiUrl}/${id}/roles`);
+  }
+
+  /**
+   * `[ID.13]` Fija los COMPLEMENTOS del usuario. Semántica de PUT: la lista que
+   * se manda es la lista final; lo que no venga se quita. El perfil base no se
+   * toca acá (es `role_name` del formulario).
+   */
+  setUserRoles(
+    id: string,
+    roles: string[],
+  ): Observable<{ user_id: string; complementos: string[]; agregados: string[]; quitados: string[] }> {
+    return this.http.put<{ user_id: string; complementos: string[]; agregados: string[]; quitados: string[] }>(
+      `${this.apiUrl}/${id}/roles`,
+      { roles },
+    );
   }
 }

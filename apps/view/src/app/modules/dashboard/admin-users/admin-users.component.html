@@ -228,11 +228,34 @@
     </div>
 
     <div class="au-field">
-      <label for="role_name">Nivel de acceso</label>
+      <label for="role_name">Perfil base</label>
       <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
-                placeholder="Selecciona el rol" optionLabel="label" optionValue="value"
+                placeholder="Selecciona el perfil" optionLabel="label" optionValue="value"
                 appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">Define qué puede hacer en la app. El departamento y el puesto se asignan aparte.</small>
+      @if (perfilBaseEsTarea()) {
+        <!-- [ID.14] El caso de los 22 de captura_gastos: su "rol" es una tarea de
+             1 permiso. La pantalla lo dice en vez de esconderlo. -->
+        <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elegí el perfil que corresponde al puesto y sumá la tarea como complemento.</small>
+      } @else if (puestoSinPerfil()) {
+        <small class="au-err">El puesto elegido todavía no tiene un perfil definido: hay que elegirlo a mano.</small>
+      } @else {
+        <small class="au-hint">Uno por cuenta. Define qué puede hacer en la app; el departamento y el puesto se asignan aparte.</small>
+      }
+    </div>
+
+    <div class="au-field">
+      <label for="complementos">Complementos</label>
+      <!-- [ID.13] Tareas que se SUMAN al perfil base. Es lo que evita la segunda
+           cuenta: la encargada de tienda que además cobra en caja lleva
+           `encargado_tienda` + el complemento de arqueo, no dos usuarios. -->
+      <p-multiselect id="complementos" [options]="complementoOptions()"
+                     [ngModel]="complementos()" (ngModelChange)="complementos.set($event)"
+                     [ngModelOptions]="{ standalone: true }"
+                     placeholder="Ninguno" [showClear]="true"
+                     optionLabel="label" optionValue="value" [maxSelectedLabels]="3"
+                     selectedItemsLabel="{0} complementos"
+                     appendTo="body" styleClass="w-full"></p-multiselect>
+      <small class="au-hint">Tareas que se suman al perfil base (capturar gasto, etiquetas, arqueo). Sólo agregan permisos, nunca quitan.</small>
     </div>
 
     @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {

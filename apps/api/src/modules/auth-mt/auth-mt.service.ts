@@ -87,13 +87,20 @@ export class AuthMtService {
     let user: any;
     let rolePermissions: any;
     let zonaName: string | null;
+    let extraPermissions: Array<Record<string, boolean>> = [];
     try {
-      ({ user, rolePermissions, zonaName } = await this.knex.transaction(async (trx) => {
+      ({ user, rolePermissions, zonaName, extraPermissions } = await this.knex.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
         const u = await trx('users')
           .where({ username: dto.username.toLowerCase().trim(), activo: true })
           .first();
-        if (!u) return { user: null, rolePermissions: null, zonaName: null };
+        if (!u)
+          return {
+            user: null,
+            rolePermissions: null,
+            zonaName: null,
+            extraPermissions: [] as Array<Record<string, boolean>>,
+          };
         // Lookup case-insensitive: users.role_name puede diferir en mayúsculas de
         // role_permissions.role_name (data legacy, p.ej. user 'auxiliar_x' vs fila
         // 'Auxiliar_x'). Con match exacto el rol no se encontraba → JWT con 0
@@ -101,12 +108,34 @@ export class AuthMtService {
         const rp = await trx('role_permissions')
           .whereRaw('LOWER(role_name) = ?', [String(u.role_name ?? '').toLowerCase()])
           .first();
+        // `[ID.13]` Complementos: un usuario puede tener varios roles
+        // (`identity.user_roles`). El JWT lleva la UNIÓN para que la UI gatee
+        // igual que el backend. El perfil base sigue siendo `role_name`.
+        // tenant_id explícito: la conexión de login es superusuario y no aplica RLS.
+        let extras: Array<Record<string, boolean>> = [];
+        try {
+          const otros = await trx('identity.user_roles')
+            .where({ tenant_id: tenant.id, user_id: u.id, is_primary: false })
+            .pluck('role_name');
+          if (otros.length) {
+            const rows = await trx('role_permissions')
+              .whereRaw(
+                `LOWER(role_name) = ANY(?)`,
+                [otros.map((r: string) => String(r).toLowerCase())],
+              )
+              .select('permissions');
+            extras = rows.map((r: { permissions: Record<string, boolean> }) => r.permissions || {});
+          }
+        } catch {
+          // Sin la migración `[ID.13]` aplicada: se sigue con el perfil base.
+          extras = [];
+        }
         let zn: string | null = null;
         if (u.zona_id) {
           const z = await trx('zones').where({ id: u.zona_id }).first();
           zn = z?.name ?? null;
         }
-        return { user: u, rolePermissions: rp, zonaName: zn };
+        return { user: u, rolePermissions: rp, zonaName: zn, extraPermissions: extras };
       }));
     } catch (error) {
       // Rollback ya ejecutado por Knex al propagarse el error. Re-lanzamos
@@ -116,6 +145,22 @@ export class AuthMtService {
 
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    // `[ID.17]` Una cuenta de SERVICIO no entra con contraseña. Existe para que
+    // los feeds y las tareas programadas tengan identidad (`created_by`), no para
+    // que alguien se loguee con ella. El hash guardado además no es un bcrypt
+    // válido, así que esto es la segunda barrera, no la única.
+    if (user.kind === 'servicio') {
+      throw new UnauthorizedException('Esta es una cuenta de servicio: no tiene acceso interactivo.');
+    }
+
+    // `[ID.13]` Cuentas con vencimiento (contador/auditor externo). Se corta
+    // ANTES de comparar el password: una cuenta vencida no es una credencial
+    // inválida, es una cuenta que dejó de existir para efectos de acceso. Se
+    // hace en el login y no con un cron para que no dependa de que un job corra.
+    if (user.expires_at && new Date(user.expires_at).getTime() <= Date.now()) {
+      throw new UnauthorizedException('La cuenta venció. Pedí una extensión al administrador.');
     }
 
     // 3. Verificar password
@@ -145,8 +190,15 @@ export class AuthMtService {
       });
 
     // 4. Construir permissions + rules para gating de UI.
-    const permissions: Record<string, boolean> =
-      rolePermissions?.permissions || {};
+    // `[ID.13]` Unión perfil base + complementos. `true` gana: un complemento
+    // sólo puede sumar, nunca quitar lo que el perfil base concede.
+    const permissions: Record<string, boolean> = { ...(rolePermissions?.permissions || {}) };
+    for (const extra of extraPermissions) {
+      for (const [k, v] of Object.entries(extra)) {
+        if (v === true) permissions[k] = true;
+        else if (!(k in permissions)) permissions[k] = v;
+      }
+    }
     const ability = buildAbility(permissions, { roleName: user.role_name });
 
     // 5. Generar JWT con tenant_id + snapshot de permisos.

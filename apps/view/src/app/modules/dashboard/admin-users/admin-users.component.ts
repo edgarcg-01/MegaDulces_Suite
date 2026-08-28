@@ -100,6 +100,10 @@ export interface DeptRow {
 interface RoleOption {
   label: string;
   value: string;
+  /** `[ID.14]` perfil = puesto tipo · complemento = tarea que se suma. */
+  kind?: 'perfil' | 'complemento';
+  /** Permisos otorgados: hace legible la diferencia entre un perfil y una tarea. */
+  permisos?: number;
 }
 
 interface SupervisorOption {
@@ -368,11 +372,55 @@ export class AdminUsersComponent implements OnInit {
   readonly branchOptions = STORE_BRANCHES.map((b) => ({ label: `${b.code} · ${b.name}`, value: b.code }));
 
   // Roles que el usuario actual puede asignar (oculta superadmin si no lo es).
+  // `[ID.14]` Los COMPLEMENTOS quedan fuera de esta lista: son tareas, no
+  // puestos. Ofrecer `captura_gastos` (1 permiso) junto a `encargado_tienda`
+  // (63) es lo que llevó a que 22 personas tengan una tarea como perfil base.
   readonly assignableRoles = computed(() => {
     const isSuperadmin = this.authService.user()?.role_name === 'superadmin';
     return this.roles().filter(
-      (r) => isSuperadmin || r.value.toLowerCase() !== 'superadmin',
+      (r) =>
+        r.kind !== 'complemento' &&
+        (isSuperadmin || r.value.toLowerCase() !== 'superadmin'),
     );
+  });
+
+  // ── `[ID.13]` Complementos ────────────────────────────────────────────────
+  /** Catálogo de complementos disponibles (tareas que se suman al perfil base). */
+  readonly complementoOptions = computed(() =>
+    this.roles()
+      .filter((r) => r.kind === 'complemento')
+      .map((r) => ({
+        label: `${r.label} · ${r.permisos ?? 0} permiso${r.permisos === 1 ? '' : 's'}`,
+        value: r.value,
+      })),
+  );
+  /** Complementos elegidos en el formulario. */
+  readonly complementos = signal<string[]>([]);
+  /** Los que tenía al abrir: sirve para no llamar al API si no cambió nada. */
+  private readonly complementosPrevios = signal<string[]>([]);
+  /**
+   * Rol elegido en el form, como signal. No se lee `userForm.get(...).value`
+   * dentro de un computed: el valor del form no es reactivo y además un field
+   * initializer que toque `this.userForm` explota (TS2729) porque el form se
+   * arma en el constructor. Se alimenta desde `valueChanges`.
+   */
+  private readonly rolePick = signal<string | null>(null);
+  /**
+   * `[ID.14]` Aviso cuando el perfil base elegido es en realidad una TAREA.
+   * Es el caso de los 22 de `captura_gastos`: la pantalla tiene que MOSTRARLO,
+   * no esconderlo — si no, el dato se queda viejo para siempre.
+   */
+  readonly perfilBaseEsTarea = computed(() => {
+    const rol = (this.rolePick() ?? '').toLowerCase();
+    if (!rol) return false;
+    return this.roles().some((r) => r.value.toLowerCase() === rol && r.kind === 'complemento');
+  });
+  /** `[ID.15]` El puesto elegido no propone perfil: hay que elegirlo a mano. */
+  readonly puestoSinPerfil = computed(() => {
+    const code = this.positionPick();
+    if (!code) return false;
+    const p = this.positionOptions().find((x) => x.code === code);
+    return !!p && !p.default_role;
   });
 
   constructor() {
@@ -400,6 +448,7 @@ export class AdminUsersComponent implements OnInit {
       .get('role_name')
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((role) => {
+        this.rolePick.set(role ?? null);
         const supervisorControl = this.userForm.get('supervisor_id');
         // El supervisor se RECOMIENDA para roles supervisados pero NO bloquea el
         // guardado: requerirlo dejaba el form inválido y saveUser() abortaba en
@@ -413,7 +462,22 @@ export class AdminUsersComponent implements OnInit {
     this.userForm
       .get('position_code')
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((code: string | null) => this.positionPick.set(code ?? null));
+      .subscribe((code: string | null) => {
+        this.positionPick.set(code ?? null);
+        // `[ID.15]` El puesto PROPONE departamento y perfil base. Sólo rellena
+        // lo que está vacío: si el que da de alta ya eligió algo, la propuesta
+        // no le pisa la decisión. Es lo que convierte el alta en "persona +
+        // puesto + sucursal" en vez de "adivina entre 25 roles".
+        if (!code) return;
+        const pos = this.positionOptions().find((p) => p.code === code);
+        if (!pos) return;
+        if (pos.department_code && !this.userForm.get('department_code')?.value) {
+          this.userForm.get('department_code')?.setValue(pos.department_code);
+        }
+        if (pos.default_role && !this.userForm.get('role_name')?.value) {
+          this.userForm.get('role_name')?.setValue(pos.default_role);
+        }
+      });
 
   }
 
@@ -523,11 +587,13 @@ export class AdminUsersComponent implements OnInit {
       .getCatalog('roles')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (data: { value: string }[]) => {
+        next: (data: { value: string; kind?: 'perfil' | 'complemento'; permissions?: Record<string, boolean> }[]) => {
           this.roles.set(
             data.map((item) => ({
               label: item.value.charAt(0).toUpperCase() + item.value.slice(1),
               value: item.value,
+              kind: item.kind ?? 'perfil',
+              permisos: Object.values(item.permissions ?? {}).filter((v) => v === true).length,
             })),
           );
         },
@@ -567,6 +633,9 @@ export class AdminUsersComponent implements OnInit {
   openNewDialog(): void {
     this.isEditing.set(false);
     this.currentUserId.set(null);
+    // `[ID.13]` Un alta nace sin complementos.
+    this.complementos.set([]);
+    this.complementosPrevios.set([]);
     this.userForm.reset({
       activo: true,
       role_name: '',
@@ -614,6 +683,27 @@ export class AdminUsersComponent implements OnInit {
       activo: user.activo,
     });
 
+    // `[ID.13]` Complementos del usuario. Se cargan aparte del form porque no
+    // son un campo de `users` sino filas de `identity.user_roles`.
+    this.complementos.set([]);
+    this.complementosPrevios.set([]);
+    this.usersService
+      .getUserRoles(user.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const extras = res.roles.filter((r) => !r.is_primary).map((r) => r.role_name);
+          this.complementos.set(extras);
+          this.complementosPrevios.set(extras);
+        },
+        error: () => {
+          // Sin la migración `[ID.13]` aplicada el endpoint no existe: el resto
+          // del diálogo tiene que seguir funcionando igual.
+          this.complementos.set([]);
+          this.complementosPrevios.set([]);
+        },
+      });
+
     this.refreshLookups();
     this.displayDialog.set(true);
   }
@@ -636,6 +726,46 @@ export class AdminUsersComponent implements OnInit {
     const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
     if (Array.isArray(msg)) return msg[0] || fallback;
     return msg || fallback;
+  }
+
+  /**
+   * `[ID.13]` Guarda los complementos si cambiaron.
+   *
+   * Va DESPUÉS del update del usuario y no dentro: son dos escrituras distintas
+   * (`users` y `identity.user_roles`) y el complemento no debe hacer fallar el
+   * guardado del usuario. Si no cambió nada no se llama al API.
+   */
+  private persistComplementos(userId: string): void {
+    const ahora = [...this.complementos()].sort();
+    const antes = [...this.complementosPrevios()].sort();
+    if (ahora.join('|') === antes.join('|')) return;
+
+    this.usersService
+      .setUserRoles(userId, ahora)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.complementosPrevios.set(ahora);
+          const partes = [
+            res.agregados.length ? `+${res.agregados.join(', ')}` : '',
+            res.quitados.length ? `−${res.quitados.join(', ')}` : '',
+          ].filter(Boolean);
+          if (partes.length) {
+            this.messageService.add({
+              severity: 'success',
+              summary: 'Complementos actualizados',
+              detail: partes.join(' · '),
+            });
+          }
+        },
+        error: (err) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Complementos',
+            detail: this.apiError(err, 'No se pudieron guardar los complementos.'),
+          });
+        },
+      });
   }
 
   saveUser(): void {
@@ -672,6 +802,7 @@ export class AdminUsersComponent implements OnInit {
           next: () => {
             this.saving.set(false);
             this.displayDialog.set(false);
+            this.persistComplementos(this.currentUserId()!);
             this.loadUsers();
             this.refreshLookups();
             this.messageService.add({
@@ -695,9 +826,12 @@ export class AdminUsersComponent implements OnInit {
         .create(createData)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => {
+          next: (creado) => {
             this.saving.set(false);
             this.displayDialog.set(false);
+            // `[ID.13]` Los complementos elegidos en el alta se aplican sobre el
+            // usuario recién creado (necesitan su id, que llega en la respuesta).
+            if (creado?.id) this.persistComplementos(creado.id);
             this.loadUsers();
             this.refreshLookups();
             this.messageService.add({
