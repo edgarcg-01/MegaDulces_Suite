@@ -579,3 +579,51 @@ hay clases decoradas que heredan con el patrón roto.
 `IntersectionType` **y** tenga decoradores propios entra en este caso. Hoy sólo
 `UpdateUserDto` cumple las dos condiciones; si aparece otro, ya está cubierto por
 el plugin.
+
+---
+
+## 24. El Postgres de oficina es COMPARTIDO y el password de un rol es del cluster
+
+**Síntoma:** `28P01 la autentificación password falló para el usuario «app_runtime»`
+→ **toda la superficie multi-tenant en 500**, y el causante está en otra
+computadora. Se arregla, y minutos después vuelve.
+
+`KNEX_NEW_DB` corre como `app_runtime` (`NOSUPERUSER NOBYPASSRLS`): es el único
+rol con el que el aislamiento por tenant se aplica de verdad, así que si no
+autentica no hay endpoint multi-tenant que responda.
+
+**Lo que hay que entender:** el password de un rol de Postgres es **del cluster,
+no de una base**. `192.168.0.245` hospeda `platform_test`, `postgres_platform`,
+`Mega_Dulces`, `hr` y `KP_CONCENTRADA`, y **hay más de un dev conectado a la
+misma base** (verificado con `pg_stat_activity`: dos máquinas sobre
+`platform_test`). Quien cambia esa credencial se la cambia a todos, en todas las
+bases y en todas las máquinas, sin dejar rastro de quién.
+
+**La trampa que lo disparaba:** `20260526000003_create_app_runtime_role.js` hacía
+`ALTER ROLE app_runtime WITH PASSWORD` **incondicional** — así que un
+`migrate:latest` contra cualquier base donde esa migración estuviera pendiente
+(p.ej. `hr`, que no la tiene) rotaba la credencial de todo el cluster. Ya está
+guardada: sólo setea la password si el rol se acaba de crear o si
+`APP_RUNTIME_PASSWORD` viene explícita.
+
+**Diagnóstico, en orden:**
+
+1. ¿Autentica? Probar el login con la password del `.env`.
+2. ¿Es la que creés? **Verificar el verificador SCRAM** en vez de adivinar:
+   `rolpassword` tiene la forma `SCRAM-SHA-256$<iter>:<salt>$<storedKey>:<serverKey>`,
+   y se comprueba con `PBKDF2(pass, salt, iter, 32, sha256)` →
+   `HMAC(salted, "Client Key")` → `SHA256(...)` == `storedKey`. Es determinista y
+   contesta "la cambiaron" sin especular.
+3. ¿Quién más está? `SELECT usename, client_addr, datname FROM pg_stat_activity
+   WHERE backend_type='client backend'`. Si aparece otra IP, es coordinación, no
+   un bug.
+
+**Rotarla:** `setup-runtime-role.js` es **sólo para Railway** (fuerza SSL y muere
+contra el cluster de oficina). Para on-prem hay
+`setup-runtime-role-local.js`, que decide el SSL por el host, exige `--yes` y
+avisa qué bases quedan afectadas.
+
+**El valor por default es `app_runtime`** — lo trae `.env.dev.example`, así que
+todos los devs arrancan con ése. Ante un desajuste, volver al default suele
+reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
+`.env` de todo el mundo.
