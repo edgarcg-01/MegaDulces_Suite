@@ -113,7 +113,10 @@ const PROJECT = `
                 WHEN w.is_hub THEN COALESCE(cd.eff, 0)
                 ELSE COALESCE(d.daily_pieces, 0) END AS eff_daily,
            COALESCE(s.quantity, 0) AS stock_pz,
-           COALESCE(t.t, 0) AS transit_cajas,
+           -- El tránsito llega en UNIDADES DE STOCK (igual que stock_pz) → ÷bf para cajas, exactamente
+           -- como stock_pz / bf aguas abajo. Sin esta división el motor restaba bf veces de más y el
+           -- pedido salía en cero (fix 2026-08-28; ver la nota de unidad en import-in-transit).
+           round((COALESCE(t.t, 0) / e.bf)::numeric, 2) AS transit_cajas,
            e.suf, e.bf,
            e.real_cost * e.bf AS caja_cost,
            round(e.ratio, 4) AS price_ratio,

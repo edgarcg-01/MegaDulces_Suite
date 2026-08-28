@@ -13,6 +13,12 @@
  * de las OCs ya traen su X-A-40 → en_tránsito ≈ 0; sólo las OCs realmente abiertas
  * (sin recepción) cuentan. Se agrega por sku×almacén.
  *
+ * ⚠ UNIDAD: `qty_in_transit` sale en UNIDADES DE STOCK (lo mismo que `commercial.stock`),
+ * NO en cajas. Quien lo lea divide por el factor de caja (así lo hace criticalStock).
+ * Hasta 2026-08-28 este importer sumaba `kdm2.c9` crudo — que viene en la unidad de `c11`
+ * (PAQ/PZA/KG/CJA mezcladas) — y el fact lo copiaba a `transit_cajas` como si fueran cajas:
+ * el motor restaba ~bf veces de más y el pedido salía en cero. Ver la conversión abajo.
+ *
  * Grano/almacén: reusa el MISMO map code→sucursal que el stock/reorden (STOCK_BRANCH_MAP).
  * El nº de sucursal para el filtro kdm1.c1 se deriva del `md_NN` de la URL (kdm1 arrastra
  * réplicas de otras sucursales → filtrar la propia). analytics.* sin RLS → tenant_id explícito.
@@ -51,12 +57,27 @@ function branchNum(url) {
   return m ? m[1] : null;
 }
 
+// UNIDAD DE LA LÍNEA (crítico): `kdm2.c9` viene en la unidad de `c11` — PAQ/PZA/KG/CJA mezcladas en
+// la misma OC. El NOMBRE de la unidad NO es confiable (verificado en prod: en la sucursal 03 las
+// líneas 'PZA' traen ratio de costo 13.5 → son cajas), pero el DINERO sí: `c9 × c12` es invariante a
+// la unidad, así que `c12 / costo_por_unidad_de_stock` = cuántas unidades de stock trae la unidad de
+// la línea. Debajo de 1.5× la línea YA está en unidad de stock (~95% de los casos, mediana 1.00);
+// arriba se usa el ratio, topado en el factor de caja. Sin costo de referencia → 1 (conservador:
+// subestimar el tránsito hace pedir de más; sobreestimarlo hace NO pedir, que es el bug que hubo).
+const UNIT_TO_STOCK = `CASE
+             WHEN e.cpsu IS NULL OR e.cpsu <= 0 OR l.c12::numeric <= 0 THEN 1
+             WHEN l.c12::numeric / e.cpsu < 1.5 THEN 1
+             ELSE LEAST(l.c12::numeric / e.cpsu, GREATEST(e.bf, 1)) END`;
+
 // OCs (X-A-35) sin orden de entrada (X-A-40) aguas abajo vía el vale (X-A-37).
+// `qty` sale en UNIDADES DE STOCK (la misma unidad que commercial.stock), NO en cajas.
 const IN_TRANSIT_SQL = `
-  SELECT l.c8 AS sku, SUM(l.c9) AS qty, COUNT(DISTINCT oc.c6) AS oc_count
+  SELECT l.c8 AS sku, ROUND(SUM(l.c9 * (${UNIT_TO_STOCK}))::numeric, 2) AS qty,
+         COUNT(DISTINCT oc.c6) AS oc_count
   FROM md.kdm1 oc
   JOIN md.kdm2 l
     ON l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
+  LEFT JOIN econ_transit e ON e.sku = l.c8
   WHERE oc.c1=$1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
     AND oc.c9::date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
     AND NOT EXISTS (
@@ -91,6 +112,27 @@ const IN_TRANSIT_SQL = `
 
     await db.query('BEGIN');
     await db.query(`CREATE TEMP TABLE stg_transit (warehouse_id uuid, product_id uuid, qty numeric, oc_count int) ON COMMIT DROP`);
+
+    // Referencia para traducir la unidad de cada línea de OC a unidades de stock. MISMA definición
+    // que usa el fact del pedido (import-replenishment-plan): factor de caja del resolvedor canónico
+    // con override manual, y costo por unidad de stock = compra real (purchase_velocity) o catálogo.
+    // Se arma UNA vez (no por sucursal) porque no depende de la rama.
+    await db.query(`CREATE TEMP TABLE econ_transit ON COMMIT DROP AS
+      SELECT p.sku,
+             GREATEST(COALESCE(uov.box_factor, kbf.box_factor, 1), 1)::numeric AS bf,
+             COALESCE(pv.cost, NULLIF(p.cost_with_tax, 0))::numeric            AS cpsu
+        FROM catalog.products p
+        LEFT JOIN analytics.v_product_box_factor kbf
+               ON kbf.tenant_id = p.tenant_id AND kbf.product_id = p.id
+        LEFT JOIN commercial.product_unit_overrides uov
+               ON uov.tenant_id = p.tenant_id AND uov.product_id = p.id AND uov.deleted_at IS NULL
+        LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d), 0) AS cost
+                     FROM analytics.purchase_velocity WHERE tenant_id = $1 GROUP BY product_id) pv
+               ON pv.product_id = p.id
+       WHERE p.tenant_id = $1 AND btrim(coalesce(p.sku, '')) <> ''`, [M]);
+    await db.query(`CREATE INDEX ON econ_transit (sku)`);
+    const econN = (await db.query(`SELECT count(*) n, count(*) FILTER (WHERE cpsu > 0) c FROM econ_transit`)).rows[0];
+    console.log(`  referencia de unidad: ${econN.n} SKUs · ${econN.c} con costo (el resto no se convierte)`);
 
     const summary = [];
     const touched = []; // warehouse_ids leídos OK (para delete-not-seen, incl. los que quedaron en 0)
@@ -130,6 +172,30 @@ const IN_TRANSIT_SQL = `
       }
     }
     console.table(summary);
+
+    // Control de cordura: valuado al costo real, el tránsito tiene que ser una FRACCIÓN del
+    // inventario. Cuando la unidad se mezcla, el tránsito se dispara por encima del inventario y
+    // el motor deja de pedir (bug 2026-08-28: $1,931M "en camino" contra $54M de inventario real).
+    const cmp = (await db.query(`
+      SELECT (SELECT round(SUM(s.qty * e.cpsu)::numeric, 0)
+                FROM stg_transit s
+                JOIN catalog.products pr ON pr.tenant_id = $1 AND pr.id = s.product_id
+                JOIN econ_transit e ON e.sku = pr.sku)                     AS transito_nuevo,
+             (SELECT round(SUM(p.qty_in_transit * e.cpsu)::numeric, 0)
+                FROM analytics.purchase_in_transit p
+                JOIN catalog.products pr ON pr.tenant_id = $1 AND pr.id = p.product_id
+                JOIN econ_transit e ON e.sku = pr.sku
+               WHERE p.tenant_id = $1)                                     AS transito_actual,
+             (SELECT round(SUM(st.quantity * e.cpsu)::numeric, 0)
+                FROM commercial.stock st
+                JOIN catalog.products pr ON pr.tenant_id = $1 AND pr.id = st.product_id
+                JOIN econ_transit e ON e.sku = pr.sku
+               WHERE st.tenant_id = $1)                                    AS inventario`, [M])).rows[0];
+    const mx = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+    console.log(`\n  tránsito valuado — antes ${mx(cmp.transito_actual)} · ahora ${mx(cmp.transito_nuevo)} · inventario ${mx(cmp.inventario)}`);
+    if (Number(cmp.transito_nuevo) > Number(cmp.inventario)) {
+      console.log('  ⚠ el tránsito sigue superando al inventario — revisar la conversión de unidad ANTES de aplicar.');
+    }
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
