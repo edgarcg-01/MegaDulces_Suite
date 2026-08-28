@@ -267,7 +267,14 @@ export class StoreService {
    *    del supervisor se duplicaba en cada caja que abrió (bug ago-2026).
    * `cobrando` = ticket en los últimos 15 min.
    */
-  async openSessions(warehouseCode?: string): Promise<any> {
+  /**
+   * `warehouses`: alcance ya resuelto (`ScopeService`). `null` = sin filtro
+   * (alcance `all`); `[]` = no ve ninguna sucursal → tablero vacío, no un 403:
+   * son 3 KPIs y una tabla, y un error rompe la pantalla entera.
+   */
+  async openSessions(warehouses?: string[] | null): Promise<any> {
+    const vacio = Array.isArray(warehouses) && warehouses.length === 0;
+    const filtrar = Array.isArray(warehouses) && warehouses.length > 0;
     const k = this.knex;
     const todayMX = `(now() AT TIME ZONE '${TZ}')::date`;
 
@@ -284,31 +291,94 @@ export class StoreService {
         k.raw('MAX(ticket_ts) OVER (PARTITION BY warehouse_code, caja) AS last_ts'),
         k.raw('cajero AS last_cajero'))
       .orderBy([{ column: 'warehouse_code' }, { column: 'caja' }, { column: 'ticket_ts', order: 'desc' }]);
-    if (warehouseCode) actQ.andWhere('warehouse_code', warehouseCode);
+    if (filtrar) actQ.whereIn('warehouse_code', warehouses as string[]);
+    if (vacio) actQ.whereRaw('false');
     const act = await actQ;
     const actMap = new Map(act.map((a: any) => [`${a.warehouse_code}|${a.caja}`, a]));
+
+    /**
+     * SM.13 — La venta del día también sale de Kepler (ODS), no solo del poller.
+     *
+     * `store_live_tickets` lo llena un poller aparte: si se cae, la página decía
+     * "$0 vendido" con las cajas cobrando — un cero que parece un dato. El ODS trae
+     * los documentos de venta (`kdm1` U/D/10, `c5`=caja, `c16`=total) por el mismo
+     * CDC que todo lo demás. **Verificado contra el corte de Kepler**: por caja
+     * reproduce `venta_total` al centavo (suc01 caja2 $74,642.11, caja3 $35,601.40,
+     * caja4 $24,887.48).
+     *
+     * Se toma el MAYOR de las dos fuentes por caja, no una u otra: las dos miden lo
+     * mismo (la venta acumulada del día, que solo crece) y cada una puede ir
+     * rezagada — el mayor es simplemente la menos vieja. El poller sigue mandando
+     * en "último ticket"/"cobrando ahora", donde lo que importa son los segundos.
+     */
+    const odsQ = this.knex('kepler_ods.kdm1')
+      .whereRaw(`c2 = 'U' AND c3 = 'D' AND c4 = 10`)
+      .andWhereRaw(`c9::date = ${todayMX}`)
+      .whereNotNull('c5')
+      .groupBy('sucursal', k.raw('c5::bigint::text'))
+      .select(
+        k.raw('sucursal AS warehouse_code'),
+        // `c5` es NUMERIC en el ODS y `cash_sessions.caja` es TEXT: sin castear, el
+        // cruce por llave compuesta erra en silencio (un '1.0' no matchea a '1').
+        k.raw('c5::bigint::text AS caja'),
+        k.raw('COUNT(*)::int AS tickets'),
+        k.raw('ROUND(SUM(c16::numeric), 2) AS venta'),
+      );
+    if (filtrar) odsQ.whereIn('sucursal', warehouses as string[]);
+    if (vacio) odsQ.whereRaw('false');
+    // El ODS puede no estar disponible (entorno sin CDC): degradar al poller, no romper.
+    const ods: any[] = await odsQ.catch((e: any) => {
+      this.logger.warn(`venta por caja desde el ODS no disponible: ${e?.message || e}`);
+      return [];
+    });
+    const odsMap = new Map(ods.map((o: any) => [`${o.warehouse_code}|${o.caja}`, o]));
 
     const sesQ = k('analytics.cash_sessions as s')
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 's.tenant_id').andOn('pc.warehouse_code', '=', 's.warehouse_code').andOn('pc.cajero_code', '=', 's.cajero_code');
       })
-      .where('s.tenant_id', TENANT).where('s.status', 'open').andWhereRaw(`s.business_date = ${todayMX}`)
+      /**
+       * SM.13.2 — Abierta es abierta, aunque haya abierto ayer.
+       *
+       * Esto filtraba `business_date = hoy`, así que una caja que abrió ayer y
+       * **nunca se cerró** desaparecía del monitor — justo la que más hay que
+       * mirar. Medido en la data: 14 sesiones en `open` y la pantalla mostrando 0,
+       * una de ellas arrastrada desde hacía dos días.
+       *
+       * La ventana son 2 días porque es la que refresca `import-cash-sessions`
+       * (lee las aperturas recientes): más atrás no re-verifica, y una sesión que
+       * se cerró en Kepler fuera de esa ventana se quedaría marcada abierta para
+       * siempre. Mostrar solo lo que el importer confirma evita inventar cajas.
+       */
+      .where('s.tenant_id', TENANT).where('s.status', 'open')
+      .andWhereRaw(`s.business_date >= (${todayMX} - INTERVAL '2 days')`)
       .select('s.warehouse_code', 's.warehouse_name', 's.caja', 's.cajero_code',
         k.raw('pc.nombre AS cajero_nombre'),
-        k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at')
+        k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at',
+        k.raw('s.business_date::text AS desde_dia'),
+        // Días que lleva abierta. >0 = quedó de un día anterior: nadie la cerró.
+        k.raw(`((${todayMX}) - s.business_date)::int AS dias_abierta`))
       .orderBy('s.warehouse_code').orderBy('s.caja');
-    if (warehouseCode) sesQ.andWhere('s.warehouse_code', warehouseCode);
+    if (filtrar) sesQ.whereIn('s.warehouse_code', warehouses as string[]);
+    if (vacio) sesQ.whereRaw('false');
     const sesiones = await sesQ;
 
     const NOW = Date.now();
     const open_cajas = sesiones.map((s: any) => {
-      const a: any = actMap.get(`${s.warehouse_code}|${s.caja}`);
+      const key = `${s.warehouse_code}|${s.caja}`;
+      const a: any = actMap.get(key);
+      const o: any = odsMap.get(key);
       const lastMs = a?.last_ts ? new Date(a.last_ts).getTime() : null;
       const idleMin = lastMs != null ? Math.round((NOW - lastMs) / 60000) : null;
       return {
         warehouse_code: s.warehouse_code, warehouse_name: s.warehouse_name, caja: s.caja,
         cajero: s.cajero_code, cajero_nombre: s.cajero_nombre || null, abrio: s.abrio,
-        tickets: a ? Number(a.tickets) : 0, venta: a ? Number(a.venta) : 0,
+        // Una caja arrastrada de un día anterior es una incidencia por sí sola.
+        desde_dia: s.desde_dia, dias_abierta: Number(s.dias_abierta) || 0,
+        arrastrada: (Number(s.dias_abierta) || 0) > 0,
+        // El mayor de poller y ODS: los dos son prefijos de la misma venta del día.
+        tickets: Math.max(a ? Number(a.tickets) : 0, o ? Number(o.tickets) : 0),
+        venta: Math.max(a ? Number(a.venta) : 0, o ? Number(o.venta) : 0),
         last_ticket: a?.last_ticket || null, idle_min: idleMin,
         cobrando: idleMin != null && idleMin <= 15,
       };
@@ -324,13 +394,54 @@ export class StoreService {
       .map((a: any) => ({ warehouse_code: a.warehouse_code, caja: a.caja, cajero: a.last_cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }))
       .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets);
 
+    /**
+     * SM.13.1 — Salud del feed: para que un cero nunca sea mudo.
+     *
+     * "0 cajas abiertas" tiene dos causas opuestas y hasta ahora se veían igual:
+     * la tienda está cerrada, o **dejamos de recibir datos de Kepler**. En ago-2026
+     * el CDC estuvo congelado 2 días con la tarea en `Running` y nadie se enteró;
+     * durante esas 48 h esta pantalla habría dicho "no hay cajas abiertas" y todo
+     * el mundo lo habría creído. Se devuelven dos relojes distintos:
+     *
+     *   `al`         — cuándo corrió por última vez el importer (¿nos llegan datos?)
+     *   `ultimo_dia` — el día más reciente del que sabemos algo (¿son de hoy?)
+     *
+     * El importer puede estar corriendo puntual y aun así traer el día equivocado si
+     * el CDC que lo alimenta se quedó atrás — por eso hacen falta los dos.
+     */
+    const feedQ = this.knex('analytics.cash_sessions')
+      .where('tenant_id', TENANT)
+      .select(
+        k.raw('MAX(updated_at) AS al'),
+        k.raw('MAX(business_date)::text AS ultimo_dia'),
+        k.raw(`(${todayMX})::text AS hoy`),
+      )
+      .first();
+    if (filtrar) feedQ.whereIn('warehouse_code', warehouses as string[]);
+    const f: any = (await feedQ.catch(() => null)) || {};
+    const alMs = f.al ? new Date(f.al).getTime() : null;
+    const minutos = alMs != null ? Math.round((NOW - alMs) / 60000) : null;
+    const atrasado = !!(f.ultimo_dia && f.hoy && f.ultimo_dia < f.hoy);
+
     return {
       generated_at: new Date().toISOString(),
       cajas_abiertas: open_cajas.length,
       cobrando_ahora: open_cajas.filter((c: any) => c.cobrando).length,
+      // Cajas que nadie cerró al terminar el día. Se cuentan aparte: no son
+      // actividad de hoy, son un pendiente operativo.
+      arrastradas: open_cajas.filter((c: any) => c.arrastrada).length,
       open_cajas,
       // compat: el frontend consume `cajeros_sin_sesion`; ahora es por caja.
       cajeros_sin_sesion: cajas_sin_sesion,
+      feed: {
+        al: f.al || null,
+        minutos,
+        ultimo_dia: f.ultimo_dia || null,
+        hoy: f.hoy || null,
+        // Sin noticias en 45 min, o el último día conocido no es hoy: el cero es dudoso.
+        sospechoso: minutos == null || minutos > 45 || atrasado,
+        atrasado,
+      },
     };
   }
 }

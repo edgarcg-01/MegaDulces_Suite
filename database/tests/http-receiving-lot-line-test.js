@@ -209,11 +209,20 @@ function isoInDays(days) {
 
     // ── 8. Guards de integridad del renglón ───────────────────────────────
     console.log('\n── 8. Guards ──');
+    // Capturar con el vale CERRADO es el caso NORMAL desde la revisión de ADR-044
+    // (2026-08-27): el cierre da de alta la mercancía en el lote 'NA' y la fecha se
+    // pone después, desde la bandeja de Caducidades. Antes esto era 409; que lo
+    // siguiera siendo dejaría inservible el flujo nuevo.
     const onClosed = await req('POST', '/commercial/receiving/evaluate', {
       warehouse_id: whId, product_id: productId, receiving_line_id: lineId,
       quantity: 5, confirmed_expiry: isoInDays(400),
     }, token);
-    check('capturar en vale cerrado → 409', onClosed.status === 409, { status: onClosed.status, msg: onClosed.body?.message });
+    check('capturar en vale CERRADO se acepta (flujo luz verde → caducidades)',
+      onClosed.status === 200 || onClosed.status === 201,
+      { status: onClosed.status, msg: onClosed.body?.message });
+    check('y no suma existencia: reclasifica (movimiento adjust en 0)',
+      onClosed.status >= 400 || !!onClosed.body?.stock_movement_id,
+      onClosed.body?.stock_movement_id || '(sin movimiento)');
 
     const badLine = await req('POST', '/commercial/receiving/evaluate', {
       warehouse_id: whId, product_id: productId,

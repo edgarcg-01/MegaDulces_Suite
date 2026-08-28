@@ -61,6 +61,8 @@ export interface ReceivingSessionProgress {
   undeclared_units?: number;
   held_units?: number;
   holds?: number;
+  /** Renglones recibidos cuyo SKU no está en el catálogo: no entran a inventario. */
+  sin_catalogo?: number;
 }
 
 export interface ReceivingSession {
@@ -109,6 +111,31 @@ export interface ErpOrderLookup {
   warehouse_id?: string | null;
   warehouse_code?: string | null;
   warehouse_name?: string | null;
+}
+
+/**
+ * Renglón esperando fecha de caducidad: mercancía que ya pasó la luz verde en
+ * recepción y está en existencia sin fecha. Es la cola de trabajo del bodeguero.
+ */
+export interface PendingExpiryLine {
+  line_id: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  received_qty: number;
+  declared_qty: number;
+  /** Capturado con fecha pero 🔴: espera autorización de un supervisor. */
+  held_qty: number;
+  pending_qty: number;
+  session_id: string;
+  vale_folio: string;
+  source_ref: string | null;
+  supplier_code: string | null;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  closed_at: string;
+  dias_esperando: number;
 }
 
 export interface SucursalMapEntry {
@@ -172,6 +199,14 @@ export class ReceivingSessionService {
     if (filters.warehouse_id) params = params.set('warehouse_id', filters.warehouse_id);
     if (filters.limit) params = params.set('limit', String(filters.limit));
     return this.http.get<ReceivingSessionListItem[]>(this.base, { params });
+  }
+
+  /** Bandeja de Caducidades: lo aprobado en recepción que aún no tiene fecha. */
+  pendingExpiry(filters: { warehouse_id?: string; limit?: number } = {}): Observable<PendingExpiryLine[]> {
+    let params = new HttpParams();
+    if (filters.warehouse_id) params = params.set('warehouse_id', filters.warehouse_id);
+    if (filters.limit) params = params.set('limit', String(filters.limit));
+    return this.http.get<PendingExpiryLine[]>(`${this.base}/pending-expiry`, { params });
   }
 
   detail(id: string): Observable<ReceivingSession> {

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { Public, RequirePermissions, RequireAnyPermission, Permission, ReqUser } from '@megadulces/platform-core';
+import { Public, RequirePermissions, RequireAnyPermission, Permission, ReqUser, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
 import { StoreService } from './store.service';
 import { StoreIngestGuard } from './store-ingest.guard';
 import { LiveTicket } from './store.types';
@@ -8,7 +8,10 @@ import { LiveTicket } from './store.types';
 @ApiTags('store')
 @Controller('store/live')
 export class StoreController {
-  constructor(private readonly service: StoreService) {}
+  constructor(
+    private readonly service: StoreService,
+    private readonly scope: ScopeService,
+  ) {}
 
   /** Ingesta del poller on-prem (máquina-a-máquina, header x-store-ingest-key). */
   @Public()
@@ -33,14 +36,22 @@ export class StoreController {
     return this.service.snapshot(effective);
   }
 
-  /** SM.10 — cajas abiertas ahora + quién está cobrando (sesión × tickets por cajero). */
+  /**
+   * SM.10 — cajas abiertas ahora + quién está cobrando (sesión × tickets por caja).
+   *
+   * `[ID.4]` — El alcance sale de `ScopeService`, no del viejo
+   * `user?.warehouse_code || warehouse`: ese patrón era fail-OPEN — a la encargada
+   * con sucursal se la forzaba, pero a quien no la tenía se le respetaba el query
+   * param, o sea veía la red entera. Es una pantalla que muestra cuánto está
+   * entrando en cada caja de cada tienda: el default no puede ser "todas".
+   */
   @Get('open-cajas')
   @RequirePermissions(Permission.STORE_LIVE_VER)
-  @ApiQuery({ name: 'warehouse', required: false, description: "Filtro por sucursal. Ignorado si el usuario ya está scopeado." })
-  @ApiOperation({ summary: 'SM.10 — cajas ABIERTAS ahora + actividad en vivo por cajero (quién está cobrando).' })
-  openCajas(@ReqUser() user: { warehouse_code?: string } | undefined, @Query('warehouse') warehouse?: string) {
-    const effective = user?.warehouse_code || warehouse || undefined;
-    return this.service.openSessions(effective);
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance. Acepta los nombres viejos (warehouse, sucursal…).' })
+  @ApiOperation({ summary: 'SM.10 — cajas ABIERTAS ahora + venta del día por caja (Kepler ODS + tickets en vivo). Acotado por tu alcance de sucursales.' })
+  async openCajas(@Query() query: Record<string, unknown>) {
+    const codes = await this.scope.readParam(query, 'warehouse', 'store/open-cajas');
+    return this.service.openSessions(codes);
   }
 
   /** LM-K.1 — busca un ticket Kepler por folio para armar la entrega a domicilio. */

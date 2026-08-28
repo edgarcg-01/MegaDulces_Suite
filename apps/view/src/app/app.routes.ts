@@ -669,6 +669,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // WMS-REC (ADR-044, Opción A) — Caducidades · Por fechar: la cola del bodeguero.
+        // Ruta hermana de 'inventory/caducidades' (hojas de anaquel), no su reemplazo:
+        // son dos trabajos distintos y los dos siguen existiendo.
+        path: 'inventory/por-fechar',
+        loadComponent: () => import('./modules/almacen/pages/almacen-caducidades-por-fechar.component').then(m => m.AlmacenCaducidadesPorFecharComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
@@ -786,6 +794,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
         canActivate: [anyPermissionGuard(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR)],
         canDeactivate: [unsavedChangesGuard]
+      },
+      {
+        path: 'arqueos',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-historial.component').then(m => m.TiendaArqueoHistorialComponent),
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_VER)]
       },
       {
         path: 'analisis-semanal',

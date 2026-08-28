@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -15,8 +16,16 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * faltantes/sobrantes. Captura CANTIDADES (identidad física); la caducidad/lote la
  * audita la Pieza 2 (enlazada por source_ref = folio del Vale).
  *
- * No escribe stock: es el registro de la realidad física recibida (reconciliable
- * contra el espejo ERP). El alta de stock/FEFO ocurre en la Pieza 2 al aceptar.
+ * **Al CERRAR el vale ("luz verde") la mercancía entra a inventario** en el lote
+ * `NA` (sin fecha). La caducidad se captura después, en la bandeja de Caducidades:
+ * poner la fecha RECLASIFICA ese `NA` a un lote fechado sin cambiar el total, así
+ * que el invariante `SUM(stock_lots) = stock.quantity` nunca se rompe.
+ *
+ * El orden importa y es deliberado: el inventario refleja lo que está físicamente
+ * en la bodega **desde que se aprueba la recepción**, no desde que alguien encuentra
+ * tiempo para capturar fechas. La ventana sin caducidad no se esconde: se mide con
+ * `undeclared_qty` y es justo la cola de trabajo del bodeguero.
+ * (Cambio de ADR-044 — antes el alta ocurría al capturar el lote.)
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,6 +58,7 @@ export class ReceivingSessionService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly inventory: CommercialInventoryService,
   ) {}
 
   /**
@@ -519,6 +529,72 @@ export class ReceivingSessionService {
 
       const userId = this.tenantCtx.get()?.userId || null;
 
+      // ── LUZ VERDE: la mercancía confirmada entra a inventario ──────────────
+      //
+      // Un movimiento 'in' por renglón recibido, en el lote 'NA' (sin fecha). El
+      // trigger trg_rebalance_stock_lots mantiene el invariante solo; la fecha se
+      // agrega después en Caducidades reclasificando NA → lote fechado.
+      //
+      // Idempotente sin columna nueva: si ya existen movimientos de esta sesión en
+      // el ledger, el stock ya se dio de alta y no se repite. Así un reintento del
+      // cierre (timeout, doble clic) no duplica existencia.
+      const yaDadoDeAlta = await trx('commercial.stock_movements')
+        .where({ reference_type: 'receiving_session', reference_id: sessionId })
+        .first('id');
+
+      if (!yaDadoDeAlta) {
+        // Se descuenta lo que una captura de lote ya haya dado de alta ANTES del
+        // cierre (la pantalla del auditor permite capturar con el vale abierto). Sin
+        // esto, capturar primero y cerrar después contaría la mercancía dos veces.
+        const recibidos = await trx('commercial.receiving_lines as l')
+          .where('l.session_id', sessionId)
+          .whereNotNull('l.product_id')
+          .where('l.received_qty', '>', 0)
+          .select(
+            'l.product_id',
+            'l.received_qty',
+            trx.raw(`COALESCE((
+              SELECT SUM(c.quantity)
+                FROM commercial.receiving_lot_captures c
+                JOIN commercial.stock_movements m ON m.id = c.stock_movement_id
+               WHERE c.receiving_line_id = l.id
+                 AND m.movement_type = 'in'
+            ), 0)::numeric AS ya_dado_de_alta`),
+          );
+
+        for (const l of recibidos) {
+          const falta = Number(l.received_qty) - Number(l.ya_dado_de_alta || 0);
+          if (falta <= 0) continue;
+          await this.inventory.recordMovementInTx(trx, {
+            warehouse_id: session.warehouse_id,
+            product_id: l.product_id,
+            movement_type: 'in',
+            quantity: falta,
+            reference_type: 'receiving_session',
+            reference_id: sessionId,
+            notes: `Recepción ${session.folio}${session.source_ref ? ` · ERP ${session.source_ref}` : ''}`,
+          });
+        }
+        this.logger.log(
+          `Vale ${session.folio}: ${recibidos.length} renglón(es) dados de alta en ${session.warehouse_id}`,
+        );
+
+        // Lo que se recibió pero no tiene producto del catálogo queda FUERA del alta.
+        // Se avisa fuerte: es mercancía física que el inventario no va a conocer.
+        const huerfanos = await trx('commercial.receiving_lines')
+          .where({ session_id: sessionId })
+          .whereNull('product_id')
+          .where('received_qty', '>', 0)
+          .count({ n: '*' })
+          .first();
+        const nHuerfanos = Number((huerfanos as any)?.n || 0);
+        if (nHuerfanos > 0)
+          this.logger.warn(
+            `Vale ${session.folio}: ${nHuerfanos} renglón(es) recibidos SIN producto en el catálogo — ` +
+              'esa mercancía NO entró a inventario. Hay que darla de alta en el catálogo y recibirla aparte.',
+          );
+      }
+
       await trx('commercial.receiving_lines')
         .where({ session_id: sessionId, discrepancy_kind: 'pending' })
         .where('expected_qty', '>', 0)
@@ -532,6 +608,92 @@ export class ReceivingSessionService {
         status: 'closed', closed_at: trx.fn.now(), closed_by: userId, updated_at: trx.fn.now(),
       });
       return this.detailTx(trx, sessionId);
+    });
+  }
+
+  /**
+   * BANDEJA DE CADUCIDADES — la mercancía que ya pasó la luz verde y no tiene fecha.
+   *
+   * Un renglón entra a la bandeja cuando la recepción se aprobó (`closed`) pero
+   * `SUM(capturas de lote) < received_qty`: eso es existencia real en la bodega SIN
+   * trazabilidad de caducidad, y es exactamente la cola de trabajo del bodeguero.
+   *
+   * Se ordena por antigüedad: lo que lleva más días esperando primero, porque el
+   * riesgo crece con el tiempo (mercancía en anaquel de la que nadie sabe cuándo vence).
+   *
+   * Todo derivado: ni tabla ni columna nuevas.
+   */
+  async pendingExpiry(query: { warehouse_id?: string; limit?: number } = {}) {
+    if (query.warehouse_id && !UUID.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    const limit = Math.min(500, Math.max(1, Number(query.limit) || 200));
+
+    return this.tk.run(async (trx) => {
+      let q = trx('commercial.receiving_lines as l')
+        .join('commercial.receiving_sessions as s', function () {
+          this.on('s.tenant_id', '=', 'l.tenant_id').andOn('s.id', '=', 'l.session_id');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 's.tenant_id').andOn('w.id', '=', 's.warehouse_id');
+        })
+        .leftJoin('public.products as p', 'p.id', 'l.product_id')
+        .where('s.status', 'closed')
+        .whereNotNull('l.product_id')
+        .where('l.received_qty', '>', 0);
+      if (query.warehouse_id) q = q.where('s.warehouse_id', query.warehouse_id);
+
+      const rows = await q
+        .select(
+          'l.id as line_id',
+          'l.product_id',
+          'p.sku',
+          'p.nombre as product_name',
+          'l.received_qty',
+          's.id as session_id',
+          's.folio as vale_folio',
+          's.source_ref',
+          's.supplier_code',
+          's.warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          's.closed_at',
+          // Declarado = SÓLO lo aceptado, que es lo que de verdad quedó con lote
+          // fechado en existencia. Contar también lo retenido haría que la bandeja
+          // dijera "ya está fechado" sobre mercancía que ningún lote registra.
+          trx.raw(`COALESCE((
+            SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'accepted'
+          ), 0)::numeric AS declared_qty`),
+          // Retenido = capturado con fecha pero 🔴, esperando que un supervisor
+          // autorice. No se le vuelve a pedir fecha al bodeguero (ya la puso) pero
+          // tampoco se declara resuelto: se muestra para que alguien lo persiga.
+          trx.raw(`COALESCE((
+            SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
+          ), 0)::numeric AS held_qty`),
+          trx.raw(`GREATEST(0, (CURRENT_DATE - s.closed_at::date))::int AS dias_esperando`),
+        )
+        .orderBy('s.closed_at', 'asc')
+        .limit(limit);
+
+      // El filtro "le falta fecha" se aplica sobre el derivado (no se puede en WHERE
+      // sin repetir la subconsulta) y se calcula el faltante real por renglón.
+      return rows
+        .map((r: any) => {
+          const recibido = Number(r.received_qty) || 0;
+          const declarado = Number(r.declared_qty) || 0;
+          const retenido = Number(r.held_qty) || 0;
+          return {
+            ...r,
+            received_qty: recibido,
+            declared_qty: declarado,
+            held_qty: retenido,
+            pending_qty: Math.max(0, recibido - declarado - retenido),
+          };
+        })
+        // Un renglón sale de la bandeja cuando ya no le falta fecha a nadie, pero
+        // sigue apareciendo si tiene retenidos: eso es trabajo abierto de otra persona.
+        .filter((r: any) => r.pending_qty > 0 || r.held_qty > 0);
     });
   }
 
@@ -660,6 +822,11 @@ export class ReceivingSessionService {
         ),
         held_units: lines.reduce((a, l) => a + Number(l.held_qty), 0),
         holds: lines.reduce((a, l) => a + Number(l.holds), 0),
+        // Renglones recibidos cuyo SKU no existe en el catálogo: al dar luz verde
+        // esa mercancía NO entra a inventario. En prod es raro (23 de 89,257
+        // renglones históricos) pero pasa, y callarlo deja existencia física que el
+        // sistema no conoce. Se cuenta para poder decirlo.
+        sin_catalogo: lines.filter((l) => !l.product_id && Number(l.received_qty) > 0).length,
       };
       // Ficha del vale del ERP — DERIVADA, no copiada (ERP_KEPLER §5.1): con el
       // `source_ref` alcanza para traer proveedor/RFC/OC/concepto/monto al vuelo.

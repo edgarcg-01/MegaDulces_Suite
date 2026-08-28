@@ -92,6 +92,13 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
           <div class="rsd-kpi" [class.rsd-warn]="(pr.undeclared_units || 0) > 0"><span class="rsd-kpi-n">{{ pr.undeclared_units || 0 }}</span><span class="rsd-kpi-l">sin declarar</span></div>
           <div class="rsd-kpi" [class.rsd-bad]="(pr.holds || 0) > 0"><span class="rsd-kpi-n">{{ pr.held_units || 0 }}</span><span class="rsd-kpi-l">retenidas</span></div>
         </div>
+        @if ((pr.sin_catalogo || 0) > 0) {
+          <div class="rsd-hold-banner" role="status">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span><strong>{{ pr.sin_catalogo }}</strong> renglón(es) recibidos no existen en el catálogo de productos:
+              esa mercancía <strong>no entrará a inventario</strong> al cerrar. Hay que darla de alta en el catálogo primero.</span>
+          </div>
+        }
         @if ((pr.holds || 0) > 0) {
           <div class="rsd-hold-banner" role="status">
             <i class="pi pi-lock" aria-hidden="true"></i>

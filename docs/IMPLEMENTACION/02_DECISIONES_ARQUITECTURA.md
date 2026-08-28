@@ -1310,6 +1310,34 @@ Plan en [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
 
 **Consecuencias:** ✅ queda medible el indicador que hoy no existe — **% de piezas recibidas con lote y caducidad declarados**, por almacén y por proveedor, que es exactamente la mercancía que entra sin trazabilidad. ✅ la política por categoría empieza a funcionar por primera vez (antes era letra muerta *y* causa de 500). ✅ el gate 🔴 se vuelve operable: retiene sólo lo malo y deja pasar el resto. ⚠️ el renglón puede quedar "recibido pero no declarado" — es deliberado: se vuelve visible en vez de invisible, pero exige que alguien lo trabaje. ⚠️ `receiving_line_id` es **nullable**: las capturas sueltas (sin vale, desde `/almacen/inventory/recepcion`) siguen siendo válidas, así que el cuadre por renglón solo aplica a lo capturado dentro de un vale. Hereda ADR-016 (el motor decide, el operador confirma la realidad física, el OCR propone y no autoriza) y ADR-022 (sub-ledger de lotes aditivo).
 
+### Revisión 2026-08-27 — **el alta de existencia pasa al cierre del vale ("luz verde")**
+
+**Qué cambia.** El ADR decidía que *"el alta de existencia la hace **siempre** la captura de lote"* y listaba como alternativa **rechazada** *"que el renglón escriba stock al cerrar el vale"*, con esta compuerta explícita: *"que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario"*. **Esa compuerta se cruzó** por decisión de negocio (2026-08-27): se invierte el orden.
+
+**Cómo queda:**
+
+| Momento | Quién | Qué pasa con el inventario |
+|---|---|---|
+| **Recepción** — teclear folio, verificar cantidades, dar **luz verde** (`close`) | operador de recepción | la mercancía **entra**, en el lote `NA` (sin fecha) |
+| **Caducidades** — declarar lote + caducidad | bodeguero | **reclasifica** `NA` → lote fechado; el **total no se mueve** |
+
+**Por qué.** Son dos trabajos de dos personas en dos momentos, y atarlos obligaba a mantener el vale abierto mientras alguien recorría la tarima con las etiquetas. Peor: el inventario no reflejaba mercancía que ya estaba físicamente en el piso y ya se había aprobado, con la fecha de captura como cuello de botella. El orden nuevo hace que **el inventario diga la verdad desde que se aprueba la recepción**, y convierte la falta de caducidad en un pendiente medido en vez de en una ausencia de existencia.
+
+**Lo que NO cambia** (y es lo que evita el doble conteo que motivaba la decisión original): sigue habiendo **un solo asiento por mercancía recibida**.
+- El cierre da de alta **lo recibido menos lo que una captura ya dio de alta** (la pantalla del auditor permite capturar con el vale abierto; sin ese descuento, capturar-y-luego-cerrar contaría doble).
+- La captura pregunta al **ledger** si la sesión del renglón ya generó el alta: si sí **reclasifica** (`assignLotToUndeclared`), si no **suma** (`recordMovement('in')`, caso de captura suelta sin vale).
+- La reclasificación mantiene el invariante con la pieza que ya existía: sube el lote fechado y re-escribe `stock.quantity` **con su mismo valor**, lo que dispara `trg_rebalance_stock_lots` (corre en `UPDATE OF quantity`, no sólo cuando el valor cambia) y el trigger recalcula `NA = stock − Σ(otros lotes)`. Se asienta en la bitácora como `adjust` con cantidad **0** — que es la verdad: el total no cambió, cambió de qué lote es — y ese movimiento sirve de marca de idempotencia en `receiving_lot_captures.stock_movement_id`.
+- El veredicto 🔴 sigue sin liberar nada a FEFO hasta que un supervisor autorice.
+- El auditor acepta capturas con el vale `open` **y** `closed` (cerrado es ahora el caso normal); sólo `cancelled` se rechaza, porque fechar mercancía de un vale anulado no describe nada real.
+
+**Consecuencia nueva:** el vale ya **sí** se cierra sin caducidades declaradas — eso ya no es un pendiente que frene la aprobación. (El 409 por **capturas 🔴 sin resolver** se mantiene: aprobar un vale con mercancía retenida seguiría declarando como recibido algo que no entró.) La falta de fecha pasa a ser **cola de trabajo visible**: `GET /commercial/receiving/sessions/pending-expiry` (bandeja *Caducidades · Por fechar*, ordenada por días esperando). ⚠️ Riesgo asumido: existe una ventana en la que hay existencia sin trazabilidad de caducidad. Es deliberado y **medido** (`undeclared_qty`, días esperando), no tapado.
+
+**Aviso que se agregó en el camino:** un renglón cuyo SKU **no existe en el catálogo** no puede entrar a inventario. Medido en prod: **23 de 89,257** renglones históricos (0.03%). Antes se filtraba en silencio; ahora la pantalla del vale lo dice antes de cerrar (`progress.sin_catalogo`) y el cierre lo registra como `warn`.
+
+**Migraciones:** ninguna. Todo se derivó de tablas existentes.
+
+**Verificación:** `database/tests/http-luz-verde-caducidades-test.js` (22/22) recorre luz verde → alta en `NA` → bandeja → fechado → reclasificación, y afirma el invariante `SUM(lotes) = stock` y que fechar no mueve el total.
+
 Plan en [`FASE_WMS_ESTACION_RECEPCION`](FASES/FASE_WMS_ESTACION_RECEPCION.md).
 
 ---

@@ -165,8 +165,13 @@ export class ReceivingAuditorService {
         .first('department');
       const category: string | null = prod?.department || null;
 
-      // El renglón, si viene, debe pertenecer a un vale ABIERTO y al MISMO producto:
-      // una captura ligada al renglón equivocado falsea el cuadre "declarado vs recibido".
+      // El renglón, si viene, debe existir y ser del MISMO producto: una captura
+      // ligada al renglón equivocado falsea el cuadre "declarado vs recibido".
+      //
+      // Sobre el estado del vale: se acepta `open` y `closed`. Cerrado es el caso
+      // NORMAL del flujo — recepción da luz verde y la mercancía pasa a la bandeja
+      // de Caducidades, donde el bodeguero llega después a fechar. Sólo `cancelled`
+      // se rechaza: fechar mercancía de un vale anulado no describe nada real.
       if (dto.receiving_line_id) {
         const line = await trx('commercial.receiving_lines as l')
           .join('commercial.receiving_sessions as s', function () {
@@ -175,7 +180,7 @@ export class ReceivingAuditorService {
           .where('l.id', dto.receiving_line_id)
           .first('l.id', 'l.product_id', 's.status');
         if (!line) throw new NotFoundException('Renglón de recepción no encontrado');
-        if (line.status !== 'open')
+        if (line.status !== 'open' && line.status !== 'closed')
           throw new ConflictException(`El vale está ${line.status}: no admite capturas`);
         if (line.product_id !== dto.product_id)
           throw new BadRequestException('El renglón corresponde a otro producto');
@@ -470,18 +475,64 @@ export class ReceivingAuditorService {
   }
 
   /** Escribe el 'in' de stock (alimenta stock_lots/FEFO) y liga el movement a la captura. */
+  /**
+   * ¿La mercancía de esta captura ya entró a inventario al aprobar la recepción?
+   *
+   * Se contesta con el ledger, no con un flag: existe un movimiento de alta cuya
+   * referencia es la sesión del renglón. Es la misma marca que usa el cierre para
+   * ser idempotente, así que las dos piezas no pueden desincronizarse.
+   *
+   * Sin `receiving_line_id` la captura es suelta y la respuesta es no.
+   */
+  private async stockYaEntroPorElVale(capture: any): Promise<boolean> {
+    if (!capture.receiving_line_id) return false;
+    return this.tk.run(async (trx) => {
+      const row = await trx('commercial.receiving_lines as l')
+        .join('commercial.stock_movements as m', function () {
+          this.on('m.tenant_id', '=', 'l.tenant_id').andOn('m.reference_id', '=', 'l.session_id');
+        })
+        .where('l.id', capture.receiving_line_id)
+        .where('m.reference_type', 'receiving_session')
+        .first('m.id');
+      return !!row;
+    });
+  }
+
   private async writeStockForCapture(capture: any): Promise<void> {
     if (capture.stock_movement_id) return; // idempotente: ya escrito
-    const movement = await this.inventory.recordMovement({
-      warehouse_id: capture.warehouse_id,
-      product_id: capture.product_id,
-      movement_type: 'in',
-      quantity: Number(capture.quantity),
-      lot_code: capture.confirmed_lot || 'NA',
-      expiry_date: capture.confirmed_expiry ? this.toIso(capture.confirmed_expiry) : undefined,
-      reference_type: 'receiving_audit',
-      notes: `Recepción auditada (${capture.verdict}${capture.rule_broken ? ' · ' + capture.rule_broken : ''})`,
-    });
+
+    // Dos caminos, según si la mercancía YA está en existencia:
+    //
+    //  a) viene de un vale con luz verde → el stock entró al cerrar la recepción,
+    //     en el lote 'NA'. Poner la fecha RECLASIFICA (el total no se mueve).
+    //  b) captura suelta, sin vale (o vale que todavía no se aprobó) → no hay nada
+    //     en existencia por esta mercancía, así que la captura la da de alta.
+    //
+    // Distinguirlos importa: sumar en el caso (a) contaría la mercancía dos veces.
+    const yaEnExistencia = await this.stockYaEntroPorElVale(capture);
+    const detalle = `${capture.verdict}${capture.rule_broken ? ' · ' + capture.rule_broken : ''}`;
+
+    const movement = yaEnExistencia
+      ? await this.inventory.assignLotToUndeclared({
+          warehouse_id: capture.warehouse_id,
+          product_id: capture.product_id,
+          lot_code: capture.confirmed_lot || 'NA',
+          expiry_date: capture.confirmed_expiry ? this.toIso(capture.confirmed_expiry) : null,
+          quantity: Number(capture.quantity),
+          reference_type: 'receiving_audit',
+          reference_id: capture.id,
+          notes: `Caducidad declarada en recepción (${detalle})`,
+        })
+      : await this.inventory.recordMovement({
+          warehouse_id: capture.warehouse_id,
+          product_id: capture.product_id,
+          movement_type: 'in',
+          quantity: Number(capture.quantity),
+          lot_code: capture.confirmed_lot || 'NA',
+          expiry_date: capture.confirmed_expiry ? this.toIso(capture.confirmed_expiry) : undefined,
+          reference_type: 'receiving_audit',
+          notes: `Recepción auditada (${detalle})`,
+        });
     await this.tk.run(async (trx) => {
       await trx('commercial.receiving_lot_captures')
         .where({ id: capture.id })

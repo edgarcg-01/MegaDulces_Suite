@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -7,24 +7,36 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, Turno } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 
 /**
  * Proyecto Tienda — Arqueo ciego de caja para CAJERAS (/tienda/arqueo).
  *
- * La cajera cuenta el efectivo por denominación SIN ver el esperado; al guardar, el
- * sistema revela SU diferencia real. Scopeada a su sucursal (del login). No muestra la
- * inteligencia de enmascaramiento de Kepler — eso vive en /almacen/cuadre (supervisor).
+ * **El turno lo manda Kepler.** El ERP ya sabe qué caja le tocó a quién y desde qué
+ * hora: abre el renglón del corte con la caja, la cajera asignada y la hora de
+ * apertura. Así que acá no se teclea nada del encabezado — sucursal, caja, fecha y
+ * cajero **salen del turno** y se muestran de solo lectura. Sin turno abierto no hay
+ * arqueo: eso evita arquear la caja de otra o un turno que no existió. El supervisor
+ * conserva una captura manual para relevo/contingencia.
+ *
+ * **La cajera solo ve lo suyo**: su total contado y su historial. No ve el esperado
+ * ni su diferencia — mostrarle la diferencia equivale a mostrarle el esperado
+ * (esperado = contado + diferencia), y con eso el arqueo deja de ser ciego: se puede
+ * recapturar "ajustando". El supervisor revela en /almacen/cuadre. El descuadre se
+ * levanta igual en su bandeja (autolineado SM.9): la cajera no lo ve, pero pasa.
+ *
+ * La encargada cierra el circuito **validando presencialmente** desde el historial.
+ *
  * Superficie Operations, PrimeNG denso, dark-safe. §13: captura de dinero → guard de
  * estado sucio + botón que se auto-deshabilita síncrono al 1er clic (anti doble-corte).
  */
@@ -33,7 +45,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectButtonModule, InputTextModule, InputNumberModule, DatePickerModule, TagModule,
+    SelectButtonModule, InputTextModule, DatePickerModule, TagModule,
     ContextHelpComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,78 +56,152 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Arqueo de caja</h1>
-          <p class="surf-page-sub">Contá el efectivo físico por denominación <strong>sin ver el esperado</strong>. Al guardar, el sistema te muestra tu diferencia real.</p>
+          <p class="surf-page-sub">
+            Contá el efectivo físico por denominación y guardalo.
+            @if (revela) { Al guardar, el sistema te muestra la diferencia real. }
+            @else { El cuadre lo revisa tu encargada. }
+          </p>
         </div>
         <div class="arq-head-right">
-          @if (scopedWarehouse) { <span class="arq-scope"><i class="pi pi-map-marker"></i> {{ branchLabel() }}</span> }
           <app-context-help topic="arqueo" />
         </div>
       </header>
 
-      <div class="arq-2col" [class.arq-1col]="!canCapture">
+      <div class="arq-2col" [class.arq-1col]="!canCapture()">
         <!-- Captura -->
-        @if (canCapture) {
+        @if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
-          <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
-                          optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="sb-liquid arq-seg" />
 
-          <div class="arq-head">
-            @if (!scopedWarehouse) {
-              <label class="arq-lbl">Sucursal <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)" placeholder="03"></label>
-            }
-            <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
-            <label class="arq-lbl">Fecha
-              <p-datepicker [(ngModel)]="aDate" (ngModelChange)="dirty.set(true)" dateFormat="dd/mm/yy"
-                            [showIcon]="true" appendTo="body" styleClass="arq-date" inputStyleClass="arq-fld" />
-            </label>
-            <label class="arq-lbl">{{ aTipo() === 'relevo' ? 'Cajero saliente' : 'Cajero' }} <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
-            @if (aTipo() === 'relevo') { <label class="arq-lbl">Cajero entrante <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label> }
-          </div>
-
-          <p-table [value]="denoms" styleClass="p-datatable-sm arq-denoms-tbl">
-            <ng-template #header>
-              <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
-            </ng-template>
-            <ng-template #body let-d>
-              <tr>
-                <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
-                <td class="ta-r">
-                  <p-inputnumber [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()" [min]="0" [showButtons]="false"
-                                 [useGrouping]="false" inputmode="numeric" inputStyleClass="arq-num" [placeholder]="'0'" />
-                </td>
-                <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
-              </tr>
-            </ng-template>
-            <ng-template #footer>
-              <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
-            </ng-template>
-          </p-table>
-
-          @if (aTipo() === 'cierre') {
-            <label class="arq-lbl arq-block">Incidencia <span class="muted">(opcional — si hubo un motivo)</span>
-              <select class="arq-fld arq-sel" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)">
-                <option value="">Ninguna</option>
-                <option value="faltante_justificado">Faltante justificado</option>
-                <option value="billete_falso">Billete falso</option>
-                <option value="robo">Robo</option>
-                <option value="error_cobro">Error de cobro</option>
-                <option value="otro">Otro</option>
-              </select>
-            </label>
+          @if (cargandoTurnos()) {
+            <p class="muted arq-msg">Buscando tus turnos en Kepler…</p>
+          } @else if (!turnos().length && !manual()) {
+            <!-- Sin turno no hay arqueo: es la guarda que impide inventar un corte. -->
+            <div class="arq-vacio">
+              <i class="pi pi-clock"></i>
+              <div>
+                <strong>Kepler no te abrió ninguna caja.</strong>
+                <p class="muted">El arqueo se habilita cuando tu turno está abierto en el punto de venta. Si ya estás cobrando y no aparece, avisale a tu encargada.</p>
+                @if (revela) {
+                  <p-button type="button" label="Capturar sin turno" icon="pi pi-pencil" styleClass="p-button-sm p-button-text"
+                            (click)="manual.set(true)"></p-button>
+                }
+              </div>
+            </div>
           }
-          <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
-          <p-button type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm"
-                  [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
+
+          @if (turnos().length && !manual()) {
+            @if (turnos().length > 1) {
+              <p class="arq-lbl arq-turno-lbl">Elegí el turno que vas a arquear</p>
+              <div class="arq-turnos">
+                @for (t of turnos(); track t.folio + t.warehouse_code) {
+                  <button type="button" class="arq-turno" [class.sel]="t.folio === turnoFolio()"
+                          (click)="elegirTurno(t.folio)">
+                    <span class="arq-turno-caja">Caja {{ t.caja }}</span>
+                    <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
+                    <span class="arq-turno-meta">{{ t.abierto ? 'Abierta desde ' + (t.hora_apertura || '—') : 'Cerró ' + (t.hora_cierre || '—') }}</span>
+                  </button>
+                }
+              </div>
+            }
+
+            @if (turnoSel(); as t) {
+              <!-- Encabezado NO editable: cada dato viene del turno de Kepler. -->
+              <div class="arq-datos">
+                <div><span class="arq-ev-k">Sucursal</span><span class="arq-ev-v">{{ branchLabel(t.warehouse_code) }}</span></div>
+                <div><span class="arq-ev-k">Caja</span><span class="arq-ev-v strong">{{ t.caja }}</span></div>
+                <div><span class="arq-ev-k">Fecha</span><span class="arq-ev-v">{{ t.business_date | date:'dd/MM/yy' }}</span></div>
+                <div><span class="arq-ev-k">Cajero</span><span class="arq-ev-v">{{ t.cajero_code || '—' }}</span></div>
+                <div><span class="arq-ev-k">{{ t.abierto ? 'Abrió' : 'Cerró' }}</span><span class="arq-ev-v">{{ (t.abierto ? t.hora_apertura : t.hora_cierre) || '—' }}</span></div>
+                <div><span class="arq-ev-k">Turno Kepler</span><span class="arq-ev-v">#{{ t.folio }}</span></div>
+              </div>
+            }
+          }
+
+          @if (manual()) {
+            <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
+            <div class="arq-head">
+              <label class="arq-lbl">Sucursal
+                <select class="arq-fld arq-sel arq-fld-suc" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)">
+                  <option value="" disabled>Elegí…</option>
+                  @for (w of sucursales(); track w.value) { <option [value]="w.value">{{ w.value }} — {{ w.label }}</option> }
+                </select>
+              </label>
+              <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
+              <label class="arq-lbl">Fecha
+                <p-datepicker [(ngModel)]="aDate" (ngModelChange)="dirty.set(true)" dateFormat="dd/mm/yy"
+                              [showIcon]="true" appendTo="body" styleClass="arq-date" inputStyleClass="arq-fld" />
+              </label>
+              <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
+              @if (turnos().length) {
+                <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
+              }
+            </div>
+          }
+
+          @if (puedeContar()) {
+            <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
+                            optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="sb-liquid arq-seg" />
+            @if (aTipo() === 'relevo') {
+              <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
+            }
+
+            <p-table [value]="denoms" styleClass="p-datatable-sm arq-denoms-tbl">
+              <ng-template #header>
+                <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
+              </ng-template>
+              <ng-template #body let-d let-i="rowIndex">
+                <tr>
+                  <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
+                  <td class="ta-r">
+                    <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
+                         casilla en vez de sumar/restar. Con el spinner puesto, una flecha
+                         de más cambia el conteo del billete sin que la cajera lo note. -->
+                    <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
+                           [attr.aria-label]="'Cantidad de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
+                           [value]="denomCount[d] ?? ''" placeholder="0"
+                           (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
+                  </td>
+                  <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #footer>
+                <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
+              </ng-template>
+            </p-table>
+            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usá <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
+
+            @if (aTipo() === 'cierre') {
+              <label class="arq-lbl arq-block">Incidencia <span class="muted">(opcional — si hubo un motivo)</span>
+                <select class="arq-fld arq-sel" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)">
+                  <option value="">Ninguna</option>
+                  <option value="faltante_justificado">Faltante justificado</option>
+                  <option value="billete_falso">Billete falso</option>
+                  <option value="robo">Robo</option>
+                  <option value="error_cobro">Error de cobro</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </label>
+            }
+            <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
+            <p-button type="button" [label]="submitLabel()" icon="pi pi-lock" styleClass="p-button-sm"
+                    [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
+          }
 
           @if (result(); as r) {
-            <div class="arq-result" [class.bad]="(r.diff_real || 0) > 0" [class.ok]="(r.diff_real || 0) < 0">
+            <div class="arq-result" [class.bad]="revela && (r.diff_real || 0) > 0" [class.ok]="revela && (r.diff_real || 0) < 0">
               @if (r.tipo === 'relevo') {
-                <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados de {{ aCajero || '—' }} → {{ aEntrante || '—' }}.</p>
+                <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados a {{ aEntrante || '—' }}.</p>
+              } @else if (!r.reveal) {
+                <!-- Cajera: se confirma el hecho, no el cuadre. -->
+                <div class="arq-cmp">
+                  <div><span class="arq-ev-k">Guardado — total contado</span><span class="arq-ev-v strong">{{ money(r.total_contado) }}</span></div>
+                </div>
+                <p class="muted arq-mt">Quedó sellado con la hora. Falta que tu encargada lo valide en tu lugar.</p>
               } @else if (r.ambiguous) {
-                <p class="muted">Guardado ({{ money(r.total_contado) }}). Hay <strong>varios cortes</strong> en esta caja hoy — especificá el <strong>cajero</strong> para revelar tu diferencia contra el turno correcto.</p>
+                <p class="muted">Guardado ({{ money(r.total_contado) }}). Hay <strong>varios cortes</strong> en esta caja hoy — capturá desde el turno para comparar contra el correcto.</p>
               } @else if (!r.matched) {
-                <p class="muted">Guardado. Todavía no hay corte del sistema para comparar — la diferencia aparecerá cuando se procese.</p>
+                <p class="muted">Guardado. El turno todavía no cerró en Kepler — la diferencia aparece cuando se procese el corte.</p>
               } @else {
                 <div class="arq-cmp">
                   <div><span class="arq-ev-k">Contado</span><span class="arq-ev-v strong">{{ money(r.total_contado) }}</span></div>
@@ -132,18 +218,61 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Arqueos recientes</h3>
           <p-table [value]="rows()" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
-            <ng-template #header><tr><th>Fecha</th><th>Tipo</th><th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr></ng-template>
+            <ng-template #header>
+              <tr>
+                <th>Fecha</th>
+                @if (variasSucursales()) { <th>Sucursal</th> }
+                <th>Caja</th><th>Cajero</th>
+                @if (revela) {
+                  <!-- Los tres números de la validación, en el orden en que se leen:
+                       lo que debería haber · lo que Kepler declara · lo que contamos. -->
+                  <th class="ta-r">Esperado</th>
+                  <th class="ta-r">Arqueo Kepler</th>
+                  <th class="ta-r">Nuestro arqueo</th>
+                  <th class="ta-r">Diferencia</th>
+                } @else {
+                  <th class="ta-r">Contado</th>
+                }
+                <th>Validado</th>
+              </tr>
+            </ng-template>
             <ng-template #body let-b>
               <tr>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
-                <td><p-tag [value]="b.tipo === 'relevo' ? 'Relevo' : 'Cierre'" [severity]="b.tipo === 'relevo' ? 'info' : 'secondary'" /></td>
-                <td>{{ b.caja }}</td>
+                @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
+                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }</td>
                 <td>{{ b.cajero_nombre || b.cajero_code || '—' }}@if (b.tipo === 'relevo' && b.cajero_entrante) { <span class="muted"> → {{ b.cajero_entrante }}</span> }</td>
-                <td class="ta-r">{{ money(b.total_contado) }}</td>
-                <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}</td>
+                @if (revela) {
+                  <td class="ta-r muted">{{ b.esperado != null ? money(b.esperado) : '—' }}</td>
+                  <td class="ta-r">
+                    {{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}
+                    @if (b.kepler_enmascaro) {
+                      <!-- Kepler cerró el corte "cuadrado" y el conteo real dice otra cosa. -->
+                      <span class="arq-mask" title="Kepler dio este corte por cuadrado">enmascaró</span>
+                    }
+                  </td>
+                  <!-- El nuestro es el que vale: va destacado. -->
+                  <td class="ta-r strong">{{ money(b.total_contado) }}</td>
+                  <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">
+                    {{ b.diff_real != null ? signed(b.diff_real) : '—' }}
+                    @if (b.diff_real != null && b.diff_real !== 0) { <span class="arq-dif-l">{{ b.diff_real > 0 ? 'faltan' : 'sobran' }}</span> }
+                  </td>
+                } @else {
+                  <td class="ta-r strong">{{ money(b.total_contado) }}</td>
+                }
+                <td>
+                  @if (b.validado_at) {
+                    <span class="arq-ok" [title]="'Validado por ' + (b.validado_por || '?')"><i class="pi pi-check-circle"></i> {{ b.validado_por || 'sí' }}</span>
+                  } @else if (revela) {
+                    <p-button type="button" label="Validar" icon="pi pi-check" styleClass="p-button-sm p-button-text"
+                              [disabled]="validando() === b.id" (click)="validar(b)"></p-button>
+                  } @else {
+                    <span class="muted">Pendiente</span>
+                  }
+                </td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="6" class="arq-empty">Sin arqueos aún. Capturá el primero a la izquierda.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">Sin arqueos aún.</td></tr></ng-template>
           </p-table>
         </div>
       </div>
@@ -152,26 +281,42 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
   styles: [`
     :host { display: block; }
     .arq-head-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
-    .arq-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action); }
-    .arq-scope i { font-size: .72rem; }
     .arq-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     .arq-2col.arq-1col { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .arq-2col { grid-template-columns: 1fr; } }
     .arq-panel { padding: 1rem; }
     .arq-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
+    .arq-msg { font-size: .82rem; margin: .4rem 0; }
+    .arq-vacio { display: flex; gap: .8rem; align-items: flex-start; padding: .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md); }
+    .arq-vacio i { color: var(--action); margin-top: .15rem; }
+    .arq-vacio p { margin: .25rem 0 .4rem; font-size: .82rem; }
+    .arq-turno-lbl { margin: .2rem 0 .4rem; }
+    .arq-turnos { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+    .arq-turno { display: flex; flex-direction: column; gap: .12rem; align-items: flex-start; text-align: left; cursor: pointer;
+                 padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: inherit; }
+    .arq-turno:hover { background: var(--surface-hover-bg); }
+    .arq-turno.sel { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
+    .arq-turno-caja { font-size: .85rem; font-weight: 700; }
+    .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
+    .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
+                 padding: .7rem .8rem; border-radius: var(--r-md); background: var(--surface-hover-bg); border: 1px solid var(--border-color); }
     :host ::ng-deep .arq-seg { margin-bottom: .7rem; }
     .arq-head { display: flex; gap: .8rem; flex-wrap: wrap; margin: .8rem 0; align-items: flex-end; }
     .arq-lbl { display: inline-flex; flex-direction: column; gap: .2rem; font-size: .76rem; color: var(--text-muted); }
     :host ::ng-deep .arq-fld { font-size: .82rem; padding: .35rem .6rem; }
     :host ::ng-deep .arq-fld-sm { width: 5.5rem; }
+    .arq-fld-suc { width: 11rem; }
     :host ::ng-deep .arq-num { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
     :host ::ng-deep .arq-date .p-datepicker-input { width: 8.5rem; }
     .arq-block { display: block; margin: .8rem 0; }
-    .arq-sel { display: block; width: 100%; margin-top: .2rem; font-size: .82rem; padding: .35rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
+    .arq-sel { font-size: .82rem; padding: .35rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
+    .arq-block .arq-sel { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
-    :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .8rem; }
+    :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .4rem; }
     :host ::ng-deep .arq-denoms-tbl .p-datatable-tbody > tr > td { padding: .2rem .5rem; }
     .arq-denom-lbl { font-variant-numeric: tabular-nums; }
+    .arq-hint { margin: 0 0 .8rem; font-size: .72rem; color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
+    .arq-hint kbd { font-family: var(--font-mono, monospace); font-size: .68rem; padding: .05rem .3rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--surface-hover-bg); }
     :host ::ng-deep .arq-total-row td { border-top: 2px solid var(--border-color); font-weight: 700; }
     .arq-result { margin-top: 1rem; padding: .9rem; border-radius: var(--r-md); border: 1px solid var(--border-color); background: var(--surface-hover-bg); }
     .arq-result.bad { border-color: color-mix(in srgb, var(--bad-fg) 40%, transparent); background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
@@ -179,7 +324,14 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .6rem 1rem; }
     .arq-ev-k { font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); display: block; }
     .arq-ev-v { font-size: .95rem; font-variant-numeric: tabular-nums; }
+    .arq-mt { margin: .6rem 0 0; font-size: .78rem; }
     .arq-table { font-variant-numeric: tabular-nums; }
+    .arq-mask { display: inline-block; margin-left: .35rem; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
+                font-weight: 700; padding: .05rem .3rem; border-radius: 4px; color: var(--bad-fg);
+                background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
+    .arq-dif-l { display: block; font-size: .62rem; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; opacity: .75; }
+    .arq-ok { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--ok-fg); font-weight: 600; }
+    :host ::ng-deep .arq-tag-mini { margin-left: .3rem; transform: scale(.8); }
     .arq-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
     .bad { color: var(--bad-fg); } .ok { color: var(--ok-fg); }
@@ -189,16 +341,35 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private readonly svc = inject(ArqueoService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  private readonly dataScope = inject(DataScopeService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Sucursal fija por login ('' = rol global que puede elegir sucursal). */
-  readonly scopedWarehouse = this.auth.user()?.warehouse_code || '';
-  readonly branchLabel = computed(() => branchName(this.scopedWarehouse));
+  @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
 
-  /** Auditoría entra con solo VER (lee el historial) pero NO captura. */
-  readonly canCapture = this.perms.can('manage', 'all')
-    || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true;
+  /**
+   * ¿Se le revela el cuadre? Solo el supervisor del motor (`RECONCILIATION_VER`).
+   * Espeja la regla del backend — acá es cosmético (el backend ya no manda los
+   * campos), pero evita renderizar columnas que siempre saldrían vacías.
+   */
+  readonly revela = this.perms.can('manage', 'all')
+    || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
+
+  /** Turnos que Kepler abrió a nombre del usuario. Sin turno no hay arqueo. */
+  readonly turnos = signal<Turno[]>([]);
+  readonly turnoFolio = signal<string>('');
+  readonly cargandoTurnos = signal(true);
+  readonly turnoSel = computed(() => this.turnos().find((t) => t.folio === this.turnoFolio()) ?? null);
+  /** Captura a mano (solo supervisor): relevo, contingencia, caja sin Kepler. */
+  readonly manual = signal(false);
+  readonly puedeContar = computed(() => !!this.turnoSel() || this.manual());
+
+  /** Sucursales del ALCANCE del usuario — solo se usan en la captura manual. */
+  readonly sucursales = signal<ScopeOption[]>([]);
+  readonly variasSucursales = computed(() => this.sucursales().length > 1);
+
+  readonly canCapture = computed(() =>
+    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
 
   readonly tipoOptions = [
     { label: 'Cierre de día', value: 'cierre' as const },
@@ -212,9 +383,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly arqTotal = signal(0);
   readonly saving = signal(false);
   readonly loading = signal(false);
+  readonly validando = signal<string | null>(null);
   readonly dirty = signal(false);
   readonly result = signal<ArqueoResult | null>(null);
   readonly rows = signal<ArqueoRow[]>([]);
+
+  readonly submitLabel = computed(() =>
+    this.aTipo() === 'relevo' ? 'Sellar relevo' : (this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo'));
+  readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */
   hasUnsavedChanges(): boolean { return this.dirty(); }
@@ -223,26 +399,86 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
 
   ngOnInit() {
-    // SM.9 — autofill del cajero: las cajeras loguean con username = su código de
-    // caja. Prellenamos el código (en MAYÚSCULAS, como viene en el corte de Kepler)
-    // solo cuando el usuario está scopeado a una sucursal (= es una cajera, no un
-    // rol global). Así solo cuenta el dinero.
-    if (this.scopedWarehouse) {
-      const u = this.auth.user()?.username;
-      if (u) this.aCajero = u.toUpperCase();
-    }
+    // Solo se usa en la captura manual del supervisor: en el flujo normal la
+    // sucursal la dice el turno.
+    const u = this.auth.user()?.username;
+    if (u) this.aCajero = u.toUpperCase();
+    this.dataScope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc = w[0].value; },
+      error: () => { /* el backend recorta igual */ },
+    });
+    this.cargarTurnos();
     this.load();
   }
 
-  canSubmit(): boolean {
-    const suc = this.scopedWarehouse || this.aSuc.trim();
-    return !!suc && !!this.aCaja.trim() && !!this.aDate && this.arqTotal() > 0;
+  private cargarTurnos() {
+    this.cargandoTurnos.set(true);
+    this.svc.turnos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => {
+        this.turnos.set(t);
+        // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
+        if (t.length && !this.turnoSel()) this.turnoFolio.set(t[0].folio);
+        this.cargandoTurnos.set(false);
+      },
+      error: () => this.cargandoTurnos.set(false),
+    });
   }
+
+  elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
+
+  branchLabel(code?: string | null): string {
+    if (!code) return '';
+    const o = this.sucursales().find((w) => w.value === code);
+    return o?.label || branchName(code);
+  }
+
+  canSubmit(): boolean {
+    if (this.arqTotal() <= 0) return false;
+    if (this.turnoSel()) return true;
+    return this.manual() && !!(this.aSuc.trim()) && !!this.aCaja.trim() && !!this.aDate;
+  }
+
+  // ─────────────────── pad de denominaciones ───────────────────
+
+  /** Solo dígitos: es un conteo de billetes, no una fórmula. */
+  onDenomInput(denom: number, ev: Event) {
+    const el = ev.target as HTMLInputElement;
+    const limpio = (el.value || '').replace(/\D/g, '');
+    if (limpio !== el.value) el.value = limpio;
+    if (limpio) this.denomCount[denom] = Number(limpio);
+    else delete this.denomCount[denom];
+    this.recalc();
+  }
+
+  /**
+   * ↑/↓ SALTAN de casilla (y Enter avanza), en vez de incrementar el conteo —
+   * por eso este input no es un `p-inputnumber`. Contar efectivo es teclear un
+   * número y bajar; una flecha que suma un billete sin aviso es un descuadre.
+   */
+  onDenomKey(ev: KeyboardEvent, i: number) {
+    const salto = ev.key === 'ArrowUp' ? -1 : (ev.key === 'ArrowDown' || ev.key === 'Enter') ? 1 : 0;
+    if (!salto) return;
+    ev.preventDefault();
+    this.focusDenom(i + salto);
+  }
+
+  private focusDenom(i: number) {
+    const inputs = this.denomInputs?.toArray() ?? [];
+    if (i < 0 || i >= inputs.length) return;
+    const el = inputs[i].nativeElement;
+    el.focus();
+    el.select();
+  }
+
+  /** Al entrar a una casilla se selecciona lo que hay: retecleás encima, no atrás. */
+  selectAll(ev: Event) { (ev.target as HTMLInputElement).select(); }
 
   recalc() {
     this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0));
     this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
+
+  // ─────────────────────────── guardar ───────────────────────────
 
   submit() {
     if (this.saving()) return; // §13 idempotencia visual: ignora re-clicks
@@ -250,10 +486,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const denominations: Record<string, number> = {};
     for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
     const relevo = this.aTipo() === 'relevo';
+    const t = this.turnoSel();
+    // Con turno, el encabezado sale de Kepler; el backend lo vuelve a resolver
+    // por folio, así que esto es solo lo que se muestra.
+    const cabecera = t
+      ? { cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date, cajero_code: t.cajero_code || undefined }
+      : { warehouse_code: this.aSuc.trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
     this.svc.submit({
-      warehouse_code: this.scopedWarehouse || this.aSuc.trim() || undefined,
-      caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), tipo: this.aTipo(),
-      cajero_code: this.aCajero.trim() || undefined,
+      ...cabecera, tipo: this.aTipo(),
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,
       denominations, nota: this.aNota.trim() || undefined,
       incidencia_tipo: !relevo && this.aIncidencia ? this.aIncidencia : undefined,
@@ -261,12 +501,32 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       next: (r) => {
         this.saving.set(false); this.result.set(r); this.dirty.set(false);
         const detail = r.tipo === 'relevo' ? `Relevo sellado (${this.money(r.total_contado)}).`
-          : r.ambiguous ? 'Guardado. Varios cortes hoy: especificá el cajero para comparar.'
-          : (r.matched ? `${this.diffLabel(r.diff_real)}: ${this.signed(r.diff_real || 0)}` : 'Guardado (sin corte para comparar aún).');
-        this.toast.add({ severity: (r.diff_real || 0) > 0 ? 'warn' : 'success', summary: r.tipo === 'relevo' ? 'Relevo guardado' : 'Arqueo guardado', detail });
+          : !r.reveal ? `Total contado ${this.money(r.total_contado)}. Falta que tu encargada lo valide.`
+          : r.ambiguous ? 'Guardado. Varios cortes hoy: capturá desde el turno para comparar.'
+          : (r.matched ? `${this.diffLabel(r.diff_real)}: ${this.signed(r.diff_real || 0)}` : 'Guardado (el turno aún no cerró en Kepler).');
+        this.toast.add({
+          severity: this.revela && (r.diff_real || 0) > 0 ? 'warn' : 'success',
+          summary: r.tipo === 'relevo' ? 'Relevo guardado' : 'Arqueo guardado', detail,
+        });
+        this.denomCount = {}; this.arqTotal.set(0);
+        this.cargarTurnos();  // el turno arqueado sale de la lista
         this.load();
       },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
+    });
+  }
+
+  /** La encargada firma el arqueo después de contarlo en el lugar. */
+  validar(b: ArqueoRow) {
+    if (this.validando()) return;
+    this.validando.set(b.id);
+    this.svc.validar(b.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.validando.set(null);
+        this.toast.add({ severity: 'success', summary: 'Arqueo validado', detail: `Caja ${b.caja} · ${this.money(b.total_contado)}` });
+        this.load();
+      },
+      error: (e) => { this.validando.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo validar.' }); },
     });
   }
 
@@ -282,7 +542,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return `${y}-${m}-${day}`;
   }
 
-  diffLabel(diff: number | null): string {
+  diffLabel(diff: number | null | undefined): string {
     if (diff == null) return 'Diferencia';
     if (diff > 0) return 'Faltante';
     if (diff < 0) return 'Sobrante';
