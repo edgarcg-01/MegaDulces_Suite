@@ -2,13 +2,13 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed,
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, of, switchMap, catchError } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
+import { CheckboxModule } from 'primeng/checkbox';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
@@ -16,8 +16,11 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import {
-  EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile,
+  EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail,
 } from '../entradas.service';
+import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentForEntradaRow } from '../compras.service';
 import { receiptVerdict, lineasTotal, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
@@ -49,7 +52,8 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule, DialogModule,
-    TableModule, TagModule, ToastModule, RouterLink, SegmentedComponent, LoadStateComponent, EntityInspectorComponent,
+    TableModule, TagModule, ToastModule, CheckboxModule, RouterLink, SegmentedComponent, LoadStateComponent,
+    EntityInspectorComponent, DocViewerComponent, FreshnessPillComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
   template: `
@@ -81,13 +85,17 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
             </span>
             @if (decididasHoy() > 0) { <span class="rv-done">{{ decididasHoy() }} decididas</span> }
           }
-          @if (canValidate() && limpias().length > 1) {
+          @if (canValidate() && limpias().length > 1 && !sel().size) {
             <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="bulking()" (click)="abrirLote()"
                     [title]="'Aprobar las ' + limpias().length + ' que cuadran al peso'">
               <span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span>
               <span class="p-button-label">Aprobar {{ limpias().length }} que cuadran</span>
             </button>
           }
+          <!-- RE.17.4 — DESIGN §9: una cola de decisiones es dato volátil (el revisor central y
+               el local trabajan la misma) y no decía de cuándo era lo que estabas mirando. -->
+          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="300" />
+          <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
             <span class="p-button-label">Actualizar</span>
@@ -124,7 +132,14 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
         <div class="rv-split">
           <ul class="rv-queue" [class.loading]="loading()" role="listbox" aria-label="Cola de revisión">
             @for (c of cola(); track c.sucursal + '/' + c.folio; let i = $index) {
-              <li>
+              <li class="rv-li" [class.picked]="estaSel(c)">
+                @if (canValidate()) {
+                  <!-- RE.17.4 — la casilla es lo que faltaba para poder aprobar 5 de 12. Antes
+                       el lote era todo-o-nada ("las que cuadran") y el resto de a una. -->
+                  <p-checkbox [binary]="true" [ngModel]="estaSel(c)" (onChange)="alternarSel(c)"
+                              [disabled]="!c.deposit_id" styleClass="rv-cb"
+                              [ariaLabel]="'Seleccionar ' + c.folio + ' de ' + (c.proveedor_nombre || 'proveedor')" />
+                }
                 <button type="button" class="rv-q" [class.on]="i === idx()" [class.bad]="noCuadra(c)"
                         role="option" [attr.aria-selected]="i === idx()" (click)="ir(i)">
                   <span class="rv-q-top">
@@ -220,20 +235,14 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                   </dl>
 
                   @if (d.deposits?.length) {
-                    <div class="rv-hojas">
-                      <span class="rv-lbl">Hojas adjuntas</span>
-                      @for (dep of d.deposits; track dep.id) {
-                        @for (f of dep.files; track f.url) {
-                          <button type="button" class="rv-hoja" [class.on]="doc()?.url === f.url" (click)="verDoc(f)">
-                            <i class="pi" [ngClass]="esImagen(f) ? 'pi-image' : 'pi-file-pdf'" aria-hidden="true"></i>
-                            {{ f.name || (esImagen(f) ? 'foto' : 'PDF') }}
-                          </button>
-                        }
-                      }
-                      <span class="rv-subio">
-                        subió {{ d.deposits[0].created_by || '—' }} · {{ d.deposits[0].created_at | date:'dd/MM HH:mm' }}
-                      </span>
-                    </div>
+                    <!-- Las hojas dejaron de listarse acá: el visor tiene sus propias pestañas y
+                         tener dos selectores de lo mismo obliga a mirar cuál manda. Queda la
+                         procedencia, que es dato de la decisión (segregación de funciones). -->
+                    <p class="rv-subio">
+                      {{ plural(hojas().length, 'hoja adjunta', 'hojas adjuntas') }} ·
+                      subió <strong>{{ d.deposits[0].created_by || '—' }}</strong>
+                      {{ d.deposits[0].created_at | date:'dd/MM HH:mm' }}
+                    </p>
                   }
 
                   <p-table [value]="d.lineas" styleClass="p-datatable-sm rv-table" [scrollable]="true" scrollHeight="24vh"
@@ -300,22 +309,14 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                   }
                 </div>
 
-                <!-- El documento al lado de las cifras: es la comparación que hace el trabajo. -->
+                <!-- El documento al lado de las cifras: es la comparación que hace el trabajo.
+                     RE.17.4 — era un <iframe> pelado sin zoom, sin rotar y sin páginas, y lo que
+                     entra acá son remisiones escritas a mano y escaneadas torcidas. Ahora es el
+                     visor compartido, que además ofrece pantalla completa sin perder la cola. -->
                 <aside class="rv-doc">
-                  @if (doc(); as v) {
-                    <div class="rv-doc-head">
-                      <span [title]="v.name"><i class="pi" [ngClass]="v.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'" aria-hidden="true"></i> {{ v.name }}</span>
-                      <a pButton type="button" text size="small" [href]="v.url" target="_blank" rel="noopener" title="Abrir en pestaña">
-                        <span class="p-button-icon pi pi-external-link" aria-hidden="true"></span>
-                      </a>
-                    </div>
-                    <div class="rv-doc-frame">
-                      @if (v.kind === 'pdf') { <iframe [src]="v.safe" title="Documento de la entrada"></iframe> }
-                      @else { <img [src]="v.url" [alt]="v.name" /> }
-                    </div>
-                  } @else {
-                    <div class="rv-doc-empty"><i class="pi pi-file" aria-hidden="true"></i><span>Elegí una hoja para verla acá.</span></div>
-                  }
+                  <app-doc-viewer [files]="hojas()" [(idx)]="hojaIdx"
+                                  emptyTitle="Sin hoja adjunta"
+                                  emptyHint="Esta entrada no tiene documento del proveedor. Devolvela con el motivo «falta una hoja» o pedile a la sucursal que la suba." />
                 </aside>
               </div>
             } @else {
@@ -323,6 +324,30 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
             }
           </section>
         </div>
+
+        @if (sel().size) {
+          <!-- Bulk-bar (§datos densos 6): al seleccionar sube y reemplaza al toolbar. Dice qué
+               va a pasar con las que NO cuadran en vez de esconderlas: el server revalida una
+               por una y devuelve el motivo de cada omitida (§10, fallos parciales). -->
+          <div class="rv-bulk" role="region" aria-label="Acciones sobre la selección">
+            <span class="rv-bulk-n"><strong>{{ sel().size }}</strong> {{ sel().size === 1 ? 'seleccionada' : 'seleccionadas' }}</span>
+            <span class="rv-bulk-m">{{ money(montoSel()) }}</span>
+            @if (selConDescuadre() > 0) {
+              <span class="rv-bulk-w">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                {{ selConDescuadre() }} no {{ selConDescuadre() === 1 ? 'cuadra' : 'cuadran' }} — {{ selConDescuadre() === 1 ? 'esa se queda' : 'esas se quedan' }} en la cola
+              </span>
+            }
+            <span class="rv-bulk-sp"></span>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarSel()">
+              <span class="p-button-label">Quitar selección</span>
+            </button>
+            <button pButton type="button" class="p-button-sm" severity="success" [loading]="bulking()" (click)="abrirLote()">
+              <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+              <span class="p-button-label">Aprobar {{ sel().size }}</span>
+            </button>
+          </div>
+        }
       }
     </div>
 
@@ -359,26 +384,61 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
 
     <!-- Lote: enumera antes de aplicar. Nunca un "aprobar todo". -->
     <p-dialog [visible]="showLote()" (visibleChange)="onLoteVisible($event)" [modal]="true" [draggable]="false"
-              [style]="{ width: '32rem', maxWidth: '96vw' }" header="Aprobar las que cuadran al peso">
-      <div class="rv-lote">
-        <p>
-          Se van a aprobar <strong>{{ limpias().length }}</strong> facturas cuyo total coincide con
-          Kepler dentro de la tolerancia de
-          <strong>{{ money(report()?.settings?.match_tolerance ?? 1) }}</strong> y que no subiste vos.
-          Las que no cuadran quedan en la cola para revisarlas a mano.
-        </p>
-        <ul>
-          @for (c of limpias(); track c.deposit_id) {
-            <li><span class="mono">{{ suc(c.sucursal) }} · {{ c.folio }}</span> <em>{{ c.proveedor_nombre }}</em> <b>{{ money(c.monto) }}</b></li>
-          }
-        </ul>
-      </div>
+              [style]="{ width: '34rem', maxWidth: '96vw' }"
+              [header]="resultado().length ? 'Resultado del lote' : (sel().size ? 'Aprobar las seleccionadas' : 'Aprobar las que cuadran al peso')">
+      @if (resultado(); as res) {
+        @if (res.length) {
+          <!-- §10 — fallos parciales: el resultado es POR EXPEDIENTE, no un toast que tapa la
+               mitad. Las que fallaron quedan seleccionadas para corregirlas. -->
+          <div class="rv-lote">
+            <ul class="rv-res">
+              @for (r of res; track r.id) {
+                <li [class.bad]="!r.ok">
+                  <i class="pi" [ngClass]="r.ok ? 'pi-check-circle' : 'pi-times-circle'" aria-hidden="true"></i>
+                  <span class="mono">{{ etiquetaDe(r.id) }}</span>
+                  <em>{{ r.ok ? 'aprobada' : r.motivo }}</em>
+                </li>
+              }
+            </ul>
+          </div>
+        } @else {
+          <div class="rv-lote">
+            <p>
+              Se van a aprobar <strong>{{ loteObjetivo().length }}</strong> facturas
+              @if (sel().size) {
+                de tu selección. El servidor revisa cada una: las que no cuadren o hayas subido vos
+                se quedan en la cola y te dice cuáles.
+              } @else {
+                cuyo total coincide con Kepler dentro de la tolerancia de
+                <strong>{{ money(report()?.settings?.match_tolerance ?? 1) }}</strong> y que no subiste vos.
+                Las que no cuadran quedan en la cola para revisarlas a mano.
+              }
+            </p>
+            <ul>
+              @for (c of loteObjetivo(); track c.deposit_id) {
+                <li>
+                  <span class="mono">{{ suc(c.sucursal) }} · {{ c.folio }}</span>
+                  <em>{{ c.proveedor_nombre }}</em>
+                  <b>{{ money(c.monto) }}</b>
+                  @if (!c.monto_match) { <i class="rv-res-w pi pi-exclamation-triangle" title="No cuadra: el servidor la va a omitir" aria-hidden="true"></i> }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+      }
       <ng-template #footer>
-        <button pButton type="button" text (click)="showLote.set(false)"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="success" [loading]="bulking()" (click)="aprobarLote()">
-          <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-          <span class="p-button-label">Aprobar {{ limpias().length }}</span>
-        </button>
+        @if (resultado().length) {
+          <button pButton type="button" (click)="cerrarLote()">
+            <span class="p-button-label">Entendido</span>
+          </button>
+        } @else {
+          <button pButton type="button" text (click)="cerrarLote()"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" severity="success" [loading]="bulking()" [disabled]="!loteObjetivo().length" (click)="aprobarLote()">
+            <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+            <span class="p-button-label">Aprobar {{ loteObjetivo().length }}</span>
+          </button>
+        }
       </ng-template>
     </p-dialog>
 
@@ -399,15 +459,23 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-search { flex: 1 1 14rem; min-width: 10rem; }
     .rv-check { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm, .85rem); color: var(--text-muted); cursor: pointer; }
 
+    /* Consulta de CONTENEDOR y no de media (checklist 9): el split se estrecha por el sidebar
+       expandido, no sólo por el ancho de la ventana, y con @media seguía en dos columnas. */
+    .rv { container-type: inline-size; }
     .rv-split { display: grid; gap: .8rem; grid-template-columns: minmax(15rem, 22rem) 1fr; align-items: start; }
-    @media (max-width: 60rem) { .rv-split { grid-template-columns: 1fr; } }
+    @container (max-width: 60rem) { .rv-split { grid-template-columns: 1fr; } }
 
     .rv-queue { list-style: none; margin: 0; padding: 0; max-height: 74vh; overflow: auto;
       border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .rv-queue.loading { opacity: .6; }
-    .rv-q { display: grid; gap: .15rem; width: 100%; text-align: left; background: transparent; border: 0;
+    /* La casilla y el renglón conviven: la casilla NO puede ir dentro del <button> (HTML
+       inválido) y el renglón entero tiene que seguir siendo el objetivo de "abrir". */
+    .rv-li { display: flex; align-items: stretch; }
+    .rv-li.picked { background: var(--surface-selected-bg, var(--overlay-selected)); }
+    .rv-cb { align-self: center; margin-left: .5rem; flex: none; }
+    .rv-li + .rv-li { border-top: 1px solid var(--border-color); }
+    .rv-q { display: grid; gap: .15rem; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0;
       border-left: 3px solid transparent; padding: .5rem .7rem; cursor: pointer; font: inherit; }
-    .rv-queue li + li .rv-q { border-top: 1px solid var(--border-color); }
     .rv-q:hover { background: var(--surface-hover, var(--surface-2)); }
     .rv-q.on { background: var(--surface-2); border-left-color: var(--action); }
     .rv-q.bad .rv-q-delta { color: var(--bad-fg); }
@@ -446,8 +514,10 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-pos { margin-left: auto; font-size: var(--fs-xs, .75rem); color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .rv-block { margin: 0; display: flex; align-items: center; gap: .4rem; font-size: var(--fs-sm, .85rem); color: var(--warn-fg, var(--bad-fg)); }
 
-    .rv-body { display: grid; grid-template-columns: 1fr minmax(14rem, 24rem); gap: .8rem; align-items: start; }
-    @media (max-width: 72rem) { .rv-body { grid-template-columns: 1fr; } }
+    .rv-body { display: grid; grid-template-columns: 1fr minmax(16rem, 26rem); gap: .8rem; align-items: start; }
+    @container (max-width: 72rem) { .rv-body { grid-template-columns: 1fr; } }
+    /* Apilado, el documento deja de ser un panel angosto y se lee de verdad. */
+    @container (max-width: 72rem) { .rv-doc { position: static; height: 70vh; } }
     .rv-main { min-width: 0; display: grid; gap: .7rem; }
     .rv-head { display: flex; gap: 1.1rem; flex-wrap: wrap; margin: 0; }
     .rv-head > div { display: flex; flex-direction: column; gap: .1rem; }
@@ -458,11 +528,8 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-ref:focus-visible { outline: 2px solid var(--action-ring, var(--action)); outline-offset: 2px; }
     .mono { font-family: var(--font-mono); font-size: .9em; }
     .rv-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .rv-hojas { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
-    .rv-hoja { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .5rem; cursor: pointer; font: inherit;
-      font-size: var(--fs-xs, .75rem); background: transparent; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
-    .rv-hoja.on { border-color: var(--action); color: var(--action); }
-    .rv-subio { font-size: var(--fs-micro, .72rem); color: var(--text-muted); margin-left: auto; }
+    .rv-subio { margin: 0; font-size: var(--fs-micro, .72rem); color: var(--text-muted); }
+    .rv-subio strong { color: var(--text-main); font-weight: 600; }
     .rv-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .rv-table td.ta-r { font-family: var(--font-mono); }
     .rv-table .strong { font-weight: 600; }
@@ -481,12 +548,9 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-hist em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
     .rv-hist-mot { color: var(--text-muted); }
 
-    .rv-doc { position: sticky; top: .5rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); overflow: hidden; }
-    .rv-doc-head { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .35rem .5rem;
-      border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs, .75rem); }
-    .rv-doc-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rv-doc-frame { height: 52vh; background: var(--surface-2); }
-    .rv-doc-frame iframe, .rv-doc-frame img { width: 100%; height: 100%; border: 0; object-fit: contain; display: block; }
+    /* El visor trae su propio marco; acá sólo se le da el alto y se lo deja pegado al scroll,
+       que es lo que permite bajar por los renglones sin perder la hoja de vista. */
+    .rv-doc { position: sticky; top: .5rem; height: 58vh; min-height: 22rem; }
     .rv-doc-empty { display: grid; place-items: center; gap: .4rem; padding: 2.5rem 1rem; color: var(--text-muted); text-align: center; }
     .rv-doc-empty .pi { font-size: 1.4rem; }
 
@@ -514,7 +578,31 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-lote ul { list-style: none; margin: .5rem 0 0; padding: 0; max-height: 40vh; overflow: auto; display: grid; gap: .2rem; }
     .rv-lote li { display: flex; gap: .5rem; align-items: baseline; font-size: var(--fs-sm, .85rem); }
     .rv-lote li em { font-style: normal; flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rv-lote li b { font-family: var(--font-mono); }
+    .rv-lote li b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .rv-res-w { color: var(--warn-fg); font-size: .8em; }
+    .rv-res li .pi { font-size: .85em; }
+    .rv-res li { color: var(--ok-fg); }
+    .rv-res li.bad { color: var(--bad-fg); }
+    .rv-res li .mono, .rv-res li em { color: var(--text-main); }
+    .rv-res li.bad em { color: var(--bad-fg); }
+
+    /* Bulk-bar (§datos densos 6): sube al seleccionar y queda pegada abajo mientras dure la
+       selección — si se fuera con el scroll, en una cola de 200 desaparecería justo al elegir. */
+    .rv-bulk {
+      position: sticky; bottom: 0; z-index: 2;
+      display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+      margin-top: .6rem; padding: .5rem .7rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem);
+      background: var(--card-bg); box-shadow: var(--shadow-float);
+      animation: rv-bulk-in var(--dur-standard, 200ms) var(--ease-out, ease-out);
+    }
+    @keyframes rv-bulk-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .rv-bulk { animation: none; } }
+    .rv-bulk-n { font-size: var(--fs-sm, .85rem); color: var(--text-muted); }
+    .rv-bulk-n strong { color: var(--text-main); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    .rv-bulk-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm, .85rem); color: var(--text-main); }
+    .rv-bulk-w { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs, .75rem); color: var(--warn-fg); }
+    .rv-bulk-sp { flex: 1 1 auto; }
   `],
 })
 export class ComprasEntradasRevisionComponent {
@@ -523,7 +611,6 @@ export class ComprasEntradasRevisionComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
-  private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
 
@@ -589,6 +676,8 @@ export class ComprasEntradasRevisionComponent {
   readonly decididasHoy = signal(0);
   readonly acting = signal(false);
   readonly bulking = signal(false);
+  /** Momento de la última carga de la cola — lo lee la píldora de frescura. */
+  readonly cargadoAt = signal<number | null>(null);
 
   // ── carga de la cola ──
   private readonly pedir = new Subject<void>();
@@ -617,6 +706,15 @@ export class ComprasEntradasRevisionComponent {
       if (!r) return;
       const filtrado = this.soloDescuadre() ? { ...r, rows: r.rows.filter((x) => !x.monto_match) } : r;
       this.report.set(filtrado);
+      this.cargadoAt.set(Date.now());
+      // La selección se poda contra la cola nueva: una evidencia que otro revisor ya decidió
+      // deja de existir, y arrastrarla haría que el lote pidiera aprobar fantasmas.
+      const vivos = new Set(filtrado.rows.map((x) => x.deposit_id).filter(Boolean) as string[]);
+      const s = this.sel();
+      if (s.size) {
+        const podada = new Set([...s].filter((id) => vivos.has(id)));
+        if (podada.size !== s.size) this.sel.set(podada);
+      }
       // El índice se acota, no se resetea: tras aprobar la 5ª querés la nueva 5ª (la que era
       // la 6ª), no volver al principio de la fila.
       this.idx.set(Math.min(this.idx(), Math.max(0, filtrado.rows.length - 1)));
@@ -644,7 +742,16 @@ export class ComprasEntradasRevisionComponent {
   readonly explica = signal<AdjustmentForEntradaRow[]>([]);
   readonly explicaLoading = signal(false);
   readonly inspect = signal<string | null>(null);
-  readonly doc = signal<{ url: string; safe: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
+
+  /**
+   * `[RE.17.4]` — todas las hojas del expediente, aplanadas para el visor. Un expediente puede
+   * tener más de un depósito (se subió, se devolvió, se volvió a subir) y el revisor tiene que
+   * poder mirar cualquiera de las hojas, no sólo las del último.
+   */
+  readonly hojas = computed<DocViewerFile[]>(() =>
+    (this.detail()?.deposits || []).flatMap((dep) =>
+      (dep.files || []).map((f) => ({ url: f.url, name: f.name, role: f.role, kind: f.kind }))));
+  readonly hojaIdx = signal(0);
 
   refProv(code: string): string { return entityRef('prov', code); }
   refEnt(sucursal: string, folio: string): string { return entityRef('ent', sucursal, 'XA2001', folio); }
@@ -654,25 +761,9 @@ export class ComprasEntradasRevisionComponent {
     return s === 'recibido' ? 'Subida' : s === 'validado' ? 'Aprobada' : s === 'rechazado' ? 'Devuelta' : s;
   }
 
-  esImagen(f: ProofFile): boolean {
-    const k = (f.kind || '').toLowerCase();
-    if (k === 'image' || /(jpe?g|png|webp|gif)/.test(k)) return true;
-    if (k === 'pdf' || k === 'raw') return false;
-    return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
-  }
-  verDoc(f: ProofFile): void {
-    const img = this.esImagen(f);
-    this.doc.set({
-      url: f.url,
-      safe: img ? null : this.sanitizer.bypassSecurityTrustResourceUrl(f.url), // iframe exige SafeResourceUrl
-      kind: img ? 'image' : 'pdf',
-      name: f.name || (img ? 'foto' : 'PDF'),
-    });
-  }
-
   private cargarExpediente(): void {
     const c = this.actual();
-    this.detail.set(null); this.doc.set(null); this.explica.set([]);
+    this.detail.set(null); this.hojaIdx.set(0); this.explica.set([]);
     if (!c) return;
     this.detailLoading.set(true);
     this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -680,8 +771,7 @@ export class ComprasEntradasRevisionComponent {
         this.detailLoading.set(false);
         this.detail.set(d);
         // La primera hoja se muestra sola: el trabajo es comparar, no hacer clics.
-        const f = d.deposits?.[0]?.files?.[0];
-        if (f) this.verDoc(f);
+        this.hojaIdx.set(0);
       },
       error: (e) => {
         this.detailLoading.set(false);
@@ -771,23 +861,61 @@ export class ComprasEntradasRevisionComponent {
     this.cargarExpediente();
   }
 
+  // ── selección múltiple ──
+  /** Ids de evidencia marcados a mano. Vacío = el lote trabaja sobre `limpias()`. */
+  readonly sel = signal<ReadonlySet<string>>(new Set());
+  estaSel(c: EntradaRow): boolean { return !!c.deposit_id && this.sel().has(c.deposit_id); }
+  alternarSel(c: EntradaRow): void {
+    const id = c.deposit_id;
+    if (!id) return;
+    const s = new Set(this.sel());
+    s.has(id) ? s.delete(id) : s.add(id);
+    this.sel.set(s);
+  }
+  limpiarSel(): void { this.sel.set(new Set()); }
+
+  /** Sobre qué actúa el lote: la selección si la hay, si no las que cuadran solas. */
+  readonly loteObjetivo = computed<EntradaRow[]>(() => {
+    const s = this.sel();
+    return s.size ? this.cola().filter((c) => !!c.deposit_id && s.has(c.deposit_id)) : this.limpias();
+  });
+  readonly montoSel = computed(() => this.loteObjetivo().reduce((t, c) => t + (Number(c.monto) || 0), 0));
+  /** Cuántas de las elegidas el server va a omitir por descuadre: se dice ANTES, no después. */
+  readonly selConDescuadre = computed(() => this.loteObjetivo().filter((c) => !c.monto_match).length);
+
   // ── lote ──
   readonly showLote = signal(false);
-  abrirLote(): void { this.showLote.set(true); }
-  onLoteVisible(v: boolean): void { if (!v) this.showLote.set(false); }
+  /** Resultado por expediente de la última corrida (§10). Vacío = el diálogo pide confirmación. */
+  readonly resultado = signal<{ id: string; ok: boolean; motivo?: string }[]>([]);
+  abrirLote(): void { this.resultado.set([]); this.showLote.set(true); }
+  cerrarLote(): void { this.showLote.set(false); this.resultado.set([]); }
+  onLoteVisible(v: boolean): void { if (!v) this.cerrarLote(); }
+
+  /** Para el resultado: del id de evidencia al folio, que es como la nombra el revisor. */
+  etiquetaDe(id: string): string {
+    const c = this.cola().find((x) => x.deposit_id === id);
+    return c ? `${this.suc(c.sucursal)} · ${c.folio}` : id.slice(0, 8);
+  }
+
   aprobarLote(): void {
-    const ids = this.limpias().map((c) => c.deposit_id as string);
+    const ids = this.loteObjetivo().map((c) => c.deposit_id as string).filter(Boolean);
     if (!ids.length || this.bulking()) return;
     this.bulking.set(true);
     this.svc.validateBulk(ids).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.bulking.set(false);
-        this.showLote.set(false);
         this.decididasHoy.update((n) => n + r.validadas);
+        // El diálogo se queda abierto mostrando qué pasó con cada una: un toast que dice
+        // "2 quedaron en la cola" sin decir cuáles ni por qué obliga a buscarlas a ojo.
+        this.resultado.set(r.detalle || []);
+        if (!r.omitidas) this.cerrarLote();
+        // Las fallidas siguen seleccionadas para corregirlas; las exitosas salen (§10).
+        const fallidas = new Set((r.detalle || []).filter((d) => !d.ok).map((d) => d.id));
+        this.sel.set(fallidas);
         this.toast.add({
           severity: r.omitidas ? 'warn' : 'success',
-          summary: `${r.validadas} aprobadas`,
-          detail: r.omitidas ? `${r.omitidas} quedaron en la cola (mirá el detalle)` : 'Todas cuadraban al peso',
+          summary: `${r.validadas} ${r.validadas === 1 ? 'aprobada' : 'aprobadas'}`,
+          detail: r.omitidas ? `${r.omitidas} siguen seleccionadas, con su motivo` : 'Todas cuadraban al peso',
         });
         this.idx.set(0);
         this.reload();

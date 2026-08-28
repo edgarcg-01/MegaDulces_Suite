@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -998,6 +998,20 @@ export class ComprasEntradasPendientesComponent {
    */
   onCerrarDialogo(visible: boolean): void {
     if (!visible && !this.guardando()) this.limpiar();
+  }
+
+  /**
+   * `[RE.17.2]` — DESIGN §8 (estado sucio). Cada hoja de la bandeja ya costó una llamada de
+   * visión a Claude, y un lote de CEDIS son treinta. Antes, un clic en el sidebar o un F5 se
+   * las llevaba todas sin preguntar: la ventana se desmontaba y no quedaba nada del lado del
+   * servidor porque todavía no se subió nada. Lo consume `unsavedChangesGuard` en la ruta.
+   */
+  hasUnsavedChanges(): boolean { return this.hojas().length > 0 && !this.guardando(); }
+
+  /** Salida EXTERNA (cerrar pestaña / F5): el Router no la ve. */
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (this.hasUnsavedChanges()) e.preventDefault();
   }
 
   // ── arrastre ──
