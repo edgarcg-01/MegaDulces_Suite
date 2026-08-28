@@ -627,3 +627,57 @@ avisa qué bases quedan afectadas.
 todos los devs arrancan con ése. Ante un desajuste, volver al default suele
 reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
 `.env` de todo el mundo.
+
+---
+
+## 25. `DATABASE_URL` y `DATABASE_URL_NEW` tienen que ser la MISMA base física
+
+**Síntoma:** `42703 column u.route_id does not exist` (o cualquier columna
+recién migrada) en `/api/users`, **con la migración aplicada y verificada**. Y el
+login andando en el mismo instante.
+
+**Causa.** `UsersService` —y todo lo que use `KNEX_CONNECTION`— lee de
+`DATABASE_URL`, mientras `auth-mt/login` y el resto del stack multi-tenant leen
+de `DATABASE_URL_NEW` (`KNEX_NEW_DB`). El módulo lo dice en su encabezado:
+*"post-cutover: misma physical DB que NewDatabaseModule"*. Si las dos apuntan a
+bases distintas, **el login autentica contra una y la lista de usuarios lee de
+otra** — con ids que no se corresponden.
+
+Vivido el 2026-08-28 en local:
+
+| | `DATABASE_URL` (5433) | `DATABASE_URL_NEW` (.245) |
+|---|---|---|
+Usuarios | **81** | **154** |
+Última migración | 2026-08-27 | 2026-08-29 |
+`identity.user_roles` | no existía | existía |
+
+**Y la trampa de por qué estaba así:** el contenedor `pgvector-md`
+(`localhost:5433`) es el único con la extensión `vector`, y como
+`VECTOR_DATABASE_URL` **no estaba seteada**, el matcher de AI caía a su fallback
+(`KNEX_CONNECTION` → ver `vector-database.module.ts`). O sea que apuntar
+`DATABASE_URL` al contenedor pgvector era lo que mantenía la búsqueda por IA
+funcionando, al precio de que la app leyera `identity.*` de una base equivocada.
+
+**La configuración correcta** separa las dos cosas:
+
+```
+DATABASE_URL=<la MISMA que DATABASE_URL_NEW>
+DATABASE_URL_NEW=postgresql://postgres:…@192.168.0.245:5432/platform_test
+VECTOR_DATABASE_URL=postgresql://postgres:…@localhost:5433/postgres_platform
+```
+
+Con eso el arranque loguea las tres por separado y se puede leer de un vistazo:
+
+```
+[DatabaseModule]       Connecting to legacy DB via DATABASE_URL
+[VectorDatabaseModule] Conectando a la DB vector dedicada vía VECTOR_DATABASE_URL
+[NewDatabaseModule]    Connecting to new multi-tenant DB at <from DATABASE_URL_NEW_RUNTIME>
+[AiProductMatcher]     Matcher usa la DB vector dedicada (product_embeddings)
+```
+
+Si ves `VECTOR_DATABASE_URL no configurada — el matcher usará la fuente legacy`,
+estás en la configuración vieja.
+
+**Cómo detectarlo en 10 segundos:** correr la misma query contra las dos URLs.
+Si `SELECT count(*) FROM identity.users` no da el mismo número, son bases
+distintas y cualquier cosa que cruce las dos conexiones va a mentir.
