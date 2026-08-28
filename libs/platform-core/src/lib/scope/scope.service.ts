@@ -49,11 +49,19 @@ interface CacheEntry {
 
 const TTL_MS = 30_000;
 
-/** `own` = el valor de la propia ficha. Solo 3 dimensiones lo soportan. */
+/**
+ * `own` = el valor de la propia ficha.
+ *
+ * `[ID.24.1]` `route` entró acá al existir `identity.users.route_id`. Antes la
+ * dimensión `route` no podía ser `own` —no había columna— y por eso quedó en
+ * `all` para **42 de 45 roles**: no fue una decisión, fue la única opción. Con
+ * la columna, "el vendedor ve SU ruta" por fin se puede escribir.
+ */
 const COLUMNA_PROPIA: Partial<Record<ScopeDimension, string>> = {
   warehouse: 'warehouse_code',
   zone: 'zona_id',
   customer: 'customer_id',
+  route: 'route_id',
 };
 
 /**
@@ -147,7 +155,8 @@ export class ScopeService {
   private async build(tenantId: string, userId: string, roleNameHint?: string): Promise<ResolvedScope> {
     const user = await this.knex('identity.users')
       .where({ tenant_id: tenantId, id: userId })
-      .select('role_name', 'warehouse_code', 'zona_id', 'customer_id')
+      // `route_id` (`[ID.24.1]`) es lo que hace resoluble `route: own`.
+      .select('role_name', 'warehouse_code', 'zona_id', 'customer_id', 'route_id')
       .first();
 
     const roleName = user?.role_name ?? roleNameHint ?? '';
