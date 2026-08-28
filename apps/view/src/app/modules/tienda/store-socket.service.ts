@@ -20,11 +20,20 @@ export interface OpenCaja {
   warehouse_code: string; warehouse_name?: string; caja: string;
   cajero: string | null; cajero_nombre: string | null; abrio: string;
   tickets: number; venta: number; last_ticket: string | null; idle_min: number | null; cobrando: boolean;
+  /** `arrastrada` = abrió un día anterior y nadie la cerró. Es una incidencia, no actividad de hoy. */
+  desde_dia?: string; dias_abierta?: number; arrastrada?: boolean;
 }
 export interface OpenCajasResponse {
-  generated_at: string; cajas_abiertas: number; cobrando_ahora: number;
+  generated_at: string; cajas_abiertas: number; cobrando_ahora: number; arrastradas?: number;
   open_cajas: OpenCaja[];
   cajeros_sin_sesion: { warehouse_code: string; cajero: string; tickets: number; venta: number; last_ticket: string }[];
+  /**
+   * Salud del feed. "0 cajas abiertas" tiene dos causas opuestas —la tienda está
+   * cerrada, o dejamos de recibir datos de Kepler— y sin esto se ven igual.
+   * `al`/`minutos` = cuándo corrió el importer · `ultimo_dia` = de qué día son
+   * los datos · `sospechoso` = el cero no es de fiar.
+   */
+  feed?: { al: string | null; minutos: number | null; ultimo_dia: string | null; hoy: string | null; sospechoso: boolean; atrasado: boolean };
 }
 export interface StoreSnapshot {
   generated_at: string;

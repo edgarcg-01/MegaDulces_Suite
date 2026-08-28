@@ -23,6 +23,7 @@ export const INV_COUNT_TABS: PageTab[] = [
 
 export const INV_ANALYTICS_TABS: PageTab[] = [
   { label: 'Por vencer', route: '/almacen/inventory/expiring', icon: 'pi pi-calendar-times', permission: Permission.COMMERCIAL_INVENTORY_VER },
+  { label: 'Por fechar', route: '/almacen/inventory/por-fechar', icon: 'pi pi-calendar-plus', permission: Permission.COMMERCIAL_EXPIRY_CAPTURAR },
   { label: 'Caducidades', route: '/almacen/inventory/caducidades', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_EXPIRY_VER },
   { label: 'Stock muerto', route: '/almacen/dead-stock', icon: 'pi pi-exclamation-triangle', permission: Permission.COMMERCIAL_ORDERS_VER },
   { label: 'Salud inv.', route: '/almacen/inventory-health', icon: 'pi pi-heart', permission: Permission.COMMERCIAL_ORDERS_VER },

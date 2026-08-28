@@ -72,6 +72,7 @@ const TESTS = [
   { file: 'smoke-horus-missed-visit.js', label: 'Horus.ACT (ACT.1 missed_visit + ACT.4 notify/incident + ACT.2 reorden visit_sequence + ACT.3 add_opportunity_store + ACT.5 balanceo route_rebalance_log + sales_route round-trip)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-vale-entrada-autollenado-test.js', label: 'WMS-REC vale autollenado por folio (búsqueda cross-sucursal + almacén/proveedor/OC derivados + unidad del ERP verbatim + SER excluidos; skip-graceful sin feed)', needsApi: true },
+  { file: 'http-luz-verde-caducidades-test.js', label: 'WMS-REC luz verde → Caducidades (el alta entra en lote NA al aprobar, bandeja por fechar, la fecha reclasifica sin mover el total; skip-graceful sin feed)', needsApi: true },
   { file: 'http-receiving-lot-line-test.js', label: 'WMS-REC ADR-044 declaración de lotes POR RENGLÓN (endpoints REALES: vale→recibir 100→3 lotes amarillo/verde/rojo→cuadre declarado-vs-recibido→cierre bloqueado 409 por retenido→autorizar claim atómico→+100 sin duplicar→invariante lotes=stock)', needsApi: true },
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
   { file: 'http-expiry-reviews-test.js', label: 'P2.6 Control de Caducidades (hoja+renglones+submit→alimenta FEFO: lote fechado en /expiring + invariante stock sin cambios + fed_lines + 409 re-submit)', needsApi: true },
@@ -127,6 +128,7 @@ const TESTS = [
   { file: 'http-thot-directives-test.js', label: 'Thot T.2 empuje dirigido (directriz marca foco → suggest reason=estrategia)', needsApi: true },
   // SM Supervisor de Movimientos — cuadre caja+inventario (self-contained: inyecta+scan+triage+cleanup)
   { file: 'http-reconciliation-test.js', label: 'SM.1/SM.2 cuadre (caja descuadre crítico + merma + bandeja + feedback L2)', needsApi: true },
+  { file: 'http-store-arqueo-test.js', label: 'SM.9/ID.4 arqueo de tienda (la cajera NO recibe esperado ni diff_real — se afirma la AUSENCIA de las claves — vs supervisor que sí + alcance multi-sucursal 2 de 3 + 403 al capturar fuera + el descuadre igual llega a la bandeja)', needsApi: true },
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },

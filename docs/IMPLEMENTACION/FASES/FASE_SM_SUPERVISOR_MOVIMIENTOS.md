@@ -205,6 +205,71 @@ Builds api+view OK. Smoke DB verde: join liga arqueo→corte (diff_real $500, in
 
 **Pendiente prod:** mig `20260730120000` a Railway + redeploy api+view + re-login.
 
+## SM.10 — El arqueo de la cajera, ciego de verdad + alcance real (✅ local 2026-08-27)
+
+Tres huecos que quedaron abiertos en SM.9, los tres en `/tienda/arqueo`.
+
+**1. El ciego dejaba de serlo al primer guardado.** `StoreArqueoController` quitaba los `kepler_*` pero seguía devolviendo `esperado` y `diff_real`, y la pantalla los revelaba ("Guardar y **revelar diferencia**"). Con la diferencia en la mano el esperado se despeja (`esperado = contado + diferencia`), y como `submit` es un **UPSERT** por `(sucursal, caja, fecha, cajero, tipo)`, la cajera podía recapturar "ajustando" hasta cuadrar — que es exactamente el mecanismo detrás del 73 % de cortes exactos al centavo de SM.7. Ahora:
+
+- el backend **no manda los campos**: `proyectar()` los quita salvo `RECONCILIATION_VER` (o admin de plataforma). Se ocultan `esperado` y `diff_real` **juntos**, a propósito;
+- el `submit` de la cajera responde lo mínimo (`tipo`, `total_contado`, `reveal:false`); se quitó también `ambiguous`, que filtraba que hay más de un corte en su caja;
+- el **autolineado SM.9 no cambia**: el descuadre se levanta igual en la bandeja del supervisor + WS. Ocultar el número a la cajera no es dejar de detectarlo.
+
+**2. El alcance venía de la ficha, no del alcance** (`[ID.4]`, ADR-050). Vivía acá el fail-OPEN `user?.warehouse_code || query.warehouse_code`. Ahora la lectura va por `ScopeService.readParam()` (`warehouse_codes[]`) y la escritura por `assertCanWrite` → **403** al capturar fuera, no un filtro que se salta mandando otro `warehouse_code` en el body. Se puede expresar "la 01 y la 03" con un `user_scopes` `listed`; con una sola sucursal el comportamiento es idéntico al de antes. `BlindCountService.list` acepta `warehouse_codes` (`[]` → cero filas, no 403: un historial vacío es una respuesta legítima).
+
+**3. Las flechas del pad sumaban billetes.** El conteo usaba `p-inputnumber`, cuyo spinner incrementa con ↑/↓ — una flecha de más cambia el conteo de una denominación sin que la cajera lo note, y eso es un descuadre fabricado por la UI. Pasó a input de texto con navegación propia: **↑ sube, ↓/Enter bajan**, el foco selecciona lo que hay y sólo entran dígitos.
+
+Además: `DataScopeService` en el front (`GET /users/me/scope`, cacheado — primer consumidor del alcance desde la UI) alimenta el selector de sucursal, la columna Sucursal del historial cuando hay más de una, y el empty-state "tu usuario no tiene sucursal asignada".
+
+**Verificado.** Smoke `http-store-arqueo-test.js` **28/28** contra `platform_test` (afirma la AUSENCIA de las claves, no su valor: un `esperado: null` seguiría siendo un contrato que filtra) + contraste con un supervisor sembrado que sí las recibe + el faltante de $2,000 que la cajera no vio y la bandeja sí registró. Builds api+view verdes. Padrón: las **27 cajeras** (`rol cajero`) resuelven `own` con sucursal asignada → nadie pierde acceso; y ese rol **sólo** tiene los permisos de arqueo (sin `STORE_ANALYTICS_VER` ni `STORE_LIVE_VER`), así que no hay otra pantalla por donde ver la venta.
+
+**Pendiente prod:** migs **`20260826120000` + `20260826121000`** (alcance) en Railway — sin ellas `ScopeService` no tiene de dónde leer — + redeploy api+view. **No requiere re-login** (el alcance no viaja en el JWT).
+
+**Decisión abierta (Edgar):** `auxiliar_tienda` (3 usuarios) captura arqueo y tiene `STORE_ANALYTICS_VER` pero no `RECONCILIATION_VER` → con este cambio deja de ver la diferencia en el arqueo, pero puede ver la venta en Análisis. O se le quita la analítica, o se lo trata como supervisor.
+
+## SM.11 — El arqueo de Kepler, jalado del ODS + firma del que cuenta (✅ local 2026-08-27)
+
+Para que el arqueo ciego sirva hace falta contra qué compararlo. Esto trae ese lado.
+
+### Qué ES el arqueo de Kepler (verificado sobre 3,048 cortes cerrados del ODS)
+
+| Columna | Significado | Confianza |
+|---|---|---|
+| `c15` | efectivo **esperado** | ✅ |
+| `c25` | efectivo **contado** — el arqueo | ✅ como dato, ⚠️ como hecho |
+| `c35` | **diferencia** (`c15 − c25`) | ✅ **3048/3048** coherentes |
+| `c48` | efectivo retirado | ✅ monto (604 valores distintos) |
+| `c43`/`c44`/`c45` | ~~billetes/monedas/otros~~ | ❌ **el mapeo de SM.7 no se sostiene** |
+| `c46`/`c47` | límites/parámetros | ⚠️ 42 y 44 valores distintos en 3,048 filas → **no son montos** |
+| `c49` | ≈ `c15` — **no** es la venta total (venta = `c15+c16+c17`) | ✅ (ya corregido en SM.7) |
+
+Dos cosas que hay que tener presentes al comparar:
+
+1. **`c25` no es un conteo físico verificado, es un número declarado.** El **74.5%** de los cortes cierra con `c25` idéntico a `c15` al centavo. Comparar nuestro arqueo ciego contra `c25` mide *contra qué se declaró*; compararlo contra `c15` mide el hueco real. Por eso `compare()` usa `c15` como esperado y guarda `c25`/`c35` solo para levantar el flag `kepler_enmascaro`.
+2. **Kepler no guarda denominaciones**, solo el total. El detalle pieza por pieza vive en `wincaja.arqueos` (3 sucursales) y en `reconciliation.blind_counts`. La comparación es **total contra total**.
+
+`c43/c44/c45` se siguen trayendo por compatibilidad con el importer viejo, pero marcados como no confiables: su suma reproduce `c25` en **428/3048** cortes. Corrección aplicada a `KEPLER_TABLAS_COMPLETO.md`.
+
+### Cómo se jala: `load-cash-cuts-from-ods.js`
+
+Hermano de `import-cash-cuts.js` — **misma tabla destino, misma llave de conflicto**, otra fuente: `kepler_ods.kdpv_folio_caja`, que el CDC ya replica **dentro de la misma base** que el destino. Consecuencias: un solo UPSERT en SQL (no viajan filas por la red), corre desde cualquier lado (Railway incluido, no solo la máquina de feeds), y la frescura es la del CDC en vez de la del último nightly. El importer de LAN queda como respaldo para sucursales que el ODS no cubra.
+
+Detalles que el SQL tiene que respetar: `DISTINCT ON (sucursal, caja, fecha, folio)` porque el CDC puede reemitir la misma fila y el `ON CONFLICT` reventaría con *"cannot affect row a second time"*; `handoff` **no** se lista (es `GENERATED ALWAYS`); y el corte ABIERTO (`c10='1800-01-01'`, montos en cero) no es un arqueo — se filtra.
+
+Cargado en `platform_test`: **3,044 cortes**, 6 sucursales, oct-2024 → ago-2026, 248 con descuadre declarado ≥$50 y **$509,869** de diferencias acumuladas.
+
+### La firma: el arqueo queda a nombre de quien lo hace
+
+El `username` **es** el código de cajero de Kepler. Verificado contra los cortes reales: `upper(username) = upper(cash_cuts.cajero_cierre)` liga a cada cajera con los suyos — `10c02`→48, `42dmar`→204, `40ammv`→172, `54tysl`→120. Es además la llave con la que `compare()` encuentra el turno.
+
+- **El backend estampa `cajero_code`** desde el usuario autenticado. A la cajera se le **impone** el suyo: firmar un conteo de efectivo a nombre de otra persona no es un campo de formulario. El supervisor sí puede capturar por alguien (relevo, cajera sin acceso al sistema) y, si no dice nada, queda a su nombre.
+- El autofill del front dejó de estar gateado por tener sucursal propia — de ahí que el campo apareciera **vacío** al entrar con un rol global — y para la cajera se muestra fijo, no como input.
+- `captured_by` sigue guardando el username tal cual (auditoría de quién tecleó), separado de `cajero_code` (a quién se le imputa el turno).
+
+Smoke `http-store-arqueo-test.js` **30/30**: manda un `cajero_code` falseado y verifica que la fila quede a nombre de quien captura. La prueba se auto-refuerza — si el backend respetara el body, el motor no encontraría el turno y el paso del autolineado se caería solo.
+
+**Pendiente prod:** correr `load-cash-cuts-from-ods.js --apply` contra Railway (requiere que `kepler_ods.kdpv_folio_caja` esté replicada ahí) y decidir si reemplaza al `import-cash-cuts` del nightly o convive.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

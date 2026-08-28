@@ -45,6 +45,19 @@ export class ReceivingSessionController {
     return this.service.list({ status, warehouse_id: warehouseId, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('pending-expiry')
+  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_CAPTURAR)
+  @ApiOperation({
+    summary:
+      'Bandeja de Caducidades: mercancía ya aprobada en recepción (vale cerrado) a la que le falta declarar lote/caducidad. Ordenada por días esperando.',
+  })
+  pendingExpiry(@Query('warehouse_id') warehouseId?: string, @Query('limit') limit?: string) {
+    return this.service.pendingExpiry({
+      warehouse_id: warehouseId,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get('erp-search')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({
