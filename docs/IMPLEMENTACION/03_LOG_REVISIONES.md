@@ -6,6 +6,46 @@
 
 ---
 
+## 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida)
+
+**Disparador:** Edgar reportó *"los pedidos no se están realizando correctamente"* y pidió detalle de cómo se arma el pedido ahorita mismo. Salió de una revisión de `/compras/pedido`.
+
+### La falla
+
+`import-in-transit` sumaba `kdm2.c9` crudo. Esa columna trae la cantidad **en la unidad de `c11`** — en una misma OC conviven `PAQ`, `PZA`, `KG` y `CJA` (en Padre Hidalgo, 120 d: 4,271 líneas PAQ · 1,529 PZA · 363 KG · **15 CJA**). `import-replenishment-plan` copiaba ese número a `transit_cajas` y el motor lo restaba como cajas, mientras la existencia sí se dividía por el factor de caja.
+
+| | antes | después |
+|---|---:|---:|
+Tránsito que el motor creía en camino | **$1,930,899,262** | **$20,790,556** |
+Inventario real de la red | $53,758,845 | $53,815,757 |
+Productos con tránsito imposible (>6 meses o sin venta) | 1,401 | 185 |
+Pedido de red propuesto | $5,132,955 | **$7,080,868** |
+Productos con necesidad real suprimidos | 595 | 454 |
+
+Caso testigo **70038** (PAL MALVABONY C/CHOC /40, `bf`=16): la OC real son 640 PAQ a $51.07; el motor restaba **640 cajas** ($521k) en vez de **40** ($32.7k). La red concluía "no pedir" mientras Morelia Abastos vendía 227.5 cajas/mes con 36.3 en piso. Ahora pide **93 cajas / $75,913**.
+
+### El fix
+
+`c9 × c12` es invariante a la unidad, así que `c12 / costo_por_unidad_de_stock` dice cuántas unidades de stock trae la línea. El **nombre** de la unidad no sirve: en la sucursal 03 las líneas `PZA` traen ratio 13.5 (son cajas). Debajo de 1.5× se toma como unidad de stock (mediana 1.00, ~95% de las líneas); arriba se usa el ratio topado en el factor de caja.
+
+Se hizo en dos pasos. Primero la corrección mínima sobre el importer y el fact. Después, por indicación de Edgar — *"no debe existir ningún import externo, todo desde ODS y una tabla primaria"* — el tránsito **dejó de ser tabla e importer**: se deriva del ODS en el CTE `tr` de `import-replenishment-plan`, reusando el mismo `econ` que el resto del fact. Se retiró `import-in-transit.js` y su paso en `run-prod-feeds`; `criticalStock`, el worklist y el scanner de hallazgos leen el tránsito del fact (`transit_cajas × bf`, round-trip exacto del mismo `bf`).
+
+**A/B del refactor:** el derive desde el ODS reprodujo el tránsito de la tabla en **1,924 de 1,926 filas** (las 2 restantes son OCs recibidas entre corridas; suma 939,730 vs 938,831 = 0.1 %). El fact completo pasó de 2.8 s a **3.3 s** — el derive suelto cuesta 11.6 s, pero plegado a la query que ya tiene `econ` en memoria casi no pesa.
+
+### Lo que enseñó
+
+**1. El repo ya contenía la respuesta y nadie los enfrentó.** `criticalStock` dividía la MISMA columna por el factor de caja mientras el fact la trataba como cajas. Dos lecturas opuestas del mismo dato, sin una sola prueba que las comparara.
+
+**2. Ninguna pieza se veía mal por separado.** El importer sumaba bien, el fact copiaba bien, el motor restaba bien. El error sólo aparece al **cruzar dos magnitudes** — tránsito contra inventario — y eso no lo miraba nadie. Por eso quedó como regla en [`GOTCHAS §25`](../GOTCHAS.md).
+
+**3. Un rename es una conversión.** El bug entró en RA-PRO.31 al materializar el fact: `qty_in_transit` → `transit_cajas`. El nombre nuevo afirmaba una unidad que nadie convirtió.
+
+**4. El entorno resetea `main` a `origin/main` y se come los commits locales.** Pasó dos veces durante este trabajo (reflog 10:53 y 12:01). Se recuperó del reflog a la rama `mg-ra5-transito`. Refuerza la regla de worktree por agente: esto no se trabaja en `main` local.
+
+**Pendiente detectado, no cerrado:** `MD-30` y `MD-32` no están en `stockMap` ni en el ODS → los dos mayores centros de demanda de la red (21.5k pz/día combinados) nunca reciben datos de tránsito. Y el toggle *Englobar/Desglosar* de `/compras/pedido` cambia el total del pedido de $5.08M a $14.24M porque netea sobrantes entre sucursales hermanas, entre las que no existe traspaso.
+
+---
+
 ## 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del bodeguero
 
 **Disparador:** decisión de negocio sobre cómo se reparte el trabajo real de la bodega — *"en el área de recepción teclea el folio, verifica lo que mandaron y al dar luz verde, pum, le aparezca a la sección de caducidades para que el bodeguero le pueda poner sus fechas"*. Es un cambio de planes respecto a lo construido en WMS-REC.4, y revisa ADR-044.

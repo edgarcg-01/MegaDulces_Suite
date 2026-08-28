@@ -736,3 +736,35 @@ exactas (523 = 523) — la diferencia estaba en las LÍNEAS. Tras reconciliar `k
 **Regla:** el residuo se mide y se borra por `(tabla, sucursal)` con `reconcile-ods-deletes.js`, y las
 tablas grandes NO se saltan en silencio (`--include-big`; el script las lista si las omite). Un
 `kdm2` con 0.39 % de residuo en una rama descuadra el tránsito de compras, que es dinero.
+
+---
+
+## 25. Una columna que se llama `_cajas` puede no estar en cajas — cruzá magnitudes
+
+`kdm2.c9` es la cantidad de la línea **en la unidad que dice `c11`**: en una misma OC conviven `PAQ`,
+`PZA`, `KG` y `CJA`. `import-in-transit` sumaba `c9` crudo y el fact lo copiaba a `transit_cajas`; el
+motor del pedido lo restaba como cajas. Resultado: **$1,931M declarados "en camino" contra $54M de
+inventario real**, el sugerido en cero y ~$5.9M de compra suprimida durante 7 semanas.
+
+**Por qué no se vio:** cada pieza se veía razonable por separado. El importer sumaba bien, el fact
+copiaba bien, el motor restaba bien. Sólo el **cruce de dos magnitudes** delata el error — y nadie
+comparaba tránsito contra inventario. Peor: `criticalStock` ya dividía la MISMA columna por el factor
+de caja, o sea el repo contenía las dos lecturas opuestas y ninguna prueba las enfrentaba.
+
+**Reglas que quedan:**
+
+1. Para convertir unidades de Kepler, **el nombre de la unidad no sirve** — en la sucursal 03 las
+   líneas `PZA` traen ratio de costo 13.5 (son cajas). **El dinero sí**: `c9 × c12` es invariante a la
+   unidad, así que `c12 / costo_por_unidad_de_stock` = cuántas unidades de stock trae la línea.
+   Mismo principio que ya usó RA-PRO.28.5 para recuperar el factor de caja desde el costo.
+2. Todo feed que produzca una cantidad que después se **resta de otra** lleva un control de cordura
+   entre las dos magnitudes, y lo imprime en cada corrida.
+3. Al renombrar una columna al materializar un fact (`qty_in_transit` → `transit_cajas`), el rename
+   **es** una conversión: o la hacés explícita o no cambies el nombre.
+
+**Cómo quedó:** el tránsito dejó de ser tabla + importer. Se **deriva del ODS** dentro del CTE `tr` de
+`import-replenishment-plan`, reusando el mismo `econ` (bf y costo) que el resto del fact — la
+conversión ocurre UNA vez, donde viven los factores, y ya no hay dos representaciones que puedan
+divergir. Medido: el derive suelto cuesta 11.6 s, pero **plegado al fact que ya calcula `econ` el
+build completo pasa de 2.8 s a 3.3 s**. Es el corolario de §19 al derecho: un derive caro por
+separado puede ser barato si se pliega a la query que ya tiene sus insumos en memoria.
