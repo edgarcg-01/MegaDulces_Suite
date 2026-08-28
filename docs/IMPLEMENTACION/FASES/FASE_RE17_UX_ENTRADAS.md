@@ -105,6 +105,43 @@ Además, en las 6: **ningún toggle de densidad** (`surf-table--plain.is-dense` 
 | **RE.17.5** | Órdenes | Expediente a `SidePeek` (mata 2 diálogos) · `surf-table` · `<select>`→`p-select` · 16 hex→tokens · honra `?suc` + alcance + carril + pager real. |
 | **RE.17.6** | Densidad + detalle fino | Toggle de altura de fila compartido en las 4 tablas · miniatura de la hoja en la bandeja de Pendientes · totales de lo visible. |
 | **RE.17.7** | Cierre | Build prod `view` · tracker · CHANGELOG · log de revisiones. |
+| **RE.18** | Revisión: cabina de 3 columnas | Ver §6 — salió de que RE.17.4 arregló el visor sobre una proporción equivocada. |
+
+---
+
+## 6. RE.18 — la bandeja de revisión, rehecha (2026-08-28)
+
+RE.17.4 le puso un visor decente al documento **dentro de una proporción equivocada**, y eso se
+notó en cuanto se miró la pantalla: el grid daba todo el ancho sobrante a la tabla de renglones y
+un máximo de 26rem al papel. En 1920 la factura escaneada se leía en ~400px y los renglones —que
+son respaldo— se llevaban ~1000px. El oficio de esa pantalla es **comparar el papel contra las
+cifras**; el papel tiene que mandar.
+
+**Cabina de tres columnas:** cola (19rem) · documento (`1fr`) · riel de decisión (23rem). Alto fijo
+y **scroll independiente por columna**, así decidir no obliga a perder de vista ni la fila ni la
+hoja. `@container` a 76rem baja el documento a lo ancho; a 52rem se apila.
+
+**Acabado, punto por punto:**
+
+- El **veredicto** deja de ser una caja de color dentro de otra caja: es la cabecera del riel con
+  un acento de 3px al canto. El texto vuelve a ser legible — antes el párrafo entero se pintaba
+  del color del estado y gritaba, duplicando el semáforo que ya llevaba el ícono.
+- Las **cuatro cajitas de cifras** pasan a filas alineadas al mismo eje derecho, en dos niveles:
+  *Kepler* vs *Documento* deciden; *diferencia*, *oficinas* y *Σ renglones* son respaldo. Comparar
+  dos números pide que compartan eje, y cuatro tiles de ancho variable lo impiden (Q.5: jerarquía
+  por **tipo y contraste**, no por más cajas).
+- **Renglones · ajustes · historial** pasan a `<details>` nativo — teclado y a11y sin JS
+  (checklist 16). Tesler permite el pliegue sólo para lo secundario, y acá lo es: la respuesta
+  está arriba. Los **ajustes se abren solos cuando no cuadra**, que es justo el caso en que el
+  revisor devuelve una factura que estaba bien.
+- Las **acciones se anclan al pie del riel** (antes vivían en el medio de la página, entre las
+  cifras y la evidencia) y los **atajos de teclado** se mudan al lado de los botones que disparan,
+  no al subtítulo de la página.
+- **Header y filtros:** el header decía siete cosas antes de la primera fila. Queda **una oración**
+  answer-first con el estado de la cola; contador, botón de lote y aviso de corte bajan a una sola
+  barra de trabajo — filtrar la cola y actuar sobre ella son el mismo momento.
+- Últimos dos controles fuera del sistema: `checkbox` crudo → `p-checkbox`, `radio` crudo del
+  diálogo de devolución → `p-radiobutton`.
 
 ---
 
