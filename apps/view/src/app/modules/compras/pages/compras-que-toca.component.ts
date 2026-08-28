@@ -133,7 +133,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <th style="width:2.5rem"></th>
             <th>Estado</th><th>Próximo</th><th>Proveedor</th><th>Almacén</th><th>Canal</th>
             <th class="qt-r">Cadencia</th><th>Última</th><th class="qt-r">SKUs</th>
-            <th class="qt-r">Sugerido</th><th class="qt-r">Costo est.</th>
+            <th class="qt-r" pTooltip="Sugerido a pedir, en CAJAS." tooltipPosition="bottom">Sugerido</th><th class="qt-r">Costo est.</th>
           </tr>
         </ng-template>
         <ng-template #body let-r let-expanded="expanded">
@@ -208,11 +208,11 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                           <th class="qt-sortable" (click)="setSort('nombre')">Producto {{ sortArrow('nombre') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('rank')" pTooltip="Ranking de ventas en la sucursal (#1 = el que más vende)">Rank {{ sortArrow('rank') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('rev')" pTooltip="Venta mensual estimada ($ que mueve)">$ mueve {{ sortArrow('rev') }}</th>
-                          <th class="qt-r qt-sortable" (click)="setSort('oh')">Existencia {{ sortArrow('oh') }}</th>
-                          @if (r.via==='transfer') { <th class="qt-r">En hub</th> }
-                          <th class="qt-r">Objetivo</th>
-                          <th class="qt-r qt-sortable" (click)="setSort('sug')">Sugerido {{ sortArrow('sug') }}</th>
-                          <th class="qt-r" pTooltip="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar" tooltipPosition="top">Traspaso</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('oh')" pTooltip="Existencia, en CAJAS.">Existencia {{ sortArrow('oh') }}</th>
+                          @if (r.via==='transfer') { <th class="qt-r" pTooltip="Existencia en el hub de origen, en CAJAS.">En hub</th> }
+                          <th class="qt-r" pTooltip="Nivel objetivo (existencia + tránsito + sugerido), en CAJAS.">Objetivo</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('sug')" pTooltip="Sugerido a pedir, en CAJAS.">Sugerido {{ sortArrow('sug') }}</th>
+                          <th class="qt-r" pTooltip="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar. En CAJAS." tooltipPosition="top">Traspaso</th>
                           <th class="qt-r qt-pedir qt-sortable" (click)="setSort('cajas')">Pedir ({{ orderUnit() }}) {{ sortArrow('cajas') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('pz')">{{ orderUnit()==='cajas' ? 'Piezas' : 'Cajas' }} {{ sortArrow('pz') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('line')">$ línea {{ sortArrow('line') }}</th>
@@ -333,7 +333,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <div class="qt-cons-scroll">
             <table class="qt-det-table">
               <thead><tr><th>Proveedor</th><th>Almacén</th><th>SKU</th><th>Producto</th>
-                <th class="qt-r">Sugerido</th><th class="qt-r">Cajas</th><th class="qt-r">Piezas</th><th class="qt-r">$ línea</th></tr></thead>
+                <th class="qt-r" pTooltip="Sugerido a pedir, en CAJAS.">Sugerido</th><th class="qt-r">Cajas</th><th class="qt-r">Piezas</th><th class="qt-r">$ línea</th></tr></thead>
               <tbody>
                 @for (l of catRows(); track l.product_id + '_' + l.warehouse_id) {
                   <tr>
@@ -394,7 +394,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       background: var(--action-ring, color-mix(in srgb, var(--action) 12%, transparent)); border-radius: var(--r-sm, 6px); }
     .qt-bulk-txt { font-size: .82rem; color: var(--text-main); }
     .qt-catbar { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; padding: .45rem .7rem;
-      background: var(--surface-sunken, color-mix(in srgb, var(--action) 7%, transparent)); border-radius: var(--r-sm, 6px); }
+      background: var(--surface-2); border-radius: var(--r-sm, 6px); }
     .qt-catbar-txt { font-size: .82rem; color: var(--text-main); margin-right: auto; }
     .qt-catbar-txt i { color: var(--action); margin-right: .3rem; }
     .qt-table { font-size: .82rem; }
@@ -414,7 +414,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
        desalinea). El wrapper .qt-det es un BFC con scroll propio: la tabla ancha del
        drill scrollea DENTRO en vez de ensanchar el cuerpo. min-width:0 en la celda
        evita que el contenido imponga su ancho mínimo a la tabla exterior. */
-    .qt-detrow > td { background: var(--surface-sunken, var(--card-bg)); padding: .4rem .75rem .6rem; min-width: 0; }
+    .qt-detrow > td { background: var(--surface-2); padding: .4rem .75rem .6rem; min-width: 0; }
     .qt-det { min-width: 0; overflow-x: auto; }
     .qt-det-msg { color: var(--text-muted); font-size: .82rem; padding: .5rem; }
     .qt-det-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .1rem .1rem .5rem; }

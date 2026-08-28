@@ -657,19 +657,29 @@ export class OfflineDatabaseService extends Dexie {
   async getEstadisticasOffline(): Promise<{
     visitasPendientes: number;
     visitasMuertas: number;
+    pedidosPendientes: number;
+    pedidosMuertos: number;
     tiendasOffline: number;
     catalogosActualizados: number;
     ultimoSync: string | null;
   }> {
     const MAX_RETRIES = 5;
-    const [todas, tiendas, catalogos] = await Promise.all([
+    const [todas, tiendas, catalogos, pedidos] = await Promise.all([
       this.getVisitasPendientes(),
       this.getTiendas(),
       this.getCatalogos(),
+      this.pedidosPendientes.toArray(),
     ]);
 
     const activas = todas.filter((v) => (v.intentos_fallidos || 0) < MAX_RETRIES).length;
     const muertas = todas.length - activas;
+
+    // Fix #3 integridad: los pedidos confirmados offline sin sincronizar también
+    // cuentan para el badge. Un pedido "muerto" (5 fallos) es dinero real que
+    // necesita acción manual y antes quedaba invisible.
+    const pedidosSinSync = pedidos.filter((p) => !p.sincronizado && p.status === 'ready');
+    const pedidosPendientes = pedidosSinSync.filter((p) => (p.intentos_fallidos || 0) < MAX_RETRIES).length;
+    const pedidosMuertos = pedidosSinSync.length - pedidosPendientes;
 
     const ultimoSync = await this.syncLogs
       .orderBy('fecha')
@@ -679,6 +689,8 @@ export class OfflineDatabaseService extends Dexie {
     return {
       visitasPendientes: activas,
       visitasMuertas: muertas,
+      pedidosPendientes,
+      pedidosMuertos,
       tiendasOffline: tiendas.length,
       catalogosActualizados: catalogos.length,
       ultimoSync: ultimoSync?.fecha || null,

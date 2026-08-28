@@ -84,6 +84,46 @@ O sea: la bandeja de Caducidades la verían 6 personas, y **Recepción (el vale 
 - Rotar la credencial de prod que se pegó en el chat (`RUNBOOKS/ROTACION_SECRETOS.md`).
 
 **Lesson learned:** cuando una validación existe para hacer cumplir un orden de trabajo (*"el vale debe estar abierto para capturar"*), al invertir el orden esa validación no queda obsoleta: queda **invertida**, y rechaza justo el caso normal. Conviene buscarlas explícitamente al cambiar un flujo, porque el compilador no las encuentra y el síntoma aparece hasta el final del recorrido.
+## 2026-08-27 — Fase ID: el sistema de usuarios sale de la era rutas (ID.13–ID.15, 47 roles → 28, cero pérdidas)
+
+**Disparador:** Edgar pidió *"entender las necesidades de la empresa y bajo eso generar un esquema de usuarios, pensando para un CRM/ERP que cubra toda la empresa; anteriormente los usuarios eran pensados para ruta"*, y después *"aplicalo"*. Plan y medición en [`FASE_ID_ESQUEMA_USUARIOS_ERP.md`](FASES/FASE_ID_ESQUEMA_USUARIOS_ERP.md).
+
+### Lo que estaba mal, medido
+
+47 roles para 142 cuentas · 22 con 1 o 2 usuarios · nombrados por la **persona** que los ocupa (`coordinadora_marketing`, `encargada_prevencion`, `Coordinador_ecommerce`, y `auxiliar finanzas` **con espacio**) · 13 sin ningún usuario, uno (`sistemas`) con **145 permisos otorgados y cero personas** · 43 puestos del organigrama cargados y **sólo 7 en uso** · y `role_name` como **una** columna, lo que ya había producido **6 personas con 2 cuentas** — una de ellas `superadmin` bajo el username `01jzico`.
+
+### Lo que se hizo
+
+| | Resultado |
+|---|---|
+`[ID.13]` N:M | `identity.user_roles` (perfil base + complementos, permisos = unión) + `users.kind` + `users.expires_at`. `role_name` sobrevive como espejo con trigger bidireccional: cero cambios en los ~200 archivos que lo leen |
+`[ID.14]` catálogo | **47 → 28** (25 perfiles + 3 complementos): 14 retirados, 14 renombrados a función, 5 fusionados. Cierra `[UN.5]` |
+`[ID.15]` organigrama | `positions.department_code` + `default_role`: el alta es *persona + puesto + sucursal* y el sistema propone. 23/43 puestos proponen perfil |
+UI | Selector de **Complementos**, aviso *"este rol es una tarea, no un puesto"*, y el puesto autocompleta departamento y perfil |
+
+### Lo que enseñó
+
+**1. El arnés atrapó lo que yo no vi.** `snapshot-user-permissions.js` compara el **conjunto efectivo de permisos por persona** antes y después. Resultado final: 128 idénticos · 14 ganan (máx +2, listados uno por uno) · **0 pierden**. Pero en la primera corrida marcó **2 PIERDE**: los 2 usuarios de `admin` se quedaban sin `PORTAL_B2B_ACCESS` y `FINANCE_EXPENSES_VER_ALL` porque el rol caía por la rama "muerto" (retirar) en vez de la rama "fusionar" (unión). Sin el arnés eso se descubre cuando alguien reclama, semanas después.
+
+**2. El guard de la fusión valía más que la fusión.** Regla: si algún usuario ganaría más de 3 permisos, la fusión no se hace y queda reportada como decisión. Frenó una escalada de **40 permisos** — `coordinador_presupuestos` apuntaba al `contabilidad` viejo de 66p, que arrastraba `COMPRAS_*` y `LOGISTICS_*` completos. Un merge "obvio por el nombre" habría repartido acceso a compras y logística a contabilidad.
+
+**3. Un smoke encontró un bug de diseño, no de código.** Promover un rol a perfil base **reventaba** con "llave duplicada": el índice parcial de un-solo-perfil-base se validaba antes de que algo degradara al anterior. Se resolvió con un trigger **BEFORE**; ahora la operación es idempotente. Y el perfil anterior queda como **complemento, no borrado**: quitarle un permiso a alguien tiene que ser explícito.
+
+**4. `FINANCE_EXPENSES_CAPTURAR` estaba copiado dentro de 5 roles distintos.** Ahí se ve por qué `captura_gastos` (22 usuarios, **1 permiso**) no era un rol: era una tarea. Y como el rol venía pegado al departamento, los 22 quedaron en `administracion` — incluyendo gente de Logística y de una sucursal. **El rol le pisó el departamento a la persona.**
+
+**5. `cajera` son 3 permisos.** Arqueo ver + arqueo capturar + capturar gasto. Por eso la encargada de tienda que además cobra en caja no necesitaba otra cuenta: necesitaba un complemento.
+
+**6. Dos cosas se decidieron distinto al construirlas.** `positions.default_scope` no se hizo: el alcance por default ya vive en `role_scopes` y duplicarlo crea dos fuentes de verdad. Y `superadmin` **no** se renombró a `admin_plataforma`: ese nombre está como literal en `ELEVATED_ROLES` y `isPlatformAdminRole`, y renombrarlo sin tocar el código deja a los 7 gods sin god-mode.
+
+**7. `[ID.16]` (RH) se bloqueó al ir a hacerlo.** `hr.*` tiene 6 tablas y 10 checadores, pero **cero referencias en `libs/` y `apps/`**: no hay módulo ni pantalla. Crear los permisos `RH_*` ahora sería gatear el vacío. Primero el módulo.
+
+**8. Reincidencia útil:** `role_permissions.activo` es `GENERATED AS (deleted_at IS NULL)` y escribirla tira *"sólo puede actualizarse a DEFAULT"* — el mismo patrón de K-debt. Y el `down` de la migración falló dos veces por FK compuestas sin `ON UPDATE CASCADE`: renombrar un rol **no** es un `UPDATE` del nombre.
+
+### Verificación
+
+Builds api + view verdes. Smokes `test-newdb-user-roles` **34/34** (nuevo, en la suite), `identity-scopes` 30/30, `user-dto` 32/32.
+
+**Pendiente prod:** 3 migraciones a Railway (`20260828120000`, `130000`, `140000`) + redeploy + re-login. Y las decisiones que no son código: los 22 con una tarea como perfil base, los 20 puestos sin perfil, y los **5 tipos de usuario que el ERP necesita y no existen** (dirección con lectura global, RH, proveedor, auditor externo y cuentas de servicio).
 
 ---
 

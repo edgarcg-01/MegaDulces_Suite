@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -111,9 +112,20 @@ export class UsersController {
 
   @Get('positions')
   @RequirePermissions(Permission.USUARIOS_VER)
-  @ApiOperation({ summary: 'Catálogo de puestos canonicalizados del ORGANIGRAMA 2026' })
+  @ApiOperation({ summary: 'Catálogo de puestos del ORGANIGRAMA 2026, con el departamento y el perfil base que cada uno propone' })
   getPositions() {
     return this.usersService.getPositions();
+  }
+
+  /**
+   * `[ID.15]` — Qué propone el sistema para un puesto: departamento, perfil base
+   * y el alcance que trae ese perfil. Declarado antes de `:id` a propósito.
+   */
+  @Get('positions/:code/propuesta')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Departamento + perfil base + alcance que el sistema propone para un puesto (el alta ya no adivina)' })
+  proposeForPosition(@Param('code') code: string) {
+    return this.usersService.proposeForPosition(code);
   }
 
   /**
@@ -148,6 +160,81 @@ export class UsersController {
       role_name: scope.roleName,
       dimensions: await this.scope.describe(scope),
     };
+  }
+
+  /**
+   * `[ID.9]` — Editar el ALCANCE de un usuario desde la UI.
+   *
+   * Hasta acá `identity.user_scopes` sólo se podía tocar por migración, o sea
+   * que ampliar o recortar lo que alguien ve exigía una sesión con acceso a prod.
+   * Regla de Edgar: el dato operativo se administra en /admin/*.
+   *
+   * `mode: null` borra el override y el usuario vuelve al default de su rol —
+   * distinto de `mode: 'none'`, que es "explícitamente no ve nada".
+   */
+  @Put(':id/scope/:dimension')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija (o borra, con mode=null) el alcance de un usuario en una dimensión. Queda asentado en identity.user_events.' })
+  setScope(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('dimension') dimension: string,
+    @Body() body: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setScope(id, dimension, body ?? {}, { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.9]` — Asignación MASIVA de los ejes de control (departamento, puesto,
+   * sucursal, estado). Es lo que evita el script: normalizar 116 usuarios de a
+   * uno por pantalla no es viable, y por eso el dato se quedaba viejo.
+   */
+  @Patch('bulk')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna departamento / puesto / sucursal / estado a varios usuarios de una vez. Un evento por usuario.' })
+  bulkAssign(
+    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.13]` — Roles del usuario: perfil base + complementos, con el conteo de
+   * permisos de cada uno.
+   */
+  @Get(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Perfil base y complementos de un usuario (identity.user_roles) con sus permisos otorgados' })
+  userRoles(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.roles(id);
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS del usuario desde la UI.
+   *
+   * Semántica de PUT: la lista que llega es la lista final. El perfil base no se
+   * cambia acá (eso es `role_name` en el formulario) — así "sumarle una tarea a
+   * alguien" y "cambiarle el puesto" quedan como dos acciones distintas, que es
+   * lo que son.
+   */
+  @Put(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija los complementos (roles extra) de un usuario. Devuelve qué se agregó y qué se quitó. Queda asentado en identity.user_events.' })
+  setUserRoles(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { roles?: string[] },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setRoles(id, body?.roles ?? [], { sub: user.sub, username: user.username });
+  }
+
+  /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
+  @Get(':id/events')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Últimos cambios registrados del usuario (identity.user_events)' })
+  events(@Param('id', new ParseUUIDPipe()) id: string, @Query('limit') limit?: string) {
+    return this.usersService.events(id, limit ? Number(limit) : undefined);
   }
 
   @Get(':id')

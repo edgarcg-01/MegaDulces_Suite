@@ -433,3 +433,149 @@ alfabético; y si el orden textual es inevitable, pinealo con `COLLATE "C"`.
 Aplica igual a `DISTINCT ON ... ORDER BY texto`, `MIN()`, `string_agg(... ORDER BY texto)` y a
 cualquier fingerprint md5 armado con `string_agg` ordenado por texto: entre DBs con collation
 distinto, el hash cambia sin que cambie la data.
+
+---
+
+## 21. El ODS corre los timestamps +6h por un carril y no por el otro → filas DUPLICADAS
+
+Medido en prod el 2026-08-26. `kepler_ods` guarda los `timestamp without time zone` **+6 h**
+respecto del origen por el carril del **poll**, y sin corrimiento por el carril del **WAL**:
+
+| | origen (`:5433/kepler_pilot`) | `kepler_ods` |
+|---|---|---|
+| `kdm1.c9` (fecha del documento) | `2025-01-01 00:00:00` | `2025-01-01 06:00:00` |
+| `kdc22607.c2` (fecha del asiento) | `2026-07-01 00:00:00` | `2026-07-01 06:00:00` |
+
+**Por qué:** `replicate-ods-live.js` hace `SELECT` y node-postgres devuelve un `Date` de JS, que
+interpreta el valor como hora **local** (MX, `TZ` fijada en el Dockerfile) y al re-escribirlo lo
+serializa como UTC → +6 h. `ods-cdc-wal.js` no: pgoutput entrega los valores como **texto** y nunca
+pasan por un `Date`. **La fuente fiel es el WAL.**
+
+**Hoy es inocuo para los consumidores** — y por poco: en el origen **100 %** de esos valores están a
+medianoche y 0 % después de las 18:00, así que +6 h no cruza el día y todo `c9::date` sigue dando la
+fecha correcta. El día que Kepler guarde una hora real, los documentos de la tarde caen al día
+siguiente.
+
+**Lo que NO es inocuo: duplica filas.** El timestamp es parte de la PK, así que la misma fila lógica
+entra dos veces (una a `00:00`, otra a `06:00`) y el UPSERT no puede colapsarlas. En `kdc22608`
+(pólizas del mes abierto): 04 tiene 1,105 filas a las 06:00 + 200 a las 00:00 = **200 grupos
+duplicados**; el total son **1,120 filas extra** en 6 sucursales (el CEDIS `00` tiene 0). **Eso
+duplica asientos en la balanza y en el P&L de Maat** si se leen del ODS. El mes CERRADO `kdc22607`
+cuadra exacto: el problema es de lo que se sigue escribiendo.
+
+**Por qué sigue pasando:** los dos carriles están vivos a la vez (`\Tienda\OdsLiveLoop` +
+`\Tienda\OdsFullMirror` en `Running` y los 7 `cdc-wal-XX` de PM2). El cutover CDC.6 preveía
+**apagar el poll** tras validar en sombra y no se hizo, así que los duplicados crecen a diario.
+
+**Arreglo:** completar el cutover (apagar el poll) o normalizar su renderizado de timestamps
+(mandar texto, no `Date`); después deduplicar quedándose con la fila del WAL. Diagnóstico
+reproducible: `database/importers/kepler/reconcile-ods-deletes.js` los cuenta y NO los borra.
+
+## 22. El ODS conserva filas borradas aguas arriba (el poll es ciego a los DELETE)
+
+Mismo día, mismo origen. El poll es UPSERT-only: **no puede ver un DELETE**. El WAL sí los aplica
+(handler `raw-delete`), pero sólo trae cambios posteriores a la creación de su slot. Todo lo borrado
+antes de esa ventana —o durante un hueco del consumidor, como los **2 días congelados** del
+24 al 26-ago— queda en el ODS para siempre. Medido:
+
+| tabla | fuente | ODS | Δ | residuo |
+|---|---|---|---|---|
+| `kdpord` | 77,343 | 81,148 | **+3,805** | 4.92 % |
+| `kdii` | 66,534 | 66,667 | +133 | 0.20 % |
+| `kdud` | 8,233 | 8,239 | +6 | 0.07 % |
+| `kdm1` / `kdm2` | — | — | **−212 / −1,159** | atraso normal del CDC, no residuo |
+
+Verificado por muestreo además del conteo: de 400 llaves de `kdpord`/sucursal 01 tomadas del ODS,
+**29 (7.2 %) ya no existen** en la réplica.
+
+**Antes de repointear cualquier importer al ODS, reconciliá.** Un feed que lea `kdpord` del ODS ve
+pedidos que ya no existen. `reconcile-ods-deletes.js` hace el anti-join por PK y manda los borrados
+por el sink; corré primero en dry-run.
+
+**Y ojo con la llave:** el corrimiento de timestamps del §21 rompe la comparación por PK. La primera
+versión de ese script reportó **1527/1527 huérfanas** en un mes cerrado y lo único que evitó borrar
+1,527 asientos legítimos fue el guard de `--max-pct`. Si vas a comparar llaves entre el ODS y el
+origen y la PK incluye un timestamp, normalizá al día (`date_trunc`) — y sólo si verificaste que el
+origen guarda esa columna siempre a medianoche.
+
+### §21–22 — aplicado el 2026-08-27 (qué números cambiaron)
+
+Por si alguien nota que un tablero "bajó" sin explicación:
+
+- **Poll deshabilitado** (`\Tienda\OdsLiveLoop` + `OdsFullMirror`). Antes de apagarlo se verificó que
+  los 7 consumidores WAL entregaban en vivo y que `ods_cdc_pub` cubre **todas** las tablas de cada
+  rama (319–350 según sucursal; **ninguna** tabla del ODS quedó sin publicar en las 7).
+- **Dedup (§21): 1,141 filas borradas** — `kdc22608` 1,120 · `kduf` 15 · `kdpv_bitacora_precios` 6.
+  Verificado por dos caminos: 0 duplicados restantes, y los conteos `kdc22608` origen-vs-ODS
+  cuadran ahora en las 7 sucursales (30,161 = 30,161; antes +1,120). `orglogtbl_26` se omitió sola
+  (1,281,402 filas con hora real en el origen).
+- **Reconciliación (§22): 4,424 filas borradas** — `kdpord` 4,285 · `kdii` 133 · `kdud` 6. Dry-run
+  posterior: *"sin residuo, el ODS coincide con las réplicas en todo lo comparado"*.
+- **Efecto visible:** `analytics.erp_shipments` es VISTA sobre `kepler_ods.kdpord`, y la consumen la
+  pantalla de analytics y una tool de Thot ("cuánto se embarcó", "% embarcado"). Pasó de
+  **76,499 → 72,269 filas · 69,732 → 65,780 folios · 3,347,950 → 3,159,289 unidades**: son
+  **−188,661 unidades en 3,952 folios** que ya no existían en Kepler y se estaban contando. El
+  tablero no se rompió: dejó de sobre-reportar.
+
+**Lo que NO se arregló:** el corrimiento +6 h en sí. Quedan ~5.7 M filas con la hora corrida en 39
+tablas, pero como filas ÚNICAS (no duplican) y con el origen a medianoche, el `::date` de los
+consumidores sigue correcto. Corregirlas es una migración aparte (toca PKs). Con el poll apagado no
+entran filas corridas nuevas.
+
+---
+
+## 23. Repointear al ODS: "mismo SQL" NO implica "mismo plan"
+
+El shim `md` (mig `20260827130000`) deja el SQL de un importer byte-idéntico: una vista por tabla de
+`kepler_ods` filtrada por `sucursal = current_setting('app.kepler_sucursal')`, y el importer sólo
+cambia "abrir una conexión por sucursal" por "setear un GUC por sucursal". Eso funciona — pero el
+**plan** cambia, y ahí se pierde el día.
+
+`import-in-transit` repointeado fue **matado por timeout a los 900 s** en su primera corrida. La
+query simple que había medido antes (56 ms) no era representativa: la real trae un `NOT EXISTS`
+correlacionado que usa `md.kdm1` tres veces.
+
+**La causa:** el ODS ya tenía índices **de EXPRESIÓN** construidos con `btrim` para las consultas de
+la fase AX —`(sucursal, btrim(c39)) WHERE c2='X' AND c3='A'`— y el SQL del importer usa `c39`
+**pelado**. Un índice de expresión **no aplica a la columna cruda**, así que el back-pointer de la
+cadena de compra se resolvía como `Filter`, no `Index Cond`:
+
+```
+Nested Loop
+  -> Index Scan using kdm1_pkey   Index Cond: (sucursal = current_setting(...) AND c2='X' …)
+                                  Filter: (c37 = '35' AND c39 = '0001521')   <-- acá se muere
+```
+
+| sucursal 03, ventana 120 d | |
+|---|---|
+| sin índice sobre la columna cruda | **timeout >120 s** |
+| con `(sucursal, c39, c37) WHERE c2='X' AND c3='A'` (mig `20260827140000`) | **128 ms** |
+
+**Regla:** cada importer que se repointee necesita su pasada de índices sobre el ODS, y hay que mirar
+el **plan** (`EXPLAIN`), no confiar en que ande porque el SQL no cambió. Y medir la query REAL, no
+una simplificada.
+
+**Y NO es cierto que el repointeo sea más rápido por sí mismo.** Con el mismo índice en la réplica
+local, el lado LAN quedó más rápido que el ODS (60 ms vs 275 ms: es local contra el proxy de
+Railway). La ventaja del repointeo es **quitar el paso on-prem** —una caja menos que tiene que estar
+prendida, un enlace menos que puede cortarse, un timeout menos que puede matar el modo entero— no la
+latencia.
+
+## 24. Reconciliar residuo del ODS por (tabla, SUCURSAL), nunca por el delta global
+
+El delta global de `kdm2` era **−1,159** — o sea "el ODS va atrás", atraso normal del CDC. Pero por
+sucursal había **residuo real**: `01 +484`, `06 +150`, `00 +28`. El atraso de unas ramas **enmascara**
+el residuo de otras en la suma.
+
+Y comparar por **llave** encontró todavía más de lo que sugerían los conteos: **2,322 filas
+huérfanas** en `kdm2` (01=1,858 · 06=387 · 02=9 · 05=5 · 04=3), porque atraso y residuo se compensan
+dentro de la misma rama.
+
+**Cómo se manifestó:** el A/B del repointeo de `import-in-transit` daba 5 sucursales idénticas y la
+**01 con 172 diferencias** contra el ODS **vivo** (no era frescura). Las cabeceras de OC coincidían
+exactas (523 = 523) — la diferencia estaba en las LÍNEAS. Tras reconciliar `kdm2`: **7/7 idénticas,
+0 diferencias**.
+
+**Regla:** el residuo se mide y se borra por `(tabla, sucursal)` con `reconcile-ods-deletes.js`, y las
+tablas grandes NO se saltan en silencio (`--include-big`; el script las lista si las omite). Un
+`kdm2` con 0.39 % de residuo en una rama descuadra el tránsito de compras, que es dinero.

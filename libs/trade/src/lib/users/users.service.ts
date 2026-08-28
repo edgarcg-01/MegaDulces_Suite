@@ -1,20 +1,24 @@
 import {
   BadRequestException,
+  Logger,
   ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { getDataScope, TenantContextService } from '@megadulces/platform-core';
+import { getDataScope, TenantContextService, PermissionsCacheService } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
+  /** Se asienta en la bitácora: un uuid solo no dice quién fue. */
+  username?: string;
   rules?: unknown[];
 }
 
@@ -22,9 +26,15 @@ const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
+    // `[ID.13]` Optional: el cache vive en platform-core y este service se
+    // instancia en tests sin él. Sin cache el complemento tarda el TTL (30s)
+    // en verse; con cache se ve al instante.
+    @Optional() private readonly permsCache?: PermissionsCacheService,
   ) {}
 
   /**
@@ -66,6 +76,49 @@ export class UsersService {
     if (dto.zona_id) return dto.zona_id;
     if (dto.zona !== undefined) return this.resolveZonaId(dto.zona);
     return undefined;
+  }
+
+  /**
+   * `[ID.8]` — Asienta un cambio en `identity.user_events`.
+   *
+   * Es append-only y **nunca hace fallar la operación**: si la bitácora se cae,
+   * el alta o el cambio de rol ya se hizo, y perder el asiento es mucho menos
+   * grave que dejar la operación a medias. El error se loguea, no se propaga.
+   *
+   * Se le pasa la trx cuando hay una abierta, para que el asiento viva o muera
+   * con la operación que describe.
+   */
+  private async recordEvent(
+    trx: Knex | Knex.Transaction,
+    userId: string,
+    event: string,
+    detalle: Record<string, unknown>,
+    requester: RequesterContext,
+  ): Promise<void> {
+    try {
+      await trx('identity.user_events').insert({
+        tenant_id: this.tenantId,
+        user_id: userId,
+        event,
+        detalle: JSON.stringify(detalle),
+        actor_user_id: requester.sub ?? null,
+        actor_username: requester.username ?? null,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo asentar el evento "${event}" del usuario ${userId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** Nombre de la zona a partir del uuid, para las respuestas de escritura. */
+  private async zoneNameOf(zonaId?: string | null): Promise<string | null> {
+    if (!zonaId) return null;
+    const z = await this.knex('zones')
+      .where({ id: zonaId, tenant_id: this.tenantId })
+      .select('name')
+      .first();
+    return z?.name ?? null;
   }
 
   private normalizeUsername(username: string): string {
@@ -234,6 +287,12 @@ export class UsersService {
         role_name: normalizedRoleName,
         username: normalizedUsername,
         updated_by: requester.sub,
+        created_by: requester.sub,
+        // `[ID.8]` La contraseña la eligió OTRO (el admin que da el alta), así
+        // que el dueño tiene que cambiarla. `created_by` además deja de estar
+        // vacío: en prod estaba en NULL para los 117 usuarios.
+        password_changed_at: this.knex.fn.now(),
+        must_change_password: true,
       })
       .returning([
         'id',
@@ -246,7 +305,10 @@ export class UsersService {
         'created_at',
       ]);
 
-    return { ...user, zona: _zonaLegacy };
+    // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
+    // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
+    // devolver el que mandó el cliente sería devolverle su propio input.
+    return { ...user, zona: await this.zoneNameOf(zona_id) };
   }
 
   async findAll(
@@ -486,16 +548,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const zoneName =
-      _zonaLegacy !== undefined
-        ? _zonaLegacy
-        : (
-            await this.knex('zones')
-              .where({ id: user.zona_id, tenant_id: this.tenantId })
-              .select('name')
-              .first()
-          )?.name;
-    return { ...user, zona: zoneName };
+    return { ...user, zona: await this.zoneNameOf(user.zona_id) };
   }
 
   async remove(id: string, requester: RequesterContext) {
@@ -611,6 +664,307 @@ export class UsersService {
       .where({ tenant_id: this.tenantId })
       .whereNull('deleted_at')
       .orderBy('orden', 'asc')
-      .select('code', 'name', 'org_labels', 'orden');
+      // `[ID.15]` `department_code` y `default_role` viajan con el puesto: es lo
+      // que permite que el alta PROPONGA en vez de pedirle al que da de alta que
+      // adivine entre 28 roles. `default_role` puede venir NULL — hay 20 puestos
+      // para los que todavía no existe un perfil que les quede.
+      .select('code', 'name', 'org_labels', 'orden', 'department_code', 'default_role');
+  }
+
+  /**
+   * `[ID.15]` — Lo que el sistema PROPONE para un puesto.
+   *
+   * El alta deja de ser "elegí un rol de esta lista larga" y pasa a ser
+   * "persona + puesto + sucursal", con el departamento y el perfil ya sugeridos.
+   * Ahí muere el crecimiento del catálogo: nadie inventa un rol para dar de alta
+   * a alguien.
+   */
+  async proposeForPosition(positionCode: string) {
+    const pos = await this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId, code: positionCode })
+      .whereNull('deleted_at')
+      .first('code', 'name', 'department_code', 'default_role');
+    if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
+
+    const dept = pos.department_code
+      ? await this.knex('identity.departments')
+          .where({ tenant_id: this.tenantId, code: pos.department_code })
+          .first('code', 'name')
+      : null;
+
+    // El alcance por default NO sale del puesto: vive en `identity.role_scopes`
+    // (por rol, desde `[ID.3]`). Se devuelve para que la pantalla lo muestre,
+    // pero la fuente sigue siendo una sola.
+    const alcance = pos.default_role
+      ? await this.knex('identity.role_scopes')
+          .where({ tenant_id: this.tenantId, role_name: pos.default_role })
+          .orderBy('dimension')
+          .select('dimension', 'mode', 'values', 'mode_write')
+      : [];
+
+    return {
+      position_code: pos.code,
+      position_name: pos.name,
+      department_code: pos.department_code ?? null,
+      department_name: dept?.name ?? null,
+      role_name: pos.default_role ?? null,
+      /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
+      sin_perfil: !pos.default_role,
+      alcance,
+    };
+  }
+
+  // ═══════════════════════ [ID.9] administrable desde la UI ═══════════════════
+  // Regla de Edgar: el dato operativo se administra en /admin/*, no por script.
+  // Un script se justifica sólo para el backfill inicial de una fase.
+
+  /**
+   * Escribe el override de alcance de un usuario en UNA dimensión
+   * (`identity.user_scopes`). Hasta acá esto sólo se podía tocar por migración.
+   *
+   * `mode = null` BORRA el override y el usuario vuelve al default de su rol.
+   * Es distinto de `mode = 'none'`, que es "explícitamente no ve nada": uno
+   * hereda, el otro decide. La UI tiene que ofrecer las dos cosas.
+   */
+  async setScope(
+    id: string,
+    dimension: string,
+    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    requester: RequesterContext,
+  ) {
+    const dim = await this.knex('identity.scope_dimensions').where({ code: dimension }).first('code', 'supports_own');
+    if (!dim) throw new BadRequestException(`La dimensión de alcance "${dimension}" no existe.`);
+
+    const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const previo = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id, dimension })
+      .first('mode', 'values', 'mode_write');
+
+    // Heredar del rol = borrar la fila propia.
+    if (dto.mode == null) {
+      await this.knex('identity.user_scopes')
+        .where({ tenant_id: this.tenantId, user_id: id, dimension })
+        .del();
+      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      return { dimension, hereda_del_rol: true };
+    }
+
+    if (dto.mode === 'own' && !dim.supports_own) {
+      throw new BadRequestException(
+        `La dimensión "${dimension}" no soporta "own": no hay columna propia en el usuario de la que sacar el valor.`,
+      );
+    }
+    const values = dto.mode === 'listed' ? (dto.values ?? []).map(String).filter(Boolean) : null;
+    if (dto.mode === 'listed' && !values?.length) {
+      // El CHECK de la DB también lo rechaza, pero acá el mensaje es útil.
+      throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elegí valores o usá "none".');
+    }
+
+    const fila = {
+      tenant_id: this.tenantId,
+      user_id: id,
+      dimension,
+      mode: dto.mode,
+      values,
+      mode_write: dto.mode_write ?? null,
+      nota: dto.nota ?? null,
+      updated_by: requester.sub,
+      updated_at: this.knex.fn.now(),
+    };
+    await this.knex('identity.user_scopes')
+      .insert({ ...fila, created_by: requester.sub })
+      .onConflict(['tenant_id', 'user_id', 'dimension'])
+      .merge(fila);
+
+    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    return { dimension, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+  }
+
+  /**
+   * Asignación MASIVA de los ejes de control. Es lo que hacía falta para no
+   * depender de un script: normalizar 116 usuarios de a uno por pantalla no es
+   * viable, y por eso el dato se quedaba viejo.
+   *
+   * Sólo toca los campos que vengan. Valida los códigos contra su catálogo
+   * (400, no 500) y asienta un evento por usuario.
+   */
+  async bulkAssign(
+    dto: {
+      user_ids: string[];
+      department_code?: string | null;
+      position_code?: string | null;
+      warehouse_code?: string | null;
+      status?: string | null;
+    },
+    requester: RequesterContext,
+  ) {
+    const ids = (dto.user_ids ?? []).filter(Boolean);
+    if (!ids.length) throw new BadRequestException('Hay que seleccionar al menos un usuario.');
+
+    await this.assertOrgCodes(dto.department_code, dto.position_code, dto.warehouse_code);
+
+    const cambios: Record<string, unknown> = {};
+    for (const k of ['department_code', 'position_code', 'warehouse_code', 'status'] as const) {
+      if (dto[k] !== undefined) cambios[k] = dto[k];
+    }
+    if (!Object.keys(cambios).length) throw new BadRequestException('No hay ningún campo para cambiar.');
+
+    // Nadie se cambia a sí mismo el estado en un lote: el guard de
+    // auto-desactivación del update individual no aplicaría acá.
+    if (cambios['status'] && ids.includes(requester.sub)) {
+      throw new ForbiddenException('No puedes cambiar tu propio estado en una asignación masiva.');
+    }
+
+    return this.knex.transaction(async (trx) => {
+      const afectados = await trx('users')
+        .where({ tenant_id: this.tenantId })
+        .whereIn('id', ids)
+        .whereNull('deleted_at')
+        .update({ ...cambios, updated_at: trx.fn.now(), updated_by: requester.sub })
+        .returning(['id', 'username']);
+
+      for (const u of afectados) {
+        await this.recordEvent(trx, u.id, 'bulk_assigned', cambios, requester);
+      }
+      return { actualizados: afectados.length, campos: Object.keys(cambios), usuarios: afectados.map((u: any) => u.username) };
+    });
+  }
+
+  /**
+   * `[ID.13]` — Roles de un usuario: el perfil base + los complementos.
+   *
+   * Devuelve además el conteo de permisos de cada uno, que es lo que hace la
+   * pantalla legible: "cajero (3 permisos) + captura_gastos (1)" dice mucho más
+   * que dos nombres sueltos.
+   */
+  async roles(id: string) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const filas = await this.knex('identity.user_roles as ur')
+      .leftJoin('identity.role_permissions as rp', function () {
+        this.on('rp.tenant_id', '=', 'ur.tenant_id').andOn('rp.role_name', '=', 'ur.role_name');
+      })
+      .where({ 'ur.tenant_id': this.tenantId, 'ur.user_id': id })
+      .orderBy([{ column: 'ur.is_primary', order: 'desc' }, { column: 'ur.role_name' }])
+      .select(
+        'ur.role_name',
+        'ur.is_primary',
+        'ur.nota',
+        'ur.created_at',
+        this.knex.raw(`(
+          SELECT count(*) FROM jsonb_each(coalesce(rp.permissions, '{}'::jsonb)) e
+           WHERE e.value = 'true'
+        )::int AS permisos`),
+      );
+
+    return {
+      user_id: id,
+      username: user.username,
+      perfil_base: user.role_name,
+      roles: filas,
+    };
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS de un usuario (el perfil base no se toca
+   * acá: eso sigue siendo `role_name` en el formulario del usuario).
+   *
+   * Es la operación que resuelve dos cosas medidas en prod:
+   *   - la encargada de sucursal que además cobra en caja no necesita una
+   *     segunda cuenta con username de terminal;
+   *   - `captura_gastos` (22 usuarios, 1 permiso) deja de ser un "rol" que
+   *     además le pisaba el departamento a la persona.
+   *
+   * Recibe la lista COMPLETA de complementos deseados (semántica de PUT): lo
+   * que no venga se quita. Devuelve qué se agregó y qué se quitó para que la
+   * UI y la bitácora digan exactamente eso.
+   */
+  async setRoles(id: string, roleNames: string[], requester: RequesterContext) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const pedidos = Array.from(new Set((roleNames ?? []).map((r) => String(r).trim()).filter(Boolean)));
+
+    // Los nombres se resuelven contra el catálogo (case-insensitive, igual que
+    // el resto del sistema) y se guarda el CANÓNICO: la FK compuesta lo exige y
+    // un rol con distinto case = 0 permisos silenciosos.
+    const catalogo = await this.knex('identity.role_permissions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .select('role_name');
+    const porLower = new Map<string, string>(
+      catalogo.map((r: { role_name: string }) => [r.role_name.toLowerCase(), r.role_name]),
+    );
+
+    const canonicos: string[] = [];
+    for (const p of pedidos) {
+      const c = porLower.get(p.toLowerCase());
+      if (!c) throw new BadRequestException(`El rol "${p}" no existe en el catálogo.`);
+      // El perfil base no se administra como complemento: si viene, se ignora
+      // en silencio en vez de crear una fila que el trigger va a pelear.
+      if (c.toLowerCase() !== String(user.role_name ?? '').toLowerCase()) canonicos.push(c);
+    }
+
+    const previos: string[] = await this.knex('identity.user_roles')
+      .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+      .pluck('role_name');
+
+    const agregados = canonicos.filter((c) => !previos.includes(c));
+    const quitados = previos.filter((p) => !canonicos.includes(p));
+    if (!agregados.length && !quitados.length) {
+      return { user_id: id, complementos: canonicos, agregados: [], quitados: [] };
+    }
+
+    await this.knex.transaction(async (trx) => {
+      if (quitados.length) {
+        await trx('identity.user_roles')
+          .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+          .whereIn('role_name', quitados)
+          .del();
+      }
+      for (const rol of agregados) {
+        const fila = {
+          tenant_id: this.tenantId,
+          user_id: id,
+          role_name: rol,
+          is_primary: false,
+          updated_by: requester.sub,
+          updated_at: trx.fn.now(),
+        };
+        await trx('identity.user_roles')
+          .insert({ ...fila, created_by: requester.sub })
+          .onConflict(['tenant_id', 'user_id', 'role_name'])
+          .merge(fila);
+      }
+      await this.recordEvent(
+        trx,
+        id,
+        'roles_changed',
+        { agregados, quitados, complementos: canonicos, perfil_base: user.role_name },
+        requester,
+      );
+    });
+
+    // El guard cachea la LISTA de roles 30s; sin esto el complemento nuevo
+    // tarda hasta medio minuto en verse y parece que no se guardó.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    return { user_id: id, complementos: canonicos, agregados, quitados };
+  }
+
+  /** Bitácora del usuario, para el panel de detalle. */
+  async events(id: string, limit = 50) {
+    return this.knex('identity.user_events')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy('created_at', 'desc')
+      .limit(Math.min(200, Math.max(1, limit)))
+      .select('event', 'detalle', 'actor_username', 'created_at');
   }
 }
