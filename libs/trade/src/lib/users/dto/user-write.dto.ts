@@ -124,6 +124,19 @@ export class UserWriteDto {
   @MaxLength(20)
   warehouse_code?: string;
 
+  /**
+   * `[ID.24.1]` Ruta de la persona (`trade.catalogs`, `catalog_id='rutas'`).
+   *
+   * Es el eje de las 31 personas de ruta, que hasta acá no tenían dónde
+   * guardarlo: se les adivinaba por la zona, y `LA PIEDAD RD` tiene 6 rutas.
+   * La zona **se deriva de acá** (ninguna ruta cruza de zona, verificado sobre
+   * las 15 con tiendas cargadas), así que no hace falta preguntar las dos.
+   */
+  @ApiProperty({ description: 'Ruta de la persona (uuid de trade.catalogs, catalog_id=rutas). La zona se deriva de ella.', required: false })
+  @IsOptional()
+  @IsUUID()
+  route_id?: string;
+
   @ApiProperty({ description: 'ID del supervisor (UUID)', required: false })
   @IsOptional()
   @IsUUID()

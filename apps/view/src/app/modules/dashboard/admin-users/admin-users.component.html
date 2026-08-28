@@ -227,21 +227,73 @@
       }
     </div>
 
+    <!-- ── [ID.22] El PUESTO manda ──────────────────────────────────────────
+         Es la primera pregunta y de ella salen las otras dos: el departamento y
+         el nivel de acceso. Antes se preguntaban las tres por separado, así que
+         quien daba de alta tenía que saber qué rol le toca a un "ENC. DE
+         SUCURSAL" entre 25 opciones. Ahora se elige el puesto y el sistema
+         propone; sólo se ajusta si de verdad hace falta. ────────────────────── -->
     <div class="au-field">
-      <label for="role_name">Perfil base</label>
-      <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
-                placeholder="Selecciona el perfil" optionLabel="label" optionValue="value"
-                appendTo="body" styleClass="w-full"></p-select>
-      @if (perfilBaseEsTarea()) {
-        <!-- [ID.14] El caso de los 22 de captura_gastos: su "rol" es una tarea de
-             1 permiso. La pantalla lo dice en vez de esconderlo. -->
-        <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elegí el perfil que corresponde al puesto y sumá la tarea como complemento.</small>
-      } @else if (puestoSinPerfil()) {
-        <small class="au-err">El puesto elegido todavía no tiene un perfil definido: hay que elegirlo a mano.</small>
+      <label for="position_code">Puesto @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
+      <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
+                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
+                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+      @if (userForm.get('position_code')?.invalid && userForm.get('position_code')?.touched) {
+        <small class="au-err">Elegí el puesto: de él salen el departamento, el nivel de acceso y qué se te pregunta después.</small>
+      } @else if (selectedPositionOrg(); as org) {
+        <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>. De acá salen el departamento y el nivel de acceso.</small>
       } @else {
-        <small class="au-hint">Uno por cuenta. Define qué puede hacer en la app; el departamento y el puesto se asignan aparte.</small>
+        <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
       }
     </div>
+
+    <!-- Departamento: viene con el puesto. El select sólo aparece si el puesto
+         no lo trae o si alguien pide ajustarlo. -->
+    @if (departamentoEsEditable()) {
+      <div class="au-field">
+        <label for="department_code">Departamento @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
+        <p-select id="department_code" [options]="departmentOptions()" formControlName="department_code"
+                  [placeholder]="isEditing() ? 'Sin departamento' : 'Elige el departamento'"
+                  [showClear]="isEditing()"
+                  optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+        @if (userForm.get('department_code')?.invalid && userForm.get('department_code')?.touched) {
+          <small class="au-err">Todo usuario nuevo tiene que quedar en un departamento existente.</small>
+        } @else {
+          <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+        }
+      </div>
+    } @else {
+      <div class="au-derived">
+        <span class="au-derived-k">Departamento</span>
+        <span class="au-derived-v">{{ departamentoNombre() }}</span>
+        <button type="button" class="au-derived-btn" (click)="departamentoManual.set(true)">Ajustar</button>
+      </div>
+    }
+
+    <!-- Nivel de acceso (perfil base): también viene con el puesto. -->
+    @if (perfilEsEditable()) {
+      <div class="au-field">
+        <label for="role_name">Nivel de acceso</label>
+        <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
+                  placeholder="Selecciona el perfil" optionLabel="label" optionValue="value"
+                  appendTo="body" styleClass="w-full"></p-select>
+        @if (perfilBaseEsTarea()) {
+          <!-- [ID.14] El caso de los 22 de captura_gastos: su "rol" es una tarea de
+               1 permiso. La pantalla lo dice en vez de esconderlo. -->
+          <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elegí el perfil que corresponde al puesto y sumá la tarea como complemento.</small>
+        } @else if (puestoSinPerfil()) {
+          <small class="au-err">El puesto elegido todavía no tiene un nivel de acceso definido: hay que elegirlo a mano.</small>
+        } @else {
+          <small class="au-hint">El paquete de permisos estándar del puesto. Las diferencias de cada persona se ajustan más abajo.</small>
+        }
+      </div>
+    } @else {
+      <div class="au-derived">
+        <span class="au-derived-k">Nivel de acceso</span>
+        <span class="au-derived-v mono">{{ userForm.get('role_name')?.value }}</span>
+        <button type="button" class="au-derived-btn" (click)="perfilManual.set(true)">Ajustar</button>
+      </div>
+    }
 
     <div class="au-field">
       <label for="complementos">Complementos</label>
@@ -270,44 +322,62 @@
       </div>
     }
 
-    <div class="au-field">
-      <label for="department_code">Departamento @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
-      <p-select id="department_code" [options]="departmentOptions()" formControlName="department_code"
-                [placeholder]="isEditing() ? 'Sin departamento' : 'Elige el departamento'"
-                [showClear]="isEditing()"
-                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
-      @if (userForm.get('department_code')?.invalid && userForm.get('department_code')?.touched) {
-        <small class="au-err">Todo usuario nuevo tiene que quedar en un departamento existente.</small>
+    <!-- ── [ID.24] El EJE del puesto decide qué se pregunta ─────────────────
+         La medición: `ruta_directa` son 34 personas con zona y CERO con
+         sucursal; `cajas` son 27 con sucursal y CERO con zona. Cada población
+         ya llenaba un solo campo — sólo faltaba declarar cuál. Ahora se pregunta
+         el eje que corresponde y nada más. ────────────────────────────────── -->
+    @if (ejeTexto(); as txt) {
+      <p class="au-eje"><i class="pi pi-compass" aria-hidden="true"></i> {{ txt }}</p>
+    }
+
+    @if (ejeActivo() === 'ruta') {
+      <div class="au-field">
+        <label for="route_id">Ruta</label>
+        <p-select id="route_id" [options]="routeOptions()" formControlName="route_id"
+                  placeholder="Sin ruta asignada" [showClear]="true" [filter]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        @if (rutaPickSinZona()) {
+          <small class="au-err">Esa ruta no tiene tiendas cargadas, así que no define zona: hay que elegirla a mano.</small>
+        } @else {
+          <small class="au-hint">Su territorio. La zona sale de acá — ninguna ruta cruza de zona.</small>
+        }
+      </div>
+    }
+
+    @if (ejeActivo() === 'sucursal' || ejeActivo() === null) {
+      <div class="au-field">
+        <label for="warehouse_code">Sucursal</label>
+        <p-select id="warehouse_code" [options]="branchOptions()" formControlName="warehouse_code"
+                  placeholder="Sin sucursal" [showClear]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        <small class="au-hint">Dónde está parada la persona. Define su zona y qué tienda ve en el monitor.</small>
+      </div>
+    }
+
+    @if (ejeActivo() !== 'red' && ejeActivo() !== 'cartera' && ejeActivo() !== 'cliente') {
+      @if (zonaEsEditable()) {
+        <div class="au-field">
+          <label for="zona">Zona</label>
+          <p-select id="zona" [options]="zones()" formControlName="zone_id" placeholder="Selecciona zona"
+                    optionLabel="label" optionValue="id" appendTo="body" styleClass="w-full"></p-select>
+          @if (branchPickSinPlaza()) {
+            <small class="au-err">La sucursal elegida todavía no tiene zona definida (se configura en /comercial/almacenes): hay que elegirla a mano.</small>
+          } @else if (ejeActivo() === 'zona') {
+            <small class="au-hint">La plaza que supervisa. Acá la zona ES el dato, no una consecuencia.</small>
+          } @else {
+            <small class="au-hint">Territorio de trabajo.</small>
+          }
+        </div>
       } @else {
-        <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+        <div class="au-derived">
+          <span class="au-derived-k">Zona</span>
+          <span class="au-derived-v">{{ zonaDerivada()?.zone_name }}</span>
+          <span class="au-derived-de">de {{ zonaDerivada()?.de }}</span>
+          <button type="button" class="au-derived-btn" (click)="zonaManual.set(true)">Ajustar</button>
+        </div>
       }
-    </div>
-
-    <div class="au-field">
-      <label for="position_code">Puesto</label>
-      <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
-                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
-                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
-      @if (selectedPositionOrg(); as org) {
-        <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>.</small>
-      } @else {
-        <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
-      }
-    </div>
-
-    <div class="au-field">
-      <label for="zona">Zona</label>
-      <p-select id="zona" [options]="zones()" formControlName="zone_id" placeholder="Selecciona zona"
-                optionLabel="label" optionValue="id" appendTo="body" styleClass="w-full"></p-select>
-    </div>
-
-    <div class="au-field">
-      <label for="warehouse_code">Sucursal (monitor Tienda)</label>
-      <p-select id="warehouse_code" [options]="branchOptions" formControlName="warehouse_code"
-                placeholder="Todas (rol global)" [showClear]="true"
-                optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
-      <small class="au-hint">Vacío = ve todas las sucursales. Con sucursal = sólo la venta en vivo de esa tienda.</small>
-    </div>
+    }
 
     <div class="au-field">
       <label for="finance_expense_area_ids">Áreas de gasto visibles</label>
@@ -318,6 +388,81 @@
                      appendTo="body" styleClass="w-full"></p-multiselect>
       <small class="au-hint">Gastos de qué departamentos ve en /finanzas/solicitudes.</small>
     </div>
+
+    <!-- ── [ID.21] Permisos de ESTA persona ─────────────────────────────────
+         El nivel de acceso da el paquete estándar del puesto; acá se ajusta la
+         diferencia de la persona. Es lo que evita las dos salidas malas de
+         antes: inflarle el rol a los 27 cajeros para que uno vea costos, o
+         clonar el rol para uno solo. Arranca colapsado porque la mayoría de las
+         cuentas no necesita ninguna excepción. ──────────────────────────────── -->
+    @if (isEditing() && permisosDetalle(); as det) {
+      <div class="au-perms">
+        <button type="button" class="au-perms-head" (click)="permisosAbierto.set(!permisosAbierto())"
+                [attr.aria-expanded]="permisosAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!permisosAbierto()" [class.pi-chevron-down]="permisosAbierto()"
+             aria-hidden="true"></i>
+          <span class="au-perms-t">Permisos de esta persona</span>
+          <span class="au-perms-sum mono">
+            {{ efectivoSet().size }}
+            @if (deMas().length) { <b class="au-perms-plus">+{{ deMas().length }}</b> }
+            @if (deMenos().length) { <b class="au-perms-minus">−{{ deMenos().length }}</b> }
+          </span>
+        </button>
+
+        @if (permisosAbierto()) {
+          @if (det.platform_admin) {
+            <p class="au-hint au-perms-note">
+              <b>{{ det.perfil_base }}</b> tiene acceso total por rol: los permisos por persona no le aplican.
+              Para limitarla hay que cambiarle el nivel de acceso.
+            </p>
+          } @else {
+            <p class="au-hint au-perms-note">
+              El puesto le da <b>{{ det.del_puesto.length }}</b> permisos.
+              Lo que cambies acá aplica <b>sólo a {{ det.username }}</b>, no a sus compañeros de puesto.
+            </p>
+
+            <div class="au-perms-tools">
+              <p-iconfield iconPosition="left" styleClass="au-perms-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="text" placeholder="Buscar un permiso para conceder…"
+                       [value]="permisoFiltro()" (input)="permisoFiltro.set($any($event.target).value)" />
+              </p-iconfield>
+              @if (deMas().length || deMenos().length) {
+                <button type="button" class="au-derived-btn" (click)="volverAlPuesto()">
+                  Volver al estándar del puesto
+                </button>
+              }
+            </div>
+
+            <ul class="au-perms-list">
+              @for (p of permisoRows(); track p.key) {
+                <li class="au-perm" [class.au-perm-exc]="p.excepcion">
+                  <label class="au-perm-lbl">
+                    <input type="checkbox" [checked]="p.efectivo" (change)="togglePermiso(p.key)" />
+                    <span class="au-perm-nm">{{ p.label }}</span>
+                  </label>
+                  @if (p.excepcion === 'de_mas') {
+                    <span class="au-perm-tag au-perm-plus">de más</span>
+                  } @else if (p.excepcion === 'de_menos') {
+                    <span class="au-perm-tag au-perm-minus">quitado</span>
+                  } @else if (p.enPuesto) {
+                    <span class="au-perm-tag">del puesto</span>
+                  }
+                </li>
+              } @empty {
+                <li class="au-hint au-perms-note">
+                  @if (permisoFiltro()) { Ningún permiso coincide con «{{ permisoFiltro() }}». }
+                  @else { Su puesto no le da ningún permiso todavía. Buscá arriba para concederle alguno. }
+                </li>
+              }
+            </ul>
+            @if (!permisoFiltro()) {
+              <small class="au-hint">Se listan los permisos que ya tiene. Para darle uno nuevo, buscalo arriba.</small>
+            }
+          }
+        }
+      </div>
+    }
 
     <div class="au-field au-boxed">
       <label for="password">{{ isEditing() ? 'Actualizar contraseña (opcional)' : 'Contraseña segura' }}</label>

@@ -42,8 +42,43 @@ exports.up = async function (knex) {
   // Asegurar atributos correctos (por si el rol ya existía con configuración mala)
   await knex.raw(`ALTER ROLE app_runtime NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`);
 
-  // Asegurar password (no daña si no cambia)
-  await knex.raw(`ALTER ROLE app_runtime WITH PASSWORD '${password}'`);
+  // Password: SOLO si el rol se acaba de crear, o si alguien la pidió explícita
+  // con `APP_RUNTIME_PASSWORD`.
+  //
+  // Antes esto era un `ALTER ROLE ... PASSWORD` **incondicional**, y el comentario
+  // decía "no daña si no cambia". Sí daña: **el password de un rol es del
+  // CLUSTER, no de la base**. En un servidor compartido —el de oficina hospeda
+  // `platform_test`, `postgres_platform`, `Mega_Dulces`, `hr`— cualquier
+  // `migrate:latest` contra una base donde esta migración estuviera pendiente
+  // le reescribía la credencial a **todas las demás**, y a todas las máquinas
+  // conectadas. Vivido el 2026-08-28: dos máquinas sobre `platform_test`, la
+  // password quedó rotada bajo los pies de la otra y el síntoma fue
+  // `28P01 → toda la superficie multi-tenant en 500`, sin ninguna pista de que
+  // el causante estaba en otra computadora.
+  //
+  // Con la guarda, correr migraciones nunca toca una credencial que ya existe.
+  // Para rotarla a propósito está `setup-runtime-role.js` (Railway) o
+  // `setup-runtime-role-local.js` (on-prem), que además avisan qué bases y qué
+  // máquinas quedan afectadas.
+  const pidioExplicito = !!process.env.APP_RUNTIME_PASSWORD;
+  const yaExistia = (
+    await knex.raw(
+      `SELECT (rolpassword IS NOT NULL) AS tiene FROM pg_authid WHERE rolname = 'app_runtime'`,
+    )
+  ).rows[0]?.tiene;
+
+  if (pidioExplicito || !yaExistia) {
+    await knex.raw(`ALTER ROLE app_runtime WITH PASSWORD '${password}'`);
+    console.log(
+      `[create_app_runtime_role] password ${pidioExplicito ? 'seteada desde APP_RUNTIME_PASSWORD' : 'inicial (rol nuevo)'}`,
+    );
+  } else {
+    console.log(
+      '[create_app_runtime_role] el rol ya tenía password: NO se toca ' +
+        '(es del cluster; rotarla acá rompe otras bases y otras máquinas). ' +
+        'Para rotarla: setup-runtime-role-local.js --yes',
+    );
+  }
 
   // ── GRANTS ───────────────────────────────────────────────────────────────
   // USAGE en schema public para ver/usar tablas
@@ -76,7 +111,12 @@ exports.up = async function (knex) {
       GRANT EXECUTE ON FUNCTIONS TO app_runtime
   `);
 
-  console.log(`[create_app_runtime_role] Rol app_runtime configurado con password "${password}". Cambiar en prod via ALTER ROLE.`);
+  // NO se loguea la password. Antes esta línea la imprimía en claro, o sea que
+  // quedaba en los logs de cada deploy y de cada corrida de CI.
+  console.log(
+    '[create_app_runtime_role] Rol app_runtime configurado (grants + default privileges). ' +
+      'La password NO se imprime; para rotarla usar setup-runtime-role-local.js.',
+  );
 };
 
 /**

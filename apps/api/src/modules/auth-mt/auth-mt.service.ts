@@ -88,8 +88,9 @@ export class AuthMtService {
     let rolePermissions: any;
     let zonaName: string | null;
     let extraPermissions: Array<Record<string, boolean>> = [];
+    let overrides: Record<string, boolean> = {};
     try {
-      ({ user, rolePermissions, zonaName, extraPermissions } = await this.knex.transaction(async (trx) => {
+      ({ user, rolePermissions, zonaName, extraPermissions, overrides } = await this.knex.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
         const u = await trx('users')
           .where({ username: dto.username.toLowerCase().trim(), activo: true })
@@ -100,6 +101,7 @@ export class AuthMtService {
             rolePermissions: null,
             zonaName: null,
             extraPermissions: [] as Array<Record<string, boolean>>,
+            overrides: {} as Record<string, boolean>,
           };
         // Lookup case-insensitive: users.role_name puede diferir en mayúsculas de
         // role_permissions.role_name (data legacy, p.ej. user 'auxiliar_x' vs fila
@@ -130,12 +132,25 @@ export class AuthMtService {
           // Sin la migración `[ID.13]` aplicada: se sigue con el perfil base.
           extras = [];
         }
+        // `[ID.21]` Overrides de la PERSONA. Van al JWT para que la UI gatee lo
+        // mismo que el backend; el guard los relee de DB en cada request.
+        let ovr: Record<string, boolean> = {};
+        try {
+          const filas = await trx('identity.user_permissions')
+            .where({ tenant_id: tenant.id, user_id: u.id })
+            .select('permission_key', 'allow');
+          ovr = Object.fromEntries(
+            filas.map((f: { permission_key: string; allow: boolean }) => [f.permission_key, f.allow]),
+          );
+        } catch {
+          ovr = {};
+        }
         let zn: string | null = null;
         if (u.zona_id) {
           const z = await trx('zones').where({ id: u.zona_id }).first();
           zn = z?.name ?? null;
         }
-        return { user: u, rolePermissions: rp, zonaName: zn, extraPermissions: extras };
+        return { user: u, rolePermissions: rp, zonaName: zn, extraPermissions: extras, overrides: ovr };
       }));
     } catch (error) {
       // Rollback ya ejecutado por Knex al propagarse el error. Re-lanzamos
@@ -198,6 +213,12 @@ export class AuthMtService {
         if (v === true) permissions[k] = true;
         else if (!(k in permissions)) permissions[k] = v;
       }
+    }
+    // `[ID.21]` El override de la persona gana sobre el rol, en los dos sentidos.
+    // Mismo orden que `PermissionsCacheService.getPermissionsForUser`, que es
+    // quien manda de verdad: esto es sólo el snapshot para gatear la UI.
+    for (const [k, allow] of Object.entries(overrides)) {
+      permissions[k] = allow;
     }
     const ability = buildAbility(permissions, { roleName: user.role_name });
 

@@ -203,6 +203,11 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.REPARTO_DESPACHAR]: { label: 'Despachar reparto', description: 'Persona de tienda: captura el folio, asigna repartidor + moto, ve el tracking y los KPIs de entrega a domicilio.', category: 'Reparto' },
   [Permission.REPARTO_ENTREGAR]: { label: 'Entregar (repartidor)', description: 'Repartidor: ve su ruta y paradas, cierra la entrega con evidencia + cobro, y hace su arqueo ciego de fin de día.', category: 'Reparto' },
 
+  // WhatsApp (Fase F). Sin entrada acá, estos dos permisos salían con la clave
+  // cruda en "Otros" y `[ID.21]` no los podía encontrar por nombre.
+  [Permission.WHATSAPP_BOT_VER]: { label: 'Ver conversaciones de WhatsApp', description: 'Acceso de lectura al bot conversacional: chats, pedidos iniciados por WhatsApp y estado de la sesión.', category: 'Comunicación' },
+  [Permission.WHATSAPP_BOT_GESTIONAR]: { label: 'Operar el bot de WhatsApp', description: 'Responder, tomar el control de una conversación y configurar plantillas y flujos del bot.', category: 'Comunicación' },
+
   // ── Comercial — Carga / Movimientos (features propias) ────────────────
   [Permission.COMMERCIAL_CARGA_VER]: { label: 'Ver Carga', description: 'Consultar el estado de carga al camión de las líneas de pedido. Solo lectura.', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_CARGA_GESTIONAR]: { label: 'Gestionar Carga', description: 'Marcar líneas como cargadas / no cargadas al camión (individual o en lote).', category: 'Comercial · Pedidos' },
@@ -232,6 +237,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Finanzas',
   'Tienda',
   'Portal B2B',
+  'Comunicación',
   'Otros',
 ];
 
