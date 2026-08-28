@@ -39,6 +39,7 @@ try { require('dotenv').config(); } catch (e) { /* dotenv opcional */ }
 
 const APPLY = process.argv.includes('--apply');
 const LIMPIAR = process.argv.includes('--limpiar');
+const RESET = process.argv.includes('--reset-arqueos');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : d; };
 const SUC = arg('--sucursal', '01');
 const M = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
@@ -74,6 +75,10 @@ const PERSONAS = [
     efectivoEsperado: 0, venta: 8450, tickets: 42,
     contadoKepler: 0, enCajon: null,
     guion: 'Sigue cobrando: turno abierto, todavía sin corte',
+    // Lo que Kepler escribirá cuando Luz termine (`--cerrar-turno 3`). Tercer caso:
+    // aquí SOBRA dinero. Un sobrante no es "un faltante al revés" — suele ser un
+    // cobro mal registrado, y también hay que verlo.
+    alCerrar: { hora: '20:40:00', efectivoEsperado: 6120.00, contadoKepler: 6120.00, enCajon: 6300.00 },
   },
 ];
 const ENCARGADA = { user: 'demo_encargada', nombre: 'Marisol Cázares Duarte', rol: 'encargado_tienda' };
@@ -102,6 +107,34 @@ async function limpiar(pg) {
   await pg.query(`DELETE FROM identity.user_scopes WHERE tenant_id=$1 AND user_id IN (SELECT id FROM identity.users WHERE tenant_id=$1 AND username = ANY($2))`, [M, users]).catch(() => {});
   await pg.query(`DELETE FROM identity.users WHERE tenant_id=$1 AND username = ANY($2)`, [M, users]).catch(() => {});
   await pg.query(`DELETE FROM analytics.pos_cashiers WHERE tenant_id=$1 AND cajero_code = ANY($2)`, [M, cajeros]).catch(() => {});
+}
+
+/** Borra solo los conteos: deja el día montado para volver a arquearlo a mano. */
+async function resetArqueos(pg) {
+  const cajeros = PERSONAS.map((p) => p.user.toUpperCase());
+  const d = await pg.query(`DELETE FROM reconciliation.discrepancies WHERE tenant_id=$1 AND (entity->>'cajero') = ANY($2)`, [M, cajeros]);
+  const b = await pg.query(`DELETE FROM reconciliation.blind_counts WHERE tenant_id=$1 AND upper(cajero_code) = ANY($2)`, [M, cajeros]);
+  return { arqueos: b.rowCount, descuadres: d.rowCount };
+}
+
+/**
+ * Simula que la cajera terminó: Kepler cierra el turno y escribe su corte.
+ * Es el momento exacto en el que el arqueo pasa de "sin corte para comparar" a
+ * tener un esperado contra el cual medirse.
+ */
+async function cerrarTurno(pg, caja) {
+  const p = PERSONAS.find((x) => x.caja === String(caja));
+  if (!p) throw new Error(`No hay caja ${caja} en el escenario (hay: ${PERSONAS.map((x) => x.caja).join(', ')})`);
+  const c = p.alCerrar || { hora: '20:30:00', efectivoEsperado: p.efectivoEsperado, contadoKepler: p.contadoKepler, enCajon: p.enCajon };
+  const diff = Math.round((c.efectivoEsperado - c.contadoKepler) * 100) / 100;
+  const r = await pg.query(
+    `UPDATE kepler_ods.kdpv_folio_caja
+        SET c10 = $1::timestamp, c11 = $2, c15 = $3, c25 = $4, c35 = $5, c49 = $3
+      WHERE sucursal = $6 AND c3::text = $7`,
+    [HOY, c.hora, c.efectivoEsperado, c.contadoKepler, diff, SUC, p.folio],
+  );
+  if (!r.rowCount) throw new Error(`El turno ${p.folio} no existe — ¿corriste --apply?`);
+  return { p, c, diff };
 }
 
 async function sembrarUsuario(pg, bcrypt, { user, nombre, rol }) {
@@ -136,6 +169,34 @@ function correrLoader(script, extra = []) {
   if (LIMPIAR) {
     await limpiar(pg);
     console.log('Escenario borrado (usuarios, turnos, ventas, cortes, sesiones, arqueos y descuadres).');
+    await pg.end();
+    return;
+  }
+
+  if (RESET) {
+    const n = await resetArqueos(pg);
+    console.log(`Arqueos borrados: ${n.arqueos} conteos y ${n.descuadres} descuadres. El día sigue montado — volvé a capturarlos desde /tienda/arqueo.`);
+    await pg.end();
+    return;
+  }
+
+  const CERRAR = arg('--cerrar-turno', null);
+  if (CERRAR) {
+    const { p, c, diff } = await cerrarTurno(pg, CERRAR);
+    console.log('');
+    console.log(`Kepler cerró el turno de ${p.nombre} (caja ${p.caja}, folio ${p.folio}) a las ${c.hora}.`);
+    console.log(`  efectivo esperado ${money(c.efectivoEsperado)} · Kepler declara ${money(c.contadoKepler)} (diferencia ${money(diff)})`);
+    console.log('');
+    console.log('Corriendo los loaders para que el corte llegue a la plataforma…');
+    correrLoader('load-cash-cuts-from-ods.js', ['--sucursal', SUC]);
+    correrLoader('import-cash-sessions.js');
+    const sobra = Math.round((c.enCajon - c.efectivoEsperado) * 100) / 100;
+    console.log('');
+    console.log(`Ahora entrá como  ${p.user}  → /tienda/arqueo y contá el cajón.`);
+    console.log(`  En la caja hay ${money(c.enCajon)}, o sea ${sobra > 0 ? 'SOBRAN ' + money(sobra) : sobra < 0 ? 'FALTAN ' + money(-sobra) : 'cuadra exacto'}.`);
+    if (c.enCajon === 6300) console.log('  (6 billetes de $1000, 1 de $200 y 1 de $100)');
+    console.log('  Ella no va a ver ese número. La encargada sí, en /almacen/cuadre.');
+    console.log('');
     await pg.end();
     return;
   }
@@ -228,6 +289,8 @@ function correrLoader(script, extra = []) {
   console.log('6) Cerrá como  demo_encargada  → /tienda/arqueo, columna Validado.');
   console.log('   Ve los tres arqueos (las cajeras solo veían el suyo) y los firma.');
   console.log('   Si una recaptura su conteo, la firma se cae y hay que validar de nuevo.\n');
+  console.log('Cuando Luz termine su turno:  node database/scripts/demo-arqueo-dia.js --cerrar-turno 3');
+  console.log('Para volver a arquear desde cero: node database/scripts/demo-arqueo-dia.js --reset-arqueos');
   console.log('Para borrarlo todo:  node database/scripts/demo-arqueo-dia.js --limpiar');
   console.log('══════════════════════════════════════════════════════════════════════');
 
