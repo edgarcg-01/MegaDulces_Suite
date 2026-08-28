@@ -18,12 +18,15 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
 import { money, moneyShort } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
@@ -54,7 +57,7 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -63,10 +66,12 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Órdenes de entrada — factura del proveedor</h1>
-          <p class="surf-page-sub">Identificá la entrada por los <strong>últimos 4 dígitos</strong> de su folio y subí solo la <strong>factura del proveedor</strong> · el OCR la compara contra el total de Kepler · pendiente → validado/rechazado</p>
+          <h1>Centro de control · Órdenes</h1>
+          <p class="surf-page-sub">Todas las órdenes de entrada de la red, con filtros completos. Buscá por los <strong>últimos 4 dígitos</strong> del folio, o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio: <strong>Pendientes de subir</strong> y <strong>Revisión</strong>.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
@@ -128,7 +133,16 @@ interface AttachFile {
                      title="Fecha capturada adelante de hoy en el ERP"></i>
                 }
               </td>
-              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
+              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button>
+                <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
+                     porque esta pantalla es donde alguien llega con "tengo este número": el par
+                     tiene que ser visible sin abrir el detalle. -->
+                @if (c.gemela_folio) {
+                  <em class="cb-gem" [title]="'Oficinas capturó la misma recepción como 00/' + c.gemela_folio + (c.gemela_monto != null ? ' por ' + money(c.gemela_monto) : '')">
+                    <i class="pi pi-link" aria-hidden="true"></i> 00/{{ c.gemela_folio }}
+                  </em>
+                }
+              </td>
               <td>
                 @if (c.proveedor_code) {
                   <button type="button" class="cb-reflink" (click)="inspect.set(refProv(c.proveedor_code))"
@@ -479,12 +493,27 @@ interface AttachFile {
           </strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
         </div>
+        @if (d.redirigido_de) {
+          <div class="cb-twin"><i class="pi pi-directions" aria-hidden="true"></i>
+            <span>Buscaste <strong class="mono">{{ d.redirigido_de.sucursal }}/{{ d.redirigido_de.folio }}</strong>,
+              el folio con el que <strong>oficinas</strong> capturó esta recepción. Lo que ves es el documento de la
+              sucursal, que es el que trae los productos y el que lleva la evidencia.</span>
+          </div>
+        }
         @if (d.cedis_twins?.length) {
           <div class="cb-twin"><i class="pi pi-clone" aria-hidden="true"></i>
-            <span>Incluye la copia de <strong>CEDIS</strong> (misma recepción, otra póliza) — no requiere evidencia aparte:</span>
+            <span>La misma recepción está capturada también en <strong>oficinas</strong> (servidor 9.95) —
+              no requiere evidencia aparte:</span>
             @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) {
               <button type="button" class="cb-twin-folio cb-reflink mono" (click)="inspect.set(refEnt(t.sucursal, t.folio))"
-                      [attr.aria-label]="'Abrir la copia CEDIS ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+                      [attr.aria-label]="'Abrir la copia de oficinas ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+              <span class="cb-twin-meta">
+                {{ t.monto == null ? '' : money(t.monto) }}<!--
+                --><!-- El delta entre nuestras dos capturas: pequeño pero hay que poder verlo,
+                        porque es lo que explica un "no cuadra" que no es del proveedor. -->
+                @if (t.delta_monto) { · Δ {{ money(t.delta_monto) }} }
+                @if (t.status === 'propuesto') { · <strong>sin dictaminar</strong> }
+              </span>
             }
           </div>
         }
@@ -755,7 +784,7 @@ interface AttachFile {
     .cb-match.bad { color: var(--bad-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
-    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
+    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .cb-cobro > div { display: flex; flex-direction: column; gap: .15rem; }
     .cb-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
@@ -793,6 +822,8 @@ interface AttachFile {
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
     .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
+    /* El folio de oficinas es contexto, no la identidad de la fila: se lee en segundo plano. */
+    .cb-gem { display: block; font-style: normal; font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
 
@@ -851,8 +882,9 @@ interface AttachFile {
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
     /* RE.12 — copia CEDIS (espejo) adjunta a la vista de la canónica */
-    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
-    .cb-twin .pi-clone { color: var(--action); }
+    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-2); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
+    .cb-twin .pi-clone, .cb-twin .pi-directions { color: var(--action); }
+    .cb-twin-meta { font-variant-numeric: tabular-nums; }
     .cb-twin-folio { color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .35rem; }
     /* columna Remisión clickable */
     .cb-comp-cell { cursor: pointer; }
@@ -862,7 +894,7 @@ interface AttachFile {
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
     .cb-comp-empty i { font-size: .75rem; opacity: .7; }
     /* preview antes de subir */
-    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-2); }
     .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
     .cb-preview-pdf { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; }
     .cb-preview-pdf > i { font-size: 1.8rem; color: var(--bad-fg); }
@@ -871,7 +903,7 @@ interface AttachFile {
     .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
     /* multi-archivo: set de 3–4 fotos de la recepción */
     .cb-files { display: flex; flex-direction: column; gap: .5rem; }
-    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-file-card.primary { border-color: var(--action); box-shadow: inset 3px 0 0 var(--action); }
     .cb-file-thumb { flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: #00000010; }
     .cb-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -888,7 +920,7 @@ interface AttachFile {
     .cb-file-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .cb-file-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
     /* foto-primero: enlace de la entrada por OCR / búsqueda manual */
-    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-link-hint { margin: 0; font-size: .82rem; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; }
     .cb-link-head { font-size: .82rem; font-weight: 600; color: var(--text-main); }
     .cb-link-search { display: flex; gap: .4rem; }
@@ -900,7 +932,7 @@ interface AttachFile {
     .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
     .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE (#4) — checklist de completitud por fuente (Kepler/Wincaja), packet-aware */
-    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .45rem; }
+    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-2); display: flex; flex-direction: column; gap: .45rem; }
     .cb-checklist-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; color: var(--text-main); }
     .cb-chk-ok { display: inline-flex; align-items: center; gap: .3rem; color: var(--ok-fg); font-weight: 600; }
     .cb-chk-miss { color: var(--warn-soft-fg, #b26a00); font-weight: 600; }
@@ -934,7 +966,7 @@ interface AttachFile {
     .cb-addmore-drop { font-size: .74rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
     /* RE.7 — dropzone de arrastre del PDF (dispara el OCR solo) */
-    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; transition: border-color .15s, background .15s; }
+    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); text-align: center; transition: border-color .15s, background .15s; }
     .cb-drop.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
     .cb-drop-ico { font-size: 2rem; color: var(--bad-fg); }
     .cb-drop-main { font-size: .88rem; color: var(--text-main); }
@@ -943,7 +975,7 @@ interface AttachFile {
     .cb-drop-opt { border-style: dotted; opacity: .82; }
     .cb-opt-tag { display: inline-block; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, .3rem); padding: 0 .3rem; margin-right: .35rem; vertical-align: middle; }
     /* OCR por-archivo + duplicados */
-    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
     .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
     .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg, #fdecea); border: 1px solid var(--bad-border, #f5c2c0); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
@@ -955,7 +987,7 @@ interface AttachFile {
     .cb-explains-none { font-size: .82rem; margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
     .cb-explains-hint { font-size: .76rem; margin: 0; }
     .cb-explains-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
-    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-sunken, var(--card-bg)); font-size: .82rem; }
+    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-2); font-size: .82rem; }
     .cb-explains-folio { color: var(--text-main); }
     .cb-explains-fecha { font-size: .76rem; white-space: nowrap; }
     .cb-explains-motivo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
@@ -1012,7 +1044,7 @@ interface AttachFile {
     .cb-doc-frame { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: #00000010; height: 64vh; min-height: 24rem; display: flex; }
     .cb-doc-frame iframe { width: 100%; height: 100%; border: 0; background: #fff; }
     .cb-doc-frame img { width: 100%; height: 100%; object-fit: contain; }
-    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-2); }
     .cb-doc-empty .pi { font-size: 1.9rem; opacity: .5; }
     .cb-view-filebtn.on { border-color: var(--action); color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
   `],
@@ -1027,6 +1059,7 @@ export class ComprasEntradasComponent {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly tabs = ENTRADAS_CONTROL_TABS;
   // RE.10 — órdenes de entrada nuevas detectadas por WS (pill "N nuevas — actualizar").
   readonly newCount = signal(0);
 
@@ -1044,7 +1077,9 @@ export class ComprasEntradasComponent {
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
-  readonly estadoSel = signal<string>('pendiente');
+  // RE.13.0 — el estado del listado ahora es un tipo cerrado (`EntradasQuery`), no un string
+  // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
+  readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
   readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
@@ -1249,7 +1284,7 @@ export class ComprasEntradasComponent {
     ];
   }
 
-  setEstado(v: string) { this.estadoSel.set(v); this.load(); }
+  setEstado(v: string) { this.estadoSel.set((v || '') as Exclude<EntradasQuery['estado'], undefined>); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
 
   load() {
@@ -1720,84 +1755,24 @@ export class ComprasEntradasComponent {
   adjGrupoSev(g: AdjustmentGrupo): 'success' | 'warn' | 'danger' | 'secondary' { return ({ comercial: 'success', operacional: 'warn', error: 'danger', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[g] || 'secondary'; }
 
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
-  lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
+  lineasTotal(lineas: EntradaLinea[]): number { return lineasTotal(lineas); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= ComprasEntradasComponent.EPS; }
 
-  /** Dos importes son el mismo por debajo de esto (centavos de redondeo del OCR). */
-  private static readonly EPS = 1;
-  /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
-  private static readonly IVA = 0.16;
+  /** Los umbrales viven en `receipt-verdict.ts`: son los mismos que usa la bandeja. */
+  private static readonly EPS = EPS;
 
-  /** "1 renglón" / "2 renglones". Un plural mal puesto es de lo primero que se nota. */
-  plural(n: number, sing: string, plur: string): string { return `${n} ${n === 1 ? sing : plur}`; }
+  plural(n: number, sing: string, plur: string): string { return plural(n, sing, plur); }
 
   /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
-  private depForCuadre(d: EntradaDetail) {
-    const deps = d.deposits || [];
-    return deps.find((x) => x.status === 'validado') ?? deps[0] ?? null;
-  }
+  private depForCuadre(d: EntradaDetail) { return depForCuadre(d); }
 
   /**
-   * La respuesta de esta pantalla, en llano.
-   *
-   * El diálogo se llama "documento vs OCR" pero las tres cifras comparables —lo que Kepler
-   * registró, la suma de los renglones y lo que dice el papel del proveedor— vivían en tres
-   * bloques distintos, así que no se podían comparar. Esto las junta y, sobre todo, dice qué
-   * significa la diferencia: un descuadre que resulta ser exactamente el IVA no es un
-   * problema, y un delta crudo de $1,234.56 no le dice eso a nadie.
+   * La respuesta de esta pantalla, en llano. La lógica vive en `receipt-verdict.ts` porque la
+   * **bandeja de revisión** (RE.13.2) muestra el mismo veredicto: dos copias garantizaban que
+   * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
    */
-  cuadre(d: EntradaDetail) {
-    const E = ComprasEntradasComponent.EPS;
-    const kepler = Number(d.entrada.monto) || 0;
-    const lineas = this.lineasTotal(d.lineas);
-    const dep = this.depForCuadre(d);
-    const ocr = dep?.ocr_monto != null ? Number(dep.ocr_monto) : null;
-    const delta = ocr == null ? null : Number((ocr - kepler).toFixed(2));
-    const conIva = Math.abs(lineas * (1 + ComprasEntradasComponent.IVA) - kepler) <= E;
-    // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
-    const ocrMeta = !dep ? 'sin remisión adjunta'
-      : ocr == null ? 'el OCR no leyó el total'
-      : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
-    // Q.2 también acá: los renglones son el SUBTOTAL (cantidad x costo, kdm2) y el total de
-    // Kepler (c16) va con impuestos, así que casi siempre difieren. Dejar la diferencia a la
-    // vista sin explicarla hace dudar de un dato que está bien — y en dulcería no es solo
-    // IVA: hay IEPS, por eso no se afirma "16%" salvo que el número lo confirme.
-    const nLin = this.plural(d.lineas.length, 'renglón', 'renglones');
-    const dImp = Number((kepler - lineas).toFixed(2));
-    const lineasMeta =
-      Math.abs(dImp) <= E ? `${nLin} · igual al total, sin impuestos`
-      : conIva ? `${nLin} · subtotal; Kepler suma el IVA (+${money(dImp)})`
-      : dImp > 0 ? `${nLin} · subtotal; Kepler suma impuestos (+${money(dImp)})`
-      : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
-
-    if (!dep) {
-      return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'Falta la remisión del proveedor',
-        lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
-    }
-    if (ocr == null) {
-      return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento está, pero no se pudo leer su total',
-        lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
-    }
-    if (Math.abs(delta as number) <= E) {
-      return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento cuadra con Kepler',
-        lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
-    }
-    const dif = Math.abs(delta as number);
-    const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
-    // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
-    const pista = Math.abs(dif - lineas * ComprasEntradasComponent.IVA) <= E
-      ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
-      : this.explains().length
-        ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
-        : '';
-    return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-      titulo: `${sentido} ${money(dif)}`,
-      lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
-  }
+  cuadre(d: EntradaDetail) { return receiptVerdict(d, this.explains().length > 0); }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
@@ -1808,8 +1783,11 @@ export class ComprasEntradasComponent {
     return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
 
-  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra' } as Record<string, string>)[k] || k; }
-  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  // `gemela` (RE.14) no es un descuadre con el proveedor: la factura cuadra con la captura de
+  // oficinas y la diferencia es contra la de la sucursal. Etiquetarla como "Descuadre" mandaría
+  // a reclamarle a quien no se equivocó.
+  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
+  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   /**

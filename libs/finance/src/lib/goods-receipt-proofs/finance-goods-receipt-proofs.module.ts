@@ -5,6 +5,7 @@ import { GoodsReceiptProofsService } from './goods-receipt-proofs.service';
 import { GoodsReceiptProofsController } from './goods-receipt-proofs.controller';
 import { GoodsReceiptsGateway } from './goods-receipts.gateway';
 import { GoodsReceiptsWatcherService } from './goods-receipts-watcher.service';
+import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 
 /**
  * Fase CC (extensión) — Comprobantes de Orden de Entrada. Adjunta la remisión/
@@ -24,7 +25,7 @@ import { GoodsReceiptsWatcherService } from './goods-receipts-watcher.service';
     }),
   ],
   controllers: [GoodsReceiptProofsController],
-  providers: [GoodsReceiptProofsService, GoodsReceiptsGateway, GoodsReceiptsWatcherService],
+  providers: [GoodsReceiptProofsService, GoodsReceiptsGateway, GoodsReceiptsWatcherService, GoodsReceiptTwinsService],
   exports: [GoodsReceiptProofsService],
 })
 export class FinanceGoodsReceiptProofsModule {}
