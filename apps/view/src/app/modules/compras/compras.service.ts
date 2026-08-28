@@ -77,10 +77,12 @@ export interface PurchaseSuggestionRow {
   stock_unit_factor?: number; // SUF: sub-unidades de demanda por unidad de stock (>1 = granel corregido)
   price_ratio?: number;       // ratio mayoreo $/u ÷ retail $/u (señal de unidad)
   unit_source?: string;       // manual | granel | revisar | catalog
-  coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (override del proveedor o global)
-  coverage_source?: string;   // RA-PRO.27 — manual | auto | global
+  coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (manual → cadencia Kepler+lead → auto → global)
+  coverage_source?: string;   // RA-PRO.27/41 — manual | kepler | auto | global
   safety_pct_eff?: number;    // RA-PRO.27 — colchón % aplicado
-  safety_source?: string;     // RA-PRO.27 — manual | auto | none
+  safety_source?: string;     // RA-PRO.27/41 — manual | quantil | auto | none
+  season_ratio?: number;      // RA-PRO.41 — razón estacional aplicada a la demanda del horizonte
+  season_src?: string | null; // RA-PRO.41 — sku | cat | global
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
@@ -155,6 +157,10 @@ export interface WorkbookRow {
   iad_z_short: number | null;      // Welch-Z 30v30 (tooltip)
   iad_z_seasonal: number | null;   // Welch-Z YoY (tooltip)
   iad_has_seasonal: boolean | null;
+  // RA-PRO.41 — estacionalidad: la demanda del horizonte YA va multiplicada por esta razón
+  // (idx próximos 30d ÷ idx últimos 30d, jerárquico sku→categoría→global). 1 = mes plano.
+  season_ratio: number | null;
+  season_src: string | null;       // sku | cat | global
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;

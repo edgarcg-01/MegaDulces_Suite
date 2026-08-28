@@ -599,3 +599,21 @@ Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del provee
 - Bandeja/scanner: `libs/reconciliation/*` + `apps/view/.../almacen/pages/almacen-cuadre.component.ts`.
 - Reporte análogo: `commercial-analytics.service.ts` `lowStock()`/`inventoryHealth()` + `import-inventory-health.js`.
 - Existencia/sugerido de referencia (Kepler): `invconpanecrrep.kpl` (lógica de buckets + `cantidad = objetivo − existencia`).
+
+---
+
+## RA-PRO.41 — El pedido aprende de la historia: estacionalidad + colchón cuantílico + lead derivado + rutas/mayoreo (2026-08-28) ✅
+
+**Regla de Edgar:** *"no hay que dejar nada manual, todo automático considerando históricos, considerar mayoreo y rutas, que no se nos pase nada"*. Todo se deriva en `import-replenishment-plan` (una tabla primaria, cero captura). Detalle completo en [`03_LOG_REVISIONES.md`](../03_LOG_REVISIONES.md) 2026-08-28.
+
+| Señal | Cómo se deriva | Resultado medido |
+|---|---|---|
+| `season_ratio` | idx(próx. 30d) ÷ idx(últ. 30d), jerárquico SKU→cat→global, normalizado POR AÑO, shrinkage n/(n+1), banda muerta 0.85–1.15, cap [0.5, 2.0] | Backtest ene–ago 2026: **bias enero +39.6% → −4.7%**, \|bias\| medio 9.4% → 5.0% |
+| `safety_pct_q` | cuantiles de sumas rodantes 4-sem (26 sem, red): A p90 cap 50 / B p80 cap 35 / C p70 cap 25 | reemplaza el 20% plano del CV (89% caía en Z); A mediana 29%, C promedio 18% |
+| `lead_days` | mediana lag OC X-A-35→X-A-40 del ODS (n≥5 por proveedor; ~16% de OCs con señal) | mediana 4d; 108 proveedores con señal propia; `covEff` = cadencia Kepler + lead |
+| Rutas → sucursal | `sales_by_route_monthly` WIN-⟨n⟩ → moda por revenue: 21-28→01, 501-505→06, 321/322→MD-32 | 11% de la demanda dejó de perderse en la vista por-sucursal; RUTA-* ya no genera "comprar" |
+| Frescura | `import-demand-clean`: ventana anclada al último día reportado POR ALMACÉN (≤21d; más viejo = inactivo→0) + warning por corrida | MD-30/32 iban 4d atrás y rutas 501-505 17d (feed caído — **pendiente arreglar el push**) |
+
+El motor multiplica la demanda por `season_ratio` en los 4 caminos (compra, workbook, detalle, traspaso, sobrestock — el navideño con pila en noviembre ya no es "sobrestock"). Engine expone `season_ratio/season_src`; UI columna **Est.** con chip ×N.NN. Mig `20260828140000` (aditiva, aplicada a prod a mano). Controles de cordura en cada corrida del fact: tránsito-vs-inventario, rango de estación, rutas sin mapear, puntos ciegos (tránsito MD-30/32 no está en el ODS).
+
+**Advertencia honesta:** oct–dic tienen UNA observación (dic-2025); el shrinkage y el cap acotan el error. La validación real de la temporada alta es este oct-dic. Efecto Pascua móvil no modelable aún (abril −10% en backtest).
