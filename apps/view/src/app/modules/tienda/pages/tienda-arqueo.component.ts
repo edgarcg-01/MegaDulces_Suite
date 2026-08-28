@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, NgZone, OnInit, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -7,7 +7,6 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { InputTextModule } from 'primeng/inputtext';
-import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
@@ -17,6 +16,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, Turno } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 
 /**
@@ -45,8 +45,8 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectButtonModule, InputTextModule, DatePickerModule, TagModule,
-    ContextHelpComponent,
+    SelectButtonModule, InputTextModule, TagModule,
+    ContextHelpComponent, FreshnessPillComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -63,6 +63,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
           </p>
         </div>
         <div class="arq-head-right">
+          <app-freshness-pill [since]="turnosAl()" label="Kepler" [staleAfterSec]="180" />
           <app-context-help topic="arqueo" />
         </div>
       </header>
@@ -100,12 +101,24 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                     <span class="arq-turno-caja">Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
                     <span class="arq-turno-meta">{{ t.abierto ? 'Abierta desde ' + (t.hora_apertura || '—') : 'Cerró ' + (t.hora_cierre || '—') }}</span>
+                    @if (!t.abierto) { <span class="arq-pide">Te toca arquear</span> }
                   </button>
                 }
               </div>
             }
 
             @if (turnoSel(); as t) {
+              @if (!t.abierto) {
+                <!-- Kepler cerró la caja: a partir de acá el arqueo no es opcional.
+                     La app lo PIDE en el mismo momento en que el ERP lo pide. -->
+                <div class="arq-pide-box">
+                  <i class="pi pi-bell"></i>
+                  <div>
+                    <strong>Kepler cerró tu caja{{ t.hora_cierre ? ' a las ' + t.hora_cierre : '' }}. Te toca arquear.</strong>
+                    @if (t.cerrado_hace_min != null) { <p class="muted">Hace {{ t.cerrado_hace_min }} min.</p> }
+                  </div>
+                </div>
+              }
               <!-- Encabezado NO editable: cada dato viene del turno de Kepler. -->
               <div class="arq-datos">
                 <div><span class="arq-ev-k">Sucursal</span><span class="arq-ev-v">{{ branchLabel(t.warehouse_code) }}</span></div>
@@ -128,10 +141,9 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                 </select>
               </label>
               <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
-              <label class="arq-lbl">Fecha
-                <p-datepicker [(ngModel)]="aDate" (ngModelChange)="dirty.set(true)" dateFormat="dd/mm/yy"
-                              [showIcon]="true" appendTo="body" styleClass="arq-date" inputStyleClass="arq-fld" />
-              </label>
+              <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
+                   pasada permitiría sellar dinero de un día que ya cerró. -->
+              <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
               <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
@@ -297,6 +309,13 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-turno:hover { background: var(--surface-hover-bg); }
     .arq-turno.sel { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
     .arq-turno-caja { font-size: .85rem; font-weight: 700; }
+    .arq-pide { display: block; margin-top: .2rem; font-size: .6rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .04em; color: var(--action); }
+    .arq-pide-box { display: flex; gap: .7rem; align-items: flex-start; padding: .75rem .85rem; margin-bottom: .9rem;
+                    border: 1px solid color-mix(in srgb, var(--action) 45%, transparent);
+                    background: color-mix(in srgb, var(--action) 8%, transparent); border-radius: var(--r-md); }
+    .arq-pide-box i { color: var(--action); margin-top: .15rem; }
+    .arq-pide-box p { margin: .15rem 0 0; font-size: .78rem; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
     .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
                  padding: .7rem .8rem; border-radius: var(--r-md); background: var(--surface-hover-bg); border: 1px solid var(--border-color); }
@@ -344,6 +363,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private readonly dataScope = inject(DataScopeService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
 
@@ -359,6 +379,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly turnos = signal<Turno[]>([]);
   readonly turnoFolio = signal<string>('');
   readonly cargandoTurnos = signal(true);
+  /** Última lectura de Kepler — alimenta la píldora de frescura. */
+  readonly turnosAl = signal<string | null>(null);
+  /** Fecha de negocio en hora de México (§10: no re-convertir con `new Date()` suelto). */
+  readonly hoyTxt = computed(() => new Date().toLocaleDateString('es-MX', {
+    timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
+  }));
   readonly turnoSel = computed(() => this.turnos().find((t) => t.folio === this.turnoFolio()) ?? null);
   /** Captura a mano (solo supervisor): relevo, contingencia, caja sin Kepler. */
   readonly manual = signal(false);
@@ -409,13 +435,25 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     });
     this.cargarTurnos();
     this.load();
+    // Poll fuera de Angular: es un timer de fondo, no debe disparar CD cada 45s.
+    this.zone.runOutsideAngular(() => {
+      const id = setInterval(() => this.zone.run(() => this.tick()), 45_000);
+      this.destroyRef.onDestroy(() => clearInterval(id));
+    });
   }
 
-  private cargarTurnos() {
-    this.cargandoTurnos.set(true);
+  /**
+   * Va A LA PAR de Kepler: la lista se repregunta sola cada 45s y al volver a la
+   * pestaña. Sin esto, la cajera que dejó la pantalla abierta no se entera de que
+   * el ERP ya cerró su caja — y el arqueo tiene que pedirse **cuando Kepler lo
+   * pide**, no cuando a alguien se le ocurre recargar.
+   */
+  private cargarTurnos(silencioso = false) {
+    if (!silencioso) this.cargandoTurnos.set(true);
     this.svc.turnos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (t) => {
         this.turnos.set(t);
+        this.turnosAl.set(new Date().toISOString());
         // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
         if (t.length && !this.turnoSel()) this.turnoFolio.set(t[0].folio);
         this.cargandoTurnos.set(false);
@@ -423,6 +461,15 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       error: () => this.cargandoTurnos.set(false),
     });
   }
+
+  /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
+  private tick() {
+    if (document.visibilityState !== 'visible' || this.dirty() || this.saving()) return;
+    this.cargarTurnos(true);
+  }
+
+  @HostListener('document:visibilitychange')
+  onVisible() { this.tick(); }
 
   elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
 

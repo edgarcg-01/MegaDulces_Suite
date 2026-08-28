@@ -38,6 +38,12 @@ export interface TurnoPendiente {
   turno: string | null;
   abierto: boolean;
   abierto_at?: string | null;
+  /**
+   * Minutos desde que Kepler cerró el turno. `null` mientras sigue abierto.
+   * Es lo que convierte la lista en una PETICIÓN: en cuanto el ERP cierra la
+   * caja, el arqueo se vuelve exigible y la pantalla lo pide sola.
+   */
+  cerrado_hace_min?: number | null;
 }
 const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -114,7 +120,13 @@ export class BlindCountService {
                 NULLIF(btrim(k.c11), '')            AS hora_cierre,
                 NULLIF(btrim(k.c8), '')             AS cajero_code,
                 NULLIF(btrim(k.c13), '')            AS turno,
-                (k.c10::date = DATE '1800-01-01')   AS abierto
+                (k.c10::date = DATE '1800-01-01')   AS abierto,
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE
+                  GREATEST(0, floor(EXTRACT(EPOCH FROM (
+                    (now() AT TIME ZONE 'America/Mexico_City')
+                    - (k.c10::date + COALESCE(NULLIF(btrim(k.c11), ''), '00:00:00')::time)
+                  )) / 60))::int
+                END                                  AS cerrado_hace_min
            FROM kepler_ods.kdpv_folio_caja k
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL

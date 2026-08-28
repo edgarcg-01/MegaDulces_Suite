@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -6,13 +6,14 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { TagModule } from 'primeng/tag';
-import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoRow, ArqueoPorCajera } from '../arqueo.service';
+import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 /**
  * Tienda — Historial de arqueos (/tienda/arqueos).
@@ -31,7 +32,7 @@ import { ArqueoService, ArqueoRow, ArqueoPorCajera } from '../arqueo.service';
 @Component({
   selector: 'app-tienda-arqueo-historial',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TagModule, DatePickerModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TagModule, SegmentedComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -46,12 +47,11 @@ import { ArqueoService, ArqueoRow, ArqueoPorCajera } from '../arqueo.service';
           </p>
         </div>
         <div class="ah-head-right">
-          <label class="ah-lbl">Desde
-            <p-datepicker [(ngModel)]="desde" (ngModelChange)="load()" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" inputStyleClass="ah-fld" />
-          </label>
-          <label class="ah-lbl">Hasta
-            <p-datepicker [(ngModel)]="hasta" (ngModelChange)="load()" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" inputStyleClass="ah-fld" />
-          </label>
+          <!-- Sin calendario: la operación es de hoy hacia atrás, no de una fecha
+               arbitraria. Ventanas fijas relativas al presente — así la pantalla
+               siempre está en vivo y nadie se queda mirando un rango viejo. -->
+          <app-segmented [options]="ventanas" [value]="ventana()" (valueChange)="cambiarVentana($event)" ariaLabel="Ventana" />
+          <app-freshness-pill [since]="cargadoAl()" [staleAfterSec]="180" />
           <button pButton type="button" class="p-button-sm p-button-text" [class.ah-on]="soloPendientes()" (click)="togglePendientes()">
             <span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span>
             <span class="p-button-label">Solo sin validar</span>
@@ -188,6 +188,7 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   /** Espeja la regla del backend: solo quien valida ve el cuadre. */
   readonly revela = this.perms.can('manage', 'all')
@@ -201,9 +202,18 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   readonly cajeroSel = signal<string | null>(null);
   readonly soloPendientes = signal(false);
 
-  /** Por default, el mes en curso: el rango que se mira al cerrar quincena. */
-  hasta: Date = new Date();
-  desde: Date = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  /**
+   * Ventanas RELATIVAS al presente, no fechas elegidas a mano: la pantalla tiene
+   * que estar siempre en vivo. Un calendario invita a quedarse mirando un rango
+   * viejo y creer que es el estado actual.
+   */
+  readonly ventanas = [
+    { label: 'Hoy', value: 'hoy' },
+    { label: '7 días', value: '7' },
+    { label: '30 días', value: '30' },
+  ];
+  readonly ventana = signal<string>('hoy');
+  readonly cargadoAl = signal<string | null>(null);
 
   /** El filtro por cajera es local: la tabla ya vino completa, no hace falta ir al server. */
   readonly filas = computed(() => {
@@ -212,18 +222,40 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   });
   readonly colspan = computed(() => 6 + (this.revela ? 3 : 0));
 
-  ngOnInit() { this.load(); }
+  ngOnInit() {
+    this.load();
+    // A la par de Kepler: se repregunta sola. Fuera de Angular para no disparar
+    // change detection cada minuto por un timer de fondo.
+    this.zone.runOutsideAngular(() => {
+      const id = setInterval(() => this.zone.run(() => {
+        if (document.visibilityState === 'visible' && !this.validando()) this.load();
+      }), 60_000);
+      this.destroyRef.onDestroy(() => clearInterval(id));
+    });
+  }
+
+  cambiarVentana(v: string) { this.ventana.set(v); this.load(); }
+
+  /** Inicio de la ventana en hora de MÉXICO (§10), no en la del navegador. */
+  private desdeTxt(): string {
+    const hoyMx = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    if (this.ventana() === 'hoy') return hoyMx;
+    const d = new Date(`${hoyMx}T12:00:00`);
+    d.setDate(d.getDate() - Number(this.ventana()));
+    return d.toLocaleDateString('en-CA');
+  }
 
   load() {
     this.loading.set(true);
     this.svc.historial({
-      from: this.fmt(this.desde), to: this.fmt(this.hasta),
+      from: this.desdeTxt(),   // sin `to`: el corte superior es SIEMPRE ahora
       sin_validar: this.soloPendientes() || undefined, limit: 500,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.porCajera.set(r.por_cajera || []);
         this.arqueos.set(r.arqueos || []);
         this.totales.set(r.totales || { arqueos: 0, sin_validar: 0 });
+        this.cargadoAl.set(new Date().toISOString());
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
@@ -247,12 +279,6 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   }
 
   branchLabel(code?: string | null): string { return branchName(code); }
-
-  /** Fecha local → 'YYYY-MM-DD' sin corrimiento de TZ (§10: no re-convertir). */
-  private fmt(d: Date): string {
-    const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
 
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   signed(v: number): string { return (v > 0 ? '+' : '') + this.money(v); }

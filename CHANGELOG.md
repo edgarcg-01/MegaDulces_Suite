@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Changed — el arqueo va a la par de Kepler: cero calendarios, todo en vivo (SM.15, 2026-08-27)
+- **Se fueron los selectores de fecha.** La captura ya no tiene `p-datepicker` (ni en la vía manual del supervisor): un arqueo es de HOY, y elegir una fecha pasada permitiría sellar dinero de un día que ya cerró. El historial cambia el calendario por **ventanas relativas al presente** (`Hoy · 7 días · 30 días`, vía `app-segmented`) y **nunca manda un `to`**: el corte superior es siempre *ahora*. Un calendario invita a quedarse mirando un rango viejo creyendo que es el estado actual.
+- **La app pide el arqueo cuando Kepler lo pide.** `turnos` devuelve ahora `cerrado_hace_min`: en cuanto el ERP cierra la caja, la pantalla levanta un aviso — *"Kepler cerró tu caja a las 20:40. Te toca arquear."* — y el turno se marca en la lista. Antes la cajera tenía que darse cuenta sola.
+- **Se repregunta sola** (45s en captura, 60s en historial) y al volver a la pestaña, con `app-freshness-pill` mostrando qué tan fresca es la lectura de Kepler. El poll corre **fuera de Angular** (`NgZone.runOutsideAngular`) para no disparar change detection de fondo, y **se salta si hay un conteo a medio capturar**: refrescar encima del trabajo de alguien sería peor que estar desactualizado.
+- De paso entran tres piezas del sistema de diseño que faltaban en estas pantallas: `app-segmented` (en vez de botones ad-hoc), `app-freshness-pill` (obligatoria en dato volátil) y un `p-datepicker` menos.
+
 ### Added — el eje: la columna que divide poblaciones · **EN PROD** (2026-08-27)
 - **Aplicado a prod** (Railway, batches 226-231) sobre los **118 usuarios**, junto con los permisos por persona: **permisos 118 idénticos / 0 pierden** y **alcance 22 ganancias / 0 pérdidas** — los ~14 roles de oficina pasan de `own`-sin-valor a `all` (`zone: 1→8`) y 23 personas reciben su zona derivada de la sucursal. Eje resuelto en **117 de 118**. Smokes contra prod: 14/14 · 28/28 · 30/30 · 49/49. Falta redeploy del código + re-login.
 - **`scope_axis` en puesto y departamento** (`[ID.24]`): el alta preguntaba zona **y** sucursal a todo el mundo porque no había forma de saber cuál le toca a cada quien. La medición muestra que la operación ya tenía la respuesta: **`ruta_directa` son 34 personas con zona y CERO con sucursal; `cajas` son 27 con sucursal y CERO con zona.** Cada población ya llenaba un solo campo — sólo faltaba declararlo. Vocabulario `ruta · zona · sucursal · red · cartera · cliente`, cobertura **142 de 149**.
