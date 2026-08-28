@@ -15,6 +15,58 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // RE.16 — la pantalla con más jerga del proyecto no tenía ninguna ayuda. Cuatro roles
+  // distintos leen los mismos números y cada uno les daba un nombre propio.
+  'compras-entradas': {
+    title: 'Facturas de entrada — guía',
+    intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la sube, un revisor la valida o la devuelve, y el Centro de control mira la red completa. No escribe nada en Kepler: es evidencia.',
+    groups: [
+      {
+        heading: 'Los cuatro estados (mismos nombres en todas las pantallas)',
+        entries: [
+          { term: 'Sin factura', def: 'Kepler registró la entrada y todavía no hay PDF. Es lo que le toca a la sucursal.' },
+          { term: 'Por revisar', def: 'Ya se subió el PDF y espera decisión del revisor. El reloj ahora es de él, no de la sucursal.' },
+          { term: 'Validada', def: 'El revisor la aceptó: el expediente cierra y sostiene el pago.' },
+          { term: 'Devuelta', def: 'El revisor la rechazó con un motivo (ilegible, no corresponde, el total no cuadra, falta una hoja, duplicada). Vuelve a la sucursal, que la corrige y la sube de nuevo. Es el único camino de regreso.' },
+        ],
+      },
+      {
+        heading: 'El cuadre',
+        entries: [
+          { term: 'Cuadra', def: 'El total que el OCR leyó en la factura coincide con el de Kepler dentro de la tolerancia (configurable en Ajustes, hoy centavos).' },
+          { term: 'Δ (descuadre)', def: 'La diferencia entre el papel del proveedor y lo que Kepler registró. No siempre es error: puede ser una nota de crédito o una devolución posterior.' },
+          { term: 'Cuadra con oficinas', def: 'El importe no casa con la captura de la sucursal pero sí con la de oficinas de la misma recepción. Se acepta: es la misma compra vista por dos capturas.' },
+          { term: 'Vencida', def: 'Pasó su plazo. Hay dos plazos distintos a propósito: el de la sucursal para subir y el del revisor para decidir (Ajustes).' },
+        ],
+      },
+      {
+        heading: 'Capturada dos veces (gemelas)',
+        entries: [
+          { term: 'Por qué pasa', def: 'La misma recepción se captura en el Kepler de la sucursal y otra vez en el de oficinas (servidor 9.95, sucursal 00). La de la sucursal es la buena: trae los productos y movió inventario.' },
+          { term: 'Par', def: 'Las dos copias enlazadas. Mientras andan sueltas, esa compra se cuenta dos veces y a la sucursal se le puede pedir evidencia de algo ya cubierto.' },
+          { term: 'Automático vs por dictaminar', def: 'El motor corre cada 5 minutos y enlaza solo lo que puede defender (mismo importe, día y proveedor, o un solo renglón de concepto). Lo dudoso queda esperando que una persona decida, y esa decisión el motor nunca la sobrescribe.' },
+          { term: 'Es la misma / Son distintas', def: 'Confirmar deja de contar la copia de oficinas. Rechazar la devuelve a contar como compra propia de oficinas y el motor no la vuelve a proponer.' },
+        ],
+      },
+      {
+        heading: 'Cobertura por sucursal',
+        entries: [
+          { term: '% comprobado', def: 'Órdenes con factura sobre el total del periodo. Se mira por sucursal y no en global: CEDIS pesa el 74% del volumen y puede tapar a una sucursal que lleva tres semanas sin subir nada.' },
+          { term: 'Quién sube', def: 'Las personas con permiso de subir en esa sucursal. Vacío no significa que nadie trabaja: significa que falta el permiso, y son dos conversaciones distintas.' },
+          { term: 'Antigüedad p50 / p90', def: 'La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90. El promedio esconde la cola larga, que es la que hay que perseguir.' },
+          { term: 'Rezago', def: 'Órdenes anteriores al arranque del proceso. Nunca van a tener comprobante, así que se cuentan aparte: si entraran al %, el número dejaría de servir para exigirle a nadie.' },
+        ],
+      },
+      {
+        heading: 'El documento',
+        entries: [
+          { term: 'Sólo PDF', def: 'Un expediente que sostiene un pago no se sostiene con una foto torcida de una hoja de tres. El escáner de oficina ya produce PDF; desde el celular, la app de Archivos o Cámara escanea a PDF, endereza la hoja y junta varias en un archivo.' },
+          { term: 'Varias hojas', def: 'Todas en el mismo PDF, o agregadas una por una al mismo expediente.' },
+          { term: 'Lote', def: 'Soltar varios PDFs de una sola vez sobre la tabla de pendientes. Se enlazan por folio y sólo se confirma. No hay pantalla aparte: es la misma.' },
+        ],
+      },
+    ],
+  },
   'compras-descuentos': {
     title: 'Descuentos y apoyos — guía',
     intro: 'Hace visible lo que la recepción no mostraba: los ajustes de compra de Kepler (notas de crédito y devoluciones) clasificados por su motivo, más detectores de facturas duplicadas y de descuento no capturado. Es lectura (evidencia), no edita el ERP.',

@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch, ScopeService } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
 
 /**
@@ -17,11 +17,106 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `evidencia_1` se mantiene por compatibilidad con registros viejos.
 export const RECEIPT_FILE_ROLES = ['remision', 'factura', 'vale', 'orden_entrada', 'orden_recepcion', 'ticket', 'evidencia', 'evidencia_1'] as const;
 export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
-const TOLERANCIA = 1.0; // pesos: cuadra si el total (o subtotal) de la remisión ≈ el valor Kepler
-// RE — el proceso de recepción arranca en AGOSTO 2026: las entradas de Kepler anteriores son
-// histórico que nunca tendrá comprobante y no debe listarse/contarse ni enlazarse. Piso duro
-// sobre receipt_date (mover esta fecha si cambia el arranque del sistema).
-const RECEPTION_START = '2026-08-01';
+
+/**
+ * RE.13.2 — catálogo de motivos de rechazo. Con texto libre no se puede contestar "¿por qué
+ * se devuelve el 30% de lo que sube la sucursal 01?", que es justo el dato que le dice a la
+ * sucursal qué corregir. El front tiene su propia copia para las etiquetas.
+ */
+export const MOTIVOS_RECHAZO = ['ilegible', 'no_corresponde', 'total_no_cuadra', 'falta_hoja', 'duplicada', 'otro'] as const;
+export type MotivoRechazo = (typeof MOTIVOS_RECHAZO)[number];
+// RE.13.0 — estos dos eran constantes de módulo y son decisiones de NEGOCIO: la fecha de
+// arranque del proceso (mover el rezago fuera del SLA) y cuándo se considera que la factura
+// cuadra. Viven en `finance.receipt_settings` por tenant; acá quedan sólo como default para
+// que el service funcione antes de la migración o si falta la fila.
+const TOLERANCIA_DEFAULT = 1.0; // pesos: cuadra si el total (o subtotal) de la remisión ≈ el valor Kepler
+// El proceso de recepción arranca en AGOSTO 2026: las entradas de Kepler anteriores son
+// histórico que nunca tendrá comprobante y no debe listarse/contarse ni enlazarse.
+const RECEPTION_START_DEFAULT = '2026-08-01';
+const SLA_CAPTURE_DEFAULT = 3; // días sin evidencia antes de marcar atrasada (semáforo del capturista)
+const SLA_REVIEW_DEFAULT = 3;  // días esperando decisión antes de marcar atrasada (semáforo del revisor)
+
+/** Parámetros del proceso de recepción, resueltos por tenant (`finance.receipt_settings`). */
+export interface ReceiptSettings {
+  reception_start: string;
+  match_tolerance: number;
+  sla_capture_days: number;
+  sla_review_days: number;
+  bulk_max_files: number;
+}
+
+const SETTINGS_DEFAULT: ReceiptSettings = {
+  reception_start: RECEPTION_START_DEFAULT,
+  match_tolerance: TOLERANCIA_DEFAULT,
+  sla_capture_days: SLA_CAPTURE_DEFAULT,
+  sla_review_days: SLA_REVIEW_DEFAULT,
+  bulk_max_files: 50,
+};
+const SETTINGS_TTL_MS = 60_000;
+
+/**
+ * Normaliza una columna `date` de Postgres a `'AAAA-MM-DD'`.
+ *
+ * `node-pg` devuelve `date` como **objeto `Date`** (no como string), así que el
+ * `String(row.reception_start).slice(0, 10)` que vivía acá producía `'Sat Aug 01'` — y ese
+ * texto volvía al SQL como parámetro de fecha: `22007 la sintaxis de entrada no es válida para
+ * tipo date`, con toda la lista de entradas devolviendo 500. Pasó desapercibido porque mientras
+ * `finance.receipt_settings` no tuvo fila, `settings()` caía al default (que ya era un string).
+ *
+ * Se arma con los componentes **locales**, no con `toISOString()`: pg parsea el `date` como
+ * medianoche local, y en un huso positivo el ISO devolvería el día anterior.
+ */
+function soloFecha(v: unknown, fallback: string): string {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  const s = String(v ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback;
+}
+
+/**
+ * Cómo se elige "la última evidencia" de una entrada. **No es cosmético**: de esto sale si la
+ * entrada está en la cola del revisor, si el capturista la ve como devuelta y qué motivo se le
+ * muestra.
+ *
+ * El desempate existe porque `created_at` **empata de verdad**: `now()` en Postgres es el
+ * instante de INICIO DE LA TRANSACCIÓN, y en esta app **todo el request corre en una sola
+ * transacción**, así que dos evidencias insertadas en el mismo request comparten `created_at`
+ * al microsegundo y `ORDER BY created_at DESC` queda indefinido — verificado: devolvía
+ * 'rechazado' para una entrada que acababa de recibir una recaptura.
+ *
+ * En empate gana la **pendiente**: una evidencia esperando decisión tiene que quedar en la
+ * cola. El `id` cierra el orden para que la respuesta sea siempre la misma.
+ */
+const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
+
+/**
+ * `[RE.14.3]` — **La misma recepción está capturada dos veces**: en el Kepler de la sucursal y
+ * otra vez en el servidor de oficinas (9.95, sucursal `'00'`). La canónica es la de sucursal —
+ * es la que trae los productos; la de oficinas es la captura contable (un renglón de concepto
+ * con el total).
+ *
+ * Estos son los estados de par que **valen como espejo**: `'propuesto'` (el detector duda) y
+ * `'rechazado'` (una persona dijo que no lo es) NO cuentan, porque tratar un par dudoso como
+ * espejo esconde una compra que sí existe. Ver `analytics.erp_goods_receipt_dedup`.
+ */
+const PAR_VIGENTE = ['auto', 'confirmado'];
+/** Columnas del par + de qué servidor viene la fila. Se comparten entre la lista y el enlace. */
+const GEMELA_SELECT = [
+  'gem.cedis_folio AS gemela_folio',
+  'gem.cedis_date AS gemela_date',
+  'gem.cedis_monto::numeric AS gemela_monto',
+  'gem.delta_monto::numeric AS gemela_delta',
+  'gem.match_rule AS gemela_regla',
+  'gem.match_score::numeric AS gemela_score',
+];
+/** Sin la tabla de pares al día (prod puede correr el código antes de la migración) → NULLs. */
+const GEMELA_NULLS = [
+  'NULL::text AS gemela_folio', 'NULL::date AS gemela_date', 'NULL::numeric AS gemela_monto',
+  'NULL::numeric AS gemela_delta', 'NULL::text AS gemela_regla', 'NULL::numeric AS gemela_score',
+];
+const ORIGEN_SELECT = `(CASE WHEN c.sucursal = '00' THEN 'oficinas' ELSE 'sucursal' END) AS origen`;
 
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -37,11 +132,25 @@ export interface ReceiptFile {
 export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
 
 export interface ListReceiptsQuery {
-  estado?: 'pendiente' | 'con_comprobante' | 'validado' | string;
+  /** `pendiente` = sin evidencia · `por_validar` = evidencia esperando decisión (la cola del revisor). */
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | string;
   from?: string;
   to?: string;
   search?: string;
   limit?: number;
+  /** RE.13.0 — alcance: códigos de sucursal ya intersectados con lo que el usuario puede ver. */
+  warehouse_codes?: string[] | null;
+  /** Antigüedad mínima en días (worklist del capturista: "mostrame lo atrasado"). */
+  dias_min?: number;
+  /** `rezago` = lo anterior a `reception_start` · `al_dia` (default) = de la fecha de arranque en adelante. */
+  carril?: 'al_dia' | 'rezago' | 'todo';
+  /**
+   * `antiguedad` (default) = lo más viejo primero, que es el orden de trabajo ·
+   * `reciente` = el orden anterior · `monto` · `riesgo` = descuadre y monto primero (cola del revisor).
+   */
+  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  page?: number;
+  pageSize?: number;
 }
 
 export interface AttachReceiptDto {
@@ -106,31 +215,264 @@ export class GoodsReceiptProofsService {
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
     private readonly readings: OcrReadingsService,
+    private readonly scope: ScopeService,
   ) {}
+
+  // ─────────────────── RE.13.0 — parámetros del proceso ───────────────────
+
+  /** Cache por tenant con TTL corto: esto se lee en cada request y cambia una vez al mes. */
+  private settingsCache = new Map<string, { at: number; v: ReceiptSettings }>();
+
+  /**
+   * Parámetros del tenant. Si la tabla no existe todavía (entorno sin la migración) o no hay
+   * fila, devuelve los defaults — nunca revienta. El `hasTable` evita el `try/catch` que
+   * envenenaría la transacción del request (gotcha 25P02).
+   */
+  private async settings(trx: any): Promise<ReceiptSettings> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hit = this.settingsCache.get(tenantId);
+    if (hit && Date.now() - hit.at < SETTINGS_TTL_MS) return hit.v;
+    let v = SETTINGS_DEFAULT;
+    if (await trx.schema.withSchema('finance').hasTable('receipt_settings')) {
+      const row = await trx('finance.receipt_settings').where({ tenant_id: tenantId }).first();
+      if (row) {
+        v = {
+          reception_start: soloFecha(row.reception_start, RECEPTION_START_DEFAULT),
+          match_tolerance: Number(row.match_tolerance),
+          sla_capture_days: Number(row.sla_capture_days),
+          sla_review_days: Number(row.sla_review_days),
+          bulk_max_files: Number(row.bulk_max_files),
+        };
+      }
+    }
+    this.settingsCache.set(tenantId, { at: Date.now(), v });
+    return v;
+  }
+
+  /** Para el front: los parámetros vigentes (semáforo, tolerancia, tope de lote). */
+  async getSettings(): Promise<ReceiptSettings> {
+    return this.tk.run(async (trx) => this.settings(trx));
+  }
+
+  /**
+   * Guarda los parámetros del proceso. Existía el GET desde RE.13.0 pero **no el PUT**: la
+   * fecha de arranque y el SLA sólo se podían mover con un UPDATE a mano en la DB, contra la
+   * regla de que el dato operativo se administra desde la interfaz. Esto es la pestaña
+   * "Ajustes" del Centro de control.
+   *
+   * Los rangos se validan acá porque cada uno rompe algo distinto si se va de rango:
+   * `reception_start` hacia atrás mete el rezago histórico (que nunca tendrá comprobante) al
+   * % de cobertura y el número deja de servir para exigirle a nadie; una tolerancia grande
+   * hace que "cuadra" deje de significar algo.
+   */
+  async saveSettings(p: Partial<ReceiptSettings>, actor?: string): Promise<ReceiptSettings> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cur = await this.getSettings();
+    const next: ReceiptSettings = {
+      reception_start: (p.reception_start ?? cur.reception_start).slice(0, 10),
+      match_tolerance: p.match_tolerance != null ? Number(p.match_tolerance) : cur.match_tolerance,
+      sla_capture_days: p.sla_capture_days != null ? Number(p.sla_capture_days) : cur.sla_capture_days,
+      sla_review_days: p.sla_review_days != null ? Number(p.sla_review_days) : cur.sla_review_days,
+      bulk_max_files: p.bulk_max_files != null ? Number(p.bulk_max_files) : cur.bulk_max_files,
+    };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next.reception_start)) {
+      throw new BadRequestException('reception_start debe ser una fecha AAAA-MM-DD');
+    }
+    const rango = (v: number, min: number, max: number, campo: string) => {
+      if (!Number.isFinite(v) || v < min || v > max) {
+        throw new BadRequestException(`${campo} fuera de rango (${min}–${max})`);
+      }
+    };
+    rango(next.match_tolerance, 0, 500, 'match_tolerance');
+    rango(next.sla_capture_days, 1, 60, 'sla_capture_days');
+    rango(next.sla_review_days, 1, 60, 'sla_review_days');
+    rango(next.bulk_max_files, 1, 200, 'bulk_max_files');
+
+    await this.tk.run(async (trx) => {
+      await trx('finance.receipt_settings')
+        .insert({ tenant_id: tenantId, ...next, updated_at: trx.fn.now(), updated_by: actor || null })
+        .onConflict('tenant_id')
+        .merge();
+    });
+    // El cache es por proceso y tiene TTL de 1 min; se invalida acá para que el cambio se vea
+    // en el mismo click (en varias instancias, el TTL cierra la diferencia).
+    this.settingsCache.delete(tenantId);
+    this.logger.log(`receipt_settings actualizados por ${actor || 'sistema'}: arranque=${next.reception_start} tol=${next.match_tolerance} sla=${next.sla_capture_days}/${next.sla_review_days} lote=${next.bulk_max_files}`);
+    return next;
+  }
+
+  /**
+   * ¿Existe la columna/tabla? Cacheado por proceso. Sirve para que el código funcione en un
+   * entorno donde la migración de la fase todavía no corrió, **sin** un `try/catch` que
+   * envenenaría la transacción del request (25P02).
+   */
+  private objCache = new Map<string, boolean>();
+  private async existeCol(trx: any, schema: string, table: string, col: string): Promise<boolean> {
+    const k = `${schema}.${table}.${col}`;
+    const hit = this.objCache.get(k);
+    if (hit !== undefined) return hit;
+    const v = await trx.schema.withSchema(schema).hasColumn(table, col);
+    this.objCache.set(k, v);
+    return v;
+  }
+  /**
+   * `[RE.14.3]` — ¿está la tabla de pares con las columnas de RE.14? Si no (prod desplegado
+   * antes de la migración), las vistas siguen funcionando sin la columna de gemela en vez de
+   * tronar con «column gem.cedis_monto does not exist».
+   */
+  private async hayPares(trx: any): Promise<boolean> {
+    return this.existeCol(trx, 'analytics', 'erp_goods_receipt_dedup', 'cedis_monto');
+  }
+
+  /**
+   * LEFT JOIN al par de la misma recepción capturada en oficinas. Alias `gem`, colgado de la
+   * CANÓNICA (`c` = la de sucursal). No abre filas: el índice único parcial
+   * `ux_grd_canonica_viva` garantiza a lo más un par vigente por canónica.
+   */
+  private conGemela(qb: any, trx: any, tenantId: string) {
+    return qb.leftJoin('analytics.erp_goods_receipt_dedup as gem', (j: any) => {
+      j.on('gem.dup_of_sucursal', 'c.sucursal')
+        .andOn('gem.dup_of_folio', 'c.folio')
+        .andOn('gem.tenant_id', trx.raw('?', [tenantId]))
+        .andOnIn('gem.status', PAR_VIGENTE);
+    });
+  }
+
+  private async existeTabla(trx: any, schema: string, table: string): Promise<boolean> {
+    const k = `${schema}.${table}`;
+    const hit = this.objCache.get(k);
+    if (hit !== undefined) return hit;
+    const v = await trx.schema.withSchema(schema).hasTable(table);
+    this.objCache.set(k, v);
+    return v;
+  }
+
+  /**
+   * RE.13.2 — deja la decisión en el historial append-only. Best-effort a propósito: si la
+   * tabla no existe (entorno sin la migración), la decisión igual se aplica. Perder una línea
+   * de historial es malo; no poder validar una factura es peor.
+   */
+  private async registrarHistorial(
+    trx: any,
+    p: { proof_id: string; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
+  ): Promise<void> {
+    if (!(await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))) return;
+    await trx('finance.goods_receipt_proof_history').insert({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      proof_id: p.proof_id, sucursal: p.sucursal, folio: p.folio,
+      status_from: p.status_from ?? null, status_to: p.status_to,
+      motivo_codigo: p.motivo_codigo ?? null, motivo: p.motivo ?? null,
+      changed_by: p.actor ?? null,
+    });
+  }
+
+  /**
+   * Sucursales que el usuario puede LEER, ya intersectadas con lo que pidió por query param.
+   * `null` = sin filtro (alcance `all` y no pidió nada) · `[]` = no ve ninguna (fail-closed).
+   *
+   * Se resuelve FUERA de `tk.run`: `ScopeService` usa su propia conexión y no tiene sentido
+   * tenerla dentro de la transacción del request.
+   */
+  private async sucursalesVisibles(pedido?: string[] | null): Promise<string[] | null> {
+    const s = await this.scope.current();
+    return this.scope.intersect(s, 'warehouse', pedido ?? null);
+  }
 
   /**
    * Lista las órdenes de entrada de Kepler (espejo `analytics.erp_goods_receipts`)
    * con el estado de su remisión adjunta (LEFT JOIN a `finance.goods_receipt_proofs`).
+   *
+   * RE.13.0 — tres cosas que antes no hacía y que sostienen las tres vistas:
+   *   1. **Alcance**: filtra por las sucursales que el usuario puede ver (`ScopeService`).
+   *      El de Yurécuaro (16 entradas) ya no navega entre las 815 de CEDIS.
+   *   2. **Paginación real** con `total`: antes cortaba en 300 filas en silencio mientras
+   *      el KPI contaba 1,096 — el usuario no tenía forma de saber qué le faltaba.
+   *   3. **Antigüedad y orden de trabajo**: `dias` + `atrasada` por fila, y el orden por
+   *      defecto pasa a ser lo MÁS VIEJO primero (una worklist), no lo más reciente.
    */
   async listReceipts(q: ListReceiptsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || Number(q.limit) || 300));
+    const page = Math.max(1, Number(q.page) || 1);
 
     return this.tk.run(async (trx) => {
+      const cfg = await this.settings(trx);
+      const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
+      const hayPares = await this.hayPares(trx);
+      // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
+      // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
+      // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
       const dep = trx('finance.goods_receipt_proofs')
         .select('sucursal', 'folio')
         .count('* as n')
-        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
-        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(id ORDER BY ${PROOF_ORDER}))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(created_at ORDER BY ${PROOF_ORDER}))[1] AS last_at`))
+        .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY ${PROOF_ORDER}))[1] AS last_disc`))
+        // Quién la subió (para la segregación de funciones: el revisor no valida lo propio) y
+        // por qué se devolvió (la sucursal necesita ver el motivo en su worklist).
+        .select(trx.raw(`(array_agg(created_by ORDER BY ${PROOF_ORDER}))[1] AS last_by`))
+        .select(trx.raw(`(array_agg(motivo_rechazo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo`))
+        .select(trx.raw(conMotivoCol
+          ? `(array_agg(motivo_codigo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo_codigo`
+          : `NULL::text AS last_motivo_codigo`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
         .groupBy('sucursal', 'folio')
         .as('d');
 
-      const b = trx('analytics.erp_goods_receipts as c')
-        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-        .where('c.tenant_id', tenantId)
-        .whereRaw('c.dup_of_folio IS NULL') // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
-        .where('c.receipt_date', '>=', RECEPTION_START) // arranque agosto 2026
+      /** Todos los filtros, sin select ni orden: lo comparten las filas, el total y los KPIs. */
+      const base = () => {
+        const b = trx('analytics.erp_goods_receipts as c')
+          .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId)
+          .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
+        // RE.14.3 — el par entra en el `base()` y no sólo en el select porque **también se busca
+        // por él**: el usuario tiene en la mano el folio de oficinas tan seguido como el suyo.
+        if (hayPares) this.conGemela(b, trx, tenantId);
+        // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
+        if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
+        // Carril: el rezago anterior al arranque se trabaja aparte para que el semáforo del
+        // día siga significando algo (ver §7.1 del plan de la fase).
+        if (q.carril === 'rezago') b.where('c.receipt_date', '<', cfg.reception_start);
+        else if (q.carril !== 'todo') b.where('c.receipt_date', '>=', cfg.reception_start);
+        if (q.from) b.where('c.receipt_date', '>=', q.from);
+        if (q.to) b.where('c.receipt_date', '<=', q.to);
+        if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
+        else if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
+        else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
+        else if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+        else if (q.estado === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
+        // Antigüedad acotada a hoy: una entrada con fecha futura no tiene días negativos.
+        if (Number(q.dias_min) > 0) {
+          b.whereRaw('(current_date - LEAST(c.receipt_date, current_date)) >= ?', [Number(q.dias_min)]);
+        }
+        // Prioridad de identificación: los ÚLTIMOS 4 DÍGITOS del folio de la orden de entrada.
+        // Un término de 1–4 dígitos matchea el sufijo del folio (exacto); lo demás va al buscador
+        // difuso (proveedor/RFC/OC).
+        const term = (q.search || '').trim();
+        if (/^\d{1,4}$/.test(term)) {
+          // Los últimos 4 dígitos matchean el folio de la sucursal **o el de oficinas**: los dos
+          // son "el folio de esa orden" para quien pregunta. Paréntesis obligatorios — sin ellos
+          // el OR se lleva por delante el resto de los filtros del WHERE.
+          const suf = term.padStart(4, '0');
+          b.whereRaw(
+            hayPares
+              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+            hayPares ? [suf, suf] : [suf],
+          );
+        } else {
+          applySmartSearch(b, q.search, {
+            columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              ...(hayPares ? ['gem.cedis_folio'] : [])],
+            numeric: ['c.monto'],
+          });
+        }
+        return b;
+      };
+
+      const b = base()
         .select(
           'c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
@@ -138,58 +480,255 @@ export class GoodsReceiptProofsService {
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
+          trx.raw('d.last_disc::numeric AS discrepancy_amount'),
+          trx.raw('d.last_by AS deposit_by'),
+          trx.raw('d.last_motivo AS motivo_rechazo'),
+          trx.raw('d.last_motivo_codigo AS motivo_codigo'),
           trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
+          // Días de antigüedad de la recepción (acotados a hoy) y días que la evidencia
+          // lleva esperando decisión: son los dos relojes del proceso.
+          trx.raw('(current_date - LEAST(c.receipt_date, current_date))::int AS dias'),
+          trx.raw(`(current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date)::int AS dias_espera`),
+          // RE.14.3 — de qué servidor salió la fila y, si la recepción está capturada dos veces,
+          // el folio y el importe de la otra copia. Sin esto el usuario ve un folio que no
+          // reconoce y no tiene con qué saber que es la misma orden.
+          trx.raw(ORIGEN_SELECT),
+          ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)),
         )
-        // Se ordena por la fecha ACOTADA a hoy, y las de fecha futura van DESPUÉS de las de hoy:
-        // una entrada capturada con fecha adelantada (hay una de CEDIS con 29/12/2026) se
-        // quedaba clavada en el primer lugar para siempre. La fila sigue mostrando su fecha
-        // real y viaja marcada con `fecha_futura`.
-        .orderByRaw('LEAST(c.receipt_date, current_date) DESC')
-        .orderByRaw('(c.receipt_date > current_date) ASC')
-        .orderBy('c.folio', 'desc')
-        .limit(limit);
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
 
-      if (q.from) b.where('c.receipt_date', '>=', q.from);
-      if (q.to) b.where('c.receipt_date', '<=', q.to);
-      if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
-      if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
-      if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
-      // Prioridad de identificación: los ÚLTIMOS 4 DÍGITOS del folio de la orden de entrada.
-      // Un término de 1–4 dígitos matchea el sufijo del folio (exacto); lo demás va al buscador
-      // difuso (proveedor/RFC/OC).
-      const term = (q.search || '').trim();
-      if (/^\d{1,4}$/.test(term)) {
-        b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [term.padStart(4, '0')]);
+      // El orden ES la herramienta de trabajo, así que es explícito por vista:
+      //  - antiguedad (default) → worklist del capturista: lo más viejo primero.
+      //  - riesgo               → cola del revisor: el descuadre más grande primero.
+      // Las de fecha futura van DESPUÉS de las de hoy en el orden "reciente" (hay una de
+      // CEDIS con 29/12/2026 que si no se quedaba clavada arriba para siempre).
+      if (q.orden === 'monto') b.orderByRaw('c.monto::numeric DESC');
+      else if (q.orden === 'riesgo') {
+        b.orderByRaw('COALESCE(ABS(d.last_disc), 0) DESC')
+          .orderByRaw('c.monto::numeric DESC')
+          .orderByRaw('LEAST(c.receipt_date, current_date) ASC');
+      } else if (q.orden === 'reciente') {
+        b.orderByRaw('LEAST(c.receipt_date, current_date) DESC')
+          .orderByRaw('(c.receipt_date > current_date) ASC');
       } else {
-        applySmartSearch(b, q.search, {
-          columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'],
-          numeric: ['c.monto'],
-        });
+        b.orderByRaw('LEAST(c.receipt_date, current_date) ASC');
       }
+      b.orderBy('c.folio', 'desc');
 
-      const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
+      const rows = (await b).map((r: any) => ({
+        ...r,
+        monto: Number(r.monto),
+        gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
+        gemela_delta: r.gemela_delta == null ? null : Number(r.gemela_delta),
+        gemela_score: r.gemela_score == null ? null : Number(r.gemela_score),
+        discrepancy_amount: r.discrepancy_amount == null ? null : Number(r.discrepancy_amount),
+        dias: Number(r.dias),
+        dias_espera: r.dias_espera == null ? null : Number(r.dias_espera),
+        // Un solo lugar decide "atrasada": el reloj que aplica según tenga o no evidencia.
+        atrasada: r.deposits > 0
+          ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
+          : Number(r.dias) > cfg.sla_capture_days,
+      }));
 
-      const kpiBase = trx('analytics.erp_goods_receipts as c')
-        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-        .where('c.tenant_id', tenantId)
-        .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
-      kpiBase.where('c.receipt_date', '>=', RECEPTION_START); // arranque agosto 2026
-      if (q.from) kpiBase.where('c.receipt_date', '>=', q.from);
-      if (q.to) kpiBase.where('c.receipt_date', '<=', q.to);
-      const [k] = await kpiBase.select(
+      const [{ total }] = await base().count({ total: '*' });
+
+      // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
+      // ni `search`: son el denominador contra el que se lee la lista filtrada).
+      const kpiBase = () => {
+        const k = trx('analytics.erp_goods_receipts as c')
+          .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId)
+          .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
+        if (alcance) { if (alcance.length) k.whereIn('c.sucursal', alcance); else k.whereRaw('false'); }
+        if (q.carril === 'rezago') k.where('c.receipt_date', '<', cfg.reception_start);
+        else if (q.carril !== 'todo') k.where('c.receipt_date', '>=', cfg.reception_start);
+        if (q.from) k.where('c.receipt_date', '>=', q.from);
+        if (q.to) k.where('c.receipt_date', '<=', q.to);
+        return k;
+      };
+      const [k] = await kpiBase().select(
         trx.raw('COUNT(*)::int AS entradas'),
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='recibido')::int AS por_validar`),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='rechazado')::int AS rechazados`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
+        trx.raw(
+          `COUNT(*) FILTER (WHERE d.n IS NULL AND (current_date - LEAST(c.receipt_date, current_date)) > ?)::int AS atrasadas`,
+          [cfg.sla_capture_days],
+        ),
+        // El SLA del REVISOR: evidencia esperando decisión más de lo permitido. Es el número
+        // que le dice a la bandeja si va al día, y no se puede derivar del anterior.
+        trx.raw(
+          `COUNT(*) FILTER (WHERE d.last_status = 'recibido'
+             AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?)::int AS por_validar_atrasadas`,
+          [cfg.sla_review_days],
+        ),
       );
 
       return {
         kpis: {
           entradas: Number(k.entradas), con_comprobante: Number(k.con_comprobante),
-          validados: Number(k.validados), monto_pendiente: Number(k.monto_pendiente),
+          validados: Number(k.validados), por_validar: Number(k.por_validar),
+          rechazados: Number(k.rechazados), monto_pendiente: Number(k.monto_pendiente),
+          atrasadas: Number(k.atrasadas), por_validar_atrasadas: Number(k.por_validar_atrasadas),
         },
+        // El alcance viaja al front para que la vista sepa si mostrar el selector de
+        // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
+        alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+        settings: cfg,
+        total: Number(total), page, pageSize,
         frescura: await this.frescuraPorFuente(trx, tenantId),
         rows,
+      };
+    });
+  }
+
+  /**
+   * `[RE.13.4]` — **Cobertura por sucursal**: la tabla que contesta *"¿quién no está subiendo?"*.
+   *
+   * Un `%` de evidencia global no sirve para actuar: con CEDIS pesando el 74% del volumen, la
+   * red puede verse "al 70%" mientras una sucursal chica lleva tres semanas sin subir nada.
+   * Acá cada sucursal responde por lo suyo, con la **antigüedad p50/p90 de lo pendiente** —
+   * el promedio esconde justo la cola larga que hay que perseguir.
+   *
+   * Respeta el alcance: un revisor local ve su renglón, el central ve la red.
+   */
+  /**
+   * Quién puede subir en cada sucursal, resuelto igual que `ScopeService` pero para TODOS a
+   * la vez: rol con `COMPRAS_ENTRADAS_GESTIONAR` × alcance de escritura sobre `warehouse`
+   * (override del usuario > default del rol; `own` = su propia sucursal).
+   *
+   * Por qué está en el Centro de control y no es cosmético: una sucursal con 0% de cobertura
+   * y **cero responsables** no es gente que no trabaja, es un permiso que falta — y son dos
+   * conversaciones completamente distintas. Sin esta columna, el tablero acusa al inocente.
+   *
+   * Los de alcance `red` (mode `all`) se cuentan aparte: aparecen en las 7 sucursales y si
+   * se mezclan, ninguna se ve nunca huérfana.
+   */
+  private async responsablesPorSucursal(trx: any): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    // `permissions -> 'KEY' IS NOT NULL` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+    const r = await trx.raw(`
+      WITH puede AS (
+        SELECT lower(role_name) AS rn
+          FROM identity.role_permissions
+         WHERE tenant_id = ?
+           AND permissions -> 'COMPRAS_ENTRADAS_GESTIONAR' IS NOT NULL
+           AND (permissions -> 'COMPRAS_ENTRADAS_GESTIONAR')::text = 'true'
+      )
+      SELECT u.username, u.nombre, u.warehouse_code,
+             COALESCE(us.mode_write, us.mode, rs.mode_write, rs.mode, 'none') AS modo,
+             COALESCE(us.values, rs.values)                                   AS vals
+        FROM identity.users u
+        JOIN puede p ON p.rn = lower(u.role_name)
+        LEFT JOIN identity.user_scopes us
+               ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = 'warehouse'
+        LEFT JOIN identity.role_scopes rs
+               ON rs.tenant_id = u.tenant_id AND lower(rs.role_name) = lower(u.role_name) AND rs.dimension = 'warehouse'
+       WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+       ORDER BY u.username`,
+      [tenantId, tenantId]);
+
+    const out = new Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]>() as any;
+    let red = 0;
+    const push = (suc: string, x: any, alcance: 'propio' | 'asignado') => {
+      const k = String(suc).trim();
+      if (!k) return;
+      if (!out.has(k)) out.set(k, []);
+      out.get(k).push({ username: x.username, nombre: x.nombre ?? null, alcance });
+    };
+    for (const x of r.rows || []) {
+      if (x.modo === 'all') { red++; continue; }
+      if (x.modo === 'own') { if (x.warehouse_code) push(x.warehouse_code, x, 'propio'); continue; }
+      if (x.modo === 'listed') { for (const v of x.vals || []) push(v, x, 'asignado'); }
+    }
+    out.red = red;
+    return out;
+  }
+
+  async coverage(q: { warehouse_codes?: string[] | null; from?: string; to?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    return this.tk.run(async (trx) => {
+      const cfg = await this.settings(trx);
+      // Los `?` van en el orden en que aparecen en la SQL: sla → tenant → arranque → filtros.
+      let filtro = '';
+      const filtroParams: any[] = [];
+      if (alcance) {
+        if (!alcance.length) return { settings: cfg, rows: [], rezago: { entradas: 0, monto: 0 } };
+        filtro += ` AND c.sucursal = ANY(?)`; filtroParams.push(alcance);
+      }
+      if (q.from) { filtro += ` AND c.receipt_date >= ?`; filtroParams.push(q.from); }
+      if (q.to) { filtro += ` AND c.receipt_date <= ?`; filtroParams.push(q.to); }
+
+      const r = await trx.raw(`
+        WITH d AS (
+          SELECT sucursal, folio, count(*) AS n,
+                 (array_agg(status ORDER BY created_at DESC))[1] AS last_status
+            FROM finance.goods_receipt_proofs GROUP BY sucursal, folio
+        )
+        SELECT c.sucursal,
+               COUNT(*)::int                                                     AS entradas,
+               COUNT(d.n)::int                                                   AS con_evidencia,
+               COUNT(*) FILTER (WHERE d.last_status = 'validado')::int            AS validadas,
+               COUNT(*) FILTER (WHERE d.last_status = 'recibido')::int            AS por_validar,
+               COUNT(*) FILTER (WHERE d.last_status = 'rechazado')::int           AS rechazadas,
+               COALESCE(SUM(c.monto::numeric), 0)::numeric                        AS monto,
+               COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente,
+               COUNT(*) FILTER (
+                 WHERE d.n IS NULL
+                   AND (current_date - LEAST(c.receipt_date, current_date)) > ?
+               )::int                                                            AS atrasadas,
+               -- p50/p90 de la ANTIGÜEDAD de lo que falta subir. El promedio esconde la cola
+               -- larga, que es exactamente lo que hay que perseguir.
+               COALESCE(percentile_disc(0.5) WITHIN GROUP (
+                 ORDER BY (current_date - LEAST(c.receipt_date, current_date))
+               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p50,
+               COALESCE(percentile_disc(0.9) WITHIN GROUP (
+                 ORDER BY (current_date - LEAST(c.receipt_date, current_date))
+               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p90
+          FROM analytics.erp_goods_receipts c
+          LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
+         WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL
+           AND c.receipt_date >= ?${filtro}
+         GROUP BY c.sucursal
+         ORDER BY c.sucursal`,
+        [cfg.sla_capture_days, tenantId, cfg.reception_start, ...filtroParams]);
+
+      // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
+      // cobertura, el número deja de servir para exigirle a nadie.
+      const resp = await this.responsablesPorSucursal(trx);
+
+      const rez = await trx.raw(`
+        SELECT COUNT(*)::int AS entradas, COALESCE(SUM(monto::numeric), 0)::numeric AS monto
+          FROM analytics.erp_goods_receipts c
+         WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date < ?
+           ${alcance ? 'AND c.sucursal = ANY(?)' : ''}`,
+        alcance ? [tenantId, cfg.reception_start, alcance] : [tenantId, cfg.reception_start]);
+
+      return {
+        settings: cfg,
+        // `responsables_red` es uno solo para todo el tablero: son los que ven la red entera.
+        responsables_red: (resp as any).red ?? 0,
+        rows: (r.rows || []).map((x: any) => ({
+          sucursal: x.sucursal,
+          responsables: resp.get(String(x.sucursal)) ?? [],
+          entradas: Number(x.entradas),
+          con_evidencia: Number(x.con_evidencia),
+          validadas: Number(x.validadas),
+          por_validar: Number(x.por_validar),
+          rechazadas: Number(x.rechazadas),
+          monto: Number(x.monto),
+          monto_pendiente: Number(x.monto_pendiente),
+          atrasadas: Number(x.atrasadas),
+          dias_p50: Number(x.dias_p50),
+          dias_p90: Number(x.dias_p90),
+          pct_evidencia: Number(x.entradas) ? Math.round((Number(x.con_evidencia) / Number(x.entradas)) * 100) : 0,
+          pct_validadas: Number(x.entradas) ? Math.round((Number(x.validadas) / Number(x.entradas)) * 100) : 0,
+        })),
+        rezago: { entradas: Number(rez.rows?.[0]?.entradas || 0), monto: Number(rez.rows?.[0]?.monto || 0) },
       };
     });
   }
@@ -251,6 +790,9 @@ export class GoodsReceiptProofsService {
   async matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(30, Math.max(1, Number(q.limit) || 15));
+    // RE.13.0 — el enlace también se scopea: no se le puede colgar evidencia a la entrada
+    // de otra sucursal por escribir su folio en el buscador.
+    const alcance = await this.sucursalesVisibles(null);
     const folio = (q.folio || '').trim();
     const total = q.total != null && isFinite(Number(q.total)) ? Number(q.total) : null;
     const search = (q.search || '').trim();
@@ -263,65 +805,120 @@ export class GoodsReceiptProofsService {
       for (const v of forms) if (v && cands.indexOf(v) < 0) cands.push(v);
     }
     return this.tk.run(async (trx) => {
+      const cfg = await this.settings(trx);
       const dep = trx('finance.goods_receipt_proofs')
         .select('sucursal', 'folio').count('* as n')
-        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
-        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(id ORDER BY ${PROOF_ORDER}))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
         .groupBy('sucursal', 'folio').as('d');
-      const sel = () => trx('analytics.erp_goods_receipts as c')
-        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-        .where('c.tenant_id', tenantId)
-        .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
-        .where('c.receipt_date', '>=', RECEPTION_START) // arranque agosto 2026 (no enlazar a histórico)
-        .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
-          'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
-          trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
-          trx.raw('d.last_status AS deposit_status'));
+      const hayPares = await this.hayPares(trx);
+      const sel = () => {
+        const qb = trx('analytics.erp_goods_receipts as c')
+          .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId)
+          .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
+          .where('c.receipt_date', '>=', cfg.reception_start) // no enlazar a histórico previo al arranque
+          .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
+            'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
+            trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
+            trx.raw('d.last_status AS deposit_status'), trx.raw(ORIGEN_SELECT),
+            ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)));
+        // RE.14.3 — el par viaja en el enlace porque el folio y el importe de oficinas son llaves
+        // de búsqueda tan válidas como los de la sucursal: la factura que tiene el capturista en
+        // la mano puede casar con cualquiera de las dos capturas.
+        if (hayPares) this.conGemela(qb, trx, tenantId);
+        if (alcance) { if (alcance.length) qb.whereIn('c.sucursal', alcance); else qb.whereRaw('false'); }
+        return qb;
+      };
       const order = (qb: any) => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(limit);
       let rows: any[] = [];
       if (search) {
         const b = sel();
         // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
         if (/^\d{1,4}$/.test(search)) {
-          b.whereRaw(`right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`, [search.padStart(4, '0')]);
+          const suf = search.padStart(4, '0');
+          b.whereRaw(
+            hayPares
+              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+            hayPares ? [suf, suf] : [suf],
+          );
         } else {
-          applySmartSearch(b, search, { columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'], numeric: ['c.monto'] });
+          applySmartSearch(b, search, {
+            columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              ...(hayPares ? ['gem.cedis_folio'] : [])],
+            numeric: ['c.monto'],
+          });
         }
         rows = await order(b);
       } else {
         // FOLIO primero (preciso, evita falsos positivos). Solo si NO hay match por folio, cae a MONTO (±$2).
-        if (cands.length) rows = await order(sel().whereIn('c.folio', cands));
-        if (!rows.length && total != null) rows = await order(sel().whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]));
+        // El folio y el importe se buscan en las DOS capturas de la misma recepción (la de
+        // sucursal y la de oficinas): si no, una factura que casa con la copia de oficinas no
+        // encuentra nada y el capturista concluye que "la orden no existe".
+        if (cands.length) {
+          rows = await order(sel().where((w: any) => {
+            w.whereIn('c.folio', cands);
+            if (hayPares) w.orWhereIn('gem.cedis_folio', cands);
+          }));
+        }
+        if (!rows.length && total != null) {
+          rows = await order(sel().where((w: any) => {
+            w.whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]);
+            if (hayPares) w.orWhereRaw('gem.cedis_monto BETWEEN ? AND ?', [total - 2, total + 2]);
+          }));
+        }
       }
       const entradas = rows.map((r: any) => ({
         ...r, monto: Number(r.monto), monto_match: false,
-        folio_match: cands.length ? cands.indexOf(String(r.folio).trim()) >= 0 : false,
-        total_match: total != null ? Math.abs(Number(r.monto) - total) <= 2 : false,
+        gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
+        gemela_delta: r.gemela_delta == null ? null : Number(r.gemela_delta),
+        gemela_score: r.gemela_score == null ? null : Number(r.gemela_score),
+        folio_match: cands.length
+          ? (cands.indexOf(String(r.folio).trim()) >= 0 || cands.indexOf(String(r.gemela_folio || '').trim()) >= 0)
+          : false,
+        total_match: total != null
+          ? (Math.abs(Number(r.monto) - total) <= 2
+            || (r.gemela_monto != null && Math.abs(Number(r.gemela_monto) - total) <= 2))
+          : false,
       }));
       return { entradas };
     });
   }
 
-  /** Sube UN archivo (remisión/factura/evidencia) a Cloudinary. Imagen o PDF. */
+  /**
+   * Sube UN archivo (remisión/factura/evidencia) al bucket privado. **Sólo PDF.**
+   *
+   * Historia de la decisión, porque va y viene: RE.13.1 lo abrió a imágenes (`putFile`)
+   * pensando en el capturista con el papel en la mano y sólo un celular. **2026-08-27 se
+   * vuelve a cerrar a PDF por decisión de Edgar**: todos los que capturan trabajan en lap
+   * con el escáner al lado, el expediente sostiene un pago (una foto torcida de una hoja
+   * de tres no lo sostiene) y el PDF junta las hojas en UN archivo. La cámara no se pierde:
+   * la app de Archivos/Cámara del celular escanea a PDF, endereza y agrupa.
+   *
+   * El rechazo vive en TRES lugares a propósito — `accept` del input (sugerencia), el front
+   * (mensaje que dice la salida) y acá (la única frontera que no se puede saltar).
+   */
   async uploadFile(dataUri: string, role = 'remision'): Promise<ReceiptFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!RECEIPT_FILE_ROLES.includes(role as ReceiptFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      // Solo PDF → Railway Bucket (privado). Se guarda la KEY en public_id; la URL de lectura
-      // es prefirmada al mostrar (signFiles), no permanente.
+      // Bucket PRIVADO. Se guarda la KEY en public_id; la URL de lectura es prefirmada al
+      // mostrar (signFiles), no permanente.
+      // putPdf ya rechaza cualquier cosa que no sea PDF con 400 "Solo se aceptan archivos PDF."
       const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/goods-receipts`);
       // url = key (placeholder truthy para no romper filtros `f.url`); la lectura la firma (signFiles).
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado" → mensaje directo al usuario
+      if (e?.status === 400) throw e; // "no configurado" → mensaje directo al usuario
       this.logger.error(`fallo subiendo remisión (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
   }
 
   /**
-   * Corre OCR sobre CUALQUIER hoja (imagen/PDF) — ahora cada archivo se lee, no solo la ★.
+   * Corre OCR sobre la hoja (**sólo PDF**, igual que `uploadFile`) — cada archivo se lee, no solo la ★.
    * Además detecta DUPLICADOS: la misma hoja (hash de contenido) o un folio de remisión/factura
    * ya subido antes. Preview, no guarda. `role` afina el dedup de folio (solo remisión/factura).
    */
@@ -329,6 +926,11 @@ export class GoodsReceiptProofsService {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
+    // Mismo criterio que `uploadFile`: si no se va a poder guardar, no se gasta una llamada
+    // a Claude leyéndolo. El mensaje dice la salida, no sólo el "no".
+    if (mediaType !== 'application/pdf') {
+      throw new BadRequestException('Solo se aceptan PDF. Escaneá la factura a PDF y volvé a subirla.');
+    }
     const sha256 = createHash('sha256').update(base64).digest('hex');
     let fields: RemisionFields;
     let ocr_status: string;
@@ -395,6 +997,10 @@ export class GoodsReceiptProofsService {
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
     if (!sucursal || !folio) throw new BadRequestException('sucursal y folio de la entrada requeridos');
     if (!files.length) throw new BadRequestException('se requiere al menos la remisión/factura');
+    // RE.13.0 — alcance de ESCRITURA: `_GESTIONAR` dice que puede capturar evidencia, no que
+    // pueda capturarla en cualquier sucursal. `mode_write` es lo que permite "ve las 3 de su
+    // zona, captura sólo en la suya". 403 explicando la dimensión y el valor, no un Forbidden mudo.
+    await this.scope.assertCanWrite('warehouse', sucursal);
 
     // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen o folio ya capturado).
     for (const f of files) {
@@ -413,6 +1019,7 @@ export class GoodsReceiptProofsService {
     }
 
     return this.tk.run(async (trx) => {
+      const cfg = await this.settings(trx);
       const entrada = await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
         .first('proveedor_nombre', 'proveedor_rfc', 'oc_folio', 'receipt_date', trx.raw('monto::numeric AS monto'));
@@ -430,12 +1037,33 @@ export class GoodsReceiptProofsService {
       const receiptMonto = Number(entrada.monto) || 0;
       const ocrTotal = o.total != null ? Number(o.total) : null;
       const ocrSubtotal = o.subtotal != null ? Number(o.subtotal) : null;
+      // RE.14.3 — **el cuadre es contra las DOS capturas.** La misma recepción está en el Kepler
+      // de la sucursal y en el de oficinas, y los dos importes no siempre coinciden al centavo
+      // (HERSHEY: $79,009.21 vs $79,007.79). Si la factura casa con cualquiera de los dos, el
+      // documento cuadra: la diferencia es entre nuestras dos capturas, no con el proveedor, y
+      // no tiene por qué frenarle la subida a la sucursal.
+      const gem = (await this.hayPares(trx))
+        ? await trx('analytics.erp_goods_receipt_dedup')
+            .where({ tenant_id: this.tenantCtx.requireTenantId(), dup_of_sucursal: sucursal, dup_of_folio: folio })
+            .whereIn('status', PAR_VIGENTE)
+            .first('cedis_folio', trx.raw('cedis_monto::numeric AS cedis_monto'))
+        : null;
+      const gemelaMonto = gem?.cedis_monto != null ? Number(gem.cedis_monto) : null;
       // Cuadra si el total O el subtotal de la remisión ≈ el valor Kepler (IVA
       // puede o no estar incluido según el producto — dulce a granel suele ser 0%).
-      const near = (v: number | null) => v != null && Math.abs(v - receiptMonto) <= TOLERANCIA;
-      const montoMatch = ocrTotal != null || ocrSubtotal != null ? (near(ocrTotal) || near(ocrSubtotal)) : null;
+      const cerca = (v: number | null, ref: number | null) =>
+        v != null && ref != null && Math.abs(v - ref) <= cfg.match_tolerance;
+      const hayLectura = ocrTotal != null || ocrSubtotal != null;
+      const cuadraCanonica = hayLectura ? (cerca(ocrTotal, receiptMonto) || cerca(ocrSubtotal, receiptMonto)) : null;
+      const cuadraGemela = hayLectura ? (cerca(ocrTotal, gemelaMonto) || cerca(ocrSubtotal, gemelaMonto)) : null;
+      const montoMatch = cuadraCanonica === null ? null : (cuadraCanonica || cuadraGemela === true);
       // RE.2 — clasifica y persiste el descuadre factura-vs-entrada (antes solo en vivo).
-      const disc = this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
+      // RE.14.3 — cuando cuadra sólo con la copia de oficinas, el descuadre contra la de sucursal
+      // NO se borra: se etiqueta `gemela` con su monto, que es lo que le dice al revisor "esto no
+      // es problema de la factura, es que nuestras dos capturas difieren".
+      const disc = (cuadraCanonica === false && cuadraGemela === true)
+        ? { kind: 'gemela', amount: Math.min(...[ocrTotal, ocrSubtotal].filter((v): v is number => v != null).map((v) => Math.abs(v - receiptMonto))) }
+        : this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
 
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({
@@ -463,7 +1091,10 @@ export class GoodsReceiptProofsService {
           created_by: actor || null,
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
-      this.logger.log(`remisión adjunta a entrada ${sucursal}/${folio} (match=${montoMatch}) por ${actor || '?'}`);
+      this.logger.log(
+        `remisión adjunta a entrada ${sucursal}/${folio} (match=${montoMatch}` +
+        `${gem ? `, gemela oficinas 00/${gem.cedis_folio}${cuadraCanonica === false ? ' — cuadró con ella' : ''}` : ''}) por ${actor || '?'}`,
+      );
       return row;
     });
   }
@@ -471,7 +1102,36 @@ export class GoodsReceiptProofsService {
   /** Detalle: la entrada + sus remisiones adjuntas. */
   async detail(sucursal: string, folio: string) {
     const tenantId = this.tenantCtx.requireTenantId();
+    // RE.14.3 — **se puede pedir por el folio de oficinas.** La misma recepción está capturada
+    // dos veces y el usuario llega con el folio que tiene en la mano; si es el de oficinas ('00')
+    // y es espejo de una canónica, el detalle es el de la canónica (la que trae los productos y
+    // la que lleva la evidencia). `redirigido_de` deja dicho de dónde vino, para que la pantalla
+    // pueda explicar "el 00/0009136 que buscaste es el 03/0000909 de 8 Esquinas".
+    let redirigido_de: { sucursal: string; folio: string } | null = null;
+    // El alcance se resuelve FUERA de `tk.run` (regla del repo: `ScopeService` no vive dentro de
+    // la transacción con RLS). El chequeo se hace más abajo, cuando ya sabemos qué entrada es.
+    const alcance = await this.scope.current();
     return this.tk.run(async (trx) => {
+      if (sucursal === '00' && await this.hayPares(trx)) {
+        const par = await trx('analytics.erp_goods_receipt_dedup')
+          .where({ tenant_id: tenantId, cedis_folio: folio })
+          .whereIn('status', PAR_VIGENTE)
+          .first('dup_of_sucursal', 'dup_of_folio');
+        if (par?.dup_of_folio) {
+          redirigido_de = { sucursal, folio };
+          sucursal = par.dup_of_sucursal;
+          folio = par.dup_of_folio;
+        }
+      }
+      // RE.13.0 — el detalle es una URL adivinable (`/:sucursal/:folio`): sin esto, el alcance de
+      // la lista era decorativo. `canRead` es la misma resolución que filtra la lista.
+      if (!this.scope.canRead(alcance, 'warehouse', sucursal)) {
+        // El mensaje dice a dónde apuntaba el folio de oficinas: sin eso, el capturista de CEDIS
+        // ve un 403 sobre una sucursal que él no escribió en ningún lado.
+        throw new BadRequestException(redirigido_de
+          ? `la orden ${redirigido_de.sucursal}/${redirigido_de.folio} de oficinas es copia de ${sucursal}/${folio}, que no está en tu alcance`
+          : `la entrada ${sucursal}/${folio} no está en tu alcance`);
+      }
       const entrada = await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: tenantId, sucursal, folio })
         .first('sucursal', 'folio', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
@@ -510,12 +1170,189 @@ export class GoodsReceiptProofsService {
       }));
       // RE.12 — copia(s) CEDIS ('00') que son espejo de esta canónica: se muestran en su vista
       // (misma recepción, otra póliza) para que no se pida evidencia por separado.
-      const twins = await trx('analytics.erp_goods_receipts')
-        .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
-        .select('sucursal', 'folio', 'receipt_date', 'oc_folio', 'vale_folio', trx.raw('monto::numeric AS monto'));
-      const cedis_twins = twins.map((t: any) => ({ ...t, monto: Number(t.monto) }));
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits: depSigned, cedis_twins };
+      // RE.14.3 — sale de la tabla de pares y no de la vista, por dos razones: la vista sólo
+      // expone `dup_of_*` de los pares VIGENTES (una propuesta sin dictaminar no aparecería, y es
+      // justo la que hay que poder confirmar acá), y los importes/fechas ya están denormalizados
+      // → no hay que volver a barrer la vista viva sobre `kepler_ods`.
+      const pares = (await this.hayPares(trx))
+        ? await trx('analytics.erp_goods_receipt_dedup')
+            .where({ tenant_id: tenantId, dup_of_sucursal: sucursal, dup_of_folio: folio })
+            .whereNot('status', 'rechazado')
+            .select('cedis_folio', 'cedis_date', 'match_rule', 'status', 'decided_by', 'decided_at',
+              trx.raw('cedis_monto::numeric AS cedis_monto'),
+              trx.raw('delta_monto::numeric AS delta_monto'),
+              trx.raw('match_score::numeric AS match_score'), 'delta_dias')
+        : [];
+      const cedis_twins = pares.map((p: any) => ({
+        sucursal: '00', folio: p.cedis_folio, receipt_date: p.cedis_date,
+        oc_folio: null, vale_folio: null,
+        monto: p.cedis_monto == null ? null : Number(p.cedis_monto),
+        delta_monto: p.delta_monto == null ? null : Number(p.delta_monto),
+        delta_dias: p.delta_dias == null ? null : Number(p.delta_dias),
+        match_rule: p.match_rule, match_score: p.match_score == null ? null : Number(p.match_score),
+        status: p.status, decided_by: p.decided_by, decided_at: p.decided_at,
+      }));
+      // RE.13.2 — la cadena de decisiones. El expediente que justifica un pago necesita el
+      // recorrido (quién subió, quién devolvió y por qué, quién validó), no el último estado.
+      const history = (await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))
+        ? await trx('finance.goods_receipt_proof_history')
+            .where({ tenant_id: tenantId, sucursal, folio })
+            .orderBy('changed_at', 'asc')
+            .select('status_from', 'status_to', 'motivo_codigo', 'motivo', 'changed_by', 'changed_at')
+        : [];
+      return {
+        entrada: { ...entrada, monto: Number(entrada.monto), origen: sucursal === '00' ? 'oficinas' : 'sucursal' },
+        lineas, deposits: depSigned, cedis_twins, history, redirigido_de,
+      };
     });
+  }
+
+  /**
+   * `[RE.14.3]` — **Los pares sucursal ↔ oficinas**: la lista de la misma recepción capturada dos
+   * veces, con el importe de cada lado y la regla con la que se apareó.
+   *
+   * Es a la vez una vista de consulta ("¿cuál es el de oficinas de esta orden?") y una bandeja de
+   * trabajo: los `'propuesto'` son los que el detector NO se animó a dar por espejo —importe y
+   * fecha casan pero el proveedor no coincide entre catálogos, o la copia de oficinas trae
+   * productos propios— y mientras nadie dictamine, **esa recepción se sigue contando dos veces**.
+   *
+   * Se sirve de la tabla de pares y no de la vista: los importes, fechas y proveedores de los dos
+   * lados están denormalizados ahí, así que la bandeja no vuelve a barrer `kepler_ods`.
+   *
+   * Alcance: se filtra por la **canónica** (la de sucursal), que es la dueña del documento.
+   */
+  async twins(q: { estado?: 'propuesto' | 'vigente' | 'todos'; warehouse_codes?: string[] | null; search?: string; limit?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayPares(trx))) return { rows: [], kpis: { propuestos: 0, vigentes: 0, monto_propuesto: 0 }, total: 0 };
+      const base = () => {
+        const b = trx('analytics.erp_goods_receipt_dedup as p')
+          .where('p.tenant_id', tenantId)
+          .whereNotNull('p.dup_of_folio');
+        if (alcance) { if (alcance.length) b.whereIn('p.dup_of_sucursal', alcance); else b.whereRaw('false'); }
+        if (q.estado === 'propuesto') b.where('p.status', 'propuesto');
+        else if (q.estado === 'vigente') b.whereIn('p.status', PAR_VIGENTE);
+        else b.whereNot('p.status', 'rechazado');
+        applySmartSearch(b, q.search, {
+          columns: ['p.cedis_folio', 'p.dup_of_folio', 'p.suc_prov', 'p.cedis_prov'],
+          numeric: ['p.cedis_monto'],
+        });
+        return b;
+      };
+      const rows = (await base()
+        .select('p.cedis_folio', 'p.dup_of_sucursal as sucursal', 'p.dup_of_folio as folio',
+          'p.suc_date', 'p.cedis_date', 'p.suc_prov', 'p.cedis_prov', 'p.match_rule', 'p.status',
+          'p.decided_by', 'p.decided_at', 'p.delta_dias',
+          trx.raw('p.suc_monto::numeric AS suc_monto'), trx.raw('p.cedis_monto::numeric AS cedis_monto'),
+          trx.raw('p.delta_monto::numeric AS delta_monto'), trx.raw('p.match_score::numeric AS match_score'))
+        // Lo dudoso primero, y dentro de eso el dinero más grande: es el orden en que conviene
+        // gastar la atención de la persona que dictamina.
+        .orderByRaw(`(p.status = 'propuesto') DESC`)
+        .orderByRaw('ABS(p.cedis_monto) DESC NULLS LAST')
+        .limit(limit))
+        .map((r: any) => ({
+          ...r,
+          suc_monto: r.suc_monto == null ? null : Number(r.suc_monto),
+          cedis_monto: r.cedis_monto == null ? null : Number(r.cedis_monto),
+          delta_monto: r.delta_monto == null ? null : Number(r.delta_monto),
+          match_score: r.match_score == null ? null : Number(r.match_score),
+          delta_dias: r.delta_dias == null ? null : Number(r.delta_dias),
+        }));
+      const [k] = await base().select(
+        trx.raw(`COUNT(*) FILTER (WHERE p.status = 'propuesto')::int AS propuestos`),
+        trx.raw(`COUNT(*) FILTER (WHERE p.status IN ('auto','confirmado'))::int AS vigentes`),
+        trx.raw(`COALESCE(SUM(p.cedis_monto::numeric) FILTER (WHERE p.status = 'propuesto'), 0)::numeric AS monto_propuesto`),
+        trx.raw('COUNT(*)::int AS total'),
+      );
+      return {
+        rows,
+        kpis: {
+          propuestos: Number(k.propuestos), vigentes: Number(k.vigentes),
+          // Lo que hoy está contado dos veces por falta de dictamen. Es el costo de no decidir.
+          monto_propuesto: Number(k.monto_propuesto),
+        },
+        total: Number(k.total),
+        alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+      };
+    });
+  }
+
+  /**
+   * `[RE.14.3]` — Dictamina un par: **sí es la misma recepción** (`confirmar`) o **no lo es**
+   * (`rechazar`). Confirmar oculta la copia de oficinas del conteo; rechazar la devuelve a la
+   * lista como compra propia y **la saca de la rueda del detector**, que no la vuelve a proponer.
+   *
+   * Es una decisión sobre dinero (mueve lo que se cuenta), así que va con `_VALIDAR` y queda
+   * firmada. El alcance de ESCRITURA se exige sobre la canónica: la orden es de esa sucursal.
+   */
+  async decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar', actor?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const folio = (cedisFolio || '').trim();
+    if (!folio) throw new BadRequestException('folio de oficinas requerido');
+    if (decision !== 'confirmar' && decision !== 'rechazar') throw new BadRequestException('decisión inválida');
+    const par = await this.tk.run(async (trx) => (await this.hayPares(trx))
+      ? trx('analytics.erp_goods_receipt_dedup')
+          .where({ tenant_id: tenantId, cedis_folio: folio })
+          .first('dup_of_sucursal', 'dup_of_folio', 'status')
+      : null);
+    if (!par) throw new BadRequestException(`no hay par registrado para la orden de oficinas 00/${folio}`);
+    await this.scope.assertCanWrite('warehouse', par.dup_of_sucursal);
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('analytics.erp_goods_receipt_dedup')
+        .where({ tenant_id: tenantId, cedis_folio: folio })
+        .update({
+          status: decision === 'confirmar' ? 'confirmado' : 'rechazado',
+          decided_by: actor || null,
+          decided_at: trx.fn.now(),
+        })
+        .returning(['cedis_folio', 'dup_of_sucursal', 'dup_of_folio', 'status']);
+      this.logger.log(`par 00/${folio} ↔ ${par.dup_of_sucursal}/${par.dup_of_folio}: ${row.status} por ${actor || '?'}`);
+      return row;
+    });
+  }
+
+  /**
+   * `[RE.13.3]` — Adjunta VARIOS expedientes de una pasada (captura por lote de CEDIS).
+   *
+   * CEDIS son ~30 entradas/día hábil (74% del volumen de la red) y las facturas llegan ya
+   * digitales. Con el flujo de a una —dos pasos, diálogo modal, buscar el folio a mano— son
+   * unas 8 interacciones por entrada: **240 al día**. Acá el humano suelta el bonche, el
+   * servidor lo enlaza por folio y él sólo confirma.
+   *
+   * **Cada item en su propia transacción**, a propósito: si el archivo 12 trae un duplicado o
+   * un folio que no existe, los 11 anteriores tienen que quedar guardados. Devuelve el
+   * resultado por item — el capturista tiene que ver qué se quedó afuera y por qué.
+   *
+   * Reusa `attach()` tal cual (dedup por hash, alcance de escritura, cuadre con la tolerancia
+   * del tenant): el lote no es un camino paralelo con reglas propias, es el mismo camino N veces.
+   */
+  async attachBulk(items: AttachReceiptDto[], actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const lista = Array.isArray(items) ? items.filter((i) => i && i.sucursal && i.folio) : [];
+    if (!lista.length) throw new BadRequestException('no llegó ningún expediente');
+    const cfg = await this.tk.run(async (trx) => this.settings(trx));
+    if (lista.length > cfg.bulk_max_files) {
+      throw new BadRequestException(`el lote no puede pasar de ${cfg.bulk_max_files} archivos (llegaron ${lista.length})`);
+    }
+    const detalle: { sucursal: string; folio: string; ok: boolean; monto_match?: boolean; motivo?: string }[] = [];
+    for (const item of lista) {
+      const ref = { sucursal: String(item.sucursal), folio: String(item.folio) };
+      try {
+        const r = await this.attach(item, actor);
+        detalle.push({ ...ref, ok: true, monto_match: !!r.monto_match });
+      } catch (e: any) {
+        detalle.push({ ...ref, ok: false, motivo: e?.message || 'no se pudo adjuntar' });
+      }
+    }
+    const guardadas = detalle.filter((d) => d.ok);
+    return {
+      guardadas: guardadas.length,
+      omitidas: detalle.length - guardadas.length,
+      cuadran: guardadas.filter((d) => d.monto_match).length,
+      detalle,
+    };
   }
 
   /**
@@ -738,28 +1575,124 @@ export class GoodsReceiptProofsService {
     });
   }
 
-  /** El revisor valida la evidencia. Auditado. */
+  /**
+   * El revisor valida la evidencia. Auditado + historial.
+   *
+   * RE.13.2 — **segregación de funciones**: quien subió la evidencia no puede validarla. Dejó
+   * de ser un lujo cuando se aceptó que hay revisor POR SUCURSAL además del central: en una
+   * sucursal chica el que sube y el que revisa son el mismo puñado de gente, y sin esto el
+   * control documental no existe.
+   *
+   * La comparación es por el nombre con el que se firmó el `attach` (`created_by` es texto,
+   * no FK a usuario). Es lo que hay hoy; cuando `identity.people` esté (Fase ID.11) esto
+   * debería comparar ids.
+   */
   async validate(id: string, actor?: string) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const prev = await trx('finance.goods_receipt_proofs').where({ id })
+        .first('id', 'status', 'created_by', 'sucursal', 'folio');
+      if (!prev) throw new BadRequestException('evidencia no encontrada');
+      if (prev.status === 'validado') throw new BadRequestException('esta evidencia ya está validada');
+      if (this.mismaPersona(prev.created_by, actor)) {
+        throw new ForbiddenException('No podés validar la evidencia que vos mismo subiste — que la revise otra persona.');
+      }
       const [row] = await trx('finance.goods_receipt_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
         .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya validada');
+      // Otra sesión decidió entre el SELECT y el UPDATE (revisor central + local mirando la
+      // misma fila). No es un 500: es "alguien te ganó", y la UI avanza a la siguiente.
+      if (!row) throw new BadRequestException('otra persona ya decidió sobre esta evidencia');
+      await this.registrarHistorial(trx, {
+        proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+        status_from: prev.status, status_to: 'validado', actor,
+      });
       return row;
     });
   }
 
-  /** Rechaza (con motivo). Auditado. */
-  async reject(id: string, actor?: string, motivo?: string) {
+  /** ¿El actor es quien subió? Normaliza espacios/caso porque los dos lados son texto libre. */
+  private mismaPersona(a?: string | null, b?: string | null): boolean {
+    const n = (v?: string | null) => (v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return !!n(a) && n(a) === n(b);
+  }
+
+  /**
+   * Rechaza (con motivo TIPIFICADO). Auditado + historial.
+   *
+   * RE.13.2 — el motivo pasa a ser del catálogo: con texto libre no se puede contestar
+   * "¿por qué se devuelve el 30% de lo que sube la 01?", que es justo lo que le dice a la
+   * sucursal qué corregir. El texto libre sigue existiendo como detalle.
+   */
+  async reject(id: string, actor?: string, motivo?: string, motivoCodigo?: string) {
     this.tenantCtx.requireTenantId();
+    const code = (motivoCodigo || '').trim() || null;
+    if (code && !MOTIVOS_RECHAZO.includes(code as MotivoRechazo)) {
+      throw new BadRequestException(`motivo inválido: ${code}`);
+    }
+    const texto = (motivo || '').trim();
+    if ((!code || code === 'otro') && !texto) {
+      throw new BadRequestException('hace falta el motivo: elegí uno del catálogo o escribilo.');
+    }
     return this.tk.run(async (trx) => {
+      const prev = await trx('finance.goods_receipt_proofs').where({ id })
+        .first('id', 'status', 'sucursal', 'folio');
+      if (!prev) throw new BadRequestException('evidencia no encontrada');
+      if (prev.status === 'rechazado') throw new BadRequestException('esta evidencia ya está rechazada');
+      const patch: Record<string, unknown> = {
+        status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(),
+        motivo_rechazo: texto || null, updated_at: trx.fn.now(),
+      };
+      if (code && await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo')) {
+        patch['motivo_codigo'] = code;
+      }
       const [row] = await trx('finance.goods_receipt_proofs').where({ id }).whereIn('status', ['recibido', 'validado'])
-        .update({ status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
-        .returning(['id', 'status']);
-      if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
+        .update(patch).returning(['id', 'status']);
+      if (!row) throw new BadRequestException('otra persona ya decidió sobre esta evidencia');
+      await this.registrarHistorial(trx, {
+        proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+        status_from: prev.status, status_to: 'rechazado', motivo_codigo: code, motivo: texto || null, actor,
+      });
       return row;
     });
+  }
+
+  /**
+   * RE.13.2 — valida VARIAS de una pasada, pero **sólo el caso limpio**: la factura cuadra al
+   * peso (tolerancia del tenant) y no la subió el propio revisor. El server vuelve a
+   * comprobarlo por id — la UI no es la que decide qué es "limpio". Devuelve el resultado por
+   * id, no un booleano: el revisor tiene que poder ver qué se saltó y por qué.
+   */
+  async validateBulk(ids: string[], actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const lista = (ids || []).map(String).filter(Boolean).slice(0, 200);
+    if (!lista.length) throw new BadRequestException('no llegó ninguna evidencia');
+    const out: { id: string; ok: boolean; motivo?: string }[] = [];
+    for (const id of lista) {
+      try {
+        // Cada una en su propia trx: un descuadre en la 7ª no puede tumbar las 6 anteriores.
+        await this.tk.run(async (trx) => {
+          const prev = await trx('finance.goods_receipt_proofs').where({ id })
+            .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match');
+          if (!prev) throw new BadRequestException('no existe');
+          if (prev.status !== 'recibido') throw new BadRequestException(`ya está ${prev.status}`);
+          if (prev.monto_match !== true) throw new BadRequestException('el total no cuadra — se revisa a mano');
+          if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');
+          const [row] = await trx('finance.goods_receipt_proofs').where({ id }).where('status', 'recibido')
+            .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
+            .returning(['id']);
+          if (!row) throw new BadRequestException('otra persona ya decidió');
+          await this.registrarHistorial(trx, {
+            proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
+            status_from: prev.status, status_to: 'validado', motivo: 'aprobación en lote (cuadra al peso)', actor,
+          });
+        });
+        out.push({ id, ok: true });
+      } catch (e: any) {
+        out.push({ id, ok: false, motivo: e?.message || 'no se pudo validar' });
+      }
+    }
+    return { validadas: out.filter((r) => r.ok).length, omitidas: out.filter((r) => !r.ok).length, detalle: out };
   }
 
   /**

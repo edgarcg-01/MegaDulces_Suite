@@ -1153,7 +1153,10 @@ export interface Compras360Query { search?: string; sucursal?: string; proveedor
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number;
   /** Parte del ajuste que es beneficio negociado (descuento/pronto pago/apoyo) vs la que es un problema. */
   ajuste_comercial: number; ajuste_operativo: number;
-  neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
+  neto: number; deposits: number; deposit_status: string | null; monto_match: boolean;
+  // RE.13.4 — lente de CUMPLIMIENTO: el descuadre, quién decidió y la antigüedad. La pregunta
+  // de ese lente es "¿en qué anda el proceso?", no "¿cuánto costó?".
+  discrepancy_amount: number | null; decidio: string | null; dias: number }
 export interface Compras360Response { total: number; page: number; pageSize: number; /** Última corrida del importer que puebla el espejo (ISO) — frescura del dato. */ data_as_of?: string | null; /** El export cortó filas (all + total > tope). */ truncated?: boolean; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
 export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }

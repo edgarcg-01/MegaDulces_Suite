@@ -394,7 +394,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       background: var(--action-ring, color-mix(in srgb, var(--action) 12%, transparent)); border-radius: var(--r-sm, 6px); }
     .qt-bulk-txt { font-size: .82rem; color: var(--text-main); }
     .qt-catbar { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; padding: .45rem .7rem;
-      background: var(--surface-sunken, color-mix(in srgb, var(--action) 7%, transparent)); border-radius: var(--r-sm, 6px); }
+      background: var(--surface-2); border-radius: var(--r-sm, 6px); }
     .qt-catbar-txt { font-size: .82rem; color: var(--text-main); margin-right: auto; }
     .qt-catbar-txt i { color: var(--action); margin-right: .3rem; }
     .qt-table { font-size: .82rem; }
@@ -414,7 +414,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
        desalinea). El wrapper .qt-det es un BFC con scroll propio: la tabla ancha del
        drill scrollea DENTRO en vez de ensanchar el cuerpo. min-width:0 en la celda
        evita que el contenido imponga su ancho mínimo a la tabla exterior. */
-    .qt-detrow > td { background: var(--surface-sunken, var(--card-bg)); padding: .4rem .75rem .6rem; min-width: 0; }
+    .qt-detrow > td { background: var(--surface-2); padding: .4rem .75rem .6rem; min-width: 0; }
     .qt-det { min-width: 0; overflow-x: auto; }
     .qt-det-msg { color: var(--text-muted); font-size: .82rem; padding: .5rem; }
     .qt-det-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .1rem .1rem .5rem; }
