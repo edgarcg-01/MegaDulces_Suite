@@ -1,13 +1,15 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
+import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, ReceiptSettings } from '../entradas.service';
 
@@ -34,7 +36,7 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
   selector: 'app-compras-entradas-ajustes',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ToastModule, PageTabsComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, InputTextModule, ToastModule, PageTabsComponent, LoadStateComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in ea">
@@ -48,6 +50,7 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
             el mismo click.
           </p>
         </div>
+        <app-context-help topic="compras-entradas" />
       </header>
 
       <app-page-tabs [tabs]="tabs" />
@@ -61,8 +64,12 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
           <div class="ea-grid">
             <label class="ea-field">
               <span class="ea-k">Arranque del proceso</span>
-              <input pInputText type="date" [ngModel]="f.reception_start" (ngModelChange)="set('reception_start', $event)"
-                     name="reception_start" class="ea-in mono" />
+              <!-- p-datepicker y no un input date nativo (checklist 3): el nativo se ve distinto
+                   en cada navegador y no respeta el tema. La conversión va por partes locales,
+                   nunca por toISOString — ver los métodos fecha/setFecha. -->
+              <p-datepicker [ngModel]="fecha(f.reception_start)" (ngModelChange)="setFecha($event)"
+                            name="reception_start" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body"
+                            styleClass="ea-dp" inputStyleClass="ea-in mono" ariaLabel="Arranque del proceso" />
               <span class="ea-why">
                 Las órdenes anteriores a esta fecha son <b>rezago</b>: se cuentan aparte y no
                 entran al % de cobertura ni al semáforo. Moverla hacia atrás mete al tablero
@@ -198,6 +205,20 @@ export class ComprasEntradasAjustesComponent {
     return !!a && !!b && JSON.stringify(a) !== JSON.stringify(b);
   });
 
+  /**
+   * `[RE.17.2]` — DESIGN §8. La pantalla ya avisaba "Hay cambios sin guardar" y después te
+   * dejaba salir en silencio. Estos parámetros mueven el tablero de toda la red (la fecha de
+   * arranque cambia el % de cobertura de las 9 sucursales), así que perderlos por un clic en el
+   * sidebar es caro. `hasUnsavedChanges` lo consume `unsavedChangesGuard` en la ruta.
+   */
+  hasUnsavedChanges(): boolean { return this.sucio() && !this.saving(); }
+
+  /** Salida EXTERNA (cerrar pestaña / F5): el Router no la ve, sólo el navegador. */
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (this.hasUnsavedChanges()) e.preventDefault();
+  }
+
   constructor() { this.cargar(); }
 
   cargar(): void {
@@ -206,6 +227,23 @@ export class ComprasEntradasAjustesComponent {
       next: (s) => { this.original.set({ ...s }); this.form.set({ ...s }); },
       error: (e) => this.error.set(e?.error?.message || 'No se pudieron cargar los parámetros'),
     });
+  }
+
+  /**
+   * `YYYY-MM-DD` → `Date` **por partes locales**. `new Date('2026-08-01')` lo parsea como
+   * medianoche UTC, que en México es el 31 de julio a las 18:00 y el calendario pinta el día
+   * anterior (checklist 10: la TZ ya viene normalizada del backend, no se re-convierte).
+   */
+  fecha(s: string | null | undefined): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+
+  /** Y de vuelta, también por partes locales: `toISOString()` corre el día por el mismo motivo. */
+  setFecha(d: Date | null): void {
+    if (!d) return;
+    const p = (n: number) => String(n).padStart(2, '0');
+    this.set('reception_start', `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
   }
 
   set<K extends keyof ReceiptSettings>(k: K, v: ReceiptSettings[K]): void {
