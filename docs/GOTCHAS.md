@@ -524,6 +524,163 @@ entran filas corridas nuevas.
 
 ---
 
+## 23. `loose: true` de swc: el PUT que devolvía 500 (y por qué `.swcrc` no lo arregla)
+
+**Síntoma en prod:** todo `PUT /api/users/:id` respondía **500**.
+
+```
+TypeError: Class constructor PartialTypeClass cannot be invoked without 'new'
+    at new UpdateUserDto (/app/dist/apps/api/main.js)
+    at ClassTransformer.plainToInstance  ← el ValidationPipe
+```
+
+**Causa.** `@nx/webpack` le pasa a `swc-loader` sus opciones **inline** con
+`loose: true` hardcodeado (`@nx/webpack/dist/src/plugins/nx-webpack-plugin/lib/compiler-loaders.js`).
+Con `legacyDecorator` —que Nest necesita para DI y class-validator— SWC envuelve
+toda clase **decorada** en una función, y **sólo en modo loose** llama al padre
+con `_Padre.apply(this, arguments)`:
+
+```js
+function UpdateUserDto() {
+    return _PartialType.apply(this, arguments) || this;   // ← rompe
+}
+```
+
+Eso funciona entre dos funciones ES5, pero explota si el padre es una clase
+ES2015 **real**. Justo el caso de `UpdateUserDto extends PartialType(UserWriteDto)`:
+`PartialType` viene de `@nestjs/swagger`, o sea de `node_modules`, que el loader
+**excluye** → llega como clase nativa.
+
+`CreateUserDto extends UserWriteDto` se salvaba de casualidad: su padre también
+lo degrada SWC, así que el `.apply` entre dos funciones ES5 no se queja. Por eso
+el POST andaba y **sólo** fallaba el PUT.
+
+**Editar `apps/api/.swcrc` NO sirve.** Cuando swc-loader recibe opciones inline
+**ignora el `.swcrc`**. Verificado: con `"loose": false` en ese archivo el bundle
+salía byte-idéntico.
+
+**El arreglo** es un plugin de webpack que corre DESPUÉS de `NxAppWebpackPlugin`
+y le pisa la opción en la regla del loader (`SwcSinLoose` en
+`apps/api/webpack.config.js`). Sin loose, SWC emite el super call con
+`Reflect.construct` y ambos casos andan.
+
+**Prueba aislada** (el mecanismo, sin el resto del bundle):
+
+```
+loose=true  → FALLA  Class constructor PartialTypeClass cannot be invoked without 'new'
+loose=false → OK     {"status":"active","nombre":"x"}
+```
+
+**Cómo detectarlo sin esperar el 500:** buscar en el bundle
+`grep -c "\.apply(this, arguments) || this" dist/apps/api/main.js`. Si da > 0,
+hay clases decoradas que heredan con el patrón roto.
+
+**Regla:** cualquier DTO que use `PartialType` / `PickType` / `OmitType` /
+`IntersectionType` **y** tenga decoradores propios entra en este caso. Hoy sólo
+`UpdateUserDto` cumple las dos condiciones; si aparece otro, ya está cubierto por
+el plugin.
+
+---
+
+## 24. El Postgres de oficina es COMPARTIDO y el password de un rol es del cluster
+
+**Síntoma:** `28P01 la autentificación password falló para el usuario «app_runtime»`
+→ **toda la superficie multi-tenant en 500**, y el causante está en otra
+computadora. Se arregla, y minutos después vuelve.
+
+`KNEX_NEW_DB` corre como `app_runtime` (`NOSUPERUSER NOBYPASSRLS`): es el único
+rol con el que el aislamiento por tenant se aplica de verdad, así que si no
+autentica no hay endpoint multi-tenant que responda.
+
+**Lo que hay que entender:** el password de un rol de Postgres es **del cluster,
+no de una base**. `192.168.0.245` hospeda `platform_test`, `postgres_platform`,
+`Mega_Dulces`, `hr` y `KP_CONCENTRADA`, y **hay más de un dev conectado a la
+misma base** (verificado con `pg_stat_activity`: dos máquinas sobre
+`platform_test`). Quien cambia esa credencial se la cambia a todos, en todas las
+bases y en todas las máquinas, sin dejar rastro de quién.
+
+**La trampa que lo disparaba:** `20260526000003_create_app_runtime_role.js` hacía
+`ALTER ROLE app_runtime WITH PASSWORD` **incondicional** — así que un
+`migrate:latest` contra cualquier base donde esa migración estuviera pendiente
+(p.ej. `hr`, que no la tiene) rotaba la credencial de todo el cluster. Ya está
+guardada: sólo setea la password si el rol se acaba de crear o si
+`APP_RUNTIME_PASSWORD` viene explícita.
+
+**Diagnóstico, en orden:**
+
+1. ¿Autentica? Probar el login con la password del `.env`.
+2. ¿Es la que creés? **Verificar el verificador SCRAM** en vez de adivinar:
+   `rolpassword` tiene la forma `SCRAM-SHA-256$<iter>:<salt>$<storedKey>:<serverKey>`,
+   y se comprueba con `PBKDF2(pass, salt, iter, 32, sha256)` →
+   `HMAC(salted, "Client Key")` → `SHA256(...)` == `storedKey`. Es determinista y
+   contesta "la cambiaron" sin especular.
+3. ¿Quién más está? `SELECT usename, client_addr, datname FROM pg_stat_activity
+   WHERE backend_type='client backend'`. Si aparece otra IP, es coordinación, no
+   un bug.
+
+**Rotarla:** `setup-runtime-role.js` es **sólo para Railway** (fuerza SSL y muere
+contra el cluster de oficina). Para on-prem hay
+`setup-runtime-role-local.js`, que decide el SSL por el host, exige `--yes` y
+avisa qué bases quedan afectadas.
+
+**El valor por default es `app_runtime`** — lo trae `.env.dev.example`, así que
+todos los devs arrancan con ése. Ante un desajuste, volver al default suele
+reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
+`.env` de todo el mundo.
+
+---
+
+## 25. `DATABASE_URL` y `DATABASE_URL_NEW` tienen que ser la MISMA base física
+
+**Síntoma:** `42703 column u.route_id does not exist` (o cualquier columna
+recién migrada) en `/api/users`, **con la migración aplicada y verificada**. Y el
+login andando en el mismo instante.
+
+**Causa.** `UsersService` —y todo lo que use `KNEX_CONNECTION`— lee de
+`DATABASE_URL`, mientras `auth-mt/login` y el resto del stack multi-tenant leen
+de `DATABASE_URL_NEW` (`KNEX_NEW_DB`). El módulo lo dice en su encabezado:
+*"post-cutover: misma physical DB que NewDatabaseModule"*. Si las dos apuntan a
+bases distintas, **el login autentica contra una y la lista de usuarios lee de
+otra** — con ids que no se corresponden.
+
+Vivido el 2026-08-28 en local:
+
+| | `DATABASE_URL` (5433) | `DATABASE_URL_NEW` (.245) |
+|---|---|---|
+Usuarios | **81** | **154** |
+Última migración | 2026-08-27 | 2026-08-29 |
+`identity.user_roles` | no existía | existía |
+
+**Y la trampa de por qué estaba así:** el contenedor `pgvector-md`
+(`localhost:5433`) es el único con la extensión `vector`, y como
+`VECTOR_DATABASE_URL` **no estaba seteada**, el matcher de AI caía a su fallback
+(`KNEX_CONNECTION` → ver `vector-database.module.ts`). O sea que apuntar
+`DATABASE_URL` al contenedor pgvector era lo que mantenía la búsqueda por IA
+funcionando, al precio de que la app leyera `identity.*` de una base equivocada.
+
+**La configuración correcta** separa las dos cosas:
+
+```
+DATABASE_URL=<la MISMA que DATABASE_URL_NEW>
+DATABASE_URL_NEW=postgresql://postgres:…@192.168.0.245:5432/platform_test
+VECTOR_DATABASE_URL=postgresql://postgres:…@localhost:5433/postgres_platform
+```
+
+Con eso el arranque loguea las tres por separado y se puede leer de un vistazo:
+
+```
+[DatabaseModule]       Connecting to legacy DB via DATABASE_URL
+[VectorDatabaseModule] Conectando a la DB vector dedicada vía VECTOR_DATABASE_URL
+[NewDatabaseModule]    Connecting to new multi-tenant DB at <from DATABASE_URL_NEW_RUNTIME>
+[AiProductMatcher]     Matcher usa la DB vector dedicada (product_embeddings)
+```
+
+Si ves `VECTOR_DATABASE_URL no configurada — el matcher usará la fuente legacy`,
+estás en la configuración vieja.
+
+**Cómo detectarlo en 10 segundos:** correr la misma query contra las dos URLs.
+Si `SELECT count(*) FROM identity.users` no da el mismo número, son bases
+distintas y cualquier cosa que cruce las dos conexiones va a mentir.
 ## 23. Repointear al ODS: "mismo SQL" NO implica "mismo plan"
 
 El shim `md` (mig `20260827130000`) deja el SQL de un importer byte-idéntico: una vista por tabla de

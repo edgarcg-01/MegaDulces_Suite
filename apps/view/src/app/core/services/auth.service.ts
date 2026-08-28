@@ -70,6 +70,40 @@ export class AuthService {
     return !!this.token();
   }
 
+  /**
+   * `[ID.21]` — Re-lee los permisos VIGENTES del backend y reemplaza el snapshot
+   * del JWT.
+   *
+   * Por qué existe: los permisos viajan en el token (ADR-050). El backend aplica
+   * un cambio en ≤30s, pero el MENÚ seguía mostrando lo de antes hasta que la
+   * persona volvía a entrar. Con permisos por usuario eso se vuelve la queja
+   * principal — "le di el permiso y no le aparece". Con esto basta recargar.
+   *
+   * No toca el token: sólo el mapa en memoria y las reglas CASL. Si falla, se
+   * queda lo que traía el JWT (fail-open al comportamiento anterior, nunca a
+   * cero permisos).
+   */
+  refreshAccess(): void {
+    if (!this.token()) return;
+    this.http
+      .get<{ permissions: Record<string, boolean>; rules: any[] }>(`${this.apiUrl}/users/me/access`)
+      .subscribe({
+        next: (res) => {
+          // Un mapa VACÍO no se aplica nunca. Si el backend contesta `{}` por
+          // cualquier motivo (token legacy sin tenant, cache frío, error
+          // tragado), reemplazar el snapshot dejaría al usuario sin menú — un
+          // fail-closed en el camino de arranque. Ante la duda, gana el JWT.
+          if (!res?.permissions || Object.keys(res.permissions).length === 0) return;
+          const actual = this.user();
+          if (actual) {
+            this.user.set({ ...actual, permissions: res.permissions, rules: res.rules });
+          }
+          if (res.rules?.length) this.perms.loadRules(res.rules);
+        },
+        error: () => { /* se queda el snapshot del JWT */ },
+      });
+  }
+
   login(credentials: {
     username: string;
     password: string;

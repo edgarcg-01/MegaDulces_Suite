@@ -47,7 +47,13 @@ import {
   FinanceAreaOption,
   DepartmentOption,
   PositionOption,
+  BranchOption,
+  RouteOption,
+  ScopeAxis,
+  PermissionOverride,
+  UserPermissionsResponse,
 } from './users.service';
+import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -368,8 +374,55 @@ export class AdminUsersComponent implements OnInit {
   positionOptions = signal<PositionOption[]>([]);
   // GX.8 — áreas de gasto visibles asignables al usuario (dimensión canónica).
   financeAreas = signal<FinanceAreaOption[]>([]);
-  // Opciones de sucursal para el monitor Tienda (null = ve todas / rol global).
-  readonly branchOptions = STORE_BRANCHES.map((b) => ({ label: `${b.code} · ${b.name}`, value: b.code }));
+  /**
+   * `[ID.23]` Sucursales CON su zona, desde el API. Antes esta lista venía de
+   * `STORE_BRANCHES` (constante del front): además de no traer la zona, se
+   * desincroniza de la DB sin que nadie se entere. La constante queda como
+   * fallback para que el diálogo siga usable si el endpoint falla.
+   */
+  readonly branches = signal<BranchOption[]>(
+    STORE_BRANCHES.map((b) => ({ code: b.code, name: b.name, zone_id: null, zone_name: null })),
+  );
+  readonly branchOptions = computed(() =>
+    this.branches().map((b) => ({
+      label: `${b.code} · ${b.name}${b.zone_name ? ` — ${b.zone_name}` : ''}`,
+      value: b.code,
+    })),
+  );
+  /** Sucursal elegida en el form (signal: el valor del form no es reactivo). */
+  private readonly branchPick = signal<string | null>(null);
+  /** `[ID.23]` La zona que la sucursal elegida declara. */
+  readonly zonaDeLaSucursal = computed(() => {
+    const code = this.branchPick();
+    if (!code) return null;
+    return this.branches().find((b) => b.code === code) ?? null;
+  });
+  /**
+   * `[ID.23]` La zona se deriva de la sucursal, así que el select se esconde.
+   * Se muestra cuando la sucursal no declara plaza (04 Yurécuaro), cuando la
+   * persona no tiene sucursal (los 67 de ruta y oficinas, cuya zona es su
+   * territorio y no una tienda) o cuando alguien pide ajustarla a mano.
+   */
+  readonly zonaManual = signal(false);
+  /**
+   * `[ID.24]` La zona se muestra derivada cuando HAY de dónde derivarla — de la
+   * ruta (gana, es el territorio real del vendedor) o de la sucursal. Se vuelve
+   * pregunta cuando el eje es `zona` (supervisores: su zona es el dato, no una
+   * consecuencia), cuando no hay de dónde derivar, o cuando se pide ajustar.
+   */
+  readonly zonaEsEditable = computed(() => {
+    if (this.zonaManual()) return true;
+    if (this.ejeActivo() === 'zona') return true;
+    return !this.zonaDerivada();
+  });
+  /** De dónde sale la zona hoy: la ruta primero, la sucursal después. */
+  readonly zonaDerivada = computed<{ zone_id: string; zone_name: string; de: string } | null>(() => {
+    const r = this.zonaDeLaRuta();
+    if (r?.zone_id && r.zone_name) return { zone_id: r.zone_id, zone_name: r.zone_name, de: `la ruta ${r.name}` };
+    const b = this.zonaDeLaSucursal();
+    if (b?.zone_id && b.zone_name) return { zone_id: b.zone_id, zone_name: b.zone_name, de: `la sucursal ${b.code}` };
+    return null;
+  });
 
   // Roles que el usuario actual puede asignar (oculta superadmin si no lo es).
   // `[ID.14]` Los COMPLEMENTOS quedan fuera de esta lista: son tareas, no
@@ -415,6 +468,95 @@ export class AdminUsersComponent implements OnInit {
     if (!rol) return false;
     return this.roles().some((r) => r.value.toLowerCase() === rol && r.kind === 'complemento');
   });
+  // ── `[ID.21]` Permisos de la persona ─────────────────────────────────────
+  /**
+   * Los permisos del usuario abierto, en tres capas (puesto / propios /
+   * efectivos). `null` = todavía no se cargó o la migración no está aplicada.
+   */
+  readonly permisosDetalle = signal<UserPermissionsResponse | null>(null);
+  /** Overrides en edición. Se guardan al guardar el usuario, no antes. */
+  readonly permisosOverrides = signal<PermissionOverride[]>([]);
+  private readonly permisosPrevios = signal<string>('');
+  /** Filtro del buscador de permisos. Vacío = sólo se ven los que ya aplican. */
+  readonly permisoFiltro = signal('');
+  /** El panel arranca colapsado: la mayoría de las altas no toca una excepción. */
+  readonly permisosAbierto = signal(false);
+
+  private readonly puestoSet = computed(() => new Set(this.permisosDetalle()?.del_puesto ?? []));
+  /** Efectivos = los del puesto ± los overrides EN EDICIÓN (no los guardados). */
+  readonly efectivoSet = computed(() => {
+    const set = new Set(this.permisosDetalle()?.del_puesto ?? []);
+    for (const o of this.permisosOverrides()) {
+      if (o.allow) set.add(o.permission_key);
+      else set.delete(o.permission_key);
+    }
+    return set;
+  });
+  readonly deMas = computed(() => this.permisosOverrides().filter((o) => o.allow).map((o) => o.permission_key));
+  readonly deMenos = computed(() => this.permisosOverrides().filter((o) => !o.allow).map((o) => o.permission_key));
+
+  /**
+   * Qué renglones se muestran. Sin filtro: sólo lo que la persona TIENE (los del
+   * puesto más lo concedido) y lo que se le quitó — o sea su acceso real, no las
+   * 162 casillas del sistema. Con filtro: cualquier permiso que empate por clave
+   * o por nombre en castellano, para poder conceder algo que su puesto no da.
+   */
+  readonly permisoRows = computed(() => {
+    const q = this.permisoFiltro().trim().toLowerCase();
+    const puesto = this.puestoSet();
+    const efectivos = this.efectivoSet();
+    const overrides = new Map(this.permisosOverrides().map((o) => [o.permission_key, o]));
+
+    const claves = q
+      ? Object.keys(PERMISSION_META).filter(
+          (k) =>
+            k.toLowerCase().includes(q) ||
+            (PERMISSION_META[k]?.label ?? '').toLowerCase().includes(q),
+        )
+      : Array.from(new Set([...puesto, ...efectivos, ...overrides.keys()]));
+
+    return claves
+      .map((key) => ({
+        key,
+        label: PERMISSION_META[key]?.label ?? key,
+        enPuesto: puesto.has(key),
+        efectivo: efectivos.has(key),
+        // Diverge del estándar: es la única columna que de verdad hay que leer.
+        excepcion: overrides.has(key) ? (overrides.get(key)!.allow ? 'de_mas' : 'de_menos') : null,
+      }))
+      .sort((a, b) => {
+        // Las excepciones arriba: son la respuesta a "qué tiene esta persona
+        // que sus compañeros de puesto no".
+        if (!!a.excepcion !== !!b.excepcion) return a.excepcion ? -1 : 1;
+        return a.label.localeCompare(b.label);
+      });
+  });
+
+  /**
+   * Un clic = el permiso queda como se ve. Si el nuevo valor coincide con el
+   * estándar del puesto, la excepción se BORRA en vez de guardar una fila que
+   * dice lo mismo que el rol; si diverge, se crea.
+   *
+   * Es una casilla y no un tri-estado a propósito: lo que el admin quiere decir
+   * es "puede / no puede", no "heredado / concedido / revocado". La divergencia
+   * se muestra al lado, no se pregunta.
+   */
+  togglePermiso(key: string): void {
+    const enPuesto = this.puestoSet().has(key);
+    const nuevo = !this.efectivoSet().has(key);
+    const resto = this.permisosOverrides().filter((o) => o.permission_key !== key);
+    if (nuevo === enPuesto) {
+      this.permisosOverrides.set(resto);
+      return;
+    }
+    this.permisosOverrides.set([...resto, { permission_key: key, allow: nuevo }]);
+  }
+
+  /** Quita TODAS las excepciones: la persona vuelve al estándar de su puesto. */
+  volverAlPuesto(): void {
+    this.permisosOverrides.set([]);
+  }
+
   /** `[ID.15]` El puesto elegido no propone perfil: hay que elegirlo a mano. */
   readonly puestoSinPerfil = computed(() => {
     const code = this.positionPick();
@@ -422,6 +564,90 @@ export class AdminUsersComponent implements OnInit {
     const p = this.positionOptions().find((x) => x.code === code);
     return !!p && !p.default_role;
   });
+
+  // ── `[ID.22]` El puesto manda: departamento y nivel de acceso se derivan ──
+  /** Departamento elegido en el form, como signal (el form no es reactivo). */
+  private readonly deptPick = signal<string | null>(null);
+  /** El puesto elegido: qué departamento y qué perfil propone. */
+  private readonly puestoPropuesta = computed(() => {
+    const code = this.positionPick();
+    return code ? this.positionOptions().find((p) => p.code === code) ?? null : null;
+  });
+  readonly departamentoManual = signal(false);
+  readonly perfilManual = signal(false);
+  /**
+   * Regla única para los dos campos: **si el valor coincide con lo que el puesto
+   * propone, no se pregunta**. Se muestra el select cuando falta, cuando el
+   * puesto no propone nada, cuando el valor DIVERGE de la propuesta (que es una
+   * decisión que alguien tomó y hay que poder ver) o cuando se pide ajustar.
+   */
+  readonly departamentoEsEditable = computed(() => {
+    if (this.departamentoManual()) return true;
+    const valor = this.deptPick();
+    const propuesto = this.puestoPropuesta()?.department_code ?? null;
+    return !valor || !propuesto || valor !== propuesto;
+  });
+  readonly perfilEsEditable = computed(() => {
+    if (this.perfilManual()) return true;
+    const valor = this.rolePick();
+    const propuesto = this.puestoPropuesta()?.default_role ?? null;
+    return !valor || !propuesto || valor !== propuesto;
+  });
+  readonly departamentoNombre = computed(() => {
+    const code = this.deptPick();
+    if (!code) return '—';
+    return this.departmentOptions().find((d) => d.code === code)?.name ?? code;
+  });
+  /** `[ID.23]` La sucursal elegida no declara plaza: la zona hay que elegirla. */
+  readonly branchPickSinPlaza = computed(
+    () => !!this.branchPick() && !this.zonaDeLaSucursal()?.zone_id,
+  );
+
+  // ── `[ID.24]` El EJE: qué pregunta le corresponde a esta persona ──────────
+  /**
+   * Eje de alcance resuelto `puesto → departamento`. Es la columna que faltaba:
+   * la medición decía que cada población ya llena UN campo y deja el otro vacío
+   * (ruta_directa: 34/34 con zona y 0 con sucursal · cajas: 0 con zona y 27/27
+   * con sucursal), pero no había dónde declararlo, así que el alta preguntaba
+   * las dos cosas a todo el mundo.
+   *
+   * `null` = no se sabe (sin puesto y sin departamento, 7 personas) → se
+   * preguntan las dos, que es el comportamiento de antes.
+   */
+  readonly ejeActivo = computed<ScopeAxis | null>(() => {
+    const pos = this.puestoPropuesta();
+    if (pos?.scope_axis) return pos.scope_axis;
+    const dept = this.departmentOptions().find((d) => d.code === this.deptPick());
+    return dept?.scope_axis ?? null;
+  });
+  /** Etiqueta del eje para explicarlo en la pantalla, no sólo aplicarlo. */
+  readonly ejeTexto = computed(() => {
+    switch (this.ejeActivo()) {
+      case 'ruta': return 'Trabaja en ruta: se le asigna una ruta y la zona sale de ella.';
+      case 'zona': return 'Supervisa una plaza completa: se le asigna la zona, no una ruta.';
+      case 'sucursal': return 'Está en una tienda o almacén: se le asigna la sucursal y la zona sale de ella.';
+      case 'red': return 'Es de oficinas: su alcance es la red, no un lugar. No se le pide zona ni sucursal.';
+      case 'cartera': return 'Televenta: su universo son los clientes que atiende, no un lugar.';
+      case 'cliente': return 'Externo: su acceso es a su propio cliente.';
+      default: return '';
+    }
+  });
+
+  /** `[ID.24.1]` Catálogo de rutas con la zona que cada una implica. */
+  readonly routes = signal<RouteOption[]>([]);
+  readonly routeOptions = computed(() =>
+    this.routes().map((r) => ({
+      label: r.zone_name ? `${r.name} — ${r.zone_name}` : `${r.name} (sin tiendas cargadas)`,
+      value: r.id,
+    })),
+  );
+  private readonly routePick = signal<string | null>(null);
+  readonly zonaDeLaRuta = computed(() => {
+    const id = this.routePick();
+    return id ? this.routes().find((r) => r.id === id) ?? null : null;
+  });
+  /** La ruta elegida no tiene tiendas, así que no puede derivar zona (8 de 23). */
+  readonly rutaPickSinZona = computed(() => !!this.routePick() && !this.zonaDeLaRuta()?.zone_id);
 
   constructor() {
     this.userForm = this.fb.group({
@@ -435,6 +661,9 @@ export class AdminUsersComponent implements OnInit {
       role_name: ['', Validators.required],
       supervisor_id: [null],
       warehouse_code: [null],
+      // `[ID.24.1]` La ruta de la persona. Antes no existía y se la adivinaba
+      // por la zona — `LA PIEDAD RD` tiene 6 rutas.
+      route_id: [null as string | null],
       department_code: [null],
       position_code: [null],
       finance_expense_area_ids: [[] as string[]],
@@ -479,6 +708,43 @@ export class AdminUsersComponent implements OnInit {
         }
       });
 
+    // `[ID.22]` El departamento como signal, para decidir si se pregunta o se
+    // muestra derivado del puesto.
+    this.userForm
+      .get('department_code')
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((code: string | null) => this.deptPick.set(code ?? null));
+
+    // `[ID.23]`/`[ID.24]` Ruta y sucursal alimentan la MISMA derivación de zona.
+    // Sólo rellena cuando la zona está vacía o cuando coincide con la que se
+    // derivaba antes — así no le pisa una zona que alguien puso a propósito.
+    const redevirarZona = (antes: string | null) => {
+      const nueva = this.zonaDerivada()?.zone_id ?? null;
+      if (!nueva) return;
+      const actual = this.userForm.get('zone_id')?.value ?? null;
+      if (!actual || actual === antes) {
+        this.userForm.get('zone_id')?.setValue(nueva);
+        this.zonaManual.set(false);
+      }
+    };
+
+    this.userForm
+      .get('warehouse_code')
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((code: string | null) => {
+        const antes = this.zonaDerivada()?.zone_id ?? null;
+        this.branchPick.set(code ?? null);
+        redevirarZona(antes);
+      });
+
+    this.userForm
+      .get('route_id')
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((id: string | null) => {
+        const antes = this.zonaDerivada()?.zone_id ?? null;
+        this.routePick.set(id ?? null);
+        redevirarZona(antes);
+      });
   }
 
   ngOnInit(): void {
@@ -497,12 +763,39 @@ export class AdminUsersComponent implements OnInit {
     this.loadRoles();
     this.loadSupervisors();
     this.loadZones();
+    this.loadBranches();
+    this.loadRoutes();
     this.loadFinanceAreas();
 
     // Estado de la vista en la URL (DESIGN §9): ?dept=compras vuelve al mismo
     // departamento tras F5 y se puede compartir como liga.
     const dept = this.route.snapshot.queryParamMap.get('dept');
     if (dept) this.selectedDept.set(dept);
+  }
+
+  /**
+   * `[ID.23]` Sucursales con su zona. Best-effort: si falla, quedan las del
+   * fallback sin zona y el select de zona vuelve a mostrarse solo.
+   */
+  loadBranches(): void {
+    this.usersService
+      .getBranches()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => { if (data?.length) this.branches.set(data); },
+        error: () => { /* se queda el fallback de STORE_BRANCHES */ },
+      });
+  }
+
+  /** `[ID.24.1]` Rutas con su zona. Best-effort: sin ellas el selector queda vacío. */
+  loadRoutes(): void {
+    this.usersService
+      .getRoutes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => this.routes.set(data || []),
+        error: () => this.routes.set([]),
+      });
   }
 
   /** Catálogo de áreas de gasto (GX.8) para el selector de "áreas visibles". Best-effort. */
@@ -623,6 +916,8 @@ export class AdminUsersComponent implements OnInit {
     this.loadRoles();
     this.loadSupervisors();
     this.loadZones();
+    this.loadBranches();
+    this.loadRoutes();
     this.loadOrgCatalogs();
   }
 
@@ -636,6 +931,18 @@ export class AdminUsersComponent implements OnInit {
     // `[ID.13]` Un alta nace sin complementos.
     this.complementos.set([]);
     this.complementosPrevios.set([]);
+    // `[ID.21]` y sin excepciones de permisos: nace con el estándar de su puesto.
+    // Las excepciones se dan después, sobre una persona que ya existe.
+    this.permisosDetalle.set(null);
+    this.permisosOverrides.set([]);
+    this.permisosPrevios.set('');
+    this.permisosAbierto.set(false);
+    this.permisoFiltro.set('');
+    this.branchPick.set(null);
+    this.routePick.set(null);
+    this.zonaManual.set(false);
+    this.departamentoManual.set(false);
+    this.perfilManual.set(false);
     this.userForm.reset({
       activo: true,
       role_name: '',
@@ -652,6 +959,14 @@ export class AdminUsersComponent implements OnInit {
     // en el cajón "Sin departamento" y el padrón se desordena solo.
     this.userForm.get('department_code')?.setValidators([Validators.required]);
     this.userForm.get('department_code')?.updateValueAndValidity();
+    // `[ID.24]` El PUESTO es obligatorio en el alta porque de él salen las otras
+    // tres respuestas: departamento, nivel de acceso y **el eje** (qué se le
+    // pregunta después). Sin puesto el formulario no sabe si pedirle ruta,
+    // sucursal o nada, y vuelve a ser el interrogatorio de 5 campos. Los 43
+    // puestos del organigrama cubren a todo empleado; una cuenta sin puesto es
+    // un cliente del portal o una cuenta de servicio, que no se dan de alta acá.
+    this.userForm.get('position_code')?.setValidators([Validators.required]);
+    this.userForm.get('position_code')?.updateValueAndValidity();
     this.positionPick.set(this.userForm.get('position_code')?.value ?? null);
     this.refreshLookups();
     this.displayDialog.set(true);
@@ -668,6 +983,10 @@ export class AdminUsersComponent implements OnInit {
     // las cuentas heredadas que todavía no tienen departamento.
     this.userForm.get('department_code')?.clearValidators();
     this.userForm.get('department_code')?.updateValueAndValidity();
+    // En EDICIÓN no se exige el puesto: obligarlo bloquearía guardar cualquier
+    // cambio en las cuentas heredadas que todavía no lo tienen (77 en local).
+    this.userForm.get('position_code')?.clearValidators();
+    this.userForm.get('position_code')?.updateValueAndValidity();
 
     this.userForm.patchValue({
       username: user.username,
@@ -677,6 +996,7 @@ export class AdminUsersComponent implements OnInit {
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       warehouse_code: user.warehouse_code ?? null,
+      route_id: user.route_id ?? null,
       department_code: user.department_code ?? null,
       position_code: user.position_code ?? null,
       finance_expense_area_ids: user.finance_expense_area_ids ?? [],
@@ -702,6 +1022,38 @@ export class AdminUsersComponent implements OnInit {
           this.complementos.set([]);
           this.complementosPrevios.set([]);
         },
+      });
+
+    // `[ID.21]` Permisos de la persona. Igual que los complementos: no son
+    // campos de `users` sino filas de `identity.user_permissions`.
+    this.permisosDetalle.set(null);
+    this.permisosOverrides.set([]);
+    this.permisosPrevios.set('');
+    this.permisosAbierto.set(false);
+    this.permisoFiltro.set('');
+    this.departamentoManual.set(false);
+    this.perfilManual.set(false);
+    this.branchPick.set(user.warehouse_code ?? null);
+    this.routePick.set(user.route_id ?? null);
+    // Si la zona guardada NO es la que hoy se derivaría, es una divergencia que
+    // alguien decidió: se muestra el select abierto en vez de esconderla.
+    const derivable =
+      this.routes().find((r) => r.id === user.route_id)?.zone_id ??
+      this.branches().find((b) => b.code === user.warehouse_code)?.zone_id ??
+      null;
+    this.zonaManual.set(!!user.zona_id && !!derivable && user.zona_id !== derivable);
+    this.usersService
+      .getUserPermissions(user.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.permisosDetalle.set(res);
+          this.permisosOverrides.set(
+            res.overrides.map((o) => ({ permission_key: o.permission_key, allow: o.allow, nota: o.nota })),
+          );
+          this.permisosPrevios.set(this.firmaOverrides(res.overrides));
+        },
+        error: () => this.permisosDetalle.set(null),
       });
 
     this.refreshLookups();
@@ -735,6 +1087,55 @@ export class AdminUsersComponent implements OnInit {
    * (`users` y `identity.user_roles`) y el complemento no debe hacer fallar el
    * guardado del usuario. Si no cambió nada no se llama al API.
    */
+  /** Firma estable de una lista de overrides, para saber si cambió algo. */
+  private firmaOverrides(lista: PermissionOverride[]): string {
+    return [...lista]
+      .map((o) => `${o.permission_key}:${o.allow ? 1 : 0}`)
+      .sort()
+      .join('|');
+  }
+
+  /**
+   * `[ID.21]` Guarda las excepciones de permisos si cambiaron.
+   *
+   * Mismo criterio que los complementos: escritura aparte del update del usuario
+   * (son otra tabla) y no se llama al API si la lista quedó igual. El toast dice
+   * QUÉ cambió, no "guardado": es la única forma de que quien administra note un
+   * clic accidental sobre una casilla.
+   */
+  private persistPermisos(userId: string): void {
+    const ahora = this.permisosOverrides();
+    const firma = this.firmaOverrides(ahora);
+    if (firma === this.permisosPrevios()) return;
+
+    this.usersService
+      .setUserPermissions(userId, ahora)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.permisosPrevios.set(firma);
+          const partes = [
+            res.agregados.length ? `${res.agregados.length} excepción/es` : '',
+            res.quitados.length ? `${res.quitados.length} de vuelta al puesto` : '',
+          ].filter(Boolean);
+          if (partes.length) {
+            this.messageService.add({
+              severity: 'success',
+              summary: 'Permisos actualizados',
+              detail: partes.join(' · ') + '. Aplica en menos de un minuto.',
+            });
+          }
+        },
+        error: (err) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'No se pudieron guardar los permisos',
+            detail: this.apiError(err, 'Revisá el detalle e intentá de nuevo.'),
+          });
+        },
+      });
+  }
+
   private persistComplementos(userId: string): void {
     const ahora = [...this.complementos()].sort();
     const antes = [...this.complementosPrevios()].sort();
@@ -803,6 +1204,7 @@ export class AdminUsersComponent implements OnInit {
             this.saving.set(false);
             this.displayDialog.set(false);
             this.persistComplementos(this.currentUserId()!);
+            this.persistPermisos(this.currentUserId()!);
             this.loadUsers();
             this.refreshLookups();
             this.messageService.add({
