@@ -681,3 +681,58 @@ estás en la configuración vieja.
 **Cómo detectarlo en 10 segundos:** correr la misma query contra las dos URLs.
 Si `SELECT count(*) FROM identity.users` no da el mismo número, son bases
 distintas y cualquier cosa que cruce las dos conexiones va a mentir.
+## 23. Repointear al ODS: "mismo SQL" NO implica "mismo plan"
+
+El shim `md` (mig `20260827130000`) deja el SQL de un importer byte-idéntico: una vista por tabla de
+`kepler_ods` filtrada por `sucursal = current_setting('app.kepler_sucursal')`, y el importer sólo
+cambia "abrir una conexión por sucursal" por "setear un GUC por sucursal". Eso funciona — pero el
+**plan** cambia, y ahí se pierde el día.
+
+`import-in-transit` repointeado fue **matado por timeout a los 900 s** en su primera corrida. La
+query simple que había medido antes (56 ms) no era representativa: la real trae un `NOT EXISTS`
+correlacionado que usa `md.kdm1` tres veces.
+
+**La causa:** el ODS ya tenía índices **de EXPRESIÓN** construidos con `btrim` para las consultas de
+la fase AX —`(sucursal, btrim(c39)) WHERE c2='X' AND c3='A'`— y el SQL del importer usa `c39`
+**pelado**. Un índice de expresión **no aplica a la columna cruda**, así que el back-pointer de la
+cadena de compra se resolvía como `Filter`, no `Index Cond`:
+
+```
+Nested Loop
+  -> Index Scan using kdm1_pkey   Index Cond: (sucursal = current_setting(...) AND c2='X' …)
+                                  Filter: (c37 = '35' AND c39 = '0001521')   <-- acá se muere
+```
+
+| sucursal 03, ventana 120 d | |
+|---|---|
+| sin índice sobre la columna cruda | **timeout >120 s** |
+| con `(sucursal, c39, c37) WHERE c2='X' AND c3='A'` (mig `20260827140000`) | **128 ms** |
+
+**Regla:** cada importer que se repointee necesita su pasada de índices sobre el ODS, y hay que mirar
+el **plan** (`EXPLAIN`), no confiar en que ande porque el SQL no cambió. Y medir la query REAL, no
+una simplificada.
+
+**Y NO es cierto que el repointeo sea más rápido por sí mismo.** Con el mismo índice en la réplica
+local, el lado LAN quedó más rápido que el ODS (60 ms vs 275 ms: es local contra el proxy de
+Railway). La ventaja del repointeo es **quitar el paso on-prem** —una caja menos que tiene que estar
+prendida, un enlace menos que puede cortarse, un timeout menos que puede matar el modo entero— no la
+latencia.
+
+## 24. Reconciliar residuo del ODS por (tabla, SUCURSAL), nunca por el delta global
+
+El delta global de `kdm2` era **−1,159** — o sea "el ODS va atrás", atraso normal del CDC. Pero por
+sucursal había **residuo real**: `01 +484`, `06 +150`, `00 +28`. El atraso de unas ramas **enmascara**
+el residuo de otras en la suma.
+
+Y comparar por **llave** encontró todavía más de lo que sugerían los conteos: **2,322 filas
+huérfanas** en `kdm2` (01=1,858 · 06=387 · 02=9 · 05=5 · 04=3), porque atraso y residuo se compensan
+dentro de la misma rama.
+
+**Cómo se manifestó:** el A/B del repointeo de `import-in-transit` daba 5 sucursales idénticas y la
+**01 con 172 diferencias** contra el ODS **vivo** (no era frescura). Las cabeceras de OC coincidían
+exactas (523 = 523) — la diferencia estaba en las LÍNEAS. Tras reconciliar `kdm2`: **7/7 idénticas,
+0 diferencias**.
+
+**Regla:** el residuo se mide y se borra por `(tabla, sucursal)` con `reconcile-ods-deletes.js`, y las
+tablas grandes NO se saltan en silencio (`--include-big`; el script las lista si las omite). Un
+`kdm2` con 0.39 % de residuo en una rama descuadra el tránsito de compras, que es dinero.

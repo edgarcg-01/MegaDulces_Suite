@@ -67,6 +67,27 @@ Compra directa `X-A-5` hace inventario + CxP de golpe.
 ⚠️ **El folio NO es único entre doctypes** — el mismo número de folio puede existir en `X-A-37` y `X-A-40`.
 Nunca joinees solo por folio; incluí el doctype. (Ver `reference_kepler_orden_entrada_xa2001` en las notas.)
 
+⚠️ **Y tampoco es único entre servidores: la misma recepción se captura DOS VECES.** La sucursal
+la captura en su Kepler y **oficinas** (servidor `192.168.9.95`, que en el ODS es la sucursal
+`'00'`) la vuelve a capturar en el suyo. No son réplicas —cada una tiene su propio folio, su
+propio vale y su propia póliza— y se distinguen por el detalle:
+
+| | sucursal (`01`–`06`) | oficinas (`'00'`) |
+|---|---|---|
+| renglones | los productos reales (12–20 en promedio) | casi siempre **uno** de concepto: SKU `0000x` `VENTAS AL 0 %` con el total |
+| qué es | la recepción operativa, movió inventario | la captura **contable** |
+| canónica | **sí** | no (es el espejo) |
+
+Dos trampas al aparearlas: los importes **no siempre casan al centavo** porque son dos capturas
+independientes (visto: `$79,009.21` vs `$79,007.79`, $1.42), y **el nombre del proveedor no es la
+misma llave** porque cada servidor tiene su catálogo (`DIONICIO CALDERON` en la sucursal es
+`BOTANAS CALDERON` en oficinas). El apareo vive en `analytics.erp_goods_receipt_dedup` con regla y
+score, lo dudoso queda `propuesto` hasta que una persona lo dictamine, y la vista
+`analytics.erp_goods_receipts` **sólo oculta los pares vigentes** — porque ocultar la copia de
+oficinas es afirmar que esa compra no existe. Lo mantiene
+`database/importers/kepler/detect-goods-receipt-duplicates.js`. La práctica arrancó en ene-2026 y
+viene subiendo: **55% de las recepciones de sucursal en ago-2026** ya tienen copia en oficinas.
+
 ---
 
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`
