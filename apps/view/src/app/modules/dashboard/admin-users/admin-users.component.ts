@@ -959,6 +959,14 @@ export class AdminUsersComponent implements OnInit {
     // en el cajón "Sin departamento" y el padrón se desordena solo.
     this.userForm.get('department_code')?.setValidators([Validators.required]);
     this.userForm.get('department_code')?.updateValueAndValidity();
+    // `[ID.24]` El PUESTO es obligatorio en el alta porque de él salen las otras
+    // tres respuestas: departamento, nivel de acceso y **el eje** (qué se le
+    // pregunta después). Sin puesto el formulario no sabe si pedirle ruta,
+    // sucursal o nada, y vuelve a ser el interrogatorio de 5 campos. Los 43
+    // puestos del organigrama cubren a todo empleado; una cuenta sin puesto es
+    // un cliente del portal o una cuenta de servicio, que no se dan de alta acá.
+    this.userForm.get('position_code')?.setValidators([Validators.required]);
+    this.userForm.get('position_code')?.updateValueAndValidity();
     this.positionPick.set(this.userForm.get('position_code')?.value ?? null);
     this.refreshLookups();
     this.displayDialog.set(true);
@@ -975,6 +983,10 @@ export class AdminUsersComponent implements OnInit {
     // las cuentas heredadas que todavía no tienen departamento.
     this.userForm.get('department_code')?.clearValidators();
     this.userForm.get('department_code')?.updateValueAndValidity();
+    // En EDICIÓN no se exige el puesto: obligarlo bloquearía guardar cualquier
+    // cambio en las cuentas heredadas que todavía no lo tienen (77 en local).
+    this.userForm.get('position_code')?.clearValidators();
+    this.userForm.get('position_code')?.updateValueAndValidity();
 
     this.userForm.patchValue({
       username: user.username,

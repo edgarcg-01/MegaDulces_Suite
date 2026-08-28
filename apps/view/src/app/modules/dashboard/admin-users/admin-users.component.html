@@ -238,7 +238,9 @@
       <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
                 placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
                 optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
-      @if (selectedPositionOrg(); as org) {
+      @if (userForm.get('position_code')?.invalid && userForm.get('position_code')?.touched) {
+        <small class="au-err">Elegí el puesto: de él salen el departamento, el nivel de acceso y qué se te pregunta después.</small>
+      } @else if (selectedPositionOrg(); as org) {
         <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>. De acá salen el departamento y el nivel de acceso.</small>
       } @else {
         <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
