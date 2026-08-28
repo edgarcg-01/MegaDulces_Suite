@@ -53,10 +53,15 @@ const HOY = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_C
 /** Prefijo de todo lo sembrado: es lo que hace el `--limpiar` exacto. */
 const MARCA = 'DEMO';
 
+/**
+ * Cajas 7/8/9: NO colisionan con las reales de la sucursal (1–5). Con las cajas
+ * reales, la venta ficticia se le pegaba a la sesión abierta de otra cajera —
+ * el cruce venta↔caja es por (sucursal, caja) y no distingue de quién es el día.
+ */
 const PERSONAS = [
   {
     user: 'demo_ana', nombre: 'Ana Lorena Ruiz Medina', rol: 'cajero',
-    caja: '1', folio: '9001', abrio: '07:05:00', cerro: '15:20:00', cerrado: true,
+    caja: '7', folio: '9001', abrio: '07:05:00', cerro: '15:20:00', cerrado: true,
     efectivoEsperado: 18430.50, venta: 24300, tickets: 96,
     // Kepler declara contado == esperado (diff 0). En el cajón faltan $1,240.
     contadoKepler: 18430.50, enCajon: 17190.50,
@@ -64,18 +69,18 @@ const PERSONAS = [
   },
   {
     user: 'demo_rosa', nombre: 'Rosa María Tinoco Vega', rol: 'cajero',
-    caja: '2', folio: '9002', abrio: '07:10:00', cerro: '15:25:00', cerrado: true,
+    caja: '8', folio: '9002', abrio: '07:10:00', cerro: '15:25:00', cerrado: true,
     efectivoEsperado: 12780.00, venta: 15900, tickets: 71,
     contadoKepler: 12780.00, enCajon: 12780.00,
     guion: 'Cuadra de verdad — el control del experimento',
   },
   {
     user: 'demo_luz', nombre: 'Luz Elena Barajas Soto', rol: 'cajero',
-    caja: '3', folio: '9003', abrio: '07:12:00', cerro: null, cerrado: false,
+    caja: '9', folio: '9003', abrio: '07:12:00', cerro: null, cerrado: false,
     efectivoEsperado: 0, venta: 8450, tickets: 42,
     contadoKepler: 0, enCajon: null,
     guion: 'Sigue cobrando: turno abierto, todavía sin corte',
-    // Lo que Kepler escribirá cuando Luz termine (`--cerrar-turno 3`). Tercer caso:
+    // Lo que Kepler escribirá cuando Luz termine (`--cerrar-turno 9`). Tercer caso:
     // aquí SOBRA dinero. Un sobrante no es "un faltante al revés" — suele ser un
     // cobro mal registrado, y también hay que verlo.
     alCerrar: { hora: '20:40:00', efectivoEsperado: 6120.00, contadoKepler: 6120.00, enCajon: 6300.00 },
@@ -277,7 +282,7 @@ function correrLoader(script, extra = []) {
   console.log('   la venta del día, ordenadas de mayor a menor. Caja 3 sigue cobrando.\n');
   console.log('2) Entrá como  demo_ana  → /tienda/arqueo');
   console.log('   No elige nada: su turno (caja 1) ya viene de Kepler y no se puede tocar.');
-  console.log('   Contá el cajón — 17 billetes de $1000, 1 de $100, 1 de $50, 2 de $20 y una');
+  console.log('   Es la caja 7. Contá el cajón — 17 billetes de $1000, 1 de $100, 1 de $50, 2 de $20 y una');
   console.log('   moneda de 50¢ = $17,190.50 — y guardá. Solo ve su total. Nada más.\n');
   console.log('3) Volvé a  demo_encargada  → /almacen/cuadre, pestaña Descuadres');
   console.log('   Ahí está el faltante de $1,240 marcado CRÍTICO, con la leyenda de que');
@@ -289,7 +294,7 @@ function correrLoader(script, extra = []) {
   console.log('6) Cerrá como  demo_encargada  → /tienda/arqueo, columna Validado.');
   console.log('   Ve los tres arqueos (las cajeras solo veían el suyo) y los firma.');
   console.log('   Si una recaptura su conteo, la firma se cae y hay que validar de nuevo.\n');
-  console.log('Cuando Luz termine su turno:  node database/scripts/demo-arqueo-dia.js --cerrar-turno 3');
+  console.log('Cuando Luz termine su turno (caja 9):  node database/scripts/demo-arqueo-dia.js --cerrar-turno 9');
   console.log('Para volver a arquear desde cero: node database/scripts/demo-arqueo-dia.js --reset-arqueos');
   console.log('Para borrarlo todo:  node database/scripts/demo-arqueo-dia.js --limpiar');
   console.log('══════════════════════════════════════════════════════════════════════');

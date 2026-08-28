@@ -337,10 +337,27 @@ export class StoreService {
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 's.tenant_id').andOn('pc.warehouse_code', '=', 's.warehouse_code').andOn('pc.cajero_code', '=', 's.cajero_code');
       })
-      .where('s.tenant_id', TENANT).where('s.status', 'open').andWhereRaw(`s.business_date = ${todayMX}`)
+      /**
+       * SM.13.2 — Abierta es abierta, aunque haya abierto ayer.
+       *
+       * Esto filtraba `business_date = hoy`, así que una caja que abrió ayer y
+       * **nunca se cerró** desaparecía del monitor — justo la que más hay que
+       * mirar. Medido en la data: 14 sesiones en `open` y la pantalla mostrando 0,
+       * una de ellas arrastrada desde hacía dos días.
+       *
+       * La ventana son 2 días porque es la que refresca `import-cash-sessions`
+       * (lee las aperturas recientes): más atrás no re-verifica, y una sesión que
+       * se cerró en Kepler fuera de esa ventana se quedaría marcada abierta para
+       * siempre. Mostrar solo lo que el importer confirma evita inventar cajas.
+       */
+      .where('s.tenant_id', TENANT).where('s.status', 'open')
+      .andWhereRaw(`s.business_date >= (${todayMX} - INTERVAL '2 days')`)
       .select('s.warehouse_code', 's.warehouse_name', 's.caja', 's.cajero_code',
         k.raw('pc.nombre AS cajero_nombre'),
-        k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at')
+        k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at',
+        k.raw('s.business_date::text AS desde_dia'),
+        // Días que lleva abierta. >0 = quedó de un día anterior: nadie la cerró.
+        k.raw(`((${todayMX}) - s.business_date)::int AS dias_abierta`))
       .orderBy('s.warehouse_code').orderBy('s.caja');
     if (filtrar) sesQ.whereIn('s.warehouse_code', warehouses as string[]);
     if (vacio) sesQ.whereRaw('false');
@@ -356,6 +373,9 @@ export class StoreService {
       return {
         warehouse_code: s.warehouse_code, warehouse_name: s.warehouse_name, caja: s.caja,
         cajero: s.cajero_code, cajero_nombre: s.cajero_nombre || null, abrio: s.abrio,
+        // Una caja arrastrada de un día anterior es una incidencia por sí sola.
+        desde_dia: s.desde_dia, dias_abierta: Number(s.dias_abierta) || 0,
+        arrastrada: (Number(s.dias_abierta) || 0) > 0,
         // El mayor de poller y ODS: los dos son prefijos de la misma venta del día.
         tickets: Math.max(a ? Number(a.tickets) : 0, o ? Number(o.tickets) : 0),
         venta: Math.max(a ? Number(a.venta) : 0, o ? Number(o.venta) : 0),
@@ -407,6 +427,9 @@ export class StoreService {
       generated_at: new Date().toISOString(),
       cajas_abiertas: open_cajas.length,
       cobrando_ahora: open_cajas.filter((c: any) => c.cobrando).length,
+      // Cajas que nadie cerró al terminar el día. Se cuentan aparte: no son
+      // actividad de hoy, son un pendiente operativo.
+      arrastradas: open_cajas.filter((c: any) => c.arrastrada).length,
       open_cajas,
       // compat: el frontend consume `cajeros_sin_sesion`; ahora es por caja.
       cajeros_sin_sesion: cajas_sin_sesion,

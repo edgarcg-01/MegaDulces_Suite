@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — 🔴 el monitor de cajas escondía justamente las que hay que vigilar (SM.13.2, 2026-08-27)
+- `openSessions` filtraba `business_date = hoy`, así que **una caja que abrió ayer y nunca se cerró desaparecía del monitor**. Medido en la data: **14 sesiones en `open` y la pantalla mostrando 0**, una arrastrada desde hacía dos días. Es el peor caso posible del filtro — una caja que quedó abierta de un día para otro no es ruido, es la incidencia.
+- Ahora la ventana es de **2 días** (la misma que refresca `import-cash-sessions`: más atrás el importer no re-verifica y una sesión cerrada en Kepler quedaría marcada abierta para siempre). Cada fila trae `desde_dia` y `dias_abierta`, la tabla marca **"Nd sin cerrar"** y hay un KPI aparte de **Sin cerrar de días previos** — se cuentan separadas porque no son actividad de hoy, son un pendiente operativo.
+- El escenario de práctica se movió a las **cajas 7/8/9**: usaba las reales (1–5) y su venta ficticia se le pegaba a la sesión abierta de otra cajera, porque el cruce venta↔caja es por `(sucursal, caja)` y no distingue de quién es el día.
+
+
 ### Added — la pantalla de validación: arqueo de Kepler vs el nuestro (SM.12.1, 2026-08-27)
 - El historial de la encargada muestra ahora **los tres números en el orden en que se leen**: `Esperado` (lo que debería haber) · **`Arqueo Kepler`** (lo que el ERP declara que se contó) · **`Nuestro arqueo`** (el conteo ciego, destacado porque es el que vale) · `Diferencia`, con la palabra *faltan* / *sobran* debajo para que el signo no se preste a confusión.
 - `kepler_contado` (c25) **se estaba cortando para todos**, incluida la encargada: `proyectar()` lo quitaba junto con el resto de los `kepler_*`. Ahora se le devuelve a quien valida — comparar ese número con el nuestro es literalmente su trabajo: los dos dicen haber contado el mismo cajón y casi nunca coinciden. A la cajera se le sigue quitando todo.

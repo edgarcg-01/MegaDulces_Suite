@@ -56,6 +56,10 @@ import { branchName } from '../../../core/constants/store-branches';
           <div class="cj-kpi"><span class="cj-kpi-v">{{ d.cajas_abiertas }}</span><span class="cj-kpi-l">Cajas abiertas</span></div>
           <div class="cj-kpi"><span class="cj-kpi-v ok">{{ d.cobrando_ahora }}</span><span class="cj-kpi-l">Cobrando ahora</span></div>
           <div class="cj-kpi"><span class="cj-kpi-v">{{ money(totalVenta(d)) }}</span><span class="cj-kpi-l">Venta en cajas abiertas (hoy)</span></div>
+          @if (d.arrastradas) {
+            <!-- Cajas que nadie cerró al terminar el día: pendiente operativo, no actividad. -->
+            <div class="cj-kpi"><span class="cj-kpi-v bad">{{ d.arrastradas }}</span><span class="cj-kpi-l">Sin cerrar de días previos</span></div>
+          }
         </div>
 
         <div class="card-premium card-flat">
@@ -74,7 +78,7 @@ import { branchName } from '../../../core/constants/store-branches';
                 <td>{{ c.warehouse_name || branchLabelOf(c.warehouse_code) }}</td>
                 <td class="strong">{{ c.caja }}</td>
                 <td>{{ c.cajero_nombre || c.cajero || '—' }}<span class="cj-code muted"> {{ c.cajero }}</span></td>
-                <td class="mono">{{ c.abrio }}</td>
+                <td class="mono">{{ c.abrio }}@if (c.arrastrada) { <span class="cj-arrastrada" [title]="'Abrió el ' + c.desde_dia + ' y nadie la cerró'">{{ c.dias_abierta }}d sin cerrar</span> }</td>
                 <td class="ta-r">{{ c.tickets | number }}</td>
                 <td class="ta-r strong">{{ money(c.venta) }}</td>
                 <td class="mono">{{ c.last_ticket || '—' }}</td>
@@ -110,6 +114,7 @@ import { branchName } from '../../../core/constants/store-branches';
                  background: color-mix(in srgb, var(--warn-fg, #b45309) 8%, transparent); border-radius: var(--r-md); }
     .cj-alerta i { color: var(--warn-fg, #b45309); margin-top: .15rem; }
     .cj-alerta p { margin: .2rem 0 0; font-size: .8rem; }
+    .cj-arrastrada { display: block; font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--bad-fg); }
     .cj-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
     .cj-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: 1rem; }
     .cj-kpi-v { display: block; font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }

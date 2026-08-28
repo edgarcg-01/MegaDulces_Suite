@@ -20,9 +20,11 @@ export interface OpenCaja {
   warehouse_code: string; warehouse_name?: string; caja: string;
   cajero: string | null; cajero_nombre: string | null; abrio: string;
   tickets: number; venta: number; last_ticket: string | null; idle_min: number | null; cobrando: boolean;
+  /** `arrastrada` = abrió un día anterior y nadie la cerró. Es una incidencia, no actividad de hoy. */
+  desde_dia?: string; dias_abierta?: number; arrastrada?: boolean;
 }
 export interface OpenCajasResponse {
-  generated_at: string; cajas_abiertas: number; cobrando_ahora: number;
+  generated_at: string; cajas_abiertas: number; cobrando_ahora: number; arrastradas?: number;
   open_cajas: OpenCaja[];
   cajeros_sin_sesion: { warehouse_code: string; cajero: string; tickets: number; venta: number; last_ticket: string }[];
   /**
