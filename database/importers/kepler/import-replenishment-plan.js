@@ -85,8 +85,155 @@ const trOds = `
 // Sin ODS (dev local sin réplica) el fact se arma igual, con tránsito 0 — no revienta.
 const trEmpty = `tr AS (SELECT NULL::uuid AS warehouse_id, NULL::uuid AS product_id, 0::numeric AS t WHERE false)`;
 
-const cte = (tr) => `
+// LEAD TIME PROVEEDOR — DERIVADO del ODS (RA-PRO.41, cero captura manual). Kepler captura la cadena
+// de un jalón (84% de las OCs cierran el MISMO día → lag 0, sin señal); la señal real vive en el
+// ~16% de OCs capturadas ANTES de recibir: mediana del lag OC(X-A-35)→entrada(X-A-40) por proveedor
+// (n≥5; medido: mediana global 4d, p90 8d, 108 proveedores con señal). El fallback global viene en
+// la fila `supplier_id IS NULL`; el motor remata con COALESCE(..., 4).
+const leadOds = `
+  lead_raw AS (
+    SELECT DISTINCT p.supplier_id, o.sucursal, o.c6 AS folio, (x.f_in - o.c9::date) AS d
+      FROM kepler_ods.kdm1 o
+      JOIN kepler_ods.kdm2 l
+        ON l.sucursal=o.sucursal AND l.c1=o.c1 AND l.c2=o.c2 AND l.c3=o.c3 AND l.c4=o.c4 AND l.c6=o.c6
+      JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=l.c8 AND p.supplier_id IS NOT NULL
+      CROSS JOIN LATERAL (
+        SELECT min(oe.c9::date) AS f_in
+          FROM kepler_ods.kdm1 vale
+          JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
+                                 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40'
+                                 AND oe.c37='37' AND oe.c39=vale.c6
+         WHERE vale.sucursal=o.sucursal AND vale.c1=o.c1 AND vale.c2='X' AND vale.c3='A'
+           AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6) x
+     WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
+       AND o.c9::date >= CURRENT_DATE - 240 AND x.f_in > o.c9::date
+  ),
+  lead AS (
+    SELECT supplier_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY d) AS lead_d
+      FROM lead_raw GROUP BY supplier_id HAVING count(*) >= 5
+    UNION ALL
+    SELECT NULL, percentile_cont(0.5) WITHIN GROUP (ORDER BY d) FROM lead_raw
+  )`;
+const leadEmpty = `lead AS (SELECT NULL::uuid AS supplier_id, NULL::numeric AS lead_d WHERE false)`;
+
+// ÍNDICE ESTACIONAL (RA-PRO.41) — razón desestacionalizar→re-estacionalizar por producto (grano RED):
+//   season_ratio = idx(próximos 30 días) / idx(últimos 30 días)
+// El trailing-30d que usa el motor YA trae la estación del mes que pasó; multiplicar por el índice del
+// horizonte SIN dividir por el del trailing duplica la estación (backtest: enero quedaba +35% en vez
+// de −5%). Construcción: revenue mensual normalizado DENTRO de cada año (mata la deriva de crecimiento
+// 2026>2025), jerárquico SKU→categoría→global con shrinkage n/(n+1) por años observados, mezcla de
+// meses del horizonte ponderada por días, banda muerta 0.85–1.15 → 1 (los meses planos no se tocan),
+// cap [0.5, 2.0]. Backtest ene–ago 2026: bias enero +39.6% → −4.7%; |bias| medio 9.4% → 5.0%.
+const seasonCte = `
+  hist AS (
+    SELECT sd.product_id, p.category_id, extract(month from sd.sale_date)::int mes,
+           extract(year from sd.sale_date)::int anio, sum(sd.revenue) rev
+      FROM analytics.sales_daily sd
+      JOIN catalog.products p ON p.id=sd.product_id AND p.tenant_id=sd.tenant_id
+     WHERE sd.tenant_id=$1 AND sd.sale_date >= '2025-01-01' AND sd.sale_date < date_trunc('month', CURRENT_DATE)
+     GROUP BY 1,2,3,4),
+  gy  AS (SELECT anio, mes, sum(rev) rev_mes FROM hist GROUP BY 1,2),
+  gyn AS (SELECT anio, avg(rev_mes) prom FROM gy GROUP BY 1),
+  gidx AS (SELECT gy.mes, count(*) n, avg(gy.rev_mes / NULLIF(gyn.prom,0)) idx
+             FROM gy JOIN gyn ON gyn.anio=gy.anio GROUP BY gy.mes),
+  cy  AS (SELECT category_id, anio, mes, sum(rev) rev_mes FROM hist GROUP BY 1,2,3),
+  cyn AS (SELECT category_id, anio, avg(rev_mes) prom FROM cy GROUP BY 1,2),
+  cidx AS (SELECT cy.category_id, cy.mes, count(*) n, avg(cy.rev_mes / NULLIF(cyn.prom,0)) raw
+             FROM cy JOIN cyn ON cyn.category_id=cy.category_id AND cyn.anio=cy.anio
+            GROUP BY cy.category_id, cy.mes),
+  sy  AS (SELECT product_id, anio, mes, sum(rev) rev_mes FROM hist GROUP BY 1,2,3 HAVING sum(rev) > 500),
+  syn AS (SELECT product_id, anio, avg(rev_mes) prom FROM sy GROUP BY 1,2),
+  sidx_m AS (SELECT sy.product_id, sy.mes, count(*) n, avg(sy.rev_mes / NULLIF(syn.prom,0)) raw
+               FROM sy JOIN syn ON syn.product_id=sy.product_id AND syn.anio=sy.anio
+              GROUP BY sy.product_id, sy.mes),
+  mdays AS (  -- mezcla de meses de cada ventana de 30 días, ponderada por días calendario
+    SELECT 'next' lado, extract(month from d)::int mes, count(*)/30.0 w
+      FROM generate_series(CURRENT_DATE, CURRENT_DATE + 29, interval '1 day') d GROUP BY 2
+    UNION ALL
+    SELECT 'prev', extract(month from d)::int, count(*)/30.0
+      FROM generate_series(CURRENT_DATE - 30, CURRENT_DATE - 1, interval '1 day') d GROUP BY 2),
+  sprod AS (SELECT DISTINCT product_id, category_id FROM hist),
+  slvl AS (  -- índice por (producto, lado): Σ w_mes × idx_jerárquico(mes)
+    SELECT pr.product_id, md.lado,
+           sum(md.w * COALESCE(
+             (s.n::numeric/(s.n+1))*s.raw + (1-s.n::numeric/(s.n+1))*COALESCE((c.n::numeric/(c.n+1))*c.raw+(1-c.n::numeric/(c.n+1))*g.idx, g.idx, 1),
+             (c.n::numeric/(c.n+1))*c.raw + (1-c.n::numeric/(c.n+1))*g.idx,
+             g.idx, 1)) idx,
+           (array_agg(CASE WHEN s.raw IS NOT NULL THEN 'sku' WHEN c.raw IS NOT NULL THEN 'cat' ELSE 'global' END ORDER BY md.w DESC))[1] src
+      FROM sprod pr
+     CROSS JOIN mdays md
+      LEFT JOIN gidx g   ON g.mes=md.mes
+      LEFT JOIN cidx c   ON c.category_id=pr.category_id AND c.mes=md.mes
+      LEFT JOIN sidx_m s ON s.product_id=pr.product_id AND s.mes=md.mes
+     GROUP BY pr.product_id, md.lado),
+  season AS (
+    SELECT n.product_id,
+           CASE WHEN n.idx/NULLIF(p.idx,0) BETWEEN 0.85 AND 1.15 THEN 1
+                ELSE LEAST(2.0, GREATEST(0.5, n.idx/NULLIF(p.idx,0))) END AS season_ratio,
+           n.src AS season_src
+      FROM slvl n JOIN slvl p ON p.product_id=n.product_id AND p.lado='prev'
+     WHERE n.lado='next')`;
+
+// COLCHÓN POR CUANTILES (RA-PRO.41) — robusto a la intermitencia. El 77% de los pares SKU×almacén
+// venden <1/3 de los días → el CV clásico no discrimina (89% caía en clase Z y todo recibía el mismo
+// 20%). En su lugar: sumas rodantes de 4 semanas (26 semanas, grano RED — la compra es de red) y el
+// colchón = cuánto se aparta el cuantil de la media, por clase ABC (Pareto revenue 90d):
+//   A → p90 cap 50% · B → p80 cap 35% · C → p70 cap 25%   (medido: A mediana 29%, C promedio 18% —
+// más protección donde se pierde venta, menos capital muerto en la cola). NULL si <8 semanas con venta.
+const safetyCte = `
+  swk AS (SELECT product_id, date_trunc('week', sale_date)::date w, sum(revenue) rev
+            FROM analytics.sales_daily
+           WHERE tenant_id=$1 AND sale_date >= date_trunc('week', CURRENT_DATE) - interval '26 weeks'
+             AND sale_date < date_trunc('week', CURRENT_DATE)
+           GROUP BY 1,2),
+  sgrid AS (SELECT p.product_id, g.w::date w
+              FROM (SELECT DISTINCT product_id FROM swk) p
+             CROSS JOIN generate_series(date_trunc('week', CURRENT_DATE) - interval '26 weeks',
+                                        date_trunc('week', CURRENT_DATE) - interval '1 week', interval '1 week') g(w)),
+  sfill AS (SELECT g.product_id, g.w, COALESCE(swk.rev,0) rev,
+                   count(*) FILTER (WHERE swk.rev > 0) OVER (PARTITION BY g.product_id) wv
+              FROM sgrid g LEFT JOIN swk ON swk.product_id=g.product_id AND swk.w=g.w),
+  sroll AS (SELECT product_id, wv,
+                   sum(rev) OVER (PARTITION BY product_id ORDER BY w ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) s4,
+                   row_number() OVER (PARTITION BY product_id ORDER BY w) rn
+              FROM sfill),
+  sq AS (SELECT product_id, max(wv) wv,
+                percentile_cont(0.90) WITHIN GROUP (ORDER BY s4) p90,
+                percentile_cont(0.80) WITHIN GROUP (ORDER BY s4) p80,
+                percentile_cont(0.70) WITHIN GROUP (ORDER BY s4) p70,
+                avg(s4) mean4
+           FROM sroll WHERE rn >= 4 GROUP BY product_id),
+  sabc AS (SELECT product_id, CASE WHEN pct <= 0.80 THEN 'A' WHEN pct <= 0.95 THEN 'B' ELSE 'C' END cls
+             FROM (SELECT product_id, sum(r) OVER (ORDER BY r DESC)/NULLIF(sum(r) OVER (),0) pct
+                     FROM (SELECT product_id, sum(revenue) r FROM analytics.sales_daily
+                            WHERE tenant_id=$1 AND sale_date >= CURRENT_DATE - 90 GROUP BY 1) z0) z),
+  saf AS (SELECT q.product_id,
+                 CASE WHEN q.wv < 8 OR q.mean4 <= 0 THEN NULL
+                      WHEN a.cls='A' THEN LEAST(0.50, GREATEST(0, q.p90/q.mean4 - 1))
+                      WHEN a.cls='B' THEN LEAST(0.35, GREATEST(0, q.p80/q.mean4 - 1))
+                      ELSE            LEAST(0.25, GREATEST(0, q.p70/q.mean4 - 1)) END AS safety_pct_q
+            FROM sq q LEFT JOIN sabc a ON a.product_id=q.product_id)`;
+
+const cte = (tr, lead) => `
   WITH ur AS (${urBody}),
+  ${seasonCte},
+  ${safetyCte},
+  ${lead},
+  -- RUTAS → SUCURSAL MADRE (RA-PRO.41): la camioneta vende de su carga y se rellena de SU sucursal,
+  -- así que su demanda ES demanda de la sucursal (11% de la red). Antes cada RUTA-* generaba filas
+  -- propias de "comprar" (nadie compra para una camioneta) y en la vista por-sucursal se PERDÍAN
+  -- (filtro de stock>0). El mapeo se DERIVA del rollup de ventas por ruta: WIN-<n> vive bajo la
+  -- sucursal que la reporta (moda por revenue) — 21-28→01 · 501-505→06 · 321/322→MD-32. Cero manual.
+  rmap AS (
+    SELECT route_wh, home_wh FROM (
+      SELECT rw.id route_wh, m.warehouse_id home_wh,
+             row_number() OVER (PARTITION BY rw.id ORDER BY sum(m.revenue) DESC NULLS LAST) rn
+        FROM commercial.warehouses rw
+        JOIN analytics.sales_by_route_monthly m
+          ON m.tenant_id = rw.tenant_id AND m.route_code = 'WIN-' || replace(rw.code, 'RUTA-', '')
+       WHERE rw.tenant_id=$1 AND rw.code LIKE 'RUTA-%' AND rw.deleted_at IS NULL
+       GROUP BY rw.id, m.warehouse_id) z
+     WHERE rn = 1),
   pf AS (SELECT id AS product_id, sku, nombre, supplier_id, category_id,
                 COALESCE(factor_sale,1)::numeric fs, COALESCE(cost_with_tax,0)::numeric cwt
            FROM catalog.products WHERE tenant_id=$1 AND activo=true AND deleted_at IS NULL),
@@ -120,10 +267,12 @@ const cte = (tr) => `
       LEFT JOIN ur  ON ur.product_id  = pf.product_id
       LEFT JOIN pv  ON pv.product_id  = pf.product_id
   ),
-  dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, pd.warehouse_id,
+  dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id,
+                 COALESCE(rm.home_wh, pd.warehouse_id) AS warehouse_id,   -- ruta → su sucursal madre
                  sum(pd.daily_pieces) AS daily_pieces, sum(pd.revenue) AS revenue30
             FROM analytics.product_demand pd
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=pd.tenant_id AND al.alias_product_id=pd.product_id AND al.deleted_at IS NULL
+            LEFT JOIN rmap rm ON rm.route_wh = pd.warehouse_id
            WHERE pd.tenant_id=$1 AND pd.window_days=30 GROUP BY 1,2),
   stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
             FROM commercial.stock s
@@ -164,20 +313,29 @@ const PROJECT = `
                 WHEN e.uxc <= 1 AND e.ratio >= 3 THEN 'granel'
                 WHEN e.uxc > 1 AND e.ratio >= 3 AND (e.ratio/e.uxc < 0.5 OR e.ratio/e.uxc > 2) THEN 'revisar'
                 ELSE 'catalog' END AS unit_source,
-           e.buy_rate, e.real_cost AS real_buy_cost, e.last_purchase, e.order_days, e.primary_wh, now() AS computed_at
+           e.buy_rate, e.real_cost AS real_buy_cost, e.last_purchase, e.order_days, e.primary_wh,
+           round(se.season_ratio::numeric, 3) AS season_ratio,
+           se.season_src,
+           round(sa.safety_pct_q::numeric, 3) AS safety_pct_q,
+           round(COALESCE(sl.lead_d, lg.lead_d)::numeric, 1) AS lead_days,
+           now() AS computed_at
       FROM base b
       JOIN econ e ON e.product_id = b.product_id
       LEFT JOIN whs w      ON w.id = b.warehouse_id
       LEFT JOIN dem d      ON d.warehouse_id = b.warehouse_id AND d.product_id = b.product_id
       LEFT JOIN stk s      ON s.warehouse_id = b.warehouse_id AND s.product_id = b.product_id
       LEFT JOIN tr  t      ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
-      LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id`;
+      LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id
+      LEFT JOIN season se  ON se.product_id = b.product_id
+      LEFT JOIN saf sa     ON sa.product_id = b.product_id
+      LEFT JOIN lead sl    ON sl.supplier_id = e.supplier_id
+      LEFT JOIN lead lg    ON lg.supplier_id IS NULL`;
 
 // Orden EXACTO del INSERT. Key = PK; DATA = lo que se compara para saltar filas idénticas.
 const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'supplier_id', 'category_id',
   'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
   'suf', 'bf', 'caja_cost', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
-  'order_days', 'primary_wh', 'computed_at'];
+  'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days', 'computed_at'];
 const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
 const DATA = COLS.filter((c) => !KEY.includes(c) && c !== 'computed_at');
 const SET_CLAUSE = DATA.map((c) => `${c}=EXCLUDED.${c}`).join(', ') + ', computed_at=now()';
@@ -189,10 +347,10 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
   await db.connect();
   try {
     console.log(`\n=== REPLENISHMENT PLAN → analytics.replenishment_plan (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
-    // El tránsito se deriva del ODS (no hay tabla ni importer). Sin ODS el fact igual se arma.
+    // El tránsito y el lead time se derivan del ODS (sin tabla ni importer). Sin ODS igual se arma.
     const hasOds = !!(await db.query(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0].t;
-    const CTE = cte(hasOds ? trOds : trEmpty);
-    if (!hasOds) console.log('  ⚠ sin kepler_ods → tránsito = 0 (dev local sin réplica)');
+    const CTE = cte(hasOds ? trOds : trEmpty, hasOds ? leadOds : leadEmpty);
+    if (!hasOds) console.log('  ⚠ sin kepler_ods → tránsito = 0 y lead_days = NULL (dev local sin réplica)');
 
     const s = await db.query(`${CTE} SELECT count(*)::int filas, count(DISTINCT b.product_id)::int prods,
                                      count(DISTINCT b.warehouse_id)::int whs FROM base b JOIN econ e ON e.product_id=b.product_id`, [M]);
@@ -203,6 +361,34 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     const t0 = Date.now();
     await db.query('BEGIN');
     await db.query(`CREATE TEMP TABLE stg_rplan ON COMMIT DROP AS ${CTE} ${PROJECT}`, [M]);
+
+    // ── Controles de cordura (RA-PRO.41, "que no se nos pase nada") — se imprimen en CADA corrida.
+    // El bug del tránsito fantasma vivió 7 semanas porque nadie cruzaba dos magnitudes; ahora el
+    // propio feed reporta lo que ve y lo que NO puede ver.
+    const chk = (await db.query(`
+      SELECT round(sum(transit_cajas*caja_cost)::numeric,0)            AS transito,
+             round(sum(stock_pz/GREATEST(bf,1)*caja_cost)::numeric,0)  AS inventario,
+             count(DISTINCT product_id) FILTER (WHERE season_ratio IS DISTINCT FROM 1 AND season_ratio IS NOT NULL) AS prods_con_estacion,
+             round(min(season_ratio)::numeric,2) AS season_min, round(max(season_ratio)::numeric,2) AS season_max,
+             count(DISTINCT product_id) FILTER (WHERE safety_pct_q IS NOT NULL) AS prods_con_colchon,
+             count(DISTINCT product_id) FILTER (WHERE lead_days IS NOT NULL)    AS prods_con_lead
+        FROM stg_rplan`)).rows[0];
+    const rutasResid = (await db.query(`
+      SELECT count(*) n FROM stg_rplan s
+        JOIN commercial.warehouses w ON w.id = s.warehouse_id
+       WHERE w.code LIKE 'RUTA-%'`)).rows[0];
+    const rutasSinMapa = (await db.query(`
+      SELECT string_agg(rw.code, ', ') codes FROM commercial.warehouses rw
+       WHERE rw.tenant_id=$1 AND rw.code LIKE 'RUTA-%' AND rw.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM analytics.sales_by_route_monthly m
+                          WHERE m.tenant_id=rw.tenant_id AND m.route_code = 'WIN-' || replace(rw.code,'RUTA-',''))`, [M])).rows[0];
+    const mx = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+    console.log(`  cordura: tránsito ${mx(chk.transito)} vs inventario ${mx(chk.inventario)}${Number(chk.transito) > Number(chk.inventario) ? '  ⚠ TRÁNSITO > INVENTARIO — revisar unidad' : ''}`);
+    console.log(`  estación: ${chk.prods_con_estacion} productos con ratio≠1 (rango ${chk.season_min}–${chk.season_max}) · colchón cuantílico: ${chk.prods_con_colchon} · lead derivado: ${chk.prods_con_lead}`);
+    if (Number(rutasResid.n) > 0) console.log(`  ⚠ ${rutasResid.n} filas de RUTA-* siguen en el fact (el fold a sucursal no cubrió todo)`);
+    if (rutasSinMapa.codes) console.log(`  ⚠ rutas sin mapeo a sucursal (demanda se queda en la ruta): ${rutasSinMapa.codes}`);
+    console.log(`  puntos ciegos conocidos: tránsito de MD-30/MD-32 (sus compras directas no están en el ODS — pendiente extender la replicación)`);
+
     const up = await db.query(
       `INSERT INTO analytics.replenishment_plan AS t (${COLS.join(', ')})
        SELECT ${COLS.join(', ')} FROM stg_rplan

@@ -6,6 +6,39 @@
 
 ---
 
+## 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, rutas y mayoreo)
+
+**Disparador:** Edgar — *"no hay que dejar nada manual, todo automático considerando históricos, además considerar mayoreo y rutas, que no se nos pase nada"*. Continuación directa del incidente del tránsito (misma fecha, abajo).
+
+### Qué se midió antes de escribir código
+
+- **Estacionalidad 1.69× pico/piso** (dic 1.518 · sep 0.899) y el motor solo miraba 30 días hacia atrás → error estructural repetido cada año: −27% en diciembre, +46% en enero. NO es pareja (bombones ×3.3, chocolates ×2.1) → un multiplicador global sería otro error.
+- **89% del universo caía en clase Z** (CV≈4): el 77% de los pares SKU×almacén venden <⅓ de los días — el CV clásico no discrimina intermitencia, todo recibía el mismo colchón 20%.
+- **Kepler no tiene lead time** (84% de OCs cierran el mismo día que se capturan) pero el ~16% capturado antes de recibir SÍ es señal: mediana 4d, 108 proveedores con n≥5. Y los 971 proveedores tenían TODOS los overrides manuales en NULL.
+- **Feeds atrasados invisibles**: MD-30/MD-32 (el 38% de la demanda) llevaban 4 días sin reportar venta; rutas 501-505, 17-18 días (push caído); RUTA-321/322 muertas desde jun/jul. El db-health global no lo veía (mira el max global, no por almacén).
+- **Rutas = 11% de la demanda** y se PERDÍAN en la vista por-sucursal (stock 0 → filtradas) o generaban filas "comprar" para camionetas.
+
+### Qué quedó (todo derivado, cero manual)
+
+1. **`season_ratio`** — razón desestacionalizar→re-estacionalizar: `idx(próximos 30d) / idx(últimos 30d)`. Jerárquico SKU→categoría→global (shrinkage n/(n+1)), índices normalizados **dentro de cada año** (mata la deriva de crecimiento 2026>2025), banda muerta 0.85–1.15→1, cap [0.5, 2.0]. **Backtest real ene–ago 2026: bias de enero +39.6% → −4.7%; |bias| medio del año 9.4% → 5.0%.** La primera versión (multiplicar por el índice del mes destino sin dividir por el del trailing) dejaba enero en +35% — el trailing YA trae la estación del mes que pasó; la razón es lo correcto.
+2. **`safety_pct_q`** — colchón por cuantiles de sumas rodantes de 4 semanas (26 sem, grano red), por clase: A p90 cap 50% / B p80 cap 35% / C p70 cap 25%. Costo medido: $12.1M vs $9.4M del 20% plano — más protección en A (donde se pierde venta), menos capital muerto en C.
+3. **`lead_days`** — mediana del lag OC→entrada del ODS por proveedor (n≥5, fallback global 4d). `covEff` = manual → **cadencia Kepler del producto + lead** → cadencia de nuestras POs → knob.
+4. **Rutas → sucursal madre** en el fact (`rmap` derivado de `sales_by_route_monthly`: WIN-⟨n⟩ por moda de revenue → 21-28→01 · 501-505→06 · 321/322→MD-32). El fact pasó de 20 almacenes a 9; la demanda de 01 subió 7.7k→12.7k pz/día, 06 9.1k→11.6k.
+5. **Frescura por almacén** en `import-demand-clean`: la ventana se ancla al último día reportado por ESE almacén (tope 21d; más viejo = inactivo → demanda 0) + warning impreso por corrida. MD-30/32 recuperaron ~13% de demanda diluida.
+6. **Estación en los 4 caminos**: compra, workbook/detalle, traspaso Y sobrestock (el navideño con pila en noviembre ya no es "sobrestock").
+7. **Cordura en cada corrida**: tránsito-vs-inventario, rango estacional, rutas sin mapear, y los puntos ciegos DECLARADOS (tránsito de MD-30/32 no existe en el ODS — sus compras directas son invisibles hasta extender la replicación).
+
+Mig `20260828140000` (4 columnas aditivas, DDL aplicado a prod a mano). UI: columna **Est.** con chip ×N.NN + tooltip con la fuente. Verificado en prod: pedido $7.6M→$7.8M hoy (ago→sep casi plano — correcto), 261 SKUs suben / 275 bajan (efecto dirigido), top al alza plausibles (Pingüino mini ×2.0, Takis mini ×1.41). Builds api+view OK. **El runner ya corre el fact nuevo** (Live 13:51 plegó las rutas él solo).
+
+### Advertencias honestas
+
+- **Oct–dic tienen UNA observación** (2025). El shrinkage y el cap acotan el daño de un dato raro; la validación real de temporada alta es ESTE oct–dic. Enero (el simétrico) sí se pudo backtestear y pasó de +39.6% a −4.7%.
+- **Pascua móvil no modelable** con 20 meses (abril quedó −10% vs −3% viejo). Se acepta.
+- **El push de rutas 501-505 está CAÍDO desde el 10-ago** — el motor ahora lo compensa (ventana anclada) y lo grita en cada corrida, pero el feed hay que arreglarlo (revenue real que no llega a sales_daily).
+- Backtest de agosto contaminado por el propio staleness (el "actual" está incompleto) — no es señal.
+
+---
+
 ## 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida)
 
 **Disparador:** Edgar reportó *"los pedidos no se están realizando correctamente"* y pidió detalle de cómo se arma el pedido ahorita mismo. Salió de una revisión de `/compras/pedido`.
