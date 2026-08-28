@@ -215,7 +215,11 @@ export class CommercialReplenishmentService {
     return `CASE WHEN w.code IN ('MD-30','MD-32') AND wcf.factor_venta > 1
                  THEN wcf.factor_venta ELSE GREATEST(COALESCE(cbf.box_factor, 1), 1) END`;
   }
-  private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
+  // OC a recibir, en UNIDADES DE STOCK (que es la unidad de `oh`/`target` acá). Sale del fact
+  // `analytics.replenishment_plan`, que lo deriva del ODS en cajas → ×bf lo devuelve exacto a
+  // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
+  // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
+  private inTransit() { return 'COALESCE(rpl.transit_cajas * rpl.bf, 0)'; }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
@@ -301,9 +305,9 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
-        // RA.5 — analytics.purchase_in_transit (sin RLS → tenant_id explícito en el ON)
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
@@ -490,8 +494,8 @@ export class CommercialReplenishmentService {
           j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
         .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
           j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
         .leftJoin(
           trx.raw(`(SELECT rp2.product_id, SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
@@ -593,18 +597,28 @@ export class CommercialReplenishmentService {
       // Precedencia (ambos): override manual del proveedor → valor auto del análisis → global.
       const autoCov = `CASE WHEN scad.recs >= 2 AND scad.cadence > 0 THEN ceil(scad.cadence + COALESCE(sup.lead_time_days, 7)) END`;
       const autoSafety = `CASE WHEN scv.cv >= 1.0 THEN 20 WHEN scv.cv >= 0.5 THEN 10 ELSE 0 END`;
-      const covEff = `COALESCE(${colCov}, ${autoCov}, :cov)`;
-      const safetyEff = `COALESCE(${colSafety}, ${autoSafety}, 0)`;
+      // RA-PRO.41 — TODO AUTOMÁTICO desde históricos (fact):
+      //   cobertura: manual → cadencia Kepler real del producto + lead time derivado del ODS → cadencia
+      //              de nuestras POs → knob global. lead_days trae fallback global (~4d) desde el fact.
+      //   colchón:   manual → cuantiles por clase (plan.safety_pct_q, robusto a intermitencia) → CV → 0.
+      //   estación:  la demanda del horizonte se multiplica por season_ratio (idx próximos 30d ÷ idx
+      //              últimos 30d, jerárquico y con banda muerta) — el trailing ya trae la estación del
+      //              mes que pasó, la razón la corrige (backtest: bias enero +39.6% → −4.7%).
+      const autoCovKepler = `CASE WHEN plan.order_days BETWEEN 1 AND 90
+                                  THEN LEAST(120, GREATEST(7, ceil(plan.order_days + COALESCE(plan.lead_days, 4)))) END`;
+      const seasonR = `COALESCE(plan.season_ratio, 1)`;
+      const covEff = `COALESCE(${colCov}, ${autoCovKepler}, ${autoCov}, :cov)`;
+      const safetyEff = `COALESCE(${colSafety}, plan.safety_pct_q * 100, ${autoSafety}, 0)`;
       const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
       const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
       const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, 1.0)`;
       const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
-      const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
-      const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
+      const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCovKepler} IS NOT NULL THEN 'kepler' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
+      const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN plan.safety_pct_q IS NOT NULL THEN 'quantil' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
       const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
-      // En CAJAS: demanda (sub-unidades) ÷ SUF ÷ BF; existencia (unidades de stock) ÷ BF; tránsito ya en cajas.
-      const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
+      // En CAJAS: demanda (sub-unidades, × estación) ÷ SUF ÷ BF; existencia ÷ BF; tránsito ya en cajas.
+      const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
       const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
@@ -650,7 +664,10 @@ export class CommercialReplenishmentService {
                  max(suf) AS suf, max(bf) AS bf, max(caja_cost) AS caja_cost,
                  max(price_ratio) AS price_ratio, max(unit_source) AS unit_source,
                  max(buy_rate) AS buy_rate, max(order_days) AS order_days, max(last_purchase) AS last_purchase,
-                 min(primary_wh::text)::uuid AS primary_wh
+                 min(primary_wh::text)::uuid AS primary_wh,
+                 -- RA-PRO.41 — señales derivadas (grano producto: idénticas en todas las filas)
+                 max(season_ratio) AS season_ratio, max(season_src) AS season_src,
+                 max(safety_pct_q) AS safety_pct_q, max(lead_days) AS lead_days
             FROM analytics.replenishment_plan
            WHERE tenant_id = :t${planWh}
            GROUP BY product_id
@@ -725,7 +742,9 @@ export class CommercialReplenishmentService {
                  round((${stockPz} / ${BF})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
                  round((${costCaja})::numeric, 4) AS unit_cost,
-                 round((${sellDayPz} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
+                 round((${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
+                 round((${seasonR})::numeric, 3) AS season_ratio,
+                 plan.season_src,
                  round(${sug}::numeric, 2) AS suggested_units,
                  round(${needBase}::numeric, 2) AS base_units,
                  round((${fillRate})::numeric, 3) AS fill_rate,
@@ -820,6 +839,7 @@ export class CommercialReplenishmentService {
                  -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
                  rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
+                 rp.season_ratio, rp.season_src,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
@@ -834,9 +854,11 @@ export class CommercialReplenishmentService {
                  ${BF} AS bf, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
                  round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
                  round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
-                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
+                 -- RA-PRO.41 — la demanda del horizonte lleva la estación (razón desestacionalizada).
+                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
-                 COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz
+                 COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz,
+                 max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
@@ -848,6 +870,7 @@ export class CommercialReplenishmentService {
                  round((sum(reorder_pz) / NULLIF(max(bf),0))::numeric, 1) AS reorder_cajas,
                  round((sum(max_pz) / NULLIF(max(bf),0))::numeric, 1) AS max_cajas,
                  max(xyz) AS xyz_class,
+                 round(max(season_ratio)::numeric, 3) AS season_ratio, max(season_src) AS season_src,
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
                  round(sum(rev)::numeric, 2) AS valor_venta,
@@ -931,7 +954,7 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - rp.transit_cajas)::numeric, 1) AS pedido_cajas,
+               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - rp.transit_cajas)::numeric, 1) AS pedido_cajas,
                round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
@@ -985,7 +1008,7 @@ export class CommercialReplenishmentService {
       const cte = `WITH def AS (
         SELECT rp.warehouse_id AS wh, rp.source_warehouse_id AS src, rp.product_id, rp.sku, rp.nombre,
                rp.supplier_id, rp.category_id, rp.bf AS uxc, rp.caja_cost,
-               GREATEST(0, rp.daily_pieces / rp.suf * :cov - rp.stock_pz) AS deficit_pz,
+               GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) / rp.suf * :cov - rp.stock_pz) AS deficit_pz,  -- RA-PRO.41: el traspaso también anticipa la estación
                COALESCE(cs.stock_pz, 0) AS avail_pz
           FROM analytics.replenishment_plan rp
           LEFT JOIN analytics.replenishment_plan cs
@@ -1073,8 +1096,10 @@ export class CommercialReplenishmentService {
       const cte = `WITH ov AS (
         SELECT rp.warehouse_id AS wh, rp.product_id, rp.sku, rp.nombre, rp.supplier_id, rp.category_id,
                rp.bf AS uxc, rp.caja_cost, rp.source_warehouse_id,
-               rp.eff_daily / rp.suf AS eff_daily, rp.stock_pz,
-               GREATEST(0, rp.stock_pz - rp.eff_daily / rp.suf * :over) AS surplus_pz
+               rp.eff_daily * COALESCE(rp.season_ratio,1) / rp.suf AS eff_daily, rp.stock_pz,
+               -- RA-PRO.41: el sobrestock se mide contra la demanda del HORIZONTE (un SKU navideño con
+               -- pila en noviembre no es sobrestock; el mismo en enero sí).
+               GREATEST(0, rp.stock_pz - rp.eff_daily * COALESCE(rp.season_ratio,1) / rp.suf * :over) AS surplus_pz
           FROM analytics.replenishment_plan rp
          WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0${brandScope}
       )`;
@@ -1130,7 +1155,7 @@ export class CommercialReplenishmentService {
     const whIds = this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(pit.qty_in_transit,0)';
+      const it = 'COALESCE(rpl.transit_cajas * rpl.bf, 0)';   // fact → unidades de stock (ver inTransit())
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
@@ -1189,7 +1214,7 @@ export class CommercialReplenishmentService {
                        AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
                   LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
                   LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                  LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
+                  LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
                  WHERE rp.tenant_id=rc.tenant_id AND rp.warehouse_id=rc.warehouse_id
               ) x
           ) agg ON true

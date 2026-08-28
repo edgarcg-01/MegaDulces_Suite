@@ -46,14 +46,30 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
     // limpias = revenue/precio_pieza para TODOS los almacenes (incl. caja-vendedores).
     // CTE base (sin proyección) — reutilizado por el resumen y por el INSERT..SELECT.
     const CTE = `
-      WITH wp AS (
-        SELECT product_id, warehouse_id,
-               sum(units)::numeric   AS u,
-               sum(revenue)::numeric AS rev
+      WITH wl AS (
+        -- FRESCURA POR ALMACÉN (RA-PRO.41): la ventana se ancla al último día que ESE almacén
+        -- reportó venta, no a current_date. Si un feed se atrasa (MD-30/32 iban 4 días atrás;
+        -- rutas 501-505 llevaban 17 sin push) la ventana fija diluía su demanda ~día/30 por día
+        -- de atraso → el pedido salía corto justo en los almacenes más grandes. Con el anclaje,
+        -- demanda = sus últimos $2 días CON datos. Tope 21 días: más viejo = almacén inactivo
+        -- (RUTA-322 muerta desde jun) → fuera (demanda 0, la fila se borra por delete-not-seen).
+        -- sale_date <= current_date filtra filas basura con fecha futura (hay un 2026-12-05).
+        SELECT warehouse_id, max(sale_date) AS last_d
           FROM analytics.sales_daily
-         WHERE tenant_id = $1 AND sale_date >= current_date - $2::int
-           AND channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
-         GROUP BY product_id, warehouse_id
+         WHERE tenant_id = $1 AND sale_date <= current_date
+         GROUP BY warehouse_id
+        HAVING current_date - max(sale_date) <= 21
+      ),
+      wp AS (
+        SELECT sd.product_id, sd.warehouse_id,
+               sum(sd.units)::numeric   AS u,
+               sum(sd.revenue)::numeric AS rev
+          FROM analytics.sales_daily sd
+          JOIN wl ON wl.warehouse_id = sd.warehouse_id
+         WHERE sd.tenant_id = $1
+           AND sd.sale_date > wl.last_d - $2::int AND sd.sale_date <= wl.last_d
+           AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
+         GROUP BY sd.product_id, sd.warehouse_id
       ),
       pf AS (
         SELECT id AS product_id, COALESCE(factor_sale, 1)::numeric AS fs,
@@ -96,6 +112,22 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
          FROM wp JOIN pp USING (product_id) ${WHERE}`, [M, DAYS]);
     const s = summary.rows[0];
     console.log(`  filas almacén×producto: ${Number(s.filas).toLocaleString()} · piezas limpias=${Number(s.piezas).toLocaleString()} · revenue=$${Number(s.revenue).toLocaleString()}`);
+
+    // Frescura por almacén — que el atraso de un feed no pase en silencio ("que no se nos pase nada").
+    const fresh = await db.query(`
+      SELECT w.code, current_date - max(sd.sale_date) AS lag_d,
+             CASE WHEN current_date - max(sd.sale_date) > 21 THEN 'INACTIVO (demanda 0)'
+                  WHEN current_date - max(sd.sale_date) > 1  THEN 'ventana desplazada' END AS estado
+        FROM analytics.sales_daily sd
+        JOIN commercial.warehouses w ON w.id = sd.warehouse_id AND w.tenant_id = sd.tenant_id
+       WHERE sd.tenant_id = $1 AND sd.sale_date <= current_date AND sd.sale_date >= current_date - 90
+       GROUP BY w.code
+      HAVING current_date - max(sd.sale_date) > 1
+       ORDER BY 2 DESC`, [M]);
+    if (fresh.rows.length) {
+      console.log(`  ⚠ almacenes con feed atrasado (la ventana se ancla a su último día con datos):`);
+      for (const f of fresh.rows) console.log(`     ${f.code}: ${f.lag_d} día(s) — ${f.estado}`);
+    }
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 

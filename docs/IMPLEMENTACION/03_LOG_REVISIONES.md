@@ -6,6 +6,79 @@
 
 ---
 
+## 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, rutas y mayoreo)
+
+**Disparador:** Edgar — *"no hay que dejar nada manual, todo automático considerando históricos, además considerar mayoreo y rutas, que no se nos pase nada"*. Continuación directa del incidente del tránsito (misma fecha, abajo).
+
+### Qué se midió antes de escribir código
+
+- **Estacionalidad 1.69× pico/piso** (dic 1.518 · sep 0.899) y el motor solo miraba 30 días hacia atrás → error estructural repetido cada año: −27% en diciembre, +46% en enero. NO es pareja (bombones ×3.3, chocolates ×2.1) → un multiplicador global sería otro error.
+- **89% del universo caía en clase Z** (CV≈4): el 77% de los pares SKU×almacén venden <⅓ de los días — el CV clásico no discrimina intermitencia, todo recibía el mismo colchón 20%.
+- **Kepler no tiene lead time** (84% de OCs cierran el mismo día que se capturan) pero el ~16% capturado antes de recibir SÍ es señal: mediana 4d, 108 proveedores con n≥5. Y los 971 proveedores tenían TODOS los overrides manuales en NULL.
+- **Feeds atrasados invisibles**: MD-30/MD-32 (el 38% de la demanda) llevaban 4 días sin reportar venta; rutas 501-505, 17-18 días (push caído); RUTA-321/322 muertas desde jun/jul. El db-health global no lo veía (mira el max global, no por almacén).
+- **Rutas = 11% de la demanda** y se PERDÍAN en la vista por-sucursal (stock 0 → filtradas) o generaban filas "comprar" para camionetas.
+
+### Qué quedó (todo derivado, cero manual)
+
+1. **`season_ratio`** — razón desestacionalizar→re-estacionalizar: `idx(próximos 30d) / idx(últimos 30d)`. Jerárquico SKU→categoría→global (shrinkage n/(n+1)), índices normalizados **dentro de cada año** (mata la deriva de crecimiento 2026>2025), banda muerta 0.85–1.15→1, cap [0.5, 2.0]. **Backtest real ene–ago 2026: bias de enero +39.6% → −4.7%; |bias| medio del año 9.4% → 5.0%.** La primera versión (multiplicar por el índice del mes destino sin dividir por el del trailing) dejaba enero en +35% — el trailing YA trae la estación del mes que pasó; la razón es lo correcto.
+2. **`safety_pct_q`** — colchón por cuantiles de sumas rodantes de 4 semanas (26 sem, grano red), por clase: A p90 cap 50% / B p80 cap 35% / C p70 cap 25%. Costo medido: $12.1M vs $9.4M del 20% plano — más protección en A (donde se pierde venta), menos capital muerto en C.
+3. **`lead_days`** — mediana del lag OC→entrada del ODS por proveedor (n≥5, fallback global 4d). `covEff` = manual → **cadencia Kepler del producto + lead** → cadencia de nuestras POs → knob.
+4. **Rutas → sucursal madre** en el fact (`rmap` derivado de `sales_by_route_monthly`: WIN-⟨n⟩ por moda de revenue → 21-28→01 · 501-505→06 · 321/322→MD-32). El fact pasó de 20 almacenes a 9; la demanda de 01 subió 7.7k→12.7k pz/día, 06 9.1k→11.6k.
+5. **Frescura por almacén** en `import-demand-clean`: la ventana se ancla al último día reportado por ESE almacén (tope 21d; más viejo = inactivo → demanda 0) + warning impreso por corrida. MD-30/32 recuperaron ~13% de demanda diluida.
+6. **Estación en los 4 caminos**: compra, workbook/detalle, traspaso Y sobrestock (el navideño con pila en noviembre ya no es "sobrestock").
+7. **Cordura en cada corrida**: tránsito-vs-inventario, rango estacional, rutas sin mapear, y los puntos ciegos DECLARADOS (tránsito de MD-30/32 no existe en el ODS — sus compras directas son invisibles hasta extender la replicación).
+
+Mig `20260828140000` (4 columnas aditivas, DDL aplicado a prod a mano). UI: columna **Est.** con chip ×N.NN + tooltip con la fuente. Verificado en prod: pedido $7.6M→$7.8M hoy (ago→sep casi plano — correcto), 261 SKUs suben / 275 bajan (efecto dirigido), top al alza plausibles (Pingüino mini ×2.0, Takis mini ×1.41). Builds api+view OK. **El runner ya corre el fact nuevo** (Live 13:51 plegó las rutas él solo).
+
+### Advertencias honestas
+
+- **Oct–dic tienen UNA observación** (2025). El shrinkage y el cap acotan el daño de un dato raro; la validación real de temporada alta es ESTE oct–dic. Enero (el simétrico) sí se pudo backtestear y pasó de +39.6% a −4.7%.
+- **Pascua móvil no modelable** con 20 meses (abril quedó −10% vs −3% viejo). Se acepta.
+- **El push de rutas 501-505 está CAÍDO desde el 10-ago** — el motor ahora lo compensa (ventana anclada) y lo grita en cada corrida, pero el feed hay que arreglarlo (revenue real que no llega a sales_daily).
+- Backtest de agosto contaminado por el propio staleness (el "actual" está incompleto) — no es señal.
+
+---
+
+## 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida)
+
+**Disparador:** Edgar reportó *"los pedidos no se están realizando correctamente"* y pidió detalle de cómo se arma el pedido ahorita mismo. Salió de una revisión de `/compras/pedido`.
+
+### La falla
+
+`import-in-transit` sumaba `kdm2.c9` crudo. Esa columna trae la cantidad **en la unidad de `c11`** — en una misma OC conviven `PAQ`, `PZA`, `KG` y `CJA` (en Padre Hidalgo, 120 d: 4,271 líneas PAQ · 1,529 PZA · 363 KG · **15 CJA**). `import-replenishment-plan` copiaba ese número a `transit_cajas` y el motor lo restaba como cajas, mientras la existencia sí se dividía por el factor de caja.
+
+| | antes | después |
+|---|---:|---:|
+Tránsito que el motor creía en camino | **$1,930,899,262** | **$20,790,556** |
+Inventario real de la red | $53,758,845 | $53,815,757 |
+Productos con tránsito imposible (>6 meses o sin venta) | 1,401 | 185 |
+Pedido de red propuesto | $5,132,955 | **$7,080,868** |
+Productos con necesidad real suprimidos | 595 | 454 |
+
+Caso testigo **70038** (PAL MALVABONY C/CHOC /40, `bf`=16): la OC real son 640 PAQ a $51.07; el motor restaba **640 cajas** ($521k) en vez de **40** ($32.7k). La red concluía "no pedir" mientras Morelia Abastos vendía 227.5 cajas/mes con 36.3 en piso. Ahora pide **93 cajas / $75,913**.
+
+### El fix
+
+`c9 × c12` es invariante a la unidad, así que `c12 / costo_por_unidad_de_stock` dice cuántas unidades de stock trae la línea. El **nombre** de la unidad no sirve: en la sucursal 03 las líneas `PZA` traen ratio 13.5 (son cajas). Debajo de 1.5× se toma como unidad de stock (mediana 1.00, ~95% de las líneas); arriba se usa el ratio topado en el factor de caja.
+
+Se hizo en dos pasos. Primero la corrección mínima sobre el importer y el fact. Después, por indicación de Edgar — *"no debe existir ningún import externo, todo desde ODS y una tabla primaria"* — el tránsito **dejó de ser tabla e importer**: se deriva del ODS en el CTE `tr` de `import-replenishment-plan`, reusando el mismo `econ` que el resto del fact. Se retiró `import-in-transit.js` y su paso en `run-prod-feeds`; `criticalStock`, el worklist y el scanner de hallazgos leen el tránsito del fact (`transit_cajas × bf`, round-trip exacto del mismo `bf`).
+
+**A/B del refactor:** el derive desde el ODS reprodujo el tránsito de la tabla en **1,924 de 1,926 filas** (las 2 restantes son OCs recibidas entre corridas; suma 939,730 vs 938,831 = 0.1 %). El fact completo pasó de 2.8 s a **3.3 s** — el derive suelto cuesta 11.6 s, pero plegado a la query que ya tiene `econ` en memoria casi no pesa.
+
+### Lo que enseñó
+
+**1. El repo ya contenía la respuesta y nadie los enfrentó.** `criticalStock` dividía la MISMA columna por el factor de caja mientras el fact la trataba como cajas. Dos lecturas opuestas del mismo dato, sin una sola prueba que las comparara.
+
+**2. Ninguna pieza se veía mal por separado.** El importer sumaba bien, el fact copiaba bien, el motor restaba bien. El error sólo aparece al **cruzar dos magnitudes** — tránsito contra inventario — y eso no lo miraba nadie. Por eso quedó como regla en [`GOTCHAS §25`](../GOTCHAS.md).
+
+**3. Un rename es una conversión.** El bug entró en RA-PRO.31 al materializar el fact: `qty_in_transit` → `transit_cajas`. El nombre nuevo afirmaba una unidad que nadie convirtió.
+
+**4. El entorno resetea `main` a `origin/main` y se come los commits locales.** Pasó dos veces durante este trabajo (reflog 10:53 y 12:01). Se recuperó del reflog a la rama `mg-ra5-transito`. Refuerza la regla de worktree por agente: esto no se trabaja en `main` local.
+
+**Pendiente detectado, no cerrado:** `MD-30` y `MD-32` no están en `stockMap` ni en el ODS → los dos mayores centros de demanda de la red (21.5k pz/día combinados) nunca reciben datos de tránsito. Y el toggle *Englobar/Desglosar* de `/compras/pedido` cambia el total del pedido de $5.08M a $14.24M porque netea sobrantes entre sucursales hermanas, entre las que no existe traspaso.
+
+---
+
 ## 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del bodeguero
 
 **Disparador:** decisión de negocio sobre cómo se reparte el trabajo real de la bodega — *"en el área de recepción teclea el folio, verifica lo que mandaron y al dar luz verde, pum, le aparezca a la sección de caducidades para que el bodeguero le pueda poner sus fechas"*. Es un cambio de planes respecto a lo construido en WMS-REC.4, y revisa ADR-044.

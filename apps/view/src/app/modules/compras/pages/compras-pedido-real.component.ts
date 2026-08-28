@@ -144,6 +144,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
                   <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
+                  <th rowspan="2" class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
                   <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
                   <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
@@ -175,6 +176,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     @if (r.iad != null) {
                       <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
+                  </td>
+                  <td class="pr-r">
+                    @if (seasonOn(r)) {
+                      <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
+                    } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
                   </td>
                   <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
                   <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
@@ -285,7 +291,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − tránsito (la columna <strong>Est.</strong> muestra la razón estacional aplicada; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
         @if (wbRows().length) {
@@ -548,8 +554,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
-  wbTableStyle = computed(() => ({ 'min-width': (40 + this.wbTerritories().length * 13) + 'rem' }));
-  wbColCount = computed(() => 7 + this.wbTerritories().length * 3 + 5);
+  wbTableStyle = computed(() => ({ 'min-width': (43 + this.wbTerritories().length * 13) + 'rem' }));
+  wbColCount = computed(() => 8 + this.wbTerritories().length * 3 + 5);   // +1 = columna Est. (RA-PRO.41)
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
@@ -667,6 +673,16 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return `${b?.txt ?? ''} ${v > 0 ? '+' : ''}${v.toFixed(2)}`.trim();
   }
   iadSev(r: WorkbookRow): Sev { return this.IAD_BANDS[r.iad_band ?? '']?.sev ?? 'secondary'; }
+
+  // RA-PRO.41 — estacionalidad (el Pedido ya la trae puesta; el chip la hace visible).
+  seasonOn(r: WorkbookRow): boolean { const v = Number(r.season_ratio ?? 1); return v !== 1 && v > 0; }
+  seasonLabel(r: WorkbookRow): string { return '×' + Number(r.season_ratio ?? 1).toFixed(2); }
+  seasonSev(r: WorkbookRow): Sev { return Number(r.season_ratio ?? 1) > 1 ? 'warn' : 'info'; }
+  seasonTitle(r: WorkbookRow): string {
+    const v = Number(r.season_ratio ?? 1);
+    const src: Record<string, string> = { sku: 'historia del propio SKU', cat: 'historia de su categoría', global: 'estación de toda la red' };
+    return `Los próximos 30 días venden ×${v.toFixed(2)} vs los últimos 30 (${src[r.season_src ?? ''] ?? 'historia'}). El Pedido ya lo incluye.`;
+  }
   iadTitle(r: WorkbookRow): string {
     if (r.iad == null) {
       const m: Record<string, string> = {

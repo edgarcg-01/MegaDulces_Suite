@@ -51,7 +51,9 @@ export class ReplenishmentScannerService {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`); // Postgres NO acepta bind param en SET (42601); literal como los demás scanners
 
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(pit.qty_in_transit, 0)';
+      // OC a recibir en unidades de stock, desde el fact (que lo deriva del ODS en cajas → ×bf
+      // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
+      const it = 'COALESCE(rpl.transit_cajas * rpl.bf, 0)';
       // Objetivo = máximo (restock real). Sugerido neto de tránsito.
       const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
       // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a
@@ -65,8 +67,8 @@ export class ReplenishmentScannerService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('rp.reorder_point', '>', 0)
         .andWhereRaw(`${oh} <= rp.reorder_point`) // sólo crítico (≤ punto de reorden)
@@ -120,8 +122,8 @@ export class ReplenishmentScannerService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         .where('rc.tenant_id', tenantId)
         .andWhere('rc.via', 'purchase')
         .andWhere('rc.cadence_days', '>', 21)
