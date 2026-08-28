@@ -32,6 +32,8 @@ export interface Turno {
   cajero_code: string | null;
   turno: string | null;
   abierto: boolean;
+  /** Minutos desde que Kepler cerró el turno. `null` = sigue abierto. */
+  cerrado_hace_min?: number | null;
 }
 
 export interface ArqueoDto {
