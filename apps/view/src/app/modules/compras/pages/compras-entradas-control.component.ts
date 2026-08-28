@@ -77,10 +77,11 @@ type Periodo = 'arranque' | 'mes' | 'semana';
       <app-page-tabs [tabs]="tabs" />
 
       @if (report(); as cv) {
-        <!-- Answer-first (DESIGN Q.1): el veredicto en llano ANTES de cualquier tabla. -->
-        <p class="ec-verdict" [class.is-bad]="pctRed() < 60" [class.is-warn]="pctRed() >= 60 && pctRed() < 90">
-          {{ veredicto() }}
-        </p>
+        <!-- Answer-first (DESIGN Q.1): el veredicto en llano ANTES de cualquier tabla.
+             Sin color de estado: la frase pesa por tamaño y peso, y el semáforo lo lleva la
+             cifra de "Comprobado" acá abajo. Pintar el párrafo entero de rojo duplicaba el
+             mismo semáforo y gritaba (DESIGN §15: jerarquía por tipo y contraste, no color). -->
+        <p class="ec-verdict">{{ veredicto() }}</p>
 
         <app-metric-strip [items]="kpis()" ariaLabel="Cobertura de la red" />
 
@@ -110,18 +111,20 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                           emptyHint="Tu usuario no tiene ninguna sucursal asignada. Pedile a sistemas que revise tu alcance de datos." />
         } @else {
           <div class="ec-scroll">
-            <table class="surf-table surf-table--sticky surf-table--frozen-first surf-table--compact ec-table">
+            <!-- Acá el modificador frozen-first SÍ corresponde: 10 columnas con scroll y la
+                 primera es la identificadora (la sucursal). -->
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first ec-table">
               <thead>
                 <tr>
                   <th scope="col">Sucursal</th>
                   <th scope="col">Quién sube</th>
-                  <th scope="col" class="ta-r">Órdenes</th>
+                  <th scope="col" class="comm-num">Órdenes</th>
                   <th scope="col">Con factura</th>
-                  <th scope="col" class="ta-r">Validadas</th>
-                  <th scope="col" class="ta-r">Por revisar</th>
-                  <th scope="col" class="ta-r">Vencidas</th>
-                  <th scope="col" class="ta-r" pTooltip="La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90" tooltipPosition="top">Antigüedad p50/p90</th>
-                  <th scope="col" class="ta-r">$ sin factura</th>
+                  <th scope="col" class="comm-num">Validadas</th>
+                  <th scope="col" class="comm-num">Por revisar</th>
+                  <th scope="col" class="comm-num">Vencidas</th>
+                  <th scope="col" class="comm-num" pTooltip="La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90" tooltipPosition="top">Antigüedad p50/p90</th>
+                  <th scope="col" class="comm-num">$ sin factura</th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -147,18 +150,21 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                         </span>
                       }
                     </td>
-                    <td class="ta-r mono">{{ c.entradas }}</td>
-                    <td class="ec-bar">
+                    <td class="comm-num">{{ c.entradas }}</td>
+                    <!-- La barra sube de rojo a ámbar a verde con el mismo umbral que el KPI de
+                         arriba. Estaba siempre verde: una sucursal al 20% se leía "bien" de
+                         reojo, que es justo como se lee una tabla de 7 renglones. -->
+                    <td class="ec-bar" [attr.data-tone]="tono(c.pct_evidencia)">
                       <span class="ec-track"><span [style.width.%]="c.pct_evidencia"></span></span>
                       <em class="mono">{{ c.pct_evidencia }}%</em>
                     </td>
-                    <td class="ta-r mono">{{ c.validadas }}</td>
-                    <td class="ta-r mono">{{ c.por_validar || '—' }}</td>
-                    <td class="ta-r mono" [class.is-bad]="c.atrasadas > 0">{{ c.atrasadas || '—' }}</td>
-                    <td class="ta-r mono" [class.is-warn]="c.dias_p50 > slaCaptura()">
+                    <td class="comm-num">{{ c.validadas }}</td>
+                    <td class="comm-num">{{ c.por_validar || '—' }}</td>
+                    <td class="comm-num" [class.is-bad]="c.atrasadas > 0">{{ c.atrasadas || '—' }}</td>
+                    <td class="comm-num" [class.is-warn]="c.dias_p50 > slaCaptura()">
                       {{ c.dias_p50 }} / {{ c.dias_p90 }}
                     </td>
-                    <td class="ta-r mono">{{ moneyShort(c.monto_pendiente) }}</td>
+                    <td class="comm-num">{{ moneyShort(c.monto_pendiente) }}</td>
                     <td class="ec-acts">
                       <!-- RE.16.9 — el supervisor que sólo observa (VER, sin GESTIONAR ni
                            VALIDAR) no ve atajos a pantallas donde el guard lo rebota. "ver
@@ -184,16 +190,16 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       <span class="ec-red-resp">{{ report()?.responsables_red }} con alcance de red</span>
                     }
                   </td>
-                  <td class="ta-r mono">{{ tot().entradas }}</td>
+                  <td class="comm-num">{{ tot().entradas }}</td>
                   <td class="ec-bar">
                     <span class="ec-track"><span [style.width.%]="pctRed()"></span></span>
                     <em class="mono">{{ pctRed() }}%</em>
                   </td>
-                  <td class="ta-r mono">{{ tot().validadas }}</td>
-                  <td class="ta-r mono">{{ tot().por_validar || '—' }}</td>
-                  <td class="ta-r mono" [class.is-bad]="tot().atrasadas > 0">{{ tot().atrasadas || '—' }}</td>
+                  <td class="comm-num">{{ tot().validadas }}</td>
+                  <td class="comm-num">{{ tot().por_validar || '—' }}</td>
+                  <td class="comm-num" [class.is-bad]="tot().atrasadas > 0">{{ tot().atrasadas || '—' }}</td>
                   <td></td>
-                  <td class="ta-r mono">{{ moneyShort(tot().monto_pendiente) }}</td>
+                  <td class="comm-num">{{ moneyShort(tot().monto_pendiente) }}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -215,8 +221,6 @@ type Periodo = 'arranque' | 'mes' | 'semana';
       color: var(--text-main);
       text-wrap: balance;
     }
-    .ec-verdict.is-warn { color: var(--warn-fg); }
-    .ec-verdict.is-bad { color: var(--bad-fg); }
 
     .ec-filters {
       display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
@@ -229,25 +233,9 @@ type Periodo = 'arranque' | 'mes' | 'semana';
 
     .ec-card { padding: 0; overflow: hidden; }
     .ec-scroll { overflow-x: auto; }
-    .ec-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    .ec-table th {
-      text-align: left; font-weight: 600; font-size: var(--fs-micro); letter-spacing: .03em;
-      text-transform: uppercase; color: var(--text-muted); white-space: nowrap;
-      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
-    }
-    .ec-table td {
-      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
-      height: var(--row-h-md); vertical-align: middle;
-    }
-    .ec-table tfoot td {
-      border-bottom: 0; border-top: 1px solid var(--text-faint);
-      font-weight: 600; color: var(--text-main); background: var(--surface-2);
-      position: sticky; bottom: 0;
-    }
-    .ec-table .mono { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
-    /* Calificado: la regla base .ec-table th (0,1,1) le ganaba a .ta-r (0,1,0) y dejaba el
-       encabezado alineado al lado contrario que su columna. */
-    .ec-table th.ta-r, .ec-table td.ta-r, .ta-r { text-align: right; }
+    /* La base (tipografía, densidad, header, divisores) es surf-table--plain. Acá queda
+       sólo el pie pegado: el total de la red tiene que verse sin scrollear. */
+    .ec-table tfoot td { position: sticky; bottom: 0; }
 
     .ec-suc b { display: block; color: var(--text-main); font-weight: 600; }
     .ec-suc em { font-style: normal; font-size: var(--fs-micro); color: var(--text-faint); }
@@ -260,6 +248,8 @@ type Periodo = 'arranque' | 'mes' | 'semana';
     .ec-bar { display: flex; align-items: center; gap: var(--sp-2); min-width: 8rem; }
     .ec-track { flex: 1 1 auto; height: 4px; border-radius: var(--r-pill, 999px); background: var(--surface-200, var(--hover-bg)); overflow: hidden; }
     .ec-track > span { display: block; height: 100%; background: var(--ok-fg); }
+    .ec-bar[data-tone="warn"] .ec-track > span { background: var(--warn-fg); }
+    .ec-bar[data-tone="bad"]  .ec-track > span { background: var(--bad-fg); }
     .ec-bar em { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); min-width: 2.6rem; text-align: right; }
 
     /* Semántica, no marca: el descuadre nunca usa --action (que es el color de ACTUAR). */
@@ -334,11 +324,14 @@ export class ComprasEntradasControlComponent {
     return partes.join(' · ') + '.';
   });
 
+  /** Un solo umbral para toda la pantalla: el KPI de arriba y la barra de cada fila. */
+  tono(pct: number): 'ok' | 'warn' | 'bad' { return pct >= 90 ? 'ok' : pct >= 60 ? 'warn' : 'bad'; }
+
   readonly kpis = computed<MetricStripItem[]>(() => {
     const t = this.tot();
     const huerfanas = this.sinResponsable().length;
     return [
-      { label: 'Comprobado', value: this.pctRed(), format: 'percent', tone: this.pctRed() >= 90 ? 'ok' : this.pctRed() >= 60 ? 'warn' : 'bad' },
+      { label: 'Comprobado', value: this.pctRed(), format: 'percent', tone: this.tono(this.pctRed()) },
       { label: 'Sin factura', value: t.monto_pendiente, format: 'currency-short', tone: 'default', sub: `${t.entradas - t.con_evidencia} órdenes` },
       { label: 'Vencidas', value: t.atrasadas, format: 'number', tone: t.atrasadas ? 'bad' : 'ok', sub: `más de ${this.slaCaptura()} días` },
       { label: 'Esperando revisión', value: t.por_validar, format: 'number', tone: t.por_validar ? 'warn' : 'default' },

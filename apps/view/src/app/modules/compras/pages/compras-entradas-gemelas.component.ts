@@ -11,6 +11,7 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, TwinPair, TwinsReport } from '../entradas.service';
 import { branchName } from '../../../core/constants/store-branches';
@@ -45,7 +46,7 @@ import { Permission } from '../../../core/constants/permissions';
   selector: 'app-compras-entradas-gemelas',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent, LoadStateComponent, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent, LoadStateComponent, PageTabsComponent, MetricStripComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in eg">
@@ -78,45 +79,37 @@ import { Permission } from '../../../core/constants/permissions';
 
       <app-page-tabs [tabs]="tabs" />
 
-      <section class="surf-card eg-card">
-        @if (report(); as r) {
-          <!-- Answer-first: lo primero es cuánto cuesta no decidir, no cuántas filas hay. -->
-          <div class="eg-kpis">
-            <span class="eg-kpi" [class.is-hot]="r.kpis.propuestos > 0">
-              <b>{{ r.kpis.propuestos }}</b><em>por dictaminar</em>
-            </span>
-            <span class="eg-kpi">
-              <b>{{ money(r.kpis.monto_propuesto) }}</b><em>contado dos veces mientras nadie decide</em>
-            </span>
-            <span class="eg-kpi is-done">
-              <b>{{ r.kpis.vigentes }}</b><em>pares ya resueltos</em>
-            </span>
-          </div>
-        }
+      <!-- Answer-first: lo primero es cuánto cuesta no decidir, no cuántas filas hay.
+           MetricStrip (ADR-033) y no cajitas propias: es el mismo header de KPIs que las
+           otras pestañas del Centro de control, así cambiar de pestaña no cambia el
+           idioma visual. -->
+      @if (report()) {
+        <app-metric-strip [items]="kpis()" ariaLabel="Pares capturados dos veces" />
+      }
 
+      <section class="surf-card eg-card">
         @if (error()) {
           <app-load-state [error]="error()" (retry)="reload()" />
         } @else if (loading() && !report()) {
-          <div class="eg-skel" aria-busy="true" aria-label="Cargando pares">
-            @for (i of [1,2,3,4,5]; track i) { <span class="eg-sk-row"></span> }
-          </div>
+          <app-load-state [loading]="true" [skeletonRows]="5" />
         } @else if (rows().length === 0) {
-          <div class="eg-empty">
-            <i class="pi pi-check-circle" aria-hidden="true"></i>
-            <p>{{ estado() === 'propuesto' ? 'No hay pares esperando dictamen.' : 'Sin pares en este filtro.' }}</p>
-          </div>
+          <app-load-state [isEmpty]="true" emptyIcon="pi-check-circle"
+                          [emptyTitle]="estado() === 'propuesto' ? 'Nada esperando dictamen' : 'Sin pares en este filtro'"
+                          [emptyHint]="estado() === 'propuesto'
+                            ? 'El motor no encontró ninguna recepción capturada dos veces que necesite decisión humana.'
+                            : 'Probá con otro estado o quitá el texto de la búsqueda.'" />
         } @else {
           <div class="eg-scroll">
-            <table class="eg-table">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table">
               <thead>
                 <tr>
                   <th scope="col">En la sucursal</th>
-                  <th scope="col" class="ta-r">Su importe</th>
+                  <th scope="col" class="comm-num">Su importe</th>
                   <th scope="col">En oficinas</th>
-                  <th scope="col" class="ta-r">Su importe</th>
-                  <th scope="col" class="ta-r">Δ</th>
+                  <th scope="col" class="comm-num">Su importe</th>
+                  <th scope="col" class="comm-num">Δ</th>
                   <th scope="col">Apareo</th>
-                  <th scope="col" class="ta-r">Dictamen</th>
+                  <th scope="col" class="eg-th-acts">Dictamen</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,7 +120,7 @@ import { Permission } from '../../../core/constants/permissions';
                       <em class="eg-sub">{{ suc(p.sucursal) }} · {{ p.suc_date | date:'dd/MM/yy' }}</em>
                       <em class="eg-prov">{{ p.suc_prov || '—' }}</em>
                     </td>
-                    <td class="ta-r mono">{{ p.suc_monto == null ? '—' : money(p.suc_monto) }}</td>
+                    <td class="comm-num">{{ p.suc_monto == null ? '—' : money(p.suc_monto) }}</td>
                     <td>
                       <b class="mono">00/{{ p.cedis_folio }}</b>
                       <em class="eg-sub">Oficinas · {{ p.cedis_date | date:'dd/MM/yy' }}
@@ -137,8 +130,8 @@ import { Permission } from '../../../core/constants/permissions';
                            son la misma persona con otro alta, es la misma orden. -->
                       <em class="eg-prov" [class.is-diff]="distintoProv(p)">{{ p.cedis_prov || '—' }}</em>
                     </td>
-                    <td class="ta-r mono">{{ p.cedis_monto == null ? '—' : money(p.cedis_monto) }}</td>
-                    <td class="ta-r mono" [class.is-diff]="!!p.delta_monto">
+                    <td class="comm-num">{{ p.cedis_monto == null ? '—' : money(p.cedis_monto) }}</td>
+                    <td class="comm-num" [class.is-diff]="!!p.delta_monto">
                       {{ p.delta_monto ? money(p.delta_monto) : '—' }}
                     </td>
                     <td>
@@ -147,7 +140,7 @@ import { Permission } from '../../../core/constants/permissions';
                         <em class="eg-sub">{{ p.status === 'confirmado' ? 'confirmado por ' + (p.decided_by || '?') : 'automático' }}</em>
                       }
                     </td>
-                    <td class="ta-r eg-acts">
+                    <td class="eg-acts">
                       @if (p.status === 'propuesto' && canDecide()) {
                         <button pButton type="button" class="p-button-sm p-button-text eg-ok"
                                 [disabled]="decidiendo() === p.cedis_folio" (click)="decidir(p, 'confirmar')">
@@ -179,47 +172,32 @@ import { Permission } from '../../../core/constants/permissions';
     </div>
   `,
   styles: [`
+    /* Esta pantalla se escribió con rem sueltos (.5/.7/.82/1.15rem) y quedaba con otra
+       densidad y otro tamaño de letra que sus pestañas hermanas: cambiar de pestaña se
+       sentía cambiar de app. Todo lo de acá sale ahora de la escala (--sp-* / --fs-*). */
     :host { display: block; }
-    .eg-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .eg-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .eg-search { min-width: 15rem; }
     .eg-card { padding: 0; overflow: hidden; }
 
-    .eg-kpis { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: .9rem 1.1rem; border-bottom: 1px solid var(--border-color); }
-    .eg-kpi { display: flex; flex-direction: column; }
-    .eg-kpi b { font-size: 1.15rem; font-variant-numeric: tabular-nums; color: var(--text-main); }
-    .eg-kpi em { font-size: .72rem; font-style: normal; color: var(--text-muted); }
-    .eg-kpi.is-hot b { color: var(--action); }
-    .eg-kpi.is-done b { color: var(--text-muted); }
-
     .eg-scroll { overflow-x: auto; }
-    .eg-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-    .eg-table th { text-align: left; font-weight: 600; font-size: .7rem; letter-spacing: .02em; text-transform: uppercase;
-      color: var(--text-muted); padding: .5rem .7rem; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
-    .eg-table td { padding: .5rem .7rem; border-bottom: 1px solid var(--border-color); vertical-align: top; }
-    .eg-table tbody tr:hover { background: var(--surface-2); }
+    /* Base compartida (surf-table--plain). Lo único propio: las celdas de esta tabla llevan
+       dos líneas (folio + proveedor), así que se alinean arriba y no al medio. */
+    .eg-table > tbody > tr > td { vertical-align: top; padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
     .eg-table tr.busy { opacity: .55; }
-    .eg-table .mono { font-variant-numeric: tabular-nums; }
-    /* Calificado: la regla base .eg-table th (0,1,1) le ganaba a .ta-r (0,1,0) — el encabezado
-       quedaba a la izquierda y su columna de importes a la derecha. */
-    .eg-table th.ta-r, .eg-table td.ta-r, .ta-r { text-align: right; }
-    .eg-sub, .eg-prov { display: block; font-style: normal; font-size: .7rem; color: var(--text-muted); }
+    .eg-table .mono { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
+    .eg-th-acts { text-align: right; }
+    .eg-sub, .eg-prov { display: block; font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); }
     .eg-prov { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Los dos datos que cambian la decisión se marcan; el resto queda neutro. */
-    .eg-prov.is-diff, td.is-diff { color: var(--action); }
+    /* Los dos datos que cambian la decisión se marcan; el resto queda neutro. Ámbar y no
+       --action: el naranja es el color de "acá se hace clic", y un dato que difiere no es
+       una acción. Pintarlo de --action invitaba a clickear un texto muerto. */
+    .eg-prov.is-diff, td.is-diff { color: var(--warn-fg); font-weight: 600; }
     .eg-acts { white-space: nowrap; }
     .eg-ok .p-button-label { color: var(--text-main); }
     .eg-no .p-button-label { color: var(--text-muted); }
     .eg-done { color: var(--text-muted); }
-    .eg-corte { margin: 0; padding: .5rem .9rem; font-size: .72rem; color: var(--text-muted); }
-
-    .eg-empty { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 3rem 1rem; color: var(--text-muted); }
-    .eg-empty i { font-size: 1.6rem; }
-    .eg-skel { display: grid; gap: .35rem; padding: .9rem; }
-    .eg-sk-row { height: 2.2rem; border-radius: var(--r-sm, .4rem); background: var(--surface-2); }
-    @media (prefers-reduced-motion: no-preference) {
-      .eg-sk-row { animation: eg-pulse 1.2s ease-in-out infinite; }
-      @keyframes eg-pulse { 50% { opacity: .45; } }
-    }
+    .eg-corte { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
   `],
 })
 export class ComprasEntradasGemelasComponent {
@@ -248,6 +226,23 @@ export class ComprasEntradasGemelasComponent {
   readonly rows = computed(() => this.report()?.rows ?? []);
   readonly canDecide = computed(() =>
     this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+
+  /**
+   * Los tres KPIs, en el orden en que importan: cuántas esperan a una persona, **cuánto dinero
+   * se está contando dos veces mientras nadie decide** (el costo de la bandeja llena) y cuántas
+   * ya se resolvieron. El dinero va sin `tone` a propósito: es una magnitud, no una alarma —
+   * la alarma es que haya pares sin dictaminar.
+   */
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    const k = this.report()?.kpis;
+    if (!k) return [];
+    return [
+      { label: 'Por dictaminar', value: k.propuestos, format: 'number', tone: k.propuestos ? 'warn' : 'ok' },
+      { label: 'Contado dos veces', value: k.monto_propuesto, format: 'currency-short', tone: 'default',
+        sub: 'mientras nadie decide' },
+      { label: 'Pares resueltos', value: k.vigentes, format: 'number', tone: 'default' },
+    ];
+  });
 
   private readonly pedir = new Subject<void>();
 

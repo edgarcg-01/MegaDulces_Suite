@@ -244,15 +244,23 @@ interface Hoja {
                               [emptyCta]="estado() === 'pendiente' ? null : 'Ver lo que falta subir'"
                               emptyCtaIcon="pi pi-list" (cta)="setEstado('pendiente')" />
             } @else {
-              <table class="surf-table surf-table--sticky surf-table--frozen-first surf-table--compact ep-table"
+              <!-- El modificador frozen-first afuera: congelaba la columna "Días" (3 caracteres) y le
+                   dibujaba una línea vertical al lado. La regla pide congelar la columna
+                   IDENTIFICADORA, y acá con 6 columnas no hay scroll horizontal que congelar.
+                   El modificador compact afuera también: pisaba el alto de fila con !important. -->
+              <table class="surf-table surf-table--plain surf-table--sticky ep-table"
                      [class.loading]="loading()">
+                <colgroup>
+                  <col class="c-dias" /><col class="c-folio" /><col />
+                  <col class="c-fecha" /><col class="c-monto" /><col class="c-cta" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th scope="col" class="ta-r" pTooltip="Días desde la recepción" tooltipPosition="top">Días</th>
+                    <th scope="col" class="comm-num" pTooltip="Días desde la recepción" tooltipPosition="top">Días</th>
                     <th scope="col">Folio</th>
                     <th scope="col">Proveedor</th>
-                    <th scope="col" class="ta-r">Recepción</th>
-                    <th scope="col" class="ta-r">Total Kepler</th>
+                    <th scope="col" class="comm-num">Recepción</th>
+                    <th scope="col" class="comm-num">Total Kepler</th>
                     <th scope="col">Factura</th>
                   </tr>
                 </thead>
@@ -262,9 +270,9 @@ interface Hoja {
                         [class.is-open]="abierta() && clave(abierta()!) === clave(c)"
                         (dragover)="onDragOverFila($event, c)" (dragleave)="onDragLeaveFila($event)"
                         (drop)="onDropFila($event, c)">
-                      <td class="ta-r ep-dias" [class]="'is-' + tono(c)">{{ c.dias }}<em>d</em></td>
+                      <td class="comm-num ep-dias" [class]="'is-' + tono(c)">{{ c.dias }}<em>d</em></td>
                       <td class="ep-folio">
-                        <b class="mono" [pTooltip]="'Folio ' + c.folio" tooltipPosition="top">{{ ultimos4(c.folio) }}</b>
+                        <b class="comm-code" [pTooltip]="'Folio ' + c.folio" tooltipPosition="top">{{ ultimos4(c.folio) }}</b>
                         @if (variasSucursales()) { <em>{{ suc(c.sucursal) }}</em> }
                       </td>
                       <td class="ep-prov">
@@ -275,13 +283,13 @@ interface Hoja {
                           <p-tag [value]="'Devuelta: ' + porQue(c)" severity="danger" styleClass="ep-tag" />
                         }
                       </td>
-                      <td class="ta-r mono">
+                      <td class="comm-num">
                         {{ c.receipt_date | date:'dd/MM' }}
                         @if (c.fecha_futura) {
                           <i class="pi pi-exclamation-triangle ep-warn" pTooltip="Fecha capturada adelantada en el ERP" tooltipPosition="top"></i>
                         }
                       </td>
-                      <td class="ta-r mono ep-monto">{{ money(c.monto) }}</td>
+                      <td class="comm-num ep-monto">{{ money(c.monto) }}</td>
                       <td class="ep-cta">
                         @if (dragFila() === clave(c)) {
                           <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Soltá acá el PDF</b>
@@ -537,7 +545,7 @@ interface Hoja {
       display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-4) var(--sp-5);
       border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2);
     }
-    .ep-block .pi { font-size: 1.2rem; color: var(--text-muted); }
+    .ep-block .pi { font-size: var(--fs-h3); color: var(--text-muted); }
     .ep-block-t { margin: 0 0 var(--sp-1); font-weight: 600; }
     .ep-block-s { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 46ch; }
 
@@ -557,7 +565,10 @@ interface Hoja {
       margin: 0; padding: var(--sp-1); list-style: none;
       max-height: 19rem; overflow-y: auto;
       background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-md, .5rem); box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+      /* Overlay: sombra + borde (la regla de elevación permite sombra sólo acá, no en las
+         superficies de la página). Token, no rgb crudo — en oscuro la sombra casi desaparece
+         y la profundidad la lleva el borde; una sombra fija se veía como una mancha. */
+      border-radius: var(--r-md, .5rem); box-shadow: var(--shadow-float);
     }
     .ep-ac-msg { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
     .ep-ac-op {
@@ -581,22 +592,17 @@ interface Hoja {
     }
     .ep-tablewrap.dragging { border-color: var(--action); }
 
-    .ep-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    /* Tipografía, densidad, header y divisores salen de surf-table--plain (styles.css).
+       Acá queda SÓLO lo propio de esta pantalla: anchos, arrastre y las 6 columnas.
+       table-layout fixed para que las columnas no bailen entre filas — la celda de
+       acción cambia de texto según el estado y arrastraba el ancho de toda la tabla. */
+    .ep-table { table-layout: fixed; }
     .ep-table.loading { opacity: .6; }
-    .ep-table th {
-      text-align: left; font-weight: 600; font-size: var(--fs-micro); letter-spacing: .03em;
-      text-transform: uppercase; color: var(--text-muted); white-space: nowrap;
-      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
-    }
-    .ep-table td {
-      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
-      height: var(--row-h-md); vertical-align: middle;
-    }
-    .ep-table tbody tr:last-child td { border-bottom: 0; }
-    .ep-table .mono, .ep-folio b { font-family: var(--font-mono, inherit); font-variant-numeric: tabular-nums; }
-    /* Calificado a propósito: la regla base .ep-table th (0,1,1) le gana a un .ta-r suelto
-       (0,1,0), y el encabezado se iba a la izquierda mientras su columna quedaba a la derecha. */
-    .ep-table th.ta-r, .ep-table td.ta-r, .ta-r { text-align: right; }
+    .ep-table col.c-dias { width: 4.5rem; }
+    .ep-table col.c-folio { width: 8rem; }
+    .ep-table col.c-fecha { width: 6rem; }
+    .ep-table col.c-monto { width: 9rem; }
+    .ep-table col.c-cta { width: 14rem; }
 
     /* Fila objetivo del arrastre: anillo interno + fondo de acción. Es la única cosa naranja
        de la pantalla, y por eso se ve. */
@@ -633,7 +639,7 @@ interface Hoja {
       background: color-mix(in oklab, var(--card-bg) 82%, transparent);
     }
     .ep-dropveil > div { display: grid; justify-items: center; gap: var(--sp-1); color: var(--action); }
-    .ep-dropveil .pi { font-size: 1.6rem; }
+    .ep-dropveil .pi { font-size: var(--fs-h2); }
     .ep-dropveil em { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); }
 
     .ep-pager {
@@ -661,7 +667,7 @@ interface Hoja {
       font-size: var(--fs-body); line-height: 1.45;
       border: 1px solid var(--border-color); background: var(--surface-2); color: var(--text-main);
     }
-    .ep-veredicto .pi { font-size: 1.05rem; margin-top: .1rem; }
+    .ep-veredicto .pi { font-size: var(--fs-body); margin-top: .1rem; }
     .ep-veredicto.ok { color: var(--ok-fg); border-color: color-mix(in oklab, var(--ok-fg) 35%, var(--border-color)); }
     .ep-veredicto.warn { color: var(--warn-fg); border-color: color-mix(in oklab, var(--warn-fg) 35%, var(--border-color)); }
     .ep-veredicto b { font-weight: 700; }
