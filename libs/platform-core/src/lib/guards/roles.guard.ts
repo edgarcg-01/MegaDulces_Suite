@@ -53,9 +53,15 @@ export class RolesGuard implements CanActivate {
     // Fuente de verdad = `role_permissions` en DB (no el snapshot del JWT),
     // cacheada en memoria con TTL 30s + invalidación en update. Así un cambio
     // en /admin/roles aplica al instante sin re-login.
-    const permissions = await this.permsCache.getPermissionsForRole(
-      user.role_name,
+    //
+    // `[ID.13]` Los permisos son la UNIÓN de los roles del usuario (perfil base
+    // + complementos de `identity.user_roles`), no los de una sola columna. Si
+    // el usuario no tiene filas ahí, cae al comportamiento anterior con
+    // `role_name` — nunca a cero permisos.
+    const permissions = await this.permsCache.getPermissionsForUser(
+      user.sub ?? user.id,
       user.tenant_id,
+      user.role_name,
     );
     const ability = buildAbility(permissions, { roleName: user.role_name });
 

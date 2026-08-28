@@ -33,6 +33,8 @@ const TTL_MS = 30_000;
 export class PermissionsCacheService {
   private readonly logger = new Logger(PermissionsCacheService.name);
   private cache = new Map<string, CacheEntry>();
+  /** `[ID.13]` Lista de roles por usuario (perfil base + complementos). */
+  private rolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
 
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
@@ -67,6 +69,87 @@ export class PermissionsCacheService {
   }
 
   /**
+   * `[ID.13]` Roles de un usuario: el perfil base + los complementos.
+   *
+   * Se cachea la LISTA (no los permisos) para no duplicar el cache de roles:
+   * un complemento nuevo se refleja en ≤30s, y los permisos de cada rol siguen
+   * viniendo de `getPermissionsForRole` con su propia invalidación.
+   *
+   * Fallback deliberado: si `user_roles` no tiene filas para ese usuario
+   * (token viejo, usuario recién creado por un camino que no pasó por el
+   * trigger, o la migración `[ID.13]` sin correr) se devuelve `[primaryRole]`.
+   * Así el peor caso es el comportamiento anterior, nunca "cero permisos".
+   */
+  async getRolesForUser(
+    userId: string | undefined,
+    tenantId: string | undefined,
+    primaryRole?: string,
+  ): Promise<string[]> {
+    const base = primaryRole ? [primaryRole] : [];
+    if (!userId || !tenantId) return base;
+    const now = Date.now();
+    const key = `roles:${tenantId}:${userId}`;
+    const cached = this.rolesCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.roles;
+
+    let roles: string[] = base;
+    try {
+      // tenant_id explícito: `KNEX_CONNECTION` es superusuario y NO aplica RLS.
+      const rows = await this.knex('identity.user_roles')
+        .where({ tenant_id: tenantId, user_id: userId })
+        .orderBy('is_primary', 'desc')
+        .select('role_name');
+      if (rows.length) {
+        roles = rows.map((r: { role_name: string }) => r.role_name);
+      }
+    } catch (e: any) {
+      // La tabla puede no existir todavía en un entorno sin la migración.
+      this.logger.warn(`user_roles no disponible (${e?.message}); se usa solo el perfil base`);
+    }
+    this.rolesCache.set(key, { roles, expiresAt: now + TTL_MS });
+    return roles;
+  }
+
+  /**
+   * `[ID.13]` Permisos EFECTIVOS del usuario = unión de todos sus roles.
+   *
+   * La unión es por `true` gana: un complemento sólo puede sumar. Poner un
+   * permiso en `false` en un rol no le quita lo que otro rol le concede — para
+   * quitar hay que quitar el rol. Es la semántica menos sorpresiva y la que
+   * hace que `captura_gastos` (1 permiso) funcione como complemento.
+   */
+  async getPermissionsForUser(
+    userId: string | undefined,
+    tenantId: string | undefined,
+    primaryRole?: string,
+  ): Promise<Record<string, boolean>> {
+    const roles = await this.getRolesForUser(userId, tenantId, primaryRole);
+    if (roles.length <= 1) {
+      return this.getPermissionsForRole(roles[0] ?? primaryRole ?? '', tenantId);
+    }
+    const efectivos: Record<string, boolean> = {};
+    for (const rol of roles) {
+      const perms = await this.getPermissionsForRole(rol, tenantId);
+      for (const [k, v] of Object.entries(perms)) {
+        if (v === true) efectivos[k] = true;
+        else if (!(k in efectivos)) efectivos[k] = v;
+      }
+    }
+    return efectivos;
+  }
+
+  /** `[ID.13]` Llamar al asignar/quitar un complemento a un usuario. */
+  invalidateUser(userId: string, tenantId?: string): void {
+    if (tenantId) {
+      this.rolesCache.delete(`roles:${tenantId}:${userId}`);
+      return;
+    }
+    for (const k of Array.from(this.rolesCache.keys())) {
+      if (k.endsWith(`:${userId}`)) this.rolesCache.delete(k);
+    }
+  }
+
+  /**
    * Llamar tras `updateRolePermissions` para propagar el cambio inmediatamente
    * a TODOS los usuarios con ese rol en su próximo request.
    */
@@ -95,5 +178,6 @@ export class PermissionsCacheService {
   /** Util de debug — no usar en runtime normal. */
   invalidateAll(): void {
     this.cache.clear();
+    this.rolesCache.clear();
   }
 }
