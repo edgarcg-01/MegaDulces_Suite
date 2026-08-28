@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Changed — el arqueo va a la par de Kepler: cero calendarios, todo en vivo (SM.15, 2026-08-27)
+- **Se fueron los selectores de fecha.** La captura ya no tiene `p-datepicker` (ni en la vía manual del supervisor): un arqueo es de HOY, y elegir una fecha pasada permitiría sellar dinero de un día que ya cerró. El historial cambia el calendario por **ventanas relativas al presente** (`Hoy · 7 días · 30 días`, vía `app-segmented`) y **nunca manda un `to`**: el corte superior es siempre *ahora*. Un calendario invita a quedarse mirando un rango viejo creyendo que es el estado actual.
+- **La app pide el arqueo cuando Kepler lo pide.** `turnos` devuelve ahora `cerrado_hace_min`: en cuanto el ERP cierra la caja, la pantalla levanta un aviso — *"Kepler cerró tu caja a las 20:40. Te toca arquear."* — y el turno se marca en la lista. Antes la cajera tenía que darse cuenta sola.
+- **Se repregunta sola** (45s en captura, 60s en historial) y al volver a la pestaña, con `app-freshness-pill` mostrando qué tan fresca es la lectura de Kepler. El poll corre **fuera de Angular** (`NgZone.runOutsideAngular`) para no disparar change detection de fondo, y **se salta si hay un conteo a medio capturar**: refrescar encima del trabajo de alguien sería peor que estar desactualizado.
+- De paso entran tres piezas del sistema de diseño que faltaban en estas pantallas: `app-segmented` (en vez de botones ad-hoc), `app-freshness-pill` (obligatoria en dato volátil) y un `p-datepicker` menos.
+
+
 ### Fixed — 🔴 el monitor de cajas escondía justamente las que hay que vigilar (SM.13.2, 2026-08-27)
 - `openSessions` filtraba `business_date = hoy`, así que **una caja que abrió ayer y nunca se cerró desaparecía del monitor**. Medido en la data: **14 sesiones en `open` y la pantalla mostrando 0**, una arrastrada desde hacía dos días. Es el peor caso posible del filtro — una caja que quedó abierta de un día para otro no es ruido, es la incidencia.
 - Ahora la ventana es de **2 días** (la misma que refresca `import-cash-sessions`: más atrás el importer no re-verifica y una sesión cerrada en Kepler quedaría marcada abierta para siempre). Cada fila trae `desde_dia` y `dias_abierta`, la tabla marca **"Nd sin cerrar"** y hay un KPI aparte de **Sin cerrar de días previos** — se cuentan separadas porque no son actividad de hoy, son un pendiente operativo.
