@@ -606,7 +606,7 @@ export class CommercialReplenishmentService {
       // En CAJAS: demanda (sub-unidades) ÷ SUF ÷ BF; existencia (unidades de stock) ÷ BF; tránsito ya en cajas.
       const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
-      const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
+      const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
       const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
       // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
@@ -775,7 +775,7 @@ export class CommercialReplenishmentService {
     const offset = (page - 1) * pageSize;
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
-      const filters = ['pr.tenant_id = :t', 'pr.activo = true',
+      const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }

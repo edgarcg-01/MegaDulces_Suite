@@ -26,6 +26,8 @@ export type DiscrepancyKind = 'pending' | 'ok' | 'faltante' | 'sobrante' | 'prod
 export interface OpenSessionDto {
   /** Opcional cuando source_kind='erp_receipt': se deriva de la orden. */
   warehouse_id?: string;
+  /** Rehacer un folio ya recibido (el vale anterior quedó mal). Salta el guard. */
+  force?: boolean;
   supplier_code?: string;
   source_kind?: 'manual' | 'erp_receipt';
   /** Para source_kind='erp_receipt': (sucursal, folio) de analytics.erp_goods_receipts. */
@@ -122,6 +124,29 @@ export class ReceivingSessionService {
       }
 
       // Almacén: lo que mande el cliente, y si no, el que dice la orden del ERP.
+      // GUARD: un folio del ERP se recibe UNA vez.
+      //
+      // El vale no escribe stock, pero la captura de lotes (Pieza 2) sí: si el mismo
+      // folio se abre dos veces y ambos se capturan, entra el DOBLE de mercancía y no
+      // se detecta hasta un conteo físico. No había nada que lo impidiera —ni unique
+      // ni validación— y buscar por folio bajó tanto la fricción de abrir un vale que
+      // el error pasó de improbable a fácil.
+      //
+      // Es un aviso, no un candado de schema: se puede forzar con `force: true` para
+      // el caso legítimo (el vale anterior se canceló y hay que rehacerlo).
+      if (erpHeader && !dto.force) {
+        const previo = await trx('commercial.receiving_sessions')
+          .where({ source_ref: `${erpHeader.sucursal}/${erpHeader.folio}` })
+          .whereNot('status', 'cancelled')
+          .orderBy('created_at', 'desc')
+          .first('folio', 'status', 'created_at');
+        if (previo)
+          throw new ConflictException(
+            `El folio ${erpHeader.sucursal}/${erpHeader.folio} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
+              'Revisalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancelá el anterior.',
+          );
+      }
+
       const warehouseId = dto.warehouse_id || (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : null);
       if (!warehouseId)
         throw new BadRequestException(
@@ -594,8 +619,21 @@ export class ReceivingSessionService {
           // `source_ref = sucursal/folio` y el renglón su `expected_sku`, y se verificó
           // en prod que un mismo SKU dentro de un vale nunca trae dos unidades
           // distintas (0 casos ambiguos de 89,167), así que el join es determinista.
+          // El centinela de ambigüedad es la palabra 'ambigua', NO un signo de
+          // interrogación: knex trata ese signo como binding aunque esté entre
+          // comillas SQL — y también dentro de un comentario `--` del propio raw
+          // (GOTCHAS §5). Ambas variantes tiraban "Expected 2 bindings, saw 3".
           trx.raw(
-            `(SELECT MIN(TRIM(el.unidad)) FROM analytics.erp_goods_receipt_lines el
+            `(SELECT CASE
+                       -- Si ese SKU trae MÁS DE UNA unidad dentro del mismo vale, el join
+                       -- deja de ser determinista. Hoy no pasa (0 casos de 89,167 pares
+                       -- en prod), pero es una propiedad del DATO, no del modelo: llega el
+                       -- día que un vale traiga 2 cajas + 5 piezas del mismo producto.
+                       -- Antes que elegir una en silencio, se declara ambigua y se ve.
+                       WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
+                       ELSE MIN(TRIM(el.unidad))
+                     END
+                FROM analytics.erp_goods_receipt_lines el
                WHERE el.tenant_id = l.tenant_id
                  AND el.sucursal = split_part(?, '/', 1)
                  AND el.folio    = split_part(?, '/', 2)

@@ -138,8 +138,25 @@ function check(name, cond, detail) {
       check('la unidad sigue ahí después de confirmar', after?.expected_unit === line.expected_unit, after?.expected_unit);
     }
 
-    // ── 6. Guards ────────────────────────────────────────────────────────
-    console.log('\n── 6. Guards ──');
+    // ── 6. Un folio se recibe UNA vez ────────────────────────────────────
+    console.log('\n── 6. Guard: no recibir dos veces el mismo folio ──');
+    // El vale no escribe stock, pero la captura de lotes (Pieza 2) sí: dos vales
+    // contra el mismo folio = doble alta de inventario, invisible hasta un conteo.
+    const dup = await req('POST', '/commercial/receiving/sessions', {
+      source_kind: 'erp_receipt', erp_sucursal: target.sucursal, erp_folio: target.folio,
+    }, token);
+    check('reabrir el mismo folio → 409', dup.status === 409, { status: dup.status, msg: dup.body?.message });
+    check('el mensaje dice en qué vale se recibió', /VE-\d{4}-\d{5}/.test(dup.body?.message || ''), dup.body?.message);
+    if (dup.body?.id) opened.push(dup.body.id);
+
+    const forced = await req('POST', '/commercial/receiving/sessions', {
+      source_kind: 'erp_receipt', erp_sucursal: target.sucursal, erp_folio: target.folio, force: true,
+    }, token);
+    check('force:true permite rehacerlo (vale anterior mal)', forced.status === 200 || forced.status === 201, forced.status);
+    if (forced.body?.id) opened.push(forced.body.id);
+
+    // ── 7. Guards de entrada ─────────────────────────────────────────────
+    console.log('\n── 7. Guards de entrada ──');
     const bad = await req('GET', '/commercial/receiving/sessions/erp-search?folio=abc', null, token);
     check('folio no numérico → 400', bad.status === 400, bad.status);
     const nothing = await req('GET', '/commercial/receiving/sessions/erp-search?folio=99999999', null, token);
