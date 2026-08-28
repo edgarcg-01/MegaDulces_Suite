@@ -16,6 +16,8 @@ import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, TwinPair, TwinsReport, TwinLines, EntradaLinea } from '../entradas.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
@@ -49,7 +51,7 @@ import { Permission } from '../../../core/constants/permissions';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent,
-    LoadStateComponent, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+    LoadStateComponent, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in eg">
@@ -77,6 +79,7 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="p-button-label">Buscar pares ahora</span>
             </button>
           }
+          <app-table-density />
           <!-- RE.17.2 — el motor reescribe esta bandeja cada 5 minutos: sin frescura no se sabe
                si lo que estás mirando ya lo resolvió otro (o el propio cron). -->
           <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="300" />
@@ -107,7 +110,8 @@ import { Permission } from '../../../core/constants/permissions';
                             : 'Probá con otro estado o quitá el texto de la búsqueda.'" />
         } @else {
           <div class="eg-scroll">
-            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table"
+                   [class.is-dense]="density.dense()">
               <thead>
                 <tr>
                   <th scope="col">En la sucursal</th>
@@ -308,6 +312,7 @@ export class ComprasEntradasGemelasComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
 
   readonly tabs = ENTRADAS_CONTROL_TABS;
   readonly report = signal<TwinsReport | null>(null);
