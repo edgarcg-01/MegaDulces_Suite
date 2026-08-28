@@ -32,6 +32,26 @@ import { branchName } from '../../../core/constants/store-branches';
       </header>
 
       @if (data(); as d) {
+        @if (d.feed?.sospechoso) {
+          <!-- Un cero mudo es peor que un error: en ago-2026 el CDC estuvo 2 días
+               congelado y esta pantalla habría dicho "no hay cajas abiertas". -->
+          <div class="cj-alerta">
+            <i class="pi pi-exclamation-triangle"></i>
+            <div>
+              <strong>Estos números pueden no ser de ahora.</strong>
+              <p>
+                @if (d.feed?.atrasado) {
+                  Lo último que sabemos de Kepler es del <strong>{{ d.feed?.ultimo_dia | date:'dd/MM/yy' }}</strong>, no de hoy.
+                } @else if (d.feed?.minutos != null) {
+                  El feed de cajas no se actualiza desde hace <strong>{{ d.feed?.minutos }} min</strong>.
+                } @else {
+                  Todavía no hay ninguna lectura del feed de cajas.
+                }
+                Si abajo dice que no hay cajas abiertas, puede ser que la tienda esté cerrada <em>o</em> que dejamos de recibir datos.
+              </p>
+            </div>
+          </div>
+        }
         <div class="cj-kpis">
           <div class="cj-kpi"><span class="cj-kpi-v">{{ d.cajas_abiertas }}</span><span class="cj-kpi-l">Cajas abiertas</span></div>
           <div class="cj-kpi"><span class="cj-kpi-v ok">{{ d.cobrando_ahora }}</span><span class="cj-kpi-l">Cobrando ahora</span></div>
@@ -60,7 +80,7 @@ import { branchName } from '../../../core/constants/store-branches';
                 <td class="mono">{{ c.last_ticket || '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="9" class="cj-empty">{{ loading() ? 'Cargando…' : 'No hay cajas abiertas ahora. (Requiere el feed import-cash-sessions corriendo.)' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="9" class="cj-empty">{{ loading() ? 'Cargando…' : (data()?.feed?.sospechoso ? 'Sin cajas abiertas — pero el feed está atrasado, así que puede ser falta de datos y no que estén cerradas.' : 'No hay ninguna caja abierta ahora mismo.') }}</td></tr></ng-template>
           </p-table>
         </div>
 
@@ -85,6 +105,11 @@ import { branchName } from '../../../core/constants/store-branches';
     :host { display: block; }
     .cj-head-right { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; }
     .cj-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action); }
+    .cj-alerta { display: flex; gap: .7rem; align-items: flex-start; padding: .8rem .9rem; margin-bottom: 1rem;
+                 border: 1px solid color-mix(in srgb, var(--warn-fg, #b45309) 40%, transparent);
+                 background: color-mix(in srgb, var(--warn-fg, #b45309) 8%, transparent); border-radius: var(--r-md); }
+    .cj-alerta i { color: var(--warn-fg, #b45309); margin-top: .15rem; }
+    .cj-alerta p { margin: .2rem 0 0; font-size: .8rem; }
     .cj-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
     .cj-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: 1rem; }
     .cj-kpi-v { display: block; font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }

@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — un cero mudo deja de ser posible en Cajas abiertas (SM.13.1, 2026-08-27)
+- **"0 cajas abiertas" tenía dos causas opuestas y se veían igual**: la tienda está cerrada, o dejamos de recibir datos de Kepler. No es hipotético — en ago-2026 el CDC estuvo **2 días congelado** con la tarea en `Running` y nadie se enteró; durante esas 48 h esta pantalla habría dicho "no hay cajas abiertas" y todo el mundo lo habría creído.
+- El endpoint devuelve ahora **dos relojes distintos**: `al`/`minutos` (cuándo corrió el importer — ¿nos llegan datos?) y `ultimo_dia` (de qué día son — ¿son de hoy?). Hacen falta los dos: el importer puede correr puntual y aun así traer el día equivocado si el CDC que lo alimenta se quedó atrás. Con más de 45 min sin noticias, o con el último día conocido distinto de hoy, la pantalla pone un aviso y el empty-state cambia de "no hay cajas abiertas" a "puede ser falta de datos y no que estén cerradas".
+
+### Added — escenario de práctica: un día completo de caja (2026-08-27)
+- `database/scripts/demo-arqueo-dia.js` (`--apply` / `--limpiar`) monta una tienda ficticia **por el lado de Kepler** — siembra turnos y ventas en `kepler_ods` y después ejecuta los **mismos dos loaders que corren en producción**. No escribe a mano en `analytics.*` a propósito: si el escenario apareciera por un atajo, no estaría probando nada.
+- Tres cajas con tres desenlaces: **Ana** cerró y Kepler dice que cuadró al centavo… con $1,240 faltando en el cajón (el 74.5% de cortes exactos de SM.7, en vivo); **Rosa** cuadra de verdad (el control — si todo saliera en rojo, el motor no estaría midiendo nada); **Luz** sigue cobrando con el turno abierto. Más una encargada que valida.
+- Verificado de punta a punta: Cajas abiertas muestra a Luz con su nombre y $8,450 · Ana solo ve su total ($17,190.50, sin esperado ni diferencia) · la encargada ve las tres con diferencia · el descuadre de Ana entra **crítico** con causa `arqueo_no_ciego` · la firma queda con usuario y hora.
+- Bug de TZ cazado al montarlo: el escenario usaba `toISOString()` (UTC) y a las 18:00 de México ya sembraba el día siguiente, fuera del "hoy" que el backend calcula con `America/Mexico_City`. Corregido acá y en el smoke.
+
 ### Added — el arqueo se engancha al TURNO de Kepler y lo valida la encargada (SM.12, 2026-08-27)
 - **Kepler dice cuándo y en qué caja.** El ERP abre el renglón del corte con la caja (`c2`), la cajera asignada (`c8`) y la hora de apertura (`c6`); mientras el turno sigue abierto `c10` viene en `1800-01-01`. Nuevo `GET /store/arqueo/turnos` lista **los turnos que Kepler abrió a nombre del usuario y todavía no arqueó** — y eso es lo que habilita la captura: **sin turno no hay arqueo**. Se lee del ODS en vivo, no de `analytics.cash_cuts`: esa tabla guarda solo cortes cerrados y la leen 12 lugares que no filtran `cerrado`, así que meterle turnos abiertos (esperado 0, diff 0) ensuciaría KPIs, focos y el propio `compare()`.
 - **Ya no se teclea nada del encabezado.** Sucursal, caja, fecha y cajero **salen del turno** y se muestran de solo lectura; el backend los vuelve a resolver por folio, así que mandar otra caja en el body no sirve de nada. Evita arquear la caja de otra o un turno que no existió. El supervisor conserva una captura manual para relevo/contingencia.

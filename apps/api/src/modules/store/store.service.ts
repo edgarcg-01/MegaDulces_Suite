@@ -374,6 +374,35 @@ export class StoreService {
       .map((a: any) => ({ warehouse_code: a.warehouse_code, caja: a.caja, cajero: a.last_cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }))
       .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets);
 
+    /**
+     * SM.13.1 — Salud del feed: para que un cero nunca sea mudo.
+     *
+     * "0 cajas abiertas" tiene dos causas opuestas y hasta ahora se veían igual:
+     * la tienda está cerrada, o **dejamos de recibir datos de Kepler**. En ago-2026
+     * el CDC estuvo congelado 2 días con la tarea en `Running` y nadie se enteró;
+     * durante esas 48 h esta pantalla habría dicho "no hay cajas abiertas" y todo
+     * el mundo lo habría creído. Se devuelven dos relojes distintos:
+     *
+     *   `al`         — cuándo corrió por última vez el importer (¿nos llegan datos?)
+     *   `ultimo_dia` — el día más reciente del que sabemos algo (¿son de hoy?)
+     *
+     * El importer puede estar corriendo puntual y aun así traer el día equivocado si
+     * el CDC que lo alimenta se quedó atrás — por eso hacen falta los dos.
+     */
+    const feedQ = this.knex('analytics.cash_sessions')
+      .where('tenant_id', TENANT)
+      .select(
+        k.raw('MAX(updated_at) AS al'),
+        k.raw('MAX(business_date)::text AS ultimo_dia'),
+        k.raw(`(${todayMX})::text AS hoy`),
+      )
+      .first();
+    if (filtrar) feedQ.whereIn('warehouse_code', warehouses as string[]);
+    const f: any = (await feedQ.catch(() => null)) || {};
+    const alMs = f.al ? new Date(f.al).getTime() : null;
+    const minutos = alMs != null ? Math.round((NOW - alMs) / 60000) : null;
+    const atrasado = !!(f.ultimo_dia && f.hoy && f.ultimo_dia < f.hoy);
+
     return {
       generated_at: new Date().toISOString(),
       cajas_abiertas: open_cajas.length,
@@ -381,6 +410,15 @@ export class StoreService {
       open_cajas,
       // compat: el frontend consume `cajeros_sin_sesion`; ahora es por caja.
       cajeros_sin_sesion: cajas_sin_sesion,
+      feed: {
+        al: f.al || null,
+        minutos,
+        ultimo_dia: f.ultimo_dia || null,
+        hoy: f.hoy || null,
+        // Sin noticias en 45 min, o el último día conocido no es hoy: el cero es dudoso.
+        sospechoso: minutos == null || minutos > 45 || atrasado,
+        atrasado,
+      },
     };
   }
 }

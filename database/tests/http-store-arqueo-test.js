@@ -46,7 +46,10 @@ const MIAS = ['ZA', 'ZB'];
 const AJENA = 'ZC';
 // Fecha de HOY: la ventana de turnos por arquear es de días recientes (el server
 // la capa en 30), así que una fecha fija terminaría cayéndose sola con el tiempo.
-const FECHA = new Date().toISOString().slice(0, 10);
+// Fecha de negocio en hora de MÉXICO, no UTC: a las 18:00 de acá ya es el día
+// siguiente en UTC, y el backend calcula el "hoy" con America/Mexico_City —
+// sembrar en UTC deja el escenario en un día que la pantalla no mira.
+const FECHA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 /** La caja la asigna Kepler por turno — el test la fija por sucursal, como el ERP. */
 const CAJA_DE = { ZA: '8', ZB: '7', ZC: '8' };
 /** Folio del turno de Kepler. Es la llave que ata arqueo ↔ corte (SM.12). */
