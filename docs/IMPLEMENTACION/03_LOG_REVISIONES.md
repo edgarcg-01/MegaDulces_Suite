@@ -6,44 +6,6 @@
 
 ---
 
-## 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md
-
-**Disparador:** Edgar — *"ahora nos vamos a enfocar 100% en el aspecto visual; analizá cuáles son nuestras necesidades visuales, qué falta mejorar respecto a cómo se trabaja cada interfaz"*. Después de la auditoría: *"arreglemos todo documentando el plan e implementando con atención al detalle"*.
-
-### Lo que la auditoría encontró (6 pantallas × 18 puntos, código contra `DESIGN.md`)
-
-RE.13/RE.16 habían partido el proceso **por trabajo** y eso quedó bien. Lo que faltaba era cerrar el **sistema visual** — cada pantalla se había construido con lo que había a mano ese día:
-
-1. **Dos motores de tabla para el mismo dato.** Pendientes/Control/Gemelas con `<table class="surf-table--plain">`, Revisión/Órdenes con `p-datatable-sm` sin `surf-table`. Órdenes era **la única tabla de todo `/compras`** sin la clase compartida — sus vecinas (`compras-360`, `costo-neto`, `cuadre-proveedor`) sí la llevan.
-2. **Faltaba el organismo canónico de detalle.** `SidePeek` estaba adoptado en 10+ pantallas de la app y en **0** de entradas: Órdenes leía el expediente completo (veredicto + 3 cifras + ficha + N renglones + conciliación por línea + ajustes) en un `p-dialog` de 72rem, y abría un **cuarto** diálogo encima para ver la hoja. Antipatrón textual de §O.1.
-3. **El documento no estaba donde se decide.** Revisión lo tenía al lado de las cifras (bien); Pendientes confirmaba facturas de seis cifras mostrando sólo lo que leyó el OCR; Gemelas pedía dictaminar sin mostrar nada; Órdenes lo escondía en un tercer diálogo. Y donde estaba, era un `<iframe>` pelado de 64vh: sin zoom, sin rotar, sin páginas — sobre remisiones escritas a mano y escaneadas torcidas.
-
-### Decisiones
-
-- **Un visor, no cuatro parches.** `DocViewerComponent` compartido y **sin librería nueva** (checklist 3/16 + la decisión de licencia de PrimeNG está abierta): *fragment params* del visor nativo para PDF, `transform` CSS para imágenes. La degradación es a "como estaba antes", nunca a "no se puede leer".
-- **Pantalla completa por Fullscreen API y no por `position: fixed`.** El visor vive dentro del `SidePeek`, cuyo panel tiene `transform: translateX(...)`; un ancestro transformado es bloque contenedor de sus descendientes fijos, así que un overlay "a pantalla completa" quedaría **atrapado dentro del cajón**.
-- **La tabla de Órdenes se alinea con sus hermanas, no se reescribe.** PrimeNG-first sigue vigente para lo existente; migrar las tres `--plain` a `p-table` queda fuera de alcance mientras la licencia esté abierta.
-- **El vocabulario no se toca.** El diccionario de ayuda ya cubría gemelas, cobertura y documento: las 4 pantallas que faltaban sólo tenían que **montar el `?`**, no redactar.
-
-### Bugs reales que salieron de la revisión visual
-
-- **`--danger-fg` no existe.** Tres reglas de Órdenes lo usaban como `var(--danger-fg, #b91c1c)`, o sea el rojo literal quedaba fijo en los **dos** temas. Junto con dos fondos `#00000010` que desaparecen sobre fondo oscuro justo donde tienen que contrastar con el papel blanco.
-- **El link "ver todo" mentía desde RE.16**: enlazaba `?suc=03` y Órdenes ignoraba el parámetro. También paginaba 150 filas en memoria mientras el server mandaba 300 y el KPI contaba miles.
-- **La fecha de arranque se corría un día**: `<input type="date">` con `new Date('2026-08-01')` = medianoche UTC = 31 de julio en México.
-- **Dos pérdidas de trabajo sin guard**, con `unsavedChangesGuard` ya escrito en el repo y sin usar acá.
-
-### Lecciones
-
-- **Los backticks dentro de un comentario CSS o HTML cierran el template literal.** Ya estaba en la memoria del proyecto y volvió a costar dos builds: el error no dice "backtick", dice `NG1002: Incorrect number of arguments to @Component decorator` más veinte `TS1005` en cascada.
-- **`[styleClass]` no es un `@Input` de `p-table` en PrimeNG 22** (el atributo estático sí funciona). Para densidad condicional va `[class.surf-table--compact]` sobre el host.
-- **Una regla del sistema que nadie expone es deuda invisible**: `surf-table--plain.is-dense` existía desde que se escribió la regla de densidad y ninguna pantalla la ofrecía.
-
-### Verificación
-
-Builds `view` + `api` verdes. **Sin verificación visual** (dev servers prohibidos y los MCP de navegador no conectaron en la sesión). Smokes de entradas: `goods-receipts-lifecycle` y `goods-receipts-scope` verdes; **3 aserciones rojas preexistentes y ajenas a este diff** (que no toca migraciones ni la función de apareo) — `goods-receipt-twins` avisa que el motor **desaparea un par** con la ventana corta (968 vs 969, es justo lo que ese smoke vigila y vale mirarlo aparte), y `supplier-receipt-proofs` ×2 por data local desactualizada (`analytics.erp_supplier_payments` sin PK en local + falta el anticipo CONVERMEX).
-
----
-
 ## 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, rutas y mayoreo)
 
 **Disparador:** Edgar — *"no hay que dejar nada manual, todo automático considerando históricos, además considerar mayoreo y rutas, que no se nos pase nada"*. Continuación directa del incidente del tránsito (misma fecha, abajo).

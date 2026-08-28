@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -19,9 +19,6 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import {
   EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr, AttachReceipt,
 } from '../entradas.service';
-import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
-import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
-import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { motivoLabel } from '../receipt-verdict';
@@ -37,13 +34,6 @@ interface Hoja {
   id: number;
   name: string;
   dataUri: string;
-  /**
-   * `[RE.17.6]` — URL de objeto para PODER VER la hoja antes de enviarla. Es blob y no el
-   * `dataUri`: Chrome bloquea la navegación de un iframe a `data:`, así que la vista previa
-   * no se puede armar con el mismo string que se manda al servidor. Se revoca al sacar la
-   * hoja de la bandeja (si no, el PDF queda retenido en memoria hasta recargar).
-   */
-  blobUrl?: string;
   bytes: number;
   estado: EstadoHoja;
   sha256?: string;
@@ -93,7 +83,7 @@ interface Hoja {
   imports: [
     CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, SelectModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
-    FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent,
+    FreshnessPillComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
   template: `
@@ -118,7 +108,6 @@ interface Hoja {
               <i class="pi pi-building" aria-hidden="true"></i> {{ s }}
             </span>
           }
-          <app-table-density />
           <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
@@ -260,7 +249,7 @@ interface Hoja {
                    IDENTIFICADORA, y acá con 6 columnas no hay scroll horizontal que congelar.
                    El modificador compact afuera también: pisaba el alto de fila con !important. -->
               <table class="surf-table surf-table--plain surf-table--sticky ep-table"
-                     [class.loading]="loading()" [class.is-dense]="density.dense()">
+                     [class.loading]="loading()">
                 <colgroup>
                   <col class="c-dias" /><col class="c-folio" /><col />
                   <col class="c-fecha" /><col class="c-monto" /><col class="c-cta" />
@@ -322,20 +311,6 @@ interface Hoja {
                     </tr>
                   }
                 </tbody>
-                <!-- RE.17.6 — DESIGN §O.2 (Almacén/Compras): la grid lleva totales a la vista.
-                     La tabla decía "te faltan 47 facturas" arriba y no cuánto dinero eran las
-                     que estabas mirando, que es lo que ordena por dónde empezar. -->
-                <tfoot>
-                  <tr>
-                    <td colspan="4">Esta página · {{ rows().length }} {{ rows().length === 1 ? 'orden' : 'órdenes' }}</td>
-                    <td class="comm-num ep-monto">{{ money(totalPagina()) }}</td>
-                    <td>
-                      @if (sinFacturaPagina() > 0) {
-                        {{ sinFacturaPagina() }} sin factura
-                      }
-                    </td>
-                  </tr>
-                </tfoot>
               </table>
 
               @if (report(); as r) {
@@ -481,25 +456,7 @@ interface Hoja {
                     por <b>{{ money(h.entrada!.gemela_monto!) }}</b>.
                   </p>
                 }
-
-                <!-- RE.17.6 — la hoja, antes de mandarla. Acá se confirma una factura de seis
-                     cifras y lo único que se veía era lo que leyó el OCR: si leyó mal el total,
-                     o el escáner cortó la hoja, no había forma de notarlo hasta el revisor. -->
-                <div class="ep-an-acts">
-                  <button type="button" class="ep-link" (click)="alternarVista(h)"
-                          [attr.aria-expanded]="vista() === h.id">
-                    <i class="pi" [ngClass]="vista() === h.id ? 'pi-eye-slash' : 'pi-eye'" aria-hidden="true"></i>
-                    {{ vista() === h.id ? 'Ocultar la hoja' : 'Ver la hoja' }}
-                  </button>
-                  <button type="button" class="ep-link" (click)="desenlazar(h)">No es esta entrada — cambiarla</button>
-                </div>
-                @if (vista() === h.id) {
-                  <div class="ep-an-doc">
-                    <app-doc-viewer [files]="archivoDe(h)"
-                                    emptyTitle="No se pudo previsualizar"
-                                    emptyHint="El archivo se va a enviar igual; abrilo desde tu carpeta si querés revisarlo." />
-                  </div>
-                }
+                <button type="button" class="ep-link" (click)="desenlazar(h)">No es esta entrada — cambiarla</button>
               }
               @default {
                 <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a la
@@ -552,11 +509,6 @@ interface Hoja {
     :host { display: block; }
 
     .ep-head-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-
-    /* RE.17.6 — la hoja dentro de la ventana de confirmación. Alto acotado: el visor tiene
-       pantalla completa para cuando hace falta leer letra chica. */
-    .ep-an-acts { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-    .ep-an-doc { height: 22rem; margin-top: var(--sp-2); }
     .ep-suc-fija {
       display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs);
       color: var(--text-muted); border: 1px solid var(--border-color);
@@ -775,7 +727,6 @@ export class ComprasEntradasPendientesComponent {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
-  readonly density = inject(TableDensityService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -841,11 +792,6 @@ export class ComprasEntradasPendientesComponent {
   avance(r: EntradasReport): number {
     return r.kpis.entradas === 0 ? 100 : Math.round((r.kpis.con_comprobante / r.kpis.entradas) * 100);
   }
-  /** Totales de lo que se está mirando (la página), no del universo: el KPI de arriba ya cuenta
-   *  el universo, y mezclarlos haría que ninguno de los dos se pueda leer. */
-  readonly totalPagina = computed(() => this.rows().reduce((t, c) => t + (Number(c.monto) || 0), 0));
-  readonly sinFacturaPagina = computed(() => this.rows().filter((c) => !c.deposits).length);
-
   desde(): number { const r = this.report(); return !r || r.total === 0 ? 0 : (this.page() - 1) * this.pageSize + 1; }
   hasta(): number { const r = this.report(); return !r ? 0 : Math.min(r.total, this.page() * this.pageSize); }
 
@@ -1054,20 +1000,6 @@ export class ComprasEntradasPendientesComponent {
     if (!visible && !this.guardando()) this.limpiar();
   }
 
-  /**
-   * `[RE.17.2]` — DESIGN §8 (estado sucio). Cada hoja de la bandeja ya costó una llamada de
-   * visión a Claude, y un lote de CEDIS son treinta. Antes, un clic en el sidebar o un F5 se
-   * las llevaba todas sin preguntar: la ventana se desmontaba y no quedaba nada del lado del
-   * servidor porque todavía no se subió nada. Lo consume `unsavedChangesGuard` en la ruta.
-   */
-  hasUnsavedChanges(): boolean { return this.hojas().length > 0 && !this.guardando(); }
-
-  /** Salida EXTERNA (cerrar pestaña / F5): el Router no la ve. */
-  @HostListener('window:beforeunload', ['$event'])
-  onBeforeUnload(e: BeforeUnloadEvent): void {
-    if (this.hasUnsavedChanges()) e.preventDefault();
-  }
-
   // ── arrastre ──
   onDragOverTabla(e: DragEvent): void {
     if (!this.canManage()) return;
@@ -1166,7 +1098,6 @@ export class ComprasEntradasPendientesComponent {
         id: ++this.seq,
         name: f.name || 'factura.pdf',
         dataUri,
-        blobUrl: URL.createObjectURL(f),
         bytes: Math.round((dataUri.length - (dataUri.indexOf(',') + 1)) * 0.75),
         estado: 'leyendo',
         entrada: destino,
@@ -1175,9 +1106,6 @@ export class ComprasEntradasPendientesComponent {
     }
     if (!nuevas.length) return;
     this.hojas.update((l) => [...l, ...nuevas]);
-    // Una sola hoja = el caso normal (una factura). Se abre la vista previa sola: si hay que
-    // pedir un clic para ver el papel que estás por mandar, nadie lo da.
-    if (this.hojas().length === 1) this.vista.set(nuevas[0].id);
     await this.procesar(nuevas);
   }
 
@@ -1236,25 +1164,8 @@ export class ComprasEntradasPendientesComponent {
   desenlazar(h: Hoja): void {
     this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });
   }
-  quitar(h: Hoja): void {
-    this.soltarBlob(h);
-    if (this.vista() === h.id) this.vista.set(null);
-    this.hojas.update((l) => l.filter((x) => x.id !== h.id));
-  }
-  limpiar(): void {
-    this.hojas().forEach((h) => this.soltarBlob(h));
-    this.hojas.set([]); this.capError.set(''); this.abierta.set(null); this.vista.set(null);
-  }
-
-  // ── vista previa de la hoja (RE.17.6) ──
-  /** Id de la hoja cuya vista previa está abierta. Una a la vez: son PDFs. */
-  readonly vista = signal<number | null>(null);
-  alternarVista(h: Hoja): void { this.vista.set(this.vista() === h.id ? null : h.id); }
-  /** Las hojas de la bandeja no viven en el servidor todavía: el visor lee el blob local. */
-  archivoDe(h: Hoja): DocViewerFile[] {
-    return h.blobUrl ? [{ url: h.blobUrl, name: h.name, kind: 'pdf' }] : [];
-  }
-  private soltarBlob(h: Hoja): void { if (h.blobUrl) URL.revokeObjectURL(h.blobUrl); }
+  quitar(h: Hoja): void { this.hojas.update((l) => l.filter((x) => x.id !== h.id)); }
+  limpiar(): void { this.hojas.set([]); this.capError.set(''); this.abierta.set(null); }
   setBusqueda(h: Hoja, v: string): void { this.parchar(h.id, { busqueda: v }); }
 
   buscar(h: Hoja): void {
@@ -1368,7 +1279,6 @@ export class ComprasEntradasPendientesComponent {
             : `${r.cuadran} cuadran al peso; el resto lo mira el revisor.`,
         });
         // Las guardadas salen de la bandeja; lo que falló se queda con su motivo a la vista.
-        this.hojas().filter((h) => h.estado === 'guardada').forEach((h) => this.soltarBlob(h));
         this.hojas.update((l) => l.filter((h) => h.estado !== 'guardada'));
         if (!this.hojas().length) this.abierta.set(null);
         this.reload();

@@ -110,16 +110,6 @@ export class GoodsReceiptProofsController {
     return this.twins.pairNow();
   }
 
-  // OJO con el orden: igual que `decide`, va ANTES de `:sucursal/:folio`.
-  @Get('twins/:cedis_folio/lines')
-  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
-  @ApiOperation({
-    summary: 'RE.17.3 — renglones de los DOS lados del par (sucursal y oficinas). Es la evidencia que decide si son la misma compra: la copia de sucursal lista productos, la de oficinas suele traer un renglón de concepto.',
-  })
-  twinLines(@Param('cedis_folio') cedisFolio: string) {
-    return this.svc.twinLines(cedisFolio);
-  }
-
   // OJO con el orden: esta ruta va ANTES de `:sucursal/:folio`, o Nest resolvería
   // `twins/<folio>/decide` como el detalle de la sucursal "twins".
   @Post('twins/:cedis_folio/decide')

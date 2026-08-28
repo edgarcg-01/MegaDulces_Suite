@@ -1266,18 +1266,6 @@ export class GoodsReceiptProofsService {
         trx.raw(`COALESCE(SUM(p.cedis_monto::numeric) FILTER (WHERE p.status = 'propuesto'), 0)::numeric AS monto_propuesto`),
         trx.raw('COUNT(*)::int AS total'),
       );
-      // RE.17.3 — cuántos renglones tiene cada lado. Es **el** dato de la decisión y no estaba:
-      // la copia de sucursal trae los productos (12–20 renglones) y la de oficinas casi siempre
-      // uno solo de concepto. Va en UNA consulta agregada sobre los folios de la página, no un
-      // conteo por fila (serían 400 viajes contra el ODS).
-      const conteos = await this.renglonesPorFolio(trx, tenantId, [
-        ...rows.map((r: any) => [String(r.sucursal), String(r.folio)] as [string, string]),
-        ...rows.map((r: any) => ['00', String(r.cedis_folio)] as [string, string]),
-      ]);
-      for (const r of rows as any[]) {
-        r.suc_lineas = conteos.get(`${r.sucursal}|${r.folio}`) ?? null;
-        r.cedis_lineas = conteos.get(`00|${r.cedis_folio}`) ?? null;
-      }
       return {
         rows,
         kpis: {
@@ -1287,72 +1275,6 @@ export class GoodsReceiptProofsService {
         },
         total: Number(k.total),
         alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
-      };
-    });
-  }
-
-  /**
-   * `[RE.17.3]` — Cuenta renglones de varios documentos de una sola pasada. Row-constructor
-   * `(sucursal, folio) IN ((?,?),…)`: una consulta agrupada en vez de un `count` por fila.
-   */
-  private async renglonesPorFolio(trx: any, tenantId: string, claves: [string, string][]): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    const únicas = [...new Map(claves.filter(([s, f]) => s && f).map((k) => [`${k[0]}|${k[1]}`, k])).values()];
-    if (!únicas.length) return out;
-    const tuplas = únicas.map(() => '(?,?)').join(',');
-    const r = await trx.raw(
-      `SELECT sucursal, folio, COUNT(*)::int AS n
-         FROM analytics.erp_goods_receipt_lines
-        WHERE tenant_id = ? AND (sucursal, folio) IN (${tuplas})
-        GROUP BY sucursal, folio`,
-      [tenantId, ...únicas.flat()],
-    );
-    for (const x of r.rows || []) out.set(`${x.sucursal}|${x.folio}`, Number(x.n));
-    return out;
-  }
-
-  /**
-   * `[RE.17.3]` — **Los renglones de los dos lados de un par**, para dictaminarlo mirando la
-   * evidencia y no un score. La pantalla pedía decidir si dos capturas son la misma compra
-   * mostrando folio, importe, fecha y proveedor — y lo que lo resuelve está un nivel más abajo:
-   * la copia de sucursal lista los productos y la de oficinas suele traer un único renglón de
-   * concepto (`VENTAS AL 0 %`) con el total. Se pide al expandir la fila, no con la lista.
-   */
-  async twinLines(cedisFolio: string) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const folio = (cedisFolio || '').trim();
-    if (!folio) throw new BadRequestException('folio requerido');
-    return this.tk.run(async (trx) => {
-      if (!(await this.hayPares(trx))) throw new BadRequestException('el apareo no está disponible en este entorno');
-      const par = await trx('analytics.erp_goods_receipt_dedup')
-        .where({ tenant_id: tenantId, cedis_folio: folio })
-        .first('cedis_folio', 'dup_of_sucursal', 'dup_of_folio');
-      if (!par?.dup_of_folio) throw new BadRequestException(`no hay par para el folio ${folio}`);
-      // El alcance se comprueba sobre la canónica, igual que en la lista: la dueña del documento
-      // es la sucursal, no oficinas.
-      const alcance = await this.sucursalesVisibles(null);
-      if (alcance && !alcance.includes(String(par.dup_of_sucursal))) {
-        throw new ForbiddenException('esa recepción no está en tu alcance de sucursal');
-      }
-      const lineas = async (sucursal: string, f: string) =>
-        trx('analytics.erp_goods_receipt_lines')
-          .where({ tenant_id: tenantId, sucursal, folio: f })
-          .orderBy('linea')
-          .limit(200)
-          .select('linea', 'sku', 'nombre', 'unidad',
-            trx.raw('cantidad::numeric AS cantidad'),
-            trx.raw('costo_unitario::numeric AS costo_unitario'),
-            trx.raw('importe::numeric AS importe'));
-      const num = (rs: any[]) => rs.map((l) => ({
-        ...l, cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
-      }));
-      const [suc, ofi] = await Promise.all([
-        lineas(String(par.dup_of_sucursal), String(par.dup_of_folio)),
-        lineas('00', folio),
-      ]);
-      return {
-        sucursal: { sucursal: String(par.dup_of_sucursal), folio: String(par.dup_of_folio), lineas: num(suc) },
-        oficinas: { sucursal: '00', folio, lineas: num(ofi) },
       };
     });
   }
