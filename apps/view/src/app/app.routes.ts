@@ -495,10 +495,7 @@ export const routes: Routes = [
         // (VER sí, GESTIONAR no). El que sólo observa entra por el Centro de control.
         path: 'entradas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)],
-        // RE.17.2 — la bandeja de PDFs ya leídos por OCR no vive en el servidor hasta que se
-        // envía: salir sin avisar tira el trabajo (y las llamadas de visión ya pagadas).
-        canDeactivate: [unsavedChangesGuard]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)]
       },
       {
         // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
@@ -536,10 +533,7 @@ export const routes: Routes = [
         // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
         path: 'entradas/control/ajustes',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-ajustes.component').then(m => m.ComprasEntradasAjustesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)],
-        // RE.17.2 — mover el arranque o el SLA recalcula el tablero de las 9 sucursales; la
-        // pantalla ya decía "hay cambios sin guardar" y después te dejaba salir en silencio.
-        canDeactivate: [unsavedChangesGuard]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
       },
 
       // Rutas viejas → su lugar nuevo. `lote` desaparece como pantalla: soltar N PDFs en la
