@@ -488,9 +488,14 @@ export const routes: Routes = [
       {
         // RE.13.1 — "Mis pendientes": la worklist del capturista de sucursal (scopeada por
         // alcance, lo más viejo primero, con cámara). Es la puerta del proceso.
+        //
+        // RE.16.9 — pide GESTIONAR, no VER: acá TODO lo que se puede hacer (OCR, adjuntar,
+        // lote) exige GESTIONAR en el backend. Con VER a secas la pantalla se abría entera y
+        // el 403 llegaba recién al soltar el PDF. `direccion` ya está en ese caso hoy
+        // (VER sí, GESTIONAR no). El que sólo observa entra por el Centro de control.
         path: 'entradas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)]
       },
       {
         // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el

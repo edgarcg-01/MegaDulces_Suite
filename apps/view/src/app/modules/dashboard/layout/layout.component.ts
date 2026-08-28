@@ -529,7 +529,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // RE.16 — facturas de entrada: TRES items, uno por oficio. Eran cinco y se leían como
         // cinco módulos sueltos; el lote se absorbió en Pendientes (soltar N PDFs) y "todas" +
         // "gemelas" viven como pestañas del Centro de control.
-        { label: 'Pendientes de subir',  icon: 'pi pi-file-pdf',   route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_VER },
+        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es el Centro de control.
+        { label: 'Pendientes de subir',  icon: 'pi pi-file-pdf',   route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
         { label: 'Revisión de facturas', icon: 'pi pi-verified',   route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
         { label: 'Centro de control',    icon: 'pi pi-sitemap',    route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
       ],

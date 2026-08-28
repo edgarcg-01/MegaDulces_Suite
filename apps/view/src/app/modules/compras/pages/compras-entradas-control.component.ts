@@ -12,6 +12,9 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, CoverageReport, CoverageRow } from '../entradas.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { money, moneyShort } from '../../../shared/util';
 
@@ -52,8 +55,12 @@ type Periodo = 'arranque' | 'mes' | 'semana';
         <div class="surf-page-head-text">
           <h1>Centro de control · Facturas de entrada</h1>
           <p class="surf-page-sub">
-            Cada sucursal responde por lo suyo. Esto es lectura: para subir o validar, entrá por
-            el renglón.
+            Cada sucursal responde por lo suyo. Esto es lectura:
+            @if (canManage() || canValidate()) {
+              para subir o validar, entrá por el renglón.
+            } @else {
+              la captura y la revisión las hace cada sucursal.
+            }
           </p>
         </div>
         <div class="ec-head">
@@ -153,11 +160,14 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                     </td>
                     <td class="ta-r mono">{{ moneyShort(c.monto_pendiente) }}</td>
                     <td class="ec-acts">
-                      @if (c.entradas > c.con_evidencia) {
+                      <!-- RE.16.9 — el supervisor que sólo observa (VER, sin GESTIONAR ni
+                           VALIDAR) no ve atajos a pantallas donde el guard lo rebota. "ver
+                           todo" queda siempre: es lectura, igual que este tablero. -->
+                      @if (canManage() && c.entradas > c.con_evidencia) {
                         <a class="ec-link" [routerLink]="['/compras/entradas']" [queryParams]="{ suc: c.sucursal }"
                            [pTooltip]="(c.entradas - c.con_evidencia) + ' sin factura'" tooltipPosition="left">subir</a>
                       }
-                      @if (c.por_validar > 0) {
+                      @if (canValidate() && c.por_validar > 0) {
                         <a class="ec-link" [routerLink]="['/compras/entradas/revision']" [queryParams]="{ suc: c.sucursal }"
                            [pTooltip]="c.por_validar + ' esperando decisión'" tooltipPosition="left">revisar</a>
                       }
@@ -271,6 +281,13 @@ export class ComprasEntradasControlComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+
+  // Este tablero lo abre cualquiera con VER — incluido el que sólo supervisa. Los atajos a las
+  // pantallas de oficio se muestran según lo que la persona SÍ puede hacer.
+  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   readonly tabs = ENTRADAS_CONTROL_TABS;
   readonly report = signal<CoverageReport | null>(null);
