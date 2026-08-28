@@ -521,3 +521,61 @@ Por si alguien nota que un tablero "bajó" sin explicación:
 tablas, pero como filas ÚNICAS (no duplican) y con el origen a medianoche, el `::date` de los
 consumidores sigue correcto. Corregirlas es una migración aparte (toca PKs). Con el poll apagado no
 entran filas corridas nuevas.
+
+---
+
+## 23. `loose: true` de swc: el PUT que devolvía 500 (y por qué `.swcrc` no lo arregla)
+
+**Síntoma en prod:** todo `PUT /api/users/:id` respondía **500**.
+
+```
+TypeError: Class constructor PartialTypeClass cannot be invoked without 'new'
+    at new UpdateUserDto (/app/dist/apps/api/main.js)
+    at ClassTransformer.plainToInstance  ← el ValidationPipe
+```
+
+**Causa.** `@nx/webpack` le pasa a `swc-loader` sus opciones **inline** con
+`loose: true` hardcodeado (`@nx/webpack/dist/src/plugins/nx-webpack-plugin/lib/compiler-loaders.js`).
+Con `legacyDecorator` —que Nest necesita para DI y class-validator— SWC envuelve
+toda clase **decorada** en una función, y **sólo en modo loose** llama al padre
+con `_Padre.apply(this, arguments)`:
+
+```js
+function UpdateUserDto() {
+    return _PartialType.apply(this, arguments) || this;   // ← rompe
+}
+```
+
+Eso funciona entre dos funciones ES5, pero explota si el padre es una clase
+ES2015 **real**. Justo el caso de `UpdateUserDto extends PartialType(UserWriteDto)`:
+`PartialType` viene de `@nestjs/swagger`, o sea de `node_modules`, que el loader
+**excluye** → llega como clase nativa.
+
+`CreateUserDto extends UserWriteDto` se salvaba de casualidad: su padre también
+lo degrada SWC, así que el `.apply` entre dos funciones ES5 no se queja. Por eso
+el POST andaba y **sólo** fallaba el PUT.
+
+**Editar `apps/api/.swcrc` NO sirve.** Cuando swc-loader recibe opciones inline
+**ignora el `.swcrc`**. Verificado: con `"loose": false` en ese archivo el bundle
+salía byte-idéntico.
+
+**El arreglo** es un plugin de webpack que corre DESPUÉS de `NxAppWebpackPlugin`
+y le pisa la opción en la regla del loader (`SwcSinLoose` en
+`apps/api/webpack.config.js`). Sin loose, SWC emite el super call con
+`Reflect.construct` y ambos casos andan.
+
+**Prueba aislada** (el mecanismo, sin el resto del bundle):
+
+```
+loose=true  → FALLA  Class constructor PartialTypeClass cannot be invoked without 'new'
+loose=false → OK     {"status":"active","nombre":"x"}
+```
+
+**Cómo detectarlo sin esperar el 500:** buscar en el bundle
+`grep -c "\.apply(this, arguments) || this" dist/apps/api/main.js`. Si da > 0,
+hay clases decoradas que heredan con el patrón roto.
+
+**Regla:** cualquier DTO que use `PartialType` / `PickType` / `OmitType` /
+`IntersectionType` **y** tenga decoradores propios entra en este caso. Hoy sólo
+`UpdateUserDto` cumple las dos condiciones; si aparece otro, ya está cubierto por
+el plugin.
