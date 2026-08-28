@@ -240,8 +240,12 @@ const efectivosSQL = `
     const fkZona = await knex.raw(`
       SELECT pg_get_constraintdef(oid) d FROM pg_constraint
        WHERE conrelid='commercial.warehouses'::regclass AND conname='warehouses_zone_fk'`);
-    assert(/REFERENCES trade\.zones\(tenant_id, id\)/.test(fkZona.rows[0]?.d ?? ''),
-      'FK compuesta a trade.zones');
+    // Sin exigir el prefijo de esquema: `pg_get_constraintdef` lo OMITE cuando
+    // `trade` está en el `search_path`, que es el caso en prod y no en local.
+    // Lo que hay que verificar es que la FK sea COMPUESTA por tenant; el texto
+    // exacto es un detalle de formato del servidor, no un invariante.
+    assert(/REFERENCES (trade\.)?zones\(tenant_id, id\)/.test(fkZona.rows[0]?.d ?? ''),
+      'FK compuesta por tenant a trade.zones');
 
     const suc = await knex.raw(`
       SELECT w.code, w.name, z.name zona
