@@ -279,6 +279,38 @@ const cte = (tr, lead) => `
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=s.tenant_id AND al.alias_product_id=s.product_id AND al.deleted_at IS NULL
            WHERE s.tenant_id=$1 GROUP BY 1,2),
   ${tr},
+  -- RA-PRO.42 — el TRÁNSITO BAJA POR EL ÁRBOL DE ABASTO. La compra está CENTRALIZADA: el 98% del
+  -- tránsito se captura en el CEDIS '00' ($13.0M, que vende $0) y en Padre Hidalgo '01' ($8.3M),
+  -- mientras Canindo '06' ($8.5M/mes de venta) y MD-30 ($14.6M/mes) tienen CERO. Atribuir el
+  -- tránsito al almacén donde se captura hacía dos daños opuestos a la vez: el que captura
+  -- sub-pide (su OC de red tapa su propia necesidad) y los demás SOBRE-piden (no reciben crédito
+  -- de lo que ya viene para ellos) — y lo parkeado en el CEDIS se perdía del todo, porque el CEDIS
+  -- tiene demanda propia 0 y ese crédito no le bajaba a nadie.
+  -- Reparto proporcional a la demanda del subárbol que ese almacén surte (mismo criterio con que
+  -- transferPlan reparte el stock del CEDIS). Σ tránsito de red se conserva: sólo cambia de manos.
+  whtree AS (
+    WITH RECURSIVE t AS (
+      SELECT w.id AS anc, w.id AS des, 0 AS depth
+        FROM commercial.warehouses w WHERE w.tenant_id=$1 AND w.deleted_at IS NULL
+      UNION ALL
+      SELECT t.anc, c.id, t.depth + 1
+        FROM t JOIN commercial.warehouses c
+          ON c.tenant_id=$1 AND c.deleted_at IS NULL AND c.source_warehouse_id = t.des
+       WHERE t.depth < 5   -- guarda anti-ciclo (el árbol real tiene profundidad 2)
+    ) SELECT DISTINCT anc, des FROM t),
+  tr_sub AS (   -- demanda del subárbol de cada almacén, por producto
+    SELECT wt.anc, d.product_id, sum(d.daily_pieces) AS sub_dem
+      FROM whtree wt JOIN dem d ON d.warehouse_id = wt.des
+     GROUP BY 1,2),
+  tr_eff AS (   -- tránsito EFECTIVO por almacén: lo propio + su parte de lo que baja de sus padres
+    SELECT wt.des AS warehouse_id, tr.product_id,
+           sum(tr.t * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
+                           WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS t
+      FROM tr
+      JOIN whtree wt ON wt.anc = tr.warehouse_id
+      LEFT JOIN tr_sub s ON s.anc = tr.warehouse_id AND s.product_id = tr.product_id
+      LEFT JOIN dem d ON d.warehouse_id = wt.des AND d.product_id = tr.product_id
+     GROUP BY 1,2),
   whs AS (SELECT w.id, w.source_warehouse_id,
                  -- hub REAL = tiene sucursales que surte (source_warehouse_id NULL solo no basta:
                  -- RUTA/aislados sin hijos NO son hub → su stock no es "sobrante de red")
@@ -291,7 +323,7 @@ const cte = (tr, lead) => `
   base AS (
     SELECT warehouse_id, product_id FROM dem
     UNION SELECT warehouse_id, product_id FROM stk
-    UNION SELECT warehouse_id, product_id FROM tr
+    UNION SELECT warehouse_id, product_id FROM tr_eff
   )`;
 
 const PROJECT = `
@@ -324,7 +356,7 @@ const PROJECT = `
       LEFT JOIN whs w      ON w.id = b.warehouse_id
       LEFT JOIN dem d      ON d.warehouse_id = b.warehouse_id AND d.product_id = b.product_id
       LEFT JOIN stk s      ON s.warehouse_id = b.warehouse_id AND s.product_id = b.product_id
-      LEFT JOIN tr  t      ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
+      LEFT JOIN tr_eff t   ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
       LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id
       LEFT JOIN season se  ON se.product_id = b.product_id
       LEFT JOIN saf sa     ON sa.product_id = b.product_id
