@@ -191,10 +191,8 @@ export type CommandCenterDashboard = z.infer<typeof CommandCenterDashboard>;
 // No son parte del agregado del Command Center (que usa las variantes `network/*`),
 // pero comparten el boundary de commercial-analytics y su gate COMMERCIAL_ANALYTICS_VER.
 
-// ⚠️ Drift real hallado por TS.2 (typecheck): `overview()` NO conforma todavía —
-// su rama `live` OMITE `refreshed_at` y `source` no viaja como literal. Este es el
-// shape OBJETIVO; el fix del service (agregar `refreshed_at` + `source as const` en
-// la rama live) queda pendiente — no se forzó a ciegas sobre una rama no testeable.
+// `overview()` (mv/live) conforma este shape: la rama live incluye `refreshed_at: null`
+// y ambas ramas fijan `source as const` (fix TS.2 tras el drift que halló el typecheck).
 export const OverviewResponse = z.object({
   source: z.enum(['mv', 'live']),
   refreshed_at: z.string().nullable(),

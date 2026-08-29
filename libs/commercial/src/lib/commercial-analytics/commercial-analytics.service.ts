@@ -9,6 +9,7 @@ import type {
   LowStockResponse,
   InactiveCustomersResponse,
   RankingOutOfStockRow,
+  OverviewResponse,
   TopCustomerRow,
   TopProductRow,
   DailySeriesRow,
@@ -461,7 +462,7 @@ export class CommercialAnalyticsService {
    * Overview rolling 30d desde MV (default) o on-the-fly si live=true o si hay
    * date range explícito (las MVs son siempre 30d).
    */
-  async overview30dFromMv() {
+  async overview30dFromMv(): Promise<OverviewResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const row = await trx('analytics.mv_sales_overview_30d')
@@ -477,7 +478,7 @@ export class CommercialAnalyticsService {
       const orders = Number(row.orders_fulfilled);
 
       return {
-        source: 'mv',
+        source: 'mv' as const,
         refreshed_at: row.refreshed_at,
         period: { rolling_days: 30 },
         revenue: {
@@ -503,7 +504,7 @@ export class CommercialAnalyticsService {
    * Si `q` viene vacío, prefiere leer de MV (mucho más rápido). Si hay date range
    * o `live=true`, agrega on-the-fly.
    */
-  async overview(q: DateRangeQuery & { live?: boolean }) {
+  async overview(q: DateRangeQuery & { live?: boolean }): Promise<OverviewResponse> {
     const hasRange = !!(q.from || q.to);
     if (!hasRange && !q.live) {
       return this.overview30dFromMv();
@@ -523,7 +524,7 @@ export class CommercialAnalyticsService {
     };
   }
 
-  private async overviewLive(q: DateRangeQuery) {
+  private async overviewLive(q: DateRangeQuery): Promise<OverviewResponse> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
@@ -574,7 +575,8 @@ export class CommercialAnalyticsService {
       const ordersCount = Number(fulfilledStats.orders_count);
 
       return {
-        source: 'live',
+        source: 'live' as const,
+        refreshed_at: null,
         period: { from: from || null, to: to || null },
         revenue: {
           gross: revenue,
