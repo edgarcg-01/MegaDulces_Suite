@@ -476,6 +476,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
+        // RA-PRO.45 — la vista inversa del "En camino" del Pedido: las OCs de Kepler que quedaron
+        // abiertas. Mismo permiso que Pedido porque es la otra cara del mismo dato.
+        path: 'oc-abiertas',
+        loadComponent: () => import('./modules/compras/pages/compras-oc-abiertas.component').then(m => m.ComprasOcAbiertasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)]
+      },
+      {
         path: 'proveedores',
         loadComponent: () => import('./modules/compras/pages/compras-proveedores.component').then(m => m.ComprasProveedoresComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]

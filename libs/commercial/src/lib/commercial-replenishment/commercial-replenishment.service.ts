@@ -219,7 +219,13 @@ export class CommercialReplenishmentService {
   // `analytics.replenishment_plan`, que lo deriva del ODS en cajas → ×bf lo devuelve exacto a
   // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
   // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
-  private inTransit() { return 'COALESCE(rpl.transit_cajas * rpl.bf, 0)'; }
+  //
+  // RA-PRO.45: para DESCONTAR se usa `transit_eff_cajas` — las mismas cajas pesadas por la
+  // probabilidad de que la OC efectivamente llegue (curva derivada del ODS: una OC abierta hace
+  // 45 días llega el 13.6% de las veces). `transit_cajas` crudo se sigue MOSTRANDO al comprador,
+  // porque tiene que cuadrar folio por folio con el diálogo de "En camino". El COALESCE al crudo
+  // es el puente para la primera corrida, antes de que el importer pueble la columna nueva.
+  private inTransit() { return 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)'; }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
@@ -583,7 +589,11 @@ export class CommercialReplenishmentService {
       const BF = 'COALESCE(plan.bf, 1)';
       const sellDayPz = 'COALESCE(plan.sell_day_pz, 0)';   // venta diaria (red o sucursal) en piezas
       const stockPz = 'COALESCE(plan.stock_pz, 0)';         // existencia (unidades de stock)
-      const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas)
+      const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas) — lo que se MUESTRA
+      // RA-PRO.45 — lo que se DESCUENTA: las mismas cajas pesadas por P(llega | edad de la OC).
+      // No todo lo que está en papel llega: en Kepler la OC se captura al recibir, así que una que
+      // sigue abierta hace 45 días sólo se materializa el 13.6% de las veces.
+      const transitEff = 'COALESCE(plan.transit_eff, plan.transit, 0)';
       // costo real POR CAJA — en el fact ya = costE(unidad de stock) × BF. La DEMANDA manda el reorden:
       // objetivo = venta_diaria × cobertura; sugerido = objetivo − existencia − tránsito (0 si ya cubre).
       const costCaja = 'COALESCE(plan.caja_cost, 0)';
@@ -618,7 +628,7 @@ export class CommercialReplenishmentService {
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
       const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
       // En CAJAS: demanda (sub-unidades, × estación) ÷ SUF ÷ BF; existencia ÷ BF; tránsito ya en cajas.
-      const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
+      const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transitEff})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
       const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
@@ -660,6 +670,7 @@ export class CommercialReplenishmentService {
         LEFT JOIN (
           SELECT product_id,
                  sum(daily_pieces) AS sell_day_pz, sum(stock_pz) AS stock_pz, sum(transit_cajas) AS transit,
+                 sum(transit_eff_cajas) AS transit_eff,
                  sum(revenue30) AS rev30,
                  max(suf) AS suf, max(bf) AS bf, max(caja_cost) AS caja_cost,
                  max(price_ratio) AS price_ratio, max(unit_source) AS unit_source,
@@ -835,7 +846,8 @@ export class CommercialReplenishmentService {
       const inner = `
         WITH base AS (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
-                 rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
+                 rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
+                 COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
                  -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
                  rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
@@ -855,7 +867,9 @@ export class CommercialReplenishmentService {
                  round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
                  round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
                  -- RA-PRO.41 — la demanda del horizonte lleva la estación (razón desestacionalizada).
-                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
+                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_eff_cajas),0))::numeric, 1) AS ped,
+                 -- tran es el CRUDO a propósito: es lo que ve el comprador y lo que tiene que
+                 -- cuadrar con los folios del diálogo "En camino". Descontar usa el pesado (arriba).
                  round(COALESCE(sum(b.transit_cajas),0)::numeric, 1) AS tran,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz,
@@ -951,7 +965,8 @@ export class CommercialReplenishmentService {
       // El factor de caja y el costo salen del fact (misma fuente que el pedido) → las cantidades
       // que ve el comprador acá cuadran con la columna "En camino" de la matriz.
       const econ = (await trx.raw(
-        `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days
+        `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days,
+                sum(transit_cajas) AS tr, sum(COALESCE(transit_eff_cajas, transit_cajas)) AS tr_eff
            FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
         [tenantId, productId])).rows[0] || {};
       const bf = Number(econ.bf) || 1;
@@ -963,6 +978,7 @@ export class CommercialReplenishmentService {
                oc.c1                              AS sucursal,
                oc.c9::date                        AS fecha_oc,
                (oc.c9::date + (?::numeric)::int)  AS llega_aprox,
+               (CURRENT_DATE - oc.c9::date)       AS dias_abierta,
                btrim(oc.c32)                      AS proveedor,
                btrim(l.c11)                       AS unidad,
                sum(l.c9)                          AS cantidad,
@@ -981,6 +997,7 @@ export class CommercialReplenishmentService {
          WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
            AND oc.c9::date >= CURRENT_DATE - 120
            AND l.c8 = ?
+           AND COALESCE(oc.c43, 'N') NOT IN ('F', 'C', 'R')   -- mismo criterio que el fact (RA-PRO.45)
            AND NOT EXISTS (
              SELECT 1 FROM kepler_ods.kdm1 vale
              JOIN kepler_ods.kdm1 oe
@@ -998,6 +1015,7 @@ export class CommercialReplenishmentService {
         fecha_oc: r.fecha_oc,
         llega_aprox: r.llega_aprox,
         llega_estimada: true,          // Kepler no guarda fecha prometida — es OC + lead derivado
+        dias_abierta: Number(r.dias_abierta) || 0,
         proveedor: (r.proveedor as string) || null,
         unidad: (r.unidad as string) || null,
         cantidad: Number(r.cantidad) || 0,
@@ -1010,6 +1028,96 @@ export class CommercialReplenishmentService {
         rows: out,
         total_cajas: Math.round(out.reduce((s, r) => s + r.cajas, 0) * 10) / 10,
         total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
+        // RA-PRO.45 — lo que el motor DESCUENTA de verdad: las mismas cajas pesadas por la
+        // probabilidad de que cada OC llegue. La diferencia con `total_cajas` es papel que ya no
+        // se va a surtir; mostrarla evita la pregunta "si vienen 180 cajas, ¿por qué pide?".
+        descuenta_cajas: Math.round((Number(econ.tr_eff) || 0) * 10) / 10,
+        fact_cajas: Math.round((Number(econ.tr) || 0) * 10) / 10,
+      };
+    });
+  }
+
+  /**
+   * RA-PRO.45 — La vista INVERSA de "En camino": todas las OCs de Kepler que siguen abiertas,
+   * ordenadas por antigüedad, con la probabilidad de que lleguen.
+   *
+   * Existe porque el motor ya dejó de creerles, pero alguien tiene que ir a cerrarlas o cancelarlas
+   * en el ERP: mientras vivan, siguen ensuciando la cadena de compras. Las de +45 días llegan el
+   * 13.6% de las veces — son papel abierto, no pipeline.
+   *
+   * La curva sale del propio ODS (misma que usa el fact); por eso esta consulta cuesta ~2 s y es una
+   * pantalla de trabajo, no un widget de dashboard.
+   */
+  async openPurchaseOrders(q: { sucursal?: string; min_days?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const minDays = Math.min(120, Math.max(0, Number(q.min_days) || 0));
+    const suc = /^[0-9]{1,3}$/.test(String(q.sucursal ?? '')) ? String(q.sucursal) : null;
+    return this.tk.run(async (trx) => {
+      const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
+      if (!hasOds) return { rows: [], total: 0, total_valor: 0, curva: [] };
+
+      // La curva NO se re-deriva acá: la escribe el importer del fact (un solo productor) — así la
+      // probabilidad que ve el comprador es exactamente la que usó el motor para descontar.
+      const curva = (await trx('analytics.oc_survival_curve')
+        .where({ tenant_id: tenantId }).orderBy('edad')
+        .select('edad', 'muestra', 'fallback', trx.raw('round(p*100, 1) AS pct'))) as Array<Record<string, unknown>>;
+
+      const rows = (await trx.raw(`
+        WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
+        oc AS (
+          SELECT o.sucursal, o.c1 AS almacen, o.c6 AS folio, o.c9::date AS fecha_oc,
+                 btrim(o.c32) AS proveedor, COALESCE(o.c43, 'N') AS estatus,
+                 (CURRENT_DATE - o.c9::date) AS dias
+            FROM kepler_ods.kdm1 o
+           WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
+             AND o.c9::date >= CURRENT_DATE - 120
+             AND (CURRENT_DATE - o.c9::date) >= :mind
+             AND (:suc::text IS NULL OR o.c1 = :suc)
+             AND NOT EXISTS (
+               SELECT 1 FROM kepler_ods.kdm1 vale
+               JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
+                 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
+              WHERE vale.sucursal=o.sucursal AND vale.c1=o.c1 AND vale.c2='X' AND vale.c3='A'
+                AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6)
+        )
+        SELECT oc.almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
+               v.lineas, round(v.valor::numeric, 2) AS valor,
+               -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
+               CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob
+          FROM oc
+          -- LEFT: si el importer todavía no escribió la curva, la bandeja igual lista las OCs
+          -- (con prob NULL). Una pantalla de trabajo no se queda en blanco por eso.
+          LEFT JOIN surv sv ON sv.edad = (CASE WHEN oc.dias <= 3 THEN 0 WHEN oc.dias <= 7 THEN 4
+                                          WHEN oc.dias <= 14 THEN 8 WHEN oc.dias <= 21 THEN 15
+                                          WHEN oc.dias <= 30 THEN 22 WHEN oc.dias <= 45 THEN 31
+                                          WHEN oc.dias <= 60 THEN 46 ELSE 61 END)
+          JOIN LATERAL (
+            SELECT count(*) AS lineas, COALESCE(sum(l.c9 * l.c12), 0) AS valor
+              FROM kepler_ods.kdm2 l
+             WHERE l.sucursal=oc.sucursal AND l.c1=oc.almacen AND l.c2='X' AND l.c3='A'
+               AND l.c4='35' AND l.c6=oc.folio) v ON true
+         WHERE v.valor > 0
+         ORDER BY oc.dias DESC, v.valor DESC
+         LIMIT 500`, { t: tenantId, mind: minDays, suc })).rows as Array<Record<string, unknown>>;
+
+      const out = rows.map((r) => ({
+        almacen: String(r.almacen ?? '').trim(),
+        folio: String(r.folio ?? '').trim(),
+        fecha_oc: r.fecha_oc,
+        proveedor: (r.proveedor as string) || null,
+        estatus: String(r.estatus ?? 'N'),
+        dias: Number(r.dias) || 0,
+        lineas: Number(r.lineas) || 0,
+        valor: Number(r.valor) || 0,
+        prob: r.prob === null || r.prob === undefined ? null : Number(r.prob),
+      }));
+      return {
+        rows: out,
+        total: out.length,
+        total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
+        // Lo que de verdad sigue en juego: el valor pesado por la probabilidad de que llegue.
+        valor_esperado: Math.round(out.reduce((s, r) => s + r.valor * ((r.prob ?? 100) / 100), 0) * 100) / 100,
+        curva: curva.map((c) => ({ edad: Number(c.edad), n: Number(c.muestra), pct: Number(c.pct), fallback: !!c.fallback })),
       };
     });
   }
@@ -1041,7 +1149,7 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - rp.transit_cajas)::numeric, 1) AS pedido_cajas,
+               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - COALESCE(rp.transit_eff_cajas, rp.transit_cajas, 0))::numeric, 1) AS pedido_cajas,
                round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
@@ -1242,7 +1350,7 @@ export class CommercialReplenishmentService {
     const whIds = this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(rpl.transit_cajas * rpl.bf, 0)';   // fact → unidades de stock (ver inTransit())
+      const it = this.inTransit();   // pesado por P(llega) — ver inTransit()
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y

@@ -531,6 +531,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
         { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
+        // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar
+        // para que dejen de tapar el pedido. Mismo permiso que Pedido (es la otra cara del dato).
+        { label: 'Abiertas en Kepler', icon: 'pi pi-hourglass',    route: '/compras/oc-abiertas',   permission: Permission.COMPRAS_PEDIDO_VER },
       ],
     },
     {

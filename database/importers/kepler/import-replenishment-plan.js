@@ -59,10 +59,65 @@ const urBody = `SELECT z.product_id,
 // fueron un importer y una tabla aparte, el rename `qty_in_transit` → `transit_cajas` se comió la
 // conversión y el motor restaba ~bf veces de más. Ver GOTCHAS §25.
 const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
+
+// RA-PRO.45 — NO TODO EL TRÁNSITO LLEGA. En Kepler la OC `X-A-35` se captura CUANDO SE RECIBE
+// (81% de las del CEDIS y 95–100% de las de sucursal cierran el MISMO día), así que una OC que
+// sigue abierta no es "el pipeline normal": es un documento estancado. Medido 2026-08-29 sobre las
+// OCs de hace 180–400 d (ya todas resueltas, sin censura): de las que seguían abiertas al día 45
+// sólo el 13.6% terminó recibiéndose. Restar el 100% de esas OCs sobrecreditaba $10.4M de $20.3M
+// (51%) y dejaba 420 filas producto×almacén en piso CERO sin pedir. Ver reporte del 2026-08-29.
+//
+// En vez de un tope de antigüedad arbitrario, el motor pesa cada OC por P(llega | edad) — y esa
+// curva se DERIVA del propio ODS cada corrida (cero captura manual, misma tesis que el lead time
+// y la estación). Monótona no creciente por construcción; si un bucket no junta muestra (n<25)
+// cae a la curva medida. Se guardan las dos cantidades: `t` = lo que dicen los papeles (lo que ve
+// el comprador en la columna "En camino") y `te` = lo que el motor descuenta de verdad.
+const SURV_MIN_N = 25;
+// ⚠ MATERIALIZED en las dos: sin eso el planner las inlinea y re-evalúa `surv_raw` (2 s, barrido de
+// 220 días de OCs con subconsulta correlacionada) POR CADA línea de OC del tránsito — la corrida
+// pasó de 30 s a >15 min. Con MATERIALIZED se calcula una vez y el join contra 8 filas es gratis.
+const survOds = `
+  surv_raw AS MATERIALIZED (
+    SELECT o.c9::date AS f_oc,
+           (SELECT min(oe.c9::date)
+              FROM kepler_ods.kdm1 vale
+              JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
+                                     AND oe.c2='X' AND oe.c3='A' AND oe.c4='40'
+                                     AND oe.c37='37' AND oe.c39=vale.c6
+             WHERE vale.sucursal=o.sucursal AND vale.c1=o.c1 AND vale.c2='X' AND vale.c3='A'
+               AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6) AS f_ent
+      FROM kepler_ods.kdm1 o
+     WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
+       AND COALESCE(o.c43, 'N') <> 'C'                     -- las canceladas no son "no llegó"
+       AND o.c9::date BETWEEN CURRENT_DATE - 400 AND CURRENT_DATE - 180
+  ),
+  surv AS MATERIALIZED (
+    SELECT edad, n,
+           min(p_raw) OVER (ORDER BY edad ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS p
+      FROM (
+        SELECT b.d AS edad,
+               count(*) FILTER (WHERE s.f_ent IS NULL OR s.f_ent - s.f_oc > b.d) AS n,
+               CASE WHEN count(*) FILTER (WHERE s.f_ent IS NULL OR s.f_ent - s.f_oc > b.d) >= ${SURV_MIN_N}
+                    THEN count(*) FILTER (WHERE s.f_ent IS NOT NULL AND s.f_ent - s.f_oc > b.d)::numeric
+                       / count(*) FILTER (WHERE s.f_ent IS NULL OR s.f_ent - s.f_oc > b.d)
+                    ELSE (CASE b.d WHEN 0 THEN 0.85 WHEN 4 THEN 0.75 WHEN 8 THEN 0.60 WHEN 15 THEN 0.50
+                                   WHEN 22 THEN 0.45 WHEN 31 THEN 0.25 WHEN 46 THEN 0.13 ELSE 0.10 END)::numeric
+               END AS p_raw
+          FROM surv_raw s
+         CROSS JOIN (VALUES (0),(4),(8),(15),(22),(31),(46),(61)) b(d)
+         GROUP BY b.d) z
+  )`;
+// Bucket de edad de una OC → arista de la curva. Se toma la arista INFERIOR (probabilidad al
+// ENTRAR al bucket, la más alta del tramo): conservador, acredita de más antes que de menos.
+const SURV_BUCKET = `(CASE WHEN age <= 3 THEN 0 WHEN age <= 7 THEN 4 WHEN age <= 14 THEN 8
+                           WHEN age <= 21 THEN 15 WHEN age <= 30 THEN 22 WHEN age <= 45 THEN 31
+                           WHEN age <= 60 THEN 46 ELSE 61 END)`;
+
 const trOds = `
-  tr AS (
+  ${survOds},
+  tr_ln AS (
     SELECT w.id AS warehouse_id, COALESCE(al.canonical_product_id, e.product_id) AS product_id,
-           SUM(CASE
+           (CASE
                  -- 1) FACTOR DECLARADO POR EL DOCUMENTO. La línea de la OC trae su propia
                  --    conversión: c55 = unidad de caja, c58 = cuántas unidades de la línea hacen
                  --    esa caja, c57 = su costo. Verificado: c12 × c58 = c57 exacto. Se acepta sólo
@@ -83,7 +138,8 @@ const trOds = `
                          WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
                          ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
                       ) / GREATEST(e.bf, 1)
-               END) AS t
+               END) AS cj,
+           sv.p AS w
       FROM kepler_ods.kdm1 oc
       JOIN kepler_ods.kdm2 l
         ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
@@ -92,8 +148,13 @@ const trOds = `
       JOIN econ e ON e.sku = l.c8
       LEFT JOIN commercial.product_aliases al
         ON al.tenant_id=$1 AND al.alias_product_id=e.product_id AND al.deleted_at IS NULL
+      CROSS JOIN LATERAL (SELECT (CURRENT_DATE - oc.c9::date) AS age) a
+      JOIN surv sv ON sv.edad = ${SURV_BUCKET}
      WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
        AND oc.c9::date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
+       -- El propio ERP ya la dio por cerrada: F=finalizada, C=cancelada, R=recibida. La cadena de
+       -- documentos quedó rota pero no viene nada — 22 OCs / $1.28M de puro fantasma (2026-08-29).
+       AND COALESCE(oc.c43, 'N') NOT IN ('F', 'C', 'R')
        AND NOT EXISTS (
          SELECT 1 FROM kepler_ods.kdm1 vale
          JOIN kepler_ods.kdm1 oe
@@ -101,9 +162,13 @@ const trOds = `
           AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
         WHERE vale.sucursal=oc.sucursal AND vale.c1=oc.c1
           AND vale.c2='X' AND vale.c3='A' AND vale.c4='37' AND vale.c37='35' AND vale.c39=oc.c6)
-     GROUP BY 1, 2)`;
+  ),
+  tr AS (
+    SELECT warehouse_id, product_id, sum(cj) AS t, sum(cj * w) AS te
+      FROM tr_ln GROUP BY 1, 2)`;
 // Sin ODS (dev local sin réplica) el fact se arma igual, con tránsito 0 — no revienta.
-const trEmpty = `tr AS (SELECT NULL::uuid AS warehouse_id, NULL::uuid AS product_id, 0::numeric AS t WHERE false)`;
+const trEmpty = `tr AS (SELECT NULL::uuid AS warehouse_id, NULL::uuid AS product_id,
+                              0::numeric AS t, 0::numeric AS te WHERE false)`;
 
 // LEAD TIME PROVEEDOR — DERIVADO del ODS (RA-PRO.41, cero captura manual). Kepler captura la cadena
 // de un jalón (84% de las OCs cierran el MISMO día → lag 0, sin señal); la señal real vive en el
@@ -325,7 +390,9 @@ const cte = (tr, lead) => `
   tr_eff AS (   -- tránsito EFECTIVO por almacén: lo propio + su parte de lo que baja de sus padres
     SELECT wt.des AS warehouse_id, tr.product_id,
            sum(tr.t * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
-                           WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS t
+                           WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS t,
+           sum(tr.te * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
+                            WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS te
       FROM tr
       JOIN whtree wt ON wt.anc = tr.warehouse_id
       LEFT JOIN tr_sub s ON s.anc = tr.warehouse_id AND s.product_id = tr.product_id
@@ -358,6 +425,10 @@ const PROJECT = `
                 ELSE COALESCE(d.daily_pieces, 0) END AS eff_daily,
            COALESCE(s.quantity, 0) AS stock_pz,
            round(COALESCE(t.t, 0)::numeric, 2) AS transit_cajas,   -- ya viene en CAJAS del CTE tr
+           -- RA-PRO.45: lo mismo pero pesado por P(llega|edad). transit_cajas es lo que dicen los
+           -- papeles (lo que el comprador ve y puede rastrear folio por folio); ESTA es la que el
+           -- motor descuenta de la necesidad.
+           round(COALESCE(t.te, 0)::numeric, 2) AS transit_eff_cajas,
            e.suf, e.bf,
            e.real_cost * e.bf AS caja_cost,
            round(e.ratio, 4) AS price_ratio,
@@ -386,6 +457,7 @@ const PROJECT = `
 // Orden EXACTO del INSERT. Key = PK; DATA = lo que se compara para saltar filas idénticas.
 const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'supplier_id', 'category_id',
   'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
+  'transit_eff_cajas',
   'suf', 'bf', 'caja_cost', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
   'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days', 'computed_at'];
 const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
@@ -408,8 +480,6 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
                                      count(DISTINCT b.warehouse_id)::int whs FROM base b JOIN econ e ON e.product_id=b.product_id`, [M]);
     console.log(`  filas almacén×producto=${Number(s.rows[0].filas).toLocaleString()} · productos=${s.rows[0].prods} · almacenes=${s.rows[0].whs}`);
 
-    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
-
     const t0 = Date.now();
     await db.query('BEGIN');
     await db.query(`CREATE TEMP TABLE stg_rplan ON COMMIT DROP AS ${CTE} ${PROJECT}`, [M]);
@@ -419,6 +489,7 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     // propio feed reporta lo que ve y lo que NO puede ver.
     const chk = (await db.query(`
       SELECT round(sum(transit_cajas*caja_cost)::numeric,0)            AS transito,
+             round(sum(transit_eff_cajas*caja_cost)::numeric,0)        AS transito_eff,
              round(sum(stock_pz/GREATEST(bf,1)*caja_cost)::numeric,0)  AS inventario,
              count(DISTINCT product_id) FILTER (WHERE season_ratio IS DISTINCT FROM 1 AND season_ratio IS NOT NULL) AS prods_con_estacion,
              round(min(season_ratio)::numeric,2) AS season_min, round(max(season_ratio)::numeric,2) AS season_max,
@@ -436,6 +507,24 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
                           WHERE m.tenant_id=rw.tenant_id AND m.route_code = 'WIN-' || replace(rw.code,'RUTA-',''))`, [M])).rows[0];
     const mx = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
     console.log(`  cordura: tránsito ${mx(chk.transito)} vs inventario ${mx(chk.inventario)}${Number(chk.transito) > Number(chk.inventario) ? '  ⚠ TRÁNSITO > INVENTARIO — revisar unidad' : ''}`);
+    // RA-PRO.45 — la curva de supervivencia se re-deriva cada corrida: hay que poder verla, y se
+    // MATERIALIZA para que el motor y la bandeja de OCs abiertas lean la misma (un solo productor).
+    if (hasOds) {
+      const sv = (await db.query(`WITH ${survOds} SELECT edad, n, round(p*100,1) pct FROM surv ORDER BY edad`)).rows;
+      const flacos = sv.filter((r) => Number(r.n) < SURV_MIN_N).length;
+      console.log(`  supervivencia OC: ${sv.map((r) => `${r.edad}d→${r.pct}%`).join(' ')}${flacos ? `  ⚠ ${flacos} tramos sin muestra (fallback)` : ''}`);
+      if (APPLY) {
+        await db.query(`DELETE FROM analytics.oc_survival_curve WHERE tenant_id = $1`, [M]);
+        for (const r of sv) {
+          await db.query(
+            `INSERT INTO analytics.oc_survival_curve (tenant_id, edad, muestra, p, fallback, computed_at)
+             VALUES ($1, $2, $3, $4, $5, now())`,
+            [M, r.edad, r.n, Number(r.pct) / 100, Number(r.n) < SURV_MIN_N]);
+        }
+      }
+      const desc = Number(chk.transito) - Number(chk.transito_eff);
+      console.log(`  tránsito descontado: papeles ${mx(chk.transito)} → efectivo ${mx(chk.transito_eff)} (se ignora ${mx(desc)}, ${chk.transito > 0 ? Math.round((desc / chk.transito) * 100) : 0}%)`);
+    }
     console.log(`  estación: ${chk.prods_con_estacion} productos con ratio≠1 (rango ${chk.season_min}–${chk.season_max}) · colchón cuantílico: ${chk.prods_con_colchon} · lead derivado: ${chk.prods_con_lead}`);
     if (Number(rutasResid.n) > 0) console.log(`  ⚠ ${rutasResid.n} filas de RUTA-* siguen en el fact (el fold a sucursal no cubrió todo)`);
     if (rutasSinMapa.codes) console.log(`  ⚠ rutas sin mapeo a sucursal (demanda se queda en la ruta): ${rutasSinMapa.codes}`);
@@ -469,6 +558,11 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
       }
     }
     console.log(`  puntos ciegos conocidos: tránsito de MD-30/MD-32 (sus compras directas no están en el ODS — pendiente extender la replicación)`);
+
+    // El dry-run ahora sí llega hasta acá: los controles se calculan sobre el staging real y se
+    // tiran con el ROLLBACK. Antes salía antes de imprimirlos, que es justo cuando más se necesitan
+    // (probar un cambio del motor sin escribir).
+    if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] nada cambió.'); return; }
 
     const up = await db.query(
       `INSERT INTO analytics.replenishment_plan AS t (${COLS.join(', ')})

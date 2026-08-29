@@ -143,6 +143,7 @@ export interface InTransitOc {
   folio: string; sucursal: string;
   fecha_oc: string; llega_aprox: string;
   llega_estimada: boolean;              // Kepler no guarda fecha prometida: es OC + lead derivado
+  dias_abierta: number;                 // RA-PRO.45 — el dato que decide si esta OC sigue viva
   proveedor: string | null; unidad: string | null;
   cantidad: number;                     // en la unidad de la línea de la OC
   cajas: number; valor: number;
@@ -152,6 +153,22 @@ export interface InTransitResponse {
   lead_days?: number;
   rows: InTransitOc[];
   total_cajas: number; total_valor: number;
+  // RA-PRO.45 — cajas que el motor descuenta de verdad (pesadas por P(llega|edad)) vs las que
+  // dicen los papeles. La brecha es papel abierto que ya no se va a surtir.
+  descuenta_cajas?: number; fact_cajas?: number;
+}
+// RA-PRO.45 — bandeja: las OCs de Kepler que siguen abiertas, para cerrarlas o cancelarlas.
+export interface OpenOcRow {
+  almacen: string; folio: string; fecha_oc: string;
+  proveedor: string | null;
+  estatus: string;                      // c43 en Kepler: N pendiente · F finalizada · C cancelada · R recibida
+  dias: number; lineas: number; valor: number;
+  prob: number | null;                  // % histórico de que una OC de esa edad termine llegando
+}
+export interface OpenOcResponse {
+  rows: OpenOcRow[];
+  total: number; total_valor: number; valor_esperado: number;
+  curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
 }
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
@@ -728,6 +745,15 @@ export class ComprasService {
   /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */
   inTransit(productId: string): Observable<InTransitResponse> {
     return this.http.get<InTransitResponse>(`${this.base}/in-transit/${productId}`);
+  }
+
+  /** RA-PRO.45 — todas las OCs de Kepler abiertas, por antigüedad. La vista inversa de "En camino". */
+  openPurchaseOrders(q?: { sucursal?: string; min_days?: number }): Observable<OpenOcResponse> {
+    const p = new URLSearchParams();
+    if (q?.sucursal) p.set('sucursal', q.sucursal);
+    if (q?.min_days) p.set('min_days', String(q.min_days));
+    const qs = p.toString();
+    return this.http.get<OpenOcResponse>(`${this.base}/open-purchase-orders${qs ? '?' + qs : ''}`);
   }
 
   /**

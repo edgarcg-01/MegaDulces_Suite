@@ -146,7 +146,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   <th rowspan="2" class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
                   <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
-                  <th rowspan="2" class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios y cuándo llega. El Pedido YA la descuenta — por eso un producto con OC en camino puede pedir 0.">En camino</th>
+                  <th rowspan="2" class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
                   <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   @for (t of wbTerritories(); track t.code) {
@@ -300,7 +300,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong> (la columna <strong>Est.</strong> muestra la razón estacional aplicada; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios y fechas, y ahí está la razón de que un producto pida 0; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong> (la columna <strong>Est.</strong> muestra la razón estacional aplicada; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas; se descuenta pesado por la probabilidad de que cada orden llegue, así que una OC estancada deja de tapar el pedido; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
         @if (wbRows().length) {
@@ -328,13 +328,24 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           } @else if (tranRows().length) {
             <p class="pr-uov-hint">
               <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
-              ({{ money(tranTotalValor()) }}). El pedido sugerido ya las descuenta.
+              ({{ money(tranTotalValor()) }}).
               La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
               como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
             </p>
+            <!-- RA-PRO.45 — la brecha entre lo que dice el papel y lo que el motor descuenta. Sin
+                 esto la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir. -->
+            @if (tranGap() > 0.05) {
+              <p class="pr-tran-gap">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
+                {{ tranTotalCajas() | number:'1.0-1' }}: en Kepler la orden se captura al recibir, así que
+                una que sigue abierta hace semanas casi nunca llega. Cada orden pesa según su antigüedad.
+              </p>
+            }
             <table class="pr-peek-tbl">
               <thead><tr>
                 <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha OC</th><th>Llega aprox.</th>
+                <th class="pr-r">Abierta</th>
                 <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r">Valor</th>
               </tr></thead>
               <tbody>
@@ -348,6 +359,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                       <p-tag [value]="(o.llega_aprox | date:'dd/MM/yy') || ''"
                              [severity]="llegaSev(o)" styleClass="pr-cov-tag" [title]="llegaTitle(o)"></p-tag>
                     </td>
+                    <td class="pr-r"><span [class]="edadCls(o)" [title]="edadTitle(o)">{{ o.dias_abierta }} d</span></td>
                     <td class="pr-r pr-muted">{{ o.cantidad | number:'1.0-0' }} {{ o.unidad }}</td>
                     <td class="pr-r pr-strong">{{ o.cajas | number:'1.0-1' }}</td>
                     <td class="pr-r pr-val">{{ money(o.valor) }}</td>
@@ -460,6 +472,15 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-tran-btn:hover { background: var(--overlay-hover, var(--hover-bg)); border-color: var(--action); color: var(--action); }
     .pr-tran-btn:focus-visible { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
     .pr-tran-btn i { font-size: .7rem; }
+    /* RA-PRO.45 — por qué el pedido no descuenta todo lo que dice el papel. */
+    .pr-tran-gap { display: flex; gap: .4rem; align-items: flex-start; font-size: .78rem; line-height: 1.45;
+      margin: 0 0 1rem; padding: .5rem .65rem; border: 1px solid var(--border-color);
+      border-left: 2px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
+      background: var(--surface-2, transparent); color: var(--text-muted); }
+    .pr-tran-gap i { color: var(--warn-fg); margin-top: .12rem; }
+    .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
+    .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
     .pr-uov-prod { margin: 0 0 .5rem; }
     .pr-uov-hint { font-size: .78rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
     .pr-uov-f { display: block; margin-bottom: .9rem; }
@@ -743,8 +764,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly tranRows = signal<InTransitOc[]>([]);
   readonly tranProduct = signal<{ sku: string; nombre: string } | null>(null);
   readonly tranLead = signal<number | null>(null);
+  readonly tranDescuenta = signal(0);          // RA-PRO.45 — cajas que el motor sí resta
   tranTotalCajas = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.cajas) || 0), 0));
   tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
+  tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
 
   openTransit(r: WorkbookRow): void {
     this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
@@ -756,8 +779,20 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (!res) { this.tranError.set(true); return; }   // NO tragar el error: se avisa (DESIGN §Ing.UI 6)
         this.tranRows.set(res.rows ?? []);
         this.tranLead.set(res.lead_days ?? null);
+        this.tranDescuenta.set(Number(res.descuenta_cajas ?? 0));
         if (res.product) this.tranProduct.set(res.product);
       });
+  }
+  /** Antigüedad de la OC: es lo que decide cuánto pesa. +30 d = prácticamente muerta. */
+  edadCls(o: InTransitOc): string {
+    const d = Number(o.dias_abierta) || 0;
+    return d > 30 ? 'pr-edad pr-edad-bad' : d > 14 ? 'pr-edad pr-edad-warn' : 'pr-edad';
+  }
+  edadTitle(o: InTransitOc): string {
+    const d = Number(o.dias_abierta) || 0;
+    if (d > 30) return 'Lleva más de un mes abierta: históricamente sólo una de cada siete llega. Casi no descuenta pedido.';
+    if (d > 14) return 'Lleva más de dos semanas abierta: cerca de la mitad de estas ya no se surte.';
+    return 'Orden reciente: se descuenta casi completa.';
   }
   /** Semáforo de llegada: vencida (debió llegar) · esta semana · más adelante. */
   llegaSev(o: InTransitOc): Sev {

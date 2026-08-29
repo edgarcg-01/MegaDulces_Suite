@@ -41,6 +41,50 @@ RE.13/RE.16 habían partido el proceso **por trabajo** y eso quedó bien. Lo que
 ### Verificación
 
 Builds `view` + `api` verdes. **Sin verificación visual** (dev servers prohibidos y los MCP de navegador no conectaron en la sesión). Smokes de entradas: `goods-receipts-lifecycle` y `goods-receipts-scope` verdes; **3 aserciones rojas preexistentes y ajenas a este diff** (que no toca migraciones ni la función de apareo) — `goods-receipt-twins` avisa que el motor **desaparea un par** con la ventana corta (968 vs 969, es justo lo que ese smoke vigila y vale mirarlo aparte), y `supplier-receipt-proofs` ×2 por data local desactualizada (`analytics.erp_supplier_payments` sin PK en local + falta el anticipo CONVERMEX).
+## 2026-08-29 — RA-PRO.45: el tránsito se pesa por la probabilidad de que llegue
+
+**Disparador:** Edgar — *"realizá un análisis de estas órdenes de compra en tránsito, seguí su flujo para saber más de estas"*, después de que la columna "En camino" (RA-PRO.44) hiciera visible que 58% del tránsito ya estaba vencido.
+
+### Lo que apareció al seguir la cadena
+
+**En Kepler la orden de compra se captura CUANDO LLEGA la mercancía.** De las OCs cerradas de hace 200–30 días, cierran el mismo día el **81% en CEDIS** y el **95–100% en sucursales** (p90 CEDIS 4 d, resto 0 d). El `X-A-35` no es una promesa a futuro: es papeleo de recepción. Por lo tanto una OC abierta no es "el pipeline", es un documento estancado — y el motor le creía al 100%.
+
+Universo real: **273 OCs abiertas / $20.26M**, 96% concentradas en CEDIS (156) y Padre Hidalgo (109). PH deja abierto el **17%** de sus documentos contra 1–3% del resto (eso es captura, no motor).
+
+### Hipótesis probadas — cada una contra su placebo
+
+El placebo es la misma prueba corrida sobre la ventana ANTERIOR a la OC. Sin él, dos de las cuatro hipótesis hubieran pasado por buenas:
+
+| Hipótesis | Post | Placebo | Veredicto |
+|---|---|---|---|
+| "entró el mismo SKU después → se surtió" | 78.0% | **78.3%** | ❌ ruido de rotación puro |
+| "se surtió como vale directo sin ligar" (897 vales `X-A-37` con `c37=0`) | 1 de 218 | 1 de 218 | ❌ descartada |
+| "se re-pidió y llegó contra la OC nueva" (mismo prov + misma cantidad) | 52.6% | 19.3% | ✅ confirmada; el 91% de esas entradas ya tiene otra OC dueña |
+| "el ERP ya las da por muertas" (`kdm1.c43` = F/C/R) | 22 OCs / $1.28M | — | ✅ confirmada |
+
+**Hallazgo de columna:** `kdm1.c43` es el estatus del documento (`N` pendiente · `F` finalizada · `C` cancelada · `R` recibida). Se encontró diffeando las 200 columnas de `kdm1` entre OCs abiertas viejas y cerradas — era la única que separaba los dos grupos. Es una segunda fuente independiente de la cadena de documentos, y gratis.
+
+### La curva de supervivencia
+
+`P(llega | seguía abierta al día d)`, sobre OCs de hace 180–400 días (todas resueltas, sin censura): **85.6% al día 0 → 56.8% a los 15 → 24.0% a los 31 → 13.6% a los 45 → 11.6% a los 61**. Derivada del ODS en cada corrida y **materializada** en `analytics.oc_survival_curve` (8 filas, un solo productor: el importer del fact). Monótona no creciente por construcción; `fallback` marcado si un tramo no junta n≥25.
+
+### Qué cambió
+
+- `transit_cajas` = los papeles (lo que ve el comprador, cuadra folio por folio). `transit_eff_cajas` = pesado por P(llega|edad), **es lo que el motor descuenta**. Se pesa ANTES de repartir por el árbol de abasto.
+- `c43 IN ('F','C','R')` se excluye del tránsito: el ERP ya lo dijo, no hace falta heurística.
+- Todos los consumidores del descuento: pedido, workbook, detalle, traspaso, sobrestock y el **scanner de hallazgos** (si se quedaba con el crudo, la bandeja se cegaba justo en los SKUs tapados).
+- UI: columna **Abierta** (días + semáforo) en el diálogo de En camino + nota que explica la brecha; página nueva **`/compras/oc-abiertas`** con las 202 OCs abiertas con valor, su estatus y su probabilidad — la lista de lo que compras tiene que barrer.
+
+**Resultado:** tránsito descontado $19.96M → **$10.95M** (−45%). Pedido sugerido **$13.48M → $14.47M (+$993k, +7.4%)**, **568 filas despiertan de cero**. Ejemplo: COBERTURA LUSSEL en 01, piso 0 y 22 pz/día, no pedía nada porque "venían" 43.4 cajas de una OC estancada.
+
+### Lecciones
+
+1. **Sin placebo, el 78% parecía evidencia.** La prueba obvia ("el producto entró después") tenía exactamente la misma tasa hacia atrás en el tiempo. Toda prueba de coincidencia temporal necesita su ventana espejo.
+2. **`AS MATERIALIZED` no es opcional acá.** Sin eso el planner re-evalúa la curva (2 s) por cada línea de OC: la corrida pasó de 30 s a **>15 min**. Con MATERIALIZED, 35 s.
+3. **Definir la curva dos veces (importer + servicio) era repetir el bug de agosto.** Se materializó en una tabla para que haya UN productor.
+4. **Dos versiones del importer escribiendo la misma tabla se detectan solo si el smoke cruza magnitudes.** El runner on-prem corrió el importer viejo a mitad de la prueba y el test lo cazó con `eff > papel`. Mientras convivan, `transit_eff_cajas` se dejó en NULL a propósito.
+
+**Pendiente:** desplegar el importer nuevo al runner on-prem (hasta entonces el servicio cae al crudo = comportamiento previo) + redeploy api/view. Reporte forense completo: artifact "Tránsito fantasma".
 
 ---
 

@@ -199,6 +199,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
           { id: 'compras-ordenes', label: 'Órdenes de compra', route: '/compras/ordenes', view: [Permission.COMPRAS_ORDENES_VER], manage: [Permission.COMPRAS_ORDENES_GESTIONAR] },
+          { id: 'compras-oc-abiertas', label: 'Abiertas en Kepler', route: '/compras/oc-abiertas', view: [Permission.COMPRAS_PEDIDO_VER], manage: [] },
           { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
           // RE.20.1 — fusionada con `Control de entradas · Listado`: es la misma pantalla con
           // otro lente, así que la gatea el mismo permiso. `COMPRAS_360_VER` queda huérfano a

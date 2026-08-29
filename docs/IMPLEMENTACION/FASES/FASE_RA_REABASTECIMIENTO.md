@@ -617,3 +617,76 @@ Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del provee
 El motor multiplica la demanda por `season_ratio` en los 4 caminos (compra, workbook, detalle, traspaso, sobrestock — el navideño con pila en noviembre ya no es "sobrestock"). Engine expone `season_ratio/season_src`; UI columna **Est.** con chip ×N.NN. Mig `20260828140000` (aditiva, aplicada a prod a mano). Controles de cordura en cada corrida del fact: tránsito-vs-inventario, rango de estación, rutas sin mapear, puntos ciegos (tránsito MD-30/32 no está en el ODS).
 
 **Advertencia honesta:** oct–dic tienen UNA observación (dic-2025); el shrinkage y el cap acotan el error. La validación real de la temporada alta es este oct-dic. Efecto Pascua móvil no modelable aún (abril −10% en backtest).
+
+---
+
+## RA-PRO.45 — El tránsito se pesa por la probabilidad de que llegue (2026-08-29) ✅
+
+**El hallazgo que reordena todo:** en Kepler la orden de compra `X-A-35` **se captura cuando la
+mercancía ya llegó**. De las OCs cerradas de los últimos 200 días, el **81% en CEDIS** y el
+**95–100% en sucursales** cierran el MISMO día que se abren (p90 CEDIS = 4 d, resto = 0 d). O sea:
+Kepler casi no tiene visibilidad real de tránsito, y una OC que sigue abierta no es "el pipeline
+normal" sino un **documento estancado**.
+
+Consecuencia medida el 2026-08-29: el motor restaba **$20.26M** de "en camino" al 100%, cuando lo
+que de verdad venía eran ~$9.9M. Los otros **$10.4M (51%)** eran papel abierto apagando pedido en
+**420 filas producto×almacén en piso CERO**.
+
+### Curva de supervivencia (derivada del ODS, cero captura)
+
+`P(la OC termina llegando | seguía abierta al día d)`, sobre OCs de hace 180–400 días (ya todas
+resueltas, sin censura, canceladas excluidas):
+
+| día | 0 | 4 | 8 | 15 | 22 | 31 | 46 | 61 |
+|---|---|---|---|---|---|---|---|---|
+| P(llega) | 85.6% | 77.2% | 68.9% | 56.8% | 49.3% | **24.0%** | **13.6%** | 11.6% |
+| muestra | 264 | 167 | 122 | 88 | 75 | 50 | 44 | 43 |
+
+Monótona no creciente por construcción (running min). Si un tramo no junta n≥25 cae a una curva de
+respaldo y se marca `fallback`. Se **materializa** en `analytics.oc_survival_curve` desde el MISMO
+importer del fact — un solo productor, para que la probabilidad que ve el comprador sea exactamente
+la que usó el motor (definirla dos veces es el patrón que ya nos costó el tránsito fantasma).
+
+### Qué cambia en el motor
+
+1. **El ERP manda primero.** `kdm1.c43` = estatus del documento (`N` pendiente · `F` finalizada ·
+   `C` cancelada · `R` recibida). Las `F/C/R` se excluyen del tránsito sin ninguna heurística: la
+   cadena quedó rota pero Kepler ya sabe que no viene nada (22 OCs / $1.28M).
+2. **Dos columnas, dos verdades.** `transit_cajas` = lo que dicen los papeles (lo que el comprador
+   ve y puede rastrear folio por folio). `transit_eff_cajas` = lo mismo pesado por P(llega|edad), y
+   es lo que el motor descuenta. Se pesa ANTES de repartir por el árbol de abasto (RA-PRO.42).
+3. **Todos los consumidores del descuento** usan la pesada: `purchaseSuggestion`, workbook, detalle
+   por sucursal, plan de traspaso, sobrestock y el `ReplenishmentScannerService` (si el scanner se
+   quedaba con el crudo, la bandeja de hallazgos se cegaba justo en los SKUs tapados).
+
+**Resultado:** tránsito descontado $19.96M → **$10.95M** (se ignora $9.0M, 45%). El pedido sugerido
+pasa de **$13.48M a $14.47M (+$993k, +7.4%)**, con **568 filas que despiertan de cero** y 1,378 que
+suben. Ejemplo: COBERTURA LUSSEL en 01 tenía piso 0, vendía 22/día y pedía nada porque "venían"
+43.4 cajas de una OC estancada; ahora pide 10.9.
+
+### Interfaz
+
+- El diálogo de **En camino** agrega columna **Abierta** (días, con semáforo) y una nota que explica
+  la brecha entre las cajas del papel y las que el pedido descuenta. Las cajas del listado siguen
+  siendo las CRUDAS: tienen que cuadrar folio por folio con lo que el comprador ve en Kepler.
+- Página nueva **`/compras/oc-abiertas`** ("Abiertas en Kepler"): la vista inversa — todas las OCs
+  abiertas por antigüedad, con valor, estatus del ERP y probabilidad de llegar. Es la lista de lo
+  que compras tiene que cerrar o cancelar (104 con +30 días al momento de escribir esto).
+
+### Rendimiento
+
+Las dos CTEs de la curva van `AS MATERIALIZED` **obligatoriamente**: sin eso el planner las inlinea
+y re-evalúa `surv_raw` (2 s) por cada línea de OC → la corrida pasó de 30 s a **>15 min**. Con
+MATERIALIZED: 35 s (baseline ~30 s).
+
+### Migraciones
+
+`20260829180000_replenishment_plan_transit_eff.js` (columna aditiva) +
+`20260829180100_oc_survival_curve.js` (tabla de la curva, 8 filas). Ambas aplicadas a prod a mano
+(idempotentes con guarda `hasColumn`/`hasTable`).
+
+Smoke: `database/tests/test-newdb-oc-survival.js` (11 aserciones) en la suite.
+
+**Pendiente:** que el runner on-prem tome el importer nuevo. Mientras convivan las dos versiones,
+`transit_eff_cajas` se dejó en NULL a propósito — el servicio cae al crudo (comportamiento previo)
+en vez de mezclar dos cálculos.

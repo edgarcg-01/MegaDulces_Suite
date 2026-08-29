@@ -35,6 +35,7 @@ const TESTS = [
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
+  { file: 'test-newdb-oc-survival.js', label: 'RA-PRO.45 tránsito pesado por P(llega|edad) (curva monótona derivada del ODS + eff ≤ papel + estatus c43)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
   { file: 'test-newdb-purchase-adjustments-findings.js', label: 'RE.10 bridge facturas duplicadas → finance.findings (duplicateGroups SQL + shape hallazgo + UPSERT idempotente por dedup_key + rule L2 + findings_total; skip-graceful sin feed)', needsApi: false },
   { file: 'test-newdb-supplier-discount-recon.js', label: 'RE.10 descuento proveedor (import c84 en erp_supplier_payments + reconciliación 2 canales pago/nota: Σpago==Σc84, Σnota==X-D-55 comercial, clasificación canal pago/nota/ambos; skip-graceful sin feed)', needsApi: false },
