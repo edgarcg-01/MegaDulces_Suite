@@ -13,6 +13,7 @@ import {
   MarginBand,
   MarginLevel,
   MarginWindow,
+  ProfitabilityOverview,
   ProfitabilityRow,
   ProfitabilityService,
 } from '../profitability.service';
@@ -181,15 +182,105 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <span class="rp-cr-e">{{ o.margin_negotiated_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               <span class="rp-cr-p">{{ o.margin_negotiated_pct | number:'1.2-2' }}%</span>
             </div>
-            <div class="rp-cr is-gap">
-              <span class="rp-cr-k">Brecha que queda vs {{ target() }}%</span>
+
+            <!-- ── MR.6: los puntos que faltan, con dueño y aditivos ────────── -->
+            <div class="rp-cr">
+              <span class="rp-cr-k">
+                − Descuento otorgado al cliente
+                <small>
+                  Comercial · {{ o.customer_discount.docs | number }} facturas ·
+                  {{ o.customer_discount.pct_of_invoiced | number:'1.2-2' }}% de lo facturado
+                </small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e">−{{ o.customer_discount.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <span class="rp-cr-p rp-neg">−{{ ppOf(o, o.customer_discount.amount) | number:'1.2-2' }}</span>
+            </div>
+
+            <div class="rp-cr is-total">
+              <span class="rp-cr-k">
+                Margen integral
+                <small>Dirección · incompleto: le faltan {{ o.integral_missing.length }} restas sin fuente</small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e">{{ o.margin_integral_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <span class="rp-cr-p">{{ o.margin_integral_pct | number:'1.2-2' }}%</span>
+            </div>
+
+            @if (o.uncollected.amount > 0) {
+              <div class="rp-cr">
+                <span class="rp-cr-k">
+                  + Descuento habitual que no se cobró
+                  <small>
+                    Compras · {{ o.uncollected.suppliers_below }} de
+                    {{ o.uncollected.suppliers_with_policy }} proveedores por debajo de su tasa
+                  </small>
+                </span>
+                <span class="rp-cr-a">{{ o.uncollected.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="rp-cr-e">{{ o.uncollected.margin_effect | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="rp-cr-p">+{{ ppOf(o, o.uncollected.margin_effect) | number:'1.2-2' }}</span>
+              </div>
+            }
+
+            <div class="rp-cr is-total is-final">
+              <span class="rp-cr-k">
+                Techo con lo que hoy se puede medir
+                <small>si se cobrara todo lo habitual</small>
+              </span>
               <span class="rp-cr-a"></span>
               <span class="rp-cr-e"></span>
-              <span class="rp-cr-p" [class.tone-bad]="(o.gap_pp_negotiated ?? 0) < 0">
-                {{ (o.gap_pp_negotiated ?? 0) > 0 ? '+' : '' }}{{ o.gap_pp_negotiated | number:'1.2-2' }} pp
+              <span class="rp-cr-p">{{ ceilingPct(o) | number:'1.2-2' }}%</span>
+            </div>
+
+            <div class="rp-cr is-gap">
+              <span class="rp-cr-k">
+                Sin fuente todavía, vs {{ target() }}%
+                <small>Dirección · lo que ninguna palanca medible explica</small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e"></span>
+              <span class="rp-cr-p" [class.tone-bad]="residualPp(o) > 0">
+                {{ residualPp(o) > 0 ? '' : '+' }}{{ -residualPp(o) | number:'1.2-2' }} pp
               </span>
             </div>
           </div>
+
+          <!-- Lo que el margen integral NO alcanza a restar. Se declara, no se omite. -->
+          <div class="rp-missing">
+            <span class="rp-nm-t">El integral está incompleto</span>
+            @for (m of o.integral_missing; track m.key) {
+              <span class="rp-nm-i"><b>{{ m.label }}</b><small>{{ m.reason }}</small></span>
+            }
+          </div>
+
+          @if (o.overlap_risk.amount > 0) {
+            <p class="rp-dq rp-dq-inline">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <b>{{ o.overlap_risk.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+              del margen negociado podría estar contado dos veces:
+              {{ o.overlap_risk.suppliers }} proveedores dan pronto pago por nota de crédito
+              <b>y</b> por descuento al pagar. Es el {{ o.overlap_risk.pct_of_levers | number:'1.1-1' }}% de lo negociado —
+              el máximo que podría duplicarse, no una certeza.
+              <a routerLink="/compras/descuentos">Verificalo en Descuentos</a>.
+            </p>
+          }
+
+          @if (o.uncollected.top.length) {
+            <div class="rp-uncol">
+              <span class="rp-nm-t">Quién deja dinero sobre la mesa</span>
+              <ul>
+                @for (s of o.uncollected.top; track s.supplier_id) {
+                  <li>
+                    <b>{{ s.name }}</b>
+                    <span>suele dar {{ s.rate_pct | number:'1.2-2' }}% y dio
+                      {{ 100 * s.taken / (s.purchases || 1) | number:'1.2-2' }}%</span>
+                    <em>faltan {{ s.missing | currency:'MXN':'symbol-narrow':'1.0-0' }}</em>
+                  </li>
+                }
+              </ul>
+              <p class="rp-muted">{{ o.uncollected.note }}</p>
+            </div>
+          }
 
           <!-- Lo que NO es margen. Sumarlo inflaria el resultado. -->
           <div class="rp-nomargin">
@@ -710,7 +801,33 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     a.rp-nm-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
+    /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
     .rp-promo { color: var(--c-text-2); font-variant-numeric: tabular-nums; }
+    .rp-cr-p.rp-neg { color: var(--c-warn); }
+
+    /* Lo que el integral no alcanza a restar: se declara al pie de su cascada. */
+    .rp-missing {
+      display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-start;
+      padding: var(--sp-3) var(--sp-4); background: var(--c-surface-2);
+      border-top: 1px solid var(--c-divider);
+    }
+    .rp-dq-inline { margin: 0; border-radius: 0; border-left: 0; border-top: 0; }
+    .rp-dq-inline a { color: var(--action); }
+
+    .rp-uncol { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--c-divider); }
+    .rp-uncol ul { list-style: none; margin: var(--sp-2) 0 var(--sp-2); padding: 0; }
+    .rp-uncol li {
+      display: flex; gap: var(--sp-3); align-items: baseline; flex-wrap: wrap;
+      padding: var(--sp-1) 0; border-bottom: 1px solid var(--c-divider); font-size: var(--fs-xs);
+    }
+    .rp-uncol li:last-child { border-bottom: 0; }
+    .rp-uncol li b { color: var(--c-text-1); font-weight: var(--fw-medium); min-width: 16rem; }
+    .rp-uncol li span { color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+    .rp-uncol li em {
+      margin-left: auto; font-style: normal; color: var(--c-bad);
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    }
+    .rp-uncol p { margin: 0; font-size: var(--fs-nano); }
 
     /* ── Toolbar ───────────────────────────────────────────────────────── */
     .rp-toolbar {
@@ -897,6 +1014,21 @@ export class ComercialRentabilidadComponent {
     if (!ch.length) return null;
     return ch.map((c) => c.channel).join(' + ');
   });
+
+  // ── MR.6: el puente se lee en puntos sobre la MISMA venta, o no cierra ────
+  ppOf(o: ProfitabilityOverview, amount: number): number {
+    return o.revenue > 0 ? (amount / o.revenue) * 100 : 0;
+  }
+
+  /** Margen integral + lo que se recuperaría cobrando la tasa habitual. */
+  ceilingPct(o: ProfitabilityOverview): number {
+    return (o.margin_integral_pct ?? 0) + this.ppOf(o, o.uncollected.margin_effect);
+  }
+
+  /** Lo que ninguna palanca medible explica. Positivo = todavía falta. */
+  residualPp(o: ProfitabilityOverview): number {
+    return this.target() - this.ceilingPct(o);
+  }
 
   /** 11 columnas fijas + la de margen unitario, que sólo existe a nivel producto. */
   readonly colCount = computed(() => (this.level() === 'sku' ? 12 : 11));
