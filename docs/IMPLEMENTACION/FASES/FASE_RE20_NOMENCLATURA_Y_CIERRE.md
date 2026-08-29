@@ -344,6 +344,93 @@ validar nada en cuanto entra el guard. Por eso el smoke nuevo lo vigila.
 
 ---
 
+## 4.ter Análisis — por qué el cuadre nunca va a ser perfecto (⬜ propuesta RE.21)
+
+Edgar: *"no se consideran las notas de crédito, devoluciones, etc., el análisis no siempre cuadra
+a la perfección"*. Tiene razón, y medido resulta peor —y más arreglable— de lo que parecía.
+
+### 4.ter.1 Qué compara hoy `monto_match`
+
+Un **match de 2 vías**: lo que Claude leyó en la factura (`total` **o** `subtotal`) contra el
+valor de la entrada en Kepler, con la tolerancia del tenant, aceptando también la copia gemela de
+oficinas. Nada más. Los **ajustes de compra no entran**, aunque `classifyDiscrepancy` ya lo sabe:
+su bucket `'otro'` dice literalmente *"faltante/devolución/descuento → auto-explain"* y ahí se
+detiene.
+
+### 4.ter.2 Los números (medidos sobre `kepler_ods.kdm1`, 2026-08-29)
+
+**1,583 ajustes · $23.8M.** La liga por folio de entrada (`c39`) cubre casi nada:
+
+| | ajustes | liga por `c39` | liga por `c11` (factura) |
+|---|---|---|---|
+| **X-D-40** devoluciones | 327 · $2.4M | 65 (**20%**) | 308 (94%) |
+| **X-D-55** notas de crédito | 1,256 · $21.4M | **0 (0%)** | 1,053 (84%) |
+| **Total** | 1,583 · $23.8M | 65 (**4%**) | 1,361 (86%) |
+
+**Las notas de crédito nunca traen folio de entrada. Cero de 1,256.** Y son el 90% del dinero.
+O sea: el join exacto del lente del dinero —y el de *Compras 360* antes— explica el **4%** de los
+ajustes. El resto queda fuera, y por eso 360 tenía un fallback heurístico por proveedor+fecha.
+
+### 4.ter.3 La llave que falta ya la estamos leyendo
+
+`c11` es la **referencia de factura** del ajuste, y está poblada en el **86%**. Y el OCR **ya
+extrae el folio de la factura** del PDF (`fields.folio`) — hoy sólo se usa para detectar hojas
+duplicadas, no para ligar ajustes.
+
+> **1,297 ajustes** que hoy no ligan (sin `c39` pero con `c11`) podrían ligar por número de
+> factura. Es el mismo dato en los dos lados: el proveedor lo pone en su nota de crédito y Claude
+> lo lee del papel. Nadie los cruza.
+
+Quedan **221 sin `c39` ni `c11`** — ésos sí necesitan heurístico (proveedor + fecha + monto) o se
+quedan sin explicar, y hay que decirlo así en pantalla.
+
+### 4.ter.4 El timing: se juzga contra un número que todavía va a cambiar
+
+De los 65 que sí ligan a una entrada real: **42 (65%) llegan DESPUÉS de la recepción**.
+Mediana **4 días**, p90 **40 días**, promedio **32**.
+
+El cuadre se calcula **al capturar la factura**. La nota de crédito puede no existir todavía. Aun
+con la liga perfecta, un `monto_match` de hoy no es una verdad estable — es una foto. Cualquier
+diseño que trate el cuadre como definitivo va a estar mal el 65% de las veces que haya ajuste.
+
+### 4.ter.5 No todos los ajustes deberían mover el cuadre
+
+Éste es el punto de fondo, y hoy los tres caen juntos en `'otro'`:
+
+| Naturaleza | Ejemplo real (motivo `c24`) | ¿Debe mover `monto_match`? |
+|---|---|---|
+| **Operativa** — no llegó completo | *"devolución por error unidad de medida y costos"* · faltante · mal estado | **Sí.** La factura del proveedor legítimamente difiere de lo que entró. |
+| **Comercial** — beneficio negociado | *"descuento incentivo 3% dd"* · *"descuento ganado por…"* · apoyo de marca | **No.** Llega después y no cambia lo que se recibió: la factura al recibir está bien. |
+| **Corrección de captura** | *"duplicadas"* ($5.2M) · *"facturas duplicadas"* ($589k) · *"error de entrada"* | **No es descuadre, es hallazgo.** El número malo es el de Kepler, no el de la factura. |
+
+Y un dato que conviene mirar de frente: **338 notas de crédito por $4.5M vienen con el motivo en
+blanco**, y el importer les asigna `descuento_comercial` por `doctype_default`. **$4.5M
+clasificados por convención, no por evidencia.**
+
+Falta una cuarta fuente que ni siquiera es un documento de ajuste: el **descuento por pronto pago
+al pagar** (`c84`, ~7.41%), que vive en el pago y no en la recepción.
+
+### 4.ter.6 Lo que esto cuesta hoy, en operación
+
+`validateBulk` **exige `monto_match === true`**. O sea que toda recepción con una devolución
+legítima **nunca** se puede aprobar en lote: se va a revisión manual para siempre, aunque su
+descuadre esté perfectamente explicado por un X-D-40 que Kepler ya tiene registrado.
+
+### 4.ter.7 Forma propuesta
+
+1. **Ligar por número de factura** (`c11` ↔ el folio que lee el OCR), no sólo por `c39`. Es el
+   86% del universo y el dato ya está en los dos lados.
+2. **Cuadre de 3 vías**: `factura − ajustes_operativos ≈ entrada`. Los comerciales no entran; las
+   correcciones de captura salen por otro lado.
+3. **El cuadre deja de ser una foto**: `monto_match` se recalcula cuando llega un ajuste
+   posterior, o se guarda con su fecha de corte para que se lea como "cuadraba al 12/08".
+4. **Un estado nuevo**: *cuadra con ajuste* — ni "cuadra" ni "no cuadra". Es lo que desbloquea el
+   lote para las recepciones con devolución explicada.
+5. **Marcar lo que no se puede explicar** (los 221 sin ninguna llave) en vez de dejarlos como
+   descuadre mudo.
+
+---
+
 ## 5. Verificación
 
 - `nx build view` verde por item.
