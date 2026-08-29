@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import type { CommandCenterDashboard } from '@megadulces/contracts';
 
 export interface OverviewResponse {
   source: 'mv' | 'live';
@@ -266,6 +267,16 @@ export class CommandCenterService {
 
   overview(): Observable<OverviewResponse> {
     return this.http.get<OverviewResponse>(`${this.base}/overview`);
+  }
+
+  /**
+   * BFF (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER del tablero en 1 request
+   * tipada con el contrato compartido `CommandCenterDashboard`. Los otros 4 paneles
+   * (erp-customers, conversion, conversion-daily, nba) tienen otro permiso y siguen
+   * como llamadas aparte.
+   */
+  commandCenter(): Observable<CommandCenterDashboard> {
+    return this.http.get<CommandCenterDashboard>(`${this.base}/command-center`);
   }
 
   // ── Venta real de la red (analytics.*) ──

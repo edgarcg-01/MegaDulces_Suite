@@ -14,9 +14,9 @@ import { z } from 'zod';
 export const NetworkChannelRow = z.object({
   channel: z.string(),
   revenue: z.number(),
-  cost: z.number().optional(),
-  margin: z.number().optional(),
-  margin_pct: z.number().optional(),
+  cost: z.number().nullish(),
+  margin: z.number().nullish(),
+  margin_pct: z.number().nullish(),
   units: z.number(),
   tickets: z.number(),
   share_pct: z.number(),
@@ -30,7 +30,7 @@ export const NetworkOverview = z.object({
     rolling_days: z.number(),
     last_sale_date: z.string().nullable().optional(),
   }),
-  cost_coverage_pct: z.number().optional(),
+  cost_coverage_pct: z.number().nullish(),
   revenue: z.object({
     gross: z.number(),
     cost: z.number(),
@@ -58,9 +58,9 @@ export const NetworkTopProductRow = z.object({
   brand_name: z.string(),
   units_sold: z.number(),
   revenue: z.number(),
-  cost: z.number().optional(),
-  margin: z.number().optional(),
-  margin_pct: z.number().optional(),
+  cost: z.number().nullish(),
+  margin: z.number().nullish(),
+  margin_pct: z.number().nullish(),
   abc_class: z.string().nullable(),
   // Participacion sobre la venta total de la red; null cuando el backend no tenia
   // el total fresco (evita 2a pasada por sales_daily). `?share=true` lo fuerza.
@@ -74,9 +74,9 @@ export const SalesByBrandRow = z.object({
   brand_name: z.string(),
   units: z.number(),
   revenue: z.number(),
-  cost: z.number().optional(),
-  margin: z.number().optional(),
-  margin_pct: z.number().optional(),
+  cost: z.number().nullish(),
+  margin: z.number().nullish(),
+  margin_pct: z.number().nullish(),
   share_pct: z.number(),
 });
 export type SalesByBrandRow = z.infer<typeof SalesByBrandRow>;
@@ -169,19 +169,20 @@ export const ConversionDailyRow = z.object({
 });
 export type ConversionDailyRow = z.infer<typeof ConversionDailyRow>;
 
-// ── el agregado (BFF): las 11 llamadas del tablero en 1 respuesta ──
+// ── el agregado (BFF): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 respuesta ──
+//
+// Solo van los paneles que comparten el gate `COMMERCIAL_ANALYTICS_VER`. Los otros
+// 4 tienen OTRO permiso y siguen como llamadas aparte (no bypassear el gate por
+// panel): net_customers=CUSTOMERS360_VER, conversion/conversion_series/due_count=
+// modulo commercial-intelligence. Sus schemas quedan exportados arriba para TS.2.
 
 export const CommandCenterDashboard = z.object({
   overview: NetworkOverview,
   top_products: z.array(NetworkTopProductRow),
   sales_by_brand: z.array(SalesByBrandRow),
-  net_customers: z.array(ErpCustomerRow),
   daily_series: z.array(NetworkDailyRow),
   low_stock: LowStockResponse,
   inactive_customers: InactiveCustomersResponse,
   ranking_out_of_stock: z.array(RankingOutOfStockRow),
-  conversion: ConversionSummary,
-  conversion_series: z.array(ConversionDailyRow),
-  due_count: z.number(),
 });
 export type CommandCenterDashboard = z.infer<typeof CommandCenterDashboard>;
