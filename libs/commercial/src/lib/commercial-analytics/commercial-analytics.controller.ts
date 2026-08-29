@@ -9,6 +9,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { CommandCenterDashboard } from '@megadulces/contracts';
 
 @ApiTags('commercial-analytics')
 @ApiBearerAuth()
@@ -91,6 +92,46 @@ export class CommercialAnalyticsController {
   @ApiOperation({ summary: 'Serie diaria de venta real (revenue/units/tickets) para sparklines' })
   networkDailySeries(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.networkDailySeries({ from, to });
+  }
+
+  @Get('command-center')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'BFF del Command Center (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 respuesta tipada (contrato compartido en libs/contracts). Los paneles con otro permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=intelligence) siguen como llamadas aparte para NO bypassear su gate.',
+  })
+  async commandCenter(): Promise<CommandCenterDashboard> {
+    const [
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    ] = await Promise.all([
+      this.service.networkOverview(),
+      this.service.networkTopProducts('8', { share: false }),
+      this.service.networkSalesByBrand(),
+      this.service.networkDailySeries({}),
+      this.service.lowStock('100', undefined, '50'),
+      this.service.inactiveCustomers('30', '10'),
+      this.service.rankingOutOfStock({ limit: 10, topN: 200 }),
+    ]);
+    // El BFF es el punto donde se hace CUMPLIR el contrato: valida en runtime que
+    // los 7 paneles cuadren con `CommandCenterDashboard` (ADR-052). Si un service
+    // devuelve una forma que viola el contrato, revienta acá — drift visible, no
+    // silencioso. `.parse` acepta `unknown`, así que también resuelve el gap de que
+    // los métodos del service estén tipados suelto (source: string, campos any).
+    return CommandCenterDashboard.parse({
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    });
   }
 
   @Get('top-customers')
