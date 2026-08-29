@@ -17,6 +17,7 @@ import {
   ProfitabilityService,
 } from '../profitability.service';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
 
 // Producto primero: es el foco de la pantalla. Los agregados son el resumen.
@@ -46,6 +47,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     DrawerModule,
     RouterLink,
     MetricStripComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   template: `
@@ -78,6 +80,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   [loading]="loading()" pTooltip="Refrescar" aria-label="Refrescar">
             <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
           </button>
+          <app-context-help topic="rentabilidad" />
         </div>
       </header>
 
