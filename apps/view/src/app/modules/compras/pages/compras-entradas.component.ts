@@ -79,7 +79,16 @@ interface AttachFile {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Centro de control · Órdenes</h1>
-          <p class="surf-page-sub">Todas las órdenes de entrada de la red, con filtros completos. Buscá por los <strong>últimos 4 dígitos</strong> del folio, o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio: <strong>Pendientes de subir</strong> y <strong>Revisión</strong>.</p>
+          <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
+               proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
+               no aparece se lee como dato faltante. -->
+          <p class="surf-page-sub">
+            Las órdenes de entrada de la red
+            @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
+            , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
+            o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio:
+            <strong>Pendientes de subir</strong> y <strong>Revisión</strong>.
+          </p>
         </div>
         <div class="cb-head-actions">
           <app-table-density />
@@ -93,6 +102,8 @@ interface AttachFile {
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        <div class="cb-field"><label>Orden</label>
+          <app-segmented [options]="ordenOpts" [value]="orden()" (valueChange)="setOrden($event)" ariaLabel="Orden de la lista" /></div>
         @if (variasSucursales()) {
           <div class="cb-field"><label>Sucursal</label>
             <p-select [options]="sucursalOpts()" [ngModel]="sucursalSel()" (onChange)="setSucursal($event.value)"
@@ -1342,8 +1353,15 @@ export class ComprasEntradasComponent {
     this.destroyRef.onDestroy(() => this.grSocket.disconnect());
   }
 
-  /** Aplica las nuevas: recarga la lista y limpia el contador del pill. */
-  applyNew(): void { this.newCount.set(0); this.load(); }
+  /**
+   * Aplica las nuevas: recarga la lista y limpia el contador del pill.
+   *
+   * `[RE.19]` — **vuelve a la página 1**. El pill lo dispara el watcher del ERP: las órdenes
+   * que anuncia son las más nuevas, y con el orden por reciente entran arriba. Recargar sin
+   * volver al principio dejaba al usuario en la página 4 mirando lo de la semana pasada
+   * después de haber hecho clic en "3 nuevas".
+   */
+  applyNew(): void { this.newCount.set(0); this.page.set(1); this.load(); }
 
   kpiItems(r: EntradasReport): MetricStripItem[] {
     return [
@@ -1367,6 +1385,22 @@ export class ComprasEntradasComponent {
   readonly rezago = signal(false);
   readonly page = signal(1);
   readonly pageSize = 100;
+  /**
+   * `[RE.19]` — **lo más reciente primero**, igual que Pendientes. Esta lista no mandaba `orden`
+   * y se comía el default del servidor (antigüedad), así que una pantalla alimentada por el
+   * watcher del ERP —que anuncia órdenes NUEVAS— abría mostrando lo más viejo. Con el orden por
+   * reciente, lo que el pill anuncia entra arriba.
+   *
+   * El backend acota las fechas futuras al ordenar (`LEAST(receipt_date, current_date)` + los
+   * futuros al final), así que la captura de CEDIS con fecha 29/12/2026 no se queda clavada
+   * en el primer renglón para siempre.
+   */
+  readonly orden = signal<'reciente' | 'antiguedad'>('reciente');
+  readonly ordenOpts = [
+    { label: 'Recientes', value: 'reciente' },
+    { label: 'Más viejas', value: 'antiguedad' },
+  ];
+  setOrden(v: string): void { this.orden.set(v as 'reciente' | 'antiguedad'); this.page.set(1); this.load(); }
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
@@ -1400,6 +1434,7 @@ export class ComprasEntradasComponent {
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
       carril: this.rezago() ? 'rezago' : 'al_dia',
+      orden: this.orden(),
       page: this.page(),
       pageSize: this.pageSize,
     })
