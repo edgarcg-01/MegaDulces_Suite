@@ -131,7 +131,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Por unidad', def: 'El más simple: cuánto se le gana a UNA unidad vendida (precio menos costo, los dos en la unidad en que cobra el punto de venta). Sólo aparece en la vista por Producto: promediar el precio de un paquete con el de un kilo no significa nada. Cuando la equivalencia de caja es confiable, muestra también lo que deja la caja completa.' },
           { term: 'Comercial bruto', def: 'Venta menos costo, sobre la parte de la venta que trae costo. Es el mismo margen de arriba pero acumulado, y existe por producto, marca, categoría y proveedor. Dueño: Comercial + Compras.' },
           { term: 'Negociado', def: 'El bruto MÁS lo que el proveedor devuelve (notas de crédito y descuento al pagar). Dueño: Compras. Sólo existe a nivel total y por proveedor: repartir una nota de crédito a cada SKU todavía no está construido.' },
-          { term: 'Integral', def: 'Todavía NO se muestra. Sería el negociado menos el descuento que le damos al cliente, las promociones que absorbemos y el costo logístico. Ninguna de las tres tiene fuente hoy, y publicarlo a medias daría un margen inflado.' },
+          { term: 'Integral', def: 'El negociado menos lo que le devolvemos al cliente. Se publica marcado como INCOMPLETO porque le faltan dos restas que hoy no tienen fuente: las promociones que absorbemos y el costo logístico. Se listan al pie de la cascada en vez de omitirlas en silencio — un integral que se calla un componente es peor que uno incompleto y honesto. Dueño: Dirección.' },
         ],
       },
       {
@@ -143,6 +143,18 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Bonificación', def: 'Saldo a favor que el proveedor reconoce. Dueño: Compras.' },
           { term: 'Descuento al pagar', def: 'El que se toma en el momento de liquidar, no por nota (campo c84 de Kepler). Si un proveedor da pronto pago por los DOS canales, puede ser el mismo descuento contado dos veces: la ficha del proveedor lo avisa.' },
           { term: 'Negociado vs "a margen"', def: 'Son dos columnas distintas a propósito. El descuento se gana sobre lo que COMPRÁS y el margen se mide sobre lo que VENDÉS, así que a margen sólo entra la parte de esa compra que ya se vendió. Sumar el monto crudo daría un margen imposible.' },
+        ],
+      },
+      {
+        heading: 'La brecha, descompuesta (quién debe cada punto)',
+        entries: [
+          { term: 'Para qué', def: 'Decir "faltan 3.5 puntos" no le sirve a nadie si no se sabe de dónde salen ni quién los debe. La cascada llega hasta el objetivo y cada renglón tiene un dueño y una acción.' },
+          { term: 'Es aditiva', def: 'Los renglones suman y restan puntos sobre la MISMA venta, y el último es el residuo: bruto + palancas − descuento al cliente + no cobrado + sin fuente = objetivo, exacto. Si no cerrara, serían cinco números sueltos y cada área discutiría el suyo.' },
+          { term: 'No cobrado', def: 'Lo que faltó cobrarle al proveedor comparado con la tasa que ÉL suele dar. Es la palanca accionable de Compras y el renglón lista quién deja más dinero sobre la mesa.' },
+          { term: 'Tasa habitual, no contrato', def: 'La referencia es la tasa observada de cada proveedor, no un acuerdo firmado. La brecha se lee "está dando menos de lo que suele dar", no "incumple lo pactado". La diferencia importa antes de sentarse a reclamar.' },
+          { term: 'Techo', def: 'Hasta dónde llegaría el margen si se cobrara todo lo habitual. Lo que queda debajo del objetivo después de eso es lo que ninguna palanca medible explica.' },
+          { term: 'Sin fuente todavía', def: 'El residuo, de Dirección. No es "lo que falta negociar": es lo que hoy no se puede atribuir a nada medible. Puede ser precio, mezcla de producto, o un componente que todavía no tiene dato.' },
+          { term: 'Doble conteo', def: 'Cuando un proveedor da pronto pago por nota de crédito Y por descuento al pagar, parte puede ser el mismo dinero contado dos veces. La pantalla lo acota (el mínimo de ambos canales) y lo avisa: acota el número, no lo invalida.' },
         ],
       },
       {
