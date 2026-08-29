@@ -55,7 +55,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
     <div class="surf-page in ec">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Centro de control · Facturas de entrada</h1>
+          <h1>Control de entradas</h1>
           <p class="surf-page-sub">
             Cada sucursal responde por lo suyo. Esto es lectura:
             @if (canManage() || canValidate()) {

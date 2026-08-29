@@ -78,7 +78,7 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Centro de control · Órdenes</h1>
+          <h1>Control de entradas · Todas las entradas</h1>
           <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
                proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
                no aparece se lee como dato faltante. -->

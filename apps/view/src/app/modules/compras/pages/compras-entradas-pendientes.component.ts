@@ -17,14 +17,15 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
-  EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr, AttachReceipt,
+  EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
 } from '../entradas.service';
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
-import { motivoLabel } from '../receipt-verdict';
+import { motivoLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -93,7 +94,7 @@ interface Hoja {
   imports: [
     CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, SelectModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
-    FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent,
+    FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
   ],
   providers: [MessageService],
   template: `
@@ -102,7 +103,7 @@ interface Hoja {
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Pendientes de subir</h1>
+          <h1>Subir facturas de entrada</h1>
           <p class="surf-page-sub">
             Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
             contra Kepler y te digo si cuadra antes de guardar. Lo más reciente va primero.
@@ -284,7 +285,14 @@ interface Hoja {
                         (drop)="onDropFila($event, c)">
                       <td class="comm-num ep-dias" [class]="'is-' + tono(c)">{{ c.dias }}<em>d</em></td>
                       <td class="ep-folio">
-                        <b class="comm-code" [pTooltip]="'Folio ' + c.folio" tooltipPosition="top">{{ ultimos4(c.folio) }}</b>
+                        <!-- RE.19 — el folio abre QUÉ TRAE la orden. El que sube tiene una factura
+                             en la mano y necesita saber si es de esta orden; hasta acá sólo veía
+                             proveedor y total, y para ver los productos tenía que irse a otra
+                             pantalla del Control de entradas. -->
+                        <button type="button" class="comm-code ep-folio-btn" (click)="abrirDetalle(c)"
+                                [pTooltip]="'Folio ' + c.folio + ' — ver qué trae'" tooltipPosition="top">
+                          {{ ultimos4(c.folio) }}
+                        </button>
                         @if (variasSucursales()) { <em>{{ suc(c.sucursal) }}</em> }
                       </td>
                       <td class="ep-prov">
@@ -375,6 +383,85 @@ interface Hoja {
         }
       }
     </div>
+
+    <!--
+      RE.19 — **Qué trae esta orden.** El capturista tiene una factura en la mano y la pregunta
+      que se hace es "¿es de esta orden?". La tabla contesta proveedor y total; lo que lo
+      confirma son los PRODUCTOS, y estaban a dos pantallas de distancia (Control de entradas ·
+      Todas las entradas). Es lectura, así que va en el cajón canónico de detalle y la lista se
+      sigue viendo detrás.
+    -->
+    <app-side-peek [(open)]="detalleAbierto" [width]="760" title="Qué trae esta orden"
+                   [subtitle]="detalleSubtitulo()">
+      @if (detalleLoading()) {
+        <div class="ep-det-skel" aria-busy="true" aria-label="Cargando el detalle">
+          @for (i of [1,2,3,4,5,6]; track i) { <span class="ep-sk"></span> }
+        </div>
+      } @else if (detalleError()) {
+        <app-load-state [error]="detalleError()" (retry)="recargarDetalle()" />
+      } @else if (detalle(); as d) {
+        <dl class="ep-det-ficha">
+          <div><dt>Proveedor</dt><dd>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code || '—' }}</dd></div>
+          <div><dt>Recepción</dt><dd>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</dd></div>
+          <div><dt>OC / Vale</dt><dd class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</dd></div>
+          <div><dt>Total Kepler</dt><dd class="mono ep-det-total">{{ money(d.entrada.monto) }}</dd></div>
+        </dl>
+
+        @if (d.entrada.concepto) { <p class="ep-det-concepto">{{ d.entrada.concepto }}</p> }
+
+        <!-- Lo que se vino a ver. -->
+        <p class="ep-det-lbl">{{ plural(d.lineas.length, 'producto', 'productos') }}</p>
+        @if (!d.lineas.length) {
+          <p class="ep-det-none">
+            Kepler no tiene renglones de detalle para esta orden. Suele pasar con las capturas de
+            oficinas, que traen un solo concepto con el total en vez de los productos.
+          </p>
+        } @else {
+          <div class="ep-det-wrap">
+            <table class="surf-table surf-table--plain ep-det-tabla">
+              <thead>
+                <tr>
+                  <th scope="col">SKU</th><th scope="col">Producto</th>
+                  <th scope="col" class="comm-num">Cant.</th>
+                  <th scope="col" class="comm-num">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (l of d.lineas; track l.linea) {
+                  <tr>
+                    <td class="mono">{{ l.sku || '—' }}</td>
+                    <td [title]="l.nombre || ''">{{ l.nombre || '—' }}</td>
+                    <td class="comm-num mono">{{ l.cantidad | number:'1.0-2' }}<em class="ep-det-u">{{ l.unidad || '' }}</em></td>
+                    <td class="comm-num mono">{{ money(l.importe) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        @if (d.cedis_twins?.length) {
+          <p class="ep-det-none">
+            <i class="pi pi-clone" aria-hidden="true"></i>
+            Oficinas capturó esta misma recepción como
+            <b class="mono">00/{{ d.cedis_twins![0].folio }}</b>. Subís la factura una sola vez, acá.
+          </p>
+        }
+
+        <!-- Si ya tiene evidencia, se ve; si no, se puede subir sin cerrar el cajón. -->
+        @if (d.deposits?.length) {
+          <p class="ep-det-lbl">Factura adjunta</p>
+          <div class="ep-det-doc">
+            <app-doc-viewer [files]="hojasDe(d)" emptyTitle="Sin hoja" emptyHint="El expediente no trae archivo." />
+          </div>
+        } @else if (canManage()) {
+          <label class="ep-pick">
+            <i class="pi pi-file-pdf" aria-hidden="true"></i> Subir la factura de esta orden…
+            <input type="file" accept="application/pdf" multiple hidden (change)="onFilesDetalle($event)" />
+          </label>
+        }
+      }
+    </app-side-peek>
 
     <!--
       Ventana de confirmación. Antes esto era un panel lateral, con el argumento de "que la
@@ -558,6 +645,36 @@ interface Hoja {
        pantalla completa para cuando hace falta leer letra chica. */
     .ep-an-acts { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .ep-an-doc { height: 22rem; margin-top: var(--sp-2); }
+
+    /* ── RE.19: qué trae la orden ──────────────────────────────────────── */
+    /* El folio es el disparador, así que se ve accionable — pero sin --action: el naranja es
+       el color de la acción primaria de la fila (soltar el PDF) y competir con él confunde. */
+    .ep-folio-btn {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--text-main); text-decoration: underline; text-decoration-style: dotted;
+      text-underline-offset: 3px; text-decoration-color: var(--text-faint);
+    }
+    .ep-folio-btn:hover { color: var(--action); text-decoration-color: var(--action); }
+    .ep-folio-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm, .35rem); }
+
+    .ep-det-ficha { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--sp-3); margin: 0 0 var(--sp-3); }
+    .ep-det-ficha dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+    .ep-det-ficha dd { margin: .1rem 0 0; font-size: var(--fs-sm); font-weight: 600; }
+    .ep-det-total { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    .ep-det-concepto { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); }
+    .ep-det-lbl { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-micro); text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-faint); }
+    .ep-det-none { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 60ch; }
+    .ep-det-wrap { overflow: auto; max-height: 26rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
+    .ep-det-tabla { font-size: var(--fs-xs); }
+    .ep-det-u { font-style: normal; color: var(--text-muted); margin-left: .15rem; }
+    .ep-det-doc { height: 24rem; }
+    .ep-det-skel { display: grid; gap: var(--sp-2); }
+    .ep-det-skel .ep-sk { height: 1.6rem; border-radius: var(--r-sm, .35rem);
+      background: linear-gradient(90deg, var(--border-color) 25%, var(--surface-2) 50%, var(--border-color) 75%);
+      background-size: 200% 100%; animation: ep-sh 1.2s infinite; }
+    @keyframes ep-sh { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .ep-det-skel .ep-sk { animation: none; } }
     .ep-suc-fija {
       display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs);
       color: var(--text-muted); border: 1px solid var(--border-color);
@@ -848,6 +965,7 @@ export class ComprasEntradasPendientesComponent {
     return motivoLabel(c.motivo_codigo) || (c.motivo_rechazo || '').trim() || 'sin motivo registrado';
   }
   money = money;
+  plural = plural;
   ultimos4(folio: string): string { const d = String(folio || '').replace(/\D/g, ''); return d.slice(-4) || folio; }
   tope(): number { return this.report()?.settings?.bulk_max_files ?? 50; }
 
@@ -1264,6 +1382,61 @@ export class ComprasEntradasPendientesComponent {
   limpiar(): void {
     this.hojas().forEach((h) => this.soltarBlob(h));
     this.hojas.set([]); this.capError.set(''); this.abierta.set(null); this.vista.set(null);
+  }
+
+  // ── RE.19: qué trae la orden ──────────────────────────────────────────
+  readonly detalleAbierto = signal(false);
+  readonly detalle = signal<EntradaDetail | null>(null);
+  readonly detalleLoading = signal(false);
+  readonly detalleError = signal<string | null>(null);
+  /** La fila que se abrió: la necesitan el reintento y el alta de factura desde el cajón. */
+  private readonly detalleDe = signal<EntradaRow | null>(null);
+
+  detalleSubtitulo(): string {
+    const c = this.detalleDe();
+    if (!c) return '';
+    return [`${c.sucursal}/${c.folio}`, c.proveedor_nombre || c.proveedor_code || ''].filter(Boolean).join(' · ');
+  }
+
+  abrirDetalle(c: EntradaRow): void {
+    this.detalleDe.set(c);
+    this.detalleAbierto.set(true);
+    this.recargarDetalle();
+  }
+
+  recargarDetalle(): void {
+    const c = this.detalleDe();
+    if (!c) return;
+    this.detalle.set(null);
+    this.detalleError.set(null);
+    this.detalleLoading.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.detalleLoading.set(false); this.detalle.set(d); },
+      error: (e) => {
+        this.detalleLoading.set(false);
+        this.detalleError.set(e?.error?.message || 'No se pudo abrir el detalle de la orden.');
+      },
+    });
+  }
+
+  /** Las hojas ya adjuntas de esta orden, aplanadas para el visor. */
+  hojasDe(d: EntradaDetail): DocViewerFile[] {
+    return (d.deposits || []).flatMap((dep) =>
+      (dep.files || []).map((f) => ({ url: f.url, name: f.name, role: f.role, kind: f.kind })));
+  }
+
+  /**
+   * Elegir el PDF desde el cajón. Se cierra el cajón a propósito: lo que sigue es la ventana de
+   * confirmación, y dejar los dos abiertos apila una capa sobre otra para la misma orden.
+   */
+  onFilesDetalle(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    const c = this.detalleDe();
+    if (!files.length || !c) return;
+    this.detalleAbierto.set(false);
+    void this.agregar(files, c);
   }
 
   // ── vista previa de la hoja (RE.17.6) ──

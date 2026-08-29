@@ -26,7 +26,9 @@ export const ENTRADAS_CONTROL_TABS: PageTab[] = [
     permission: Permission.COMPRAS_ENTRADAS_VER,
   },
   {
-    label: 'Órdenes',
+    // RE.19 — se llamaba "Órdenes" y chocaba con "Órdenes de compra" del sidebar, que es otra
+    // cosa (lo que pedimos, no lo que llegó). Acá son órdenes de ENTRADA, y el nombre lo dice.
+    label: 'Todas las entradas',
     route: '/compras/entradas/control/ordenes',
     icon: 'pi pi-inbox',
     permission: Permission.COMPRAS_ENTRADAS_VER,
