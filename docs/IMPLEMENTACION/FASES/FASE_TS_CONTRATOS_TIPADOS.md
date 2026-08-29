@@ -1,6 +1,6 @@
 # Fase TS — Contratos de tipos del boundary REST
 
-> **Estado:** 🔨 EN CURSO — TS.0 🧪 + TS.1 (fundación + BFF backend) 🧪 (local · commits `eed2d9a3`+`64966af8` en worktree `feat/ts-contratos-tipados` → `../tm-ts`) 2026-08-29 · **ADR-052** aceptado (evoluciona **ADR-045**)
+> **Estado:** 🧪 PROBADO (local, typecheck + `nx build view` OK) — TS.0 + TS.1 (fundación + **BFF wireado 11→5**) ✅ · TS.2 🔨 (13 métodos de analytics tipados). Worktree `feat/ts-contratos-tipados` → `../tm-ts`, 8 commits. 2026-08-29 · **ADR-052** (evoluciona **ADR-045**). **Pendiente: verificación visual + PR.**
 > **Tesis:** el boundary HTTP es donde vive el 99% del tráfico y hoy está ~78% sin tipar.
 > `libs/contracts` ya garantiza "no romper en silencio" para los puertos in-process;
 > esta fase extiende **la misma fuente única y el mismo principio** al wire REST —
@@ -88,8 +88,8 @@ Se generan tipos y se sigue con Knex — el runtime **no se toca**, RLS intacto.
 | Sprint | Qué | Estado |
 |---|---|---|
 | **TS.0** | **Frenar la hemorragia.** Gate de tipado del boundary a **nivel LÍNEA** (no archivo): `no-explicit-any` (back+front) + `explicit-module-boundary-types` (back). `error` en `libs/contracts` + en las **líneas nuevas** de cualquier PR; `warn` en el resto. Ver §8. | 🧪 |
-| **TS.1** | **Fundación + rebanada vertical.** (a) `libs/contracts/src/http/` + convención; (b) `ZodValidationPipe` propio; (c) generar `db/*.gen.ts`; (d) verificar tags Nx (`apps/view` puede importar `libs/contracts` runtime); (e) **Command Center BFF**: 1 endpoint agregado que devuelve los 11 paneles en 1 response tipado punta a punta → mata el waterfall 11→1 y el workaround de 8 loadings. Prueba todo el pipeline. | 🔨 |
-| **TS.2** | **Barrido por tráfico.** Módulo por módulo: comercial (145) → logística (118) → compras (62) → finanzas/bank (39) → almacén → resto. Por módulo: contratos Zod en `http/`, pipe en writes, return types en controllers, front importa el tipo y borra la interface local. Al cerrar cada módulo, su lint pasa a `error`. | ⬜ |
+| **TS.1** | **Fundación + rebanada vertical.** (a) `libs/contracts/src/http/` + convención; (b) `ZodValidationPipe` propio; (c) generar `db/*.gen.ts`; (d) verificar tags Nx (`apps/view` puede importar `libs/contracts` runtime); (e) **Command Center BFF**: 1 endpoint agregado que devuelve los 11 paneles en 1 response tipado punta a punta → 7 paneles en 1 request (tablero 11→5), wireado y build-verificado. | 🧪 |
+| **TS.2** | **Barrido por tráfico.** Módulo por módulo: comercial (145) → logística (118) → compras (62) → finanzas/bank (39) → almacén → resto. Por módulo: contratos Zod en `http/`, pipe en writes, return types en controllers, front importa el tipo y borra la interface local. Al cerrar cada módulo, su lint pasa a `error`. | 🔨 (analytics: 13 métodos) |
 | **TS.3** | **Cierre.** Eliminar los 12 `@Body() any` + 47 `Promise<any>`, lint global a `error`, gate de CI duro. Opcional: enriquecer el snapshot OpenAPI desde los Zod (`z.toJSONSchema()` nativo de Zod 4). | ⬜ |
 
 **Atajo grande (TS.2):** los **849 genéricos** que ya están escritos a mano en el front **son el
@@ -151,7 +151,7 @@ Archivos:
 
 **⚠️ Decisión de transición pendiente:** el gate detecta **14 violaciones nuevas** en `feat/mr-rentabilidad-fix` (MR.5 se escribió antes de esta política). Opciones: (a) **grandfather** — aplica a PRs futuros, esta rama se mergea con override; (b) tipar esas 14 antes de mergear. No se tipó nada acá (es código de MR.5, fuera del alcance de TS.0) y no se pusheó.
 
-**TS.1 (fundación) — 🔨 EN CURSO 2026-08-29.** Partes a/b/d hechas y verificadas; c/e pendientes.
+**TS.1 — ✅ fundación + BFF wireado 2026-08-29.** a/b/d/e/e.2 hechos y verificados (typecheck + `nx build view`); solo (c) queda diferido.
 
 - **(a)** [`libs/contracts/src/http/command-center.contract.ts`](../../../libs/contracts/src/http/command-center.contract.ts) — contrato Zod del tablero, **cosechado de las 11 interfaces** que vivían a mano en `command-center.service.ts` (demuestra el atajo de TS.2). Exporta `CommandCenterDashboard` (schema + tipo) + las 11 piezas; barrel actualizado.
 - **(b)** [`libs/platform-core/src/lib/pipes/zod-validation.pipe.ts`](../../../libs/platform-core/src/lib/pipes/zod-validation.pipe.ts) — `ZodValidationPipe` reusable (`safeParse` → `BadRequestException` con `issues`); barrel actualizado.
@@ -160,10 +160,13 @@ Archivos:
 
 **(e) BFF Command Center — ✅ backend + cliente tipado (commit `64966af8`).** `GET /commercial/analytics/command-center` compone vía `Promise.all` los **7 paneles `COMMERCIAL_ANALYTICS_VER`** (NO los 11: los 4 con otro permiso —erp-customers, conversion, conversion-daily, nba— quedan aparte para no bypassear su gate) y valida la respuesta con `CommandCenterDashboard.parse` → el BFF es el punto de enforcement del contrato. `CommandCenterService.commandCenter()` en el front, tipado con el contrato compartido (`import type`, no arrastra Zod al bundle). `typecheck apps/api EXIT=0`.
 
-Pendiente de TS.1:
+**(e.2) Wireo del componente — ✅ (commit `0f860a2b`).** `loadAll()` llama a `commandCenter()` para los 7 paneles (tablero **11→5 requests**); los 4 con otro permiso siguen aparte y progresivos. Params del BFF alineados exacto al dashboard (30d / low-stock 200 / inactivos 5). Contrato revertido a `.optional()` → **≡ interfaces locales** del front (asigna sin migrar tipos). **`nx build view` OK** (bundle complete; Zod fuera del bundle por `import type`). Fix de prerequisito: `apps/view/tsconfig.json` ganó el path `@megadulces/contracts` (su bloque `paths` reemplaza al de base y faltaba el alias). **PENDIENTE: verificación VISUAL de Edgar** — que renderee igual + que la UX del loading no regrese el "se congela" (los 7 paneles ahora resuelven juntos).
+
+**TS.2 — 🔨 EN CURSO.** 13 métodos de `commercial-analytics` devuelven su contrato. El typecheck **halló y se arregló** un drift real (`overview()` live omitía `refreshed_at`) — el payoff de la fase. Siguen los demás módulos (logística/compras/finance).
+
+Pendiente:
 
 - **(c)** generar `db/*.gen.ts` (tipos de fila del schema Postgres) — necesita introspección de la DB.
-- **(e.2)** wirear el componente a `commandCenter()` (7 paneles en 1 request; los 4 restantes siguen aparte) + `nx build view` + verificación visual → **necesita la máquina de Edgar** (dev server / build). ⚠️ UX: el per-panel loading que mata "se congela" no debe regresar al colapsar a 1 request.
 
 **Workflow (lección de esta sesión):** el trabajo de TS vive en el **worktree `../tm-ts`** (`feat/ts-contratos-tipados`), aislado del tree principal donde el proceso automático stashea/revierte cambios sin commitear. Editar el tree compartido causó un duplicado-en-commit que hubo que limpiar. Regla: worktree por sesión (ver [[feedback_multi_session_worktree_workflow]]).
 
