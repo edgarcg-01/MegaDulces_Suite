@@ -24,6 +24,12 @@
 - **Las bandas de salud estaban clavadas en 10/15/25** con el objetivo editable: al poner objetivo 20%, el indicador coloreaba contra 20 y las bandas contra 15. Ahora se derivan del objetivo desde un solo origen.
 - **La columna "Promo" imprimía "−4.0%"** para un campo que sólo toma los valores 2, 3, 4 y 5 y cuya unidad nadie confirmó — el propio código lo advertía. Viaja en crudo y rotulado como tal.
 
+### Added — el margen por unidad, y por sucursal y canal (MR.5.9 + MR.5.10, 2026-08-29)
+- **"¿Cuánto le gano a este producto?"** El margen más simple —y el que se usa en el mostrador— no estaba: la pantalla daba pesos y porcentaje acumulados, pero no *"acá ganás $3.67 por unidad"*. Ahora la vista por Producto trae precio, costo y ganancia **por unidad vendida**, y lo que deja la caja completa cuando la equivalencia es confiable. Los productos a granel dicen "por kilo".
+- **El porcentaje unitario coincide exacto con el de la fila** (verificado sobre 4,922 productos, cero discrepancias): precio y costo se miden sobre el mismo denominador. Dos porcentajes distintos en el mismo renglón es lo que hace que nadie le crea a una tabla.
+- **Dos vistas nuevas: Sucursal y Canal.** El margen solo se podía cortar por *lo que* se vende, no por *dónde*. En 30 días: **Morelia Madero 14.96% contra 8ESQ 10.16%** —casi 5 puntos entre sucursales— y **ruta 16.16% contra crédito de mayoreo 9.87%**. La venta en ruta es el canal más rentable de la empresa y no se veía en ningún lado. Un clic baja a los productos de esa sucursal o canal.
+- **Por canal, el inventario dice "n/a"** en vez de $0: la existencia vive en la sucursal, y un cero se leería como "no hay stock" en lugar de "esta pregunta no aplica acá".
+
 ### Added — Rentabilidad explica qué es cada margen (MR.5.8, 2026-08-29)
 - La pantalla publica **dos** márgenes distintos en la misma fila de indicadores y ninguno se explicaba solo. El `?` del header abre la guía: los márgenes en cascada con el **dueño de cada uno** (bruto → Comercial + Compras; negociado → Compras), las 5 palancas del proveedor, y por qué el **margen integral todavía no se muestra** — le faltan las tres restas (descuento al cliente, promociones absorbidas, costo logístico) y ninguna tiene fuente hoy.
 - Aclara la distinción que más se malinterpreta: **"negociado" no es lo mismo que "a margen"**. El descuento se gana sobre lo que se compra y el margen se mide sobre lo que se vende, así que a margen sólo entra la parte de esa compra que ya se vendió.
