@@ -137,7 +137,22 @@ export interface OverstockQuery {
 // RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
 // dinámico: la raíz de abasto resuelta por topología, sin hardcodear códigos de almacén).
 export interface WorkbookTerritory { code: string; name: string; }
-export interface WorkbookCell { vta: number; exis: number; ped: number; }
+export interface WorkbookCell { vta: number; exis: number; ped: number; tran?: number; }
+// RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
+export interface InTransitOc {
+  folio: string; sucursal: string;
+  fecha_oc: string; llega_aprox: string;
+  llega_estimada: boolean;              // Kepler no guarda fecha prometida: es OC + lead derivado
+  proveedor: string | null; unidad: string | null;
+  cantidad: number;                     // en la unidad de la línea de la OC
+  cajas: number; valor: number;
+}
+export interface InTransitResponse {
+  product: { sku: string; nombre: string } | null;
+  lead_days?: number;
+  rows: InTransitOc[];
+  total_cajas: number; total_valor: number;
+}
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
   uxc: number; caja_cost: number;
@@ -148,6 +163,7 @@ export interface WorkbookRow {
   xyz_class: string | null;        // clase XYZ de red (peor-caso entre sucursales)
   reorder_cajas: number | null;    // punto de reorden de red, en cajas
   max_cajas: number | null;        // máximo de red, en cajas
+  transito_cajas: number | null;   // RA-PRO.44 — OC abierta (lo que ya se pidió y no ha llegado)
   suma_pedido_cajas: number; pedido_valor: number;
   valor_venta: number; valor_exis: number;
   // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)
@@ -682,6 +698,11 @@ export class ComprasService {
   workbookDetail(productId: string, coverageDays?: number): Observable<WorkbookDetailResponse> {
     const qs = coverageDays ? `?coverage_days=${coverageDays}` : '';
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
+  }
+
+  /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */
+  inTransit(productId: string): Observable<InTransitResponse> {
+    return this.http.get<InTransitResponse>(`${this.base}/in-transit/${productId}`);
   }
 
   /**
