@@ -167,6 +167,39 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
     ok(flt.status === 200 && flt.j.data.every(test), `filtro band=${band} devuelve solo esa banda (${n} filas)`);
   }
 
+  // Margen UNITARIO: el numero del mostrador. Solo existe a nivel producto y su
+  // porcentaje tiene que ser EL MISMO que el de la fila: dos porcentajes distintos
+  // en el mismo renglon matan la confianza en la tabla.
+  const um = await req('/commercial/profitability/breakdown?level=sku&window=30d&pageSize=50&sort=margin_unit&dir=desc', t);
+  if (um.status === 200 && um.j.data.length) {
+    const top = um.j.data[0];
+    console.log(`     top por unidad: ${top.sku} ${String(top.name).slice(0, 26)} · gana ${money(top.margin_unit)} ${top.unit_kind === 'weight' ? 'por kilo' : 'por unidad'} (${money(top.price_unit)} − ${money(top.cost_unit)})${top.margin_box !== null ? ` · caja de ${top.box_factor}: ${money(top.margin_box)}` : ''}`);
+    const conMargen = um.j.data.filter((r) => r.margin_unit !== null);
+    ok(conMargen.length > 0, `nivel producto trae margen unitario (${conMargen.length}/${um.j.data.length} filas)`);
+    ok(conMargen.every((r) => Math.abs(r.margin_unit - (r.price_unit - r.cost_unit)) < 0.01),
+      'margen unitario = precio unitario − costo unitario');
+    ok(conMargen.every((r) => r.margin_unit_pct === null || Math.abs(r.margin_unit_pct - r.margin_pct) < 0.05),
+      'el % unitario coincide con el % de la fila (mismo denominador)');
+    ok(conMargen.every((r) => r.unit_kind === 'piece' || r.unit_kind === 'weight'),
+      'la unidad se rotula piece/weight, nunca se inventa');
+    // La caja sale del resolvedor canonico: nunca derivada, nunca si es dudosa.
+    ok(um.j.data.every((r) => r.margin_box === null || (r.box_factor > 1 && Math.abs(r.margin_box - r.margin_unit * r.box_factor) < 0.01)),
+      'la equivalencia por caja sale del factor canonico y solo si es > 1');
+    ok(um.j.data.every((r, i, a) => i === 0 || (a[i - 1].margin_unit ?? -Infinity) >= (r.margin_unit ?? -Infinity)),
+      'sort=margin_unit ordena de verdad');
+  }
+
+  // El margen unitario NO existe en los agregados: promediar el precio de un
+  // paquete con el de un kilo no significa nada, y publicarlo seria inventarlo.
+  for (const lvl of ['supplier', 'brand']) {
+    const r = await req(`/commercial/profitability/breakdown?level=${lvl}&window=30d&pageSize=5`, t);
+    ok(r.status === 200 && r.j.data.every((x) => x.margin_unit === null),
+      `${lvl}: sin margen unitario (no se promedian unidades distintas)`);
+  }
+  // Y ordenar por una columna que ese nivel no tiene no puede reventar el SQL.
+  const badSort = await req('/commercial/profitability/breakdown?level=supplier&window=30d&pageSize=3&sort=margin_unit', t);
+  ok(badSort.status === 200, 'sort=margin_unit en un agregado degrada, no revienta');
+
   // El inventario de la tabla tiene que cuadrar con la parte "en tabla" del KPI.
   const bdInv = await req('/commercial/profitability/breakdown?level=sku&window=30d&pageSize=1', t);
   if (bdInv.status === 200 && ov.status === 200) {

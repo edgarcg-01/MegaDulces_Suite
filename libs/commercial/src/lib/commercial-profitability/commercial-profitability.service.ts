@@ -103,7 +103,11 @@ const SORT_SQL: Record<string, string> = {
   gap_amount: 'gap_amount',
   inventory_value: 'inventory_value',
   name: 'name',
+  margin_unit: 'margin_unit',
 };
+
+/** Columnas que sólo existen a nivel producto: ordenar por ellas en un agregado reventaría el SQL. */
+const SKU_ONLY_SORT = new Set(['margin_unit']);
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -147,7 +151,11 @@ export class CommercialProfitabilityService {
              SUM(sd.revenue) FILTER (WHERE sd.cost IS NOT NULL) AS revenue_costed,
              SUM(sd.cost)                                       AS cost,
              SUM(sd.units)                                      AS units,
-             SUM(sd.units)   FILTER (WHERE sd.cost IS NOT NULL) AS units_costed
+             SUM(sd.units)   FILTER (WHERE sd.cost IS NOT NULL) AS units_costed,
+             -- 'piece' | 'weight': lo que permite rotular "por unidad" vs "por kilo"
+             -- sin inventar la unidad. catalog.products.unit_sale miente en 5,906
+             -- de 8,708 productos, así que NO se usa para esto.
+             MAX(sd.unit_kind)                                  AS unit_kind
         FROM analytics.sales_daily sd
        WHERE sd.tenant_id = public.current_tenant_id()
          AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -187,6 +195,40 @@ export class CommercialProfitabilityService {
       .map((b) => `WHEN ${m} < ${b.to} THEN '${b.key}'`)
       .join('\n      ');
     return `CASE\n      ${cuts}\n      ELSE 'alto' END`;
+  }
+
+  /**
+   * El margen más simple y el más útil en el mostrador: **cuánto se gana en UNA
+   * unidad vendida.** Sale del mismo fact, así que precio y costo se miden sobre
+   * la misma cantidad y en la misma unidad — no hay nada que normalizar.
+   *
+   * `unit_kind` es lo único que se puede rotular sin inventar: `weight` se cobra
+   * por kilo y `piece` por la unidad en que factura el PdV (paquete o pieza según
+   * el SKU). `catalog.products.unit_sale` NO sirve para esto: dice `PZA` donde
+   * Kepler dice `PAQ` en 5,906 de 8,708 productos.
+   *
+   * Sólo aplica a nivel producto: promediar el precio de un paquete con el de un
+   * kilo no significa nada. En los agregados devuelve nulos a propósito.
+   */
+  private unitMargin(r: any) {
+    const price = r.price_unit == null ? null : Number(r.price_unit);
+    const cost = r.cost_unit == null ? null : Number(r.cost_unit);
+    const bf = r.box_factor == null ? null : Number(r.box_factor);
+    const marginUnit = price !== null && cost !== null ? price - cost : null;
+    // La equivalencia por caja sólo se publica con el factor canónico limpio: en
+    // granel `c84` son kilos por bulto y la "caja" sería una mentira impresa.
+    const showBox = bf !== null && bf > 1 && r.box_factor_suspect !== true;
+    return {
+      unit_kind: (r.unit_kind ?? null) as 'piece' | 'weight' | null,
+      price_unit: price,
+      cost_unit: cost,
+      /** Lo que deja UNA unidad vendida. */
+      margin_unit: marginUnit,
+      margin_unit_pct: marginUnit !== null && price ? (marginUnit / price) * 100 : null,
+      box_factor: showBox ? bf : null,
+      /** Lo que deja una caja completa, cuando la equivalencia es confiable. */
+      margin_box: showBox && marginUnit !== null ? marginUnit * bf : null,
+    };
   }
 
   /**
@@ -563,7 +605,12 @@ export class CommercialProfitabilityService {
             ),
             'abc.product_id',
             'p.id',
-          );
+          )
+          // Factor de caja CANÓNICO. Nunca derivarlo acá: `is_master_suspect`
+          // marca los que un humano tiene que revisar (granel donde c84 son kilos).
+          .leftJoin({ bf: 'analytics.v_product_box_factor' }, function (this: any) {
+            this.on('bf.product_id', '=', 'p.id').andOn('bf.tenant_id', '=', 'p.tenant_id');
+          });
         // Sin filtro por `cost_base`: el costo ya no sale del catálogo. Filtrarlo
         // aquí dejaba al desglose midiendo un universo distinto al del resumen.
 
@@ -614,12 +661,29 @@ export class CommercialProfitabilityService {
                   trx.raw('MAX(b.nombre) AS brand_name'),
                   trx.raw('MAX(sup.name) AS supplier_name'),
                   trx.raw('MAX(abc.abc_class) AS abc_class'),
+                  // ── Margen UNITARIO: cuánto se le gana a una unidad vendida ──
+                  // Sólo tiene sentido a nivel producto: promediar el precio de un
+                  // paquete con el de un kilo no significa nada.
+                  trx.raw('MAX(s.unit_kind) AS unit_kind'),
+                  // Precio y costo sobre el MISMO denominador (la venta con
+                  // costo). Si el precio se midiera sobre todas las unidades, el
+                  // % unitario no cuadraría con el % de la fila: dos porcentajes
+                  // distintos del mismo renglón matan la confianza en la tabla.
+                  trx.raw('(SUM(s.revenue_costed) / NULLIF(SUM(s.units_costed), 0))::numeric AS price_unit'),
+                  trx.raw('(SUM(s.cost) / NULLIF(SUM(s.units_costed), 0))::numeric AS cost_unit'),
+                  trx.raw(
+                    `(SUM(${CommercialProfitabilityService.MARGIN}) / NULLIF(SUM(s.units_costed), 0))::numeric AS margin_unit`,
+                  ),
+                  trx.raw('MAX(bf.box_factor)::numeric AS box_factor'),
+                  trx.raw('bool_or(bf.is_master_suspect) AS box_factor_suspect'),
                 ]
               : []),
           )
           .groupByRaw(level === 'sku' ? `${dim.id}, ${dim.name}, p.sku` : `${dim.id}, ${dim.name}`);
 
-      const sortExpr = SORT_SQL[opts.sort ?? ''] ?? 'revenue';
+      const sortKey = opts.sort ?? '';
+      const sortExpr =
+        SKU_ONLY_SORT.has(sortKey) && level !== 'sku' ? 'revenue' : SORT_SQL[sortKey] ?? 'revenue';
       const dir = opts.dir === 'asc' ? 'ASC' : 'DESC';
 
       const rows = await grouped()
@@ -686,6 +750,7 @@ export class CommercialProfitabilityService {
                 : null,
             /** Beneficio de promoción vigente, CRUDO. Unidad sin confirmar. */
             promo_benefit: r.promo_benefit == null ? null : Number(r.promo_benefit),
+            ...this.unitMargin(r),
           };
         }),
         totals: {
