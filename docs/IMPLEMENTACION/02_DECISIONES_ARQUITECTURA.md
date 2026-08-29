@@ -1443,7 +1443,7 @@ Es exactamente el riesgo #1 del plan de fase (§2.3) y del sprint MR.1, que la p
 **Consecuencias:**
 - El número de la pantalla coincide con el resto de los reportes de sell-out; deja de haber dos verdades del mismo mes.
 - El KPI de capital en inventario cuadra con la suma de la tabla (`total = in_scope + stock muerto`); antes diferían $23M sin explicación visible.
-- ⚠️ **La valuación de inventario sigue siendo un problema abierto de feed**, no de esta pantalla: $375M contra $88.8M de COGS anuales. Acá se hace visible y se acota (`inventory.unverified`), no se corrige.
+- ⚠️ **La valuación de inventario queda acotada, no corregida.** En **prod está sana**: $59,095,184 contra $564M de COGS anuales = **38 días** (el $375M / ~4 años que apareció en la auditoría inicial era de `platform_test`, la DB local, no de prod). Lo que sí persiste en prod es la **calidad del costo**: 564 de 6,972 SKUs (8.1%) tienen un `cost_base` que el PdV contradice, y valúan **$11,423,059 = 19.3% del capital**. Se marca y se suprime su GMROI; corregir el catálogo es de su feed.
 - ⚠️ `sales_daily` arranca en 2025-10-03: la ventana de 365 días todavía no cubre 12 meses completos.
 - El costo por request sube (~0.7 s de agregación sobre 641k filas) contra leer un snapshot pre-calculado. Se acepta: el snapshot mentía.
 

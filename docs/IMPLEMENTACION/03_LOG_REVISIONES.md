@@ -114,7 +114,8 @@ La banda "Bajo costo" mostraba 60 SKUs con un margen promedio de **−665%**. No
 
 - **La venta y el costo salen del fact.** No se normaliza la unidad renglón por renglón: se toma la fuente que ya la tiene resuelta porque es la misma transacción. Estable en las tres ventanas: 10.32 / 10.29 / 10.33% a 30/90/365 días.
 - **`cost_base` no se corrige acá, se contrasta.** Dividir por `v_product_box_factor` arreglaría el margen y dejaría el catálogo mal — y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed. Acá se marca el conflicto (83 SKUs, $21.6M de capital) y **se suprime el GMROI** de esas filas.
-- **Se descartó valuar el inventario con el costo implícito de la venta.** Se midió: **empeora** ($375M → $398M). El CEDIS concentra el stock y no vende, así que cae al costo de retail. Un número que no se puede defender no reemplaza a otro que tampoco.
+- **Se descartó valuar el inventario con el costo implícito de la venta.** Se midió en local: **empeora** ($375M → $398M). El CEDIS concentra el stock y no vende, así que cae al costo de retail. Un número que no se puede defender no reemplaza a otro que tampoco.
+- **⚠️ Corrección posterior (mismo día):** el "$375M / ~4 años de inventario" es de **`platform_test`, no de prod**. En prod el inventario está **sano**: $59,095,184 contra $564M de COGS anuales = **38 días**. Lo que sí persiste en prod es la calidad del costo — **564 de 6,972 SKUs (8.1%) valúan $11,423,059 = 19.3% del capital** con un `cost_base` que el PdV contradice. La lección de método: medir el hallazgo en la DB que sirve la pantalla **y** en prod antes de escribirlo como problema de negocio.
 - **Fuente vacía ≠ resultado en cero.** `erp_purchase_adjustments` está en 0 filas **en la DB local**: la cascada de palancas no valía cero, estaba ciega. Ahora lo dice. *(Prod sí tiene sus 1,403 ajustes y las 147 políticas de descuento, así que allá la cascada opera. El flag queda igual: la diferencia entre "no hubo descuentos" y "no los estamos midiendo" no puede depender de que alguien se acuerde de revisar la tabla.)*
 - **Lo no confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma 2/3/4/5 y el propio servicio advertía *"confirmar antes de restarlo del margen"* mientras la UI imprimía "−4.0%".
 
@@ -132,7 +133,7 @@ DB-direct 7/7 (margen, bandas contra objetivo, cuadre de inventario, testigos) +
 
 ### Lo que sigue abierto
 
-**MR.0** (diccionario del margen firmado) y **MR.6** (`margin_gap_bridge` — la descomposición de la brecha por palanca y responsable) siguen sin existir: es lo que convierte el tablero en herramienta de decisión en vez de BI descriptivo. Y la valuación de inventario de fondo ($375M contra $88.8M de COGS anuales, ~4 años de cobertura) es un problema del feed de stock que esta pantalla ahora **hace visible pero no resuelve**.
+**MR.6** (la descomposición de la brecha) y **MR.0** (el diccionario) se construyeron el mismo día, después de esta entrada — ver [`FASE_MR_DICCIONARIO_MARGEN.md`](FASES/FASE_MR_DICCIONARIO_MARGEN.md), que queda **redactado y sin firmar**. Lo que sigue abierto son las **10 decisiones** de su §6, con dueño; la más importante es si el objetivo del 15% se mide contra el margen **bruto** o contra el **negociado**, porque a 365 días el negociado ya está en 15.87% y de eso depende si la fase está cerrada.
 
 ### Lección
 
