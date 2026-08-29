@@ -1,6 +1,15 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import type {
+  NetworkOverview,
+  NetworkTopProductRow,
+  SalesByBrandRow,
+  NetworkDailyRow,
+  LowStockResponse,
+  InactiveCustomersResponse,
+  RankingOutOfStockRow,
+} from '@megadulces/contracts';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -721,7 +730,7 @@ export class CommercialAnalyticsService {
   /**
    * Customers sin pedidos en los últimos N días (oportunidad de recuperación).
    */
-  async inactiveCustomers(daysParam?: string | number, limitParam?: string | number) {
+  async inactiveCustomers(daysParam?: string | number, limitParam?: string | number): Promise<InactiveCustomersResponse> {
     const days = Math.max(1, Math.min(365, Number(daysParam) || 30));
     const limit = Math.min(200, Math.max(1, Number(limitParam) || 50));
 
@@ -888,7 +897,7 @@ export class CommercialAnalyticsService {
     thresholdParam?: string | number,
     warehouseIdParam?: string,
     limitParam?: string | number,
-  ) {
+  ): Promise<LowStockResponse> {
     const threshold = Math.max(0, Number(thresholdParam) || 10);
     // Límite duro: el command-center solo muestra los más críticos. Sin esto, con
     // threshold alto sobre el catálogo real la respuesta llegaba a ~10 MB.
@@ -1176,7 +1185,7 @@ export class CommercialAnalyticsService {
    *
    * Match por SKU = articulo del ERP.
    */
-  async rankingOutOfStock(q: { limit?: number; topN?: number }) {
+  async rankingOutOfStock(q: { limit?: number; topN?: number }): Promise<RankingOutOfStockRow[]> {
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 10));
     // Solo escaneamos el top-N del ERP (más relevante; el ERP ya ordenó).
     const topN = Math.min(1000, Math.max(50, Number(q.topN) || 200));
@@ -1487,7 +1496,7 @@ export class CommercialAnalyticsService {
    * clientes activos (KV.3). El pipeline (draft/confirmed/cancelled) se conserva
    * de `commercial.orders` — es el único bloque que sigue en data de plataforma.
    */
-  async networkOverview() {
+  async networkOverview(): Promise<NetworkOverview> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       // UNA sola pasada por sales_daily, agrupada por canal; los totales salen de sumar
@@ -1597,7 +1606,7 @@ export class CommercialAnalyticsService {
    * Top productos por venta real 30d MÓVIL. Fuente = `analytics.sales_daily` (misma que el KPI
    * total) para traer COSTO→MARGEN consistente; `abc_class` desde product_sales_stats (KV.2).
    */
-  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }) {
+  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }): Promise<NetworkTopProductRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
     return this.tk.run(async (trx) => {
@@ -1664,7 +1673,7 @@ export class CommercialAnalyticsService {
   }
 
   /** Mix por marca sobre venta real 30d MÓVIL (analytics.sales_daily join catalog.*), con margen. */
-  async networkSalesByBrand() {
+  async networkSalesByBrand(): Promise<SalesByBrandRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.sales_daily AS s')
@@ -1703,7 +1712,7 @@ export class CommercialAnalyticsService {
   }
 
   /** Serie diaria de venta real (revenue/units/tickets) para el sparkline del hero. */
-  async networkDailySeries(q: DateRangeQuery) {
+  async networkDailySeries(q: DateRangeQuery): Promise<NetworkDailyRow[]> {
     const { from, to } = this.parseDateRange(q);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
