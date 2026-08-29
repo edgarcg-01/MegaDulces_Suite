@@ -1,7 +1,7 @@
 # Fase RE.20 — Nomenclatura formal del proceso de entradas + cierre de huecos
 
-> **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.2 (ordenar por columna) — 2026-08-29 ·
-> ⬜ RE.20.1 · RE.20.3 · RE.20.4.
+> **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.2 (ordenar por columna) · ✅ RE.20.3
+> (descartar con motivo) — 2026-08-29 · ⬜ RE.20.1 · RE.20.4.
 > **Depende de:** [RE.17/RE.18/RE.19](FASE_RE17_UX_ENTRADAS.md) (PR #45).
 > **Disparador:** Edgar — *"formalicemos los nombres ya que los actuales no son intuitivos o
 > profesionales"* + *"revisar las ventanas existentes, cuáles faltan, cuáles sobran"*.
@@ -140,26 +140,68 @@ Compras era la tercera pantalla, así que se promovió: `shared/util/table-sort.
 `styles.css`, junto a la base de tabla que ya es global. Finanzas quedó usando el compartido y
 `.tw-sort` murió.
 
-### 3.2 RE.20.3 — Descartar una entrada con motivo ⬜
+### 3.2 RE.20.3 — Descartar una entrada con motivo ✅ (2026-08-29)
 
-Hoy el único camino de salida es *Devuelta*, que **rebota a la sucursal**. Pero hay entradas que
-**nunca van a tener factura de proveedor**:
+Hoy el único camino de salida era *Devuelta*, que **rebota a la sucursal**: le pide que suba otra
+vez algo que sí existe. Pero hay entradas que **nunca van a tener factura de proveedor**, y para
+ésas el proceso no tenía final — se quedaban *Sin factura* para siempre, inflando el atraso de su
+sucursal.
 
-- **Traspasos entre sucursales** — `proveedor_code` con prefijo `TI` (`TI001` PH, `TI002` 8
-  Esquinas…). No hay proveedor externo, así que no hay factura que subir.
-- Entradas canceladas o capturadas por error en el ERP.
+#### ⚠️ Corrección de la premisa (verificado contra la DB antes de construir)
 
-Esas se quedan *Sin factura* para siempre, **inflan el atraso de su sucursal** y ensucian el
-semáforo del Control. Hace falta un estado terminal `descartada` con motivo tipificado
-(`traspaso · cancelada_erp · duplicada · otro`), gateado con `_VALIDAR` (no lo decide quien
-sube), y que salga del denominador de cobertura.
+El plan decía que **los traspasos están inflando el atraso de las sucursales**. Medido: es cierto
+en general, **pero no hoy**.
 
-> El discriminador de traspaso **ya está decodificado** (`reference_goods_receipts_multisource`):
-> prefijo `TI` = traspaso, prefijo `C…` = compra externa. El RFC **no** sirve, viene sucio.
-> Con eso se puede pre-marcar el motivo y hasta descartar los traspasos en lote.
+| | |
+|---|---|
+| Traspasos (`proveedor_code` `TI*`) en el histórico | **1,176** |
+| Último traspaso emitido | **15/06/2026** |
+| Traspasos en el carril **vivo** (desde el arranque, 01/08/2026) | **0** |
 
-Requiere migración (`finance.goods_receipt_proofs` o tabla nueva de descartes) → **es el único
-item de esta fase con cambio de esquema**.
+O sea: los 1,176 caen todos en el carril de **rezago**, que por diseño ya está segregado y **no
+entra al % de cobertura**. La categoría que sí está en el carril vivo son las **entradas en
+$0.00** — 13 sólo en agosto (muestras, bonificaciones, correcciones del ERP).
+
+Además, hoy **no hay ninguna evidencia subida** (`finance.goods_receipt_proofs` está vacía): la
+cobertura es 0% en todas las sucursales. Así que esto **no arregla un número torcido hoy**;
+tapa el agujero **antes** de que el proceso arranque en serio, que es cuando empezaría a doler.
+Si el ERP vuelve a emitir traspasos, el motivo ya está listo.
+
+#### Lo que se construyó
+
+**Migración `20260829180000`** — la única de esta fase:
+
+- `finance.goods_receipt_discards` (RLS forzado + trigger de tenant + único por
+  `(tenant, sucursal, folio)`). Tabla aparte y no columna en `erp_goods_receipts`, porque esa es
+  una **vista viva** sobre `kepler_ods` (derive-no-copy) y es de sólo lectura. Mismo patrón que
+  el dictamen de gemelas.
+- Grants `SELECT, INSERT, DELETE` — **sin `UPDATE`**: cambiar el motivo de un descarte viejo sin
+  dejar rastro es reescribir la historia. Se reactiva y se vuelve a descartar, y las dos cosas
+  quedan en el historial append-only.
+- `goods_receipt_proof_history.proof_id` pasa a **nullable**: descartar es una decisión sobre la
+  **entrada**, no sobre una evidencia — y justo se descarta lo que nunca va a tener una. La tabla
+  ya denormaliza `(sucursal, folio)` y se lee por ahí, así que queda **una sola línea de tiempo**
+  por entrada.
+
+**Motivos** (sin `CHECK`, igual que `motivo_codigo` de RE.13.2 — el catálogo va a crecer):
+`traspaso · cancelada_erp · duplicada · sin_costo · otro`. El diálogo **pre-elige** por lo que
+dice la fila (proveedor `TI*` → traspaso; monto 0 → sin costo) y muestra una pista por motivo:
+el revisor confirma, no adivina. `otro` **exige** nota.
+
+**El descarte no puede esconder el problema.** Sale del denominador de cobertura, pero:
+
+- El tablero de Control gana una columna **Descartadas**, con el desglose por motivo en el
+  tooltip y link a la lista. 40 traspasos es el ERP haciendo lo suyo; 40 *otro* es alguien
+  limpiando su número.
+- El Listado gana el estado **Descartadas**, que las muestra con su motivo, quién y cuándo.
+- *Captura de facturas* también lo tiene — sin poder descartar. Si no, un folio que el capturista
+  venía persiguiendo desaparece de su lista y del buscador **sin explicación**, que es
+  exactamente la crítica que se le hace al descarte.
+
+**Reglas duras del server** (la UI no es la que decide): gateado con `_VALIDAR` y no `_GESTIONAR`
+—si el que tiene que subir pudiera declarar que no hace falta, la cobertura sería
+autoevaluación—; y **no se descarta lo que ya tiene factura subida** (la respuesta ahí es
+validarla o devolverla).
 
 ### 3.3 RE.20.4 — Avisarle al que sube que le devolvieron ⬜
 
@@ -178,7 +220,7 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
 |---|---|---|---|
 | ✅ **RE.20.0** | Nomenclatura | bajo, sólo strings | Es el pedido explícito y no depende de nada. |
 | ✅ **RE.20.2** | Ordenar por columna | bajo + `dir` en el backend | Era la queja más probable con 875 filas. De paso apareció el bug del orden por default. |
-| **RE.20.3** | Descartar con motivo | **medio + migración** | Es el que arregla un número **falso** (el atraso de sucursales con traspasos). |
+| ✅ **RE.20.3** | Descartar con motivo | medio + migración | La premisa cambió al verificarla: hoy los traspasos están todos en el rezago. Tapa el agujero **antes** de que el proceso arranque en serio. |
 | **RE.20.4** | Aviso de devolución | medio | Cierra el lazo del proceso, pero nada se pierde mientras tanto. |
 | **RE.20.1** | Fusionar 360 ↔ Listado | medio, toca permisos | Último: es el que más superficie mueve y necesita decisión de Edgar. |
 
@@ -193,6 +235,10 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
   las 4 cláusulas nuevas (`proveedor` ↑↓, `monto` ↑↓) corridas contra la DB real ·
   `test-newdb-goods-receipts-scope` y `-lifecycle` verdes, con 5 aserciones nuevas que cubren
   las claves y el empuje de la fecha futura al final.
-- RE.20.3: smoke que confirme que una entrada descartada **sale del denominador** de
-  `coverage()` — si no, el descarte esconde el problema en vez de resolverlo.
+- **RE.20.3 ✅ hecho:** `test-newdb-goods-receipt-discards` (13/13, ya en la regression) — corre
+  en transacción con rollback y afirma las **dos** mitades: la descartada **sale del
+  denominador** (594 → 593 en CEDIS) **y** se sigue contando aparte. Más: RLS forzado,
+  `app_runtime` sin `UPDATE`, `proof_id` nullable, no se descarta dos veces (índice único), la
+  decisión entra al historial sin evidencia detrás, y reactivar devuelve la fila al denominador
+  (593 → 594). `tsc` view + api limpios · `nx build view` verde.
 - Light + dark + móvil.

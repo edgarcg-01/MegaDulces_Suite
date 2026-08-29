@@ -14,6 +14,7 @@ import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { EntradasService, CoverageReport, CoverageRow } from '../entradas.service';
+import { motivoDescarteLabel } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -172,6 +173,15 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       $ sin factura <i [class]="sortIcon(sort(), 'monto_pendiente')" aria-hidden="true"></i>
                     </button>
                   </th>
+                  <!-- RE.20.3 — el contrapeso del descarte. Las descartadas YA salieron del
+                       denominador de "Con factura"; si además no se vieran, descartar sería el
+                       camino corto al 100%. Un motivo que empieza a crecer es una señal. -->
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'descartadas')"
+                      pTooltip="Entradas que nunca van a tener factura (traspaso, $0, canceladas). Están fuera del % de arriba." tooltipPosition="top">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('descartadas')" aria-label="Ordenar por descartadas">
+                      Descartadas <i [class]="sortIcon(sort(), 'descartadas')" aria-hidden="true"></i>
+                    </button>
+                  </th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -212,6 +222,13 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       {{ c.dias_p50 }} / {{ c.dias_p90 }}
                     </td>
                     <td class="comm-num">{{ moneyShort(c.monto_pendiente) }}</td>
+                    <td class="comm-num">
+                      @if (c.descartadas) {
+                        <a class="ec-link" [routerLink]="['/compras/entradas']"
+                           [queryParams]="{ suc: c.sucursal, estado: 'descartada' }"
+                           [pTooltip]="motivosDescarte(c)" tooltipPosition="left">{{ c.descartadas }}</a>
+                      } @else { <span class="muted">—</span> }
+                    </td>
                     <td class="ec-acts">
                       <!-- RE.16.9 — el supervisor que sólo observa (VER, sin GESTIONAR ni
                            VALIDAR) no ve atajos a pantallas donde el guard lo rebota. "ver
@@ -247,6 +264,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                   <td class="comm-num" [class.is-bad]="tot().atrasadas > 0">{{ tot().atrasadas || '—' }}</td>
                   <td></td>
                   <td class="comm-num">{{ moneyShort(tot().monto_pendiente) }}</td>
+                  <td class="comm-num">{{ tot().descartadas || '—' }}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -369,14 +387,27 @@ export class ComprasEntradasControlComponent {
   /** Totales de la red: se suman acá, no en otra llamada — la tabla ya trae todo. */
   readonly tot = computed(() => {
     const r = this.rows();
-    const acc = { entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0, monto_pendiente: 0 };
+    const acc = { entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0, monto_pendiente: 0, descartadas: 0 };
     for (const c of r) {
       acc.entradas += c.entradas; acc.con_evidencia += c.con_evidencia;
       acc.validadas += c.validadas; acc.por_validar += c.por_validar;
       acc.atrasadas += c.atrasadas; acc.monto_pendiente += c.monto_pendiente;
+      acc.descartadas += c.descartadas ?? 0;
     }
     return acc;
   });
+
+  /**
+   * `[RE.20.3]` — el desglose por motivo, para el tooltip. El total solo no dice nada: 40
+   * traspasos es el ERP haciendo lo suyo, 40 "otro" es alguien limpiando su número.
+   */
+  motivosDescarte(c: CoverageRow): string {
+    const m = c.descartes_motivos ?? {};
+    const partes = Object.entries(m)
+      .sort((a, b) => b[1] - a[1])
+      .map(([code, n]) => `${n} ${motivoDescarteLabel(code).toLowerCase() || code}`);
+    return partes.length ? `${partes.join(' · ')} — ver la lista` : 'Ver la lista';
+  }
   readonly pctRed = computed(() => {
     const t = this.tot();
     return t.entradas ? Math.round((t.con_evidencia / t.entradas) * 100) : 0;

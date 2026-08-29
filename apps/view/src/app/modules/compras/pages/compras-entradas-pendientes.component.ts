@@ -26,7 +26,7 @@ import { TableDensityComponent } from '../../../shared/components/table-density/
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
-import { motivoLabel, plural } from '../receipt-verdict';
+import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -330,7 +330,15 @@ interface Hoja {
                       </td>
                       <td class="comm-num ep-monto">{{ money(c.monto) }}</td>
                       <td class="ep-cta">
-                        @if (dragFila() === clave(c)) {
+                        @if (verDescartadas()) {
+                          <!-- RE.20.3 — acá no se sube nada: alguien con permiso de validar
+                               decidió que esta entrada nunca va a tener factura. Se dice el
+                               motivo para que el que la venía persiguiendo deje de hacerlo. -->
+                          <span class="ep-descartada">
+                            <i class="pi pi-ban" aria-hidden="true"></i>
+                            {{ motivoDescarteLabel(c.descarte_motivo) || 'Fuera del proceso' }}
+                          </span>
+                        } @else if (dragFila() === clave(c)) {
                           <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Soltá acá el PDF</b>
                         } @else if (c.deposit_status === 'validado') {
                           <span class="ep-ok"><i class="pi pi-check" aria-hidden="true"></i> Validada</span>
@@ -817,6 +825,13 @@ interface Hoja {
     .ep-cta { white-space: nowrap; font-size: var(--fs-xs); }
     .ep-drophere { color: var(--action); font-weight: 600; }
     .ep-ok { color: var(--ok-fg); }
+    /* RE.20.3 — gris, no rojo: descartar no es un error del que sube, es reconocer que esa
+       entrada nunca iba a tener factura. El rojo está reservado para "te la devolvieron". */
+    .ep-descartada {
+      display: inline-flex; align-items: center; gap: var(--sp-1);
+      color: var(--text-muted); font-size: var(--fs-xs);
+    }
+    .ep-descartada i { font-size: .75rem; }
     .ep-wait { color: var(--text-muted); }
     .ep-rowpick { color: var(--text-faint); cursor: pointer; }
     .ep-rowpick b { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid currentColor; }
@@ -978,7 +993,13 @@ export class ComprasEntradasPendientesComponent {
     { label: 'Por revisar', value: 'por_validar' },
     { label: 'Validadas', value: 'validado' },
     { label: 'Todas', value: '' },
+    // RE.20.3 — el capturista no descarta (eso es `_VALIDAR`), pero SÍ tiene que poder ver las
+    // descartadas: si no, un folio que venía persiguiendo desaparece de la lista y del buscador
+    // sin explicación, que es justo lo que se le critica al descarte.
+    { label: 'Descartadas', value: 'descartada' },
   ];
+  readonly verDescartadas = computed(() => this.estado() === 'descartada');
+  motivoDescarteLabel = motivoDescarteLabel;
 
   readonly canManage = computed(() =>
     this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);

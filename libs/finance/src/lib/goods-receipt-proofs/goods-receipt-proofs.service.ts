@@ -25,6 +25,15 @@ export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
  */
 export const MOTIVOS_RECHAZO = ['ilegible', 'no_corresponde', 'total_no_cuadra', 'falta_hoja', 'duplicada', 'otro'] as const;
 export type MotivoRechazo = (typeof MOTIVOS_RECHAZO)[number];
+
+/**
+ * `[RE.20.3]` — catálogo de motivos de **descarte**. Distinto del de rechazo, y a propósito:
+ * *Devuelta* rebota a la sucursal para que suba algo que sí existe; *Descartada* dice que **no
+ * existe ni va a existir** una factura de proveedor para esa entrada. Confundirlos deja a la
+ * sucursal persiguiendo un papel que nadie va a emitir.
+ */
+export const MOTIVOS_DESCARTE = ['traspaso', 'cancelada_erp', 'duplicada', 'sin_costo', 'otro'] as const;
+export type MotivoDescarte = (typeof MOTIVOS_DESCARTE)[number];
 // RE.13.0 — estos dos eran constantes de módulo y son decisiones de NEGOCIO: la fecha de
 // arranque del proceso (mover el rezago fuera del SLA) y cuándo se considera que la factura
 // cuadra. Viven en `finance.receipt_settings` por tenant; acá quedan sólo como default para
@@ -132,8 +141,12 @@ export interface ReceiptFile {
 export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
 
 export interface ListReceiptsQuery {
-  /** `pendiente` = sin evidencia · `por_validar` = evidencia esperando decisión (la cola del revisor). */
-  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | string;
+  /**
+   * `pendiente` = sin evidencia · `por_validar` = evidencia esperando decisión (la cola del
+   * revisor) · `descartada` = RE.20.3, las que nunca van a tener factura. Las descartadas salen
+   * de todos los demás estados: sólo se ven pidiéndolas por su nombre.
+   */
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | string;
   from?: string;
   to?: string;
   search?: string;
@@ -364,12 +377,14 @@ export class GoodsReceiptProofsService {
    */
   private async registrarHistorial(
     trx: any,
-    p: { proof_id: string; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
+    // RE.20.3 — `proof_id` puede ser null: descartar una entrada es una decisión sobre la
+    // ENTRADA, no sobre una evidencia subida (y justo se descarta lo que nunca va a tener una).
+    p: { proof_id: string | null; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
   ): Promise<void> {
     if (!(await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))) return;
     await trx('finance.goods_receipt_proof_history').insert({
       tenant_id: trx.raw('public.current_tenant_id()'),
-      proof_id: p.proof_id, sucursal: p.sucursal, folio: p.folio,
+      proof_id: p.proof_id ?? null, sucursal: p.sucursal, folio: p.folio,
       status_from: p.status_from ?? null, status_to: p.status_to,
       motivo_codigo: p.motivo_codigo ?? null, motivo: p.motivo ?? null,
       changed_by: p.actor ?? null,
@@ -410,6 +425,7 @@ export class GoodsReceiptProofsService {
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       const hayPares = await this.hayPares(trx);
+      const hayDesc = await this.hayDescartes(trx);
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
@@ -448,6 +464,20 @@ export class GoodsReceiptProofsService {
         else if (q.carril !== 'todo') b.where('c.receipt_date', '>=', cfg.reception_start);
         if (q.from) b.where('c.receipt_date', '>=', q.from);
         if (q.to) b.where('c.receipt_date', '<=', q.to);
+        // RE.20.3 — las descartadas salen de TODAS las vistas de trabajo. Se ven pidiéndolas
+        // por su nombre (`estado=descartada`), que es lo que hace auditable el descarte: si
+        // desaparecieran del todo, "descartar" sería la forma rápida de llegar al 100%.
+        //
+        // JOIN y no subconsulta porque la fila también necesita MOSTRAR el motivo: una
+        // descartada sin el porqué a la vista es una fila que desapareció sin explicación.
+        if (hayDesc) {
+          b.leftJoin('finance.goods_receipt_discards as x', (j: any) => {
+            j.on('x.tenant_id', 'c.tenant_id').andOn('x.sucursal', 'c.sucursal').andOn('x.folio', 'c.folio');
+          });
+          if (q.estado === 'descartada') b.whereNotNull('x.folio'); else b.whereNull('x.folio');
+        } else if (q.estado === 'descartada') {
+          b.whereRaw('false'); // sin la migración no hay descartadas que mostrar
+        }
         if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
         else if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
         else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
@@ -504,6 +534,14 @@ export class GoodsReceiptProofsService {
           // reconoce y no tiene con qué saber que es la misma orden.
           trx.raw(ORIGEN_SELECT),
           ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)),
+          // RE.20.3 — por qué se descartó y quién. Sólo viene con `estado=descartada` (en el
+          // resto el JOIN filtra por NULL), pero se selecciona siempre para no ramificar el select.
+          ...(hayDesc ? [
+            trx.raw('x.motivo_codigo AS descarte_motivo'),
+            trx.raw('x.motivo AS descarte_nota'),
+            trx.raw('x.descartado_por AS descarte_por'),
+            trx.raw('x.descartado_at AS descarte_at'),
+          ] : []),
         )
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -684,6 +722,13 @@ export class GoodsReceiptProofsService {
     const alcance = await this.sucursalesVisibles(q.warehouse_codes);
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
+      // RE.20.3 — las descartadas salen del DENOMINADOR: una sucursal no puede quedar en 60%
+      // por traspasos que nadie va a facturar. Pero se cuentan aparte y vuelven en `descartadas`
+      // — si el descarte sólo restara, "descartar todo" sería el camino corto al 100%.
+      const excluirDescartes = (await this.hayDescartes(trx))
+        ? ` AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
+              WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)`
+        : '';
       // Los `?` van en el orden en que aparecen en la SQL: sla → tenant → arranque → filtros.
       let filtro = '';
       const filtroParams: any[] = [];
@@ -723,10 +768,19 @@ export class GoodsReceiptProofsService {
           FROM analytics.erp_goods_receipts c
           LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
          WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL
-           AND c.receipt_date >= ?${filtro}
+           AND c.receipt_date >= ?${excluirDescartes}${filtro}
          GROUP BY c.sucursal
          ORDER BY c.sucursal`,
         [cfg.sla_capture_days, tenantId, cfg.reception_start, ...filtroParams]);
+
+      // Cuántas se descartaron por sucursal (y con qué motivo). Se pide en la MISMA transacción.
+      const desc = await this.descartesPorSucursal(trx, alcance);
+      const descPorSuc = new Map<string, { total: number; motivos: Record<string, number> }>();
+      for (const d of desc) {
+        if (!descPorSuc.has(d.sucursal)) descPorSuc.set(d.sucursal, { total: 0, motivos: {} });
+        const e = descPorSuc.get(d.sucursal)!;
+        e.total += d.n; e.motivos[d.motivo_codigo] = (e.motivos[d.motivo_codigo] ?? 0) + d.n;
+      }
 
       // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
       // cobertura, el número deja de servir para exigirle a nadie.
@@ -746,6 +800,10 @@ export class GoodsReceiptProofsService {
         rows: (r.rows || []).map((x: any) => ({
           sucursal: x.sucursal,
           responsables: resp.get(String(x.sucursal)) ?? [],
+          // RE.20.3 — fuera del denominador de arriba, pero a la vista: un motivo que crece es
+          // una señal (el ERP volvió a emitir traspasos, alguien descarta de más), no una fila menos.
+          descartadas: descPorSuc.get(String(x.sucursal))?.total ?? 0,
+          descartes_motivos: descPorSuc.get(String(x.sucursal))?.motivos ?? {},
           entradas: Number(x.entradas),
           con_evidencia: Number(x.con_evidencia),
           validadas: Number(x.validadas),
@@ -1764,6 +1822,138 @@ export class GoodsReceiptProofsService {
       });
       return row;
     });
+  }
+
+  // ─────────────────── RE.20.3: descartar una entrada ───────────────────
+
+  /** ¿Está la migración de descartes? Sin ella el proceso sigue igual que antes, sin romperse. */
+  private async hayDescartes(trx: any): Promise<boolean> {
+    return this.existeTabla(trx, 'finance', 'goods_receipt_discards');
+  }
+
+  /**
+   * `[RE.20.3]` — saca del proceso una entrada que **nunca va a tener factura de proveedor**.
+   *
+   * Hasta acá la única salida era *Devuelta*, que rebota a la sucursal. Un traspaso entre
+   * sucursales (`proveedor_code` `TI*`) o una entrada en $0 no tienen proveedor externo que
+   * facture: se quedaban *Sin factura* para siempre, contando como atraso de esa sucursal.
+   *
+   * Lo decide `_VALIDAR` y no `_GESTIONAR`: si el que tiene que subir la factura pudiera
+   * declarar que no hace falta, el indicador de cobertura se vuelve autoevaluación.
+   */
+  async descartar(sucursal: string, folio: string, motivoCodigo: string, motivo?: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    const code = (motivoCodigo || '').trim();
+    if (!MOTIVOS_DESCARTE.includes(code as MotivoDescarte)) {
+      throw new BadRequestException(`motivo inválido: ${code || '(vacío)'}`);
+    }
+    const texto = (motivo || '').trim();
+    // Igual que en `reject`: 'otro' sin explicación es un descarte que nadie puede auditar
+    // después — y descartar es justamente lo que saca una fila del número que se vigila.
+    if (code === 'otro' && !texto) {
+      throw new BadRequestException('con motivo "otro" hace falta escribir por qué.');
+    }
+
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayDescartes(trx))) {
+        throw new BadRequestException('falta la migración de descartes en esta base');
+      }
+      const entrada = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: suc, folio: fol })
+        .whereRaw('dup_of_folio IS NULL')
+        .first('sucursal', 'folio', 'proveedor_code');
+      if (!entrada) throw new BadRequestException(`no existe la entrada ${suc}/${fol}`);
+
+      // Con evidencia YA subida no se descarta: si alguien mandó la factura, la respuesta es
+      // validarla o devolverla — descartarla borraría del tablero un expediente que sí existe.
+      const conEvidencia = await trx('finance.goods_receipt_proofs')
+        .where({ sucursal: suc, folio: fol }).first('id');
+      if (conEvidencia) {
+        throw new BadRequestException('esta entrada ya tiene factura subida: validala o devolvela, no la descartes.');
+      }
+
+      const [row] = await trx('finance.goods_receipt_discards')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          sucursal: suc, folio: fol,
+          motivo_codigo: code, motivo: texto || null, descartado_por: actor || null,
+        })
+        .onConflict(['tenant_id', 'sucursal', 'folio']).ignore()
+        .returning(['id', 'motivo_codigo']);
+      // `ignore()` no devuelve fila cuando ya existía: otra persona la descartó en el medio.
+      if (!row) throw new BadRequestException('esta entrada ya estaba descartada');
+
+      await this.registrarHistorial(trx, {
+        proof_id: null, sucursal: suc, folio: fol,
+        status_from: null, status_to: 'descartada', motivo_codigo: code, motivo: texto || null, actor,
+      });
+      return { sucursal: suc, folio: fol, motivo_codigo: code };
+    });
+  }
+
+  /**
+   * `[RE.20.3]` — deshace un descarte y la entrada vuelve al proceso. Pasa de verdad: se
+   * descarta como traspaso y después aparece la factura. El descarte se borra (no se versiona),
+   * pero las dos decisiones quedan en el historial, que es append-only.
+   */
+  async reactivar(sucursal: string, folio: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayDescartes(trx))) {
+        throw new BadRequestException('falta la migración de descartes en esta base');
+      }
+      const prev = await trx('finance.goods_receipt_discards')
+        .where({ sucursal: suc, folio: fol }).first('motivo_codigo');
+      const n = await trx('finance.goods_receipt_discards').where({ sucursal: suc, folio: fol }).del();
+      if (!n) throw new BadRequestException(`la entrada ${suc}/${fol} no está descartada`);
+      await this.registrarHistorial(trx, {
+        proof_id: null, sucursal: suc, folio: fol,
+        status_from: 'descartada', status_to: 'pendiente',
+        motivo_codigo: prev?.motivo_codigo ?? null, actor,
+      });
+      return { sucursal: suc, folio: fol };
+    });
+  }
+
+  /**
+   * `[RE.20.3]` — cuántas se descartaron y por qué motivo, para el tablero de Control.
+   *
+   * El descarte **no puede esconder el problema**: sale del denominador de cobertura, pero si
+   * nadie ve el conteo, "descartar todo" pasa a ser la forma más rápida de llegar al 100%.
+   * Acá se cuenta aparte, por sucursal y por motivo.
+   */
+  async descartes(q: { warehouse_codes?: string[] | null } = {}) {
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    return this.tk.run(async (trx) => {
+      const rows = await this.descartesPorSucursal(trx, alcance);
+      return { motivos: MOTIVOS_DESCARTE, rows, total: rows.reduce((a, r) => a + r.n, 0) };
+    });
+  }
+
+  /**
+   * El conteo de descartes, crudo. Va aparte de `descartes()` porque lo necesita también
+   * `coverage()` **dentro de su propia transacción**: anidar `tk.run` deja la query de adentro
+   * sin el tenant del CLS y devuelve 0 filas en silencio.
+   */
+  private async descartesPorSucursal(
+    trx: any, alcance: string[] | null,
+  ): Promise<{ sucursal: string; motivo_codigo: string; n: number }[]> {
+    if (!(await this.hayDescartes(trx))) return [];
+    if (alcance && !alcance.length) return [];
+    const b = trx('finance.goods_receipt_discards as x')
+      .where('x.tenant_id', this.tenantCtx.requireTenantId())
+      .groupBy('x.sucursal', 'x.motivo_codigo')
+      .orderBy('x.sucursal')
+      .select('x.sucursal', 'x.motivo_codigo')
+      .count({ n: '*' });
+    if (alcance) b.whereIn('x.sucursal', alcance);
+    return (await b).map((r: any) => ({ sucursal: String(r.sucursal), motivo_codigo: String(r.motivo_codigo), n: Number(r.n) }));
   }
 
   /**

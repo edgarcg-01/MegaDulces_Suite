@@ -22,12 +22,23 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la captura, un revisor la valida o la devuelve, y Control de entradas mira la red completa. No escribe nada en Kepler: es evidencia.',
     groups: [
       {
-        heading: 'Los cuatro estados (mismos nombres en todas las pantallas)',
+        heading: 'Los cuatro estados del papel (mismos nombres en todas las pantallas)',
         entries: [
           { term: 'Sin factura', def: 'Kepler registró la entrada y todavía no hay PDF. Es lo que le toca a la sucursal.' },
           { term: 'Por revisar', def: 'Ya se subió el PDF y espera decisión del revisor. El reloj ahora es de él, no de la sucursal.' },
           { term: 'Validada', def: 'El revisor la aceptó: el expediente cierra y sostiene el pago.' },
           { term: 'Devuelta', def: 'El revisor la rechazó con un motivo (ilegible, no corresponde, el total no cuadra, falta una hoja, duplicada). Vuelve a la sucursal, que la corrige y la sube de nuevo. Es el único camino de regreso.' },
+        ],
+      },
+      {
+        heading: 'Descartada — la salida para lo que nunca va a tener factura',
+        entries: [
+          { term: 'Para qué está', def: 'Devolver le pide a la sucursal que suba algo que sí existe. Pero un traspaso entre sucursales o una entrada en $0 no tienen proveedor externo que facture: sin esta salida se quedan Sin factura para siempre e inflan el atraso de esa sucursal.' },
+          { term: 'Quién puede', def: 'Sólo quien valida. Si el que tiene que subir la factura pudiera declarar que no hace falta, la cobertura sería autoevaluación.' },
+          { term: 'Los motivos', def: 'Traspaso entre sucursales (el proveedor es otra sucursal, código TI…) · Cancelada o capturada por error en el ERP · Ya está capturada en otra orden · Entrada sin costo ($0: muestra, bonificación, corrección) · Otro, que obliga a escribir por qué.' },
+          { term: 'Qué le pasa al número', def: 'Sale del denominador del % comprobado, pero se sigue contando aparte en su propia columna. Si sólo restara, descartar sería el camino más corto al 100%.' },
+          { term: 'Reactivar', def: 'Deshace el descarte y la entrada vuelve a pedir factura. Pasa: se descarta como traspaso y después aparece el papel. Las dos decisiones quedan en el historial.' },
+          { term: 'No se descarta con factura subida', def: 'Si el PDF ya está, la respuesta es validarlo o devolverlo. Descartarlo borraría del tablero un expediente que sí existe.' },
         ],
       },
       {

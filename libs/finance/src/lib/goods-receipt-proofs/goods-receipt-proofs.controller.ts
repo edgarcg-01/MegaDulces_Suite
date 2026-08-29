@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, ReceiptSettings } from './goods-receipt-proofs.service';
@@ -131,6 +131,41 @@ export class GoodsReceiptProofsController {
   })
   decideTwin(@Param('cedis_folio') cedisFolio: string, @Body() body: { decision?: 'confirmar' | 'rechazar' }, @Req() req: AuthedRequest) {
     return this.svc.decideTwin(cedisFolio, body?.decision as 'confirmar' | 'rechazar', req?.user?.full_name || req?.user?.username);
+  }
+
+  // ── RE.20.3 — descartar una entrada que nunca va a tener factura ──────────
+  // OJO con el orden: `discards` va ANTES de `:sucursal/:folio`, o Nest lo resolvería como el
+  // detalle de una sucursal llamada "discards".
+  @Get('discards')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.20.3 — cuántas entradas se descartaron por sucursal y motivo. El descarte sale del denominador de cobertura, así que el conteo tiene que ser visible: si nadie lo mira, descartar es el camino corto al 100%.',
+  })
+  descartes(@Query() query: Record<string, unknown>) {
+    const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts/discards');
+    return this.svc.descartes({ warehouse_codes });
+  }
+
+  @Post(':sucursal/:folio/discard')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.20.3 — saca del proceso una entrada que NUNCA va a tener factura de proveedor (traspaso · cancelada_erp · duplicada · sin_costo · otro). Lo decide _VALIDAR y no _GESTIONAR: si el que tiene que subir pudiera declarar que no hace falta, la cobertura sería autoevaluación. Firmado.',
+  })
+  descartar(
+    @Param('sucursal') sucursal: string, @Param('folio') folio: string,
+    @Body() body: { motivo_codigo?: string; motivo?: string }, @Req() req: AuthedRequest,
+  ) {
+    return this.svc.descartar(sucursal, folio, body?.motivo_codigo || '', body?.motivo,
+      req?.user?.full_name || req?.user?.username);
+  }
+
+  @Delete(':sucursal/:folio/discard')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.20.3 — deshace el descarte y la entrada vuelve al proceso (pasa: se descarta como traspaso y después aparece la factura). Las dos decisiones quedan en el historial append-only.',
+  })
+  reactivar(@Param('sucursal') sucursal: string, @Param('folio') folio: string, @Req() req: AuthedRequest) {
+    return this.svc.reactivar(sucursal, folio, req?.user?.full_name || req?.user?.username);
   }
 
   @Get(':sucursal/:folio')

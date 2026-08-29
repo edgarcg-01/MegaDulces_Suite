@@ -20,12 +20,12 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
-import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS } from '../receipt-verdict';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
@@ -234,13 +234,38 @@ interface AttachFile {
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
+                } @else if (verDescartadas()) {
+                  <!-- RE.20.3 — en la vista de descartadas la columna dice POR QUÉ salió del
+                       proceso. Sin el motivo a la vista, "descartada" es una fila que
+                       desapareció y nadie puede auditar la decisión. -->
+                  <span class="cb-descartada" [pTooltip]="descarteTip(c)" tooltipPosition="top">
+                    <i class="pi pi-ban" aria-hidden="true"></i> {{ motivoDescarteLabel(c.descarte_motivo) || 'Descartada' }}
+                  </span>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin remisión</span> }
               </td>
               <td>
-                <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
-                @if (c.deposit_id && canValidate()) {
-                  @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
-                  @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                @if (verDescartadas()) {
+                  @if (canValidate()) {
+                    <button pButton type="button" size="small" text severity="secondary"
+                            [loading]="descartando() === clave(c)" [disabled]="!!descartando()"
+                            (click)="reactivar(c)" title="Vuelve al proceso: apareció la factura">
+                      <span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reactivar</span>
+                    </button>
+                  }
+                } @else {
+                  <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
+                  @if (c.deposit_id && canValidate()) {
+                    @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
+                    @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                  }
+                  <!-- RE.20.3 — sólo sin evidencia: si la factura ya está subida la respuesta es
+                       validarla o devolverla. El server lo vuelve a comprobar. -->
+                  @if (!c.deposits && canValidate()) {
+                    <button pButton type="button" size="small" text severity="secondary"
+                            (click)="openDescartar(c)" title="Nunca va a tener factura (traspaso, $0, cancelada)">
+                      <span class="p-button-icon pi pi-ban" aria-hidden="true"></span>
+                    </button>
+                  }
                 }
               </td>
             </tr>
@@ -508,6 +533,46 @@ interface AttachFile {
         <button pButton type="button" text (click)="closeReject()"><span class="p-button-label">Cancelar</span></button>
         <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
+    </p-dialog>
+
+    <!--
+      RE.20.3 — Descartar. Le faltaba al proceso la salida para lo que NUNCA va a tener factura:
+      hasta acá el único camino era "Devuelta", que rebota a la sucursal pidiéndole que suba algo
+      que no existe. La entrada se queda Sin factura para siempre e infla el atraso de esa
+      sucursal. El motivo es obligatorio y tipificado porque el descarte RESTA del denominador de
+      cobertura: sin motivo medible, descartar es el camino corto al 100%.
+    -->
+    <p-dialog [visible]="showDescartar()" (visibleChange)="showDescartar.set($event)" [modal]="true"
+              [style]="{ width: '30rem' }" [draggable]="false" header="Sacar del proceso">
+      @if (descartarFila(); as c) {
+        <div class="cb-form">
+          <p class="muted">
+            Entrada <strong>{{ c.folio }}</strong> · {{ c.proveedor_nombre || c.proveedor_code }} · {{ money(c.monto) }}
+          </p>
+          <p class="cb-desc-lead">
+            Esta entrada deja de pedir factura y <strong>sale del atraso</strong> de {{ suc(c.sucursal) }}.
+            Se sigue contando aparte, en el tablero de Control.
+          </p>
+          <div class="cb-desc-motivos" role="radiogroup" aria-label="Motivo del descarte">
+            @for (m of MOTIVOS_DESCARTE; track m.code) {
+              <label class="cb-desc-m" [class.is-sel]="descarteMotivo() === m.code">
+                <input type="radio" name="motivoDescarte" [value]="m.code"
+                       [checked]="descarteMotivo() === m.code" (change)="descarteMotivo.set(m.code)" />
+                <span><b>{{ m.label }}</b><em>{{ m.pista }}</em></span>
+              </label>
+            }
+          </div>
+          <label class="cb-f"><span>Nota {{ descarteMotivo() === 'otro' ? '*' : '(opcional)' }}</span>
+            <textarea pInputText [ngModel]="descarteNota()" (ngModelChange)="descarteNota.set($event)" rows="2"
+                      placeholder="Qué pasó con esta entrada"></textarea></label>
+        </div>
+        <ng-template #footer>
+          <button pButton type="button" text (click)="showDescartar.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" severity="secondary" [loading]="!!descartando()" (click)="confirmarDescarte()">
+            <span class="p-button-icon p-button-icon-left pi pi-ban" aria-hidden="true"></span><span class="p-button-label">Descartar</span>
+          </button>
+        </ng-template>
+      }
     </p-dialog>
 
     <!-- Diálogo: detalle por línea (auditoría) + comparación documento vs OCR (RE.8) -->
@@ -839,6 +904,35 @@ interface AttachFile {
       font-size: var(--fs-xs); color: var(--text-muted);
     }
     .cb-pager strong { color: var(--text-main); font-variant-numeric: tabular-nums; }
+
+    /* ── RE.20.3: descartar ────────────────────────────────────────────────
+       Gris y no rojo: descartar no es un error ni un castigo, es reconocer que esa entrada
+       nunca iba a tener factura. El rojo está reservado para "no cuadra". */
+    .cb-descartada {
+      display: inline-flex; align-items: center; gap: var(--sp-1);
+      color: var(--text-muted); font-size: var(--fs-xs);
+    }
+    .cb-descartada i { font-size: .75rem; }
+    .cb-desc-lead {
+      margin: 0; padding: var(--sp-2) var(--sp-3);
+      background: var(--surface-ground); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45;
+    }
+    .cb-desc-lead strong { color: var(--text-main); }
+    .cb-desc-motivos { display: grid; gap: var(--sp-1); }
+    /* Cada motivo con su pista debajo: el revisor tiene que reconocer el caso en la fila que
+       está mirando, no traducir una etiqueta de catálogo. */
+    .cb-desc-m {
+      display: flex; align-items: flex-start; gap: var(--sp-2);
+      padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      cursor: pointer;
+    }
+    .cb-desc-m:hover { background: var(--surface-ground); }
+    .cb-desc-m.is-sel { border-color: var(--action); background: var(--surface-ground); }
+    .cb-desc-m input { margin-top: 2px; accent-color: var(--action); }
+    .cb-desc-m span { display: grid; gap: 1px; min-width: 0; }
+    .cb-desc-m b { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+    .cb-desc-m em { font-style: normal; font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.4; }
     /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
        para que no se lea como continuación del rango "1–100". */
     .cb-orden { font-style: normal; }
@@ -1181,7 +1275,82 @@ export class ComprasEntradasComponent {
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
   readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }];
+  // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
+  // Está para TODOS los que ven (no sólo `_VALIDAR`) porque el descarte resta del denominador
+  // de cobertura y quien mira el número tiene que poder ver qué se le restó.
+  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
+
+  // ── RE.20.3: descartar / reactivar ────────────────────────────────────────
+  readonly verDescartadas = computed(() => this.estadoSel() === 'descartada');
+  readonly descartando = signal<string | null>(null);
+  readonly showDescartar = signal(false);
+  readonly descartarFila = signal<EntradaRow | null>(null);
+  readonly descarteMotivo = signal<MotivoDescarte>('traspaso');
+  readonly descarteNota = signal('');
+  readonly MOTIVOS_DESCARTE = MOTIVOS_DESCARTE;
+  motivoDescarteLabel = motivoDescarteLabel;
+
+  clave(c: EntradaRow): string { return `${c.sucursal}/${c.folio}`; }
+
+  /** El descarte completo en una línea, para el tooltip de la fila. */
+  descarteTip(c: EntradaRow): string {
+    const quien = c.descarte_por ? ` — ${c.descarte_por}` : '';
+    const nota = c.descarte_nota ? `: ${c.descarte_nota}` : '';
+    return `${motivoDescarteLabel(c.descarte_motivo) || 'Descartada'}${nota}${quien}`;
+  }
+
+  openDescartar(c: EntradaRow): void {
+    this.descartarFila.set(c);
+    // Pre-elige el motivo por lo que dice la fila: un traspaso se reconoce por el código de
+    // proveedor (TI*) y una entrada en $0 por el monto. El revisor confirma, no adivina.
+    const pre: MotivoDescarte = (c.proveedor_code || '').toUpperCase().startsWith('TI')
+      ? 'traspaso'
+      : Number(c.monto) === 0 ? 'sin_costo' : 'cancelada_erp';
+    this.descarteMotivo.set(pre);
+    this.descarteNota.set('');
+    this.showDescartar.set(true);
+  }
+
+  confirmarDescarte(): void {
+    const c = this.descartarFila();
+    if (!c) return;
+    const motivo = this.descarteMotivo();
+    if (motivo === 'otro' && !this.descarteNota().trim()) {
+      this.toast.add({ severity: 'warn', summary: 'Falta el motivo', detail: 'Con "Otro" hay que escribir por qué.' });
+      return;
+    }
+    this.descartando.set(this.clave(c));
+    this.svc.descartar(c.sucursal, c.folio, motivo, this.descarteNota().trim() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.descartando.set(null); this.showDescartar.set(false);
+          this.toast.add({ severity: 'success', summary: 'Fuera del proceso', detail: `${c.folio} ya no cuenta como atraso de la sucursal.` });
+          this.load();
+        },
+        error: (e) => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo descartar', detail: e?.error?.message || 'Intentá de nuevo.' });
+        },
+      });
+  }
+
+  reactivar(c: EntradaRow): void {
+    this.descartando.set(this.clave(c));
+    this.svc.reactivar(c.sucursal, c.folio)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'success', summary: 'De vuelta al proceso', detail: `${c.folio} vuelve a pedir factura.` });
+          this.load();
+        },
+        error: (e) => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo reactivar', detail: e?.error?.message || 'Intentá de nuevo.' });
+        },
+      });
+  }
   search = '';
   private timer: ReturnType<typeof setTimeout> | null = null;
 
