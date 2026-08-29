@@ -186,3 +186,63 @@ export const CommandCenterDashboard = z.object({
   ranking_out_of_stock: z.array(RankingOutOfStockRow),
 });
 export type CommandCenterDashboard = z.infer<typeof CommandCenterDashboard>;
+
+// ── analytics MV-based (endpoints sueltos: overview / top-customers / top-products / daily-series) ──
+// No son parte del agregado del Command Center (que usa las variantes `network/*`),
+// pero comparten el boundary de commercial-analytics y su gate COMMERCIAL_ANALYTICS_VER.
+
+// ⚠️ Drift real hallado por TS.2 (typecheck): `overview()` NO conforma todavía —
+// su rama `live` OMITE `refreshed_at` y `source` no viaja como literal. Este es el
+// shape OBJETIVO; el fix del service (agregar `refreshed_at` + `source as const` en
+// la rama live) queda pendiente — no se forzó a ciegas sobre una rama no testeable.
+export const OverviewResponse = z.object({
+  source: z.enum(['mv', 'live']),
+  refreshed_at: z.string().nullable(),
+  period: z.unknown(),
+  revenue: z.object({ gross: z.number(), net: z.number(), tax: z.number(), currency: z.string() }),
+  orders: z.object({
+    fulfilled: z.number(),
+    confirmed: z.number(),
+    draft: z.number(),
+    cancelled: z.number(),
+    avg_order_value: z.number(),
+  }),
+  units_sold: z.number().nullish(),
+  unique_customers: z.number(),
+});
+export type OverviewResponse = z.infer<typeof OverviewResponse>;
+
+export const TopCustomerRow = z.object({
+  source: z.enum(['mv', 'live']),
+  customer_id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  orders_count: z.number(),
+  revenue: z.number(),
+  avg_order_value: z.number(),
+  last_order_at: z.string(),
+  rank: z.number().nullish(),
+});
+export type TopCustomerRow = z.infer<typeof TopCustomerRow>;
+
+export const TopProductRow = z.object({
+  source: z.enum(['mv', 'live']),
+  product_id: z.string(),
+  product_name: z.string(),
+  brand_name: z.string(),
+  units_sold: z.number(),
+  revenue: z.number(),
+  orders_count: z.number(),
+  rank_by_units: z.number().nullish(),
+  rank_by_revenue: z.number().nullish(),
+});
+export type TopProductRow = z.infer<typeof TopProductRow>;
+
+export const DailySeriesRow = z.object({
+  day: z.string(),
+  orders_count: z.number(),
+  unique_customers: z.number(),
+  revenue: z.number(),
+  net_revenue: z.number(),
+});
+export type DailySeriesRow = z.infer<typeof DailySeriesRow>;

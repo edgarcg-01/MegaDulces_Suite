@@ -9,6 +9,9 @@ import type {
   LowStockResponse,
   InactiveCustomersResponse,
   RankingOutOfStockRow,
+  TopCustomerRow,
+  TopProductRow,
+  DailySeriesRow,
 } from '@megadulces/contracts';
 
 /**
@@ -596,7 +599,7 @@ export class CommercialAnalyticsService {
    * Top N customers por revenue. Sin date range → MV (rolling 30d).
    * Con date range o live=true → on-the-fly.
    */
-  async topCustomers(q: DateRangeQuery & { limit?: number; live?: boolean }) {
+  async topCustomers(q: DateRangeQuery & { limit?: number; live?: boolean }): Promise<TopCustomerRow[]> {
     const hasRange = !!(q.from || q.to);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
 
@@ -662,7 +665,7 @@ export class CommercialAnalyticsService {
    */
   async topProducts(
     q: DateRangeQuery & { limit?: number; orderBy?: 'units' | 'revenue'; live?: boolean },
-  ) {
+  ): Promise<TopProductRow[]> {
     const hasRange = !!(q.from || q.to);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
     const orderBy = q.orderBy === 'revenue' ? 'revenue' : 'units';
@@ -958,7 +961,7 @@ export class CommercialAnalyticsService {
   /**
    * Series diarias de revenue + orders count para gráficos. Solo fulfilled.
    */
-  async dailySeries(q: DateRangeQuery) {
+  async dailySeries(q: DateRangeQuery): Promise<DailySeriesRow[]> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
