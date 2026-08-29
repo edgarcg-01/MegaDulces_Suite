@@ -220,6 +220,10 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
     // La caja sale del resolvedor canonico: nunca derivada, nunca si es dudosa.
     ok(um.j.data.every((r) => r.margin_box === null || (r.box_factor > 1 && Math.abs(r.margin_box - r.margin_unit * r.box_factor) < 0.01)),
       'la equivalencia por caja sale del factor canonico y solo si es > 1');
+    // En granel `c84` son kilos por bulto y `is_master_suspect` NO los marca:
+    // 201 SKUs de peso con $49.3M de venta traen box_factor sin una sola marca.
+    ok(um.j.data.every((r) => r.unit_kind !== 'weight' || r.margin_box === null),
+      'ningun producto de peso publica equivalencia por caja');
     ok(um.j.data.every((r, i, a) => i === 0 || (a[i - 1].margin_unit ?? -Infinity) >= (r.margin_unit ?? -Infinity)),
       'sort=margin_unit ordena de verdad');
   }
