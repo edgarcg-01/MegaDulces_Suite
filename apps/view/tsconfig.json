@@ -21,6 +21,7 @@
     "lib": ["ESNext", "dom"],
     "baseUrl": ".",
     "paths": {
+      "@megadulces/contracts": ["../../libs/contracts/src/index.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@shared-auth/core": ["../../libs/shared-auth/core"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
