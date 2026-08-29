@@ -14,6 +14,14 @@
  *   · Las palancas del proveedor declaran `not_attributed` — lo que todavia no
  *     se puede repartir a SKU (ADR-046). Publicarlo como si fuera el margen
  *     integral seria mentir.
+ *   · El costo sale del FACT (`sales_daily.cost`), no de `catalog.cost_base`.
+ *     Los testigos son SKUs cuyo costo de catalogo esta capturado por CAJA: con
+ *     el calculo viejo salian a -665% de margen y movian el total 8.6 pp.
+ *   · El KPI de inventario CUADRA con la suma de la tabla (total = in_scope +
+ *     stock muerto). Antes diferian en $23M sin explicacion visible.
+ *   · Las bandas se mueven con el objetivo. Estaban clavadas en 10/15/25.
+ *   · Lo que no tiene fuente se declara (`levers_source_empty`), no se dibuja
+ *     como un cero.
  *
  * Read-only: no escribe nada.
  */
@@ -52,10 +60,48 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
   if (ov.status === 200) {
     console.log(`     venta ${money(o.revenue)} · margen ${Number(o.margin_pct).toFixed(2)}% (${money(o.margin_amount)})`);
     console.log(`     brecha ${Number(o.gap_pp).toFixed(2)} pp = ${money(o.gap_amount)} · inventario ${money(o.inventory_value)} (${Number(o.inventory_days).toFixed(0)} d)`);
-    console.log(`     cobertura ${Number(o.coverage.revenue_pct).toFixed(1)}% de la venta · ${o.coverage.skus_with_cost}/${o.coverage.skus_total} SKUs`);
+    console.log(`     cobertura ${Number(o.coverage.revenue_pct).toFixed(2)}% de la venta · ${o.coverage.skus_with_cost}/${o.coverage.skus_total} SKUs · canales ${o.coverage.channels.map((c) => c.channel).join('+')} · datos al ${o.data_as_of}`);
+    console.log(`     inventario total ${money(o.inventory.total)} = en tabla ${money(o.inventory.in_scope)} + sin venta ${money(o.inventory.no_sales)} · sin verificar ${money(o.inventory.unverified)}`);
+    console.log(`     costo en conflicto: ${o.cost_quality.conflict_skus} SKUs (${money(o.cost_quality.conflict_revenue)} de venta)`);
     console.log('     bandas:', o.bands.map((b) => `${b.label}=${b.skus}`).join(' '));
     ok(o.revenue > 0 && o.margin_pct > 0, 'overview trae cifras');
     ok(Math.abs(o.bands.reduce((a, b) => a + b.skus, 0) - o.skus) < 1, 'bandas suman los SKUs del universo');
+
+    // El margen sale del fact. Con `cost_base` daba 13.05% y la banda "bajo
+    // costo" tenia 60 SKUs que en realidad vendian bien.
+    ok(o.margin_pct > 5 && o.margin_pct < 25, `margen en rango creible (${Number(o.margin_pct).toFixed(2)}%)`);
+    ok(o.coverage.channels.length > 0, 'la cobertura declara de que canales viene la venta');
+    ok(!!o.data_as_of, 'declara hasta que dia llega el fact');
+    // La cobertura vieja siempre daba 100%: era un adorno, no una medida.
+    ok(o.coverage.revenue_total >= o.coverage.revenue_with_cost, 'cobertura: la venta total incluye la venta con costo');
+
+    // El KPI y la tabla miden universos distintos a proposito; que lo digan.
+    ok(Math.abs(o.inventory.total - (o.inventory.in_scope + o.inventory.no_sales)) < 1,
+      'inventario: total = en-tabla + stock muerto');
+    ok(o.cost_quality.conflict_skus >= 0 && typeof o.cost_quality.note === 'string',
+      'declara los SKUs cuyo costo de catalogo contradice al del PdV');
+    ok(typeof o.levers_source_empty === 'boolean', 'declara si la fuente de ajustes esta vacia');
+  }
+
+  // Las bandas se derivan del objetivo — antes estaban clavadas en 10/15/25.
+  const ov20 = await req('/commercial/profitability/overview?window=30d&target=20', t);
+  if (ov20.status === 200 && ov.status === 200) {
+    const meta15 = o.bands.find((b) => b.key === 'meta')?.skus ?? 0;
+    const meta20 = ov20.j.bands.find((b) => b.key === 'meta')?.skus ?? 0;
+    console.log(`     banda "meta" con objetivo 15% = ${meta15} SKUs · con 20% = ${meta20}`);
+    ok(meta15 !== meta20, 'las bandas se mueven con el objetivo');
+    ok(ov20.j.bands.some((b) => b.label.includes('20')), 'la etiqueta de la banda refleja el objetivo');
+  }
+
+  // Testigos: SKUs con el costo de catalogo capturado por CAJA. Con el calculo
+  // viejo salian entre -765% y -2370%. Ahora tienen que ser margenes de verdad.
+  const wit = await req('/commercial/profitability/breakdown?level=sku&window=30d&pageSize=500&search=BUBBULUBU', t);
+  if (wit.status === 200 && wit.j.data.length) {
+    const r0 = wit.j.data.find((r) => r.sku === '78210') ?? wit.j.data[0];
+    console.log(`     testigo ${r0.sku} ${r0.name}: margen ${Number(r0.margin_pct).toFixed(1)}%`);
+    ok(Number(r0.margin_pct) > -50, 'el testigo de costo-por-caja ya no da margen imposible');
+    ok(r0.promo_benefit === null || typeof r0.promo_benefit === 'number', 'la promo viaja como valor crudo (promo_benefit)');
+    ok(!('promo_pct' in r0), 'ya no se publica promo_pct: la unidad no esta confirmada');
   }
 
   for (const lvl of ['supplier', 'brand', 'category', 'sku']) {
@@ -100,15 +146,35 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
     ok(g.purchases > 0, 'hay compras del periodo como base de las tasas');
     // El descuento se gana sobre compras: su efecto en margen NO puede superar el monto negociado.
     ok(g.levers.every((l) => Math.abs(l.margin_effect) <= Math.abs(l.amount) + 1), 'el efecto en margen nunca excede lo negociado');
-    ok(g.margin_negotiated_pct > g.margin_pct && g.margin_negotiated_pct < 100, 'negociado mejora el bruto y sigue siendo un % posible');
+    ok(g.margin_negotiated_pct >= g.margin_pct && g.margin_negotiated_pct < 100, 'negociado mejora el bruto y sigue siendo un % posible');
+    // Cascada ciega != cascada en cero. Si la fuente esta vacia hay que decirlo.
+    if (g.levers_source_empty) {
+      console.log('     AVISO: erp_purchase_adjustments VACIA — las 4 palancas por categoria no se estan midiendo');
+      ok(g.levers.filter((l) => l.key !== 'descuento_pago').every((l) => l.amount === 0),
+        'con la fuente vacia las palancas por categoria quedan en cero y el flag lo explica');
+    }
     ok(g.levers.some((l) => l.key === 'apoyo_marca'), 'apoyo_marca es una palanca propia (no se pierde en el doctype)');
     ok(g.levers.every((l) => l.key !== 'factura_duplicada'), 'factura_duplicada NO entra a las palancas');
     ok(g.non_margin.error_captura.amount >= 0 && g.non_margin.operacional.amount >= 0, 'lo no-margen se reporta aparte');
   }
 
-  const flt = await req('/commercial/profitability/breakdown?level=sku&window=30d&band=negativo&pageSize=3', t);
-  ok(flt.status === 200 && flt.j.data.every((r) => r.margin_pct < 0), 'filtro band=negativo devuelve solo margen negativo');
-  console.log(`     SKUs bajo costo: ${flt.j?.pagination?.total}`);
+  // El filtro por banda tiene que devolver SOLO lo que promete. `every()` sobre
+  // una lista vacia es true, asi que se prueba con una banda que si tiene filas.
+  for (const [band, test] of [['negativo', (r) => r.margin_pct < 0], ['critico', (r) => r.margin_pct >= 0 && r.margin_pct < 10]]) {
+    const flt = await req(`/commercial/profitability/breakdown?level=sku&window=30d&band=${band}&pageSize=5`, t);
+    const n = flt.j?.pagination?.total ?? 0;
+    console.log(`     banda ${band}: ${n} SKUs`);
+    ok(flt.status === 200 && flt.j.data.every(test), `filtro band=${band} devuelve solo esa banda (${n} filas)`);
+  }
+
+  // El inventario de la tabla tiene que cuadrar con la parte "en tabla" del KPI.
+  const bdInv = await req('/commercial/profitability/breakdown?level=sku&window=30d&pageSize=1', t);
+  if (bdInv.status === 200 && ov.status === 200) {
+    const dif = Math.abs(Number(bdInv.j.totals.inventory_value) - Number(o.inventory.in_scope));
+    console.log(`     inventario tabla ${money(bdInv.j.totals.inventory_value)} vs KPI en-tabla ${money(o.inventory.in_scope)} (dif ${money(dif)})`);
+    ok(dif < 1, 'el inventario del desglose cuadra con el KPI');
+    ok(Math.abs(Number(bdInv.j.totals.revenue_costed) - Number(o.revenue)) < 1, 'la venta con costo cuadra entre desglose y overview');
+  }
 
   // Latencia real del endpoint. El nivel producto es el peor caso.
   for (const lvl of ['sku', 'supplier']) {

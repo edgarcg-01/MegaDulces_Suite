@@ -4,9 +4,20 @@ import { TenantKnexService } from '@megadulces/platform-core';
 /**
  * Motor de Rentabilidad (Fase MR) — la cascada de margen sobre venta REAL.
  *
- * Fuente de la venta: `analytics.product_sales_stats` (sell-out consolidado de
- * Kepler/Wincaja). NO `commercial.order_lines` — esa tabla tiene 18 filas: la
+ * Fuente de la venta Y del costo: `analytics.sales_daily` (sell-out consolidado
+ * de Kepler/Wincaja). NO `commercial.order_lines` — esa tabla tiene 18 filas: la
  * venta de Mega Dulces no pasa por la plataforma.
+ *
+ * **El costo sale del fact, NO de `catalog.products.cost_base`.**
+ * `sales_daily.cost` es el costo que registró el PdV en la transacción, en la
+ * MISMA unidad en que cobró. `cost_base` es costo de catálogo y en buena parte
+ * del catálogo viene por CAJA — multiplicarlo por unidades vendidas por PIEZA
+ * mezcla unidades. Medido: 30 SKUs aportaban $1.76M de COGS (10.4% del total)
+ * sobre $123k de venta, y movían el margen publicado de 10.3% a 13.05%
+ * (8.6 pp de aire). Es el riesgo #1 del plan de fase (§2.3) y la regla dura de
+ * `analytics.v_product_box_factor`: ningún componente entra sin unidad resuelta.
+ * `cost_base` se sigue usando para valuar inventario (regla canónica del
+ * proyecto) y se contrasta contra el costo del fact para marcar el conflicto.
  *
  * **Las palancas se leen por `categoria`, no por doctype.**
  * `analytics.erp_purchase_adjustments` ya trae la causa clasificada desde el
@@ -29,22 +40,39 @@ import { TenantKnexService } from '@megadulces/platform-core';
 export type MarginWindow = '30d' | '90d' | '365d';
 export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku';
 
-const WINDOWS: Record<MarginWindow, { rev: string; units: string; days: number }> = {
-  '30d': { rev: 'revenue_30d', units: 'units_30d', days: 30 },
-  '90d': { rev: 'revenue_90d', units: 'units_90d', days: 90 },
-  '365d': { rev: 'revenue_365d', units: 'units_365d', days: 365 },
+const WINDOWS: Record<MarginWindow, { days: number }> = {
+  '30d': { days: 30 },
+  '90d': { days: 90 },
+  '365d': { days: 365 },
 };
 
-/** Bandas de salud del margen. Disjuntas y ordenadas: cada SKU cae en una sola. */
-export const MARGIN_BANDS = [
-  { key: 'negativo', label: 'Bajo costo', tone: 'bad' },
-  { key: 'critico', label: '0-10%', tone: 'bad' },
-  { key: 'bajo', label: '10-15%', tone: 'warn' },
-  { key: 'meta', label: '15-25%', tone: 'ok' },
-  { key: 'alto', label: '25%+', tone: 'ok' },
-] as const;
+export type MarginBand = 'negativo' | 'critico' | 'bajo' | 'meta' | 'alto';
 
-export type MarginBand = (typeof MARGIN_BANDS)[number]['key'];
+/**
+ * Bandas de salud, DERIVADAS del objetivo. Antes estaban clavadas en 10/15/25
+ * mientras el objetivo era editable: con objetivo 20% el KPI coloreaba contra 20
+ * y las bandas contra 15 — dos verdades en la misma pantalla.
+ * Un solo origen para el TS y para el `CASE` de SQL.
+ */
+export function marginBands(target: number) {
+  const r = (n: number) => Math.round(n * 10) / 10;
+  const low = r(target * (2 / 3));
+  const high = r(target * (5 / 3));
+  return [
+    { key: 'negativo' as MarginBand, label: 'Bajo costo', tone: 'bad', from: null, to: 0 },
+    { key: 'critico' as MarginBand, label: `0–${low}%`, tone: 'bad', from: 0, to: low },
+    { key: 'bajo' as MarginBand, label: `${low}–${target}%`, tone: 'warn', from: low, to: target },
+    { key: 'meta' as MarginBand, label: `${target}–${high}%`, tone: 'ok', from: target, to: high },
+    { key: 'alto' as MarginBand, label: `${high}%+`, tone: 'ok', from: high, to: null },
+  ];
+}
+
+/**
+ * Umbral de conflicto entre el costo de catálogo y el que cobró el PdV. Fuera de
+ * [1/1.5, 1.5] la diferencia ya no es drift de costo: es otra unidad (caja vs
+ * pieza). No corrige el catálogo — lo marca para que nadie valúe a ciegas.
+ */
+const COST_CONFLICT_RATIO = 1.5;
 
 /**
  * Palancas COMERCIALES: las únicas categorías de ajuste que son margen.
@@ -108,33 +136,66 @@ export class CommercialProfitabilityService {
   }
 
   /**
-   * Base común: venta real ⋈ costo, filtrada por tenant. Separar lo que tiene
-   * costo de lo que no es lo que evita calcular el margen sobre un denominador
-   * que incluye SKUs sin costo — saldría inflado.
+   * Venta y costo del periodo, agregados por producto desde el fact.
+   * `revenue_costed` (la venta que SÍ trae costo) es el denominador honesto del
+   * margen: usar la venta total mezclaría renglones que no se pueden juzgar.
    */
-  private baseSql(trx: any, w: { rev: string; units: string }) {
+  private salesAgg(trx: any, days: number) {
+    return trx.raw(`(
+      SELECT sd.product_id,
+             SUM(sd.revenue)                                    AS revenue,
+             SUM(sd.revenue) FILTER (WHERE sd.cost IS NOT NULL) AS revenue_costed,
+             SUM(sd.cost)                                       AS cost,
+             SUM(sd.units)                                      AS units,
+             SUM(sd.units)   FILTER (WHERE sd.cost IS NOT NULL) AS units_costed
+        FROM analytics.sales_daily sd
+       WHERE sd.tenant_id = public.current_tenant_id()
+         AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'
+       GROUP BY sd.product_id
+    ) AS s`);
+  }
+
+  /** Base común: venta+costo del fact ⋈ producto. `catalog.products` va por RLS forzado. */
+  private baseSql(trx: any, days: number) {
     return trx
-      .from({ s: 'analytics.product_sales_stats' })
-      .join({ p: 'catalog.products' }, function (this: any) {
-        this.on('p.id', '=', 's.product_id').andOn('p.tenant_id', '=', 's.tenant_id');
-      })
-      .whereRaw('s.tenant_id = public.current_tenant_id()')
+      .from(this.salesAgg(trx, days))
+      .join({ p: 'catalog.products' }, 'p.id', 's.product_id')
       .whereNull('p.deleted_at')
-      .whereRaw(`s.${w.rev} > 0`);
+      .whereRaw('s.revenue > 0');
   }
 
-  /** `CASE` que asigna banda. Espejo de `MARGIN_BANDS` — si cambia una, cambia el otro. */
-  private bandCase(w: { rev: string; units: string }) {
-    const m = `((s.${w.rev} - p.cost_base * s.${w.units}) / NULLIF(s.${w.rev}, 0) * 100)`;
-    return `CASE
-      WHEN ${m} < 0  THEN 'negativo'
-      WHEN ${m} < 10 THEN 'critico'
-      WHEN ${m} < 15 THEN 'bajo'
-      WHEN ${m} < 25 THEN 'meta'
-      ELSE 'alto' END`;
+  /** Margen del periodo: sobre la venta con costo, nunca sobre la venta total. */
+  private static readonly MARGIN = '(s.revenue_costed - s.cost)';
+  private static readonly MARGIN_PCT = `((s.revenue_costed - s.cost) / NULLIF(s.revenue_costed, 0) * 100)`;
+
+  /**
+   * `cost_base` contra el costo que cobró el PdV. Fuera de banda = el catálogo
+   * está en otra unidad; se marca y se suprime el GMROI de esa fila en vez de
+   * publicar un número que no resiste revisión.
+   */
+  private static readonly COST_CONFLICT = `(
+    p.cost_base > 0 AND s.units_costed > 0 AND s.cost > 0 AND (
+      p.cost_base / NULLIF(s.cost / NULLIF(s.units_costed, 0), 0) >= ${COST_CONFLICT_RATIO} OR
+      p.cost_base / NULLIF(s.cost / NULLIF(s.units_costed, 0), 0) <= ${1 / COST_CONFLICT_RATIO}
+    ))`;
+
+  /** `CASE` que asigna banda. Se genera de `marginBands()` — un solo origen. */
+  private bandCase(target: number) {
+    const m = CommercialProfitabilityService.MARGIN_PCT;
+    const cuts = marginBands(target)
+      .filter((b) => b.to !== null)
+      .map((b) => `WHEN ${m} < ${b.to} THEN '${b.key}'`)
+      .join('\n      ');
+    return `CASE\n      ${cuts}\n      ELSE 'alto' END`;
   }
 
-  /** Ajustes del periodo agrupados por categoría, con el detalle de sus palancas. */
+  /**
+   * Ajustes del periodo agrupados por categoría, con el detalle de sus palancas.
+   *
+   * Devuelve además `source_empty`: la fuente no tiene NI UNA fila para el tenant.
+   * Sin ese dato la pantalla dibujaba una cascada de ceros indistinguible de
+   * "este mes no hubo descuentos", cuando en realidad el feed no está cargado.
+   */
   private async adjustmentsByCategory(trx: any, days: number, supplierCode?: string) {
     let q = trx('analytics.erp_purchase_adjustments')
       .whereRaw('tenant_id = public.current_tenant_id()')
@@ -146,10 +207,27 @@ export class CommercialProfitabilityService {
     const byCat = new Map<string, { monto: number; docs: number }>(
       rows.map((r: any) => [r.categoria ?? 'sin_motivo', { monto: Number(r.monto) || 0, docs: Number(r.docs) || 0 }]),
     );
+    const [any] = await trx('analytics.erp_purchase_adjustments')
+      .whereRaw('tenant_id = public.current_tenant_id()')
+      .limit(1)
+      .select(trx.raw('1 AS ok'));
     return {
       amount: (cat: string) => byCat.get(cat)?.monto ?? 0,
       docs: (cat: string) => byCat.get(cat)?.docs ?? 0,
+      source_empty: !any,
     };
+  }
+
+  /**
+   * Hasta qué día llega el fact. La cascada mezcla ventanas si no se dice.
+   * Se castea a `text` en SQL: `pg` convierte un `date` a `Date` de JS y
+   * `String(...)` daría "Wed Aug 26 2026 …" en vez de la fecha.
+   */
+  private async dataAsOf(trx: any) {
+    const [r] = await trx('analytics.sales_daily')
+      .whereRaw('tenant_id = public.current_tenant_id()')
+      .select(trx.raw('MAX(sale_date)::date::text AS d'));
+    return r?.d ?? null;
   }
 
   /**
@@ -234,13 +312,13 @@ export class CommercialProfitabilityService {
     const target = this.target(opts.target);
 
     return this.tk.run(async (trx) => {
-      const [tot] = await this.baseSql(trx, w).select(
-        trx.raw(`COALESCE(SUM(s.${w.rev}), 0)::numeric AS revenue_all`),
-        trx.raw(`COALESCE(SUM(s.${w.rev}) FILTER (WHERE p.cost_base > 0), 0)::numeric AS revenue`),
-        trx.raw(`COALESCE(SUM(p.cost_base * s.${w.units}) FILTER (WHERE p.cost_base > 0), 0)::numeric AS cost`),
-        trx.raw(`COALESCE(SUM(s.${w.units}), 0)::numeric AS units`),
+      const [tot] = await this.baseSql(trx, w.days).select(
+        trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue_all'),
+        trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue'),
+        trx.raw('COALESCE(SUM(s.cost), 0)::numeric AS cost'),
+        trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
         trx.raw('COUNT(*)::int AS skus_all'),
-        trx.raw('COUNT(*) FILTER (WHERE p.cost_base > 0)::int AS skus'),
+        trx.raw('COUNT(*) FILTER (WHERE s.revenue_costed > 0)::int AS skus'),
       );
 
       const revenue = Number(tot.revenue) || 0;
@@ -249,18 +327,26 @@ export class CommercialProfitabilityService {
       const marginAmount = revenue - cost;
       const marginPct = revenue > 0 ? (marginAmount / revenue) * 100 : null;
 
-      const bandRows = await this.baseSql(trx, w)
-        .where('p.cost_base', '>', 0)
+      // Canales que alimentan la ventana: la otra mitad de "sobre qué medimos".
+      const channels = await trx('analytics.sales_daily')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .whereRaw(`sale_date >= CURRENT_DATE - INTERVAL '${w.days} days'`)
+        .groupBy('channel')
+        .orderByRaw('2 DESC')
+        .select('channel', trx.raw('COALESCE(SUM(revenue), 0)::numeric AS revenue'));
+
+      const bandRows = await this.baseSql(trx, w.days)
+        .whereRaw('s.revenue_costed > 0')
         .select(
-          trx.raw(`${this.bandCase(w)} AS band`),
+          trx.raw(`${this.bandCase(target)} AS band`),
           trx.raw('COUNT(*)::int AS skus'),
-          trx.raw(`COALESCE(SUM(s.${w.rev}), 0)::numeric AS revenue`),
-          trx.raw(`COALESCE(SUM(s.${w.rev} - p.cost_base * s.${w.units}), 0)::numeric AS margin_amount`),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
+          trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
         )
         .groupByRaw('1');
 
       const byBand = new Map(bandRows.map((r: any) => [r.band, r]));
-      const bands = MARGIN_BANDS.map((b) => {
+      const bands = marginBands(target).map((b) => {
         const r: any = byBand.get(b.key);
         return {
           key: b.key,
@@ -281,17 +367,38 @@ export class CommercialProfitabilityService {
       const negotiatedAmount = marginAmount + marginEffectTotal;
       const negotiatedPct = revenue > 0 ? (negotiatedAmount / revenue) * 100 : null;
 
+      /**
+       * Inventario valuado a `cost_base` — la regla canónica del proyecto para
+       * valuación/ABC/capital parado. Se parte en tres para que el KPI y la
+       * columna de la tabla CUADREN: la tabla sólo ve productos con venta en la
+       * ventana, así que el stock muerto se reporta aparte en vez de aparecer
+       * como un descuadre de $23M contra la suma de los renglones.
+       * `unverified` = valuado con un costo que contradice al del PdV.
+       */
       const [inv] = await trx
         .from({ st: 'commercial.stock' })
         .join({ p: 'catalog.products' }, function (this: any) {
           this.on('p.id', '=', 'st.product_id').andOn('p.tenant_id', '=', 'st.tenant_id');
         })
+        .leftJoin(this.salesAgg(trx, w.days), 's.product_id', 'p.id')
         .whereNull('p.deleted_at')
         .where('p.cost_base', '>', 0)
-        .select(trx.raw('COALESCE(SUM(st.quantity * p.cost_base), 0)::numeric AS inventory_value'));
+        .select(
+          trx.raw('COALESCE(SUM(st.quantity * p.cost_base), 0)::numeric AS total'),
+          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE s.revenue > 0), 0)::numeric AS in_scope`),
+          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE s.revenue IS NULL OR s.revenue <= 0), 0)::numeric AS no_sales`),
+          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT}), 0)::numeric AS unverified`),
+        );
 
-      const inventoryValue = Number(inv?.inventory_value) || 0;
+      const inventoryValue = Number(inv?.total) || 0;
       const dailyCost = w.days > 0 ? cost / w.days : 0;
+
+      // Calidad del costo de catálogo: cuánta venta se apoya en un costo que
+      // contradice al del PdV. No corrige el catálogo — lo hace visible.
+      const [cq] = await this.baseSql(trx, w.days).select(
+        trx.raw(`COUNT(*) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT})::int AS skus`),
+        trx.raw(`COALESCE(SUM(s.revenue) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT}), 0)::numeric AS revenue`),
+      );
 
       const [promo] = await trx('analytics.erp_promotions')
         .whereRaw('tenant_id = public.current_tenant_id()')
@@ -300,6 +407,8 @@ export class CommercialProfitabilityService {
           trx.raw('COUNT(DISTINCT product_id)::int AS skus'),
           trx.raw('AVG(benefit)::numeric AS avg_benefit'),
         );
+
+      const asOf = await this.dataAsOf(trx);
 
       return {
         window: opts.window ?? '30d',
@@ -317,10 +426,27 @@ export class CommercialProfitabilityService {
         gap_pp_negotiated: negotiatedPct === null ? null : negotiatedPct - target,
         units: Number(tot.units) || 0,
         skus: Number(tot.skus) || 0,
+        /** Hasta qué día llega el fact. Compras/pagos/promos usan CURRENT_DATE. */
+        data_as_of: asOf,
         inventory_value: inventoryValue,
         inventory_days: dailyCost > 0 ? inventoryValue / dailyCost : null,
+        /** Desglose que hace cuadrar el KPI con la suma de la tabla. */
+        inventory: {
+          total: inventoryValue,
+          in_scope: Number(inv?.in_scope) || 0,
+          no_sales: Number(inv?.no_sales) || 0,
+          unverified: Number(inv?.unverified) || 0,
+        },
+        /** Costo de catálogo que contradice al del PdV: no se valúa a ciegas. */
+        cost_quality: {
+          conflict_skus: Number(cq?.skus) || 0,
+          conflict_revenue: Number(cq?.revenue) || 0,
+          note: 'El costo de catálogo de estos SKUs está en otra unidad que la venta (caja vs pieza). El margen sale del costo del PdV; el inventario de estos SKUs no es confiable.',
+        },
         bands,
         levers,
+        /** La fuente de ajustes no tiene una sola fila: la cascada no es cero, es ciega. */
+        levers_source_empty: adj.source_empty,
         /** Base de los descuentos: lo que se compro en la ventana. */
         purchases,
         /** Lo negociado en bruto vs lo que de eso ya es margen (parte vendida). */
@@ -340,12 +466,20 @@ export class CommercialProfitabilityService {
         },
         promotions: {
           skus_con_promo: Number(promo?.skus) || 0,
-          avg_benefit_pct: promo?.avg_benefit == null ? null : Number(promo.avg_benefit),
+          /**
+           * `benefit` sólo toma 4 valores enteros (2,3,4,5) en las 793 filas
+           * vivas: no se ha confirmado que sea un %. Se publica como valor crudo
+           * y la UI lo rotula "sin confirmar" en vez de imprimir "−4.0%".
+           */
+          avg_benefit: promo?.avg_benefit == null ? null : Number(promo.avg_benefit),
+          benefit_unit: 'unconfirmed' as const,
         },
         coverage: {
           revenue_with_cost: revenue,
           revenue_total: revenueAll,
           revenue_pct: revenueAll > 0 ? (revenue / revenueAll) * 100 : null,
+          /** Canales que alimentan la ventana: sobre qué universo se mide. */
+          channels: channels.map((c: any) => ({ channel: c.channel, revenue: Number(c.revenue) || 0 })),
           skus_with_cost: Number(tot.skus) || 0,
           skus_total: Number(tot.skus_all) || 0,
         },
@@ -389,7 +523,7 @@ export class CommercialProfitabilityService {
 
     return this.tk.run(async (trx) => {
       const build = () => {
-        let q = this.baseSql(trx, w)
+        let q = this.baseSql(trx, w.days)
           .leftJoin({ sup: 'catalog.suppliers' }, function (this: any) {
             this.on('sup.id', '=', 'p.supplier_id').andOn('sup.tenant_id', '=', 'p.tenant_id');
           })
@@ -420,12 +554,23 @@ export class CommercialProfitabilityService {
             'promo.product_id',
             'p.id',
           )
-          .where('p.cost_base', '>', 0);
+          // `product_sales_stats` ya sólo aporta la clase ABC; venta y costo
+          // salen del fact.
+          .leftJoin(
+            trx.raw(
+              `(SELECT product_id, abc_class FROM analytics.product_sales_stats
+                 WHERE tenant_id = public.current_tenant_id()) AS abc`,
+            ),
+            'abc.product_id',
+            'p.id',
+          );
+        // Sin filtro por `cost_base`: el costo ya no sale del catálogo. Filtrarlo
+        // aquí dejaba al desglose midiendo un universo distinto al del resumen.
 
         if (opts.supplierId) q = q.where('p.supplier_id', opts.supplierId);
         if (opts.brandId) q = q.where('p.brand_id', opts.brandId);
         if (opts.categoryId) q = q.where('p.category_id', opts.categoryId);
-        if (opts.band) q = q.whereRaw(`${this.bandCase(w)} = ?`, [opts.band]);
+        if (opts.band) q = q.whereRaw(`${this.bandCase(target)} = ?`, [opts.band]);
         if (search) {
           const t = `%${search}%`;
           q = q.where((bq: any) =>
@@ -446,26 +591,29 @@ export class CommercialProfitabilityService {
           .select(
             trx.raw(`${dim.id} AS id`),
             trx.raw(`COALESCE(${dim.name}, '(sin asignar)') AS name`),
-            trx.raw(`COALESCE(SUM(s.${w.rev}), 0)::numeric AS revenue`),
-            trx.raw(`COALESCE(SUM(p.cost_base * s.${w.units}), 0)::numeric AS cost`),
-            trx.raw(`COALESCE(SUM(s.${w.rev} - p.cost_base * s.${w.units}), 0)::numeric AS margin_amount`),
+            trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
+            trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue_costed'),
+            trx.raw('COALESCE(SUM(s.cost), 0)::numeric AS cost'),
+            trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
             trx.raw(
-              `(SUM(s.${w.rev} - p.cost_base * s.${w.units}) / NULLIF(SUM(s.${w.rev}), 0) * 100)::numeric AS margin_pct`,
+              `(SUM(${CommercialProfitabilityService.MARGIN}) / NULLIF(SUM(s.revenue_costed), 0) * 100)::numeric AS margin_pct`,
             ),
             trx.raw(
-              `(SUM(s.${w.rev}) * ${target / 100} - SUM(s.${w.rev} - p.cost_base * s.${w.units}))::numeric AS gap_amount`,
+              `(SUM(s.revenue_costed) * ${target / 100} - SUM(${CommercialProfitabilityService.MARGIN}))::numeric AS gap_amount`,
             ),
-            trx.raw(`COALESCE(SUM(s.${w.units}), 0)::numeric AS units`),
+            trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
             trx.raw('COUNT(*)::int AS skus'),
             trx.raw('COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value'),
-            // Promoción vigente = descuento al cliente ya atribuido a SKU.
-            trx.raw('MAX(promo.benefit)::numeric AS promo_pct'),
+            // Cuántos SKUs del renglón valúan con un costo que el PdV contradice.
+            trx.raw(`COUNT(*) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT})::int AS cost_conflict_skus`),
+            // Promoción vigente del SKU. Valor CRUDO: la unidad no está confirmada.
+            trx.raw('MAX(promo.benefit)::numeric AS promo_benefit'),
             ...(level === 'sku'
               ? [
                   'p.sku as sku',
                   trx.raw('MAX(b.nombre) AS brand_name'),
                   trx.raw('MAX(sup.name) AS supplier_name'),
-                  trx.raw('MAX(s.abc_class) AS abc_class'),
+                  trx.raw('MAX(abc.abc_class) AS abc_class'),
                 ]
               : []),
           )
@@ -482,10 +630,13 @@ export class CommercialProfitabilityService {
       const [{ total }] = await trx.from(grouped().as('g')).count<{ total: string }[]>('* as total');
 
       const [sum] = await build().select(
-        trx.raw(`COALESCE(SUM(s.${w.rev}), 0)::numeric AS revenue`),
-        trx.raw(`COALESCE(SUM(s.${w.rev} - p.cost_base * s.${w.units}), 0)::numeric AS margin_amount`),
+        trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
+        trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue_costed'),
+        trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
+        trx.raw('COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value'),
       );
       const sumRev = Number(sum?.revenue) || 0;
+      const sumRevCosted = Number(sum?.revenue_costed) || 0;
       const sumMargin = Number(sum?.margin_amount) || 0;
 
       return {
@@ -495,9 +646,11 @@ export class CommercialProfitabilityService {
         data: rows.map((r: any) => {
           const marginPct = r.margin_pct === null ? null : Number(r.margin_pct);
           const revenue = Number(r.revenue) || 0;
+          const revenueCosted = Number(r.revenue_costed) || 0;
           const marginAmount = Number(r.margin_amount) || 0;
           const invValue = Number(r.inventory_value) || 0;
           const dailyCost = w.days > 0 ? Number(r.cost) / w.days : 0;
+          const conflictSkus = Number(r.cost_conflict_skus) || 0;
           return {
             id: r.id,
             name: r.name,
@@ -506,6 +659,9 @@ export class CommercialProfitabilityService {
             supplier_name: r.supplier_name ?? null,
             abc_class: r.abc_class ?? null,
             revenue,
+            /** La parte de la venta que trae costo: el denominador del margen. */
+            revenue_costed: revenueCosted,
+            coverage_pct: revenue > 0 ? (revenueCosted / revenue) * 100 : null,
             cost: Number(r.cost) || 0,
             margin_amount: marginAmount,
             margin_pct: marginPct,
@@ -516,17 +672,30 @@ export class CommercialProfitabilityService {
             skus: Number(r.skus) || 0,
             inventory_value: invValue,
             inventory_days: dailyCost > 0 ? invValue / dailyCost : null,
+            /**
+             * Inventario y GMROI se valúan con `cost_base`. Si ese costo
+             * contradice al del PdV, la valuación no es confiable: se marca y el
+             * GMROI se suprime en vez de imprimir un número inventado.
+             */
+            cost_conflict_skus: conflictSkus,
             /** Margen × rotación: la contribución que de verdad genera al año. */
             annual_contribution: w.days > 0 ? (marginAmount / w.days) * 365 : null,
-            gmroi: invValue > 0 && w.days > 0 ? ((marginAmount / w.days) * 365) / invValue : null,
-            promo_pct: r.promo_pct == null ? null : Number(r.promo_pct),
+            gmroi:
+              invValue > 0 && w.days > 0 && conflictSkus === 0
+                ? ((marginAmount / w.days) * 365) / invValue
+                : null,
+            /** Beneficio de promoción vigente, CRUDO. Unidad sin confirmar. */
+            promo_benefit: r.promo_benefit == null ? null : Number(r.promo_benefit),
           };
         }),
         totals: {
           revenue: sumRev,
+          revenue_costed: sumRevCosted,
           margin_amount: sumMargin,
-          margin_pct: sumRev > 0 ? (sumMargin / sumRev) * 100 : null,
-          gap_amount: sumRev > 0 ? sumRev * (target / 100) - sumMargin : null,
+          margin_pct: sumRevCosted > 0 ? (sumMargin / sumRevCosted) * 100 : null,
+          gap_amount: sumRevCosted > 0 ? sumRevCosted * (target / 100) - sumMargin : null,
+          /** Cuadra contra `overview.inventory.in_scope` cuando no hay filtros. */
+          inventory_value: Number(sum?.inventory_value) || 0,
         },
         pagination: {
           page,
@@ -557,13 +726,13 @@ export class CommercialProfitabilityService {
         .first('id', 'code', 'name', 'credit_days', 'lead_time_days', 'min_order_boxes');
       if (!sup) throw new BadRequestException('proveedor no encontrado');
 
-      const [base] = await this.baseSql(trx, w)
+      const [base] = await this.baseSql(trx, w.days)
         .where('p.supplier_id', supplierId)
-        .where('p.cost_base', '>', 0)
         .select(
-          trx.raw(`COALESCE(SUM(s.${w.rev}), 0)::numeric AS revenue`),
-          trx.raw(`COALESCE(SUM(p.cost_base * s.${w.units}), 0)::numeric AS cost`),
-          trx.raw(`COALESCE(SUM(s.${w.rev} - p.cost_base * s.${w.units}), 0)::numeric AS margin_amount`),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue_all'),
+          trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(s.cost), 0)::numeric AS cost'),
+          trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
           trx.raw('COUNT(*)::int AS skus'),
         );
 
@@ -637,11 +806,14 @@ export class CommercialProfitabilityService {
          * veces. `/compras/descuentos` marca ese caso igual, como canal "ambos".
          */
         overlap_warning: adj.amount('pronto_pago') > 0 && pay.amount > 0,
+        /** La fuente de ajustes está vacía: la cascada es ciega, no cero. */
+        levers_source_empty: adj.source_empty,
         promotions: {
           skus_con_promo: Number(promo?.skus) || 0,
-          avg_benefit_pct: promo?.avg_benefit == null ? null : Number(promo.avg_benefit),
-          max_benefit_pct: promo?.max_benefit == null ? null : Number(promo.max_benefit),
-          note: 'Promoción vigente por SKU (kdpv_descuxq). `benefit` se lee como % — confirmar antes de restarlo del margen.',
+          avg_benefit: promo?.avg_benefit == null ? null : Number(promo.avg_benefit),
+          max_benefit: promo?.max_benefit == null ? null : Number(promo.max_benefit),
+          benefit_unit: 'unconfirmed' as const,
+          note: 'Promoción vigente por SKU (kdpv_descuxq). `benefit` sólo toma los valores 2/3/4/5: la unidad NO está confirmada, no se publica como porcentaje ni se resta del margen.',
         },
         policy: policy
           ? {

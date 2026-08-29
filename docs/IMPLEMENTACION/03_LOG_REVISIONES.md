@@ -90,6 +90,56 @@ tramo de alertas (entrega fuera de la app + sacar los 3 tenants de prueba del ba
 
 ---
 
+## 2026-08-29 — MR.5: auditoría de `/comercial/rentabilidad` y corrección de la cascada
+
+**Disparador:** Edgar — *"necesito que analices /comercial/rentabilidad"*, y después de la auditoría: *"hay que corregir todas estas acciones"*.
+
+### El hallazgo que cambia el número
+
+La pantalla calculaba el margen como `revenue − (catalog.products.cost_base × unidades vendidas)`. Ese costo de catálogo **viene por CAJA** en buena parte del catálogo, mientras las unidades del sell-out vienen **por PIEZA**. Medido contra `platform_test`:
+
+- **30 SKUs aportaban $1,757,050 de COGS — el 10.4% del total — sobre $123,289 de venta (0.6%).**
+- `analytics.v_product_box_factor` reproduce el ratio casi exacto: 78210 BUBBULUBU `bf=15` → $51.00/15 = **$3.40** contra un precio implícito de **$3.04**; 95285 TURIN `bf=32` → $4,356.72/32 = **$136.15** contra **$176.41**; 01007 BIMBO `bf=8` → **$7.77** contra **$7.19**.
+- La pantalla publicaba **13.05%**. `analytics.sales_daily` —que ya trae el costo que registró el punto de venta, en la misma unidad en que cobró— dice **10.32%**.
+
+La banda "Bajo costo" mostraba 60 SKUs con un margen promedio de **−665%**. No vendían bajo costo: estaban medidos en otra unidad.
+
+**Verificado después contra prod** (misma ventana de 30 días, $42M de venta): **57 SKUs, $3,565,336 de COGS falso — el 10.0% del COGS total — sobre $386,125 de venta (0.9%). La pantalla publicaba 14.62% contra 11.32% real: 3.30 pp, el 94% de la brecha.** Y el dato que cierra el caso: **el negocio reporta su margen en ~11.5%**. O sea el fact coincide con lo que Compras ya sabe por otras vías, y la pantalla —el tablero construido justamente para cerrar esa brecha— les estaba diciendo que ya casi estaba cerrada.
+
+### Por qué pasó
+
+**La pantalla (MR.5) se construyó sin MR.0–MR.4.** El plan de fase abre con *"esto no arranca programando la pantalla"* y pone cuatro sprints de definición antes de la UI, con la normalización de unidad (MR.1) como bloqueante explícito: *"un motor de rentabilidad que mezcle unidades produce números convincentes y falsos — que es peor que no tener el tablero"*. Los seis hallazgos restantes son variantes de lo mismo: cada ambigüedad sin cerrar se automatizó con un valor por defecto que después nadie volvió a mirar.
+
+### Decisiones (ADR-051)
+
+- **La venta y el costo salen del fact.** No se normaliza la unidad renglón por renglón: se toma la fuente que ya la tiene resuelta porque es la misma transacción. Estable en las tres ventanas: 10.32 / 10.29 / 10.33% a 30/90/365 días.
+- **`cost_base` no se corrige acá, se contrasta.** Dividir por `v_product_box_factor` arreglaría el margen y dejaría el catálogo mal — y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed. Acá se marca el conflicto (83 SKUs, $21.6M de capital) y **se suprime el GMROI** de esas filas.
+- **Se descartó valuar el inventario con el costo implícito de la venta.** Se midió: **empeora** ($375M → $398M). El CEDIS concentra el stock y no vende, así que cae al costo de retail. Un número que no se puede defender no reemplaza a otro que tampoco.
+- **Fuente vacía ≠ resultado en cero.** `erp_purchase_adjustments` está en 0 filas **en la DB local**: la cascada de palancas no valía cero, estaba ciega. Ahora lo dice. *(Prod sí tiene sus 1,403 ajustes y las 147 políticas de descuento, así que allá la cascada opera. El flag queda igual: la diferencia entre "no hubo descuentos" y "no los estamos midiendo" no puede depender de que alguien se acuerde de revisar la tabla.)*
+- **Lo no confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma 2/3/4/5 y el propio servicio advertía *"confirmar antes de restarlo del margen"* mientras la UI imprimía "−4.0%".
+
+### Bugs propios que salieron de la revisión
+
+- **El panel de cobertura decía 100% siempre.** 4,117 de 4,117 SKUs — por construcción, porque el filtro `cost_base > 0` ya había excluido a los demás antes de contar. Era el elemento de honestidad de la pantalla y no medía nada. Cobertura real: 99.88%, 4,009/4,082.
+- **El KPI de inventario y la columna de la tabla medían universos distintos** ($23.2M de diferencia): el KPI todo el stock, la tabla sólo productos con venta. El propio docstring del servicio decía que ese tipo de descuadre *"pierde credibilidad a la primera revisión"*.
+- **Las bandas estaban clavadas en 10/15/25** con el objetivo editable: con objetivo 20%, el KPI coloreaba contra 20 y las bandas contra 15.
+- **Ventanas mezcladas:** el fact iba dos días atrás y compras/pagos usaban `CURRENT_DATE`, sin decirlo en pantalla.
+- **ADR-048 estaba duplicado** con CxC, y MR no tenía entrada en el tracker.
+
+### Validación
+
+DB-direct 7/7 (margen, bandas contra objetivo, cuadre de inventario, testigos) + breakdown 26/26 (los 4 niveles cuadran exacto con el resumen: 10.32% vs 10.32%; las 9 columnas ordenables corren; los filtros de banda son exactos; 575–661 ms). Smoke HTTP extendido pero **sin correr**: los dev servers los levanta Edgar. Builds `api` + `view` verdes.
+
+### Lo que sigue abierto
+
+**MR.0** (diccionario del margen firmado) y **MR.6** (`margin_gap_bridge` — la descomposición de la brecha por palanca y responsable) siguen sin existir: es lo que convierte el tablero en herramienta de decisión en vez de BI descriptivo. Y la valuación de inventario de fondo ($375M contra $88.8M de COGS anuales, ~4 años de cobertura) es un problema del feed de stock que esta pantalla ahora **hace visible pero no resuelve**.
+
+### Lección
+
+El plan de fase había escrito el riesgo, con nombre y con datos, meses antes: *"la unidad de medida es el riesgo #1 (ya demostrado con datos)"*, con un ejemplo casi idéntico encontrado en `/comercial/pricing`. Un riesgo documentado no protege de nada si el sprint que lo mitiga se saltea; y la señal de que se salteó no fue un error, fue un tablero que se veía perfectamente bien.
+
+---
+
 ## 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md
 
 **Disparador:** Edgar — *"ahora nos vamos a enfocar 100% en el aspecto visual; analizá cuáles son nuestras necesidades visuales, qué falta mejorar respecto a cómo se trabaja cada interfaz"*. Después de la auditoría: *"arreglemos todo documentando el plan e implementando con atención al detalle"*.
