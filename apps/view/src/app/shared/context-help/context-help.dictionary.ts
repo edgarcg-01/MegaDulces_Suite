@@ -146,6 +146,16 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        heading: 'Las 6 vistas (el mismo margen, cortado distinto)',
+        entries: [
+          { term: 'Producto', def: 'La vista de trabajo. Es la única con el margen por unidad y con el detalle de qué marca, proveedor y clase ABC tiene cada renglón.' },
+          { term: 'Marca · Categoría · Proveedor', def: 'Resúmenes por lo que se vende. Proveedor abre la ficha con sus palancas negociadas; marca baja a sus productos.' },
+          { term: 'Sucursal · Canal', def: 'Cortan por DÓNDE se vendió, no por qué. Contestan "¿qué sucursal gana y cuál no?" y "¿qué canal deja más?". Un clic baja a los productos de esa sucursal o canal.' },
+          { term: 'Todas cuadran', def: 'Las seis miden el mismo universo: el total de cualquier vista da el mismo margen que el resumen de arriba. Si alguna no cuadrara, sería un error, no un matiz.' },
+          { term: 'Inventario por canal', def: 'Dice "n/a" a propósito: la existencia vive en la sucursal, no en el canal. Un $0 se leería como "no hay stock" en vez de "esta pregunta no aplica acá".' },
+        ],
+      },
+      {
         heading: 'Objetivo, brecha y bandas',
         entries: [
           { term: 'Objetivo', def: 'El margen contra el que se mide todo. Es editable arriba a la derecha, y los cortes de las bandas se mueven con él.' },

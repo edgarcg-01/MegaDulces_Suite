@@ -21,11 +21,14 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
 
 // Producto primero: es el foco de la pantalla. Los agregados son el resumen.
+// Sucursal y canal van al final porque cortan por DÓNDE se vendió, no por qué.
 const LEVELS: { key: MarginLevel; label: string }[] = [
   { key: 'sku', label: 'Producto' },
   { key: 'brand', label: 'Marca' },
   { key: 'category', label: 'Categoría' },
   { key: 'supplier', label: 'Proveedor' },
+  { key: 'warehouse', label: 'Sucursal' },
+  { key: 'channel', label: 'Canal' },
 ];
 
 const WINDOWS: { key: MarginWindow; label: string }[] = [
@@ -332,7 +335,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                 } @else { <span class="rp-none">—</span> }
               </td>
               <td class="comm-num rp-muted">
-                {{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                @if (r.inventory_value === null) {
+                  <span class="rp-none" pTooltip="El inventario no es de un canal: la existencia vive en la sucursal.">n/a</span>
+                } @else { {{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                 @if (r.cost_conflict_skus) {
                   <i class="pi pi-exclamation-triangle rp-warn-ico" aria-hidden="true"
                      [pTooltip]="conflictTip(r)"></i>
@@ -373,7 +378,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                     <span class="rp-gapm">{{ t.gap_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   }
                 </td>
-                <td class="comm-num rp-muted">{{ t.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="comm-num rp-muted">
+                  @if (t.inventory_value !== null) { {{ t.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                </td>
                 <td colspan="3"></td>
               </tr>
             }
@@ -823,6 +830,9 @@ export class ComercialRentabilidadComponent {
   readonly supplierName = signal<string | null>(null);
   readonly brandId = signal<string | null>(null);
   readonly brandName = signal<string | null>(null);
+  readonly warehouseId = signal<string | null>(null);
+  readonly warehouseName = signal<string | null>(null);
+  readonly channel = signal<string | null>(null);
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly sort = signal('revenue');
@@ -926,6 +936,8 @@ export class ComercialRentabilidadComponent {
     band: this.band(),
     supplier_id: this.supplierId(),
     brand_id: this.brandId(),
+    warehouse_id: this.warehouseId(),
+    channel: this.channel(),
     page: this.page(),
     pageSize: this.pageSize(),
     sort: this.sort(),
@@ -944,11 +956,17 @@ export class ComercialRentabilidadComponent {
 
   readonly levelLabel = computed(() => LEVELS.find((l) => l.key === this.level())?.label ?? '');
   readonly windowLabel = computed(() => WINDOWS.find((w) => w.key === this.window())?.label ?? '');
-  readonly canDrill = computed(() => this.level() === 'supplier' || this.level() === 'brand');
-  readonly hasFilters = computed(
-    () => !!this.band() || !!this.searchTerm() || !!this.supplierId() || !!this.brandId(),
+  readonly canDrill = computed(() =>
+    (['supplier', 'brand', 'warehouse', 'channel'] as MarginLevel[]).includes(this.level()),
   );
-  readonly crumb = computed(() => this.supplierName() ?? this.brandName());
+  readonly hasFilters = computed(
+    () =>
+      !!this.band() || !!this.searchTerm() || !!this.supplierId() || !!this.brandId() ||
+      !!this.warehouseId() || !!this.channel(),
+  );
+  readonly crumb = computed(
+    () => this.supplierName() ?? this.brandName() ?? this.warehouseName() ?? this.channel(),
+  );
 
   // ── Palancas ──────────────────────────────────────────────────────────
   readonly leverOpen = signal(false);
@@ -980,6 +998,11 @@ export class ComercialRentabilidadComponent {
       this.brandId.set(q.get('brand_id'));
       this.brandName.set(q.get('brand_name'));
     }
+    if (q.get('warehouse_id')) {
+      this.warehouseId.set(q.get('warehouse_id'));
+      this.warehouseName.set(q.get('warehouse_name'));
+    }
+    if (q.get('channel')) this.channel.set(q.get('channel'));
     const term = q.get('q') ?? '';
     if (term) { this.search = term; this.searchTerm.set(term); }
 
@@ -1014,17 +1037,26 @@ export class ComercialRentabilidadComponent {
 
   /** Bajar de nivel manteniendo el contexto: el filtro viaja, no se pierde. */
   drill(r: ProfitabilityRow): void {
-    if (this.level() === 'supplier') {
+    const lv = this.level();
+    if (lv === 'supplier') {
       this.leverId.set(r.id);
       this.leverOpen.set(true);
       return;
     }
-    if (this.level() === 'brand') {
+    if (lv === 'brand') {
       this.brandId.set(r.id);
       this.brandName.set(r.name);
-      this.level.set('sku');
-      this.resetPage();
+    } else if (lv === 'warehouse') {
+      this.warehouseId.set(r.id);
+      this.warehouseName.set(r.name);
+    } else if (lv === 'channel') {
+      // A nivel canal el `id` ES el canal: no hay catálogo detrás.
+      this.channel.set(r.id);
+    } else {
+      return;
     }
+    this.level.set('sku');
+    this.resetPage();
   }
 
   clearDrill(): void {
@@ -1032,6 +1064,9 @@ export class ComercialRentabilidadComponent {
     this.supplierName.set(null);
     this.brandId.set(null);
     this.brandName.set(null);
+    this.warehouseId.set(null);
+    this.warehouseName.set(null);
+    this.channel.set(null);
     this.resetPage();
   }
 
@@ -1082,6 +1117,9 @@ export class ComercialRentabilidadComponent {
         supplier_name: this.supplierName() || null,
         brand_id: this.brandId() || null,
         brand_name: this.brandName() || null,
+        warehouse_id: this.warehouseId() || null,
+        warehouse_name: this.warehouseName() || null,
+        channel: this.channel() || null,
         q: this.searchTerm() || null,
       },
       queryParamsHandling: 'merge',

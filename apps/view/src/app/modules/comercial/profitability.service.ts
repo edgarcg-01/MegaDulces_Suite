@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
 
 export type MarginWindow = '30d' | '90d' | '365d';
-export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku';
+export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku' | 'warehouse' | 'channel';
 export type MarginBand = 'negativo' | 'critico' | 'bajo' | 'meta' | 'alto';
 
 export interface MarginBandRow {
@@ -101,7 +101,8 @@ export interface ProfitabilityRow {
   gap_amount: number | null;
   units: number;
   skus: number;
-  inventory_value: number;
+  /** Null por canal: el inventario no es de un canal, y un $0 se leería como "sin stock". */
+  inventory_value: number | null;
   inventory_days: number | null;
   /** SKUs del renglón valuados con un costo que el PdV contradice. */
   cost_conflict_skus: number;
@@ -135,7 +136,7 @@ export interface ProfitabilityBreakdown {
     margin_amount: number;
     margin_pct: number | null;
     gap_amount: number | null;
-    inventory_value: number;
+    inventory_value: number | null;
   };
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
@@ -207,6 +208,8 @@ export class ProfitabilityService {
     supplier_id?: string | null;
     brand_id?: string | null;
     category_id?: string | null;
+    warehouse_id?: string | null;
+    channel?: string | null;
     page?: number;
     pageSize?: number;
     sort?: string;
@@ -221,6 +224,8 @@ export class ProfitabilityService {
     if (opts.supplier_id) params = params.set('supplier_id', opts.supplier_id);
     if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
     if (opts.category_id) params = params.set('category_id', opts.category_id);
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.channel) params = params.set('channel', opts.channel);
     if (opts.page != null) params = params.set('page', opts.page);
     if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
     if (opts.sort) params = params.set('sort', opts.sort).set('dir', opts.dir ?? 'desc');
