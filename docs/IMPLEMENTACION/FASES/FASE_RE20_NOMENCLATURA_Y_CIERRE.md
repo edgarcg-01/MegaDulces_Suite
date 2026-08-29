@@ -361,28 +361,45 @@ detiene.
 
 **1,583 ajustes · $23.8M.** La liga por folio de entrada (`c39`) cubre casi nada:
 
-| | ajustes | liga por `c39` | liga por `c11` (factura) |
-|---|---|---|---|
-| **X-D-40** devoluciones | 327 · $2.4M | 65 (**20%**) | 308 (94%) |
-| **X-D-55** notas de crédito | 1,256 · $21.4M | **0 (0%)** | 1,053 (84%) |
-| **Total** | 1,583 · $23.8M | 65 (**4%**) | 1,361 (86%) |
+| | ajustes | liga por `c39` (entrada) |
+|---|---|---|
+| **X-D-40** devoluciones | 327 · $2.4M | 65 (**20%**) |
+| **X-D-55** notas de crédito | 1,256 · $21.4M | **0 (0%)** |
+| **Total** | 1,583 · $23.8M | 65 (**4%**) |
 
 **Las notas de crédito nunca traen folio de entrada. Cero de 1,256.** Y son el 90% del dinero.
 O sea: el join exacto del lente del dinero —y el de *Compras 360* antes— explica el **4%** de los
 ajustes. El resto queda fuera, y por eso 360 tenía un fallback heurístico por proveedor+fecha.
 
-### 4.ter.3 La llave que falta ya la estamos leyendo
+### 4.ter.3 ⚠️ NO hay una segunda llave — corrección de este mismo análisis
 
-`c11` es la **referencia de factura** del ajuste, y está poblada en el **86%**. Y el OCR **ya
-extrae el folio de la factura** del PDF (`fields.folio`) — hoy sólo se usa para detectar hojas
-duplicadas, no para ligar ajustes.
+**La primera versión de esta sección estaba mal y se corrige acá.** Decía que `c11` es la
+*referencia de factura* (así la llama el importer), que está poblada en el 86% y que el OCR ya lee
+ese mismo folio del PDF → **1,297 ajustes ligables**. Le creí a la etiqueta de la columna en vez
+de mirar el dato.
 
-> **1,297 ajustes** que hoy no ligan (sin `c39` pero con `c11`) podrían ligar por número de
-> factura. Es el mismo dato en los dos lados: el proveedor lo pone en su nota de crédito y Claude
-> lo lee del papel. Nadie los cruza.
+Mirado (2026-08-29), `c11` es un **campo de texto libre** que en Kepler se llena con lo que sea:
 
-Quedan **221 sin `c39` ni `c11`** — ésos sí necesitan heurístico (proveedor + fecha + monto) o se
-quedan sin explicar, y hay que decirlo así en pantalla.
+| Qué hay en `c11` | de 1,361 |
+|---|---|
+| El **código de proveedor** (literalmente `= c10`) | 398 (**29%**) |
+| Destinos / almacén (`DP-0CEDIS`, `DC-0CEDIS`…) | 104+ |
+| **Sólo dígitos** — los únicos que parecen folio real (`45283`, `6338`) | **172 (13%)** |
+
+O sea que **no existe llave estructural** entre la nota de crédito y la factura. El máximo
+teórico de la liga por folio es **~13%**, no 86%, y aun ésos habría que verificarlos contra un
+folio real.
+
+**Consecuencia de diseño — y es la buena noticia:** como no hay llave, el sistema **no puede
+afirmar** qué ajuste corresponde a qué recepción. Lo que sí puede hacer es lo que haría una
+persona: buscar candidatos del mismo proveedor en una ventana y ver **cuál tiene el tamaño del
+hueco**. El cuadre se apoya en el **monto**, no en un folio que no existe — y el dictamen queda
+en el humano (ADR-016: el motor propone, la persona decide).
+
+Eso además esquiva un problema que no está resuelto: **el signo**. Verificado sobre los 65 que sí
+ligan, el ajuste va del **8% al 100%** de la entrada (varios son 100% = la recepción entera
+revertida). No hay una regla contable estable de si el ajuste ya viene aplicado en la factura o
+no, así que **afirmar dirección sería inventar**. Comparar magnitudes no.
 
 ### 4.ter.4 El timing: se juzga contra un número que todavía va a cambiar
 
@@ -418,16 +435,26 @@ descuadre esté perfectamente explicado por un X-D-40 que Kepler ya tiene regist
 
 ### 4.ter.7 Forma propuesta
 
-1. **Ligar por número de factura** (`c11` ↔ el folio que lee el OCR), no sólo por `c39`. Es el
-   86% del universo y el dato ya está en los dos lados.
-2. **Cuadre de 3 vías**: `factura − ajustes_operativos ≈ entrada`. Los comerciales no entran; las
-   correcciones de captura salen por otro lado.
-3. **El cuadre deja de ser una foto**: `monto_match` se recalcula cuando llega un ajuste
+Sin llave estructural (§4.ter.3), el motor **propone** y la persona **decide**:
+
+1. **Explicar por MONTO, no por folio.** Buscar ajustes del mismo proveedor en una ventana y
+   marcar los que tienen **el tamaño del hueco** (`|ajuste| ≈ |Δ|` dentro de la tolerancia).
+   Comparar magnitudes es defendible; afirmar dirección contable no lo es.
+2. **Etiquetar la confianza con honestidad**: `exacto` (liga por `c39`, el 4%) · `monto`
+   (explica el hueco al peso) · `proveedor+fecha` (candidato, puede ser ruido). Que se vea cuál
+   es cuál en vez de mezclarlos.
+3. **Distinguir la naturaleza** (§4.ter.5): un descuadre explicado por un ajuste **operativo** es
+   otra cosa que uno explicado por uno **comercial**, y las correcciones de captura son un
+   hallazgo, no un descuadre.
+4. **El cuadre deja de ser una foto**: `monto_match` se recalcula cuando llega un ajuste
    posterior, o se guarda con su fecha de corte para que se lea como "cuadraba al 12/08".
-4. **Un estado nuevo**: *cuadra con ajuste* — ni "cuadra" ni "no cuadra". Es lo que desbloquea el
-   lote para las recepciones con devolución explicada.
-5. **Marcar lo que no se puede explicar** (los 221 sin ninguna llave) en vez de dejarlos como
-   descuadre mudo.
+5. **Un estado nuevo**: *cuadra con ajuste* — ni "cuadra" ni "no cuadra". Es lo que desbloquea el
+   lote para las recepciones con devolución explicada (§4.ter.6).
+6. **Marcar lo que no se puede explicar** en vez de dejarlo como descuadre mudo.
+
+> **Lección para el próximo que lea una columna de `analytics.*`:** el nombre de la columna es la
+> intención del importer, no el contenido. `factura_ref` trae códigos de proveedor el 29% de las
+> veces. Mirar los datos, siempre — es la misma regla que ya está escrita para `c2/c3/c4`.
 
 ---
 

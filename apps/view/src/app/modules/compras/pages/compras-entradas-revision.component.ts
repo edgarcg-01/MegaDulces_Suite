@@ -22,7 +22,7 @@ import {
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ComprasService, AdjustmentForEntradaRow } from '../compras.service';
+import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
@@ -320,14 +320,38 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                   } @else if (!explica().length) {
                     <p class="rv-none">Sin devoluciones ni notas de crédito de este proveedor ±15 días. Si difiere, suele ser IVA o captura.</p>
                   } @else {
+                    <!-- RE.21 — el veredicto ANTES de la lista. Antes salían hasta 50 candidatos
+                         del mismo proveedor sin decir cuál importaba, y el revisor tenía que
+                         hacer la resta a mano. Se dice el tamaño del hueco y si alguno lo tiene. -->
+                    @if (explicacion(); as ex) {
+                      <p class="rv-expl" [attr.data-tone]="ex.explicado ? (ex.grupo === 'negociado' ? 'ok' : 'warn') : 'muted'">
+                        @if (ex.explicado) {
+                          <strong>{{ ex.candidatos === 1 ? 'Hay uno del tamaño del hueco' : ex.candidatos + ' del tamaño del hueco' }}</strong>
+                          ({{ money(ex.delta) }}).
+                          @if (ex.grupo === 'negociado') {
+                            Es un <b>beneficio negociado</b> — descuento, pronto pago o apoyo: no dice que falte mercancía.
+                          } @else {
+                            Es un <b>problema operativo</b> — faltante, mal estado o no solicitado: la factura difiere porque no llegó completo.
+                          }
+                          @if (ex.confianza === 'ambigua') { <em>Hay más de un candidato: confirmá cuál.</em> }
+                          @else if (ex.confianza === 'media') { <em>Kepler no liga la nota a esta recepción — casa por monto, confirmalo.</em> }
+                        } @else {
+                          El hueco es de <strong>{{ money(ex.delta) }}</strong> y <b>ninguno de estos ajustes lo explica</b>.
+                          Suele ser IVA o captura.
+                        }
+                      </p>
+                    }
                     <ul class="rv-adj">
                       @for (a of explica(); track a.doctype + a.folio) {
-                        <li>
+                        <li [class.is-explica]="a.explica">
                           <p-tag [value]="a.doctype === 'XD40' ? 'Devolución' : 'Nota de crédito'" [severity]="a.doctype === 'XD40' ? 'warn' : 'info'" />
                           <span class="mono">{{ a.folio }}</span>
                           <em>{{ a.adjustment_date | date:'dd/MM' }}</em>
                           <span class="rv-adj-mot" [title]="a.motivo || ''">{{ a.motivo || '—' }}</span>
                           <span class="rv-adj-monto">{{ money(a.monto) }}</span>
+                          <!-- title nativo y no pTooltip: esta pantalla no importa
+                               TooltipModule y no vale traerlo por un ícono. -->
+                          @if (a.explica) { <i class="pi pi-arrow-left rv-adj-hit" [title]="a.match === 'exacto' ? 'Kepler la liga a esta entrada Y tiene el tamaño del hueco' : 'Tiene exactamente el tamaño del hueco'"></i> }
                         </li>
                       }
                     </ul>
@@ -679,7 +703,27 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     .rv-u { font-style: normal; color: var(--text-muted); font-size: .8em; margin-left: .2rem; }
     .rv-none { color: var(--text-muted); font-size: var(--fs-sm, .85rem); margin: .2rem 0; }
 
+    /* RE.21 — el veredicto sobre el hueco, antes de la lista. Verde cuando lo explica un
+       beneficio negociado (no falta mercancía) y ámbar cuando lo explica un problema operativo
+       (no llegó completo): son dos decisiones distintas para el revisor. Gris cuando nada lo
+       explica — que NO es alarma, es "esto es IVA o captura, mirá otra cosa". */
+    .rv-expl {
+      margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3);
+      border-radius: var(--r-md); border-left: 3px solid var(--border-color);
+      background: var(--surface-ground); font-size: var(--fs-xs); line-height: 1.5;
+      color: var(--text-muted);
+    }
+    .rv-expl strong, .rv-expl b { color: var(--text-main); }
+    .rv-expl em { font-style: italic; display: block; margin-top: 2px; }
+    .rv-expl[data-tone='ok']   { border-left-color: var(--ok-fg);   background: var(--ok-soft-bg); }
+    .rv-expl[data-tone='warn'] { border-left-color: var(--warn-fg); background: var(--warn-soft-bg); }
+    /* Sobre el fondo de color, el texto secundario pierde contraste: sube a --text-main. */
+    .rv-expl[data-tone='ok'], .rv-expl[data-tone='warn'] { color: var(--text-main); }
+
     .rv-adj { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; }
+    /* El que casa con el hueco se marca en la lista, para poder ir del veredicto a la fila. */
+    .rv-adj li.is-explica { font-weight: 600; }
+    .rv-adj-hit { color: var(--action); font-size: .7rem; }
     .rv-adj li { display: flex; align-items: center; gap: .45rem; font-size: var(--fs-sm, .85rem); flex-wrap: wrap; }
     .rv-adj em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
     .rv-adj-mot { flex: 1; min-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
@@ -881,6 +925,8 @@ export class ComprasEntradasRevisionComponent {
   readonly detailLoading = signal(false);
   readonly explica = signal<AdjustmentForEntradaRow[]>([]);
   readonly explicaLoading = signal(false);
+  /** `[RE.21]` — el veredicto sobre el hueco: quién lo explica, de qué naturaleza y con cuánta certeza. */
+  readonly explicacion = signal<AdjustmentExplicacion | null>(null);
   readonly inspect = signal<string | null>(null);
 
   /**
@@ -920,13 +966,26 @@ export class ComprasEntradasRevisionComponent {
     });
     if (c.proveedor_code) {
       this.explicaLoading.set(true);
-      this.compras.adjustmentsForEntrada({ proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
+      // `[RE.21]` — se manda EL HUECO. Sin él el server devolvía hasta 50 candidatos del mismo
+      // proveedor en ±15 días, sin decir cuál importa; con él marca los que tienen el tamaño de
+      // la diferencia y devuelve un veredicto. Kepler no liga la nota de crédito a la recepción
+      // (el 96% no trae folio de entrada, y las X-D-55 el 100%), así que el monto es la única
+      // evidencia defendible — y la decide una persona, no el motor.
+      this.compras.adjustmentsForEntrada({
+        proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15,
+        delta: c.discrepancy_amount ?? null,
+        tolerancia: this.report()?.settings?.match_tolerance,
+      })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: (r) => { this.explicaLoading.set(false); this.explica.set(r?.rows || []); },
-          error: () => { this.explicaLoading.set(false); this.explica.set([]); },
+          next: (r) => {
+            this.explicaLoading.set(false);
+            this.explica.set(r?.rows || []);
+            this.explicacion.set(r?.explicacion ?? null);
+          },
+          error: () => { this.explicaLoading.set(false); this.explica.set([]); this.explicacion.set(null); },
         });
-    }
+    } else { this.explicacion.set(null); }
   }
 
   // ── decidir ──
