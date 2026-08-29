@@ -46,11 +46,14 @@ const urBody = `SELECT z.product_id,
 //
 // ⚠ UNIDAD: `kdm2.c9` viene en la unidad de `c11` — PAQ/PZA/KG/CJA mezcladas en la MISMA OC — y el
 // NOMBRE de la unidad no sirve para convertir (en la sucursal 03 las líneas 'PZA' traen ratio de
-// costo 13.5: son cajas). El DINERO sí: `c9 × c12` es invariante a la unidad, así que
-// `c12 / costo_por_unidad_de_stock` = cuántas unidades de stock trae la línea. Debajo de 1.5× ya
-// está en unidad de stock (~95 % de las líneas, mediana 1.00); arriba se usa el ratio topado en el
-// factor de caja. Se divide por `bf` acá, con los MISMOS factores que el resto del fact (`econ`),
-// así la conversión ocurre UNA vez y `t` ya sale en CAJAS.
+// costo 13.5: son cajas). RA-PRO.43: la línea trae su PROPIA conversión declarada (`c58` = unidades
+// de la línea por caja, `c55` = unidad de caja, `c57` = costo de esa caja; verificado `c12 × c58 =
+// c57` exacto), y ésa manda cuando el costo de caja del documento cuadra con el nuestro. Si no
+// cuadra —o el documento no la trae— se cae al fallback que infiere por costo. A/B sobre las 2,558
+// líneas abiertas: 84.4 % usan el factor declarado y sólo 5 líneas cambian ($3.1k sobre $21.3M), o
+// sea el dato confirma la heurística; se prefiere igual porque declarado > inferido.
+// `t` sale en CAJAS, con los MISMOS factores que el resto del fact (`econ`) — la conversión
+// ocurre UNA sola vez, acá.
 //
 // Esto reemplazó a `import-in-transit.js` + `analytics.purchase_in_transit` (2026-08-28): mientras
 // fueron un importer y una tabla aparte, el rename `qty_in_transit` → `transit_cajas` se comió la
@@ -59,11 +62,28 @@ const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
 const trOds = `
   tr AS (
     SELECT w.id AS warehouse_id, COALESCE(al.canonical_product_id, e.product_id) AS product_id,
-           SUM((l.c9 * CASE
-                 WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
-                 WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
-                 ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
-               ) / GREATEST(e.bf, 1)) AS t
+           SUM(CASE
+                 -- 1) FACTOR DECLARADO POR EL DOCUMENTO. La línea de la OC trae su propia
+                 --    conversión: c55 = unidad de caja, c58 = cuántas unidades de la línea hacen
+                 --    esa caja, c57 = su costo. Verificado: c12 × c58 = c57 exacto. Se acepta sólo
+                 --    si la caja del documento CUADRA con la nuestra por dinero (±15% de
+                 --    real_cost × bf) — si el proveedor empaca distinto a como lo tenemos en
+                 --    catálogo, el costo de caja no cuadra y no se usa (cae al fallback).
+                 WHEN NULLIF(btrim(l.c58::text), '')::numeric > 0
+                      AND e.real_cost > 0
+                      AND NULLIF(btrim(l.c57::text), '')::numeric > 0
+                      AND abs(NULLIF(btrim(l.c57::text), '')::numeric - e.real_cost * e.bf)
+                          <= 0.15 * (e.real_cost * e.bf)
+                   THEN l.c9 / NULLIF(btrim(l.c58::text), '')::numeric
+                 -- 2) FALLBACK — inferir la unidad por costo (lo único que había antes de RA-PRO.43):
+                 --    c9 × c12 es invariante a la unidad, así que c12 / costo_por_unidad_de_stock
+                 --    dice cuántas unidades de stock trae la línea; ÷bf la lleva a cajas.
+                 ELSE (l.c9 * CASE
+                         WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
+                         WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
+                         ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
+                      ) / GREATEST(e.bf, 1)
+               END) AS t
       FROM kepler_ods.kdm1 oc
       JOIN kepler_ods.kdm2 l
         ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
@@ -419,6 +439,35 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     console.log(`  estación: ${chk.prods_con_estacion} productos con ratio≠1 (rango ${chk.season_min}–${chk.season_max}) · colchón cuantílico: ${chk.prods_con_colchon} · lead derivado: ${chk.prods_con_lead}`);
     if (Number(rutasResid.n) > 0) console.log(`  ⚠ ${rutasResid.n} filas de RUTA-* siguen en el fact (el fold a sucursal no cubrió todo)`);
     if (rutasSinMapa.codes) console.log(`  ⚠ rutas sin mapeo a sucursal (demanda se queda en la ruta): ${rutasSinMapa.codes}`);
+    // RA-PRO.43 — el proveedor declara su empaque en la OC (`c58` unidades por caja, `c57` costo de
+    // esa caja). La señal accionable NO es "c58 ≠ bf" a secas (la línea puede venir en otra unidad:
+    // 1,691 SKUs caen ahí y son ruido), sino la CONTRADICCIÓN: el dinero dice que hablamos de la
+    // MISMA caja (c57 ≈ caja_cost) pero el conteo difiere → o el catálogo está mal o el proveedor
+    // cambió la presentación. Eso descuadra el pedido ENTERO del SKU, no sólo su tránsito. Medido
+    // al introducirlo: 11 de 5,368 cajas verificables por dinero.
+    if (hasOds) {
+      const bfx = (await db.query(`
+        WITH oc AS (
+          SELECT DISTINCT l.c8 AS sku,
+                 NULLIF(btrim(l.c58::text), '')::numeric AS c58,
+                 NULLIF(btrim(l.c57::text), '')::numeric AS c57
+            FROM kepler_ods.kdm1 o
+            JOIN kepler_ods.kdm2 l
+              ON l.sucursal=o.sucursal AND l.c1=o.c1 AND l.c2=o.c2 AND l.c3=o.c3 AND l.c4=o.c4 AND l.c6=o.c6
+           WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
+             AND o.c9::date >= CURRENT_DATE - 60
+             AND NULLIF(btrim(l.c58::text), '')::numeric > 0),
+        cat AS (SELECT DISTINCT sku, bf, caja_cost FROM stg_rplan)
+        SELECT count(*) FILTER (WHERE cat.caja_cost > 0
+                                 AND abs(oc.c57 - cat.caja_cost) <= 0.15 * cat.caja_cost
+                                 AND abs(oc.c58 - cat.bf) >= 0.01)            AS contradicen,
+               count(*) FILTER (WHERE cat.caja_cost > 0
+                                 AND abs(oc.c57 - cat.caja_cost) <= 0.15 * cat.caja_cost) AS verificables
+          FROM oc JOIN cat ON cat.sku = oc.sku`)).rows[0];
+      if (Number(bfx?.contradicen) > 0) {
+        console.log(`  ⚠ ${bfx.contradicen} de ${bfx.verificables} SKUs: el proveedor declara la MISMA caja por costo pero distinto conteo → revisar box_factor (descuadra todo el pedido de ese SKU)`);
+      }
+    }
     console.log(`  puntos ciegos conocidos: tránsito de MD-30/MD-32 (sus compras directas no están en el ODS — pendiente extender la replicación)`);
 
     const up = await db.query(
