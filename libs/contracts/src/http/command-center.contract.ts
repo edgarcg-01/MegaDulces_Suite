@@ -14,9 +14,9 @@ import { z } from 'zod';
 export const NetworkChannelRow = z.object({
   channel: z.string(),
   revenue: z.number(),
-  cost: z.number().nullish(),
-  margin: z.number().nullish(),
-  margin_pct: z.number().nullish(),
+  cost: z.number().optional(),
+  margin: z.number().optional(),
+  margin_pct: z.number().optional(),
   units: z.number(),
   tickets: z.number(),
   share_pct: z.number(),
@@ -30,7 +30,7 @@ export const NetworkOverview = z.object({
     rolling_days: z.number(),
     last_sale_date: z.string().nullable().optional(),
   }),
-  cost_coverage_pct: z.number().nullish(),
+  cost_coverage_pct: z.number().optional(),
   revenue: z.object({
     gross: z.number(),
     cost: z.number(),
@@ -58,9 +58,9 @@ export const NetworkTopProductRow = z.object({
   brand_name: z.string(),
   units_sold: z.number(),
   revenue: z.number(),
-  cost: z.number().nullish(),
-  margin: z.number().nullish(),
-  margin_pct: z.number().nullish(),
+  cost: z.number().optional(),
+  margin: z.number().optional(),
+  margin_pct: z.number().optional(),
   abc_class: z.string().nullable(),
   // Participacion sobre la venta total de la red; null cuando el backend no tenia
   // el total fresco (evita 2a pasada por sales_daily). `?share=true` lo fuerza.
@@ -74,9 +74,9 @@ export const SalesByBrandRow = z.object({
   brand_name: z.string(),
   units: z.number(),
   revenue: z.number(),
-  cost: z.number().nullish(),
-  margin: z.number().nullish(),
-  margin_pct: z.number().nullish(),
+  cost: z.number().optional(),
+  margin: z.number().optional(),
+  margin_pct: z.number().optional(),
   share_pct: z.number(),
 });
 export type SalesByBrandRow = z.infer<typeof SalesByBrandRow>;
@@ -205,7 +205,7 @@ export const OverviewResponse = z.object({
     cancelled: z.number(),
     avg_order_value: z.number(),
   }),
-  units_sold: z.number().nullish(),
+  units_sold: z.number().optional(),
   unique_customers: z.number(),
 });
 export type OverviewResponse = z.infer<typeof OverviewResponse>;
@@ -219,7 +219,7 @@ export const TopCustomerRow = z.object({
   revenue: z.number(),
   avg_order_value: z.number(),
   last_order_at: z.string(),
-  rank: z.number().nullish(),
+  rank: z.number().optional(),
 });
 export type TopCustomerRow = z.infer<typeof TopCustomerRow>;
 
@@ -231,8 +231,8 @@ export const TopProductRow = z.object({
   units_sold: z.number(),
   revenue: z.number(),
   orders_count: z.number(),
-  rank_by_units: z.number().nullish(),
-  rank_by_revenue: z.number().nullish(),
+  rank_by_units: z.number().optional(),
+  rank_by_revenue: z.number().optional(),
 });
 export type TopProductRow = z.infer<typeof TopProductRow>;
 

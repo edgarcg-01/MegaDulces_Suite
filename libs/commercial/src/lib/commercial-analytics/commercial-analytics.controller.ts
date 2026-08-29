@@ -101,6 +101,13 @@ export class CommercialAnalyticsController {
       'BFF del Command Center (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 respuesta tipada (contrato compartido en libs/contracts). Los paneles con otro permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=intelligence) siguen como llamadas aparte para NO bypassear su gate.',
   })
   async commandCenter(): Promise<CommandCenterDashboard> {
+    // Mismos parámetros que el dashboard usaba en sus 11 llamadas sueltas, para que el
+    // BFF sea un reemplazo EXACTO (misma data): ventana 30d, low-stock threshold 200,
+    // inactivos limit 5. Ver command-center.component.ts → loadAll().
+    const to = new Date();
+    const from = new Date(to.getTime() - 29 * 86400_000);
+    const fromIso = from.toISOString().slice(0, 10);
+    const toIso = to.toISOString().slice(0, 10);
     const [
       overview,
       top_products,
@@ -113,9 +120,9 @@ export class CommercialAnalyticsController {
       this.service.networkOverview(),
       this.service.networkTopProducts('8', { share: false }),
       this.service.networkSalesByBrand(),
-      this.service.networkDailySeries({}),
-      this.service.lowStock('100', undefined, '50'),
-      this.service.inactiveCustomers('30', '10'),
+      this.service.networkDailySeries({ from: fromIso, to: toIso }),
+      this.service.lowStock('200'),
+      this.service.inactiveCustomers('30', '5'),
       this.service.rankingOutOfStock({ limit: 10, topN: 200 }),
     ]);
     // El BFF es el punto donde se hace CUMPLIR el contrato: valida en runtime que
