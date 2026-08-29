@@ -87,11 +87,27 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
 
         <p class="rp-coverage">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
-          Calculado sobre <b>{{ o.coverage.revenue_pct | number:'1.0-0' }}%</b> de la venta —
-          {{ o.coverage.skus_with_cost | number }} de {{ o.coverage.skus_total | number }} SKUs tienen costo con qué juzgarlos.
-          El resto vende pero no se puede evaluar.
-          <span class="rp-src">venta: sell-out real · costo: <code>cost_base</code></span>
+          Calculado sobre <b>{{ o.coverage.revenue_pct | number:'1.1-1' }}%</b> de la venta —
+          {{ o.coverage.skus_with_cost | number }} de {{ o.coverage.skus_total | number }} SKUs traen costo con qué juzgarlos.
+          @if (o.coverage.skus_total > o.coverage.skus_with_cost) {
+            Los {{ o.coverage.skus_total - o.coverage.skus_with_cost | number }} restantes venden pero no se pueden evaluar.
+          }
+          <span class="rp-src">
+            venta y costo: <code>sales_daily</code> (lo que cobró el PdV)
+            @if (o.data_as_of) { · datos al {{ o.data_as_of }} }
+            @if (channels(); as ch) { · {{ ch }} }
+          </span>
         </p>
+
+        @if (o.cost_quality.conflict_skus) {
+          <p class="rp-dq">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <b>{{ o.cost_quality.conflict_skus | number }} SKUs</b> tienen un costo de catálogo que contradice
+            al del punto de venta — está capturado en otra unidad (caja contra pieza).
+            El margen no los usa, pero <b>{{ o.inventory.unverified | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+            del capital en inventario se valúa con ese costo. Su GMROI queda en blanco.
+          </p>
+        }
 
         <!-- Bandas de salud. Cada contador es el filtro que lo abre. -->
         <div class="rp-bands" role="group" aria-label="Salud del margen">
@@ -118,6 +134,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               a margen entra solo lo ya vendido
             </span>
           </div>
+
+          <!-- Cascada ciega ≠ cascada en cero. Si la fuente no está cargada, se dice. -->
+          @if (o.levers_source_empty) {
+            <p class="rp-blind">
+              <i class="pi pi-ban" aria-hidden="true"></i>
+              <b>No hay ni un ajuste de compra cargado</b> (<code>erp_purchase_adjustments</code> está vacía).
+              Las palancas de proveedor de abajo no valen cero: no se están midiendo.
+              Falta correr el feed de descuentos.
+            </p>
+          }
+
           <div class="rp-casc-rows">
             <div class="rp-cr rp-cr-hd">
               <span></span><span class="rp-cr-a">negociado</span><span class="rp-cr-e">a margen</span><span class="rp-cr-p">pp</span>
@@ -172,9 +199,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <small>{{ o.non_margin.operacional.docs }} docs · faltante, mal estado, devolución</small>
             </span>
             @if (o.promotions.skus_con_promo) {
-              <span class="rp-nm-i">
+              <span class="rp-nm-i" pTooltip="El campo benefit de kdpv_descuxq sólo toma los valores 2/3/4/5. No está confirmado que sea un porcentaje, así que no se publica como tal ni se resta del margen.">
                 <b>{{ o.promotions.skus_con_promo | number }}</b> SKUs con promoción vigente
-                <small>{{ o.promotions.avg_benefit_pct | number:'1.1-1' }}% promedio · descuento al cliente</small>
+                <small>beneficio {{ o.promotions.avg_benefit | number:'1.1-1' }} promedio · unidad sin confirmar</small>
               </span>
             }
           </div>
@@ -235,8 +262,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   pTooltip="Pesos que faltaron para el objetivo. Ordena por tamaño del problema, no por porcentaje.">Brecha $ <p-sorticon field="gap_amount" /></th>
               <th scope="col" class="comm-num" pSortableColumn="inventory_value"
                   pTooltip="Capital comprometido en existencia, al mismo costo">Inventario <p-sorticon field="inventory_value" /></th>
-              <th scope="col" class="comm-num" pTooltip="Margen anual generado por peso invertido en inventario">GMROI</th>
-              <th scope="col" class="comm-num rp-c-skus" pTooltip="Descuento al cliente vigente (kdpv_descuxq)">Promo</th>
+              <th scope="col" class="comm-num" pTooltip="Margen anual generado por peso invertido en inventario. En blanco cuando el costo de valuación no es confiable.">GMROI</th>
+              <th scope="col" class="comm-num rp-c-skus" pTooltip="Beneficio de la promoción vigente (kdpv_descuxq), en crudo. La unidad no está confirmada: no es un porcentaje.">Promo</th>
               <th scope="col" class="comm-num rp-c-skus" pSortableColumn="skus">SKUs <p-sorticon field="skus" /></th>
             </tr>
           </ng-template>
@@ -257,7 +284,12 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   <div class="rp-sub">{{ r.skus | number }} producto{{ r.skus === 1 ? '' : 's' }}</div>
                 }
               </td>
-              <td class="comm-num">{{ r.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="comm-num">
+                {{ r.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                @if (r.coverage_pct !== null && r.coverage_pct < 95) {
+                  <span class="rp-cov" [pTooltip]="coverageTip(r)">{{ r.coverage_pct | number:'1.0-0' }}%</span>
+                }
+              </td>
               <td class="comm-num rp-muted">{{ r.cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="comm-num">{{ r.margin_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="comm-num">
@@ -276,12 +308,20 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   <span class="rp-gapm">{{ r.gap_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 } @else { <span class="rp-none">—</span> }
               </td>
-              <td class="comm-num rp-muted">{{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="comm-num rp-muted">
+                {{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                @if (r.cost_conflict_skus) {
+                  <i class="pi pi-exclamation-triangle rp-warn-ico" aria-hidden="true"
+                     [pTooltip]="conflictTip(r)"></i>
+                }
+              </td>
               <td class="comm-num">
-                @if (r.gmroi !== null) { {{ r.gmroi | number:'1.1-1' }}× } @else { <span class="rp-none">—</span> }
+                @if (r.gmroi !== null) { {{ r.gmroi | number:'1.1-1' }}× }
+                @else if (r.cost_conflict_skus) { <span class="rp-none" pTooltip="Sin GMROI: el costo con que se valúa el inventario no coincide con el del punto de venta.">n/d</span> }
+                @else { <span class="rp-none">—</span> }
               </td>
               <td class="comm-num rp-c-skus">
-                @if (r.promo_pct !== null) { <span class="rp-promo">−{{ r.promo_pct | number:'1.0-1' }}%</span> }
+                @if (r.promo_benefit !== null) { <span class="rp-promo">{{ r.promo_benefit | number:'1.0-1' }}</span> }
                 @else { <span class="rp-none">—</span> }
               </td>
               <td class="comm-num rp-c-skus rp-muted">{{ r.skus | number }}</td>
@@ -308,7 +348,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                     <span class="rp-gapm">{{ t.gap_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   }
                 </td>
-                <td colspan="4"></td>
+                <td class="comm-num rp-muted">{{ t.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td colspan="3"></td>
               </tr>
             }
           </ng-template>
@@ -380,6 +421,15 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               </div>
             </div>
 
+            @if (l.levers_source_empty) {
+              <p class="rp-lv-warn">
+                <i class="pi pi-ban" aria-hidden="true"></i>
+                <b>No hay ajustes de compra cargados</b> para ningún proveedor
+                (<code>erp_purchase_adjustments</code> vacía). Las palancas de arriba
+                no son cero: no se están midiendo.
+              </p>
+            }
+
             @if (l.overlap_warning) {
               <p class="rp-lv-warn">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -404,11 +454,11 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
 
             @if (l.promotions.skus_con_promo) {
               <div class="rp-lv-block">
-                <h4>Descuento al cliente</h4>
+                <h4>Promoción al cliente</h4>
                 <p>
                   <b>{{ l.promotions.skus_con_promo | number }}</b> SKUs con promoción vigente ·
-                  {{ l.promotions.avg_benefit_pct | number:'1.1-1' }}% promedio
-                  (máx {{ l.promotions.max_benefit_pct | number:'1.0-1' }}%)
+                  beneficio {{ l.promotions.avg_benefit | number:'1.1-1' }} promedio
+                  (máx {{ l.promotions.max_benefit | number:'1.0-1' }})
                 </p>
                 <p class="rp-muted">{{ l.promotions.note }}</p>
               </div>
@@ -518,6 +568,33 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     .rp-coverage i { color: var(--c-text-3); }
     .rp-coverage b { color: var(--c-text-1); }
     .rp-src { color: var(--c-text-3); font-size: var(--fs-micro); }
+    .rp-src code { font-family: var(--font-mono); font-size: var(--fs-nano); }
+
+    /* Calidad del dato: se declara arriba, no se esconde en un tooltip. */
+    .rp-dq {
+      margin: var(--sp-2) 0 0; padding: var(--sp-2) var(--sp-3);
+      font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5;
+      background: var(--c-surface-2); border: 1px solid var(--c-divider);
+      border-left: 3px solid var(--c-warn); border-radius: var(--r-md);
+    }
+    .rp-dq i { color: var(--c-warn); margin-right: var(--sp-1); }
+    .rp-dq b { color: var(--c-text-1); }
+
+    /* Fuente vacía ≠ resultado en cero. */
+    .rp-blind {
+      margin: 0; padding: var(--sp-2) var(--sp-4);
+      font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5;
+      background: var(--c-surface-2); border-bottom: 1px solid var(--c-divider);
+    }
+    .rp-blind i { color: var(--c-bad); margin-right: var(--sp-1); }
+    .rp-blind b { color: var(--c-text-1); }
+    .rp-blind code { font-family: var(--font-mono); font-size: var(--fs-nano); }
+
+    .rp-warn-ico { color: var(--c-warn); font-size: var(--fs-nano); margin-left: var(--sp-1); }
+    .rp-cov {
+      font-size: var(--fs-nano); color: var(--c-warn); margin-left: var(--sp-1);
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ── Bandas ────────────────────────────────────────────────────────── */
     .rp-bands { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-4); }
@@ -600,7 +677,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     a.rp-nm-i:hover b { color: var(--action); }
     a.rp-nm-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-    .rp-promo { color: var(--c-warn); font-variant-numeric: tabular-nums; }
+    /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
+    .rp-promo { color: var(--c-text-2); font-variant-numeric: tabular-nums; }
 
     /* ── Toolbar ───────────────────────────────────────────────────────── */
     .rp-toolbar {
@@ -756,12 +834,33 @@ export class ComercialRentabilidadComponent {
       },
       {
         label: 'Capital en inventario',
-        value: o.inventory_value,
+        value: o.inventory.total,
         format: 'currency-short',
-        sub: o.inventory_days ? `${Math.round(o.inventory_days)} días de costo` : undefined,
+        // El KPI cubre TODO el stock; la tabla sólo lo que vendió. Decir cuánto
+        // es stock muerto es lo que hace que los dos números cuadren a la vista.
+        sub: o.inventory.no_sales > 0
+          ? `${this.fmtShort(o.inventory.no_sales)} sin venta en la ventana`
+          : o.inventory_days ? `${Math.round(o.inventory_days)} días de costo` : undefined,
       },
     ];
   });
+
+  /** Canales que alimentan la ventana. Sin esto, "cobertura" no dice de qué. */
+  readonly channels = computed(() => {
+    const ch = this.overview()?.coverage.channels ?? [];
+    if (!ch.length) return null;
+    return ch.map((c) => c.channel).join(' + ');
+  });
+
+  conflictTip(r: ProfitabilityRow): string {
+    return r.skus === 1
+      ? 'El costo de catálogo de este SKU está en otra unidad que la venta: el inventario valuado no es confiable.'
+      : `${r.cost_conflict_skus} de ${r.skus} SKUs valúan con un costo que el punto de venta contradice.`;
+  }
+
+  coverageTip(r: ProfitabilityRow): string {
+    return `Sólo el ${Math.round(r.coverage_pct ?? 0)}% de esta venta trae costo. El margen se mide sobre esa parte.`;
+  }
 
   private fmtShort(n: number): string {
     const abs = Math.abs(n);
