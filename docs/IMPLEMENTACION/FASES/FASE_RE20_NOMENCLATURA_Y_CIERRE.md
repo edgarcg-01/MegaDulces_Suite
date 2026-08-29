@@ -280,6 +280,70 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
 
 ---
 
+## 4.bis RE.20.6 — Revisión del backend ✅ (2026-08-29)
+
+Edgar: *"hay que revisar todo el backend de nuestras interfaces creadas/modificadas"*. Auditoría
+del **flujo completo**, no de los archivos tocados. Un hallazgo serio.
+
+### El hallazgo: el alcance no llegaba a las escrituras
+
+Los filtros de las **listas** estaban scopeados desde RE.13, pero **nadie pasa por la lista para
+hacer un POST**. Cinco endpoints recibían el id (o la sucursal) por la ruta y escribían donde les
+dijeran:
+
+| Endpoint | Alcance antes | ¿Mío? |
+|---|---|---|
+| `validate` · `reject` | ❌ ninguno | no (RE.13) |
+| `validateBulk` | ❌ ninguno — **no delega en `validate()`**, reimplementa la lógica | no (RE.13.2) |
+| `descartar` · `reactivar` | ❌ ninguno | **sí (RE.20.3)** |
+| `attach` · `decideTwin` · `detail` · `matchByOcr` | ✅ ya lo hacían | — |
+
+O sea: la comprobación existía y era la **excepción**, no la regla. Yo agregué dos endpoints más
+sin notarlo.
+
+**No es teórico.** Medido: **8 `encargado_tienda` tienen `_VALIDAR` con alcance `own`** (su
+tienda). Y `descartar` **saca la fila del denominador de cobertura**, que es el número por el que
+se le exige a esa sucursal — el incentivo para tocar el de al lado, o el propio desde afuera,
+está servido. `validateBulk` era el peor: hasta **200 expedientes** de una pasada.
+
+### El arreglo
+
+Un `exigirAlcance(sucursal)` que delega en **`scope.assertCanWrite`** y **no** en
+`sucursalesVisibles`. La diferencia importa: el segundo es el alcance de **lectura**, y
+`mode_write` es lo que permite *"ve las 3 de su zona, captura sólo en la suya"* — autorizar una
+escritura con el alcance de lectura afloja el control sin que se note. `attach` ya lo hacía así.
+
+Va **antes de `tk.run`** donde la sucursal viene de la ruta (`descartar`, `reactivar`): no hace
+falta abrir una transacción para saber que no. Donde sale de la fila (`validate`, `reject`,
+`validateBulk`) va adentro, como en `decideTwin`.
+
+### Dos sustos que resultaron ser míos, no del código
+
+1. **"`attach` no valida alcance"** — sí lo hace; mi grep buscaba `sucursalesVisibles` y `attach`
+   usa `assertCanWrite`. El error me llevó al primitivo correcto, así que salió barato.
+2. **"El fix bloquea a 9 superadmins"** — el god-mode es por **nombre de rol**
+   (`PLATFORM_ADMIN_ROLES = {superadmin, admin}`), no por clave de permiso. Con la regla real:
+   **0 usuarios se rompen**, 8 quedan limitados a su sucursal.
+
+El segundo susto vale como aviso permanente: el default de `modeWrite` es **`none`**
+(fail-closed), así que un usuario con `_VALIDAR` y **sin regla de alcance** se queda sin poder
+validar nada en cuanto entra el guard. Por eso el smoke nuevo lo vigila.
+
+### Lo demás que se revisó y quedó bien
+
+- **Rutas y permisos**: las 20 tienen `RequirePermissions`; VER lee, GESTIONAR captura, VALIDAR
+  decide. Sin colisiones de patrón (`discards` va antes de `:sucursal/:folio`; `validate-bulk`
+  antes de `:id/validate`).
+- **RLS / tenant**: `goods_receipt_discards` con RLS forzado; `analytics.*` (sin RLS) siempre con
+  `tenant_id` explícito. Sin `tk.run` anidado — `ScopeService` usa su propia conexión con caché.
+- **El join del lente de dinero no infla filas**: `adj` va agrupado por `(sucursal,
+  entrada_folio)`, así que es 1:1 y el `count` del paginador no se dispara.
+- **Una inconsistencia corregida de paso**: el contador de **rezago** de `coverage()` no
+  descontaba descartadas. Pesa justo ahí — los **1,176 traspasos `TI*`** viven todos en el
+  rezago, así que descartarlos no movía el número y se leía como que el descarte no hizo nada.
+
+---
+
 ## 5. Verificación
 
 - `nx build view` verde por item.

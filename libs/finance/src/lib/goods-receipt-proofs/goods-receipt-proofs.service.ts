@@ -428,6 +428,26 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * `[RE.20.6]` — **el alcance también manda al ESCRIBIR.** El permiso dice *qué* podés hacer;
+   * el alcance dice *sobre qué*. Tener `_VALIDAR` no es tener `_VALIDAR sobre CEDIS`.
+   *
+   * `validate`, `reject` y `descartar` recibían el id (o la sucursal) por la ruta y escribían
+   * donde les dijeran: los filtros de las LISTAS estaban scopeados, pero **nadie pasa por la
+   * lista para hacer un POST**. Auditado 2026-08-29: **9 `encargado_tienda` tienen `_VALIDAR`
+   * con alcance `own`** — gente real, con permiso acotado y ninguna barrera. En `descartar` el
+   * incentivo es directo: descartar **saca la fila del denominador de cobertura**, que es el
+   * número por el que se le exige a esa sucursal.
+   *
+   * Delega en `scope.assertCanWrite` y NO en `sucursalesVisibles`, que es el alcance de
+   * LECTURA: `mode_write` es lo que permite "ve las 3 de su zona, captura sólo en la suya", y
+   * usar el de lectura para autorizar una escritura afloja el control sin que se note.
+   * `attach` ya lo hacía así — esto lo vuelve la regla y no la excepción.
+   */
+  private async exigirAlcance(sucursal: string): Promise<void> {
+    await this.scope.assertCanWrite('warehouse', String(sucursal));
+  }
+
+  /**
    * Lista las órdenes de entrada de Kepler (espejo `analytics.erp_goods_receipts`)
    * con el estado de su remisión adjunta (LEFT JOIN a `finance.goods_receipt_proofs`).
    *
@@ -880,10 +900,15 @@ export class GoodsReceiptProofsService {
       // cobertura, el número deja de servir para exigirle a nadie.
       const resp = await this.responsablesPorSucursal(trx);
 
+      // RE.20.3/RE.20.6 — el rezago descuenta descartadas por la misma razón que el carril vivo,
+      // y acá pesa MÁS: los 1,176 traspasos `TI*` (que nunca van a tener factura) viven todos
+      // en el rezago. Sin esto, descartarlos no movía el contador y se leía como que el descarte
+      // no había hecho nada.
       const rez = await trx.raw(`
         SELECT COUNT(*)::int AS entradas, COALESCE(SUM(monto::numeric), 0)::numeric AS monto
           FROM analytics.erp_goods_receipts c
          WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date < ?
+           ${excluirDescartes}
            ${alcance ? 'AND c.sucursal = ANY(?)' : ''}`,
         alcance ? [tenantId, cfg.reception_start, alcance] : [tenantId, cfg.reception_start]);
 
@@ -1854,6 +1879,9 @@ export class GoodsReceiptProofsService {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
         .first('id', 'status', 'created_by', 'sucursal', 'folio');
       if (!prev) throw new BadRequestException('evidencia no encontrada');
+      // RE.20.6 — el permiso dice qué; el alcance dice sobre qué. Un revisor de tienda no
+      // valida el expediente de otra sucursal aunque tenga el id.
+      await this.exigirAlcance(prev.sucursal);
       if (prev.status === 'validado') throw new BadRequestException('esta evidencia ya está validada');
       if (this.mismaPersona(prev.created_by, actor)) {
         throw new ForbiddenException('No podés validar la evidencia que vos mismo subiste — que la revise otra persona.');
@@ -1899,6 +1927,9 @@ export class GoodsReceiptProofsService {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
         .first('id', 'status', 'sucursal', 'folio');
       if (!prev) throw new BadRequestException('evidencia no encontrada');
+      // RE.20.6 — devolver una factura le devuelve el trabajo a una sucursal: no lo decide
+      // alguien fuera de su alcance.
+      await this.exigirAlcance(prev.sucursal);
       if (prev.status === 'rechazado') throw new BadRequestException('esta evidencia ya está rechazada');
       const patch: Record<string, unknown> = {
         status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(),
@@ -1950,6 +1981,10 @@ export class GoodsReceiptProofsService {
     if (code === 'otro' && !texto) {
       throw new BadRequestException('con motivo "otro" hace falta escribir por qué.');
     }
+    // RE.20.6 — descartar saca la fila del denominador de cobertura de ESA sucursal: el alcance
+    // es lo que impide mejorar el número de otro. Va ANTES de `tk.run` —como en `attach`— porque
+    // la sucursal viene de la ruta: no hace falta abrir una transacción para saber que no.
+    await this.exigirAlcance(suc);
 
     return this.tk.run(async (trx) => {
       if (!(await this.hayDescartes(trx))) {
@@ -1998,14 +2033,18 @@ export class GoodsReceiptProofsService {
     const suc = (sucursal || '').trim();
     const fol = (folio || '').trim();
     if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    // RE.20.6 — mismo motivo que al descartar: reactivar devuelve la fila al denominador de esa
+    // sucursal, y eso tampoco lo decide alguien de afuera. Antes de abrir la transacción.
+    await this.exigirAlcance(suc);
+
     return this.tk.run(async (trx) => {
       if (!(await this.hayDescartes(trx))) {
         throw new BadRequestException('falta la migración de descartes en esta base');
       }
       const prev = await trx('finance.goods_receipt_discards')
         .where({ sucursal: suc, folio: fol }).first('motivo_codigo');
-      const n = await trx('finance.goods_receipt_discards').where({ sucursal: suc, folio: fol }).del();
-      if (!n) throw new BadRequestException(`la entrada ${suc}/${fol} no está descartada`);
+      if (!prev) throw new BadRequestException(`la entrada ${suc}/${fol} no está descartada`);
+      await trx('finance.goods_receipt_discards').where({ sucursal: suc, folio: fol }).del();
       await this.registrarHistorial(trx, {
         proof_id: null, sucursal: suc, folio: fol,
         status_from: 'descartada', status_to: 'pendiente',
@@ -2068,6 +2107,10 @@ export class GoodsReceiptProofsService {
           const prev = await trx('finance.goods_receipt_proofs').where({ id })
             .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match');
           if (!prev) throw new BadRequestException('no existe');
+          // RE.20.6 — el lote NO pasa por `validate()`: reimplementa la lógica acá, así que
+          // también reimplementaba la ausencia del alcance. Es el peor caso de los cuatro —
+          // hasta 200 expedientes de una pasada. El motivo vuelve por `out`, no tira el lote.
+          await this.exigirAlcance(prev.sucursal);
           if (prev.status !== 'recibido') throw new BadRequestException(`ya está ${prev.status}`);
           if (prev.monto_match !== true) throw new BadRequestException('el total no cuadra — se revisa a mano');
           if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');
