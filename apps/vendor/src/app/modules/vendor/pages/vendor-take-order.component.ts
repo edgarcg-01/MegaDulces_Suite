@@ -310,6 +310,15 @@ const foldText = (s: string | null | undefined): string =>
                     <div class="cl-info">
                       <div class="cl-n">{{ productNameById(l.product_id) }}</div>
                       <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
+                      <!-- Mayoreo por cantidad: precio nuevo + cuánto se descuenta vs base. -->
+                      @if (mayoreoInfo(l); as m) {
+                        <div class="cl-may">
+                          <span class="cl-may-tag"><i class="pi pi-tag"></i> Mayoreo</span>
+                          <span class="cl-may-new">{{ fmtMoney(m.unit) }} c/u</span>
+                          <span class="cl-may-base">antes {{ fmtMoney(m.base) }}</span>
+                          <span class="cl-may-save">−{{ m.pct }}% · ahorra {{ fmtMoney(m.savedTotal) }}</span>
+                        </div>
+                      }
                     </div>
                     <div class="stepper">
                       <button (click)="dec(l)" aria-label="Menos">−</button>
@@ -572,6 +581,11 @@ const foldText = (s: string | null | undefined): string =>
       .cl-info { flex: 1; min-width: 0; }
       .cl-n { font-weight: 600; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .cl-t { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .cl-may { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.45rem; margin-top: 0.25rem; }
+      .cl-may-tag { display: inline-flex; align-items: center; gap: 0.22rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--action); background: color-mix(in srgb, var(--action) 13%, transparent); padding: 0.05rem 0.4rem; border-radius: var(--r-pill, 999px); }
+      .cl-may-new { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
+      .cl-may-base { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); text-decoration: line-through; font-variant-numeric: tabular-nums; }
+      .cl-may-save { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
       .stepper { display: flex; align-items: center; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; flex-shrink: 0; }
       .stepper button { width: 2.5rem; height: 2.5rem; border: none; background: var(--surface-ground); color: var(--action); font-size: 1.15rem; font-weight: 700; }
       .stepper .q { width: 2rem; text-align: center; font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1896,6 +1910,37 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const cost = this.netCost(p);
     if (!price || cost == null) return null;
     return Math.round(((price - cost) / price) * 100);
+  }
+
+  /** Precio base (lista del cliente, min 1) del producto según el catálogo cargado. */
+  private basePriceById(productId: string): number | null {
+    const p = this.byIdMap().get(productId);
+    const v = p ? Number(p.price) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  /**
+   * Info de mayoreo de una línea del carrito: null si la línea NO trae descuento
+   * por cantidad (unit_price >= precio base). Cuando el resolver aplicó un tier de
+   * volumen, `unit_price` viene por debajo del base → mostramos el precio nuevo y
+   * cuánto se ahorra (por SKU). Offline el precio es el snapshot base → sin badge.
+   */
+  mayoreoInfo(
+    l: OrderLine,
+  ): { unit: number; base: number; savedUnit: number; pct: number; savedTotal: number } | null {
+    const base = this.basePriceById(l.product_id);
+    const unit = Number(l.unit_price);
+    if (base == null || !Number.isFinite(unit) || unit <= 0) return null;
+    if (unit >= base * 0.999) return null; // sin descuento real por cantidad
+    const savedUnit = base - unit;
+    const qty = Number(l.quantity) || 0;
+    return {
+      unit,
+      base,
+      savedUnit,
+      pct: Math.round((savedUnit / base) * 100),
+      savedTotal: +(savedUnit * qty).toFixed(2),
+    };
   }
   initials(name: string): string {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
