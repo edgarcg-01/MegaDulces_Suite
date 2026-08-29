@@ -174,7 +174,7 @@ Las cinco se leen **por `categoria`, no por doctype**. Sumar por doctype meterí
 | Fórmula | `precio_u = SUM(revenue_costed)/SUM(units_costed)` · `costo_u = SUM(cost)/SUM(units_costed)` · `margen_u = precio_u − costo_u` |
 | **Mismo denominador** | Los dos lados van sobre `units_costed`, así el % unitario **coincide exacto** con el % de la fila. Verificado: 4,922 productos, 0 discrepancias. Dos porcentajes distintos en el mismo renglón matan la confianza en la tabla. |
 | Unidad | Se rotula sólo con `sales_daily.unit_kind`: `weight` → "por kilo", `piece` → "por unidad vendida". **`catalog.products.unit_sale` NO se usa**: dice `PZA` donde Kepler dice `PAQ` en 5,906 de 8,708 productos. |
-| Equivalencia por caja | `analytics.v_product_box_factor` (resolvedor canónico), **sólo** si `box_factor > 1` y no está marcado dudoso. En granel `c84` son kilos por bulto. |
+| Equivalencia por caja | `analytics.v_product_box_factor` (resolvedor canónico), **sólo** si `box_factor > 1`, no está marcado dudoso **y el producto no es de peso**. ⚠️ `is_master_suspect` **no marca el granel**: 201 SKUs de peso con $49.3M de venta traen factor sin una sola marca. Y **la unidad del factor depende de `source`** (`kepler_c84`/`override` = piezas por caja; `factor_sale` = paquetes por caja) — ver [`UNIDADES_DE_MEDIDA`](../../UNIDADES_DE_MEDIDA.md) §4. |
 | Nivel | **Sólo producto.** En agregados es `null`: promediar el precio de un paquete con el de un kilo no significa nada. |
 | Estado | ✅ vivo |
 
@@ -283,5 +283,6 @@ Nuevas, salidas de la implementación:
 
 - [`FASE_MR_MOTOR_RENTABILIDAD.md`](FASE_MR_MOTOR_RENTABILIDAD.md) — plan de fase, §8.1 estado real
 - **ADR-051** en [`02_DECISIONES_ARQUITECTURA.md`](../02_DECISIONES_ARQUITECTURA.md) — el costo sale del PdV
+- [`UNIDADES_DE_MEDIDA.md`](../../UNIDADES_DE_MEDIDA.md) — investigación de fondo de las unidades
 - Implementación: `libs/commercial/src/lib/commercial-profitability/` · pantalla `/comercial/rentabilidad`
 - Smoke: `database/tests/http-profitability-test.js`

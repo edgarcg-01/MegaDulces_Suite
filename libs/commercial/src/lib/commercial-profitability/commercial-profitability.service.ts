@@ -244,9 +244,19 @@ export class CommercialProfitabilityService {
     const cost = r.cost_unit == null ? null : Number(r.cost_unit);
     const bf = r.box_factor == null ? null : Number(r.box_factor);
     const marginUnit = price !== null && cost !== null ? price - cost : null;
-    // La equivalencia por caja sólo se publica con el factor canónico limpio: en
-    // granel `c84` son kilos por bulto y la "caja" sería una mentira impresa.
-    const showBox = bf !== null && bf > 1 && r.box_factor_suspect !== true;
+    /**
+     * La equivalencia por caja sólo se publica con el factor canónico limpio Y
+     * sobre producto de PIEZA.
+     *
+     * En granel `c84` son kilos por bulto, no piezas por caja, y
+     * `is_master_suspect` **no los marca**: medido en prod, 201 SKUs de peso con
+     * $49.3M de venta traen `box_factor > 1` sin una sola marca de sospecha (130
+     * de ellos vía `kepler_c84`, encabezados por las bolsas ALTOS 1KG con
+     * factor 20). Imprimir "caja de 20" al lado de un margen "por kilo" es
+     * ambiguo en el mejor caso y falso en el peor.
+     */
+    const showBox =
+      bf !== null && bf > 1 && r.box_factor_suspect !== true && r.unit_kind !== 'weight';
     return {
       unit_kind: (r.unit_kind ?? null) as 'piece' | 'weight' | null,
       price_unit: price,

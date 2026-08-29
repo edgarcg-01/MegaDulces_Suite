@@ -198,6 +198,7 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Términos de dominio + nombres internos (Thot/Horus/Maat, Kepler, fases) |
 | [`docs/ERP_KEPLER.md`](docs/ERP_KEPLER.md) | Decode del ERP Kepler + pipeline `kepler_ods` (feeds/finanzas/compras) |
 | [`docs/GOTCHAS.md`](docs/GOTCHAS.md) | Trampas técnicas ya vividas (RLS, transacciones, migraciones, permisos, dinero, cron) |
+| [`docs/UNIDADES_DE_MEDIDA.md`](docs/UNIDADES_DE_MEDIDA.md) | **Unidades y factores de caja**: 31 tablas, 8 fuentes, el catálogo discrepa 73.6% con el ERP, y el resolvedor canónico devuelve dos unidades en la misma columna. Leer antes de multiplicar dos columnas |
 | [`docs/ARQUITECTURA_DATOS.md`](docs/ARQUITECTURA_DATOS.md) | Arquitectura de datos detallada (schemas, tablas, FKs, flujo, mermaid) |
 | [`docs/IMPLEMENTACION/INDEX.md`](docs/IMPLEMENTACION/INDEX.md) | Mapa de toda la documentación |
 | [`docs/IMPLEMENTACION/00_ROADMAP_GENERAL.md`](docs/IMPLEMENTACION/00_ROADMAP_GENERAL.md) | Vista de pájaro 9 fases |
