@@ -104,15 +104,50 @@ const money = (n) => '$' + Number(n).toLocaleString('es-MX', { maximumFractionDi
     ok(!('promo_pct' in r0), 'ya no se publica promo_pct: la unidad no esta confirmada');
   }
 
-  for (const lvl of ['supplier', 'brand', 'category', 'sku']) {
+  for (const lvl of ['supplier', 'brand', 'category', 'sku', 'warehouse', 'channel']) {
     const r = await req(`/commercial/profitability/breakdown?level=${lvl}&window=30d&pageSize=5`, t);
     ok(r.status === 200, `GET breakdown level=${lvl} 200`);
     if (r.status === 200) {
       const top = r.j.data[0];
       console.log(`     ${lvl}: ${r.j.pagination.total} filas · top "${top?.name}" ${money(top?.revenue)} margen ${top?.margin_pct === null ? '—' : Number(top.margin_pct).toFixed(1) + '%'}`);
+      // Los SEIS niveles miden el mismo universo: si uno no cuadra, el tablero
+      // pierde credibilidad a la primera revision.
       ok(Math.abs(Number(r.j.totals.margin_pct) - Number(o.margin_pct)) < 0.01, `${lvl}: total cuadra con overview`);
     }
   }
+
+  // Sucursal y canal suben el GRANO del fact (la dimension vive en el renglon de
+  // venta, no en el producto). El riesgo real es el fanout de inventario: unir el
+  // stock de red a un grano de sucursal lo multiplica por cada sucursal en que el
+  // producto vendio. Medido en prod: daria 10.6x.
+  const wh = await req('/commercial/profitability/breakdown?level=warehouse&window=30d&pageSize=50', t);
+  if (wh.status === 200 && wh.j.data.length) {
+    for (const r of wh.j.data.slice(0, 5)) console.log(`     ${String(r.name).slice(0, 24).padEnd(25)} ${money(r.revenue).padStart(13)} ${Number(r.margin_pct).toFixed(2)}% · inv ${money(r.inventory_value)}`);
+    const invSum = wh.j.data.reduce((a, r) => a + Number(r.inventory_value || 0), 0);
+    ok(invSum <= Number(o.inventory.total) + 1,
+      `sucursal: el inventario NO se multiplica (${money(invSum)} <= ${money(o.inventory.total)})`);
+    ok(wh.j.data.every((r) => r.inventory_value !== null), 'sucursal: el inventario existe y se une al mismo grano');
+    ok(new Set(wh.j.data.map((r) => Number(r.margin_pct).toFixed(2))).size > 1,
+      'sucursal: los margenes difieren entre si (la vista informa algo)');
+  }
+
+  const ch = await req('/commercial/profitability/breakdown?level=channel&window=30d&pageSize=20', t);
+  if (ch.status === 200 && ch.j.data.length) {
+    for (const r of ch.j.data) console.log(`     ${String(r.name).padEnd(25)} ${money(r.revenue).padStart(13)} ${Number(r.margin_pct).toFixed(2)}%`);
+    // Null, no cero: un $0 se leeria como "no hay stock" en vez de "no aplica".
+    ok(ch.j.data.every((r) => r.inventory_value === null && r.gmroi === null),
+      'canal: el inventario se declara n/a, no cero');
+  }
+
+  // Filtrar por sucursal tiene que acotar de verdad, no devolver la red entera.
+  const whId = wh.j?.data?.[0]?.id;
+  if (whId) {
+    const f = await req(`/commercial/profitability/breakdown?level=sku&window=30d&pageSize=1&warehouse_id=${whId}`, t);
+    ok(f.status === 200 && Math.abs(Number(f.j.totals.revenue) - Number(wh.j.data[0].revenue)) < 1,
+      `filtro warehouse_id acota a esa sucursal (${money(f.j?.totals?.revenue)})`);
+  }
+  const bad = await req('/commercial/profitability/breakdown?level=sku&channel=a%27%20OR%201%3D1--', t);
+  ok(bad.status === 400, 'un canal con inyeccion se rechaza con 400');
 
   const bd = await req('/commercial/profitability/breakdown?level=supplier&window=30d&pageSize=1&sort=gap_amount&dir=desc', t);
   const supId = bd.j?.data?.[0]?.id;

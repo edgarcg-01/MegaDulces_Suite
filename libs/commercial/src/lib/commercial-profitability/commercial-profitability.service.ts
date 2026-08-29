@@ -38,7 +38,17 @@ import { TenantKnexService } from '@megadulces/platform-core';
  */
 
 export type MarginWindow = '30d' | '90d' | '365d';
-export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku';
+export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku' | 'warehouse' | 'channel';
+
+/**
+ * Niveles cuya dimensión NO vive en el producto sino en cada renglón de venta.
+ * Obligan a subir el grano del agregado del fact: sin esto, "por sucursal"
+ * sumaría la venta de toda la red en cada fila.
+ */
+const SALE_GRAIN: Partial<Record<MarginLevel, 'warehouse_id' | 'channel'>> = {
+  warehouse: 'warehouse_id',
+  channel: 'channel',
+};
 
 const WINDOWS: Record<MarginWindow, { days: number }> = {
   '30d': { days: 30 },
@@ -110,6 +120,15 @@ const SORT_SQL: Record<string, string> = {
 const SKU_ONLY_SORT = new Set(['margin_unit']);
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** El canal viaja como texto y se interpola en el CTE: se valida antes, sin excepción. */
+const CHANNEL_REGEX = /^[a-z0-9_-]{1,32}$/i;
+
+/** Acotación del fact ANTES de agregar: grano + filtros que viven en el renglón de venta. */
+interface SaleScope {
+  grain?: 'warehouse_id' | 'channel';
+  warehouseId?: string;
+  channel?: string;
+}
 
 export interface BreakdownOpts {
   window?: MarginWindow;
@@ -120,6 +139,8 @@ export interface BreakdownOpts {
   supplierId?: string;
   brandId?: string;
   categoryId?: string;
+  warehouseId?: string;
+  channel?: string;
   page?: number;
   pageSize?: number;
   sort?: string;
@@ -144,9 +165,16 @@ export class CommercialProfitabilityService {
    * `revenue_costed` (la venta que SÍ trae costo) es el denominador honesto del
    * margen: usar la venta total mezclaría renglones que no se pueden juzgar.
    */
-  private salesAgg(trx: any, days: number) {
+  private salesAgg(trx: any, days: number, o: SaleScope = {}) {
+    // `grain` sube el agregado a (producto × dimensión de venta). Los filtros de
+    // sucursal/canal se empujan ACÁ, no al WHERE de afuera: filtrar después del
+    // agregado dejaría los totales de toda la red dentro de cada fila.
+    const g = o.grain ? `sd.${o.grain},` : '';
+    const w: string[] = [];
+    if (o.warehouseId) w.push(`AND sd.warehouse_id = '${o.warehouseId}'`);
+    if (o.channel) w.push(`AND sd.channel = '${o.channel}'`);
     return trx.raw(`(
-      SELECT sd.product_id,
+      SELECT ${g} sd.product_id,
              SUM(sd.revenue)                                    AS revenue,
              SUM(sd.revenue) FILTER (WHERE sd.cost IS NOT NULL) AS revenue_costed,
              SUM(sd.cost)                                       AS cost,
@@ -159,14 +187,15 @@ export class CommercialProfitabilityService {
         FROM analytics.sales_daily sd
        WHERE sd.tenant_id = public.current_tenant_id()
          AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'
-       GROUP BY sd.product_id
+         ${w.join('\n         ')}
+       GROUP BY ${g} sd.product_id
     ) AS s`);
   }
 
   /** Base común: venta+costo del fact ⋈ producto. `catalog.products` va por RLS forzado. */
-  private baseSql(trx: any, days: number) {
+  private baseSql(trx: any, days: number, o: SaleScope = {}) {
     return trx
-      .from(this.salesAgg(trx, days))
+      .from(this.salesAgg(trx, days, o))
       .join({ p: 'catalog.products' }, 'p.id', 's.product_id')
       .whereNull('p.deleted_at')
       .whereRaw('s.revenue > 0');
@@ -538,9 +567,9 @@ export class CommercialProfitabilityService {
     const w = this.win(opts.window);
     const target = this.target(opts.target);
     // Default SKU: el producto es la unidad que se mira, los agregados son el resumen.
-    const level: MarginLevel = (['supplier', 'brand', 'category', 'sku'] as const).includes(
-      opts.level as MarginLevel,
-    )
+    const level: MarginLevel = (
+      ['supplier', 'brand', 'category', 'sku', 'warehouse', 'channel'] as const
+    ).includes(opts.level as MarginLevel)
       ? (opts.level as MarginLevel)
       : 'sku';
 
@@ -548,8 +577,22 @@ export class CommercialProfitabilityService {
       supplier_id: opts.supplierId,
       brand_id: opts.brandId,
       category_id: opts.categoryId,
+      warehouse_id: opts.warehouseId,
     })) {
       if (v && !UUID_REGEX.test(v)) throw new BadRequestException(`${k} inválido`);
+    }
+    if (opts.channel && !CHANNEL_REGEX.test(opts.channel)) throw new BadRequestException('channel inválido');
+
+    // El grano del fact sube sólo cuando la dimensión vive en el renglón de venta,
+    // o cuando se filtra por ella: filtrar sucursal sobre un agregado de red daría
+    // la venta de toda la red atribuida a una sucursal.
+    const scope: SaleScope = {
+      grain: SALE_GRAIN[level],
+      warehouseId: opts.warehouseId,
+      channel: opts.channel,
+    };
+    if (!scope.grain && (scope.warehouseId || scope.channel)) {
+      scope.grain = scope.warehouseId ? 'warehouse_id' : 'channel';
     }
 
     const page = Math.max(1, Number(opts.page) || 1);
@@ -561,11 +604,27 @@ export class CommercialProfitabilityService {
       brand: { id: 'b.id', name: 'b.nombre' },
       category: { id: 'cat.id', name: 'cat.name' },
       sku: { id: 'p.id', name: 'p.nombre' },
+      warehouse: { id: 'wh.id', name: 'wh.name' },
+      channel: { id: 's.channel', name: 's.channel' },
     };
+
+    /**
+     * El inventario se une AL MISMO GRANO que la venta, o se cuenta de más.
+     * Con grano de sucursal, unir el stock de red por producto lo multiplicaría
+     * por cada sucursal en que ese producto vendió. Por canal directamente no
+     * existe: el stock no es de un canal, así que se declara en cero.
+     */
+    const invByWarehouse = scope.grain === 'warehouse_id';
+    const noInventory = scope.grain === 'channel';
+    // NULL, no cero: por canal el inventario no existe, y un $0 se leería como
+    // "no hay stock" en vez de "esta pregunta no aplica acá".
+    const invExpr = noInventory
+      ? 'NULL::numeric AS inventory_value'
+      : 'COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value';
 
     return this.tk.run(async (trx) => {
       const build = () => {
-        let q = this.baseSql(trx, w.days)
+        let q = this.baseSql(trx, w.days, scope)
           .leftJoin({ sup: 'catalog.suppliers' }, function (this: any) {
             this.on('sup.id', '=', 'p.supplier_id').andOn('sup.tenant_id', '=', 'p.tenant_id');
           })
@@ -575,17 +634,6 @@ export class CommercialProfitabilityService {
           .leftJoin({ cat: 'catalog.categories' }, function (this: any) {
             this.on('cat.id', '=', 'p.category_id').andOn('cat.tenant_id', '=', 'p.tenant_id');
           })
-          // Pre-agregados como tablas derivadas, NO subconsultas por fila.
-          // Medido en prod a nivel SKU: 53,507 ms -> 403 ms (99% menos). Una
-          // subconsulta correlacionada se ejecuta una vez POR PRODUCTO.
-          .leftJoin(
-            trx.raw(
-              `(SELECT product_id, SUM(quantity) AS qty FROM commercial.stock
-                 WHERE tenant_id = public.current_tenant_id() GROUP BY product_id) AS stk`,
-            ),
-            'stk.product_id',
-            'p.id',
-          )
           .leftJoin(
             trx.raw(
               `(SELECT product_id, MAX(benefit) AS benefit FROM analytics.erp_promotions
@@ -611,6 +659,38 @@ export class CommercialProfitabilityService {
           .leftJoin({ bf: 'analytics.v_product_box_factor' }, function (this: any) {
             this.on('bf.product_id', '=', 'p.id').andOn('bf.tenant_id', '=', 'p.tenant_id');
           });
+
+        // Pre-agregados como tablas derivadas, NO subconsultas por fila. Medido
+        // en prod a nivel SKU: 53,507 ms -> 403 ms. Una subconsulta correlacionada
+        // se ejecuta una vez POR PRODUCTO.
+        if (!noInventory) {
+          q = invByWarehouse
+            ? q.leftJoin(
+                trx.raw(
+                  `(SELECT product_id, warehouse_id, SUM(quantity) AS qty FROM commercial.stock
+                     WHERE tenant_id = public.current_tenant_id()
+                     GROUP BY product_id, warehouse_id) AS stk`,
+                ),
+                function (this: any) {
+                  this.on('stk.product_id', '=', 'p.id').andOn('stk.warehouse_id', '=', 's.warehouse_id');
+                },
+              )
+            : q.leftJoin(
+                trx.raw(
+                  `(SELECT product_id, SUM(quantity) AS qty FROM commercial.stock
+                     WHERE tenant_id = public.current_tenant_id() GROUP BY product_id) AS stk`,
+                ),
+                'stk.product_id',
+                'p.id',
+              );
+        }
+
+        // El nombre de la sucursal sólo hace falta cuando ES la dimensión.
+        if (level === 'warehouse') {
+          q = q.join({ wh: 'commercial.warehouses' }, function (this: any) {
+            this.on('wh.id', '=', 's.warehouse_id');
+          });
+        }
         // Sin filtro por `cost_base`: el costo ya no sale del catálogo. Filtrarlo
         // aquí dejaba al desglose midiendo un universo distinto al del resumen.
 
@@ -650,7 +730,7 @@ export class CommercialProfitabilityService {
             ),
             trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
             trx.raw('COUNT(*)::int AS skus'),
-            trx.raw('COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value'),
+            trx.raw(invExpr),
             // Cuántos SKUs del renglón valúan con un costo que el PdV contradice.
             trx.raw(`COUNT(*) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT})::int AS cost_conflict_skus`),
             // Promoción vigente del SKU. Valor CRUDO: la unidad no está confirmada.
@@ -697,7 +777,7 @@ export class CommercialProfitabilityService {
         trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
         trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue_costed'),
         trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
-        trx.raw('COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value'),
+        trx.raw(invExpr),
       );
       const sumRev = Number(sum?.revenue) || 0;
       const sumRevCosted = Number(sum?.revenue_costed) || 0;
@@ -712,7 +792,7 @@ export class CommercialProfitabilityService {
           const revenue = Number(r.revenue) || 0;
           const revenueCosted = Number(r.revenue_costed) || 0;
           const marginAmount = Number(r.margin_amount) || 0;
-          const invValue = Number(r.inventory_value) || 0;
+          const invValue = r.inventory_value == null ? null : Number(r.inventory_value) || 0;
           const dailyCost = w.days > 0 ? Number(r.cost) / w.days : 0;
           const conflictSkus = Number(r.cost_conflict_skus) || 0;
           return {
@@ -735,7 +815,7 @@ export class CommercialProfitabilityService {
             units: Number(r.units) || 0,
             skus: Number(r.skus) || 0,
             inventory_value: invValue,
-            inventory_days: dailyCost > 0 ? invValue / dailyCost : null,
+            inventory_days: invValue !== null && dailyCost > 0 ? invValue / dailyCost : null,
             /**
              * Inventario y GMROI se valúan con `cost_base`. Si ese costo
              * contradice al del PdV, la valuación no es confiable: se marca y el
@@ -745,7 +825,7 @@ export class CommercialProfitabilityService {
             /** Margen × rotación: la contribución que de verdad genera al año. */
             annual_contribution: w.days > 0 ? (marginAmount / w.days) * 365 : null,
             gmroi:
-              invValue > 0 && w.days > 0 && conflictSkus === 0
+              invValue !== null && invValue > 0 && w.days > 0 && conflictSkus === 0
                 ? ((marginAmount / w.days) * 365) / invValue
                 : null,
             /** Beneficio de promoción vigente, CRUDO. Unidad sin confirmar. */
@@ -759,8 +839,8 @@ export class CommercialProfitabilityService {
           margin_amount: sumMargin,
           margin_pct: sumRevCosted > 0 ? (sumMargin / sumRevCosted) * 100 : null,
           gap_amount: sumRevCosted > 0 ? sumRevCosted * (target / 100) - sumMargin : null,
-          /** Cuadra contra `overview.inventory.in_scope` cuando no hay filtros. */
-          inventory_value: Number(sum?.inventory_value) || 0,
+          /** Cuadra contra `overview.inventory.in_scope` cuando no hay filtros. Null por canal. */
+          inventory_value: sum?.inventory_value == null ? null : Number(sum.inventory_value) || 0,
         },
         pagination: {
           page,
