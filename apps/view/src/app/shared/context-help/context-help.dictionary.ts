@@ -143,8 +143,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-360': {
-    title: 'Compras 360 — guía',
-    intro: 'El "Excel" de recepción, vivo: una fila por orden de entrada / factura de compra de Kepler con su OC, la factura, el ajuste ligado y el neto. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre.',
+    title: 'Costo por compra — guía',
+    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre. La misma cifra agregada por proveedor está en Costo por proveedor.',
     groups: [
       {
         heading: 'Qué es cada columna',
@@ -168,8 +168,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-costo-neto': {
-    title: 'Costo neto por proveedor — guía',
-    intro: 'Tu costo REAL con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada.',
+    title: 'Costo por proveedor — guía',
+    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra está en Costo por compra.',
     groups: [
       {
         heading: 'Los números',

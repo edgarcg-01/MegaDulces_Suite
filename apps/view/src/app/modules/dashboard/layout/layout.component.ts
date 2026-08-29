@@ -548,10 +548,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
+      // RE.20.5 — las cuatro son el MISMO dinero cortado distinto, y lo único que las
+      // distingue es la unidad de la fila. Los nombres lo dicen: "por compra" y "por
+      // proveedor" son la misma cifra a dos granularidades y se leen de un vistazo.
+      // `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía algo
+      // al que lo construyó y nada al comprador.
       title: 'Análisis',
       items: [
-        { label: 'Compras 360',         icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_360_VER },
-        { label: 'Costo neto',          icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_360_VER },
+        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
       ],

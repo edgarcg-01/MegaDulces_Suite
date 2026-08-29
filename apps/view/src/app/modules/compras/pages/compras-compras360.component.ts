@@ -45,8 +45,8 @@ import { ComprasService, Compras360Row, Compras360Response, Compras360Filters, C
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 class="c3-title-row">Compras 360 <app-context-help topic="compras-360" /></h1>
-          <p class="surf-page-sub">Todas las órdenes de entrada y facturas de compra en una vista, con su OC, ajustes (devoluciones/notas ligadas) y neto. El "Excel" de recepción, vivo y filtrable.</p>
+          <h1 class="c3-title-row">Costo por compra <app-context-help topic="compras-360" /></h1>
+          <p class="surf-page-sub">Una fila por compra: lo que se pidió, lo que facturó el proveedor, los ajustes que lo bajaron (devoluciones y notas de crédito ligadas) y el <strong>neto que realmente pagamos</strong>. El "Excel" de recepción, vivo y filtrable. La misma cifra agregada por proveedor está en <a routerLink="/compras/costo-neto">Costo por proveedor</a>.</p>
         </div>
         <div class="c3-head-actions">
           <!-- RE.13.4 — dos lentes sobre las MISMAS filas: el dinero (cuánto costó) y el

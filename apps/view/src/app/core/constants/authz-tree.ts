@@ -200,8 +200,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
           { id: 'compras-ordenes', label: 'Órdenes de compra', route: '/compras/ordenes', view: [Permission.COMPRAS_ORDENES_VER], manage: [Permission.COMPRAS_ORDENES_GESTIONAR] },
           { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
-          { id: 'compras-360', label: 'Compras 360', route: '/compras/compras-360', view: [Permission.COMPRAS_360_VER], manage: [] },
-          { id: 'compras-costo-neto', label: 'Costo neto', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
+          // RE.20.5 — los ids y las rutas NO cambian (hay permisos guardados y links pegados);
+          // sólo la etiqueta, que es lo que lee quien reparte permisos.
+          { id: 'compras-360', label: 'Costo por compra', route: '/compras/compras-360', view: [Permission.COMPRAS_360_VER], manage: [] },
+          { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },

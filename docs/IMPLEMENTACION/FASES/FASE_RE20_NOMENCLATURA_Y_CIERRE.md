@@ -1,7 +1,8 @@
 # Fase RE.20 — Nomenclatura formal del proceso de entradas + cierre de huecos
 
 > **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.2 (ordenar por columna) · ✅ RE.20.3
-> (descartar con motivo) — 2026-08-29 · ⬜ RE.20.1 · RE.20.4.
+> (descartar con motivo) · ✅ RE.20.5 (Compras 360 → Costo por compra) — 2026-08-29 ·
+> ⬜ RE.20.1 (degradado a opcional por RE.20.5) · RE.20.4.
 > **Depende de:** [RE.17/RE.18/RE.19](FASE_RE17_UX_ENTRADAS.md) (PR #45).
 > **Disparador:** Edgar — *"formalicemos los nombres ya que los actuales no son intuitivos o
 > profesionales"* + *"revisar las ventanas existentes, cuáles faltan, cuáles sobran"*.
@@ -53,6 +54,8 @@ facturas`) y con **guiones explicativos** (`Salida — lo que pedimos`), únicos
 | Pestaña `Por sucursal` | Pestaña **`Cobertura por sucursal`** | Dice qué mide, no cómo agrupa. |
 | Pestaña `Capturadas dos veces` | Pestaña **`Capturas duplicadas`** | Misma idea, registro profesional. |
 | Pestaña `Ajustes` | Pestaña **`Parámetros`** | *Ajustes* choca con los **ajustes de compra** (notas de crédito X-D-55 / devoluciones X-D-40), que son otra cosa y viven en `/compras/descuentos`. |
+| `Compras 360` | **`Costo por compra`** | RE.20.5 — *360* es vocabulario del backend (`execution_360`, Customer 360): decía algo al que lo construyó y nada al comprador. |
+| `Costo neto` | **`Costo por proveedor`** | RE.20.5 — arrastrado por el anterior. Las dos son **la misma cifra a dos granularidades**, y nombrarlas por la unidad de la fila las vuelve legibles de un vistazo. |
 
 **Vocabulario de estado — NO se toca** (viene de RE.16 y ya está en el diccionario de ayuda):
 *Sin factura → Por revisar → Validada*, con *Devuelta* como único regreso.
@@ -85,6 +88,13 @@ mudando su expediente (`SidePeek` + conciliación por línea) al detalle de 360.
   ser `COMPRAS_360_VER` — hay que verificar que quien opera hoy lo tenga.
 - **Decisión abierta:** ¿se fusiona, o se dejan las dos y sólo se aclara la bajada de cada una?
   Fusionar es más limpio pero toca dos permisos y una pantalla que no es de esta fase.
+
+> **Actualización RE.20.5 (2026-08-29).** Renombrar *Compras 360* → **Costo por compra** cambia
+> el cálculo de este item. El solape nunca fue de datos: es la misma fila con **dos lentes**, y
+> ahora cada nombre dice el suyo — *Listado* pregunta **¿tengo el papel?** (proceso) y *Costo por
+> compra* pregunta **¿cuánto pagamos?** (dinero). Con eso, un usuario que ve las dos en el
+> sidebar ya sabe cuál abrir, que era el problema real. Las bajadas de las dos pantallas ahora se
+> enlazan entre sí. **Fusionar pasa de "más limpio" a "opcional"**; queda como nice-to-have.
 
 ---
 
