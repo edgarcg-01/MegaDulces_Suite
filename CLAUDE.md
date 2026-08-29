@@ -112,6 +112,7 @@ O alternativamente: cutover a Railway (operacional, A.0mt.5.3-7), JwtAuthGuard f
 ## Reglas críticas (preferencias del usuario)
 
 ### ⛔ NO hacer sin autorización explícita
+- **NUNCA hacer copias de tablas — siempre trabajar contra la tabla principal.** Ni copias de respaldo (`*_bak`, `*_old`, `*_tmp`), ni "la misma tabla en otro schema", ni una segunda materialización de algo que ya tiene tabla. Si necesitás una forma distinta del dato, **derivá** (vista) o extendé la tabla que ya existe. Materializar por costo sí es legítimo (§19); el pecado es materializar un valor **inventado**, sin origen verificable en la primaria. Regla y evidencia en [`docs/GOTCHAS.md` §32](docs/GOTCHAS.md), el caso canónico en §29.
 - **No borrar tablas** en la DB de prod.
 - **No borrar columnas** sin pedir confirmación.
 - **No hacer push** ni crear PRs sin pedir.
