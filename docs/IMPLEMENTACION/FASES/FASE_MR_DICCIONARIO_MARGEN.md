@@ -182,10 +182,14 @@ Las cinco se leen **por `categoria`, no por doctype**. Sumar por doctype meterí
 |---|---|
 | Fórmula | `SUM(quantity × cost_base)` · `GMROI = margen anualizado / inventario` |
 | Fuente | `commercial.stock` × `catalog.products.cost_base` — regla canónica del proyecto para valuación/ABC/capital parado |
-| Prod 365d | **$59,095,184 = 38 días de COGS.** Sano. |
-| ⚠️ Calidad del costo | Se **contrasta** `cost_base` contra el costo del PdV: fuera de `[1/1.5, 1.5]×` el SKU se marca y **su GMROI se suprime**. Prod: **564 de 6,972 SKUs (8.1%), $11,423,059 de capital = 19.3%** valuado con un costo que el PdV contradice. |
+| Qué incluye | Existencia **bruta** (el reservado va dentro; en prod son $270, no se usa). Sin cantidades negativas. Todos los almacenes con filas de stock, vendan o no. Costo **neto, sin IVA**. |
+| Prod | **$59,095,184** · 46,790 filas · 9,083 productos · **9 almacenes** |
+| 🔴 **Cobertura incompleta** | **Las 11 rutas venden $4.2M/30d (10% de la venta) con CERO inventario registrado** — la mercancía de la camioneta no existe para el sistema. Y el **CEDIS `00` tiene 149 SKUs** contra 7,790 con venta: el almacén central está prácticamente sin inventariar (corre en Access 97; [`FASE_CA`](FASE_CA_CEDIS_ACCESS_ODS.md) sin construir). No hay concepto de tránsito ni consignación. |
+| ⚠️ **"38 días" es un piso, no la realidad** | Sale de dividir un inventario **parcial** entre un COGS **completo** (que sí incluye la venta de rutas). No dice que el inventario esté sano: dice que se está contando una parte. **No usar como indicador de rotación hasta cerrar la cobertura.** |
+| ⚠️ Unidad mezclada | `MD-30` y `MD-32` son Wincaja y guardan existencia en su **unidad de venta** (paquete en multi-pack), mientras los almacenes Kepler guardan **piezas**. Son **$16.3M = 28%** del valuado; ~187 SKUs multi-pack son los que difieren. Ver [`reference_existence_unit_kepler_vs_wincaja`]. |
+| ⚠️ Calidad del costo | Se **contrasta** `cost_base` contra el costo del PdV: fuera de `[1/1.5, 1.5]×` el SKU se marca y **su GMROI se suprime**. Prod: **564 de 6,972 SKUs (8.1%), $11,423,059 = 19.3% del capital**. |
 | Grano | Se une **al mismo grano que la venta**. Unir el stock de red a un grano de sucursal lo multiplicaría (medido: $603M en vez de $57M, **10.6×**). Por canal **no existe** → `n/a`, nunca `$0`. |
-| Estado | ✅ vivo, con calidad declarada |
+| Estado | 🟡 **parcial** — vivo y con calidad declarada, pero le falta el CEDIS y las rutas |
 
 | | **Promoción vigente al cliente** |
 |---|---|
@@ -206,6 +210,7 @@ Las cinco se leen **por `categoria`, no por doctype**. Sumar por doctype meterí
 7. **Lo que no tiene unidad confirmada no se publica con unidad.**
 8. **Toda medida se une al grano de su dimensión.** Cruzar granos multiplica en silencio.
 9. **Los agregados devuelven `null` donde la medida no aplica**, no un cero.
+10. **Ningún indicador de cobertura parcial se publica como si fuera total.** El inventario cubre 9 de 20 almacenes: los días de inventario son un **piso**, no la rotación real.
 
 ---
 
@@ -255,6 +260,7 @@ Nuevas, salidas de la implementación:
 | 7 | ¿Qué significa `erp_promotions.benefit` (2/3/4/5)? Sin esto no se puede restar del margen | Comercial |
 | 8 | ¿Se acepta la tasa **observada** como referencia para reclamar a proveedores, o hay que capturar la pactada real? | Compras |
 | 9 | ¿Se corrige el `cost_base` de los 564 SKUs en conflicto, o se acepta valuar 19.3% del capital con un costo no verificado? | Compras |
+| 9b | **¿Qué es "inventario" para la empresa?** Hoy faltan **las 11 rutas** (venden 10% de la red con cero stock registrado) y **el CEDIS** (149 SKUs de 7,790). Mientras no se cierre, el capital y la rotación están medidos sobre una parte | Logística + Compras |
 | 10 | El margen negociado ya supera el objetivo a 365d. **¿El objetivo del 15% es sobre el bruto o sobre el negociado?** Cambia si la fase está cerrada o no | Dirección |
 
 > La **#10 es la más importante**: define contra qué se mide la empresa.
