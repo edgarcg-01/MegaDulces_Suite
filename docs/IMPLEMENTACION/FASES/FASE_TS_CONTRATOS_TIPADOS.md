@@ -1,6 +1,6 @@
 # Fase TS — Contratos de tipos del boundary REST
 
-> **Estado:** 🔨 EN CURSO — TS.0 🧪 PROBADO (local) 2026-08-29 · **ADR-052** aceptado (evoluciona **ADR-045**)
+> **Estado:** 🔨 EN CURSO — TS.0 🧪 + TS.1 (fundación + BFF backend) 🧪 (local · commits `eed2d9a3`+`64966af8` en worktree `feat/ts-contratos-tipados` → `../tm-ts`) 2026-08-29 · **ADR-052** aceptado (evoluciona **ADR-045**)
 > **Tesis:** el boundary HTTP es donde vive el 99% del tráfico y hoy está ~78% sin tipar.
 > `libs/contracts` ya garantiza "no romper en silencio" para los puertos in-process;
 > esta fase extiende **la misma fuente única y el mismo principio** al wire REST —
@@ -158,10 +158,14 @@ Archivos:
 - **(d)** Tags Nx verificados: `apps/view` (`scope:view`) ya puede importar `libs/contracts` (`scope:shared`) — sin cambio.
 - **Verificado:** API Zod v4 confirmada en runtime (`z.literal` / `.nullable().optional()` / `safeParse` / `error.issues`; zod 4.4.3). `typecheck:fast` limpio en los archivos nuevos — se chequean transitivamente vía los barrels que importa `apps/api`.
 
+**(e) BFF Command Center — ✅ backend + cliente tipado (commit `64966af8`).** `GET /commercial/analytics/command-center` compone vía `Promise.all` los **7 paneles `COMMERCIAL_ANALYTICS_VER`** (NO los 11: los 4 con otro permiso —erp-customers, conversion, conversion-daily, nba— quedan aparte para no bypassear su gate) y valida la respuesta con `CommandCenterDashboard.parse` → el BFF es el punto de enforcement del contrato. `CommandCenterService.commandCenter()` en el front, tipado con el contrato compartido (`import type`, no arrastra Zod al bundle). `typecheck apps/api EXIT=0`.
+
 Pendiente de TS.1:
 
 - **(c)** generar `db/*.gen.ts` (tipos de fila del schema Postgres) — necesita introspección de la DB.
-- **(e)** **BFF Command Center**: endpoint `GET /commercial/analytics/command-center` que compone las 11 consultas en 1 `CommandCenterDashboard` + refactor del front (importar el tipo compartido, borrar interfaces locales + los 8 loading signals). ⚠️ Toca un dashboard vivo y una agregación bajo RLS (**no anidar `TenantKnexService.run()`**) → requiere verificación visual de Edgar; es el siguiente paso.
+- **(e.2)** wirear el componente a `commandCenter()` (7 paneles en 1 request; los 4 restantes siguen aparte) + `nx build view` + verificación visual → **necesita la máquina de Edgar** (dev server / build). ⚠️ UX: el per-panel loading que mata "se congela" no debe regresar al colapsar a 1 request.
+
+**Workflow (lección de esta sesión):** el trabajo de TS vive en el **worktree `../tm-ts`** (`feat/ts-contratos-tipados`), aislado del tree principal donde el proceso automático stashea/revierte cambios sin commitear. Editar el tree compartido causó un duplicado-en-commit que hubo que limpiar. Regla: worktree por sesión (ver [[feedback_multi_session_worktree_workflow]]).
 
 ---
 
