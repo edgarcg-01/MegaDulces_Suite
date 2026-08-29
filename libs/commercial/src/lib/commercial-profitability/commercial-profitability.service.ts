@@ -245,18 +245,20 @@ export class CommercialProfitabilityService {
     const bf = r.box_factor == null ? null : Number(r.box_factor);
     const marginUnit = price !== null && cost !== null ? price - cost : null;
     /**
-     * La equivalencia por caja sólo se publica con el factor canónico limpio Y
-     * sobre producto de PIEZA.
+     * La equivalencia por caja sólo se publica cuando el resolvedor canónico
+     * dice que el factor cuenta PIEZAS y no lo marcó sospechoso.
      *
-     * En granel `c84` son kilos por bulto, no piezas por caja, y
-     * `is_master_suspect` **no los marca**: medido en prod, 201 SKUs de peso con
-     * $49.3M de venta traen `box_factor > 1` sin una sola marca de sospecha (130
-     * de ellos vía `kepler_c84`, encabezados por las bolsas ALTOS 1KG con
-     * factor 20). Imprimir "caja de 20" al lado de un margen "por kilo" es
-     * ambiguo en el mejor caso y falso en el peor.
+     * `factor_unit` existe desde [UM.1]: antes `box_factor` devolvía piezas o
+     * paquetes según qué fuente ganara, sin decir cuál. El gate de `unit_kind`
+     * se mantiene como cinturón: la bandera vive en la vista, la venta sabe si
+     * el producto se cobra por kilo, y no cuesta nada exigir las dos.
      */
     const showBox =
-      bf !== null && bf > 1 && r.box_factor_suspect !== true && r.unit_kind !== 'weight';
+      bf !== null &&
+      bf > 1 &&
+      r.box_factor_suspect !== true &&
+      r.factor_unit === 'pieces' &&
+      r.unit_kind !== 'weight';
     return {
       unit_kind: (r.unit_kind ?? null) as 'piece' | 'weight' | null,
       price_unit: price,
@@ -949,6 +951,8 @@ export class CommercialProfitabilityService {
                   ),
                   trx.raw('MAX(bf.box_factor)::numeric AS box_factor'),
                   trx.raw('bool_or(bf.is_master_suspect) AS box_factor_suspect'),
+                  // [UM.1] qué cuenta el factor: 'pieces' | 'ambiguous' | 'n/a'
+                  trx.raw('MIN(bf.factor_unit) AS factor_unit'),
                 ]
               : []),
           )

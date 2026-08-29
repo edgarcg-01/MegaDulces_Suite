@@ -82,10 +82,12 @@ propia precedencia. Resuelve con `override > c84 > etiquetera > factor_sale > 1`
 Contra el ancla de Kepler (`c84` = piezas/caja, `c81` = piezas/paquete), sobre los SKUs donde
 hay con qué comparar:
 
-| Fuente | Comparables | = `c84` (piezas/caja) | = paquetes/caja |
-|---|---|---|---|
-| `kepler_c84` | 359 | **359 (100%)** | 0 |
-| `override` | 193 | **193 (100%)** | 0 |
+| Fuente | Comparables | = `c84` (piezas/caja) | = paquetes/caja | Veredicto |
+|---|---|---|---|---|
+| `kepler_c84` | 359 | **359 (100%)** | 0 | ✅ piezas |
+| `override` | 193 | **193 (100%)** | 0 | ✅ piezas (corregido a mano) |
+| `etiquetera` | 532 | **532 (100%)** | 0 | ✅ piezas |
+| `factor_sale` (sin sesgo, sin override) | 336 | 168 (50%) | 128 (38%) | ⚠️ **AMBIGUO por SKU** |
 
 Y donde existen **ambos** `override` y `factor_sale` (199 casos):
 
@@ -104,9 +106,15 @@ Los casos hablan solos:
 | 88031 | CH WRIGLEY DOUBLEMINT **/20** | 800 | 40 | **20** | 20 | 800 |
 | 08057 | NESTLE CARLOS V SUIZO **16P** | 448 | 28 | **16** | 16 | 448 |
 
-**Lectura:** `override` y `c84` cuentan **piezas por caja**; `factor_sale` cuenta **paquetes por
-caja**. La razón entre ambos es exactamente el tamaño del paquete que declara el nombre del
-producto.
+**Lectura:** tres de las cuatro fuentes cuentan **piezas por caja** y son consistentes.
+`factor_sale` **no tiene una unidad**: la mitad cuenta piezas, un tercio cuenta paquetes, y nada
+los distingue. Medido sin sesgo (excluyendo los SKUs que ya tienen override, que son
+precisamente donde alguien detectó el problema y lo corrigió).
+
+Los 199 casos con `override` muestran el patrón que llevó a la corrección manual —
+`override / factor_sale = c81` exacto en 197 — pero **no se puede generalizar a una conversión**:
+de los 905 SKUs que hoy resuelven por `factor_sale`, **815 ni siquiera existen en Kepler** y sólo
+58 tienen `c81`. No se puede convertir: sólo se puede declarar.
 
 Dicho de otro modo: **esos 199 `override` existen porque alguien detectó que `factor_sale`
 contaba en otra unidad y lo corrigió a mano.** El resolvedor los apila en una sola columna
@@ -185,9 +193,26 @@ equivocada. **No usar esta prueba para "corregir" unidades.**
 | 6 | `analytics.sales_daily.units_base` está **100% en NULL** — columna muerta que aparenta ser la normalización | toda la tabla | Plataforma |
 | 7 | Unidades que son cantidades (`500`, `250`, `400`, `2KG`) | ~120 SKUs | Datos |
 
-**El #1 ya se corrigió en la pantalla de Rentabilidad** (se suprime la equivalencia por caja
-cuando `unit_kind = 'weight'`), pero el defecto sigue en `v_product_box_factor` y afecta a
-cualquier otro consumidor.
+### Estado tras [UM.1] (migración `20260829180000`)
+
+| # | Estado |
+|---|---|
+| 1 | ✅ **Resuelto en la vista** — `is_master_suspect` ahora marca granel (145 SKUs, $45.7M) |
+| 3 | ✅ **Resuelto** — nueva columna `factor_unit` (`pieces` / `ambiguous` / `n/a`) |
+| 4 | ✅ **Resuelto** — factores >1000 marcados sospechosos (2 SKUs) |
+| 2, 5, 7 | 🟡 **Mitigado** — la vista expone `unit_base` (la unidad REAL del ERP, con la basura anulada) para que nadie tenga que leer `unit_sale`. El dato del catálogo sigue mal: repuntarlo desde `kdii.c11` es un backfill aparte |
+| 6 | ⬜ Abierto — `sales_daily.units_base` sigue 100% en NULL |
+
+**Bonus encontrado al migrar:** `is_master_suspect` devolvía **NULL** (no `false`) para todo
+producto sin `c84`, que es la mayoría. Un `WHERE NOT is_master_suspect` los descartaba en
+silencio y un `WHERE is_master_suspect` tampoco los traía: caían en el limbo de la lógica de
+tres valores. Ahora es un booleano de verdad (`COALESCE(..., FALSE)`).
+
+**Impacto medido en prod:** 1,020 SKUs pasan a marcados (11.5% de los 8,903 con factor) —
+145 granel ($45.7M) · 873 `factor_sale` ($8.4M) · 2 imposibles. `box_factor` y `source` **no
+cambian**: cero impacto para quien ya los lee. Los dos dependientes de la vista
+(`analytics.erp_sales_invoice_lines` — la que imprime la equivalencia en el **documento que se
+le entrega al cliente** — y `analytics.v_sales_demand_truth`) heredan la corrección.
 
 ---
 
