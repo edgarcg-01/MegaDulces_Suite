@@ -523,29 +523,28 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Salida — lo que pedimos',
+      // RE.20.0 — el grupo dice la ETAPA del proceso, no el tipo de documento. Se llamaba
+      // "Órdenes" y adentro convivían "Órdenes de compra" (lo que pedimos) con las facturas de
+      // entrada (lo que llega): dos cosas opuestas bajo el mismo sustantivo, y con dos rutas
+      // casi idénticas (`/compras/ordenes` vs `/compras/entradas/control/ordenes`).
+      title: 'Compra',
       items: [
         { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
         { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
       ],
     },
     {
-      // RE.19 — las facturas de entrada salen del grupo "Órdenes" y tienen el suyo.
-      //
-      // El sustantivo colisionaba tres veces: el grupo se llamaba "Órdenes", adentro vivía
-      // "Órdenes de compra" (`/compras/ordenes`) y el Centro de control tenía una pestaña
-      // "Órdenes" que son órdenes de ENTRADA (`/compras/entradas/control/ordenes`). Tres cosas
-      // distintas con el mismo nombre y dos rutas casi iguales.
-      //
-      // Ahora el grupo dice de qué lado del negocio está —lo que pedimos vs lo que llega— y los
-      // items empiezan con el VERBO del oficio, que es como los nombra quien los usa: "voy a
-      // subir", "me toca revisar". Las rutas NO se tocan: hay links pegados en chats.
-      title: 'Entrada — lo que llega',
+      // RE.20.0 — la otra etapa. Los nombres son SUSTANTIVOS, como el resto del sidebar
+      // (Ventas · Existencias · Pagos · Conteo físico), y cada uno usa **la palabra de la
+      // máquina de estados**: el estado es "Por revisar" → la pantalla es "Revisión". Antes la
+      // misma pantalla se llamaba de tres formas (sidebar "Revisión", título "Bandeja de
+      // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
+      title: 'Recepción',
       items: [
-        // Subir pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
-        { label: 'Subir facturas',      icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        { label: 'Revisar facturas',    icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
-        { label: 'Control de entradas', icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
+        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
+        { label: 'Revisión de facturas', icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
+        { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {

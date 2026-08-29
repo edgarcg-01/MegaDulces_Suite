@@ -44,7 +44,7 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Control de entradas · Ajustes</h1>
+          <h1>Control de entradas · Parámetros</h1>
           <p class="surf-page-sub">
             Los parámetros del proceso de recepción documental. Aplican a toda la red y se ven en
             el mismo click.

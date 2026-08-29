@@ -78,7 +78,7 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Control de entradas · Todas las entradas</h1>
+          <h1>Control de entradas · Listado</h1>
           <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
                proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
                no aparece se lee como dato faltante. -->
@@ -87,7 +87,7 @@ interface AttachFile {
             @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
             , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
             o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio:
-            <strong>Pendientes de subir</strong> y <strong>Revisión</strong>.
+            <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
           </p>
         </div>
         <div class="cb-head-actions">

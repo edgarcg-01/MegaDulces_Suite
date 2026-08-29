@@ -103,7 +103,7 @@ interface Hoja {
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Subir facturas de entrada</h1>
+          <h1>Captura de facturas de entrada</h1>
           <p class="surf-page-sub">
             Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
             contra Kepler y te digo si cuadra antes de guardar. Lo más reciente va primero.

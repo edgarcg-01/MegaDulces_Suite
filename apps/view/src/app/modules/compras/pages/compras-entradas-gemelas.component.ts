@@ -59,7 +59,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Control de entradas · Capturadas dos veces</h1>
+          <h1>Control de entradas · Capturas duplicadas</h1>
           <p class="surf-page-sub">
             La misma recepción vive en el Kepler de la <strong>sucursal</strong> y en el de
             <strong>oficinas</strong>. El motor las enlaza solo cada 5 minutos; acá quedan las que

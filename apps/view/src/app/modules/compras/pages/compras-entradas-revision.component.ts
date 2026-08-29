@@ -70,7 +70,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
       -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Revisar facturas de entrada</h1>
+          <h1>Revisión de facturas de entrada</h1>
           @if (report(); as r) {
             <p class="surf-page-sub rv-lead">
               @if (r.kpis.por_validar === 0) {

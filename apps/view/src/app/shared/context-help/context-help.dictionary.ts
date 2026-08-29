@@ -19,7 +19,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // distintos leen los mismos números y cada uno les daba un nombre propio.
   'compras-entradas': {
     title: 'Facturas de entrada — guía',
-    intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la sube, un revisor la valida o la devuelve, y el Centro de control mira la red completa. No escribe nada en Kepler: es evidencia.',
+    intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la captura, un revisor la valida o la devuelve, y Control de entradas mira la red completa. No escribe nada en Kepler: es evidencia.',
     groups: [
       {
         heading: 'Los cuatro estados (mismos nombres en todas las pantallas)',
