@@ -9,7 +9,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, BankMovDetail, BankMovSource } from '../../bank.service';
 import { money, dmShort } from './bancos-shared';
-import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../finanzas-sort';
+import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../../shared/util';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
@@ -379,7 +379,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <thead><tr>
               @for (c of DRILL_COLS; track c.field) {
                 <th [class]="c.cls" [attr.aria-sort]="ariaSort(drillSort(), c.field)">
-                  <button type="button" class="tw-sort" (click)="sortDrill(c.field)"
+                  <button type="button" class="surf-sort" (click)="sortDrill(c.field)"
                           [attr.aria-label]="'Ordenar por ' + c.label">
                     {{ c.label }}<i [class]="sortIcon(drillSort(), c.field)" aria-hidden="true"></i>
                   </button>

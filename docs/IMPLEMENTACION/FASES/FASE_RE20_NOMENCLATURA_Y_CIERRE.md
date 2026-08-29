@@ -1,6 +1,7 @@
 # Fase RE.20 — Nomenclatura formal del proceso de entradas + cierre de huecos
 
-> **Estado:** 🔨 RE.20.0 (nomenclatura) EN CÓDIGO · RE.20.1–20.4 ⬜ PLANEADAS — 2026-08-29.
+> **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.2 (ordenar por columna) — 2026-08-29 ·
+> ⬜ RE.20.1 · RE.20.3 · RE.20.4.
 > **Depende de:** [RE.17/RE.18/RE.19](FASE_RE17_UX_ENTRADAS.md) (PR #45).
 > **Disparador:** Edgar — *"formalicemos los nombres ya que los actuales no son intuitivos o
 > profesionales"* + *"revisar las ventanas existentes, cuáles faltan, cuáles sobran"*.
@@ -89,14 +90,55 @@ mudando su expediente (`SidePeek` + conciliación por línea) al detalle de 360.
 
 ## 3. Lo que falta
 
-### 3.1 RE.20.2 — Ordenar por columna ⬜ (deuda de RE.16.10)
+### 3.1 RE.20.2 — Ordenar por columna ✅ (2026-08-29 · deuda de RE.16.10)
 
-Ninguna de las tablas de entradas ordena por columna. Es la deuda de haber salido de `p-table`
-a `<table>` crudo con `surf-table--plain`: los modificadores no traen sort. Con 7 filas daba
-igual; con las **875 entradas** del Listado, no.
+Ninguna de las tablas de entradas ordenaba por columna. Era la deuda de haber salido de
+`p-table` a `<table>` crudo con `surf-table--plain`: los modificadores no traen sort. Con 7
+filas daba igual; con las **875 entradas** del Listado, no.
 
-El backend **ya soporta** `orden` (`antiguedad · reciente · monto · riesgo`), así que el trabajo
-es de UI: header clickeable que mapea a esos cuatro, con `aria-sort`. No hace falta backend.
+#### Lo que se hizo
+
+**Un solo estado, no dos controles.** Los dos listados tenían un segmentado *Recientes / Más
+viejas* en la barra de filtros. Se quitó y el orden se fue al encabezado. No es preferencia de
+estilo: con los dos, en cuanto alguien ordenara por proveedor uno de los dos tenía que mentir
+—el segmentado seguiría marcando "Recientes" sobre una lista que ya no lo está—. El **default
+no cambia**: las dos siguen abriendo por lo más reciente.
+
+**El orden, dicho en palabras.** Junto al contador del pager (`1–100 de 875 · de la más reciente
+a la más vieja`). La flecha del encabezado es una convención, y *Captura de facturas* la usa
+gente que no vive en tablas; además avisa que el orden cambió sin scrollear hasta arriba.
+
+| Pantalla | Columnas ordenables | Dónde ordena |
+|---|---|---|
+| **Captura de facturas** | Proveedor · Recepción · Total Kepler | servidor |
+| **Control · Listado** | Fecha · Proveedor · Monto | servidor |
+| **Control · Cobertura por sucursal** | las 9 de datos | en memoria |
+
+*Días* no se ordena aparte en Captura: es la misma fecha en otra unidad, y dos encabezados
+activos por un solo criterio se leen como dos órdenes distintos.
+
+#### Dos correcciones al plan
+
+**a) Sí hizo falta backend.** El plan decía que no. Pero `monto` y `riesgo` eran DESC fijo: un
+encabezado que dibuja la flecha y no puede invertirse es una mentira. Se agregó `dir=asc|desc`
+(el string del usuario nunca entra a la SQL: un ternario resuelve a uno de dos literales) y dos
+claves nuevas, `fecha` y `proveedor`. Cada clave tiene su dirección inicial —importe↓, nombre↑,
+fecha↓— porque un primer clic que cae del lado inútil obliga siempre a un segundo.
+
+**b) Apareció un bug de orden, y era el default.** `LEAST(receipt_date, current_date)` aplasta a
+hoy la captura de CEDIS con fecha 29/12/2026. RE.19 puso el flag de futuro como **desempate**,
+que sólo la baja si además hay entradas de HOY con las que empatar. Verificado contra la DB el
+2026-08-29: la más reciente de verdad era del 26, así que **la de diciembre llevaba tres días
+encabezando la pantalla de los dos que suben**. El flag pasó a ser la **primera** clave.
+
+#### De paso: `surf-sort` y `table-sort.util`
+
+El encabezado ordenable existía —en `modules/finanzas/pages/`, con estilos adentro de un archivo
+de módulo—. El propio comentario del archivo ya se quejaba de que Caja importara del vecino.
+Compras era la tercera pantalla, así que se promovió: `shared/util/table-sort.util.ts` (con
+`sortRows` para memoria y `serverSortParams` para tablas paginadas) y `.surf-sort` en
+`styles.css`, junto a la base de tabla que ya es global. Finanzas quedó usando el compartido y
+`.tw-sort` murió.
 
 ### 3.2 RE.20.3 — Descartar una entrada con motivo ⬜
 
@@ -134,8 +176,8 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
 
 | # | Item | Costo | Por qué en ese orden |
 |---|---|---|---|
-| **RE.20.0** | Nomenclatura | bajo, sólo strings | Es el pedido explícito y no depende de nada. |
-| **RE.20.2** | Ordenar por columna | bajo, UI pura | El backend ya lo soporta; es la queja más probable con 875 filas. |
+| ✅ **RE.20.0** | Nomenclatura | bajo, sólo strings | Es el pedido explícito y no depende de nada. |
+| ✅ **RE.20.2** | Ordenar por columna | bajo + `dir` en el backend | Era la queja más probable con 875 filas. De paso apareció el bug del orden por default. |
 | **RE.20.3** | Descartar con motivo | **medio + migración** | Es el que arregla un número **falso** (el atraso de sucursales con traspasos). |
 | **RE.20.4** | Aviso de devolución | medio | Cierra el lazo del proceso, pero nada se pierde mientras tanto. |
 | **RE.20.1** | Fusionar 360 ↔ Listado | medio, toca permisos | Último: es el que más superficie mueve y necesita decisión de Edgar. |
@@ -147,6 +189,10 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
 - `nx build view` verde por item.
 - Nomenclatura: **cero** apariciones de los nombres viejos en texto visible (sidebar, H1,
   pestañas, ayuda contextual, empty states).
+- **RE.20.2 ✅ hecho:** `tsc` de `view` y de `api` limpios · `nx build view` verde (1m38s) ·
+  las 4 cláusulas nuevas (`proveedor` ↑↓, `monto` ↑↓) corridas contra la DB real ·
+  `test-newdb-goods-receipts-scope` y `-lifecycle` verdes, con 5 aserciones nuevas que cubren
+  las claves y el empuje de la fecha futura al final.
 - RE.20.3: smoke que confirme que una entrada descartada **sale del denominador** de
   `coverage()` — si no, el descarte esconde el problema en vez de resolverlo.
 - Light + dark + móvil.

@@ -147,8 +147,18 @@ export interface ListReceiptsQuery {
   /**
    * `antiguedad` (default) = lo más viejo primero, que es el orden de trabajo ·
    * `reciente` = el orden anterior · `monto` · `riesgo` = descuadre y monto primero (cola del revisor).
+   *
+   * RE.20.2 — `fecha` y `proveedor` son las que se alternan desde el encabezado de la tabla.
+   * `antiguedad`/`reciente` son las dos direcciones de `fecha` con nombre propio: quedan porque
+   * las pide el control segmentado y viven en estado guardado.
    */
-  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fecha' | 'proveedor';
+  /**
+   * Dirección del orden. Sin esto un encabezado clickeable **miente**: dibuja la flecha de
+   * "descendente" y no puede invertirse. Si no viene, cada clave usa la suya
+   * (fecha↑ · proveedor↑ · monto↓ · riesgo↓).
+   */
+  dir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;
 }
@@ -501,19 +511,40 @@ export class GoodsReceiptProofsService {
       // El orden ES la herramienta de trabajo, así que es explícito por vista:
       //  - antiguedad (default) → worklist del capturista: lo más viejo primero.
       //  - riesgo               → cola del revisor: el descuadre más grande primero.
-      // Las de fecha futura van DESPUÉS de las de hoy en el orden "reciente" (hay una de
-      // CEDIS con 29/12/2026 que si no se quedaba clavada arriba para siempre).
-      if (q.orden === 'monto') b.orderByRaw('c.monto::numeric DESC');
-      else if (q.orden === 'riesgo') {
-        b.orderByRaw('COALESCE(ABS(d.last_disc), 0) DESC')
-          .orderByRaw('c.monto::numeric DESC')
-          .orderByRaw('LEAST(c.receipt_date, current_date) ASC');
-      } else if (q.orden === 'reciente') {
-        b.orderByRaw('LEAST(c.receipt_date, current_date) DESC')
-          .orderByRaw('(c.receipt_date > current_date) ASC');
-      } else {
-        b.orderByRaw('LEAST(c.receipt_date, current_date) ASC');
-      }
+      //
+      // RE.20.2 — `dir` llega del encabezado clickeable. NUNCA entra a la SQL el string del
+      // usuario: el ternario resuelve a uno de dos literales, y lo demás cae en el default de
+      // la columna. Cada clave tiene el suyo porque el primer clic útil no es el mismo:
+      // en dinero se busca lo más grande, en un nombre se busca la A.
+      const asc = (porDefecto: 'ASC' | 'DESC') =>
+        q.dir === 'asc' ? 'ASC' : q.dir === 'desc' ? 'DESC' : porDefecto;
+
+      // Las de fecha futura van SIEMPRE al final, en las dos direcciones. Hay una de CEDIS con
+      // 29/12/2026 mal capturada en el ERP, y `LEAST(receipt_date, current_date)` la aplasta a
+      // hoy — o sea, al primer lugar del orden descendente.
+      //
+      // RE.19 puso el flag de futuro como DESEMPATE, y eso sólo la baja si además hay entradas
+      // de HOY con las que empatar. Verificado 2026-08-29: la más reciente de verdad era del 26,
+      // así que la de diciembre llevaba tres días encabezando la pantalla de los dos que suben.
+      // Como PRIMERA clave no depende de que exista con qué empatar.
+      const porFecha = (d: 'ASC' | 'DESC') => {
+        b.orderByRaw('(c.receipt_date > current_date) ASC')
+          .orderByRaw(`LEAST(c.receipt_date, current_date) ${d}`);
+      };
+
+      if (q.orden === 'monto') b.orderByRaw(`c.monto::numeric ${asc('DESC')}`);
+      else if (q.orden === 'proveedor') {
+        // Sin proveedor al final en las dos direcciones: un dato ausente no compite por el
+        // primer lugar. `lower()` y no una colación con nombre: `es-MX` depende de que el
+        // servidor tenga ICU y un nombre que no falla en local puede ser un 500 en Railway.
+        b.orderByRaw(`lower(NULLIF(TRIM(c.proveedor_nombre), '')) ${asc('ASC')} NULLS LAST`);
+        porFecha('ASC');
+      } else if (q.orden === 'riesgo') {
+        b.orderByRaw(`COALESCE(ABS(d.last_disc), 0) ${asc('DESC')}`)
+          .orderByRaw('c.monto::numeric DESC');
+        porFecha('ASC');
+      } else if (q.orden === 'reciente') porFecha(asc('DESC'));
+      else porFecha(asc('ASC')); // `antiguedad` (default) y `fecha`
       b.orderBy('c.folio', 'desc');
 
       const rows = (await b).map((r: any) => ({

@@ -20,8 +20,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
-import { money, moneyShort } from '../../../shared/util';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas } from '../entradas.service';
+import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
@@ -102,8 +102,6 @@ interface AttachFile {
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
-        <div class="cb-field"><label>Orden</label>
-          <app-segmented [options]="ordenOpts" [value]="orden()" (valueChange)="setOrden($event)" ariaLabel="Orden de la lista" /></div>
         @if (variasSucursales()) {
           <div class="cb-field"><label>Sucursal</label>
             <p-select [options]="sucursalOpts()" [ngModel]="sucursalSel()" (onChange)="setSucursal($event.value)"
@@ -168,13 +166,28 @@ interface AttachFile {
         <p-table [value]="rows()" styleClass="p-datatable-sm surf-table surf-table--sticky cb-table"
                  [class.surf-table--compact]="density.dense()"
                  [rowHover]="true" [scrollable]="true" scrollHeight="62vh" [loading]="loading()">
+          <!-- RE.20.2 — encabezados ordenables. Sólo Fecha, Proveedor y Monto: son las tres que
+               contestan una pregunta de trabajo. Entrada y OC son identificadores (para eso está
+               el buscador), y Remisión/Acciones son estado y controles, no datos que ordenen. -->
           <ng-template #header>
             <tr>
-              <th style="width:6rem">Fecha</th>
+              <th style="width:6rem" [attr.aria-sort]="ariaSort(sort(), 'fecha')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('fecha', 'desc')" aria-label="Ordenar por fecha">
+                  Fecha <i [class]="sortIcon(sort(), 'fecha')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th style="width:7rem">Entrada</th>
-              <th>Proveedor</th>
+              <th [attr.aria-sort]="ariaSort(sort(), 'proveedor')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('proveedor', 'asc')" aria-label="Ordenar por proveedor">
+                  Proveedor <i [class]="sortIcon(sort(), 'proveedor')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th style="width:7rem">OC</th>
-              <th class="ta-r" style="width:9rem">Monto</th>
+              <th class="ta-r" style="width:9rem" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')" aria-label="Ordenar por monto">
+                  Monto <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th style="width:11rem">Remisión</th>
               <th style="width:12rem">Acciones</th>
             </tr>
@@ -241,7 +254,10 @@ interface AttachFile {
              pagina, y se dice cuánto hay. -->
         @if (report(); as r) {
           <div class="cb-pager">
-            <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong></span>
+            <!-- RE.20.2 — el orden, dicho. Se leía en el segmentado del filtro; ahora que vive
+                 en el encabezado hace falta escribirlo en algún lado, y el contador es la misma
+                 frase: "qué estás viendo y en qué orden". -->
+            <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong><em class="cb-orden">{{ ordenTexto() }}</em></span>
             <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
               <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
             </button>
@@ -823,6 +839,11 @@ interface AttachFile {
       font-size: var(--fs-xs); color: var(--text-muted);
     }
     .cb-pager strong { color: var(--text-main); font-variant-numeric: tabular-nums; }
+    /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
+       para que no se lea como continuación del rango "1–100". */
+    .cb-orden { font-style: normal; }
+    .cb-orden::before { content: ' · '; opacity: .55; }
+    @media (max-width: 560px) { .cb-orden { display: none; } }
     .cb-role-sel { min-width: 9rem; font-size: var(--fs-xs); }
     /* Cualquier dato que lleva a una ficha. Discreto en reposo: la tabla ya tiene
        suficiente color y esto aparece en muchas celdas a la vez. */
@@ -1394,13 +1415,28 @@ export class ComprasEntradasComponent {
    * El backend acota las fechas futuras al ordenar (`LEAST(receipt_date, current_date)` + los
    * futuros al final), así que la captura de CEDIS con fecha 29/12/2026 no se queda clavada
    * en el primer renglón para siempre.
+   *
+   * `[RE.20.2]` — el orden salió del filtro y se fue al **encabezado de la tabla**, que es donde
+   * se ordena una lista de 875 filas y donde además alcanza proveedor y monto. El default no
+   * cambia: sigue abriendo por lo más reciente.
    */
-  readonly orden = signal<'reciente' | 'antiguedad'>('reciente');
-  readonly ordenOpts = [
-    { label: 'Recientes', value: 'reciente' },
-    { label: 'Más viejas', value: 'antiguedad' },
-  ];
-  setOrden(v: string): void { this.orden.set(v as 'reciente' | 'antiguedad'); this.page.set(1); this.load(); }
+  readonly sort = signal<SortState<OrdenEntradas>>({ field: 'fecha', dir: 'desc' });
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+
+  /** El orden dicho en palabras, para el contador del pager (ver Captura de facturas). */
+  readonly ordenTexto = computed(() => {
+    const s = this.sort();
+    if (s.field === 'proveedor') return s.dir === 'asc' ? 'por proveedor, A→Z' : 'por proveedor, Z→A';
+    if (s.field === 'monto') return s.dir === 'asc' ? 'por monto, del más chico al más grande' : 'por monto, del más grande al más chico';
+    return s.dir === 'asc' ? 'de la más vieja a la más reciente' : 'de la más reciente a la más vieja';
+  });
+
+  /** `inicial` por columna: en un monto el primer clic útil es lo más grande, en un nombre la A. */
+  ordenarPor(field: OrdenEntradas, inicial: SortDir = 'desc'): void {
+    this.sort.set(toggleSort(this.sort(), field, inicial));
+    this.page.set(1); this.load();
+  }
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
@@ -1434,7 +1470,9 @@ export class ComprasEntradasComponent {
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
       carril: this.rezago() ? 'rezago' : 'al_dia',
-      orden: this.orden(),
+      // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
+      // de enfrente no ordena las 875.
+      ...serverSortParams(this.sort()),
       page: this.page(),
       pageSize: this.pageSize,
     })

@@ -27,7 +27,7 @@ export class GoodsReceiptProofsController {
   @Get()
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({
-    summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs. Scopeada por alcance (ADR-050), paginada y ordenable por antigüedad/riesgo.',
+    summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs. Scopeada por alcance (ADR-050), paginada y ordenable por fecha/proveedor/monto/riesgo (`orden` + `dir`).',
   })
   list(@Query() query: Record<string, unknown>) {
     // `warehouse_codes` es el nombre canónico ([ID.5]); los 8 alias viejos (`sucursal`,
@@ -43,6 +43,8 @@ export class GoodsReceiptProofsController {
       dias_min: query['dias_min'] ? Number(query['dias_min']) : undefined,
       carril: query['carril'] as ListReceiptsQuery['carril'],
       orden: query['orden'] as ListReceiptsQuery['orden'],
+      // RE.20.2 — sólo pasan los dos literales: cualquier otra cosa cae al default de la clave.
+      dir: query['dir'] === 'asc' ? 'asc' : query['dir'] === 'desc' ? 'desc' : undefined,
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };

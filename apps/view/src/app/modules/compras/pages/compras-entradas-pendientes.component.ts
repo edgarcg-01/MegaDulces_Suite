@@ -18,13 +18,14 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
   EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
+  type OrdenEntradas,
 } from '../entradas.service';
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
-import { money } from '../../../shared/util';
+import { money, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -174,7 +175,6 @@ interface Hoja {
 
         <div class="ep-filters">
           <app-segmented [options]="estadoOpts" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Qué mostrar" />
-          <app-segmented [options]="ordenOpts" [value]="orden()" (valueChange)="setOrden($event)" ariaLabel="Orden de la lista" />
           <!--
             Buscador con sugerencias. Antes había que teclear y adivinar: se filtraba recién al
             salir del campo o al dar Enter, y si no aparecía nada no se sabía si el folio estaba
@@ -267,13 +267,32 @@ interface Hoja {
                   <col class="c-dias" /><col class="c-folio" /><col />
                   <col class="c-fecha" /><col class="c-monto" /><col class="c-cta" />
                 </colgroup>
+                <!-- RE.20.2 — encabezados ordenables. Sólo las tres columnas que contestan una
+                     pregunta de trabajo: cuándo llegó, de quién es, cuánto es. Días es la MISMA
+                     fecha en otra unidad, así que no se ordena aparte: dos encabezados activos
+                     por un solo criterio se leen como dos órdenes distintos. -->
                 <thead>
                   <tr>
                     <th scope="col" class="comm-num" pTooltip="Días desde la recepción" tooltipPosition="top">Días</th>
                     <th scope="col">Folio</th>
-                    <th scope="col">Proveedor</th>
-                    <th scope="col" class="comm-num">Recepción</th>
-                    <th scope="col" class="comm-num">Total Kepler</th>
+                    <th scope="col" [attr.aria-sort]="ariaSort(sort(), 'proveedor')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('proveedor', 'asc')"
+                              aria-label="Ordenar por proveedor">
+                        Proveedor <i [class]="sortIcon(sort(), 'proveedor')" aria-hidden="true"></i>
+                      </button>
+                    </th>
+                    <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'fecha')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('fecha', 'desc')"
+                              aria-label="Ordenar por fecha de recepción">
+                        Recepción <i [class]="sortIcon(sort(), 'fecha')" aria-hidden="true"></i>
+                      </button>
+                    </th>
+                    <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')"
+                              aria-label="Ordenar por total de Kepler">
+                        Total Kepler <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+                      </button>
+                    </th>
                     <th scope="col">Factura</th>
                   </tr>
                 </thead>
@@ -349,7 +368,11 @@ interface Hoja {
 
               @if (report(); as r) {
                 <div class="ep-pager">
-                  <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong></span>
+                  <!-- RE.20.2 — el orden, dicho. La flecha del encabezado es la convención, pero
+                       acá el que trabaja no vive en tablas: si no dice "de la más reciente a la
+                       más vieja", el que ve una fecha rara no sabe si el orden está mal o los
+                       datos. Además es el aviso de que el orden cambió sin scrollear arriba. -->
+                  <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong><em class="ep-orden">{{ ordenTexto() }}</em></span>
                   <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
                     <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
                   </button>
@@ -813,6 +836,12 @@ interface Hoja {
       padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-xs); color: var(--text-muted);
     }
+    /* El orden en palabras, atado al contador: es la misma frase ("qué estás viendo"). El
+       separador es un punto medio y no un guion, para que no se lea como un rango de fechas. */
+    .ep-orden { font-style: normal; }
+    .ep-orden::before { content: ' · '; opacity: .55; }
+    /* En pantalla angosta el pager ya apila; la frase larga sobra antes que los botones. */
+    @media (max-width: 560px) { .ep-orden { display: none; } }
 
     /* Ventana de confirmación */
     .ep-dlg { display: grid; gap: var(--sp-4); }
@@ -916,12 +945,24 @@ export class ComprasEntradasPendientesComponent {
    * encontrarlas. Perseguir lo viejo sigue estando, pero por su propio camino: el botón de
    * "N ya pasaron los X días" del veredicto, que filtra por antigüedad. El orden es
    * cambiable porque los dos modos de trabajo existen — sólo que el default estaba mal.
+   *
+   * `[RE.20.2]` — pasó de un segmentado de dos botones al **encabezado de la tabla**, que es
+   * donde se ordena una tabla y que además alcanza proveedor y monto. Un solo estado: tener el
+   * segmentado Y los encabezados obligaba a que uno de los dos mintiera en cuanto se ordenara
+   * por una columna que el segmentado no tiene. El default no cambia.
    */
-  readonly orden = signal<'reciente' | 'antiguedad'>('reciente');
-  readonly ordenOpts = [
-    { label: 'Recientes', value: 'reciente' },
-    { label: 'Más viejas', value: 'antiguedad' },
-  ];
+  readonly sort = signal<SortState<OrdenEntradas>>({ field: 'fecha', dir: 'desc' });
+
+  /**
+   * El orden, dicho en palabras. Una flecha en un encabezado es una convención; esta pantalla
+   * la usa gente que no vive en tablas, y "de la más reciente a la más vieja" no se decodifica.
+   */
+  readonly ordenTexto = computed(() => {
+    const s = this.sort();
+    if (s.field === 'proveedor') return s.dir === 'asc' ? 'por proveedor, de la A a la Z' : 'por proveedor, de la Z a la A';
+    if (s.field === 'monto') return s.dir === 'asc' ? 'por importe, del más chico al más grande' : 'por importe, del más grande al más chico';
+    return s.dir === 'asc' ? 'de la más vieja a la más reciente' : 'de la más reciente a la más vieja';
+  });
   /** Señal, no propiedad suelta: el buscador con sugerencias reacciona a cada tecla. */
   readonly search = signal('');
   private readonly pageSize = 50;
@@ -1003,7 +1044,9 @@ export class ComprasEntradasPendientesComponent {
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
           dias_min: this.diasMin(),
-          orden: this.orden(),
+          // RE.20.2 — la tabla está paginada del lado del servidor: ordenar las 50 filas de
+          // enfrente NO es ordenar las 875, así que el orden viaja y la lista se recarga.
+          ...serverSortParams(this.sort()),
           page: this.page(),
           pageSize: this.pageSize,
         };
@@ -1050,14 +1093,28 @@ export class ComprasEntradasPendientesComponent {
   }
   setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.syncUrl(); this.reload(); }
   setRezago(v: boolean): void { this.rezago.set(v); this.volverAlInicio(); this.reload(); }
-  /** Cambiar el orden vuelve a la página 1 pero NO tira el filtro de antigüedad: reordenar no
-   *  es re-filtrar, y perder "sólo las atrasadas" por tocar el orden se siente roto. */
-  setOrden(v: string): void { this.orden.set(v as 'reciente' | 'antiguedad'); this.page.set(1); this.reload(); }
+  /**
+   * `[RE.20.2]` — clic en un encabezado. Vuelve a la página 1 pero NO tira el filtro de
+   * antigüedad: reordenar no es re-filtrar, y perder "sólo las atrasadas" por tocar el orden se
+   * siente roto.
+   *
+   * `inicial` es por columna porque el primer clic útil no es el mismo en todas: en un importe
+   * se busca lo más grande, en un nombre se busca la A, y en la fecha se busca lo de hoy (que
+   * es el default de la pantalla). Sin esto, la mitad de las columnas pide siempre dos clics.
+   */
+  ordenarPor(field: OrdenEntradas, inicial: SortDir = 'desc'): void {
+    this.sort.set(toggleSort(this.sort(), field, inicial));
+    this.page.set(1); this.reload();
+  }
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+
   soloAtrasadas(): void {
     const sla = this.report()?.settings?.sla_capture_days ?? 3;
     // Perseguir el atraso SÍ quiere lo más viejo arriba: es el otro modo de trabajo, y llegar
     // acá con el orden de "recientes" mostraría las menos urgentes primero dentro del filtro.
-    this.estado.set('pendiente'); this.diasMin.set(sla + 1); this.orden.set('antiguedad');
+    this.estado.set('pendiente'); this.diasMin.set(sla + 1);
+    this.sort.set({ field: 'fecha', dir: 'asc' });
     this.page.set(1); this.reload();
   }
   irPagina(n: number): void { this.page.set(Math.max(1, n)); this.reload(); }
@@ -1087,7 +1144,7 @@ export class ComprasEntradasPendientesComponent {
           search: t,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
-          orden: this.orden(),
+          ...serverSortParams(this.sort()),
           page: 1,
           pageSize: 8,
         }).pipe(catchError(() => of(null)));

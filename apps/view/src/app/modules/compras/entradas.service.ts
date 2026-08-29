@@ -135,6 +135,14 @@ export interface EntradasAlcance {
   total_visibles: number | null;
 }
 
+/**
+ * `[RE.20.2]` — las claves de orden que entiende el endpoint. Es un tipo con nombre y no un
+ * union suelto para que el encabezado clickeable de las dos pantallas ordene por lo MISMO: un
+ * `'provedor'` mal tecleado tiene que ser error de compilación y no una lista que vuelve en el
+ * orden de siempre sin decir por qué.
+ */
+export type OrdenEntradas = 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fecha' | 'proveedor';
+
 /** RE.13.0 — filtros del listado. `warehouse_codes` es el nombre canónico ([ID.5]). */
 export interface EntradasQuery {
   estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | '';
@@ -144,7 +152,11 @@ export interface EntradasQuery {
   warehouse_codes?: string[];
   dias_min?: number;
   carril?: 'al_dia' | 'rezago' | 'todo';
-  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  /** `antiguedad`/`reciente` = las dos direcciones de `fecha` con nombre propio (las pide el
+   *  segmentado de la cabina de Revisión). `fecha`/`proveedor`/`monto` son las del encabezado. */
+  orden?: OrdenEntradas;
+  /** RE.20.2 — sin esto el encabezado no puede invertirse y la flecha miente. */
+  dir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;
 }
