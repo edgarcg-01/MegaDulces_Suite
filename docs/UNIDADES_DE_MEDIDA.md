@@ -193,7 +193,7 @@ equivocada. **No usar esta prueba para "corregir" unidades.**
 | 6 | `analytics.sales_daily.units_base` está **100% en NULL** — columna muerta que aparenta ser la normalización | toda la tabla | Plataforma |
 | 7 | Unidades que son cantidades (`500`, `250`, `400`, `2KG`) | ~120 SKUs | Datos |
 
-### Estado tras [UM.1] (migración `20260829180000`)
+### Estado tras [UM.1] (migración `20260829190000`)
 
 | # | Estado |
 |---|---|
