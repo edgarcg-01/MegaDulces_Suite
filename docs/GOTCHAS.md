@@ -768,3 +768,48 @@ conversión ocurre UNA vez, donde viven los factores, y ya no hay dos representa
 divergir. Medido: el derive suelto cuesta 11.6 s, pero **plegado al fact que ya calcula `econ` el
 build completo pasa de 2.8 s a 3.3 s**. Es el corolario de §19 al derecho: un derive caro por
 separado puede ser barato si se pliega a la query que ya tiene sus insumos en memoria.
+
+---
+
+## 26. `WITH x AS (...)` que el planner inlinea: 30 s → 15 min
+
+`import-replenishment-plan` incorporó una CTE que deriva la curva de supervivencia de las OC
+(`surv_raw`: barrido de 220 días de `kdm1` con subconsulta correlacionada, **2 s** por sí sola) y
+la joinea contra cada línea de OC del tránsito. La corrida pasó de **~30 s a más de 15 minutos**.
+
+Causa: desde Postgres 12 una CTE no recursiva referenciada **una sola vez** se **inlinea** — deja
+de ser una barrera de optimización. El planner la empujó adentro del join y terminó re-evaluando
+esos 2 s por cada línea.
+
+Regla: **si una CTE es cara de calcular y barata de guardar, escribila `AS MATERIALIZED`.**
+
+```sql
+surv_raw AS MATERIALIZED (...),   -- 2 s, se calcula UNA vez
+surv     AS MATERIALIZED (...)    -- 8 filas
+```
+
+Con eso volvió a 35 s. El síntoma es engañoso: la consulta no falla ni avisa, sólo se vuelve lenta
+de golpe, y `EXPLAIN` de la CTE sola sigue midiendo 2 s (el problema son las N ejecuciones, no una).
+Sospechá de esto cuando agregues una CTE analítica a una consulta que ya funcionaba.
+
+---
+
+## 27. Dos versiones del mismo importer escribiendo la misma tabla
+
+Al agregar `transit_eff_cajas` al fact del pedido corrí el importer NUEVO contra prod desde un
+worktree. Doce minutos después el runner on-prem corrió el importer **viejo** desde el checkout
+principal: reescribió `transit_cajas` con la lógica anterior y dejó `transit_eff_cajas` intacta
+(no está en su lista de columnas), además de insertar filas nuevas con esa columna en NULL. La
+tabla quedó con **dos mitades calculadas por dos versiones distintas** — sin error, sin log.
+
+Lo cazó el smoke, porque cruza magnitudes: `transit_eff_cajas > transit_cajas` es imposible por
+construcción (la probabilidad es ≤ 1), así que 5,569 filas violándolo sólo podían venir de dos
+cálculos mezclados.
+
+Reglas:
+
+1. Una columna nueva en un fact que puebla un feed on-prem **se deja en NULL** hasta que el runner
+   tome el código nuevo. El lector debe tener `COALESCE(nueva, vieja)` para que NULL signifique
+   "comportamiento previo", no "cero".
+2. Todo invariante entre dos columnas del mismo fact merece una aserción en el smoke. Es la única
+   forma de ver una carrera entre versiones que no deja rastro en ningún log.

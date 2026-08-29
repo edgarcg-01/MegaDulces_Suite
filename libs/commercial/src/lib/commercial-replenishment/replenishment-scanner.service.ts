@@ -53,7 +53,9 @@ export class ReplenishmentScannerService {
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
       // OC a recibir en unidades de stock, desde el fact (que lo deriva del ODS en cajas → ×bf
       // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
-      const it = 'COALESCE(rpl.transit_cajas * rpl.bf, 0)';
+      // RA-PRO.45: se usa la columna PESADA por P(llega|edad), igual que el pedido — si no, la
+      // bandeja de hallazgos se queda ciega justo en los SKUs que una OC estancada está tapando.
+      const it = 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)';
       // Objetivo = máximo (restock real). Sugerido neto de tránsito.
       const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
       // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a

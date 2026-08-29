@@ -179,6 +179,13 @@ export class CommercialReplenishmentController {
     return this.svc.inTransitDetail(productId);
   }
 
+  @Get('open-purchase-orders')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'RA-PRO.45 — OCs de Kepler abiertas (X-A-35 sin X-A-40), por antigüedad, con la probabilidad de que lleguen. La vista inversa de "En camino": lo que compras tiene que cerrar o cancelar.' })
+  openPurchaseOrders(@Query('sucursal') sucursal?: string, @Query('min_days') min_days?: string) {
+    return this.svc.openPurchaseOrders({ sucursal, min_days: min_days ? Number(min_days) : undefined });
+  }
+
   @Get('workbook/:productId')
   @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
   @ApiOperation({ summary: 'RA-PRO.32 — Detalle drill-down de un SKU: economía + desglose por almacén de los 4 puntos de compra. coverage_days(=30).' })
