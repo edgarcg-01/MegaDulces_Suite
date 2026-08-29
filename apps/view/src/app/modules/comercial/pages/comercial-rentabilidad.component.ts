@@ -257,6 +257,12 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <th scope="col" class="rp-c-name" pSortableColumn="name">{{ levelLabel() }} <p-sorticon field="name" /></th>
               <th scope="col" class="comm-num" pSortableColumn="revenue">Venta <p-sorticon field="revenue" /></th>
               <th scope="col" class="comm-num" pSortableColumn="cost">Costo <p-sorticon field="cost" /></th>
+              @if (level() === 'sku') {
+                <th scope="col" class="comm-num rp-c-unit" pSortableColumn="margin_unit"
+                    pTooltip="Lo que deja UNA unidad vendida: precio menos costo, los dos en la unidad en que cobra el punto de venta.">
+                  Gana por unidad <p-sorticon field="margin_unit" />
+                </th>
+              }
               <th scope="col" class="comm-num" pSortableColumn="margin_amount">Margen $ <p-sorticon field="margin_amount" /></th>
               <th scope="col" class="comm-num" pSortableColumn="margin_pct">Margen % <p-sorticon field="margin_pct" /></th>
               <th scope="col" class="comm-num rp-c-gap" pSortableColumn="gap_pp"
@@ -294,6 +300,20 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                 }
               </td>
               <td class="comm-num rp-muted">{{ r.cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              @if (level() === 'sku') {
+                <td class="comm-num rp-c-unit">
+                  @if (r.margin_unit !== null) {
+                    <span class="rp-unit-m">{{ r.margin_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    <span class="rp-unit-sub">
+                      {{ unitLabel(r) }} · {{ r.price_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      − {{ r.cost_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      @if (r.margin_box !== null) {
+                        <br />caja de {{ r.box_factor }}: {{ r.margin_box | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                      }
+                    </span>
+                  } @else { <span class="rp-none">—</span> }
+                </td>
+              }
               <td class="comm-num">{{ r.margin_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="comm-num">
                 @if (r.margin_pct !== null) {
@@ -337,6 +357,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                 <td>Total del filtro</td>
                 <td class="comm-num">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td></td>
+                <!-- El margen unitario no se suma: cada renglón está en su propia unidad. -->
+                @if (level() === 'sku') { <td></td> }
                 <td class="comm-num">{{ t.margin_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="comm-num">
                   @if (t.margin_pct !== null) { {{ t.margin_pct | number:'1.1-1' }}% }
@@ -359,7 +381,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
 
           <ng-template #emptymessage>
             <tr>
-              <td colspan="11" class="comm-empty-cell">
+              <td [attr.colspan]="colCount()" class="comm-empty-cell">
                 <div class="comm-empty">
                   <div class="comm-empty-icon"><i class="pi pi-chart-line" aria-hidden="true"></i></div>
                   <h3>{{ hasFilters() ? 'Sin resultados' : 'Sin venta en la ventana' }}</h3>
@@ -717,6 +739,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     }
     .rp-c-name { min-width: 300px; }
     .rp-c-gap, .rp-c-skus { width: 5.5rem; }
+
+    /* El número del mostrador: se lee primero, con su cuenta abajo en chico. */
+    .rp-c-unit { width: 9.5rem; }
+    .rp-unit-m {
+      display: block; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1);
+    }
+    .rp-unit-sub {
+      display: block; font-size: var(--fs-nano); color: var(--c-text-3);
+      font-variant-numeric: tabular-nums; line-height: 1.35; margin-top: 1px;
+    }
     .rp-r-click { cursor: pointer; }
     .rp-pct, .rp-gap { font-variant-numeric: tabular-nums; font-weight: var(--fw-medium); }
     .rp-pct.tone-bad, .rp-gap.is-neg { color: var(--c-bad); }
@@ -854,6 +887,18 @@ export class ComercialRentabilidadComponent {
     if (!ch.length) return null;
     return ch.map((c) => c.channel).join(' + ');
   });
+
+  /** 11 columnas fijas + la de margen unitario, que sólo existe a nivel producto. */
+  readonly colCount = computed(() => (this.level() === 'sku' ? 12 : 11));
+
+  /**
+   * Cómo se cobra esa unidad. `weight` es kilo; `piece` es la unidad en que
+   * factura el PdV (paquete o pieza según el SKU) y no se puede nombrar más
+   * fino sin mentir: `unit_sale` del catálogo dice PZA donde Kepler dice PAQ.
+   */
+  unitLabel(r: ProfitabilityRow): string {
+    return r.unit_kind === 'weight' ? 'por kilo' : 'por unidad vendida';
+  }
 
   conflictTip(r: ProfitabilityRow): string {
     return r.skus === 1

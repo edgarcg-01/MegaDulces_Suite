@@ -128,7 +128,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Los márgenes (van en cascada, en este orden)',
         entries: [
-          { term: 'Comercial bruto', def: 'Venta menos costo, sobre la parte de la venta que trae costo. Es el único que existe por producto, marca, categoría y proveedor. Dueño: Comercial + Compras.' },
+          { term: 'Por unidad', def: 'El más simple: cuánto se le gana a UNA unidad vendida (precio menos costo, los dos en la unidad en que cobra el punto de venta). Sólo aparece en la vista por Producto: promediar el precio de un paquete con el de un kilo no significa nada. Cuando la equivalencia de caja es confiable, muestra también lo que deja la caja completa.' },
+          { term: 'Comercial bruto', def: 'Venta menos costo, sobre la parte de la venta que trae costo. Es el mismo margen de arriba pero acumulado, y existe por producto, marca, categoría y proveedor. Dueño: Comercial + Compras.' },
           { term: 'Negociado', def: 'El bruto MÁS lo que el proveedor devuelve (notas de crédito y descuento al pagar). Dueño: Compras. Sólo existe a nivel total y por proveedor: repartir una nota de crédito a cada SKU todavía no está construido.' },
           { term: 'Integral', def: 'Todavía NO se muestra. Sería el negociado menos el descuento que le damos al cliente, las promociones que absorbemos y el costo logístico. Ninguna de las tres tiene fuente hoy, y publicarlo a medias daría un margen inflado.' },
         ],
@@ -167,6 +168,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Venta y costo', def: 'Del sell-out real. El costo es el que registró el punto de venta en la transacción, en la MISMA unidad en que cobró.' },
           { term: 'Por qué no el catálogo', def: 'El costo de catálogo viene por CAJA en buena parte del catálogo y las unidades vendidas vienen por PIEZA. Multiplicarlos mezclaba unidades: inflaba el costo de unos pocos productos y movía el margen de toda la empresa más de 3 puntos.' },
           { term: 'Cobertura', def: 'Qué parte de la venta trae costo con qué juzgarla. Lo que no lo trae queda fuera del margen y se dice; no se esconde en el promedio.' },
+          { term: 'Por unidad vendida', def: 'La unidad en que factura el punto de venta: según el producto puede ser la pieza o el paquete. No se nombra más fino a propósito, porque la unidad del catálogo se contradice con la de Kepler en más de la mitad de los productos. Los que se venden a granel dicen "por kilo".' },
           { term: 'Datos al', def: 'Hasta qué día llega el sell-out. Las compras y los pagos se leen hasta hoy, así que al arranque del mes pueden ir un paso adelante.' },
         ],
       },

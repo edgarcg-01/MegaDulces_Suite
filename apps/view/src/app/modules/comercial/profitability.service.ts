@@ -110,6 +110,18 @@ export interface ProfitabilityRow {
   gmroi: number | null;
   /** Beneficio de promoción vigente (kdpv_descuxq), CRUDO. Unidad sin confirmar. */
   promo_benefit: number | null;
+
+  // ── Margen unitario: sólo a nivel producto, nulo en los agregados ──────────
+  /** `weight` se cobra por kilo; `piece`, por la unidad en que factura el PdV. */
+  unit_kind: 'piece' | 'weight' | null;
+  price_unit: number | null;
+  cost_unit: number | null;
+  /** Lo que deja UNA unidad vendida. */
+  margin_unit: number | null;
+  margin_unit_pct: number | null;
+  /** Sólo cuando el factor canónico es confiable (no granel dudoso). */
+  box_factor: number | null;
+  margin_box: number | null;
 }
 
 export interface ProfitabilityBreakdown {
