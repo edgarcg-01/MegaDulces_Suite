@@ -973,40 +973,31 @@ export class CommercialReplenishmentService {
       const cajaCost = Number(econ.caja_cost) || 0;
       const lead = Number(econ.lead_days) || 4;
 
+      // RA-PRO.45.1 — lee la capa normalizada (`analytics.erp_purchase_orders` / `_doc_lines`),
+      // no `kdm1` crudo: el decode de "OC abierta" y del empaque declarado vive en la vista.
       const rows = (await trx.raw(`
-        SELECT oc.c6                              AS folio,
-               oc.c1                              AS sucursal,
-               oc.c9::date                        AS fecha_oc,
-               (oc.c9::date + (?::numeric)::int)  AS llega_aprox,
-               (CURRENT_DATE - oc.c9::date)       AS dias_abierta,
-               btrim(oc.c32)                      AS proveedor,
-               btrim(l.c11)                       AS unidad,
-               sum(l.c9)                          AS cantidad,
+        SELECT oc.folio,
+               oc.sucursal,
+               oc.doc_date                         AS fecha_oc,
+               (oc.doc_date + (?::numeric)::int)   AS llega_aprox,
+               oc.dias_abierta,
+               oc.proveedor_nombre                 AS proveedor,
+               l.unidad,
+               sum(l.cantidad)                     AS cantidad,
                round(sum(CASE
-                     WHEN NULLIF(btrim(l.c58::text), '')::numeric > 0
-                          AND NULLIF(btrim(l.c57::text), '')::numeric > 0
-                          AND ?::numeric > 0
-                          AND abs(NULLIF(btrim(l.c57::text), '')::numeric - ?::numeric)
-                              <= 0.15 * (?::numeric)
-                       THEN l.c9 / NULLIF(btrim(l.c58::text), '')::numeric
-                     ELSE l.c9 / (?::numeric) END)::numeric, 1) AS cajas
-          FROM kepler_ods.kdm1 oc
-          JOIN kepler_ods.kdm2 l
-            ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3
-           AND l.c4=oc.c4 AND l.c6=oc.c6
-         WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
-           AND oc.c9::date >= CURRENT_DATE - 120
-           AND l.c8 = ?
-           AND COALESCE(oc.c43, 'N') NOT IN ('F', 'C', 'R')   -- mismo criterio que el fact (RA-PRO.45)
-           AND NOT EXISTS (
-             SELECT 1 FROM kepler_ods.kdm1 vale
-             JOIN kepler_ods.kdm1 oe
-               ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
-              AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
-            WHERE vale.sucursal=oc.sucursal AND vale.c1=oc.c1
-              AND vale.c2='X' AND vale.c3='A' AND vale.c4='37' AND vale.c37='35' AND vale.c39=oc.c6)
-         GROUP BY oc.c6, oc.c1, oc.c9::date, btrim(oc.c32), btrim(l.c11)
-         ORDER BY oc.c9::date`,
+                     WHEN l.unidades_por_caja > 0 AND l.costo_caja > 0 AND ?::numeric > 0
+                          AND abs(l.costo_caja - ?::numeric) <= 0.15 * (?::numeric)
+                       THEN l.cantidad / l.unidades_por_caja
+                     ELSE l.cantidad / (?::numeric) END)::numeric, 1) AS cajas
+          FROM analytics.erp_purchase_orders oc
+          JOIN analytics.erp_purchase_doc_lines l
+            ON l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio
+         WHERE oc.doc_date >= CURRENT_DATE - 120
+           AND NOT oc.cerrada
+           AND oc.estatus NOT IN ('F', 'C', 'R')   -- mismo criterio que el fact (RA-PRO.45)
+           AND l.sku = ?
+         GROUP BY oc.folio, oc.sucursal, oc.doc_date, oc.dias_abierta, oc.proveedor_nombre, l.unidad
+         ORDER BY oc.doc_date`,
         [lead, cajaCost, cajaCost, cajaCost, bf, prod.sku])).rows as Array<Record<string, unknown>>;
 
       const out = rows.map((r) => ({
@@ -1062,25 +1053,21 @@ export class CommercialReplenishmentService {
         .where({ tenant_id: tenantId }).orderBy('edad')
         .select('edad', 'muestra', 'fallback', trx.raw('round(p*100, 1) AS pct'))) as Array<Record<string, unknown>>;
 
+      // RA-PRO.45.1 — todo sale de `analytics.erp_purchase_orders`: el decode de "abierta" no se
+      // vuelve a escribir acá. MATERIALIZED en `oc` porque la vista trae un EXISTS por fila y sin
+      // la barrera el planner lo multiplica por el LATERAL de renglones.
       const rows = (await trx.raw(`
         WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
-        oc AS (
-          SELECT o.sucursal, o.c1 AS almacen, o.c6 AS folio, o.c9::date AS fecha_oc,
-                 btrim(o.c32) AS proveedor, COALESCE(o.c43, 'N') AS estatus,
-                 (CURRENT_DATE - o.c9::date) AS dias
-            FROM kepler_ods.kdm1 o
-           WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
-             AND o.c9::date >= CURRENT_DATE - 120
-             AND (CURRENT_DATE - o.c9::date) >= :mind
-             AND (:suc::text IS NULL OR o.c1 = :suc)
-             AND NOT EXISTS (
-               SELECT 1 FROM kepler_ods.kdm1 vale
-               JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
-                 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
-              WHERE vale.sucursal=o.sucursal AND vale.c1=o.c1 AND vale.c2='X' AND vale.c3='A'
-                AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6)
+        oc AS MATERIALIZED (
+          SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor,
+                 estatus, dias_abierta AS dias
+            FROM analytics.erp_purchase_orders
+           WHERE doc_date >= CURRENT_DATE - 120
+             AND NOT cerrada
+             AND dias_abierta >= :mind
+             AND (:suc::text IS NULL OR sucursal = :suc)
         )
-        SELECT oc.almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
+        SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
                v.lineas, round(v.valor::numeric, 2) AS valor,
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
                CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob
@@ -1092,10 +1079,9 @@ export class CommercialReplenishmentService {
                                           WHEN oc.dias <= 30 THEN 22 WHEN oc.dias <= 45 THEN 31
                                           WHEN oc.dias <= 60 THEN 46 ELSE 61 END)
           JOIN LATERAL (
-            SELECT count(*) AS lineas, COALESCE(sum(l.c9 * l.c12), 0) AS valor
-              FROM kepler_ods.kdm2 l
-             WHERE l.sucursal=oc.sucursal AND l.c1=oc.almacen AND l.c2='X' AND l.c3='A'
-               AND l.c4='35' AND l.c6=oc.folio) v ON true
+            SELECT count(*) AS lineas, COALESCE(sum(l.importe), 0) AS valor
+              FROM analytics.erp_purchase_doc_lines l
+             WHERE l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
          WHERE v.valor > 0
          ORDER BY oc.dias DESC, v.valor DESC
          LIMIT 500`, { t: tenantId, mind: minDays, suc })).rows as Array<Record<string, unknown>>;

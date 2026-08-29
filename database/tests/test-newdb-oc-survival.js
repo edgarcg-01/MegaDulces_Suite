@@ -31,6 +31,30 @@ function ok(cond, msg) { if (cond) { pass++; console.log('  ✓', msg); } else {
       ok(hasEff, 'col replenishment_plan.transit_eff_cajas');
       if (!hasCurve || !hasEff) throw new Error('rollback');
 
+      // ── RA-PRO.45.1: el decode de la OC vive en la vista, no en el código ──
+      const vk = (await trx.raw(
+        `select relkind from pg_class where oid = to_regclass('analytics.erp_purchase_orders')`)).rows[0];
+      ok(vk?.relkind === 'v', 'analytics.erp_purchase_orders es VISTA (derive-no-copy)');
+      const vcols = (await trx.raw(
+        `select column_name from information_schema.columns
+          where table_schema='analytics' and table_name='erp_purchase_orders'`)).rows.map((r) => r.column_name);
+      ok(['estatus', 'cerrada', 'dias_abierta'].every((c) => vcols.includes(c)),
+        'la vista expone estatus + cerrada + dias_abierta (el decode completo)');
+      const lcols = (await trx.raw(
+        `select column_name from information_schema.columns
+          where table_schema='analytics' and table_name='erp_purchase_doc_lines'`)).rows.map((r) => r.column_name);
+      ok(['unidades_por_caja', 'costo_caja', 'unidad_caja'].every((c) => lcols.includes(c)),
+        'las líneas exponen el empaque declarado por el proveedor');
+
+      // La vista está en el camino caliente del pedido: si un cambio la vuelve lenta (btrim que
+      // mata el índice de la cadena, un min() que no corta), la corrida del fact se va a minutos.
+      const t0 = Date.now();
+      const abiertas = (await trx.raw(
+        `select count(*)::int n from analytics.erp_purchase_orders
+          where doc_date >= CURRENT_DATE-120 and not cerrada`)).rows[0];
+      const ms = Date.now() - t0;
+      ok(ms < 5000, `la vista responde en ${ms}ms (< 5 s) — ${abiertas.n} OC abiertas`);
+
       // ── La curva ──────────────────────────────────────────────────────────
       const curva = await trx('analytics.oc_survival_curve').where('tenant_id', T).orderBy('edad')
         .select('edad', 'muestra', 'p', 'fallback');

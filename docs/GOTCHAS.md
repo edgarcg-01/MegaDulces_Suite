@@ -813,3 +813,32 @@ Reglas:
    "comportamiento previo", no "cero".
 2. Todo invariante entre dos columnas del mismo fact merece una aserción en el smoke. Es la única
    forma de ver una carrera entre versiones que no deja rastro en ningún log.
+
+---
+
+## 28. Una vista normalizada puede ser 1000× más lenta que la tabla cruda (btrim mata el índice)
+
+`analytics.erp_purchase_docs` normaliza `kepler_ods.kdm1` con `btrim()` en todas las columnas —
+correcto para leer, veneno para la cadena de documentos. Al armar `analytics.erp_purchase_orders`
+encima de esa vista, resolver "¿esta OC tiene orden de entrada?" pasó de **332 ms a 331 s**.
+
+Motivo: el índice que sostiene la cadena es
+
+```sql
+ix_ods_kdm1_xa_c39 ON kepler_ods.kdm1 (sucursal, c39, c37) WHERE c2='X' AND c3='A'
+```
+
+sobre las columnas **crudas**. Escribir `btrim(vale.c39::text) = d.folio` lo inutiliza → seq scan
+por cada OC. La vista quedó comparando en crudo (`c4=35`, `c37=35`, `c39=c6`) y saneando sólo la
+SALIDA. Mismo resultado, 1000× más rápido.
+
+Reglas al normalizar sobre el ODS:
+
+1. **El btrim va en el SELECT, nunca en el JOIN ni en el WHERE** que deba usar índice. Mirá primero
+   `pg_indexes` de la tabla: si el índice es sobre la columna cruda, el predicado también.
+2. **Toda vista con subconsulta por fila necesita `MATERIALIZED` río arriba en el consumidor.** La
+   vista de OC trae un `EXISTS` por fila; al joinearla con los renglones, el planner lo evaluó una
+   vez POR RENGLÓN y la corrida del fact se fue a >10 min. `oc_open AS MATERIALIZED (…)` primero,
+   join después: 41 s. (Es el mismo mecanismo del §26, ahora disparado desde una vista.)
+3. **Medí antes de mover el camino caliente a una vista.** Que sea la capa correcta no la hace
+   gratis; el gate de costo (§19) aplica igual.
