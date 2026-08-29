@@ -13,6 +13,7 @@ import type {
   TopCustomerRow,
   TopProductRow,
   DailySeriesRow,
+  ErpCustomerRow,
 } from '@megadulces/contracts';
 
 /**
@@ -782,7 +783,7 @@ export class CommercialAnalyticsService {
   /**
    * Revenue/units por brand en el período + share % del total.
    */
-  async salesByBrand(q: DateRangeQuery) {
+  async salesByBrand(q: DateRangeQuery): Promise<SalesByBrandRow[]> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
@@ -2400,7 +2401,7 @@ export class CommercialAnalyticsService {
   }
 
   /** KV.3 — Lista de clientes Kepler con su compra agregada (180d). */
-  async erpCustomers(q: { search?: string; limit?: number }) {
+  async erpCustomers(q: { search?: string; limit?: number }): Promise<ErpCustomerRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
     return this.tk.run(async (trx) => {
