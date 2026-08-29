@@ -975,3 +975,45 @@ join cuadra, el problema es tu consulta. En la misma sesión pisé otras dos del
 que el doctype de venta era `U-A-10` (es *"Entrada por Devolución"*; el bueno es `U-D-10`) y que el
 SKU de `kdm2` era `c3` (es `c8`)—, y **las tres devuelven resultados plausibles**: cero filas, o un
 número creíble. Ninguna falla ruidosamente. Ver [`ERP_KEPLER.md`](ERP_KEPLER.md) §2.2 y §5 regla 0.
+
+## 32. REGLA: nunca hacer copias de tablas — siempre la tabla principal
+
+Regla dura de Edgar. **No existe la copia "temporal", "de respaldo" o "por si acaso":** ni `*_bak` /
+`*_old` / `*_tmp`, ni la misma tabla duplicada en otro schema, ni una segunda materialización de algo
+que ya tiene tabla. Si hace falta otra forma del dato: **derivá** (vista) o **extendé la tabla que ya
+existe** (columna aditiva, nullable, idempotente).
+
+**Por qué es regla y no preferencia.** Una copia no se queda quieta: desde el minuto uno hay dos
+filas que pueden decir cosas distintas y nada que las obligue a coincidir. Pero el modo de falla que
+la hace cara es otro: **una copia vacía se ve igual que una tabla legítimamente vacía**, así que el
+consumidor no falla — *concluye*. El caso canónico es §29 (las dos `knex_migrations`): la vacía en
+`identity` contestó "0 aplicadas" durante dos días, a dos sesiones distintas, sin un solo error.
+
+**Medido: la regla predice dónde está el daño.** Auditando las 22 fuentes del margen (Fase MR,
+2026-08-31) por naturaleza real — primaria / vista derivada / SoR de la app / copia materializada:
+
+| Clase | Datos rotos |
+|---|---|
+| Primaria (`kepler_ods.*`) | 0 |
+| Vista derivada (`analytics.v_*`, `erp_*`) | 0 |
+| Copia materializada | **todos** |
+
+Los cinco datos averiados —el costo por markup, `sales_daily.units_base`,
+`catalog.products.unit_sale`, `factor_purchase` y el rótulo `kdm2.c11`— son copias (columna copiada
+o tabla materializada). Todo lo sano es la primaria o una vista sobre ella.
+
+**La distinción que hay que conservar:** materializar **por costo** es legítimo — derivar tiene un
+gate medido (§19: una vista sobre `stock_movements` costó 517×) y `analytics.sales_daily` con 4.4 M
+filas es una **proyección indexada**, no redundancia gratuita. El pecado no es materializar: es
+**materializar un valor inventado**. El costo por markup no es copia de ningún costo del ERP — es un
+número que no existe en ninguna fuente, y por eso ninguna verificación contra el origen podía
+atraparlo.
+
+**Cómo se evita:**
+
+1. Antes de crear una tabla: *¿este dato ya tiene tabla? ¿puede ser vista? ¿puede ser una columna de
+   la que ya existe?* Las tres en no → recién ahí es tabla nueva.
+2. Si materializás por costo, que cada columna tenga **origen verificable** en la primaria. Una
+   columna sin origen no es una proyección: es una invención.
+3. Para respaldar antes de un cambio riesgoso no se copia la tabla: **dump** afuera de la DB, o un
+   `down()` real en la migración.
