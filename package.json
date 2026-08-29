@@ -13,6 +13,7 @@
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
     "lint": "nx run-many -t lint",
+    "lint:boundary": "node scripts/lint-boundary-gate.js",
     "typecheck:fast": "tsgo -p tsconfig.ts7.json",
     "api": "nx serve api",
     "api:dev": "nx build api && concurrently -k -n build,api -c blue,green \"nx build api --watch\" \"node --watch dist/apps/api/main.js\"",

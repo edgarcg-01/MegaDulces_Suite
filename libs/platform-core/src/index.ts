@@ -75,3 +75,6 @@ export * from './lib/scope/scope-params';
 
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';
+
+// ── pipes (validacion Zod del boundary — ADR-052) ──
+export * from './lib/pipes/zod-validation.pipe';
