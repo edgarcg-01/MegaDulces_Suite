@@ -61,6 +61,16 @@ export interface EntradaRow {
   descarte_nota?: string | null;
   descarte_por?: string | null;
   descarte_at?: string | null;
+  // RE.20.1 — sólo con `lente=dinero`: lo que absorbió de Compras 360. `factura` es `monto` con
+  // el nombre que usa la pregunta contable; `neto` = factura − ajuste ligado.
+  vale_folio?: string | null;
+  factura?: number;
+  ajuste?: number;
+  n_ajuste?: number;
+  /** El ajuste partido: 3 de cada 4 son beneficio negociado, no un problema. */
+  ajuste_comercial?: number;
+  ajuste_operativo?: number;
+  neto?: number;
 }
 
 /** RE.14.3 — un par de la misma recepción capturada dos veces, con los dos lados a la vista. */
@@ -164,6 +174,10 @@ export interface EntradasQuery {
   orden?: OrdenEntradas;
   /** RE.20.2 — sin esto el encabezado no puede invertirse y la flecha miente. */
   dir?: 'asc' | 'desc';
+  /** `[RE.20.1]` — `dinero` trae factura/ajuste/neto (lo que era *Compras 360*). Default `proceso`. */
+  lente?: 'proceso' | 'dinero';
+  ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
+  con_oc?: 'con' | 'sin';
   page?: number;
   pageSize?: number;
 }
@@ -246,6 +260,11 @@ export interface EntradasReport {
   };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];
+  /**
+   * `[RE.20.1]` — totales del lente del dinero sobre **todo lo filtrado**, no sobre la página:
+   * "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. `null` en `lente=proceso`.
+   */
+  totales: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number } | null;
   /** total del universo filtrado: antes la lista cortaba en 300 sin decirlo. */
   total: number;
   page: number;

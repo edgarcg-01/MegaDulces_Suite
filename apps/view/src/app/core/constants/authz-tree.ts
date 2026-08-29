@@ -200,9 +200,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
           { id: 'compras-ordenes', label: 'Órdenes de compra', route: '/compras/ordenes', view: [Permission.COMPRAS_ORDENES_VER], manage: [Permission.COMPRAS_ORDENES_GESTIONAR] },
           { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
-          // RE.20.5 — los ids y las rutas NO cambian (hay permisos guardados y links pegados);
-          // sólo la etiqueta, que es lo que lee quien reparte permisos.
-          { id: 'compras-360', label: 'Costo por compra', route: '/compras/compras-360', view: [Permission.COMPRAS_360_VER], manage: [] },
+          // RE.20.1 — fusionada con `Control de entradas · Listado`: es la misma pantalla con
+          // otro lente, así que la gatea el mismo permiso. `COMPRAS_360_VER` queda huérfano a
+          // propósito — retirarlo del enum obliga a tocar `identity.role_permissions` en prod,
+          // y un permiso de más no le abre nada a nadie.
+          { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },

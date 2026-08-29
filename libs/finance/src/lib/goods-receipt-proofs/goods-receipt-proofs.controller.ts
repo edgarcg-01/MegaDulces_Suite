@@ -45,6 +45,11 @@ export class GoodsReceiptProofsController {
       orden: query['orden'] as ListReceiptsQuery['orden'],
       // RE.20.2 — sólo pasan los dos literales: cualquier otra cosa cae al default de la clave.
       dir: query['dir'] === 'asc' ? 'asc' : query['dir'] === 'desc' ? 'desc' : undefined,
+      // RE.20.1 — el lente. `dinero` es el que absorbió a Compras 360; cualquier otra cosa
+      // cae en `proceso`, que es el default y no paga el join de ajustes.
+      lente: query['lente'] === 'dinero' ? 'dinero' : 'proceso',
+      ajuste: query['ajuste'] as ListReceiptsQuery['ajuste'],
+      con_oc: query['con_oc'] as ListReceiptsQuery['con_oc'],
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };

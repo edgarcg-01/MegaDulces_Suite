@@ -1,8 +1,8 @@
 # Fase RE.20 — Nomenclatura formal del proceso de entradas + cierre de huecos
 
-> **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.2 (ordenar por columna) · ✅ RE.20.3
-> (descartar con motivo) · ✅ RE.20.5 (Compras 360 → Costo por compra) — 2026-08-29 ·
-> ⬜ RE.20.1 (degradado a opcional por RE.20.5) · RE.20.4.
+> **Estado:** ✅ RE.20.0 (nomenclatura) · ✅ RE.20.1 (fusión, **en dirección contraria a la
+> planeada**) · ✅ RE.20.2 (ordenar por columna) · ✅ RE.20.3 (descartar con motivo) ·
+> ✅ RE.20.5 (Compras 360 → Costo por compra) — 2026-08-29 · ⬜ RE.20.4.
 > **Depende de:** [RE.17/RE.18/RE.19](FASE_RE17_UX_ENTRADAS.md) (PR #45).
 > **Disparador:** Edgar — *"formalicemos los nombres ya que los actuales no son intuitivos o
 > profesionales"* + *"revisar las ventanas existentes, cuáles faltan, cuáles sobran"*.
@@ -89,12 +89,56 @@ mudando su expediente (`SidePeek` + conciliación por línea) al detalle de 360.
 - **Decisión abierta:** ¿se fusiona, o se dejan las dos y sólo se aclara la bajada de cada una?
   Fusionar es más limpio pero toca dos permisos y una pantalla que no es de esta fase.
 
-> **Actualización RE.20.5 (2026-08-29).** Renombrar *Compras 360* → **Costo por compra** cambia
-> el cálculo de este item. El solape nunca fue de datos: es la misma fila con **dos lentes**, y
-> ahora cada nombre dice el suyo — *Listado* pregunta **¿tengo el papel?** (proceso) y *Costo por
-> compra* pregunta **¿cuánto pagamos?** (dinero). Con eso, un usuario que ve las dos en el
-> sidebar ya sabe cuál abrir, que era el problema real. Las bajadas de las dos pantallas ahora se
-> enlazan entre sí. **Fusionar pasa de "más limpio" a "opcional"**; queda como nice-to-have.
+> **HECHO (2026-08-29) — pero en la dirección CONTRARIA a la de arriba.**
+
+### 2.1 Por qué se invirtió la dirección
+
+La propuesta original decía *«que Compras 360 sea la única lista y el Listado muera»*. Al medirlo
+antes de construir, resultó al revés. Tres hallazgos:
+
+**a) El permiso mataba la propuesta.** `COMPRAS_360_VER` **⊂** `COMPRAS_ENTRADAS_VER`: todo rol
+con 360 tiene también ENT_VER, y **`auxiliar_tienda` (4 personas) tiene ENT_VER sin 360**.
+Fusionar hacia 360 los dejaba sin la lista; hacia el Listado no pierde nadie.
+
+**b) Lo que había que mover era muy distinto en cada dirección.** El Listado tiene las
+**escrituras** (adjuntar `_GESTIONAR`, validar/devolver/descartar `_VALIDAR`), el alcance por
+sucursal, el carril de rezago y la conciliación por línea RE.11. 360 era **read-only** sobre
+`analytics.*`. Mover columnas hacia adentro es aditivo; mover escrituras y tres niveles de
+permiso hacia una pantalla read-only es un rediseño.
+
+**c) 360 ya se estaba fusionando sola, del lado equivocado.** Tenía adentro un lente
+`cumplimiento` (RE.13.4) — *"las MISMAS filas contestando dos preguntas distintas"*— que
+duplicaba el propósito del Listado. La fusión iba a pasar igual; sólo faltaba elegir el lado.
+
+### 2.2 Lo que se hizo
+
+**Una pantalla, dos lentes, dos puertas.** El componente de 360 (1,059 líneas) se borró; el
+Listado gana un selector `El proceso` / `El dinero`:
+
+| | El proceso | El dinero |
+|---|---|---|
+| Pregunta | ¿tengo el papel? | ¿cuánto pagamos? |
+| Columnas propias | días, remisión, gemela, descarte | vale, **factura · ajuste · neto** |
+| Filtros propios | estado, carril, antigüedad | ajuste (con/sin/operativo/comercial), con OC |
+| Totales | — | de **todo lo filtrado**, no de la página |
+
+Dos puertas al mismo cuarto, cada una con su lente por default:
+`Análisis › Costo por compra` → `/compras/costo-por-compra` · `Control › Listado` →
+`/compras/entradas/control/ordenes`. **Rutas distintas a propósito**: con `?lente=` a secas el
+sidebar marcaba los dos items a la vez. `/compras/compras-360` queda como **redirect**.
+
+- **Backend:** `listReceipts` gana `lente=dinero`, que engancha el join de ajustes
+  (`analytics.erp_purchase_adjustments` por `(sucursal, entrada_folio)` — el folio **no es único
+  entre sucursales**) + `factura/ajuste/neto` + totales. En `proceso` **no se paga el join**.
+  El buscador hereda `vale_folio` y `concepto` de 360.
+- **El ajuste no se pinta de rojo por existir:** ámbar sólo si tiene parte **operativa**
+  (faltante, mal estado, no solicitado). 3 de cada 4 son beneficio negociado, y pintar de rojo un
+  apoyo de marca entrena a ignorar el color.
+- **`COMPRAS_360_VER` queda huérfano a propósito.** Retirarlo del enum obliga a tocar
+  `identity.role_permissions` en prod; se queda en el catálogo etiquetado *(retirado)* y diciendo
+  que **no abre nada**, para que nadie lo reparta creyendo que sí.
+
+**Diferido:** las **facetas con conteo** y el **export CSV** que 360 tenía y el Listado no.
 
 ---
 
@@ -232,7 +276,7 @@ como aviso (ya tiene el botón "te las devolvieron" en el veredicto — le falta
 | ✅ **RE.20.2** | Ordenar por columna | bajo + `dir` en el backend | Era la queja más probable con 875 filas. De paso apareció el bug del orden por default. |
 | ✅ **RE.20.3** | Descartar con motivo | medio + migración | La premisa cambió al verificarla: hoy los traspasos están todos en el rezago. Tapa el agujero **antes** de que el proceso arranque en serio. |
 | **RE.20.4** | Aviso de devolución | medio | Cierra el lazo del proceso, pero nada se pierde mientras tanto. |
-| **RE.20.1** | Fusionar 360 ↔ Listado | medio, toca permisos | Último: es el que más superficie mueve y necesita decisión de Edgar. |
+| ✅ **RE.20.1** | Fusionar 360 ↔ Listado | medio, tocó permisos | Último, como se planeó. Se invirtió la dirección al medir los permisos: ver §2.1. |
 
 ---
 

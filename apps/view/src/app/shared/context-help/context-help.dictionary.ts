@@ -144,7 +144,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   'compras-360': {
     title: 'Costo por compra — guía',
-    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre. La misma cifra agregada por proveedor está en Costo por proveedor.',
+    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura sobre el ERP, no lo edita. Es la MISMA pantalla que el Listado de Control de entradas, con el otro lente: acá la pregunta es "¿cuánto pagamos?" y allá "¿tengo el papel?". El selector de arriba cambia entre las dos sin perder los filtros.',
     groups: [
       {
         heading: 'Qué es cada columna',

@@ -555,7 +555,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // al que lo construyó y nada al comprador.
       title: 'Análisis',
       items: [
-        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_360_VER },
+        // RE.20.1 — la fusión: es la MISMA pantalla que `Control de entradas · Listado`, con el
+        // otro lente. Y pide `COMPRAS_ENTRADAS_VER` y no `COMPRAS_360_VER` porque el primero es
+        // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
+        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
         { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },

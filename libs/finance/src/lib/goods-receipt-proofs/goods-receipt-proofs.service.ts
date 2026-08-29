@@ -172,9 +172,33 @@ export interface ListReceiptsQuery {
    * (fecha↑ · proveedor↑ · monto↓ · riesgo↓).
    */
   dir?: 'asc' | 'desc';
+  /**
+   * `[RE.20.1]` — **el lente**: las MISMAS filas contestando dos preguntas distintas.
+   *   `proceso` (default) → *¿tengo el papel?* — evidencia, días, gemela, descarte.
+   *   `dinero`            → *¿cuánto pagamos?* — OC, vale, factura, ajuste ligado y **neto**.
+   *
+   * Era una pantalla aparte (*Compras 360*): misma fila, misma entidad, dos listas globales y
+   * nadie sabía cuál abrir. El join de ajustes es caro, así que sólo se paga con `dinero`.
+   */
+  lente?: 'proceso' | 'dinero';
+  /** Sólo con `lente=dinero`. `con`/`sin` = tiene ajuste ligado · `operativo`/`comercial` = de qué tipo. */
+  ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
+  /** Sólo con `lente=dinero`. Entradas que se ligaron (o no) a una orden de compra. */
+  con_oc?: 'con' | 'sin';
   page?: number;
   pageSize?: number;
 }
+
+/**
+ * `[RE.20.1]` — categorías de ajuste que son **beneficio negociado**, no un problema. 3 de cada
+ * 4 ajustes son de éstas; el resto (faltante, mal estado, no solicitado…) sí es algo que salió
+ * mal. Se parten para que la pantalla deje de pintar de rojo un apoyo de marca.
+ *
+ * Duplicado a propósito de `purchase-adjustments.service` (libs/commercial): son dos dominios
+ * leyendo la MISMA tabla de `analytics.*`, y acoplar `finance` → `commercial` por una lista de
+ * tres strings es peor que repetirla. Si crece, sube a `platform-core`.
+ */
+const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
 
 export interface AttachReceiptDto {
   sucursal?: string;
@@ -426,6 +450,24 @@ export class GoodsReceiptProofsService {
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       const hayPares = await this.hayPares(trx);
       const hayDesc = await this.hayDescartes(trx);
+      // RE.20.1 — el lente del dinero. El join de ajustes es caro (agrupa toda la tabla de
+      // devoluciones/notas), así que sólo entra cuando alguien lo pide.
+      const dinero = q.lente === 'dinero';
+
+      /**
+       * Ajustes LIGADOS a la entrada: devoluciones (X-D-40) y notas de crédito (X-D-55).
+       *
+       * ⚠️ Se liga por **(sucursal, entrada_folio)** y NO sólo por folio: el folio de Kepler
+       * **no es único entre sucursales** (1,106 folios viven en más de una), y con el join
+       * pelado una devolución de la 00 se le pegaba a las entradas 02 y 03 del mismo folio,
+       * atribuyéndole el ajuste a OTRO proveedor. Verificado 2026-08-25 (folio `0000505`).
+       */
+      const adj = trx('analytics.erp_purchase_adjustments')
+        .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
+        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
+        .groupBy('sucursal', 'entrada_folio').as('a');
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
@@ -456,6 +498,20 @@ export class GoodsReceiptProofsService {
         // RE.14.3 — el par entra en el `base()` y no sólo en el select porque **también se busca
         // por él**: el usuario tiene en la mano el folio de oficinas tan seguido como el suyo.
         if (hayPares) this.conGemela(b, trx, tenantId);
+        // RE.20.1 — el ajuste entra al `base()` (no sólo al select) porque también FILTRA:
+        // "sólo las que tienen nota de crédito" es la pregunta con la que se abre este lente.
+        if (dinero) {
+          b.leftJoin(adj, (j: any) => { j.on('c.sucursal', 'a.sucursal').andOn('c.folio', 'a.entrada_folio'); });
+          // "Con ajuste" = tiene ajuste LIGADO aunque el monto sea $0: los X-D-40 de faltante
+          // se capturan en 0 y son justo los que hay que mirar. Filtrar por monto ≠ 0 se comía
+          // 3 de cada 12.
+          if (q.ajuste === 'con') b.whereRaw('COALESCE(a.n_ajuste,0) > 0');
+          else if (q.ajuste === 'sin') b.whereRaw('COALESCE(a.n_ajuste,0) = 0');
+          else if (q.ajuste === 'operativo') b.whereRaw('COALESCE(a.ajuste_operativo,0) <> 0');
+          else if (q.ajuste === 'comercial') b.whereRaw('COALESCE(a.ajuste_comercial,0) <> 0');
+          if (q.con_oc === 'con') b.whereRaw(`COALESCE(c.oc_folio,'') <> ''`);
+          else if (q.con_oc === 'sin') b.whereRaw(`COALESCE(c.oc_folio,'') = ''`);
+        }
         // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
         if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
         // Carril: el rezago anterior al arranque se trabaja aparte para que el semáforo del
@@ -504,7 +560,10 @@ export class GoodsReceiptProofsService {
           );
         } else {
           applySmartSearch(b, q.search, {
+            // RE.20.1 — `vale_folio` y `concepto` venían del buscador de Compras 360: al
+            // fusionar, quien buscaba por el vale de entrada tiene que seguir encontrándolo.
             columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              'c.vale_folio', 'c.concepto',
               ...(hayPares ? ['gem.cedis_folio'] : [])],
             numeric: ['c.monto'],
           });
@@ -541,6 +600,17 @@ export class GoodsReceiptProofsService {
             trx.raw('x.motivo AS descarte_nota'),
             trx.raw('x.descartado_por AS descarte_por'),
             trx.raw('x.descartado_at AS descarte_at'),
+          ] : []),
+          // RE.20.1 — el lente del dinero. `factura` es el monto de Kepler con otro nombre: en
+          // este lente la pregunta es contable y "monto" no dice de qué lado está.
+          ...(dinero ? [
+            trx.raw('c.vale_folio'),
+            trx.raw('c.monto::numeric AS factura'),
+            trx.raw('COALESCE(a.ajuste, 0)::numeric AS ajuste'),
+            trx.raw('COALESCE(a.n_ajuste, 0)::int AS n_ajuste'),
+            trx.raw('COALESCE(a.ajuste_comercial, 0)::numeric AS ajuste_comercial'),
+            trx.raw('COALESCE(a.ajuste_operativo, 0)::numeric AS ajuste_operativo'),
+            trx.raw('(c.monto::numeric - COALESCE(a.ajuste, 0))::numeric AS neto'),
           ] : []),
         )
         .limit(pageSize)
@@ -598,9 +668,28 @@ export class GoodsReceiptProofsService {
         atrasada: r.deposits > 0
           ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
           : Number(r.dias) > cfg.sla_capture_days,
+        // RE.20.1 — `numeric` de Postgres llega como STRING por el driver; sin esto la tabla
+        // suma dinero concatenando.
+        ...(dinero ? {
+          factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.neto),
+          n_ajuste: Number(r.n_ajuste),
+          ajuste_comercial: Number(r.ajuste_comercial), ajuste_operativo: Number(r.ajuste_operativo),
+        } : {}),
       }));
 
       const [{ total }] = await base().count({ total: '*' });
+
+      // RE.20.1 — totales del lente sobre TODO lo filtrado, no sobre la página. La pregunta
+      // "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente.
+      const totales = dinero
+        ? await base().first(
+            trx.raw('COALESCE(SUM(c.monto::numeric), 0)::numeric AS factura'),
+            trx.raw('COALESCE(SUM(a.ajuste), 0)::numeric AS ajuste'),
+            trx.raw('COALESCE(SUM(c.monto::numeric - COALESCE(a.ajuste, 0)), 0)::numeric AS neto'),
+            trx.raw('COALESCE(SUM(a.ajuste_comercial), 0)::numeric AS ajuste_comercial'),
+            trx.raw('COALESCE(SUM(a.ajuste_operativo), 0)::numeric AS ajuste_operativo'),
+          )
+        : null;
 
       // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
       // ni `search`: son el denominador contra el que se lee la lista filtrada).
@@ -647,6 +736,11 @@ export class GoodsReceiptProofsService {
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
         alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
         settings: cfg,
+        // RE.20.1 — sólo con `lente=dinero`; el lente de proceso no paga el join ni lo recibe.
+        totales: totales ? {
+          factura: Number(totales.factura), ajuste: Number(totales.ajuste), neto: Number(totales.neto),
+          ajuste_comercial: Number(totales.ajuste_comercial), ajuste_operativo: Number(totales.ajuste_operativo),
+        } : null,
         total: Number(total), page, pageSize,
         frescura: await this.frescuraPorFuente(trx, tenantId),
         rows,

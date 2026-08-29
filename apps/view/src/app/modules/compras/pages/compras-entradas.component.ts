@@ -78,16 +78,26 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Control de entradas · Listado</h1>
+          <h1>{{ dinero() ? 'Costo por compra' : 'Control de entradas · Listado' }}</h1>
           <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
                proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
-               no aparece se lee como dato faltante. -->
+               no aparece se lee como dato faltante.
+               RE.20.1 — la bajada cambia con el lente porque la pregunta cambia. -->
           <p class="surf-page-sub">
-            Las órdenes de entrada de la red
-            @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
-            , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
-            o por proveedor / RFC / OC. Para el trabajo diario están las pantallas por oficio:
-            <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
+            @if (dinero()) {
+              Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo
+              bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente
+              pagamos</strong>
+              @if (report()?.settings; as cfg) { , <strong>desde el {{ cfg.reception_start }}</strong> }.
+              La misma cifra agregada por proveedor está en
+              <a routerLink="/compras/costo-neto">Costo por proveedor</a>.
+            } @else {
+              Las órdenes de entrada de la red
+              @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
+              , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
+              o por proveedor / RFC / OC / vale. Para el trabajo diario están las pantallas por
+              oficio: <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
+            }
           </p>
         </div>
         <div class="cb-head-actions">
@@ -100,8 +110,21 @@ interface AttachFile {
       <app-page-tabs [tabs]="tabs" />
 
       <div class="cb-filters card-premium card-flat">
+        <!-- RE.20.1 — EL LENTE. Las mismas filas contestando dos preguntas. Era una pantalla
+             aparte ("Compras 360") con su propio endpoint, su propio detalle y su propia
+             paginación sobre exactamente la misma entidad; nadie sabía cuál de las dos abrir. -->
+        <div class="cb-field"><label>Ver</label>
+          <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        @if (dinero()) {
+          <div class="cb-field"><label>Ajuste</label>
+            <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
+                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por ajuste" /></div>
+          <div class="cb-field"><label>Orden de compra</label>
+            <p-select [options]="ocOpts" [ngModel]="ocSel()" (onChange)="setOc($event.value)"
+                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por orden de compra" /></div>
+        }
         @if (variasSucursales()) {
           <div class="cb-field"><label>Sucursal</label>
             <p-select [options]="sucursalOpts()" [ngModel]="sucursalSel()" (onChange)="setSucursal($event.value)"
@@ -183,11 +206,19 @@ interface AttachFile {
                 </button>
               </th>
               <th style="width:7rem">OC</th>
+              <!-- RE.20.1 — en el lente del dinero la columna del importe se llama FACTURA: es
+                   el mismo número, pero acá la pregunta es contable y "monto" no dice de qué
+                   lado está. Y aparecen las dos que explican el neto. -->
               <th class="ta-r" style="width:9rem" [attr.aria-sort]="ariaSort(sort(), 'monto')">
-                <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')" aria-label="Ordenar por monto">
-                  Monto <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+                <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')"
+                        [attr.aria-label]="dinero() ? 'Ordenar por factura' : 'Ordenar por monto'">
+                  {{ dinero() ? 'Factura' : 'Monto' }} <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
                 </button>
               </th>
+              @if (dinero()) {
+                <th class="ta-r" style="width:8.5rem">Ajuste</th>
+                <th class="ta-r" style="width:9.5rem">Neto</th>
+              }
               <th style="width:11rem">Remisión</th>
               <th style="width:12rem">Acciones</th>
             </tr>
@@ -225,6 +256,18 @@ interface AttachFile {
                 } @else { — }
               </td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
+              @if (dinero()) {
+                <!-- El ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado
+                     (descuento, pronto pago, apoyo de marca). Por eso el ámbar es sólo para el
+                     operativo —faltante, mal estado, no solicitado—, que sí es algo que salió
+                     mal. Pintar de rojo un apoyo de marca es entrenar a ignorar el color. -->
+                <td class="ta-r cb-ajuste" [class.is-op]="(c.ajuste_operativo || 0) !== 0">
+                  @if (c.n_ajuste) {
+                    <span [pTooltip]="ajusteTip(c)" tooltipPosition="left">−{{ money(c.ajuste) }}</span>
+                  } @else { <span class="muted">—</span> }
+                </td>
+                <td class="ta-r strong">{{ money(c.neto) }}</td>
+              }
               <td class="cb-comp-cell" (click)="openDetail(c)" [title]="c.deposits > 0 ? 'Ver remisión adjunta + detalle por línea' : 'Ver detalle por línea'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
@@ -270,7 +313,21 @@ interface AttachFile {
               </td>
             </tr>
           </ng-template>
-          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
+          <!-- RE.20.1 — los totales del lente son de TODO lo filtrado, no de la página: la
+               pregunta "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. Por eso
+               los manda el server y no se suman acá. -->
+          @if (dinero() && report()?.totales; as t) {
+            <ng-template #footer>
+              <tr class="cb-tot">
+                <td colspan="4">Todo lo filtrado · <strong>{{ report()?.total }}</strong> compras</td>
+                <td class="ta-r">{{ money(t.factura) }}</td>
+                <td class="ta-r cb-ajuste">{{ t.ajuste ? '−' + money(t.ajuste) : '—' }}</td>
+                <td class="ta-r strong">{{ money(t.neto) }}</td>
+                <td colspan="2"></td>
+              </tr>
+            </ng-template>
+          }
+          <ng-template #emptymessage><tr><td [attr.colspan]="dinero() ? 9 : 7" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
         </p-table>
 
         <!-- RE.17.5 — paginación de servidor. El p-table paginaba las 150 filas que ya tenía en
@@ -935,6 +992,17 @@ interface AttachFile {
     .cb-desc-m em { font-style: normal; font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.4; }
     /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
        para que no se lea como continuación del rango "1–100". */
+    /* ── RE.20.1: lente del dinero ─────────────────────────────────────────
+       El ajuste en gris por default y ámbar SÓLO cuando tiene parte operativa (faltante, mal
+       estado, no solicitado). 3 de cada 4 ajustes son beneficio negociado —descuento, pronto
+       pago, apoyo de marca— y pintar de rojo un apoyo de marca entrena a ignorar el color. */
+    .cb-ajuste { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .cb-ajuste.is-op { color: var(--warn-fg); font-weight: 600; }
+    /* Totales de TODO lo filtrado, no de la página: se separan del cuerpo por peso y fondo. */
+    .cb-tot > td {
+      background: var(--surface-2); font-weight: 600;
+      border-top: 1px solid var(--border-color);
+    }
     .cb-orden { font-style: normal; }
     .cb-orden::before { content: ' · '; opacity: .55; }
     @media (max-width: 560px) { .cb-orden { display: none; } }
@@ -1275,6 +1343,64 @@ export class ComprasEntradasComponent {
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
   readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
+  /**
+   * `[RE.20.1]` — **el lente.** Las MISMAS filas contestando dos preguntas distintas:
+   *   `proceso` → *¿tengo el papel?* — evidencia, días, gemela, descarte.
+   *   `dinero`  → *¿cuánto pagamos?* — factura, ajuste ligado y neto.
+   *
+   * Era una pantalla aparte (*Compras 360*) con su propio endpoint, su propio detalle y su
+   * propia paginación **sobre exactamente la misma entidad**. No era un solape de datos: era la
+   * misma fila con dos lentes, y el usuario no tenía cómo saber cuál de las dos abrir. La otra
+   * ya traía un lente de "cumplimiento" adentro — la fusión iba a pasar, sólo que del lado
+   * equivocado.
+   *
+   * El lente lo fija la puerta por la que se entra (`/compras/costo-por-compra` abre en dinero)
+   * y viaja en la URL, así que un link pegado en un chat llega con el lente que se compartió.
+   */
+  readonly lente = signal<'proceso' | 'dinero'>('proceso');
+  readonly dinero = computed(() => this.lente() === 'dinero');
+  readonly lenteOpts = [
+    { label: 'El proceso', value: 'proceso' },
+    { label: 'El dinero', value: 'dinero' },
+  ];
+  /** Filtros que sólo existen en el lente del dinero (venían de Compras 360). */
+  readonly ajusteSel = signal<'' | 'con' | 'sin' | 'operativo' | 'comercial'>('');
+  readonly ajusteOpts = [
+    { label: 'Todas', value: '' },
+    { label: 'Con ajuste', value: 'con' },
+    { label: 'Sin ajuste', value: 'sin' },
+    // El orden no es alfabético: primero el que es un problema. Operativo = faltante, mal
+    // estado, no solicitado. Comercial = descuento, pronto pago, apoyo de marca.
+    { label: 'Sólo ajuste operativo', value: 'operativo' },
+    { label: 'Sólo ajuste comercial', value: 'comercial' },
+  ];
+  readonly ocSel = signal<'' | 'con' | 'sin'>('');
+  readonly ocOpts = [
+    { label: 'Todas', value: '' },
+    { label: 'Con orden de compra', value: 'con' },
+    { label: 'Sin orden de compra', value: 'sin' },
+  ];
+
+  setLente(v: string): void {
+    this.lente.set(v === 'dinero' ? 'dinero' : 'proceso');
+    // Los filtros de dinero no aplican en proceso: dejarlos puestos filtraría la lista sin que
+    // se vea el control que lo está haciendo.
+    if (!this.dinero()) { this.ajusteSel.set(''); this.ocSel.set(''); }
+    this.page.set(1); this.syncUrl(); this.load();
+  }
+  setAjuste(v: string): void { this.ajusteSel.set((v || '') as any); this.page.set(1); this.load(); }
+  setOc(v: string): void { this.ocSel.set((v || '') as any); this.page.set(1); this.load(); }
+
+  /** Qué compone el ajuste de esta fila, para el tooltip: el total solo no dice si preocupa. */
+  ajusteTip(c: EntradaRow): string {
+    const op = Number(c.ajuste_operativo || 0), com = Number(c.ajuste_comercial || 0);
+    const partes: string[] = [];
+    if (com) partes.push(`${money(com)} negociado (descuento · pronto pago · apoyo)`);
+    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado)`);
+    const n = Number(c.n_ajuste || 0);
+    return `${n} ${n === 1 ? 'ajuste ligado' : 'ajustes ligados'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
+  }
+
   // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
   // Está para TODOS los que ven (no sólo `_VALIDAR`) porque el descarte resta del denominador
   // de cobertura y quien mira el número tiene que poder ver qué se le restó.
@@ -1530,8 +1656,19 @@ export class ComprasEntradasComponent {
   constructor() {
     // RE.17.5 — deep-link desde el Centro de control ("ver todo" de una sucursal). Se lee ANTES
     // de la primera carga, o el primer viaje sale sin el filtro que el link promete.
-    const suc = this.route.snapshot.queryParamMap.get('suc');
+    const qp = this.route.snapshot.queryParamMap;
+    const suc = qp.get('suc');
     if (suc) this.sucursalSel.set(suc);
+    // RE.20.1 — el lente lo fija la puerta. `data.lente` viene de la ruta (Costo por compra
+    // abre en dinero); `?lente=` lo pisa, para que un link pegado en un chat llegue con el que
+    // se compartió. Antes de la primera carga: si no, el primer viaje va con el lente que no es
+    // y la tabla parpadea de un juego de columnas al otro.
+    const deRuta = this.route.snapshot.data?.['lente'];
+    const deUrl = qp.get('lente');
+    if (deUrl === 'dinero' || deUrl === 'proceso') this.lente.set(deUrl);
+    else if (deRuta === 'dinero') this.lente.set('dinero');
+    const est = qp.get('estado');
+    if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
     this.load();
     // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
     this.grSocket.connect();
@@ -1624,7 +1761,9 @@ export class ComprasEntradasComponent {
   private syncUrl(): void {
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { suc: this.sucursalSel() || null },
+      // RE.20.1 — el lente viaja en la URL para que el link se pueda pegar. `proceso` es el
+      // default, así que se omite y la URL no se ensucia con lo que ya es implícito.
+      queryParams: { suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -1642,6 +1781,10 @@ export class ComprasEntradasComponent {
       // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
       // de enfrente no ordena las 875.
       ...serverSortParams(this.sort()),
+      // RE.20.1 — el lente. En `proceso` el server no paga el join de ajustes.
+      lente: this.lente(),
+      ajuste: this.dinero() ? (this.ajusteSel() || undefined) : undefined,
+      con_oc: this.dinero() ? (this.ocSel() || undefined) : undefined,
       page: this.page(),
       pageSize: this.pageSize,
     })
