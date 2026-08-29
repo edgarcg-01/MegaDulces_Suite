@@ -690,3 +690,31 @@ Smoke: `database/tests/test-newdb-oc-survival.js` (11 aserciones) en la suite.
 **Pendiente:** que el runner on-prem tome el importer nuevo. Mientras convivan las dos versiones,
 `transit_eff_cajas` se dejó en NULL a propósito — el servicio cae al crudo (comportamiento previo)
 en vez de mezclar dos cálculos.
+
+### RA-PRO.45.1 — La OC se lee de una vista normalizada, no re-decodificando `kdm1`
+
+Corrección a lo entregado arriba. `analytics.erp_purchase_docs` / `_lines` ya eran vistas
+derive-no-copy sobre `kepler_ods` (mig 20260820200000) y cubrían X-A-35 y X-A-37 con el anti-réplica
+`c1 = sucursal` puesto — y aun así el decode quedó escrito a mano en **cinco** lugares (el CTE del
+tránsito, el de la curva, el del lead time, `inTransitDetail` y `openPurchaseOrders`). Es la misma
+duplicación que provocó el tránsito fantasma.
+
+Lo que quedó:
+
+| Antes | Ahora |
+|---|---|
+| 5 decodes de `c2='X' AND c3='A' AND c4='35'` + cadena `NOT EXISTS` | 1 vista + 1 CTE del importer |
+| `c43`, `c55/c57/c58` leídos crudos en cada consulta | columnas normalizadas de la vista |
+
+- `analytics.erp_purchase_docs` += `estatus` (c43) · `_lines` += `unidad_caja` / `unidades_por_caja`
+  / `costo_caja` (c55/c58/c57). Aditivas: mismo conjunto de filas, `entity-ref` no se entera.
+- **`analytics.erp_purchase_orders`** (nueva): sólo las OC, con `cerrada` (cadena 35→37→40 resuelta),
+  `dias_abierta` y `estatus`. La leen el fact, `inTransitDetail` y la bandeja.
+- El importer conserva **un** decode a mano: `oc_hist`, que resuelve la FECHA de entrada. La vista
+  expone `cerrada` (booleano) y no la fecha porque exponerla costaba 213 s. `oc_hist` unificó la
+  curva de supervivencia y el lead time, que antes la derivaban por separado.
+
+Costo verificado: fact **41.7 s** (antes del refactor 42.2 s), vista de OC 332 ms, detalle del SKU
+2.8 s. El camino hasta ahí dejó dos lecciones en GOTCHAS §28: el `btrim` de la vista mataba el
+índice de la cadena (331 s → 332 ms) y la vista con `EXISTS` por fila necesita `MATERIALIZED` río
+arriba (>10 min → 41 s). Mig `20260829190000`. Smoke ampliado a 15 aserciones.

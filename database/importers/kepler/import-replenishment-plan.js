@@ -76,9 +76,15 @@ const SURV_MIN_N = 25;
 // ⚠ MATERIALIZED en las dos: sin eso el planner las inlinea y re-evalúa `surv_raw` (2 s, barrido de
 // 220 días de OCs con subconsulta correlacionada) POR CADA línea de OC del tránsito — la corrida
 // pasó de 30 s a >15 min. Con MATERIALIZED se calcula una vez y el join contra 8 filas es gratis.
-const survOds = `
-  surv_raw AS MATERIALIZED (
-    SELECT o.c9::date AS f_oc,
+// RA-PRO.45.1 — FECHA DE ENTRADA por OC. Es el ÚNICO decode de la cadena que queda escrito a mano,
+// y a propósito: `analytics.erp_purchase_orders` expone `cerrada` (booleano) pero NO la fecha,
+// porque exponerla como columna de la vista costaba 213 s (un min() no corta al primer match como
+// el EXISTS). Acá el barrido está acotado a la ventana histórica y corre UNA vez por corrida.
+// De este CTE salen las DOS señales que necesitan la fecha: la curva y el lead time.
+const ocHist = `
+  oc_hist AS MATERIALIZED (
+    SELECT o.sucursal, o.c1 AS almacen, o.c6 AS folio, o.c9::date AS f_oc,
+           COALESCE(o.c43, 'N') AS estatus,
            (SELECT min(oe.c9::date)
               FROM kepler_ods.kdm1 vale
               JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
@@ -88,8 +94,14 @@ const survOds = `
                AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6) AS f_ent
       FROM kepler_ods.kdm1 o
      WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
-       AND COALESCE(o.c43, 'N') <> 'C'                     -- las canceladas no son "no llegó"
-       AND o.c9::date BETWEEN CURRENT_DATE - 400 AND CURRENT_DATE - 180
+       AND o.c9::date >= CURRENT_DATE - 400
+  )`;
+
+const survOds = `
+  surv_raw AS MATERIALIZED (
+    SELECT f_oc, f_ent FROM oc_hist
+     WHERE estatus <> 'C'                                  -- las canceladas no son "no llegó"
+       AND f_oc BETWEEN CURRENT_DATE - 400 AND CURRENT_DATE - 180
   ),
   surv AS MATERIALIZED (
     SELECT edad, n,
@@ -109,59 +121,59 @@ const survOds = `
   )`;
 // Bucket de edad de una OC → arista de la curva. Se toma la arista INFERIOR (probabilidad al
 // ENTRAR al bucket, la más alta del tramo): conservador, acredita de más antes que de menos.
-const SURV_BUCKET = `(CASE WHEN age <= 3 THEN 0 WHEN age <= 7 THEN 4 WHEN age <= 14 THEN 8
-                           WHEN age <= 21 THEN 15 WHEN age <= 30 THEN 22 WHEN age <= 45 THEN 31
-                           WHEN age <= 60 THEN 46 ELSE 61 END)`;
+const survBucket = (age) => `(CASE WHEN ${age} <= 3 THEN 0 WHEN ${age} <= 7 THEN 4 WHEN ${age} <= 14 THEN 8
+                                   WHEN ${age} <= 21 THEN 15 WHEN ${age} <= 30 THEN 22 WHEN ${age} <= 45 THEN 31
+                                   WHEN ${age} <= 60 THEN 46 ELSE 61 END)`;
 
 const trOds = `
   ${survOds},
+  -- MATERIALIZED: la vista trae un EXISTS por OC (la cadena). Sin la barrera el planner lo mete
+  -- adentro del join con las líneas y lo evalúa una vez POR RENGLÓN. Acá se resuelve el conjunto
+  -- de OC abiertas primero (~180 filas, 0.3 s) y el resto es un join contra folios.
+  oc_open AS MATERIALIZED (
+    SELECT sucursal, folio, dias_abierta
+      FROM analytics.erp_purchase_orders
+     WHERE doc_date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
+       AND NOT cerrada
+       -- El propio ERP ya la dio por cerrada: F=finalizada, C=cancelada, R=recibida. La cadena de
+       -- documentos quedó rota pero no viene nada — 22 OCs / $1.28M de puro fantasma (2026-08-29).
+       AND estatus NOT IN ('F', 'C', 'R')
+  ),
   tr_ln AS (
     SELECT w.id AS warehouse_id, COALESCE(al.canonical_product_id, e.product_id) AS product_id,
            (CASE
                  -- 1) FACTOR DECLARADO POR EL DOCUMENTO. La línea de la OC trae su propia
-                 --    conversión: c55 = unidad de caja, c58 = cuántas unidades de la línea hacen
-                 --    esa caja, c57 = su costo. Verificado: c12 × c58 = c57 exacto. Se acepta sólo
+                 --    conversión (unidad_caja / unidades_por_caja / costo_caja, normalizadas en
+                 --    analytics.erp_purchase_doc_lines desde c55/c58/c57). Se acepta sólo
                  --    si la caja del documento CUADRA con la nuestra por dinero (±15% de
                  --    real_cost × bf) — si el proveedor empaca distinto a como lo tenemos en
                  --    catálogo, el costo de caja no cuadra y no se usa (cae al fallback).
-                 WHEN NULLIF(btrim(l.c58::text), '')::numeric > 0
+                 WHEN l.unidades_por_caja > 0
                       AND e.real_cost > 0
-                      AND NULLIF(btrim(l.c57::text), '')::numeric > 0
-                      AND abs(NULLIF(btrim(l.c57::text), '')::numeric - e.real_cost * e.bf)
-                          <= 0.15 * (e.real_cost * e.bf)
-                   THEN l.c9 / NULLIF(btrim(l.c58::text), '')::numeric
+                      AND l.costo_caja > 0
+                      AND abs(l.costo_caja - e.real_cost * e.bf) <= 0.15 * (e.real_cost * e.bf)
+                   THEN l.cantidad / l.unidades_por_caja
                  -- 2) FALLBACK — inferir la unidad por costo (lo único que había antes de RA-PRO.43):
-                 --    c9 × c12 es invariante a la unidad, así que c12 / costo_por_unidad_de_stock
-                 --    dice cuántas unidades de stock trae la línea; ÷bf la lleva a cajas.
-                 ELSE (l.c9 * CASE
-                         WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
-                         WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
-                         ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
+                 --    cantidad × costo_unitario es invariante a la unidad, así que
+                 --    costo_unitario / costo_por_unidad_de_stock dice cuántas unidades de stock
+                 --    trae la línea; ÷bf la lleva a cajas.
+                 ELSE (l.cantidad * CASE
+                         WHEN e.real_cost <= 0 OR l.costo_unitario <= 0 THEN 1
+                         WHEN l.costo_unitario / e.real_cost < 1.5 THEN 1
+                         ELSE LEAST(l.costo_unitario / e.real_cost, GREATEST(e.bf, 1)) END
                       ) / GREATEST(e.bf, 1)
                END) AS cj,
            sv.p AS w
-      FROM kepler_ods.kdm1 oc
-      JOIN kepler_ods.kdm2 l
-        ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
+      FROM oc_open oc
+      JOIN analytics.erp_purchase_doc_lines l
+        ON l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio
       JOIN commercial.warehouses w
-        ON w.tenant_id=$1 AND w.deleted_at IS NULL AND COALESCE(w.kepler_code, w.code)=oc.c1
-      JOIN econ e ON e.sku = l.c8
+        ON w.tenant_id=$1 AND w.deleted_at IS NULL AND COALESCE(w.kepler_code, w.code)=oc.sucursal
+      JOIN econ e ON e.sku = l.sku
       LEFT JOIN commercial.product_aliases al
         ON al.tenant_id=$1 AND al.alias_product_id=e.product_id AND al.deleted_at IS NULL
-      CROSS JOIN LATERAL (SELECT (CURRENT_DATE - oc.c9::date) AS age) a
-      JOIN surv sv ON sv.edad = ${SURV_BUCKET}
-     WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
-       AND oc.c9::date >= CURRENT_DATE - ${IN_TRANSIT_DAYS}
-       -- El propio ERP ya la dio por cerrada: F=finalizada, C=cancelada, R=recibida. La cadena de
-       -- documentos quedó rota pero no viene nada — 22 OCs / $1.28M de puro fantasma (2026-08-29).
-       AND COALESCE(oc.c43, 'N') NOT IN ('F', 'C', 'R')
-       AND NOT EXISTS (
-         SELECT 1 FROM kepler_ods.kdm1 vale
-         JOIN kepler_ods.kdm1 oe
-           ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
-          AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
-        WHERE vale.sucursal=oc.sucursal AND vale.c1=oc.c1
-          AND vale.c2='X' AND vale.c3='A' AND vale.c4='37' AND vale.c37='35' AND vale.c39=oc.c6)
+      JOIN surv sv ON sv.edad = ${survBucket('oc.dias_abierta')}
+     WHERE l.cantidad > 0
   ),
   tr AS (
     SELECT warehouse_id, product_id, sum(cj) AS t, sum(cj * w) AS te
@@ -175,23 +187,16 @@ const trEmpty = `tr AS (SELECT NULL::uuid AS warehouse_id, NULL::uuid AS product
 // ~16% de OCs capturadas ANTES de recibir: mediana del lag OC(X-A-35)→entrada(X-A-40) por proveedor
 // (n≥5; medido: mediana global 4d, p90 8d, 108 proveedores con señal). El fallback global viene en
 // la fila `supplier_id IS NULL`; el motor remata con COALESCE(..., 4).
+// RA-PRO.45.1: reusa `oc_hist` (la fecha de entrada ya está resuelta ahí) en vez de repetir el
+// barrido de la cadena. Antes esta consulta era la TERCERA copia del mismo decode.
 const leadOds = `
   lead_raw AS (
-    SELECT DISTINCT p.supplier_id, o.sucursal, o.c6 AS folio, (x.f_in - o.c9::date) AS d
-      FROM kepler_ods.kdm1 o
-      JOIN kepler_ods.kdm2 l
-        ON l.sucursal=o.sucursal AND l.c1=o.c1 AND l.c2=o.c2 AND l.c3=o.c3 AND l.c4=o.c4 AND l.c6=o.c6
-      JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=l.c8 AND p.supplier_id IS NOT NULL
-      CROSS JOIN LATERAL (
-        SELECT min(oe.c9::date) AS f_in
-          FROM kepler_ods.kdm1 vale
-          JOIN kepler_ods.kdm1 oe ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
-                                 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40'
-                                 AND oe.c37='37' AND oe.c39=vale.c6
-         WHERE vale.sucursal=o.sucursal AND vale.c1=o.c1 AND vale.c2='X' AND vale.c3='A'
-           AND vale.c4='37' AND vale.c37='35' AND vale.c39=o.c6) x
-     WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
-       AND o.c9::date >= CURRENT_DATE - 240 AND x.f_in > o.c9::date
+    SELECT DISTINCT p.supplier_id, o.sucursal, o.folio, (o.f_ent - o.f_oc) AS d
+      FROM oc_hist o
+      JOIN analytics.erp_purchase_doc_lines l
+        ON l.doctype='XA3501' AND l.sucursal=o.sucursal AND l.folio=btrim(o.folio)
+      JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=l.sku AND p.supplier_id IS NOT NULL
+     WHERE o.f_oc >= CURRENT_DATE - 240 AND o.f_ent > o.f_oc
   ),
   lead AS (
     SELECT supplier_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY d) AS lead_d
@@ -200,6 +205,8 @@ const leadOds = `
     SELECT NULL, percentile_cont(0.5) WITHIN GROUP (ORDER BY d) FROM lead_raw
   )`;
 const leadEmpty = `lead AS (SELECT NULL::uuid AS supplier_id, NULL::numeric AS lead_d WHERE false)`;
+const histEmpty = `oc_hist AS (SELECT NULL::text AS sucursal, NULL::text AS almacen, NULL::text AS folio,
+                                     NULL::date AS f_oc, NULL::text AS estatus, NULL::date AS f_ent WHERE false)`;
 
 // ÍNDICE ESTACIONAL (RA-PRO.41) — razón desestacionalizar→re-estacionalizar por producto (grano RED):
 //   season_ratio = idx(próximos 30 días) / idx(últimos 30 días)
@@ -299,8 +306,11 @@ const safetyCte = `
                       ELSE            LEAST(0.25, GREATEST(0, q.p70/q.mean4 - 1)) END AS safety_pct_q
             FROM sq q LEFT JOIN sabc a ON a.product_id=q.product_id)`;
 
-const cte = (tr, lead) => `
+// `hist` = oc_hist (la cadena OC→entrada resuelta una sola vez) o vacío si no hay ODS. Lo comparten
+// la curva de supervivencia (dentro de `tr`) y el lead time, que antes lo derivaban por separado.
+const cte = (hist, tr, lead) => `
   WITH ur AS (${urBody}),
+  ${hist},
   ${seasonCte},
   ${safetyCte},
   ${lead},
@@ -473,7 +483,7 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     console.log(`\n=== REPLENISHMENT PLAN → analytics.replenishment_plan (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     // El tránsito y el lead time se derivan del ODS (sin tabla ni importer). Sin ODS igual se arma.
     const hasOds = !!(await db.query(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0].t;
-    const CTE = cte(hasOds ? trOds : trEmpty, hasOds ? leadOds : leadEmpty);
+    const CTE = cte(hasOds ? ocHist : histEmpty, hasOds ? trOds : trEmpty, hasOds ? leadOds : leadEmpty);
     if (!hasOds) console.log('  ⚠ sin kepler_ods → tránsito = 0 y lead_days = NULL (dev local sin réplica)');
 
     const s = await db.query(`${CTE} SELECT count(*)::int filas, count(DISTINCT b.product_id)::int prods,
@@ -510,7 +520,7 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     // RA-PRO.45 — la curva de supervivencia se re-deriva cada corrida: hay que poder verla, y se
     // MATERIALIZA para que el motor y la bandeja de OCs abiertas lean la misma (un solo productor).
     if (hasOds) {
-      const sv = (await db.query(`WITH ${survOds} SELECT edad, n, round(p*100,1) pct FROM surv ORDER BY edad`)).rows;
+      const sv = (await db.query(`WITH ${ocHist}, ${survOds} SELECT edad, n, round(p*100,1) pct FROM surv ORDER BY edad`)).rows;
       const flacos = sv.filter((r) => Number(r.n) < SURV_MIN_N).length;
       console.log(`  supervivencia OC: ${sv.map((r) => `${r.edad}d→${r.pct}%`).join(' ')}${flacos ? `  ⚠ ${flacos} tramos sin muestra (fallback)` : ''}`);
       if (APPLY) {
