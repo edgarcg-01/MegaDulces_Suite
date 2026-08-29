@@ -105,7 +105,7 @@ interface Hoja {
           <h1>Pendientes de subir</h1>
           <p class="surf-page-sub">
             Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
-            contra Kepler y te digo si cuadra antes de guardar. Lo más atrasado va primero.
+            contra Kepler y te digo si cuadra antes de guardar. Lo más reciente va primero.
           </p>
         </div>
         <div class="ep-head-actions">
@@ -173,6 +173,7 @@ interface Hoja {
 
         <div class="ep-filters">
           <app-segmented [options]="estadoOpts" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Qué mostrar" />
+          <app-segmented [options]="ordenOpts" [value]="orden()" (valueChange)="setOrden($event)" ariaLabel="Orden de la lista" />
           <!--
             Buscador con sugerencias. Antes había que teclear y adivinar: se filtraba recién al
             salir del campo o al dar Enter, y si no aparecía nada no se sabía si el folio estaba
@@ -791,6 +792,19 @@ export class ComprasEntradasPendientesComponent {
   readonly rezago = signal(false);
   readonly diasMin = signal<number | undefined>(undefined);
   readonly page = signal(1);
+  /**
+   * `[RE.19]` — **lo más RECIENTE primero.** RE.13 lo dejó al revés (más viejo primero) con el
+   * argumento de que una worklist persigue el rezago; en uso real es fricción: el que sube
+   * tiene en la mano las facturas de HOY y tenía que raspar tres semanas de atraso para
+   * encontrarlas. Perseguir lo viejo sigue estando, pero por su propio camino: el botón de
+   * "N ya pasaron los X días" del veredicto, que filtra por antigüedad. El orden es
+   * cambiable porque los dos modos de trabajo existen — sólo que el default estaba mal.
+   */
+  readonly orden = signal<'reciente' | 'antiguedad'>('reciente');
+  readonly ordenOpts = [
+    { label: 'Recientes', value: 'reciente' },
+    { label: 'Más viejas', value: 'antiguedad' },
+  ];
   /** Señal, no propiedad suelta: el buscador con sugerencias reacciona a cada tecla. */
   readonly search = signal('');
   private readonly pageSize = 50;
@@ -871,7 +885,7 @@ export class ComprasEntradasPendientesComponent {
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
           dias_min: this.diasMin(),
-          orden: 'antiguedad',
+          orden: this.orden(),
           page: this.page(),
           pageSize: this.pageSize,
         };
@@ -918,9 +932,15 @@ export class ComprasEntradasPendientesComponent {
   }
   setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.syncUrl(); this.reload(); }
   setRezago(v: boolean): void { this.rezago.set(v); this.volverAlInicio(); this.reload(); }
+  /** Cambiar el orden vuelve a la página 1 pero NO tira el filtro de antigüedad: reordenar no
+   *  es re-filtrar, y perder "sólo las atrasadas" por tocar el orden se siente roto. */
+  setOrden(v: string): void { this.orden.set(v as 'reciente' | 'antiguedad'); this.page.set(1); this.reload(); }
   soloAtrasadas(): void {
     const sla = this.report()?.settings?.sla_capture_days ?? 3;
-    this.estado.set('pendiente'); this.diasMin.set(sla + 1); this.page.set(1); this.reload();
+    // Perseguir el atraso SÍ quiere lo más viejo arriba: es el otro modo de trabajo, y llegar
+    // acá con el orden de "recientes" mostraría las menos urgentes primero dentro del filtro.
+    this.estado.set('pendiente'); this.diasMin.set(sla + 1); this.orden.set('antiguedad');
+    this.page.set(1); this.reload();
   }
   irPagina(n: number): void { this.page.set(Math.max(1, n)); this.reload(); }
 
@@ -949,7 +969,7 @@ export class ComprasEntradasPendientesComponent {
           search: t,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
-          orden: 'antiguedad',
+          orden: this.orden(),
           page: 1,
           pageSize: 8,
         }).pipe(catchError(() => of(null)));
