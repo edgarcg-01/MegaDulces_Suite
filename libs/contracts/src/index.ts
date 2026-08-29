@@ -12,3 +12,6 @@ export * from './ports/finance-findings-sink.port';
 export * from './ports/invoice-issuer.port';
 export * from './ports/commerce-conversation.port';
 export * from './ports/bank-capture.port';
+
+// ── http wire contracts (ADR-052): request/response del boundary REST ──
+export * from './http/command-center.contract';

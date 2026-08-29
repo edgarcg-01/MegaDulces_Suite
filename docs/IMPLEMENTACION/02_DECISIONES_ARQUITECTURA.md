@@ -1197,6 +1197,8 @@ Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambia
 
 **Consecuencias:** ✅ el stream de Maat ya no muere por proxy idle (keepalive 15s) ni quema tokens contra un socket muerto (corta en el borde de la iteración cuando el cliente se va, y no audita respuestas que nadie va a leer). ✅ menos superficie: fuera un módulo global inerte y dos dependencias muertas. ✅ `generate:openapi` vuelve a correr y ahora sirve para revisar el diff del contrato antes de commitear. ⚠️ el snapshot `swagger.json` está gitignored: el diff es local, no un gate de CI (candidato a CI después). Hereda ADR-016 (motor decide / LLM fuera del camino) y ADR-043 (monolito modular + worker-tier).
 
+**Actualización 2026-08-29 (ADR-052):** la cláusula de *contrato de tipos* (services a mano + OpenAPI solo snapshot, cliente generado rechazado) se **revisa** con dato nuevo medido — 849 contratos HTTP escritos a mano y desacoplados + hueco de validación en 310 `@Body()`. Se adopta una **fuente única de tipos en `libs/contracts` importada por los dos lados** (no el cliente OpenAPI generado, que sigue rechazado). Ver **ADR-052** (abajo). El resto de ADR-045 (REST+Socket.IO, GraphQL rechazado, puertos in-process, SSE, snapshot OpenAPI) queda intacto.
+
 ---
 
 ### ADR-046: Consolidación de la ingesta — `kepler_ods` como único crudo canónico Kepler
@@ -1373,3 +1375,46 @@ Plan en [`FASE_WMS_ESTACION_RECEPCION`](FASES/FASE_WMS_ESTACION_RECEPCION.md).
 - **Meter los scopes en el JWT** — tamaño de token y obliga a re-login por cada cambio de alcance operativo.
 
 Plan en [`FASE_ID_IDENTIDAD_ACCESOS_ALCANCE`](FASES/FASE_ID_IDENTIDAD_ACCESOS_ALCANCE.md).
+
+---
+
+## ADR-052 — **Contratos de tipos del boundary REST**: fuente única en `libs/contracts`, importada por los dos lados (evoluciona ADR-045)
+
+**Estado:** ✅ Aceptado — 2026-08-29. Revisa en parte la cláusula de *contrato de tipos* de **ADR-045**.
+
+**Fecha:** 2026-08-29
+
+**Contexto:** ADR-045 (2026-08-18) cerró el catálogo de transportes — REST + Socket.IO como columna, GraphQL rechazado (over-fetching no medido) — y, sobre el *contrato de tipos*, dejó los ~41 módulos de services Angular escritos a mano con OpenAPI solo como snapshot para diff, porque "reescribir 41 módulos sin ganancia funcional" no se justificaba entonces. Esa ganancia ahora está **medida** (2026-08-29):
+
+- **849** llamadas HTTP del front tipadas con genéricos escritos **a mano** = 849 contratos duplicados y desacoplados del backend. Un cambio de forma en el backend **no rompe el compile del front**; llega mal formado en runtime.
+- **47** `Promise<any>` en services del backend + **55** `: any` en services del front + solo **25** `.dto.ts` para **117** controllers → el boundary está ~78% sin tipar.
+- **310** `@Body()` en 91 controllers, la mayoría **sin DTO validado** → además del drift, hueco de validación en runtime.
+
+El costo de "no romper en silencio" que ADR-045 ya resolvió para los puertos in-process (`libs/contracts` — su propio `index.ts` lo dice: "producer y consumer importan el mismo tipo → error de compilación en ambos lados") **no se aplicó al boundary HTTP**, que es donde vive el 99% del tráfico. La decisión de Edgar ("hay que tipar todo") reabre esa cláusula con dato nuevo.
+
+**Decisión:** extender el mismo lib y el mismo principio al wire REST.
+
+1. **`libs/contracts` es la fuente única del contrato HTTP.** Nuevo `src/http/<dominio>.contract.ts` con esquemas **Zod** (ya es dependencia, v4). `z.infer` da el tipo TS que importan **NestJS (controller/service) y Angular (service)** — el mismo símbolo en los dos lados. Cero codegen, cero spec que se pone stale.
+2. **El schema Zod es también la validación de entrada.** Un `ZodValidationPipe` (propio, ~15 líneas; `nestjs-zod` opcional) valida `@Body()`/`@Query()` contra el mismo schema → cierra el hueco de los 310 `@Body()`. Tipo y validación de un solo lugar.
+3. **El response se tipa declarando el return type del controller** (`Promise<z.infer<typeof X>>`). El eslabón difícil es Knex (no es type-safe): se generan los **tipos de fila desde el schema Postgres** (`pg-to-ts` / `kysely-codegen`) y los queries usan `knex<Row>()`. El controller compone el response desde filas tipadas.
+4. **No es el cliente OpenAPI generado** (lo que ADR-045 rechazó). Es import directo de tipos del monorepo — una tercera opción que ADR-045 no evaluó (planteó "services a mano vs cliente generado" y omitió "services a mano importando el contrato compartido"). No se reescriben los services de golpe: cada service **cambia solo el tipo** que importa y borra su interface local.
+5. **Migración incremental con ratchet, no big-bang.** Gate de CI que frena `any` en el boundary del código **nuevo** primero; luego barrido por tráfico; el lint pasa a `error` por módulo a medida que se cierra.
+6. **OpenAPI snapshot (`generate:openapi`) se queda** como está para diff/documentación externa (ADR-045 intacto ahí); deja de ser el puente de tipos. Opcional: enriquecerlo desde los Zod (`z.toJSONSchema()` nativo de Zod 4).
+
+Lo que **no cambia** de ADR-045: REST + Socket.IO, GraphQL sigue rechazado (misma compuerta: consumidor externo que arme sus propias consultas), los puertos in-process, SSE artesanal, el snapshot OpenAPI.
+
+**Consecuencias:**
+- ✅ Un cambio de forma en el backend es **error de compilación en el front** — la garantía que el lib ya prometía, extendida al boundary donde está el tráfico.
+- ✅ Los 310 `@Body()` ganan validación de runtime del mismo schema (correctness + seguridad).
+- ✅ RLS/tenant intacto: es tipado en compile-time, no toca runtime. `TenantKnexService.run()` sigue igual.
+- ⚠️ `libs/contracts` deja de ser "solo tipos" y gana **una dep de runtime (zod)**; entra al bundle del front (~12–14 kB gzip, aceptable). Los `ports/*` siguen type-only.
+- ⚠️ El costo real es el **response typing sobre Knex** (117 controllers): semanas, incremental. El gate de CI (TS.0) evita que la deuda vuelva a subir mientras se baja.
+- ⚠️ `nestjs-zod` + Zod v4 puede tener fricción de versión → se arranca con pipe propio.
+
+**Alternativas rechazadas:**
+- **Cliente OpenAPI generado** — ya rechazado por ADR-045 (codegen externo + reescribir services). El import de tipo compartido logra el mismo fin sin esas dos cosas.
+- **Tipar a mano los dos lados** — duplica los 849 contratos y reintroduce el drift el día 1.
+- **Migrar a Prisma/Drizzle/Kysely** por type-safety de DB — descartado: inversión enorme en Knex + RLS vía `TenantKnexService`; generar tipos de fila da el 80% sin tocar el runtime.
+- **GraphQL / tRPC** — exigen tipar todo el schema por adelantado (peor contra un boundary 78% sin tipar) y rompen Throttler / multiplican el riesgo de RLS. Ver ADR-045.
+
+Plan en [`FASE_TS_CONTRATOS_TIPADOS`](FASES/FASE_TS_CONTRATOS_TIPADOS.md).
