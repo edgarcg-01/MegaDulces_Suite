@@ -318,6 +318,107 @@ export class CommercialProfitabilityService {
     return Number(r?.monto) || 0;
   }
 
+  /**
+   * Descuento HABITUAL del proveedor contra el efectivamente cobrado (MR.6).
+   *
+   * ⚠️ `expected_discount_rate` es una **fracción**, no un porcentaje: los 147
+   * registros de prod están entre 0.0019 y 0.0741, con `source='observed'`.
+   * Dividirla entre 100 —como hacía este servicio— daba un esperado 100 veces
+   * más chico, así que el bloque "Lo pactado" jamás podía marcar un faltante.
+   * Comprobación de escala: HERSHEY tiene 7.20% habitual contra 7.21% real.
+   *
+   * Y se compara contra **compras**, no contra COGS: el descuento se gana sobre
+   * lo que se compra. Compararlo contra el costo de lo vendido son dos bases
+   * distintas (en 365d: $618M de compras contra $564M de COGS).
+   *
+   * `source='observed'` importa para el rótulo: NO es un contrato capturado, es
+   * la tasa que ese proveedor viene dando. La brecha se lee "está por debajo de
+   * su propio comportamiento", no "incumple lo firmado".
+   */
+  private async uncollectedDiscount(trx: any, days: number) {
+    const rows = await trx.raw(
+      `WITH comp AS (
+         SELECT proveedor_code, SUM(monto) AS compras
+           FROM analytics.erp_goods_receipts
+          WHERE tenant_id = public.current_tenant_id()
+            AND receipt_date >= CURRENT_DATE - INTERVAL '${days} days'
+            AND dup_of_folio IS NULL
+          GROUP BY 1),
+       aj AS (
+         SELECT proveedor_code, SUM(monto) AS monto
+           FROM analytics.erp_purchase_adjustments
+          WHERE tenant_id = public.current_tenant_id()
+            AND adjustment_date >= CURRENT_DATE - INTERVAL '${days} days'
+            AND categoria IN (${LEVER_CATS.map((l) => `'${l.cat}'`).join(',')})
+          GROUP BY 1),
+       pg AS (
+         SELECT proveedor_code, SUM(descuento) AS d
+           FROM analytics.erp_supplier_payments
+          WHERE tenant_id = public.current_tenant_id()
+            AND pago_date >= CURRENT_DATE - INTERVAL '${days} days'
+          GROUP BY 1)
+       SELECT s.id AS supplier_id, s.name,
+              pol.expected_discount_rate AS rate,
+              c.compras,
+              (c.compras * pol.expected_discount_rate) AS expected,
+              (COALESCE(aj.monto, 0) + COALESCE(pg.d, 0)) AS taken
+         FROM commercial.supplier_discount_policy pol
+         JOIN catalog.suppliers s
+           ON s.code = pol.proveedor_code AND s.tenant_id = pol.tenant_id AND s.deleted_at IS NULL
+         JOIN comp c ON c.proveedor_code = pol.proveedor_code
+         LEFT JOIN aj ON aj.proveedor_code = pol.proveedor_code
+         LEFT JOIN pg ON pg.proveedor_code = pol.proveedor_code
+        WHERE pol.tenant_id = public.current_tenant_id()
+          AND pol.expected_discount_rate > 0
+          AND c.compras > 0`,
+    );
+    const all = (rows?.rows ?? rows ?? []).map((r: any) => ({
+      supplier_id: r.supplier_id,
+      name: r.name,
+      rate_pct: Number(r.rate) * 100,
+      purchases: Number(r.compras) || 0,
+      expected: Number(r.expected) || 0,
+      taken: Number(r.taken) || 0,
+      missing: Math.max(0, (Number(r.expected) || 0) - (Number(r.taken) || 0)),
+    }));
+    const missing = all.reduce((a, r) => a + r.missing, 0);
+    return {
+      /** Lo que faltó cobrar, en pesos de COMPRA. */
+      missing,
+      suppliers_with_policy: all.length,
+      suppliers_below: all.filter((r) => r.missing > 0).length,
+      /** Los que más dinero dejan sobre la mesa: el renglón tiene que ser navegable. */
+      top: all
+        .filter((r) => r.missing > 0)
+        .sort((a, b) => b.missing - a.missing)
+        .slice(0, 8),
+    };
+  }
+
+  /** Descuento otorgado al cliente. Sólo existe sobre lo FACTURADO, y se dice. */
+  private async customerDiscount(trx: any, days: number) {
+    const [r] = await trx('analytics.erp_sales_invoices')
+      .whereRaw('tenant_id = public.current_tenant_id()')
+      .whereRaw(`fecha >= CURRENT_DATE - INTERVAL '${days} days'`)
+      .whereRaw('NOT cancelada')
+      .select(
+        trx.raw('COALESCE(SUM(descuento), 0)::numeric AS amount'),
+        trx.raw('COUNT(*) FILTER (WHERE descuento > 0)::int AS docs'),
+        trx.raw('COALESCE(SUM(subtotal), 0)::numeric AS invoiced'),
+      );
+    const amount = Number(r?.amount) || 0;
+    const invoiced = Number(r?.invoiced) || 0;
+    return {
+      amount,
+      docs: Number(r?.docs) || 0,
+      /** La base sobre la que SÍ se puede medir. El resto de la venta no factura. */
+      invoiced_revenue: invoiced,
+      pct_of_invoiced: invoiced > 0 ? (amount / invoiced) * 100 : null,
+      note:
+        'Descuento de encabezado en facturas de venta. El fact registra el importe por línea, así que este descuento NO estaba dentro del margen: restarlo no lo cuenta dos veces. Sólo cubre la venta facturada.',
+    };
+  }
+
   /** Descuento efectivamente tomado al pagar (`c84`) en la ventana. */
   private async payDiscount(trx: any, days: number, supplierCode?: string) {
     let q = trx('analytics.erp_supplier_payments')
@@ -481,6 +582,55 @@ export class CommercialProfitabilityService {
 
       const asOf = await this.dataAsOf(trx);
 
+      // ── MR.6 — el puente de la brecha ────────────────────────────────────
+      // Aditivo por construcción: cada renglón suma o resta puntos sobre la MISMA
+      // venta, y el último es el residuo. Sin eso, "descomponer la brecha" son
+      // cinco números que no cierran y cada área discute el suyo.
+      const uncol = await this.uncollectedDiscount(trx, w.days);
+      const cust = await this.customerDiscount(trx, w.days);
+
+      /**
+       * El pronto pago llega por DOS canales (nota X-D-55 y `c84` al pagar). Si un
+       * proveedor usa los dos, parte puede ser el mismo descuento contado dos
+       * veces, y eso infla el margen negociado. Se acota por el mínimo de ambos
+       * canales por proveedor —el máximo que podría estar duplicado— y se declara.
+       */
+      const [ov] = await trx.raw(
+        `WITH nota AS (
+           SELECT proveedor_code, SUM(monto) m FROM analytics.erp_purchase_adjustments
+            WHERE tenant_id = public.current_tenant_id()
+              AND adjustment_date >= CURRENT_DATE - INTERVAL '${w.days} days'
+              AND categoria = 'pronto_pago' GROUP BY 1),
+         pago AS (
+           SELECT proveedor_code, SUM(descuento) d FROM analytics.erp_supplier_payments
+            WHERE tenant_id = public.current_tenant_id()
+              AND pago_date >= CURRENT_DATE - INTERVAL '${w.days} days'
+              AND descuento > 0 GROUP BY 1)
+         SELECT COUNT(*)::int AS suppliers,
+                COALESCE(SUM(LEAST(nota.m, pago.d)), 0)::numeric AS amount
+           FROM nota JOIN pago ON pago.proveedor_code = nota.proveedor_code`,
+      ).then((r: any) => r?.rows ?? r ?? []);
+      const overlapAmount = Number(ov?.amount) || 0;
+      const pp = (amount: number) => (revenue > 0 ? (amount / revenue) * 100 : 0);
+      // Lo no cobrado está en pesos de COMPRA: a margen sólo llega la parte ya
+      // vendida, con la misma conversión que las palancas.
+      const uncollectedEffect = purchases > 0 ? cost * (uncol.missing / purchases) : 0;
+      const integralAmount = negotiatedAmount - cust.amount;
+      const integralPct = revenue > 0 ? (integralAmount / revenue) * 100 : null;
+      const ceilingAmount = integralAmount + uncollectedEffect;
+      const ceilingPct = revenue > 0 ? (ceilingAmount / revenue) * 100 : null;
+
+      const bridge = [
+        { key: 'gross', kind: 'start', label: 'Margen comercial bruto', owner: 'Comercial + Compras', amount: marginAmount, pct: marginPct, pp: null as number | null },
+        { key: 'levers', kind: 'done', label: 'Palancas ya cobradas al proveedor', owner: 'Compras', amount: marginEffectTotal, pct: null, pp: pp(marginEffectTotal) },
+        { key: 'negotiated', kind: 'subtotal', label: 'Margen negociado', owner: 'Compras', amount: negotiatedAmount, pct: negotiatedPct, pp: null },
+        { key: 'customer_discount', kind: 'cost', label: 'Descuento otorgado al cliente', owner: 'Comercial', amount: -cust.amount, pct: null, pp: -pp(cust.amount) },
+        { key: 'integral', kind: 'subtotal', label: 'Margen integral (incompleto)', owner: 'Dirección', amount: integralAmount, pct: integralPct, pp: null },
+        { key: 'uncollected', kind: 'action', label: 'Descuento habitual que no se cobró', owner: 'Compras', amount: uncollectedEffect, pct: null, pp: pp(uncollectedEffect) },
+        { key: 'ceiling', kind: 'subtotal', label: 'Techo con lo que hoy se puede medir', owner: null, amount: ceilingAmount, pct: ceilingPct, pp: null },
+        { key: 'residual', kind: 'unknown', label: 'Sin fuente todavía', owner: 'Dirección', amount: null, pct: null, pp: ceilingPct === null ? null : target - ceilingPct },
+      ];
+
       return {
         window: opts.window ?? '30d',
         target,
@@ -513,6 +663,39 @@ export class CommercialProfitabilityService {
           conflict_skus: Number(cq?.skus) || 0,
           conflict_revenue: Number(cq?.revenue) || 0,
           note: 'El costo de catálogo de estos SKUs está en otra unidad que la venta (caja vs pieza). El margen sale del costo del PdV; el inventario de estos SKUs no es confiable.',
+        },
+        /**
+         * Margen integral: negociado menos lo que le devolvemos al cliente.
+         * **Incompleto a propósito** — le faltan dos restas sin fuente. Publicarlo
+         * como si estuviera completo sería peor que no publicarlo.
+         */
+        margin_integral_amount: integralAmount,
+        margin_integral_pct: integralPct,
+        integral_complete: false,
+        integral_missing: [
+          { key: 'promociones_absorbidas', label: 'Promociones absorbidas por Mega Dulces', reason: 'commercial.promotions no tiene filas' },
+          { key: 'costo_logistico', label: 'Costo logístico atribuible', reason: 'logistics.shipment_expenses no tiene filas' },
+        ],
+        customer_discount: cust,
+        /** MR.6 — la brecha descompuesta, aditiva y con dueño por renglón. */
+        bridge,
+        /** Cuánto del negociado podría ser el mismo pronto pago contado dos veces. */
+        overlap_risk: {
+          amount: overlapAmount,
+          suppliers: Number(ov?.suppliers) || 0,
+          pct_of_levers: commercialTotal > 0 ? (overlapAmount / commercialTotal) * 100 : null,
+          note:
+            'Proveedores que dan pronto pago por nota de crédito Y por descuento al pagar. El monto es el máximo que podría estar duplicado (el mínimo de ambos canales), no una certeza.',
+        },
+        uncollected: {
+          /** En pesos de compra; `margin_effect` es la parte que ya sería margen. */
+          amount: uncol.missing,
+          margin_effect: uncollectedEffect,
+          suppliers_with_policy: uncol.suppliers_with_policy,
+          suppliers_below: uncol.suppliers_below,
+          top: uncol.top,
+          note:
+            'La tasa de referencia es la OBSERVADA de cada proveedor (source=observed), no un contrato firmado: la brecha se lee "está dando menos de lo que suele dar".',
         },
         bands,
         levers,
@@ -960,19 +1143,30 @@ export class CommercialProfitabilityService {
           benefit_unit: 'unconfirmed' as const,
           note: 'Promoción vigente por SKU (kdpv_descuxq). `benefit` sólo toma los valores 2/3/4/5: la unidad NO está confirmada, no se publica como porcentaje ni se resta del margen.',
         },
+        /**
+         * Lo habitual contra lo cobrado. Dos correcciones sobre la versión previa,
+         * que hacían imposible que este bloque detectara una fuga:
+         *  1. `expected_discount_rate` es una **fracción** (0.0741 = 7.41%), no un
+         *     porcentaje: dividirla entre 100 daba un esperado 100 veces menor.
+         *  2. La base son las **compras**, no el COGS: el descuento se gana sobre
+         *     lo que se compra, y `taken_amount` ya está medido sobre compras.
+         */
         policy: policy
           ? {
+              /** Se expone en % para la UI; en la tabla vive como fracción. */
               expected_discount_rate:
-                policy.expected_discount_rate === null ? null : Number(policy.expected_discount_rate),
+                policy.expected_discount_rate === null ? null : Number(policy.expected_discount_rate) * 100,
               discount_days: policy.discount_days,
               discount_type: policy.discount_type,
               source: policy.source,
               expected_amount:
                 policy.expected_discount_rate === null
                   ? null
-                  : (Number(base?.cost) || 0) * (Number(policy.expected_discount_rate) / 100),
-              /** Lo efectivamente cobrado, para contrastar con lo pactado (fuga). */
-              taken_amount: commercialTotal,
+                  : purchases * Number(policy.expected_discount_rate),
+              /** Lo efectivamente cobrado, sobre la misma base (compras). */
+              taken_amount: commercialTotal + pay.amount,
+              /** `observed` = la tasa que ese proveedor viene dando, no un contrato. */
+              is_observed: policy.source === 'observed',
             }
           : null,
         /** Lo único que hoy no tiene fuente. Lo demás existe y ya está arriba. */

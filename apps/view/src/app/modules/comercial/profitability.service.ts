@@ -30,6 +30,20 @@ export interface MarginLever {
   pp: number | null;
 }
 
+/**
+ * Un renglón del puente de la brecha (MR.6). `kind` dice cómo se lee:
+ * `start`/`subtotal` traen un margen %, los demás traen puntos que suman o restan.
+ */
+export interface BridgeStep {
+  key: string;
+  kind: 'start' | 'done' | 'cost' | 'action' | 'subtotal' | 'unknown';
+  label: string;
+  owner: string | null;
+  amount: number | null;
+  pct: number | null;
+  pp: number | null;
+}
+
 export interface NonMarginBlock {
   amount: number;
   docs: number;
@@ -70,6 +84,33 @@ export interface ProfitabilityOverview {
   levers_amount_total: number;
   levers_margin_effect: number;
   non_margin: { operacional: NonMarginBlock; error_captura: NonMarginBlock };
+
+  // ── MR.6 — la brecha descompuesta ─────────────────────────────────────────
+  /** Renglones aditivos: cada uno suma o resta pp sobre la misma venta. */
+  bridge: BridgeStep[];
+  /** Negociado − lo que le devolvemos al cliente. Incompleto a propósito. */
+  margin_integral_amount: number;
+  margin_integral_pct: number | null;
+  integral_complete: boolean;
+  integral_missing: { key: string; label: string; reason: string }[];
+  customer_discount: {
+    amount: number;
+    docs: number;
+    invoiced_revenue: number;
+    pct_of_invoiced: number | null;
+    note: string;
+  };
+  uncollected: {
+    amount: number;
+    margin_effect: number;
+    suppliers_with_policy: number;
+    suppliers_below: number;
+    top: { supplier_id: string; name: string; rate_pct: number; purchases: number; expected: number; taken: number; missing: number }[];
+    note: string;
+  };
+  /** Pronto pago por dos canales: cuánto del negociado podría estar duplicado. */
+  overlap_risk: { amount: number; suppliers: number; pct_of_levers: number | null; note: string };
+
   /** `benefit` crudo: la unidad NO está confirmada, no se publica como %. */
   promotions: { skus_con_promo: number; avg_benefit: number | null; benefit_unit: 'unconfirmed' };
   /** Sobre qué parte del universo se calculó el margen. El número honesto. */
