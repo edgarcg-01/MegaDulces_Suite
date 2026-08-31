@@ -29,8 +29,21 @@ const path = require('path');
 const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
 const WINCAJA = 'database/importers/wincaja/replicate-wincaja-live.js';
 
-// Escribe directo a :5433/wincaja (NO usa feeds-ingest) → hereda el entorno tal cual, sin FEEDS_SINK.
-const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true };
+// Escribe directo a :5433/wincaja (NO usa feeds-ingest) → sin FEEDS_SINK.
+//
+// El heartbeat SÍ necesita la DB de plataforma (escribe a cron_runs). PM2 no hereda el entorno del
+// shell de forma confiable, y sin esta var los dos carriles corren MUDOS: es exactamente lo que dejó
+// la réplica 4 días en cero (27→31 ago 2026) mientras `pm2 ls` decía "online". Se pasa explícita y
+// se falla ACÁ, al arrancar, en vez de dos días después en un log que nadie mira.
+const DB = process.env.DATABASE_URL_NEW || process.env.DATABASE_URL;
+if (!DB) {
+  throw new Error('falta DATABASE_URL_NEW: exportala antes de "pm2 start" — el heartbeat la necesita '
+    + 'para reportar a cron_runs; sin ella un feed muerto es indistinguible de uno sano.');
+}
+const base = {
+  cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true,
+  env: { DATABASE_URL_NEW: DB },
+};
 
 module.exports = {
   apps: [

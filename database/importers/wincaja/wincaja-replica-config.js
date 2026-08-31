@@ -7,6 +7,12 @@
  * `superoot` es COMPARTIDO y está pendiente de rotar — no hardcodear en scripts que se compartan;
  * override por env cuando toque.
  */
+/**
+ * ⚠️ `Z:` es una unidad MAPEADA y los mapeos de Windows son POR SESIÓN de login: un servicio, una
+ * tarea como SYSTEM o un PM2 levantado en otra sesión puede no verla NUNCA. Preferí una ruta UNC
+ * (\\servidor\share\...) en WINCAJA_MDB_BASE — no depende de la sesión. El default queda en Z: por
+ * compatibilidad con la box actual; el replicador hace preflight y avisa si no la alcanza.
+ */
 const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
 const REPLICA_URL = process.env.WINCAJA_REPLICA_URL || 'postgresql://postgres:superoot@localhost:5433/wincaja';
 const ADMIN_URL = process.env.WINCAJA_REPLICA_ADMIN_URL || 'postgresql://postgres:superoot@localhost:5433/postgres';
