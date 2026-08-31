@@ -1,4 +1,4 @@
-import { EntradaDetail, EntradaLinea, ReceiptDeposit } from './entradas.service';
+import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from './entradas.service';
 import { money } from '../../shared/util';
 
 /**
@@ -140,4 +140,24 @@ export const MOTIVOS_RECHAZO: { code: string; label: string }[] = [
 
 export function motivoLabel(code?: string | null): string {
   return MOTIVOS_RECHAZO.find((m) => m.code === code)?.label || '';
+}
+
+/**
+ * `[RE.20.3]` — motivos de **descarte**. Distintos de los de rechazo a propósito: devolver
+ * rebota a la sucursal para que suba algo que sí existe; descartar dice que **no existe ni va a
+ * existir** una factura de proveedor. Confundirlos deja a la sucursal persiguiendo un papel que
+ * nadie va a emitir.
+ *
+ * `pista` es lo que el revisor tiene que reconocer en la fila para elegir bien.
+ */
+export const MOTIVOS_DESCARTE: { code: MotivoDescarte; label: string; pista: string }[] = [
+  { code: 'traspaso', label: 'Traspaso entre sucursales', pista: 'El proveedor es otra sucursal (código TI…), no hay factura externa.' },
+  { code: 'cancelada_erp', label: 'Cancelada o capturada por error', pista: 'El documento no debía existir; quedó en Kepler.' },
+  { code: 'duplicada', label: 'Ya está capturada en otra orden', pista: 'La misma recepción entró dos veces con folios distintos.' },
+  { code: 'sin_costo', label: 'Entrada sin costo ($0)', pista: 'Muestra, bonificación o corrección: no genera factura.' },
+  { code: 'otro', label: 'Otro (explicar)', pista: 'Escribí por qué: el descarte saca la fila del número que se vigila.' },
+];
+
+export function motivoDescarteLabel(code?: string | null): string {
+  return MOTIVOS_DESCARTE.find((m) => m.code === code)?.label || '';
 }

@@ -146,6 +146,36 @@ exports.up = async function up(knex) {
   // que necesita la lista para poder decir "también está en oficinas como 00/0009136".
   await knex.raw(`CREATE INDEX IF NOT EXISTS ix_grd_canonica
                     ON analytics.erp_goods_receipt_dedup (tenant_id, dup_of_sucursal, dup_of_folio)`);
+  // ── Saneo previo: las marcas RE.12 que ya venían empatadas ────────────────
+  // El `DEFAULT 'auto'` de arriba convierte TODAS las marcas viejas en vigentes, y en una base
+  // con historia eso puede dejar dos copias de oficinas ocultando la MISMA canónica — que es
+  // justo lo que el índice de abajo prohíbe. Encontrado al aplicar a producción 2026-08-29:
+  // **16 canónicas con 2–3 copias cada una** (34 filas), o sea que el detector de RE.12
+  // sobre-apareó y hay dinero de oficinas escondido de más.
+  //
+  // Se bajan a `propuesto` TODAS las de un grupo empatado, no "la peor": las marcas viejas no
+  // traen `match_score` con qué desempatar, y elegir una al azar es adivinar cuál compra se
+  // esconde. `propuesto` NO oculta, así que las dos vuelven a contarse (que es el default
+  // correcto cuando no se sabe) y una persona dictamina en la pestaña de Capturas duplicadas.
+  //
+  // Idempotente: sólo toca grupos con más de una vigente. En una base limpia no hace nada.
+  const saneadas = await knex.raw(`
+    WITH empatadas AS (
+      SELECT tenant_id, dup_of_sucursal, dup_of_folio
+        FROM analytics.erp_goods_receipt_dedup
+       WHERE dup_of_folio IS NOT NULL AND status IN ('auto','confirmado')
+       GROUP BY 1,2,3 HAVING count(*) > 1
+    )
+    UPDATE analytics.erp_goods_receipt_dedup d
+       SET status = 'propuesto'
+      FROM empatadas e
+     WHERE d.tenant_id = e.tenant_id AND d.dup_of_sucursal = e.dup_of_sucursal
+       AND d.dup_of_folio = e.dup_of_folio AND d.status IN ('auto','confirmado')
+    RETURNING d.cedis_folio`);
+  if (saneadas.rowCount) {
+    console.log(`[goods_receipt_twins] ${saneadas.rowCount} marca(s) RE.12 empatadas bajadas a 'propuesto': dos copias de oficinas ocultaban la misma canónica. Vuelven a contarse hasta que alguien dictamine en Capturas duplicadas.`);
+  }
+
   // El par es 1:1: la PK ya impide que una copia de oficinas apunte a dos canónicas; esto impide
   // lo inverso (dos copias VIGENTES sobre la misma canónica), que es lo que rompería el cuadre.
   // Sólo aplica a las que ocultan: de las 'propuesto' puede haber varias compitiendo por la misma

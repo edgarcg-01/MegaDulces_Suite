@@ -11,12 +11,15 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { EntradasService, CoverageReport, CoverageRow } from '../entradas.service';
+import { motivoDescarteLabel } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { money, moneyShort } from '../../../shared/util';
+import { money, moneyShort, toggleSort, sortIcon, ariaSort, sortRows, type SortState, type SortDir } from '../../../shared/util';
 
 type Periodo = 'arranque' | 'mes' | 'semana';
 
@@ -47,13 +50,13 @@ type Periodo = 'arranque' | 'mes' | 'semana';
   imports: [
     CommonModule, RouterLink, ButtonModule, TooltipModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
-    SegmentedComponent, ContextHelpComponent,
+    SegmentedComponent, ContextHelpComponent, TableDensityComponent,
   ],
   template: `
     <div class="surf-page in ec">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Centro de control · Facturas de entrada</h1>
+          <h1>Control de entradas</h1>
           <p class="surf-page-sub">
             Cada sucursal responde por lo suyo. Esto es lectura:
             @if (canManage() || canValidate()) {
@@ -64,6 +67,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
           </p>
         </div>
         <div class="ec-head">
+          <app-table-density />
           <app-freshness-pill [since]="cargadoAt()" label="calculado" [staleAfterSec]="300" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"
@@ -113,18 +117,71 @@ type Periodo = 'arranque' | 'mes' | 'semana';
           <div class="ec-scroll">
             <!-- Acá el modificador frozen-first SÍ corresponde: 10 columnas con scroll y la
                  primera es la identificadora (la sucursal). -->
-            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first ec-table">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first ec-table"
+                   [class.is-dense]="density.dense()">
+              <!-- RE.20.2 — todas ordenables menos la de acciones: en un tablero de comparación
+                   cada columna ES una forma de preguntar "¿quién está peor?". El default sigue
+                   siendo por sucursal (el que devuelve el backend), que es el orden estable
+                   para volver a buscar la propia. -->
               <thead>
                 <tr>
-                  <th scope="col">Sucursal</th>
-                  <th scope="col">Quién sube</th>
-                  <th scope="col" class="comm-num">Órdenes</th>
-                  <th scope="col">Con factura</th>
-                  <th scope="col" class="comm-num">Validadas</th>
-                  <th scope="col" class="comm-num">Por revisar</th>
-                  <th scope="col" class="comm-num">Vencidas</th>
-                  <th scope="col" class="comm-num" pTooltip="La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90" tooltipPosition="top">Antigüedad p50/p90</th>
-                  <th scope="col" class="comm-num">$ sin factura</th>
+                  <th scope="col" [attr.aria-sort]="ariaSort(sort(), 'sucursal')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('sucursal', 'asc')" aria-label="Ordenar por sucursal">
+                      Sucursal <i [class]="sortIcon(sort(), 'sucursal')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" [attr.aria-sort]="ariaSort(sort(), 'responsables')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('responsables', 'asc')"
+                            aria-label="Ordenar por cuánta gente puede subir (las que no tienen a nadie, primero)">
+                      Quién sube <i [class]="sortIcon(sort(), 'responsables')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'entradas')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('entradas')" aria-label="Ordenar por número de órdenes">
+                      Órdenes <i [class]="sortIcon(sort(), 'entradas')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" [attr.aria-sort]="ariaSort(sort(), 'pct_evidencia')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('pct_evidencia', 'asc')"
+                            aria-label="Ordenar por porcentaje con factura, de menor a mayor">
+                      Con factura <i [class]="sortIcon(sort(), 'pct_evidencia')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'validadas')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('validadas')" aria-label="Ordenar por validadas">
+                      Validadas <i [class]="sortIcon(sort(), 'validadas')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'por_validar')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('por_validar')" aria-label="Ordenar por pendientes de revisar">
+                      Por revisar <i [class]="sortIcon(sort(), 'por_validar')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'atrasadas')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('atrasadas')" aria-label="Ordenar por vencidas">
+                      Vencidas <i [class]="sortIcon(sort(), 'atrasadas')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'dias_p90')"
+                      pTooltip="La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90. Ordena por p90." tooltipPosition="top">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('dias_p90')" aria-label="Ordenar por antigüedad del 10% peor">
+                      Antigüedad p50/p90 <i [class]="sortIcon(sort(), 'dias_p90')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'monto_pendiente')">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('monto_pendiente')" aria-label="Ordenar por dinero sin factura">
+                      $ sin factura <i [class]="sortIcon(sort(), 'monto_pendiente')" aria-hidden="true"></i>
+                    </button>
+                  </th>
+                  <!-- RE.20.3 — el contrapeso del descarte. Las descartadas YA salieron del
+                       denominador de "Con factura"; si además no se vieran, descartar sería el
+                       camino corto al 100%. Un motivo que empieza a crecer es una señal. -->
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'descartadas')"
+                      pTooltip="Entradas que nunca van a tener factura (traspaso, $0, canceladas). Están fuera del % de arriba." tooltipPosition="top">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('descartadas')" aria-label="Ordenar por descartadas">
+                      Descartadas <i [class]="sortIcon(sort(), 'descartadas')" aria-hidden="true"></i>
+                    </button>
+                  </th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -165,6 +222,13 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       {{ c.dias_p50 }} / {{ c.dias_p90 }}
                     </td>
                     <td class="comm-num">{{ moneyShort(c.monto_pendiente) }}</td>
+                    <td class="comm-num">
+                      @if (c.descartadas) {
+                        <a class="ec-link" [routerLink]="['/compras/entradas']"
+                           [queryParams]="{ suc: c.sucursal, estado: 'descartada' }"
+                           [pTooltip]="motivosDescarte(c)" tooltipPosition="left">{{ c.descartadas }}</a>
+                      } @else { <span class="muted">—</span> }
+                    </td>
                     <td class="ec-acts">
                       <!-- RE.16.9 — el supervisor que sólo observa (VER, sin GESTIONAR ni
                            VALIDAR) no ve atajos a pantallas donde el guard lo rebota. "ver
@@ -200,6 +264,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                   <td class="comm-num" [class.is-bad]="tot().atrasadas > 0">{{ tot().atrasadas || '—' }}</td>
                   <td></td>
                   <td class="comm-num">{{ moneyShort(tot().monto_pendiente) }}</td>
+                  <td class="comm-num">{{ tot().descartadas || '—' }}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -271,6 +336,7 @@ export class ComprasEntradasControlComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
 
@@ -292,20 +358,56 @@ export class ComprasEntradasControlComponent {
     { label: 'Últimos 7 días', value: 'semana' },
   ];
 
-  readonly rows = computed(() => this.report()?.rows ?? []);
+  /**
+   * `[RE.20.2]` — orden por columna, **en memoria**: acá vienen todas las sucursales de una
+   * (son ~7), no hay paginación, y ordenar la página ES ordenar la tabla.
+   *
+   * El backend las devuelve por código de sucursal, que es un índice estable pero no un orden
+   * de trabajo. La pregunta de esta pantalla es "¿quién no está subiendo?", y eso se contesta
+   * poniendo arriba lo peor: `$ sin factura`, `Vencidas` o `Con factura` de menor a mayor.
+   */
+  readonly sort = signal<SortState | null>(null);
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+  ordenarPor(field: string, inicial: SortDir = 'desc'): void {
+    this.sort.set(toggleSort(this.sort(), field, inicial));
+  }
+
+  private readonly rowsRaw = computed(() => this.report()?.rows ?? []);
+  readonly rows = computed(() => sortRows(this.rowsRaw(), this.sort(), (r, f) => {
+    // El nombre y no el código: la tabla muestra "8 Esquinas", y ordenar por "03" pone la
+    // lista en un orden que no se corresponde con lo que se lee.
+    if (f === 'sucursal') return this.suc(r.sucursal);
+    // Quién sube ordena por "los que no tienen a nadie primero", que es el renglón accionable.
+    if (f === 'responsables') return r.responsables.length;
+    return (r as unknown as Record<string, unknown>)[f];
+  }));
   readonly slaCaptura = computed(() => this.report()?.settings.sla_capture_days ?? 3);
 
   /** Totales de la red: se suman acá, no en otra llamada — la tabla ya trae todo. */
   readonly tot = computed(() => {
     const r = this.rows();
-    const acc = { entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0, monto_pendiente: 0 };
+    const acc = { entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0, monto_pendiente: 0, descartadas: 0 };
     for (const c of r) {
       acc.entradas += c.entradas; acc.con_evidencia += c.con_evidencia;
       acc.validadas += c.validadas; acc.por_validar += c.por_validar;
       acc.atrasadas += c.atrasadas; acc.monto_pendiente += c.monto_pendiente;
+      acc.descartadas += c.descartadas ?? 0;
     }
     return acc;
   });
+
+  /**
+   * `[RE.20.3]` — el desglose por motivo, para el tooltip. El total solo no dice nada: 40
+   * traspasos es el ERP haciendo lo suyo, 40 "otro" es alguien limpiando su número.
+   */
+  motivosDescarte(c: CoverageRow): string {
+    const m = c.descartes_motivos ?? {};
+    const partes = Object.entries(m)
+      .sort((a, b) => b[1] - a[1])
+      .map(([code, n]) => `${n} ${motivoDescarteLabel(code).toLowerCase() || code}`);
+    return partes.length ? `${partes.join(' · ')} — ver la lista` : 'Ver la lista';
+  }
   readonly pctRed = computed(() => {
     const t = this.tot();
     return t.entradas ? Math.round((t.con_evidencia / t.entradas) * 100) : 0;

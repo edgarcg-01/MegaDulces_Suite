@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, ReceiptSettings } from './goods-receipt-proofs.service';
@@ -27,7 +27,7 @@ export class GoodsReceiptProofsController {
   @Get()
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({
-    summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs. Scopeada por alcance (ADR-050), paginada y ordenable por antigüedad/riesgo.',
+    summary: 'Lista órdenes de entrada de Kepler + estado de su remisión + KPIs. Scopeada por alcance (ADR-050), paginada y ordenable por fecha/proveedor/monto/riesgo (`orden` + `dir`).',
   })
   list(@Query() query: Record<string, unknown>) {
     // `warehouse_codes` es el nombre canónico ([ID.5]); los 8 alias viejos (`sucursal`,
@@ -43,6 +43,13 @@ export class GoodsReceiptProofsController {
       dias_min: query['dias_min'] ? Number(query['dias_min']) : undefined,
       carril: query['carril'] as ListReceiptsQuery['carril'],
       orden: query['orden'] as ListReceiptsQuery['orden'],
+      // RE.20.2 — sólo pasan los dos literales: cualquier otra cosa cae al default de la clave.
+      dir: query['dir'] === 'asc' ? 'asc' : query['dir'] === 'desc' ? 'desc' : undefined,
+      // RE.20.1 — el lente. `dinero` es el que absorbió a Compras 360; cualquier otra cosa
+      // cae en `proceso`, que es el default y no paga el join de ajustes.
+      lente: query['lente'] === 'dinero' ? 'dinero' : 'proceso',
+      ajuste: query['ajuste'] as ListReceiptsQuery['ajuste'],
+      con_oc: query['con_oc'] as ListReceiptsQuery['con_oc'],
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };
@@ -110,6 +117,16 @@ export class GoodsReceiptProofsController {
     return this.twins.pairNow();
   }
 
+  // OJO con el orden: igual que `decide`, va ANTES de `:sucursal/:folio`.
+  @Get('twins/:cedis_folio/lines')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.17.3 — renglones de los DOS lados del par (sucursal y oficinas). Es la evidencia que decide si son la misma compra: la copia de sucursal lista productos, la de oficinas suele traer un renglón de concepto.',
+  })
+  twinLines(@Param('cedis_folio') cedisFolio: string) {
+    return this.svc.twinLines(cedisFolio);
+  }
+
   // OJO con el orden: esta ruta va ANTES de `:sucursal/:folio`, o Nest resolvería
   // `twins/<folio>/decide` como el detalle de la sucursal "twins".
   @Post('twins/:cedis_folio/decide')
@@ -119,6 +136,41 @@ export class GoodsReceiptProofsController {
   })
   decideTwin(@Param('cedis_folio') cedisFolio: string, @Body() body: { decision?: 'confirmar' | 'rechazar' }, @Req() req: AuthedRequest) {
     return this.svc.decideTwin(cedisFolio, body?.decision as 'confirmar' | 'rechazar', req?.user?.full_name || req?.user?.username);
+  }
+
+  // ── RE.20.3 — descartar una entrada que nunca va a tener factura ──────────
+  // OJO con el orden: `discards` va ANTES de `:sucursal/:folio`, o Nest lo resolvería como el
+  // detalle de una sucursal llamada "discards".
+  @Get('discards')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.20.3 — cuántas entradas se descartaron por sucursal y motivo. El descarte sale del denominador de cobertura, así que el conteo tiene que ser visible: si nadie lo mira, descartar es el camino corto al 100%.',
+  })
+  descartes(@Query() query: Record<string, unknown>) {
+    const { values: warehouse_codes } = parseScopeParam(query, 'warehouse', 'GET /finance/goods-receipts/discards');
+    return this.svc.descartes({ warehouse_codes });
+  }
+
+  @Post(':sucursal/:folio/discard')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.20.3 — saca del proceso una entrada que NUNCA va a tener factura de proveedor (traspaso · cancelada_erp · duplicada · sin_costo · otro). Lo decide _VALIDAR y no _GESTIONAR: si el que tiene que subir pudiera declarar que no hace falta, la cobertura sería autoevaluación. Firmado.',
+  })
+  descartar(
+    @Param('sucursal') sucursal: string, @Param('folio') folio: string,
+    @Body() body: { motivo_codigo?: string; motivo?: string }, @Req() req: AuthedRequest,
+  ) {
+    return this.svc.descartar(sucursal, folio, body?.motivo_codigo || '', body?.motivo,
+      req?.user?.full_name || req?.user?.username);
+  }
+
+  @Delete(':sucursal/:folio/discard')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: 'RE.20.3 — deshace el descarte y la entrada vuelve al proceso (pasa: se descarta como traspaso y después aparece la factura). Las dos decisiones quedan en el historial append-only.',
+  })
+  reactivar(@Param('sucursal') sucursal: string, @Param('folio') folio: string, @Req() req: AuthedRequest) {
+    return this.svc.reactivar(sucursal, folio, req?.user?.full_name || req?.user?.username);
   }
 
   @Get(':sucursal/:folio')

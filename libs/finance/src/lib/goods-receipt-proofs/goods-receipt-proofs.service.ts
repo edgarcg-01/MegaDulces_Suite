@@ -25,6 +25,15 @@ export type ReceiptFileRole = (typeof RECEIPT_FILE_ROLES)[number];
  */
 export const MOTIVOS_RECHAZO = ['ilegible', 'no_corresponde', 'total_no_cuadra', 'falta_hoja', 'duplicada', 'otro'] as const;
 export type MotivoRechazo = (typeof MOTIVOS_RECHAZO)[number];
+
+/**
+ * `[RE.20.3]` — catálogo de motivos de **descarte**. Distinto del de rechazo, y a propósito:
+ * *Devuelta* rebota a la sucursal para que suba algo que sí existe; *Descartada* dice que **no
+ * existe ni va a existir** una factura de proveedor para esa entrada. Confundirlos deja a la
+ * sucursal persiguiendo un papel que nadie va a emitir.
+ */
+export const MOTIVOS_DESCARTE = ['traspaso', 'cancelada_erp', 'duplicada', 'sin_costo', 'otro'] as const;
+export type MotivoDescarte = (typeof MOTIVOS_DESCARTE)[number];
 // RE.13.0 — estos dos eran constantes de módulo y son decisiones de NEGOCIO: la fecha de
 // arranque del proceso (mover el rezago fuera del SLA) y cuándo se considera que la factura
 // cuadra. Viven en `finance.receipt_settings` por tenant; acá quedan sólo como default para
@@ -132,8 +141,12 @@ export interface ReceiptFile {
 export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
 
 export interface ListReceiptsQuery {
-  /** `pendiente` = sin evidencia · `por_validar` = evidencia esperando decisión (la cola del revisor). */
-  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | string;
+  /**
+   * `pendiente` = sin evidencia · `por_validar` = evidencia esperando decisión (la cola del
+   * revisor) · `descartada` = RE.20.3, las que nunca van a tener factura. Las descartadas salen
+   * de todos los demás estados: sólo se ven pidiéndolas por su nombre.
+   */
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | string;
   from?: string;
   to?: string;
   search?: string;
@@ -147,11 +160,45 @@ export interface ListReceiptsQuery {
   /**
    * `antiguedad` (default) = lo más viejo primero, que es el orden de trabajo ·
    * `reciente` = el orden anterior · `monto` · `riesgo` = descuadre y monto primero (cola del revisor).
+   *
+   * RE.20.2 — `fecha` y `proveedor` son las que se alternan desde el encabezado de la tabla.
+   * `antiguedad`/`reciente` son las dos direcciones de `fecha` con nombre propio: quedan porque
+   * las pide el control segmentado y viven en estado guardado.
    */
-  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fecha' | 'proveedor';
+  /**
+   * Dirección del orden. Sin esto un encabezado clickeable **miente**: dibuja la flecha de
+   * "descendente" y no puede invertirse. Si no viene, cada clave usa la suya
+   * (fecha↑ · proveedor↑ · monto↓ · riesgo↓).
+   */
+  dir?: 'asc' | 'desc';
+  /**
+   * `[RE.20.1]` — **el lente**: las MISMAS filas contestando dos preguntas distintas.
+   *   `proceso` (default) → *¿tengo el papel?* — evidencia, días, gemela, descarte.
+   *   `dinero`            → *¿cuánto pagamos?* — OC, vale, factura, ajuste ligado y **neto**.
+   *
+   * Era una pantalla aparte (*Compras 360*): misma fila, misma entidad, dos listas globales y
+   * nadie sabía cuál abrir. El join de ajustes es caro, así que sólo se paga con `dinero`.
+   */
+  lente?: 'proceso' | 'dinero';
+  /** Sólo con `lente=dinero`. `con`/`sin` = tiene ajuste ligado · `operativo`/`comercial` = de qué tipo. */
+  ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
+  /** Sólo con `lente=dinero`. Entradas que se ligaron (o no) a una orden de compra. */
+  con_oc?: 'con' | 'sin';
   page?: number;
   pageSize?: number;
 }
+
+/**
+ * `[RE.20.1]` — categorías de ajuste que son **beneficio negociado**, no un problema. 3 de cada
+ * 4 ajustes son de éstas; el resto (faltante, mal estado, no solicitado…) sí es algo que salió
+ * mal. Se parten para que la pantalla deje de pintar de rojo un apoyo de marca.
+ *
+ * Duplicado a propósito de `purchase-adjustments.service` (libs/commercial): son dos dominios
+ * leyendo la MISMA tabla de `analytics.*`, y acoplar `finance` → `commercial` por una lista de
+ * tres strings es peor que repetirla. Si crece, sube a `platform-core`.
+ */
+const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
 
 export interface AttachReceiptDto {
   sucursal?: string;
@@ -354,12 +401,14 @@ export class GoodsReceiptProofsService {
    */
   private async registrarHistorial(
     trx: any,
-    p: { proof_id: string; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
+    // RE.20.3 — `proof_id` puede ser null: descartar una entrada es una decisión sobre la
+    // ENTRADA, no sobre una evidencia subida (y justo se descarta lo que nunca va a tener una).
+    p: { proof_id: string | null; sucursal: string; folio: string; status_from?: string | null; status_to: string; motivo_codigo?: string | null; motivo?: string | null; actor?: string },
   ): Promise<void> {
     if (!(await this.existeTabla(trx, 'finance', 'goods_receipt_proof_history'))) return;
     await trx('finance.goods_receipt_proof_history').insert({
       tenant_id: trx.raw('public.current_tenant_id()'),
-      proof_id: p.proof_id, sucursal: p.sucursal, folio: p.folio,
+      proof_id: p.proof_id ?? null, sucursal: p.sucursal, folio: p.folio,
       status_from: p.status_from ?? null, status_to: p.status_to,
       motivo_codigo: p.motivo_codigo ?? null, motivo: p.motivo ?? null,
       changed_by: p.actor ?? null,
@@ -376,6 +425,26 @@ export class GoodsReceiptProofsService {
   private async sucursalesVisibles(pedido?: string[] | null): Promise<string[] | null> {
     const s = await this.scope.current();
     return this.scope.intersect(s, 'warehouse', pedido ?? null);
+  }
+
+  /**
+   * `[RE.20.6]` — **el alcance también manda al ESCRIBIR.** El permiso dice *qué* podés hacer;
+   * el alcance dice *sobre qué*. Tener `_VALIDAR` no es tener `_VALIDAR sobre CEDIS`.
+   *
+   * `validate`, `reject` y `descartar` recibían el id (o la sucursal) por la ruta y escribían
+   * donde les dijeran: los filtros de las LISTAS estaban scopeados, pero **nadie pasa por la
+   * lista para hacer un POST**. Auditado 2026-08-29: **9 `encargado_tienda` tienen `_VALIDAR`
+   * con alcance `own`** — gente real, con permiso acotado y ninguna barrera. En `descartar` el
+   * incentivo es directo: descartar **saca la fila del denominador de cobertura**, que es el
+   * número por el que se le exige a esa sucursal.
+   *
+   * Delega en `scope.assertCanWrite` y NO en `sucursalesVisibles`, que es el alcance de
+   * LECTURA: `mode_write` es lo que permite "ve las 3 de su zona, captura sólo en la suya", y
+   * usar el de lectura para autorizar una escritura afloja el control sin que se note.
+   * `attach` ya lo hacía así — esto lo vuelve la regla y no la excepción.
+   */
+  private async exigirAlcance(sucursal: string): Promise<void> {
+    await this.scope.assertCanWrite('warehouse', String(sucursal));
   }
 
   /**
@@ -400,6 +469,25 @@ export class GoodsReceiptProofsService {
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       const hayPares = await this.hayPares(trx);
+      const hayDesc = await this.hayDescartes(trx);
+      // RE.20.1 — el lente del dinero. El join de ajustes es caro (agrupa toda la tabla de
+      // devoluciones/notas), así que sólo entra cuando alguien lo pide.
+      const dinero = q.lente === 'dinero';
+
+      /**
+       * Ajustes LIGADOS a la entrada: devoluciones (X-D-40) y notas de crédito (X-D-55).
+       *
+       * ⚠️ Se liga por **(sucursal, entrada_folio)** y NO sólo por folio: el folio de Kepler
+       * **no es único entre sucursales** (1,106 folios viven en más de una), y con el join
+       * pelado una devolución de la 00 se le pegaba a las entradas 02 y 03 del mismo folio,
+       * atribuyéndole el ajuste a OTRO proveedor. Verificado 2026-08-25 (folio `0000505`).
+       */
+      const adj = trx('analytics.erp_purchase_adjustments')
+        .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
+        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
+        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
+        .groupBy('sucursal', 'entrada_folio').as('a');
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
@@ -430,6 +518,20 @@ export class GoodsReceiptProofsService {
         // RE.14.3 — el par entra en el `base()` y no sólo en el select porque **también se busca
         // por él**: el usuario tiene en la mano el folio de oficinas tan seguido como el suyo.
         if (hayPares) this.conGemela(b, trx, tenantId);
+        // RE.20.1 — el ajuste entra al `base()` (no sólo al select) porque también FILTRA:
+        // "sólo las que tienen nota de crédito" es la pregunta con la que se abre este lente.
+        if (dinero) {
+          b.leftJoin(adj, (j: any) => { j.on('c.sucursal', 'a.sucursal').andOn('c.folio', 'a.entrada_folio'); });
+          // "Con ajuste" = tiene ajuste LIGADO aunque el monto sea $0: los X-D-40 de faltante
+          // se capturan en 0 y son justo los que hay que mirar. Filtrar por monto ≠ 0 se comía
+          // 3 de cada 12.
+          if (q.ajuste === 'con') b.whereRaw('COALESCE(a.n_ajuste,0) > 0');
+          else if (q.ajuste === 'sin') b.whereRaw('COALESCE(a.n_ajuste,0) = 0');
+          else if (q.ajuste === 'operativo') b.whereRaw('COALESCE(a.ajuste_operativo,0) <> 0');
+          else if (q.ajuste === 'comercial') b.whereRaw('COALESCE(a.ajuste_comercial,0) <> 0');
+          if (q.con_oc === 'con') b.whereRaw(`COALESCE(c.oc_folio,'') <> ''`);
+          else if (q.con_oc === 'sin') b.whereRaw(`COALESCE(c.oc_folio,'') = ''`);
+        }
         // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
         if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
         // Carril: el rezago anterior al arranque se trabaja aparte para que el semáforo del
@@ -438,6 +540,20 @@ export class GoodsReceiptProofsService {
         else if (q.carril !== 'todo') b.where('c.receipt_date', '>=', cfg.reception_start);
         if (q.from) b.where('c.receipt_date', '>=', q.from);
         if (q.to) b.where('c.receipt_date', '<=', q.to);
+        // RE.20.3 — las descartadas salen de TODAS las vistas de trabajo. Se ven pidiéndolas
+        // por su nombre (`estado=descartada`), que es lo que hace auditable el descarte: si
+        // desaparecieran del todo, "descartar" sería la forma rápida de llegar al 100%.
+        //
+        // JOIN y no subconsulta porque la fila también necesita MOSTRAR el motivo: una
+        // descartada sin el porqué a la vista es una fila que desapareció sin explicación.
+        if (hayDesc) {
+          b.leftJoin('finance.goods_receipt_discards as x', (j: any) => {
+            j.on('x.tenant_id', 'c.tenant_id').andOn('x.sucursal', 'c.sucursal').andOn('x.folio', 'c.folio');
+          });
+          if (q.estado === 'descartada') b.whereNotNull('x.folio'); else b.whereNull('x.folio');
+        } else if (q.estado === 'descartada') {
+          b.whereRaw('false'); // sin la migración no hay descartadas que mostrar
+        }
         if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
         else if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
         else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
@@ -464,7 +580,10 @@ export class GoodsReceiptProofsService {
           );
         } else {
           applySmartSearch(b, q.search, {
+            // RE.20.1 — `vale_folio` y `concepto` venían del buscador de Compras 360: al
+            // fusionar, quien buscaba por el vale de entrada tiene que seguir encontrándolo.
             columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
+              'c.vale_folio', 'c.concepto',
               ...(hayPares ? ['gem.cedis_folio'] : [])],
             numeric: ['c.monto'],
           });
@@ -494,6 +613,25 @@ export class GoodsReceiptProofsService {
           // reconoce y no tiene con qué saber que es la misma orden.
           trx.raw(ORIGEN_SELECT),
           ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)),
+          // RE.20.3 — por qué se descartó y quién. Sólo viene con `estado=descartada` (en el
+          // resto el JOIN filtra por NULL), pero se selecciona siempre para no ramificar el select.
+          ...(hayDesc ? [
+            trx.raw('x.motivo_codigo AS descarte_motivo'),
+            trx.raw('x.motivo AS descarte_nota'),
+            trx.raw('x.descartado_por AS descarte_por'),
+            trx.raw('x.descartado_at AS descarte_at'),
+          ] : []),
+          // RE.20.1 — el lente del dinero. `factura` es el monto de Kepler con otro nombre: en
+          // este lente la pregunta es contable y "monto" no dice de qué lado está.
+          ...(dinero ? [
+            trx.raw('c.vale_folio'),
+            trx.raw('c.monto::numeric AS factura'),
+            trx.raw('COALESCE(a.ajuste, 0)::numeric AS ajuste'),
+            trx.raw('COALESCE(a.n_ajuste, 0)::int AS n_ajuste'),
+            trx.raw('COALESCE(a.ajuste_comercial, 0)::numeric AS ajuste_comercial'),
+            trx.raw('COALESCE(a.ajuste_operativo, 0)::numeric AS ajuste_operativo'),
+            trx.raw('(c.monto::numeric - COALESCE(a.ajuste, 0))::numeric AS neto'),
+          ] : []),
         )
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -501,19 +639,40 @@ export class GoodsReceiptProofsService {
       // El orden ES la herramienta de trabajo, así que es explícito por vista:
       //  - antiguedad (default) → worklist del capturista: lo más viejo primero.
       //  - riesgo               → cola del revisor: el descuadre más grande primero.
-      // Las de fecha futura van DESPUÉS de las de hoy en el orden "reciente" (hay una de
-      // CEDIS con 29/12/2026 que si no se quedaba clavada arriba para siempre).
-      if (q.orden === 'monto') b.orderByRaw('c.monto::numeric DESC');
-      else if (q.orden === 'riesgo') {
-        b.orderByRaw('COALESCE(ABS(d.last_disc), 0) DESC')
-          .orderByRaw('c.monto::numeric DESC')
-          .orderByRaw('LEAST(c.receipt_date, current_date) ASC');
-      } else if (q.orden === 'reciente') {
-        b.orderByRaw('LEAST(c.receipt_date, current_date) DESC')
-          .orderByRaw('(c.receipt_date > current_date) ASC');
-      } else {
-        b.orderByRaw('LEAST(c.receipt_date, current_date) ASC');
-      }
+      //
+      // RE.20.2 — `dir` llega del encabezado clickeable. NUNCA entra a la SQL el string del
+      // usuario: el ternario resuelve a uno de dos literales, y lo demás cae en el default de
+      // la columna. Cada clave tiene el suyo porque el primer clic útil no es el mismo:
+      // en dinero se busca lo más grande, en un nombre se busca la A.
+      const asc = (porDefecto: 'ASC' | 'DESC') =>
+        q.dir === 'asc' ? 'ASC' : q.dir === 'desc' ? 'DESC' : porDefecto;
+
+      // Las de fecha futura van SIEMPRE al final, en las dos direcciones. Hay una de CEDIS con
+      // 29/12/2026 mal capturada en el ERP, y `LEAST(receipt_date, current_date)` la aplasta a
+      // hoy — o sea, al primer lugar del orden descendente.
+      //
+      // RE.19 puso el flag de futuro como DESEMPATE, y eso sólo la baja si además hay entradas
+      // de HOY con las que empatar. Verificado 2026-08-29: la más reciente de verdad era del 26,
+      // así que la de diciembre llevaba tres días encabezando la pantalla de los dos que suben.
+      // Como PRIMERA clave no depende de que exista con qué empatar.
+      const porFecha = (d: 'ASC' | 'DESC') => {
+        b.orderByRaw('(c.receipt_date > current_date) ASC')
+          .orderByRaw(`LEAST(c.receipt_date, current_date) ${d}`);
+      };
+
+      if (q.orden === 'monto') b.orderByRaw(`c.monto::numeric ${asc('DESC')}`);
+      else if (q.orden === 'proveedor') {
+        // Sin proveedor al final en las dos direcciones: un dato ausente no compite por el
+        // primer lugar. `lower()` y no una colación con nombre: `es-MX` depende de que el
+        // servidor tenga ICU y un nombre que no falla en local puede ser un 500 en Railway.
+        b.orderByRaw(`lower(NULLIF(TRIM(c.proveedor_nombre), '')) ${asc('ASC')} NULLS LAST`);
+        porFecha('ASC');
+      } else if (q.orden === 'riesgo') {
+        b.orderByRaw(`COALESCE(ABS(d.last_disc), 0) ${asc('DESC')}`)
+          .orderByRaw('c.monto::numeric DESC');
+        porFecha('ASC');
+      } else if (q.orden === 'reciente') porFecha(asc('DESC'));
+      else porFecha(asc('ASC')); // `antiguedad` (default) y `fecha`
       b.orderBy('c.folio', 'desc');
 
       const rows = (await b).map((r: any) => ({
@@ -529,9 +688,28 @@ export class GoodsReceiptProofsService {
         atrasada: r.deposits > 0
           ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
           : Number(r.dias) > cfg.sla_capture_days,
+        // RE.20.1 — `numeric` de Postgres llega como STRING por el driver; sin esto la tabla
+        // suma dinero concatenando.
+        ...(dinero ? {
+          factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.neto),
+          n_ajuste: Number(r.n_ajuste),
+          ajuste_comercial: Number(r.ajuste_comercial), ajuste_operativo: Number(r.ajuste_operativo),
+        } : {}),
       }));
 
       const [{ total }] = await base().count({ total: '*' });
+
+      // RE.20.1 — totales del lente sobre TODO lo filtrado, no sobre la página. La pregunta
+      // "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente.
+      const totales = dinero
+        ? await base().first(
+            trx.raw('COALESCE(SUM(c.monto::numeric), 0)::numeric AS factura'),
+            trx.raw('COALESCE(SUM(a.ajuste), 0)::numeric AS ajuste'),
+            trx.raw('COALESCE(SUM(c.monto::numeric - COALESCE(a.ajuste, 0)), 0)::numeric AS neto'),
+            trx.raw('COALESCE(SUM(a.ajuste_comercial), 0)::numeric AS ajuste_comercial'),
+            trx.raw('COALESCE(SUM(a.ajuste_operativo), 0)::numeric AS ajuste_operativo'),
+          )
+        : null;
 
       // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
       // ni `search`: son el denominador contra el que se lee la lista filtrada).
@@ -578,6 +756,11 @@ export class GoodsReceiptProofsService {
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
         alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
         settings: cfg,
+        // RE.20.1 — sólo con `lente=dinero`; el lente de proceso no paga el join ni lo recibe.
+        totales: totales ? {
+          factura: Number(totales.factura), ajuste: Number(totales.ajuste), neto: Number(totales.neto),
+          ajuste_comercial: Number(totales.ajuste_comercial), ajuste_operativo: Number(totales.ajuste_operativo),
+        } : null,
         total: Number(total), page, pageSize,
         frescura: await this.frescuraPorFuente(trx, tenantId),
         rows,
@@ -653,6 +836,13 @@ export class GoodsReceiptProofsService {
     const alcance = await this.sucursalesVisibles(q.warehouse_codes);
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
+      // RE.20.3 — las descartadas salen del DENOMINADOR: una sucursal no puede quedar en 60%
+      // por traspasos que nadie va a facturar. Pero se cuentan aparte y vuelven en `descartadas`
+      // — si el descarte sólo restara, "descartar todo" sería el camino corto al 100%.
+      const excluirDescartes = (await this.hayDescartes(trx))
+        ? ` AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
+              WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)`
+        : '';
       // Los `?` van en el orden en que aparecen en la SQL: sla → tenant → arranque → filtros.
       let filtro = '';
       const filtroParams: any[] = [];
@@ -692,19 +882,33 @@ export class GoodsReceiptProofsService {
           FROM analytics.erp_goods_receipts c
           LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
          WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL
-           AND c.receipt_date >= ?${filtro}
+           AND c.receipt_date >= ?${excluirDescartes}${filtro}
          GROUP BY c.sucursal
          ORDER BY c.sucursal`,
         [cfg.sla_capture_days, tenantId, cfg.reception_start, ...filtroParams]);
+
+      // Cuántas se descartaron por sucursal (y con qué motivo). Se pide en la MISMA transacción.
+      const desc = await this.descartesPorSucursal(trx, alcance);
+      const descPorSuc = new Map<string, { total: number; motivos: Record<string, number> }>();
+      for (const d of desc) {
+        if (!descPorSuc.has(d.sucursal)) descPorSuc.set(d.sucursal, { total: 0, motivos: {} });
+        const e = descPorSuc.get(d.sucursal)!;
+        e.total += d.n; e.motivos[d.motivo_codigo] = (e.motivos[d.motivo_codigo] ?? 0) + d.n;
+      }
 
       // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
       // cobertura, el número deja de servir para exigirle a nadie.
       const resp = await this.responsablesPorSucursal(trx);
 
+      // RE.20.3/RE.20.6 — el rezago descuenta descartadas por la misma razón que el carril vivo,
+      // y acá pesa MÁS: los 1,176 traspasos `TI*` (que nunca van a tener factura) viven todos
+      // en el rezago. Sin esto, descartarlos no movía el contador y se leía como que el descarte
+      // no había hecho nada.
       const rez = await trx.raw(`
         SELECT COUNT(*)::int AS entradas, COALESCE(SUM(monto::numeric), 0)::numeric AS monto
           FROM analytics.erp_goods_receipts c
          WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date < ?
+           ${excluirDescartes}
            ${alcance ? 'AND c.sucursal = ANY(?)' : ''}`,
         alcance ? [tenantId, cfg.reception_start, alcance] : [tenantId, cfg.reception_start]);
 
@@ -715,6 +919,10 @@ export class GoodsReceiptProofsService {
         rows: (r.rows || []).map((x: any) => ({
           sucursal: x.sucursal,
           responsables: resp.get(String(x.sucursal)) ?? [],
+          // RE.20.3 — fuera del denominador de arriba, pero a la vista: un motivo que crece es
+          // una señal (el ERP volvió a emitir traspasos, alguien descarta de más), no una fila menos.
+          descartadas: descPorSuc.get(String(x.sucursal))?.total ?? 0,
+          descartes_motivos: descPorSuc.get(String(x.sucursal))?.motivos ?? {},
           entradas: Number(x.entradas),
           con_evidencia: Number(x.con_evidencia),
           validadas: Number(x.validadas),
@@ -1266,6 +1474,18 @@ export class GoodsReceiptProofsService {
         trx.raw(`COALESCE(SUM(p.cedis_monto::numeric) FILTER (WHERE p.status = 'propuesto'), 0)::numeric AS monto_propuesto`),
         trx.raw('COUNT(*)::int AS total'),
       );
+      // RE.17.3 — cuántos renglones tiene cada lado. Es **el** dato de la decisión y no estaba:
+      // la copia de sucursal trae los productos (12–20 renglones) y la de oficinas casi siempre
+      // uno solo de concepto. Va en UNA consulta agregada sobre los folios de la página, no un
+      // conteo por fila (serían 400 viajes contra el ODS).
+      const conteos = await this.renglonesPorFolio(trx, tenantId, [
+        ...rows.map((r: any) => [String(r.sucursal), String(r.folio)] as [string, string]),
+        ...rows.map((r: any) => ['00', String(r.cedis_folio)] as [string, string]),
+      ]);
+      for (const r of rows as any[]) {
+        r.suc_lineas = conteos.get(`${r.sucursal}|${r.folio}`) ?? null;
+        r.cedis_lineas = conteos.get(`00|${r.cedis_folio}`) ?? null;
+      }
       return {
         rows,
         kpis: {
@@ -1275,6 +1495,72 @@ export class GoodsReceiptProofsService {
         },
         total: Number(k.total),
         alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+      };
+    });
+  }
+
+  /**
+   * `[RE.17.3]` — Cuenta renglones de varios documentos de una sola pasada. Row-constructor
+   * `(sucursal, folio) IN ((?,?),…)`: una consulta agrupada en vez de un `count` por fila.
+   */
+  private async renglonesPorFolio(trx: any, tenantId: string, claves: [string, string][]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    const únicas = [...new Map(claves.filter(([s, f]) => s && f).map((k) => [`${k[0]}|${k[1]}`, k])).values()];
+    if (!únicas.length) return out;
+    const tuplas = únicas.map(() => '(?,?)').join(',');
+    const r = await trx.raw(
+      `SELECT sucursal, folio, COUNT(*)::int AS n
+         FROM analytics.erp_goods_receipt_lines
+        WHERE tenant_id = ? AND (sucursal, folio) IN (${tuplas})
+        GROUP BY sucursal, folio`,
+      [tenantId, ...únicas.flat()],
+    );
+    for (const x of r.rows || []) out.set(`${x.sucursal}|${x.folio}`, Number(x.n));
+    return out;
+  }
+
+  /**
+   * `[RE.17.3]` — **Los renglones de los dos lados de un par**, para dictaminarlo mirando la
+   * evidencia y no un score. La pantalla pedía decidir si dos capturas son la misma compra
+   * mostrando folio, importe, fecha y proveedor — y lo que lo resuelve está un nivel más abajo:
+   * la copia de sucursal lista los productos y la de oficinas suele traer un único renglón de
+   * concepto (`VENTAS AL 0 %`) con el total. Se pide al expandir la fila, no con la lista.
+   */
+  async twinLines(cedisFolio: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const folio = (cedisFolio || '').trim();
+    if (!folio) throw new BadRequestException('folio requerido');
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayPares(trx))) throw new BadRequestException('el apareo no está disponible en este entorno');
+      const par = await trx('analytics.erp_goods_receipt_dedup')
+        .where({ tenant_id: tenantId, cedis_folio: folio })
+        .first('cedis_folio', 'dup_of_sucursal', 'dup_of_folio');
+      if (!par?.dup_of_folio) throw new BadRequestException(`no hay par para el folio ${folio}`);
+      // El alcance se comprueba sobre la canónica, igual que en la lista: la dueña del documento
+      // es la sucursal, no oficinas.
+      const alcance = await this.sucursalesVisibles(null);
+      if (alcance && !alcance.includes(String(par.dup_of_sucursal))) {
+        throw new ForbiddenException('esa recepción no está en tu alcance de sucursal');
+      }
+      const lineas = async (sucursal: string, f: string) =>
+        trx('analytics.erp_goods_receipt_lines')
+          .where({ tenant_id: tenantId, sucursal, folio: f })
+          .orderBy('linea')
+          .limit(200)
+          .select('linea', 'sku', 'nombre', 'unidad',
+            trx.raw('cantidad::numeric AS cantidad'),
+            trx.raw('costo_unitario::numeric AS costo_unitario'),
+            trx.raw('importe::numeric AS importe'));
+      const num = (rs: any[]) => rs.map((l) => ({
+        ...l, cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
+      }));
+      const [suc, ofi] = await Promise.all([
+        lineas(String(par.dup_of_sucursal), String(par.dup_of_folio)),
+        lineas('00', folio),
+      ]);
+      return {
+        sucursal: { sucursal: String(par.dup_of_sucursal), folio: String(par.dup_of_folio), lineas: num(suc) },
+        oficinas: { sucursal: '00', folio, lineas: num(ofi) },
       };
     });
   }
@@ -1593,6 +1879,9 @@ export class GoodsReceiptProofsService {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
         .first('id', 'status', 'created_by', 'sucursal', 'folio');
       if (!prev) throw new BadRequestException('evidencia no encontrada');
+      // RE.20.6 — el permiso dice qué; el alcance dice sobre qué. Un revisor de tienda no
+      // valida el expediente de otra sucursal aunque tenga el id.
+      await this.exigirAlcance(prev.sucursal);
       if (prev.status === 'validado') throw new BadRequestException('esta evidencia ya está validada');
       if (this.mismaPersona(prev.created_by, actor)) {
         throw new ForbiddenException('No podés validar la evidencia que vos mismo subiste — que la revise otra persona.');
@@ -1638,6 +1927,9 @@ export class GoodsReceiptProofsService {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
         .first('id', 'status', 'sucursal', 'folio');
       if (!prev) throw new BadRequestException('evidencia no encontrada');
+      // RE.20.6 — devolver una factura le devuelve el trabajo a una sucursal: no lo decide
+      // alguien fuera de su alcance.
+      await this.exigirAlcance(prev.sucursal);
       if (prev.status === 'rechazado') throw new BadRequestException('esta evidencia ya está rechazada');
       const patch: Record<string, unknown> = {
         status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(),
@@ -1655,6 +1947,146 @@ export class GoodsReceiptProofsService {
       });
       return row;
     });
+  }
+
+  // ─────────────────── RE.20.3: descartar una entrada ───────────────────
+
+  /** ¿Está la migración de descartes? Sin ella el proceso sigue igual que antes, sin romperse. */
+  private async hayDescartes(trx: any): Promise<boolean> {
+    return this.existeTabla(trx, 'finance', 'goods_receipt_discards');
+  }
+
+  /**
+   * `[RE.20.3]` — saca del proceso una entrada que **nunca va a tener factura de proveedor**.
+   *
+   * Hasta acá la única salida era *Devuelta*, que rebota a la sucursal. Un traspaso entre
+   * sucursales (`proveedor_code` `TI*`) o una entrada en $0 no tienen proveedor externo que
+   * facture: se quedaban *Sin factura* para siempre, contando como atraso de esa sucursal.
+   *
+   * Lo decide `_VALIDAR` y no `_GESTIONAR`: si el que tiene que subir la factura pudiera
+   * declarar que no hace falta, el indicador de cobertura se vuelve autoevaluación.
+   */
+  async descartar(sucursal: string, folio: string, motivoCodigo: string, motivo?: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    const code = (motivoCodigo || '').trim();
+    if (!MOTIVOS_DESCARTE.includes(code as MotivoDescarte)) {
+      throw new BadRequestException(`motivo inválido: ${code || '(vacío)'}`);
+    }
+    const texto = (motivo || '').trim();
+    // Igual que en `reject`: 'otro' sin explicación es un descarte que nadie puede auditar
+    // después — y descartar es justamente lo que saca una fila del número que se vigila.
+    if (code === 'otro' && !texto) {
+      throw new BadRequestException('con motivo "otro" hace falta escribir por qué.');
+    }
+    // RE.20.6 — descartar saca la fila del denominador de cobertura de ESA sucursal: el alcance
+    // es lo que impide mejorar el número de otro. Va ANTES de `tk.run` —como en `attach`— porque
+    // la sucursal viene de la ruta: no hace falta abrir una transacción para saber que no.
+    await this.exigirAlcance(suc);
+
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayDescartes(trx))) {
+        throw new BadRequestException('falta la migración de descartes en esta base');
+      }
+      const entrada = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: suc, folio: fol })
+        .whereRaw('dup_of_folio IS NULL')
+        .first('sucursal', 'folio', 'proveedor_code');
+      if (!entrada) throw new BadRequestException(`no existe la entrada ${suc}/${fol}`);
+
+      // Con evidencia YA subida no se descarta: si alguien mandó la factura, la respuesta es
+      // validarla o devolverla — descartarla borraría del tablero un expediente que sí existe.
+      const conEvidencia = await trx('finance.goods_receipt_proofs')
+        .where({ sucursal: suc, folio: fol }).first('id');
+      if (conEvidencia) {
+        throw new BadRequestException('esta entrada ya tiene factura subida: validala o devolvela, no la descartes.');
+      }
+
+      const [row] = await trx('finance.goods_receipt_discards')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          sucursal: suc, folio: fol,
+          motivo_codigo: code, motivo: texto || null, descartado_por: actor || null,
+        })
+        .onConflict(['tenant_id', 'sucursal', 'folio']).ignore()
+        .returning(['id', 'motivo_codigo']);
+      // `ignore()` no devuelve fila cuando ya existía: otra persona la descartó en el medio.
+      if (!row) throw new BadRequestException('esta entrada ya estaba descartada');
+
+      await this.registrarHistorial(trx, {
+        proof_id: null, sucursal: suc, folio: fol,
+        status_from: null, status_to: 'descartada', motivo_codigo: code, motivo: texto || null, actor,
+      });
+      return { sucursal: suc, folio: fol, motivo_codigo: code };
+    });
+  }
+
+  /**
+   * `[RE.20.3]` — deshace un descarte y la entrada vuelve al proceso. Pasa de verdad: se
+   * descarta como traspaso y después aparece la factura. El descarte se borra (no se versiona),
+   * pero las dos decisiones quedan en el historial, que es append-only.
+   */
+  async reactivar(sucursal: string, folio: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    // RE.20.6 — mismo motivo que al descartar: reactivar devuelve la fila al denominador de esa
+    // sucursal, y eso tampoco lo decide alguien de afuera. Antes de abrir la transacción.
+    await this.exigirAlcance(suc);
+
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayDescartes(trx))) {
+        throw new BadRequestException('falta la migración de descartes en esta base');
+      }
+      const prev = await trx('finance.goods_receipt_discards')
+        .where({ sucursal: suc, folio: fol }).first('motivo_codigo');
+      if (!prev) throw new BadRequestException(`la entrada ${suc}/${fol} no está descartada`);
+      await trx('finance.goods_receipt_discards').where({ sucursal: suc, folio: fol }).del();
+      await this.registrarHistorial(trx, {
+        proof_id: null, sucursal: suc, folio: fol,
+        status_from: 'descartada', status_to: 'pendiente',
+        motivo_codigo: prev?.motivo_codigo ?? null, actor,
+      });
+      return { sucursal: suc, folio: fol };
+    });
+  }
+
+  /**
+   * `[RE.20.3]` — cuántas se descartaron y por qué motivo, para el tablero de Control.
+   *
+   * El descarte **no puede esconder el problema**: sale del denominador de cobertura, pero si
+   * nadie ve el conteo, "descartar todo" pasa a ser la forma más rápida de llegar al 100%.
+   * Acá se cuenta aparte, por sucursal y por motivo.
+   */
+  async descartes(q: { warehouse_codes?: string[] | null } = {}) {
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    return this.tk.run(async (trx) => {
+      const rows = await this.descartesPorSucursal(trx, alcance);
+      return { motivos: MOTIVOS_DESCARTE, rows, total: rows.reduce((a, r) => a + r.n, 0) };
+    });
+  }
+
+  /**
+   * El conteo de descartes, crudo. Va aparte de `descartes()` porque lo necesita también
+   * `coverage()` **dentro de su propia transacción**: anidar `tk.run` deja la query de adentro
+   * sin el tenant del CLS y devuelve 0 filas en silencio.
+   */
+  private async descartesPorSucursal(
+    trx: any, alcance: string[] | null,
+  ): Promise<{ sucursal: string; motivo_codigo: string; n: number }[]> {
+    if (!(await this.hayDescartes(trx))) return [];
+    if (alcance && !alcance.length) return [];
+    const b = trx('finance.goods_receipt_discards as x')
+      .where('x.tenant_id', this.tenantCtx.requireTenantId())
+      .groupBy('x.sucursal', 'x.motivo_codigo')
+      .orderBy('x.sucursal')
+      .select('x.sucursal', 'x.motivo_codigo')
+      .count({ n: '*' });
+    if (alcance) b.whereIn('x.sucursal', alcance);
+    return (await b).map((r: any) => ({ sucursal: String(r.sucursal), motivo_codigo: String(r.motivo_codigo), n: Number(r.n) }));
   }
 
   /**
@@ -1675,6 +2107,10 @@ export class GoodsReceiptProofsService {
           const prev = await trx('finance.goods_receipt_proofs').where({ id })
             .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match');
           if (!prev) throw new BadRequestException('no existe');
+          // RE.20.6 — el lote NO pasa por `validate()`: reimplementa la lógica acá, así que
+          // también reimplementaba la ausencia del alcance. Es el peor caso de los cuatro —
+          // hasta 200 expedientes de una pasada. El motivo vuelve por `out`, no tira el lote.
+          await this.exigirAlcance(prev.sucursal);
           if (prev.status !== 'recibido') throw new BadRequestException(`ya está ${prev.status}`);
           if (prev.monto_match !== true) throw new BadRequestException('el total no cuadra — se revisa a mano');
           if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');

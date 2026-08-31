@@ -13,7 +13,11 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
-import { EntradasService, TwinPair, TwinsReport } from '../entradas.service';
+import { EntradasService, TwinPair, TwinsReport, TwinLines, EntradaLinea } from '../entradas.service';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
@@ -46,7 +50,8 @@ import { Permission } from '../../../core/constants/permissions';
   selector: 'app-compras-entradas-gemelas',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent, LoadStateComponent, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TagModule, ToastModule, SegmentedComponent,
+    LoadStateComponent, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in eg">
@@ -54,7 +59,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Centro de control · Capturadas dos veces</h1>
+          <h1>Control de entradas · Capturas duplicadas</h1>
           <p class="surf-page-sub">
             La misma recepción vive en el Kepler de la <strong>sucursal</strong> y en el de
             <strong>oficinas</strong>. El motor las enlaza solo cada 5 minutos; acá quedan las que
@@ -74,6 +79,11 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="p-button-label">Buscar pares ahora</span>
             </button>
           }
+          <app-table-density />
+          <!-- RE.17.2 — el motor reescribe esta bandeja cada 5 minutos: sin frescura no se sabe
+               si lo que estás mirando ya lo resolvió otro (o el propio cron). -->
+          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="300" />
+          <app-context-help topic="compras-entradas" />
         </div>
       </header>
 
@@ -100,7 +110,8 @@ import { Permission } from '../../../core/constants/permissions';
                             : 'Probá con otro estado o quitá el texto de la búsqueda.'" />
         } @else {
           <div class="eg-scroll">
-            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table"
+                   [class.is-dense]="density.dense()">
               <thead>
                 <tr>
                   <th scope="col">En la sucursal</th>
@@ -119,6 +130,10 @@ import { Permission } from '../../../core/constants/permissions';
                       <b class="mono">{{ p.sucursal }}/{{ p.folio }}</b>
                       <em class="eg-sub">{{ suc(p.sucursal) }} · {{ p.suc_date | date:'dd/MM/yy' }}</em>
                       <em class="eg-prov">{{ p.suc_prov || '—' }}</em>
+                      <!-- RE.17.3 — el conteo de renglones es la señal más honesta del par:
+                           la captura de sucursal lista productos, la de oficinas casi siempre
+                           trae uno de concepto con el total. -->
+                      <em class="eg-sub eg-nl">{{ renglones(p.suc_lineas) }}</em>
                     </td>
                     <td class="comm-num">{{ p.suc_monto == null ? '—' : money(p.suc_monto) }}</td>
                     <td>
@@ -129,6 +144,7 @@ import { Permission } from '../../../core/constants/permissions';
                       <!-- El proveedor del otro lado es EL dato de la decisión: si los dos nombres
                            son la misma persona con otro alta, es la misma orden. -->
                       <em class="eg-prov" [class.is-diff]="distintoProv(p)">{{ p.cedis_prov || '—' }}</em>
+                      <em class="eg-sub eg-nl" [class.is-diff]="soloConcepto(p)">{{ renglones(p.cedis_lineas) }}</em>
                     </td>
                     <td class="comm-num">{{ p.cedis_monto == null ? '—' : money(p.cedis_monto) }}</td>
                     <td class="comm-num" [class.is-diff]="!!p.delta_monto">
@@ -141,6 +157,17 @@ import { Permission } from '../../../core/constants/permissions';
                       }
                     </td>
                     <td class="eg-acts">
+                      <!-- RE.17.3 — la evidencia, a un clic y sin salir de la fila. Antes había
+                           que dictaminar mirando folio, importe y fecha; lo que resuelve la duda
+                           son los renglones, y estaban en la base sin llegar nunca a la pantalla. -->
+                      <button pButton type="button" class="p-button-sm p-button-text eg-exp"
+                              [attr.aria-expanded]="abierto() === p.cedis_folio"
+                              [attr.aria-label]="(abierto() === p.cedis_folio ? 'Ocultar' : 'Ver') + ' los renglones de los dos lados'"
+                              (click)="alternarDetalle(p)">
+                        <span class="p-button-icon p-button-icon-left pi"
+                              [ngClass]="abierto() === p.cedis_folio ? 'pi-chevron-up' : 'pi-list'" aria-hidden="true"></span>
+                        <span class="p-button-label">Renglones</span>
+                      </button>
                       @if (p.status === 'propuesto' && canDecide()) {
                         <button pButton type="button" class="p-button-sm p-button-text eg-ok"
                                 [disabled]="decidiendo() === p.cedis_folio" (click)="decidir(p, 'confirmar')">
@@ -159,6 +186,58 @@ import { Permission } from '../../../core/constants/permissions';
                       }
                     </td>
                   </tr>
+
+                  @if (abierto() === p.cedis_folio) {
+                    <tr class="eg-det">
+                      <td [attr.colspan]="7">
+                        @if (detalleError()) {
+                          <p class="eg-det-msg is-bad"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ detalleError() }}</p>
+                        } @else if (!detalle()) {
+                          <p class="eg-det-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Trayendo los renglones de los dos lados…</p>
+                        } @else if (detalle(); as d) {
+                          <!-- Q.2 — la lectura en llano antes de las dos listas: el veredicto es
+                               lo que la persona necesita, las listas son el respaldo. -->
+                          <p class="eg-det-lee">{{ lectura(d) }}</p>
+                          <div class="eg-det-cols">
+                            @for (lado of [d.sucursal, d.oficinas]; track lado.folio; let esOfi = $index) {
+                              <section class="eg-det-col">
+                                <h3 class="eg-det-h">
+                                  {{ esOfi ? 'Oficinas' : 'Sucursal ' + suc(lado.sucursal) }}
+                                  <span class="mono">{{ lado.sucursal }}/{{ lado.folio }}</span>
+                                  <em>{{ renglones(lado.lineas.length) }} · {{ money(sumaLineas(lado.lineas)) }}</em>
+                                </h3>
+                                @if (!lado.lineas.length) {
+                                  <p class="eg-det-msg">Kepler no tiene renglones de detalle para este documento.</p>
+                                } @else {
+                                  <div class="eg-lin-wrap">
+                                  <table class="surf-table surf-table--plain eg-lin">
+                                    <thead>
+                                      <tr>
+                                        <th scope="col">SKU</th><th scope="col">Producto</th>
+                                        <th scope="col" class="comm-num">Cant.</th>
+                                        <th scope="col" class="comm-num">Importe</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      @for (l of lado.lineas; track l.linea) {
+                                        <tr>
+                                          <td class="mono">{{ l.sku || '—' }}</td>
+                                          <td class="eg-lin-n" [title]="l.nombre || ''">{{ l.nombre || '—' }}</td>
+                                          <td class="comm-num mono">{{ l.cantidad | number:'1.0-2' }}<em class="eg-u">{{ l.unidad || '' }}</em></td>
+                                          <td class="comm-num mono">{{ money(l.importe) }}</td>
+                                        </tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                  </div>
+                                }
+                              </section>
+                            }
+                          </div>
+                        }
+                      </td>
+                    </tr>
+                  }
                 }
               </tbody>
             </table>
@@ -197,6 +276,33 @@ import { Permission } from '../../../core/constants/permissions';
     .eg-ok .p-button-label { color: var(--text-main); }
     .eg-no .p-button-label { color: var(--text-muted); }
     .eg-done { color: var(--text-muted); }
+    .eg-nl { font-variant-numeric: tabular-nums; }
+    .eg-exp .p-button-label { color: var(--text-muted); }
+
+    /* ── RE.17.3: la evidencia del par, dentro de la misma fila ──────────── */
+    .eg-det > td { background: var(--surface-ground); padding: var(--sp-3); }
+    .eg-det-lee { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-main); max-width: 70ch; text-wrap: pretty; }
+    /* Dos columnas de verdad enfrentadas: la comparación ES el trabajo. Grid intrínseco, así
+       que en pantalla angosta se apilan sin breakpoint (checklist 9). */
+    .eg-det-cols { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+    .eg-det-col { min-width: 0; border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); overflow: hidden; }
+    .eg-det-h {
+      display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0;
+      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color);
+      font-size: var(--fs-sm); font-weight: var(--fw-bold, 700); color: var(--text-main);
+    }
+    .eg-det-h .mono { font-weight: 400; color: var(--text-muted); }
+    .eg-det-h em { margin-left: auto; font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .eg-det-msg { margin: 0; padding: var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
+    .eg-det-msg.is-bad { color: var(--bad-fg); }
+    .eg-lin { font-size: var(--fs-xs); }
+    /* Las dos listas pueden tener 20 renglones: alto propio y scroll en un envoltorio (nunca
+       display:block sobre la table, que rompe el reparto de columnas) para que la fila
+       expandida no empuje media pantalla. */
+    .eg-det-col { display: flex; flex-direction: column; max-height: 26rem; }
+    .eg-lin-wrap { overflow: auto; min-height: 0; }
+    .eg-lin-n { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .eg-u { font-style: normal; color: var(--text-muted); margin-left: .15rem; }
     .eg-corte { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
   `],
 })
@@ -206,6 +312,7 @@ export class ComprasEntradasGemelasComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
 
   readonly tabs = ENTRADAS_CONTROL_TABS;
   readonly report = signal<TwinsReport | null>(null);
@@ -216,6 +323,13 @@ export class ComprasEntradasGemelasComponent {
   /** Folio en vuelo: bloquea sus botones sin congelar la tabla entera. */
   readonly decidiendo = signal<string | null>(null);
   readonly scanning = signal(false);
+  readonly cargadoAt = signal<number | null>(null);
+
+  // ── RE.17.3: la evidencia del par ──────────────────────────────────────
+  /** Folio de oficinas de la fila expandida. Una sola a la vez: son dos tablas. */
+  readonly abierto = signal<string | null>(null);
+  readonly detalle = signal<TwinLines | null>(null);
+  readonly detalleError = signal<string | null>(null);
 
   readonly estadoOpts = [
     { label: 'Por dictaminar', value: 'propuesto' },
@@ -259,14 +373,62 @@ export class ComprasEntradasGemelasComponent {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((r) => {
       this.loading.set(false);
-      if (r) { this.report.set(r); this.error.set(null); }
+      if (r) {
+        this.report.set(r);
+        this.error.set(null);
+        this.cargadoAt.set(Date.now());
+        // Si la fila abierta ya no está en el resultado (la dictaminó otro, o cambió el filtro),
+        // el detalle se cierra en vez de quedar colgando de una fila que no existe.
+        const a = this.abierto();
+        if (a && !r.rows.some((x) => x.cedis_folio === a)) this.cerrarDetalle();
+      }
     });
     this.pedir.next();
   }
 
   reload() { this.error.set(null); this.pedir.next(); }
-  setEstado(v: 'propuesto' | 'vigente' | 'todos') { this.estado.set(v); this.pedir.next(); }
+  setEstado(v: 'propuesto' | 'vigente' | 'todos') { this.cerrarDetalle(); this.estado.set(v); this.pedir.next(); }
   setSearch(v: string) { this.search.set(v || ''); this.pedir.next(); }
+
+  // ── la evidencia del par ────────────────────────────────────────────────
+  /** "12 renglones" · "1 renglón" · "sin renglones". `null` = todavía no se sabe. */
+  renglones(n: number | null | undefined): string {
+    if (n == null) return '—';
+    return n === 0 ? 'sin renglones' : `${n} ${n === 1 ? 'renglón' : 'renglones'}`;
+  }
+  /** El caso de libro: oficinas capturó UN renglón de concepto contra los productos de la sucursal. */
+  soloConcepto(p: TwinPair): boolean {
+    return p.cedis_lineas === 1 && (p.suc_lineas ?? 0) > 1;
+  }
+  sumaLineas(ls: EntradaLinea[]): number { return (ls || []).reduce((t, l) => t + (Number(l.importe) || 0), 0); }
+
+  /** Q.2 — el veredicto en llano. Lo que sigue (las dos listas) es el respaldo, no la respuesta. */
+  lectura(d: TwinLines): string {
+    const s = d.sucursal.lineas.length, o = d.oficinas.lineas.length;
+    if (!s && !o) return 'Ninguno de los dos lados tiene renglones de detalle en Kepler: la decisión se toma por importe, fecha y proveedor.';
+    if (o === 1 && s > 1) {
+      return `La sucursal capturó ${s} productos y oficinas un único renglón de concepto (${d.oficinas.lineas[0].nombre || 's/n'}). Es el patrón de la doble captura: la de oficinas es contable, no movió inventario.`;
+    }
+    if (o > 1 && s > 1) {
+      return `Los dos lados traen productos (${s} y ${o} renglones). Si son los mismos SKU es la misma compra; si no, oficinas hizo una compra propia y va "Son distintas".`;
+    }
+    return `Sucursal: ${this.renglones(s)}. Oficinas: ${this.renglones(o)}.`;
+  }
+
+  alternarDetalle(p: TwinPair): void {
+    if (this.abierto() === p.cedis_folio) { this.cerrarDetalle(); return; }
+    this.abierto.set(p.cedis_folio);
+    this.detalle.set(null);
+    this.detalleError.set(null);
+    this.svc.twinLines(p.cedis_folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { if (this.abierto() === p.cedis_folio) this.detalle.set(d); },
+      error: (e) => {
+        if (this.abierto() !== p.cedis_folio) return;
+        this.detalleError.set(e?.error?.message || 'No se pudieron traer los renglones.');
+      },
+    });
+  }
+  private cerrarDetalle(): void { this.abierto.set(null); this.detalle.set(null); this.detalleError.set(null); }
 
   /**
    * Dispara el motor de apareo. Existe porque el cron corre cada 5 minutos y quien está mirando
