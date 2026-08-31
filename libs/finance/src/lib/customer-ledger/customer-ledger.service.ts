@@ -104,10 +104,10 @@ export class CustomerLedgerService {
       const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0, aging: emptyBucket() };
       for (const g of map.values()) {
         const aging = emptyBucket();
-        let saldo = 0; let vencido = 0; let nPartidas = 0;
+        let saldo = 0; let vencido = 0; let nPartidas = 0; let nSaldadas = 0;
         for (const cg of g.cargos) {
           const residual = Math.round(cg.saldo * 100) / 100;
-          if (residual <= 0.005) continue;
+          if (residual <= 0.005) { nSaldadas += 1; continue; }
           saldo += residual; nPartidas += 1;
           bucketFor(aging, cg.venc, hoy, residual);
           if (cg.venc && Date.parse(hoy) > Date.parse(cg.venc)) vencido += residual;
@@ -121,7 +121,7 @@ export class CustomerLedgerService {
           rfc: g.rfc || null, vendedor: g.vendedor || null, grupo: g.grupo || null, zona: g.zona || null,
           telefono: g.telefono || null, limite_credito: limite, dias_credito: g.dias_credito || null,
           uso_linea, sobre_linea: limite != null && saldo > limite + 0.005,
-          saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, aging,
+          saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, n_saldadas: nSaldadas, aging,
         });
         kpi.total_saldo += saldo; kpi.total_vencido += vencido; kpi.n_clientes += 1; kpi.n_partidas += nPartidas;
         if (limite != null && saldo > limite + 0.005) kpi.n_sobre_linea += 1;
@@ -300,7 +300,7 @@ export class CustomerLedgerService {
           this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
         })
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente })
-        .select('r.doc_tipo', 'r.doc_label', 'r.folio', 'r.folio_digital',
+        .select('r.doc_tipo', 'r.doc_label', 'r.doc_code', 'r.folio', 'r.folio_digital',
           trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'),
           'r.importe', 'r.cargo_abono', 'r.referencia', 'r.vendedor', 'r.saldo_documento', 'r.aplicaciones',
           'r.limite_credito', 'r.dias_credito', 'r.telefono', 'r.grupo', 'r.zona',
@@ -315,12 +315,18 @@ export class CustomerLedgerService {
         const saldo_documento = cg.saldo_documento != null ? M2(cg.saldo_documento) : importe;
         const venc = cg.vencimiento || null;
         const dias = venc ? Math.floor((Date.parse(hoy) - Date.parse(venc)) / 86400000) : null;
+        const aplicaciones: any[] = Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []);
+        const saldada = saldo_documento <= 0.005;
+        // Saldada = la última aplicación que la cerró (la vista ya las ordena por fecha).
+        const fechas = aplicaciones.map((a) => a?.fecha).filter(Boolean).sort();
         return {
-          doc_tipo: cg.doc_tipo, doc_label: cg.doc_label, folio: cg.folio, folio_digital: cg.folio_digital,
+          doc_tipo: cg.doc_tipo, doc_label: cg.doc_label, doc_code: cg.doc_code,
+          folio: cg.folio, folio_digital: cg.folio_digital,
           fecha: cg.fecha || null, vencimiento: venc,
-          importe, saldo_documento, dias_vencido: dias, vencida: dias != null && dias > 0 && saldo_documento > 0.005,
+          importe, saldo_documento, dias_vencido: dias, vencida: dias != null && dias > 0 && !saldada,
+          saldada, pagada_el: saldada && fechas.length ? fechas[fechas.length - 1] : null,
           referencia: cg.referencia,
-          aplicaciones: Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []),
+          aplicaciones,
         };
       });
       const head = rows[0] || {};
@@ -359,8 +365,11 @@ export class CustomerLedgerService {
         },
         saldo,
         vencido: Math.round(partidas.filter((p) => p.vencida).reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100,
-        partidas: partidas.filter((p) => p.saldo_documento > 0.005),
-        pagadas: partidas.filter((p) => p.saldo_documento <= 0.005).length,
+        // Van TODAS: la partida saldada es historia de pago del cliente, no ruido. El front
+        // las esconde detrás de un toggle para que el default siga siendo "partidas vivas".
+        partidas,
+        pagadas: partidas.filter((p) => p.saldada).length,
+        importe_pagado: Math.round(partidas.filter((p) => p.saldada).reduce((s, p) => s + p.importe, 0) * 100) / 100,
         abonos: abonos.map((r: any) => ({
           doc_label: r.doc_label, folio: r.folio, fecha: r.fecha || null, importe: M2(r.importe),
         })),

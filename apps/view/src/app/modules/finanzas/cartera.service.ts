@@ -10,7 +10,7 @@ export interface CarteraCliente {
   sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null;
   grupo: string | null; zona: string | null; telefono: string | null;
   limite_credito: number | null; dias_credito: number | null; uso_linea: number | null; sobre_linea: boolean;
-  saldo: number; vencido: number; n_partidas: number; aging: AgingBucket;
+  saldo: number; vencido: number; n_partidas: number; n_saldadas: number; aging: AgingBucket;
 }
 export interface CarteraFiltros { sucursales: string[]; grupos: string[]; zonas: string[]; vendedores: string[] }
 export interface CarteraResumen {
@@ -29,16 +29,18 @@ export interface CarteraResp {
 
 export interface Aplicacion { tipo: string; label: string; folio: string; fecha: string | null; monto: number }
 export interface Partida {
-  doc_tipo: string; doc_label: string; folio: string; folio_digital: string;
+  doc_tipo: string; doc_label: string; doc_code: string; folio: string; folio_digital: string;
   fecha: string | null; vencimiento: string | null; importe: number; saldo_documento: number;
   dias_vencido: number | null; vencida: boolean; referencia: string | null;
+  /** Saldada = ya cobrada por completo; `pagada_el` = fecha de la última aplicación. */
+  saldada: boolean; pagada_el: string | null;
   aplicaciones: Aplicacion[];
 }
 export interface CarteraDetalle {
   hoy: string;
   cliente: { sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null; grupo: string | null; zona: string | null; telefono: string | null; limite_credito: number | null; dias_credito: number | null };
   saldo: number; vencido: number;
-  partidas: Partida[]; pagadas: number;
+  partidas: Partida[]; pagadas: number; importe_pagado: number;
   abonos: { doc_label: string; folio: string; fecha: string | null; importe: number }[];
   cobranza: { n: number; monto: number; ultimo: string | null; con_ficha: number; validados: number } | null;
   compromisos: Compromiso[];
