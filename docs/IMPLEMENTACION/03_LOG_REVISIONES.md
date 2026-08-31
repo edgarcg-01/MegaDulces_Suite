@@ -6,6 +6,40 @@
 
 ---
 
+## 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada)
+
+**Disparador:** *"que tipos de margenes… de donde sacas el costo estandar"*, y después: *"tenemos dos
+problemas claros que necesitan un análisis"*. La pregunta por el costo estándar destapó que
+`sales_daily.cost` tiene **dos escritores incompatibles**, uno de los cuales no guarda un costo sino
+un markup despejado de la venta.
+
+**Lo que se midió** (prod, 30 d, $41.1 M): Kepler 50.8% = `revenue/(1+markup_pct)` → margen que
+**no reacciona al precio** (3,269 SKUs, 51 con precios >20% distintos entre almacenes,
+**0.0000 pp** de spread); subdeclara 2.02 pp / $411,220. Wincaja 48.9% = `ValorCosto` real. La
+unidad: 91.4% cae en pieza, 5.5% se cuenta en paquete/caja publicado como «unidades», 3.1% no se
+ubica, 257 SKUs cuentan distinto según canal. Y **el costo por línea existe** (`kdm2.c62/c63`, 99.1%
+en `U-D-10`/`U-D-6`) pero viene por peldaño: 7.4% de líneas darían costo > venta.
+
+**Tres afirmaciones retiradas**, todas publicadas por el propio tablero: el spread por sucursal
+(artefacto de método), la validación tautológica del margen unitario, y el 11.32% como medición.
+ADR-051 enmendado.
+
+**Lecciones.**
+1. **Preguntar "de dónde sale este número" es una prueba, no una formalidad.** Tres documentos, la
+   ayuda contextual y dos respuestas mías afirmaban que el costo era del PdV. Nadie lo había seguido
+   hasta el importer.
+2. **La regla de Edgar de no copiar tablas predice el daño con precisión medible**: primarias y
+   vistas, 0 datos rotos; copias materializadas, todos. Con un matiz que hay que conservar —
+   materializar por costo es legítimo; el pecado es materializar un **valor inventado**, porque no
+   hay origen contra el cual cuadrarlo y ninguna verificación lo atrapa.
+3. **Una validación que no puede fallar no valida.** El «0 discrepancias en 4,922 productos» que
+   reporté como confirmación era el mismo cociente comparado consigo mismo.
+
+**Pendiente:** MR.7.1 (persistir el peldaño, ruta crítica) → MR.7.2 (costear con el peldaño) →
+MR.7.3 (declarar el método y bloquear cortes mixtos). Y MR.0 #10 sigue sin firma.
+
+---
+
 ## 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo
 
 **Disparador:** Edgar mandó dos capturas de Kepler —la pantalla *"Costos por Proveedor por
