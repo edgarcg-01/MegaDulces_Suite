@@ -181,10 +181,14 @@ export class PurchaseAdjustmentsService {
    * (Kepler no liga la nota a la entrada estructuralmente — igual que el pago). Etiqueta
    * cada match como 'exacto' | 'proveedor+fecha' para ser honestos con la precisión.
    */
-  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number }) {
+  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const win = Math.min(90, Math.max(0, Number(p.window_days) || 15));
-    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0 };
+    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0, explicacion: null };
+    // `[RE.21]` — el hueco a explicar y con cuánta holgura. Sin `delta` esto se comporta igual
+    // que antes (lista de candidatos sin ranking), que es lo que piden los llamadores viejos.
+    const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
+    const tol = Math.max(0.01, Number(p.tolerancia) || 1);
     return this.tk.run(async (trx) => {
       let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
       b = b.andWhere((w: any) => {
@@ -199,11 +203,44 @@ export class PurchaseAdjustmentsService {
       const rows: any[] = await b
         .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
         .orderBy('adjustment_date', 'desc').limit(50);
-      const out = rows.map((r) => ({
-        ...r, grupo: grupoOf(r.categoria),
-        match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto' : 'proveedor+fecha',
-      }));
-      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0) };
+
+      const out = rows.map((r) => {
+        const monto = Math.abs(Number(r.monto || 0));
+        // `[RE.21]` — **explica por MONTO, no por folio.** No hay llave estructural entre la nota
+        // de crédito y la recepción: `entrada_folio` (c39) viene vacío en el 96% y en las X-D-55
+        // en el 100%, y `factura_ref` (c11) es texto libre —el 29% trae el CÓDIGO DE PROVEEDOR—.
+        // Lo único defendible es lo que haría una persona: ver cuál ajuste tiene el tamaño del
+        // hueco. Se compara la MAGNITUD y no el signo, porque la dirección contable no es estable
+        // (verificado: el ajuste va del 8% al 100% de la entrada, y varios son la recepción
+        // entera revertida). Afirmar dirección sería inventar; comparar tamaños no.
+        const explica = delta != null && delta > 0 && Math.abs(monto - delta) <= tol;
+        return {
+          ...r, grupo: grupoOf(r.categoria), explica,
+          // Tres niveles honestos en vez de dos: `exacto` es el 4% que Kepler sí liga; `monto`
+          // es fuerte pero circunstancial; `proveedor+fecha` es un candidato que puede ser ruido.
+          match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto'
+            : explica ? 'monto' : 'proveedor+fecha',
+        };
+      });
+      // Lo que explica el hueco primero; después lo ligado; después por fecha.
+      const peso = (m: string) => (m === 'exacto' ? 0 : m === 'monto' ? 1 : 2);
+      out.sort((a, b2) => peso(a.match) - peso(b2.match)
+        || String(b2.adjustment_date).localeCompare(String(a.adjustment_date)));
+
+      // El veredicto para la pantalla: ¿hay UNO que explique el hueco al peso, y de qué
+      // naturaleza es? Un descuadre explicado por un ajuste OPERATIVO (no llegó completo) es otra
+      // cosa que uno explicado por uno COMERCIAL (beneficio negociado que llega después).
+      const explican = out.filter((r) => r.explica);
+      const explicacion = delta == null ? null : {
+        delta,
+        explicado: explican.length > 0,
+        // `grupoOf` ya separa negociado de problema; se reporta el del mejor candidato.
+        grupo: explican[0]?.grupo ?? null,
+        candidatos: explican.length,
+        // Honestidad: si el que explica NO es el ligado por Kepler, es evidencia circunstancial.
+        confianza: explican[0]?.match === 'exacto' ? 'alta' : explican.length === 1 ? 'media' : explican.length > 1 ? 'ambigua' : 'ninguna',
+      };
+      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0), explicacion };
     });
   }
 

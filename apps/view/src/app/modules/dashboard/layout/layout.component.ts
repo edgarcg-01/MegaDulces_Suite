@@ -523,24 +523,43 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Órdenes',
+      // RE.20.0 — el grupo dice la ETAPA del proceso, no el tipo de documento. Se llamaba
+      // "Órdenes" y adentro convivían "Órdenes de compra" (lo que pedimos) con las facturas de
+      // entrada (lo que llega): dos cosas opuestas bajo el mismo sustantivo, y con dos rutas
+      // casi idénticas (`/compras/ordenes` vs `/compras/entradas/control/ordenes`).
+      title: 'Compra',
       items: [
-        { label: 'Requisiciones',      icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
-        { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
-        // RE.16 — facturas de entrada: TRES items, uno por oficio. Eran cinco y se leían como
-        // cinco módulos sueltos; el lote se absorbió en Pendientes (soltar N PDFs) y "todas" +
-        // "gemelas" viven como pestañas del Centro de control.
-        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es el Centro de control.
-        { label: 'Pendientes de subir',  icon: 'pi pi-file-pdf',   route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        { label: 'Revisión de facturas', icon: 'pi pi-verified',   route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
-        { label: 'Centro de control',    icon: 'pi pi-sitemap',    route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
+        { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
       ],
     },
     {
+      // RE.20.0 — la otra etapa. Los nombres son SUSTANTIVOS, como el resto del sidebar
+      // (Ventas · Existencias · Pagos · Conteo físico), y cada uno usa **la palabra de la
+      // máquina de estados**: el estado es "Por revisar" → la pantalla es "Revisión". Antes la
+      // misma pantalla se llamaba de tres formas (sidebar "Revisión", título "Bandeja de
+      // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
+      title: 'Recepción',
+      items: [
+        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
+        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
+        { label: 'Revisión de facturas', icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
+        { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+      ],
+    },
+    {
+      // RE.20.5 — las cuatro son el MISMO dinero cortado distinto, y lo único que las
+      // distingue es la unidad de la fila. Los nombres lo dicen: "por compra" y "por
+      // proveedor" son la misma cifra a dos granularidades y se leen de un vistazo.
+      // `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía algo
+      // al que lo construyó y nada al comprador.
       title: 'Análisis',
       items: [
-        { label: 'Compras 360',         icon: 'pi pi-table',      route: '/compras/compras-360', permission: Permission.COMPRAS_360_VER },
-        { label: 'Costo neto',          icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        // RE.20.1 — la fusión: es la MISMA pantalla que `Control de entradas · Listado`, con el
+        // otro lente. Y pide `COMPRAS_ENTRADAS_VER` y no `COMPRAS_360_VER` porque el primero es
+        // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
+        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
       ],

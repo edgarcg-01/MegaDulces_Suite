@@ -10,12 +10,6 @@
 
 ## [Unreleased]
 
-### Added — Contratos de tipos del boundary REST: gate + BFF del Command Center (TS.0–TS.2, ADR-052, 2026-08-29)
-- **El boundary REST deja de "romper en silencio".** El front tenía **849 contratos de tipo escritos a mano**, desacoplados del backend: un cambio de forma no rompía el compile, llegaba mal formado en runtime. Nace `libs/contracts/src/http` como **fuente única** (Zod), importada por backend y frontend (ADR-052, evoluciona ADR-045).
-- **Gate de CI a nivel LÍNEA** que frena `any`/returns sin tipar en el código nuevo del boundary, sin reventar por la deuda vieja (ratchet: un archivo legacy tocado daba 95 violaciones a nivel archivo, 6 a nivel línea).
-- **BFF del Command Center**: `GET /commercial/analytics/command-center` junta los **7 paneles de un mismo permiso en 1 request** — el tablero pasó de **11 a 5 llamadas** — y valida la respuesta contra el contrato (`.parse` = punto de enforcement). Los 4 paneles con otro permiso siguen aparte para no bypassear su gate.
-- **La fase ya pagó**: al tipar `commercial-analytics` (13 métodos), el compilador **encontró un bug real** que el drift escondía — `overview()?live=true` omitía `refreshed_at`. Arreglado.
-
 ### Changed — el arqueo va a la par de Kepler: cero calendarios, todo en vivo (SM.15, 2026-08-27)
 - **Se fueron los selectores de fecha.** La captura ya no tiene `p-datepicker` (ni en la vía manual del supervisor): un arqueo es de HOY, y elegir una fecha pasada permitiría sellar dinero de un día que ya cerró. El historial cambia el calendario por **ventanas relativas al presente** (`Hoy · 7 días · 30 días`, vía `app-segmented`) y **nunca manda un `to`**: el corte superior es siempre *ahora*. Un calendario invita a quedarse mirando un rango viejo creyendo que es el estado actual.
 - **La app pide el arqueo cuando Kepler lo pide.** `turnos` devuelve ahora `cerrado_hace_min`: en cuanto el ERP cierra la caja, la pantalla levanta un aviso — *"Kepler cerró tu caja a las 20:40. Te toca arquear."* — y el turno se marca en la lista. Antes la cajera tenía que darse cuenta sola.

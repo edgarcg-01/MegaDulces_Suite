@@ -189,6 +189,41 @@ const BASE = `
       ok(ordenada, `cola por riesgo: descuadre mayor primero (${q.length} en cola)`);
     }
 
+    // ── 11. [RE.20.2] Encabezado ordenable: las claves nuevas y la fecha futura ────
+    // El encabezado clickeable manda `orden` + `dir`. Si una de esas claves revienta o cae al
+    // default en silencio, la pantalla se ve bien y ordena mal — que es peor que un error.
+    const ORDENES = {
+      'proveedor ASC': `lower(NULLIF(TRIM(c.proveedor_nombre), '')) ASC NULLS LAST`,
+      'proveedor DESC': `lower(NULLIF(TRIM(c.proveedor_nombre), '')) DESC NULLS LAST`,
+      'monto ASC': `c.monto::numeric ASC`,
+      'monto DESC': `c.monto::numeric DESC`,
+    };
+    for (const [nombre, ob] of Object.entries(ORDENES)) {
+      const r = (await c.query(
+        `SELECT c.folio FROM analytics.erp_goods_receipts c
+          WHERE c.tenant_id = $1 AND c.dup_of_folio IS NULL
+          ORDER BY ${ob}, c.folio DESC LIMIT 5`, [TENANT])).rows;
+      ok(r.length > 0, `orden "${nombre}" corre y devuelve filas`);
+    }
+
+    // La captura del ERP con fecha adelantada NO puede encabezar la lista: `LEAST(fecha, hoy)`
+    // la aplasta a hoy, así que el flag de futuro tiene que ser la PRIMERA clave y no un
+    // desempate (como desempate sólo la baja si además hay entradas de hoy con qué empatar).
+    const fut = Number((await c.query(
+      `SELECT count(*)::int n FROM analytics.erp_goods_receipts
+        WHERE tenant_id = $1 AND dup_of_folio IS NULL AND receipt_date > current_date`, [TENANT])).rows[0].n);
+    if (fut === 0) {
+      console.log('     (sin capturas de fecha futura: nada que empujar al final)');
+    } else {
+      const top = (await c.query(
+        `SELECT c.receipt_date > current_date AS futura
+           FROM analytics.erp_goods_receipts c
+          WHERE c.tenant_id = $1 AND c.dup_of_folio IS NULL
+          ORDER BY (c.receipt_date > current_date) ASC,
+                   LEAST(c.receipt_date, current_date) DESC, c.folio DESC LIMIT 1`, [TENANT])).rows[0];
+      ok(top.futura === false, `la captura de fecha futura no encabeza el orden reciente (${fut} futura(s))`);
+    }
+
     console.log(`\n${failed === 0 ? '✅ TODO VERDE' : `❌ ${failed} fallo(s)`}`);
   } catch (e) {
     console.error('  ❌ ERROR', e.message);

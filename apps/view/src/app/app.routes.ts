@@ -495,7 +495,10 @@ export const routes: Routes = [
         // (VER sí, GESTIONAR no). El que sólo observa entra por el Centro de control.
         path: 'entradas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)],
+        // RE.17.2 — la bandeja de PDFs ya leídos por OCR no vive en el servidor hasta que se
+        // envía: salir sin avisar tira el trabajo (y las llamadas de visión ya pagadas).
+        canDeactivate: [unsavedChangesGuard]
       },
       {
         // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
@@ -522,6 +525,30 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // RE.20.1 — la MISMA pantalla con el otro lente. `Compras 360` era un componente aparte
+        // (1,059 líneas), con su propio endpoint, su propio detalle y su propia paginación
+        // **sobre la misma entidad**: una fila por orden de entrada. No era solape de datos —
+        // era la misma fila con dos preguntas, y nadie sabía cuál de las dos abrir. Tanto que
+        // la otra ya se había construido adentro un lente de "cumplimiento".
+        //
+        // Absorbe ÉSTA y no al revés por dos razones medidas (2026-08-29):
+        //   1. `COMPRAS_360_VER` ⊂ `COMPRAS_ENTRADAS_VER` — todo rol con 360 tiene ENT_VER, y
+        //      `auxiliar_tienda` (4 personas) tiene ENT_VER SIN 360. Fusionar hacia 360 los
+        //      dejaba afuera; hacia acá no pierde nadie.
+        //   2. Acá viven las escrituras (adjuntar/validar/devolver/descartar, 3 permisos), el
+        //      alcance, el carril y la conciliación por línea RE.11. Mover columnas hacia
+        //      adentro es aditivo; mover escrituras hacia afuera es riesgoso.
+        //
+        // Ruta propia y no un `?lente=` a secas para que el sidebar no marque dos items a la vez.
+        path: 'costo-por-compra',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
+        data: { lente: 'dinero' },
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      // El nombre viejo sigue vivo como redirect: hay links pegados en chats y en el detalle de
+      // otras pantallas. Misma regla que los redirects de RE.16.
+      { path: 'compras-360', redirectTo: 'costo-por-compra', pathMatch: 'full' },
+      {
         // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
         // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
         path: 'entradas/control/gemelas',
@@ -533,7 +560,10 @@ export const routes: Routes = [
         // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
         path: 'entradas/control/ajustes',
         loadComponent: () => import('./modules/compras/pages/compras-entradas-ajustes.component').then(m => m.ComprasEntradasAjustesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)],
+        // RE.17.2 — mover el arranque o el SLA recalcula el tablero de las 9 sucursales; la
+        // pantalla ya decía "hay cambios sin guardar" y después te dejaba salir en silencio.
+        canDeactivate: [unsavedChangesGuard]
       },
 
       // Rutas viejas → su lugar nuevo. `lote` desaparece como pantalla: soltar N PDFs en la
@@ -546,12 +576,6 @@ export const routes: Routes = [
         path: 'descuentos',
         loadComponent: () => import('./modules/compras/pages/compras-descuentos.component').then(m => m.ComprasDescuentosComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_DESCUENTOS_VER)]
-      },
-      {
-        // CXP.3 — "Compras 360" (el Excel): recepción/factura + OC + ajuste + neto en un grid.
-        path: 'compras-360',
-        loadComponent: () => import('./modules/compras/pages/compras-compras360.component').then(m => m.ComprasCompras360Component),
-        canActivate: [permissionGuard(Permission.COMPRAS_360_VER)]
       },
       {
         // CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo.

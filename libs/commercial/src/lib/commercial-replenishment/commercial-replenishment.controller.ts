@@ -172,6 +172,13 @@ export class CommercialReplenishmentController {
     sendXlsx(res, buf, this.exporter.fileNameWorkbook(data.coverage_days));
   }
 
+  @Get('in-transit/:productId')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'RA-PRO.44 — Qué viene en camino de un SKU: OCs abiertas (X-A-35 sin X-A-40) con folio, fecha, llegada estimada y cantidad.' })
+  inTransitDetail(@Param('productId') productId: string) {
+    return this.svc.inTransitDetail(productId);
+  }
+
   @Get('workbook/:productId')
   @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
   @ApiOperation({ summary: 'RA-PRO.32 — Detalle drill-down de un SKU: economía + desglose por almacén de los 4 puntos de compra. coverage_days(=30).' })
