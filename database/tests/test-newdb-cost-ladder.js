@@ -66,8 +66,21 @@ const check = (label, cond, detail = '') => {
   if (!poblado) {
     console.log('  ⓘ cost_source aún sin poblar (falta correr el importer nuevo) — se omiten 3–4');
   } else {
-    check('la gran mayoría se lee de Kepler', (byKey.kepler || 0) > total * 0.9,
-      `kepler=${byKey.kepler || 0} de ${total}`);
+    // Cobertura REAL medida 2026-08-31: 88.7% (48,484 de 54,630). El 11.3% restante NO es un fallo
+    // nuestro — son SKUs que Kepler no tiene en kdpv_prov_prod: de 983 SKUs distintos, sólo 1
+    // existe ahí. Son piezas sueltas de mostrador ("IND …") y el 60% ni siquiera tiene costo.
+    // El umbral vigila que la cobertura no se DEGRADE; no se sube a 90% porque el dato no existe.
+    check('la cobertura desde Kepler no se degradó', (byKey.kepler || 0) > total * 0.85,
+      `kepler=${byKey.kepler || 0} de ${total} (${(100 * (byKey.kepler || 0) / total).toFixed(1)}%)`);
+
+    // Y lo que cae a bf tiene que seguir siendo COMERCIALMENTE IRRELEVANTE. Si algún día un SKU
+    // que factura de verdad se queda sin escalera, el pedido lo valuaría con la reconstrucción
+    // vieja (la que mezclaba peldaños) y nadie se enteraría. Medido: 0.43% de la venta.
+    const peso = (await c.query(`
+      SELECT round((100.0 * sum(revenue30) FILTER (WHERE cost_source='bf')
+                    / NULLIF(sum(revenue30), 0))::numeric, 2) AS pct
+        FROM analytics.replenishment_plan WHERE tenant_id=$1`, [T])).rows[0];
+    check('lo que cae a bf pesa <2% de la venta', Number(peso.pct) < 2, `${peso.pct}%`);
 
     // ── 3. EL CANDADO: donde Kepler declara el costo, el fact debe COPIARLO, no recalcularlo ──
     const eq = (await c.query(`
