@@ -15,7 +15,7 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { BancosSocketService } from '../bancos-socket.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from './finanzas-sort';
+import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../shared/util';
 import { money, dmy } from './finanzas-format';
 import { exportXlsx, XlsxSheet } from '../../../shared/export/xlsx-export';
 
@@ -550,7 +550,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             <thead><tr>
               @for (c of DAY_COLS; track c.field) {
                 <th [class]="c.cls" [attr.aria-sort]="ariaSort(daySort(), c.field)">
-                  <button type="button" class="tw-sort" (click)="sortDay(c.field)" [attr.aria-label]="'Ordenar por ' + c.label">
+                  <button type="button" class="surf-sort" (click)="sortDay(c.field)" [attr.aria-label]="'Ordenar por ' + c.label">
                     {{ c.label }}<i [class]="sortIcon(daySort(), c.field)" aria-hidden="true"></i>
                   </button>
                 </th>

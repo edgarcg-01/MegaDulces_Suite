@@ -602,10 +602,35 @@ export interface DuplicateGroup {
 }
 export interface DuplicatesResponse { window_days: number; groups: number; total_riesgo: number; rows: DuplicateGroup[]; }
 
-/** RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. */
-export type AdjustmentMatch = 'exacto' | 'proveedor+fecha';
-export interface AdjustmentForEntradaRow extends AdjustmentRow { match: AdjustmentMatch; }
-export interface AdjustmentsForEntradaResponse { rows: AdjustmentForEntradaRow[]; total_monto: number; }
+/**
+ * RE.2/RE.21 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada.
+ *
+ * `match` tiene tres niveles a propósito: Kepler **no liga** la nota de crédito a la recepción
+ * (`entrada_folio` viene vacío en el 96%, y en las X-D-55 en el 100%), así que `exacto` es el
+ * 4% que sí liga, `monto` es fuerte pero circunstancial —el ajuste tiene el tamaño del hueco— y
+ * `proveedor+fecha` es un candidato que puede ser ruido. Mezclarlos sería mentir sobre la
+ * precisión.
+ */
+export type AdjustmentMatch = 'exacto' | 'monto' | 'proveedor+fecha';
+export interface AdjustmentForEntradaRow extends AdjustmentRow {
+  match: AdjustmentMatch;
+  /** `[RE.21]` — su magnitud casa con el hueco dentro de la tolerancia. */
+  explica?: boolean;
+}
+/** `[RE.21]` — el veredicto: ¿alguien explica el hueco, de qué naturaleza y con cuánta certeza? */
+export interface AdjustmentExplicacion {
+  delta: number;
+  explicado: boolean;
+  /** `negociado` (descuento/pronto pago/apoyo) vs `problema` (faltante/mal estado/…). */
+  grupo: string | null;
+  candidatos: number;
+  confianza: 'alta' | 'media' | 'ambigua' | 'ninguna';
+}
+export interface AdjustmentsForEntradaResponse {
+  rows: AdjustmentForEntradaRow[];
+  total_monto: number;
+  explicacion: AdjustmentExplicacion | null;
+}
 
 /** RE.10 — reconciliación de los 2 canales de descuento de proveedor (pago c84 vs nota X-D-55). */
 export type DiscountCanal = 'pago' | 'nota' | 'ambos';
@@ -1005,12 +1030,15 @@ export class ComprasService {
    * RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada: por
    * `entrada_folio` exacto cuando existe, si no por proveedor + ventana de fecha.
    */
-  adjustmentsForEntrada(p: { proveedor_code?: string | null; entrada_folio?: string | null; date?: string | null; window_days?: number }): Observable<AdjustmentsForEntradaResponse> {
+  adjustmentsForEntrada(p: { proveedor_code?: string | null; entrada_folio?: string | null; date?: string | null; window_days?: number; delta?: number | null; tolerancia?: number }): Observable<AdjustmentsForEntradaResponse> {
     const q = new URLSearchParams();
     if (p.proveedor_code) q.set('proveedor_code', p.proveedor_code);
     if (p.entrada_folio) q.set('entrada_folio', p.entrada_folio);
     if (p.date) q.set('date', p.date);
     if (p.window_days) q.set('window_days', String(p.window_days));
+    // RE.21 — el hueco a explicar. Sin él, el server devuelve candidatos sin ranking (compat).
+    if (p.delta != null && isFinite(p.delta) && p.delta !== 0) q.set('delta', String(Math.abs(p.delta)));
+    if (p.tolerancia) q.set('tolerancia', String(p.tolerancia));
     const qs = q.toString();
     return this.http.get<AdjustmentsForEntradaResponse>(`${this.adjBase}/for-entrada${qs ? '?' + qs : ''}`);
   }
