@@ -147,7 +147,7 @@ Las rutas puras dan delta exacto 0. En 21–28 el delta **es exactamente** el tr
 
 ## 6. Pendiente para prod
 
-1. `npm run migrate:new` contra Railway → mig `20260831120000` (2 columnas aditivas + 1 índice + 2 vistas). No destructiva; el `down` deja las columnas de `v_sales_lines` (quitarlas exigiría `DROP CASCADE` de `v_sales_daily`).
+1. **La migración NO se aplica a mano.** Railway corre `sh ./migrate.sh` como `preDeployCommand` (ver `railway.api.json`), así que `20260831120000_rr2_route_line_enrichment` (2 columnas aditivas + 1 índice + 2 vistas) entra sola en el **próximo deploy del api**, junto con las demás pendientes. No es destructiva; el `down` deja las columnas de `v_sales_lines` (quitarlas exigiría `DROP CASCADE` de `v_sales_daily`).
 2. **Backfill de los importers** — los dos son incrementales, así que sin ventana forzada la `unidad`/`precio_unitario` sólo llega a los días nuevos:
    - `node database/importers/kepler/import-route-push-lines.js --days 400 --apply`
    - `node database/importers/kepler/import-kepler-vecinal-routes.js --apply` (arranca en el cutover de cada rama)
