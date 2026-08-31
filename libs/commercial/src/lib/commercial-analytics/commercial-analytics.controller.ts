@@ -818,6 +818,64 @@ export class CommercialAnalyticsController {
     });
   }
 
+  @Get('sales-by-route/tickets')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Tickets de una ruta, paginado server-side. `route` es obligatoria (sin scope barre la tabla-hecho). '
+      + 'Filtros: from/to o year, client, sku, unit, payment_method, doc_type, min/max_revenue, q. '
+      + 'sort=date|revenue|units|lines|margin · dir=asc|desc · limit≤500.',
+  })
+  salesByRouteTickets(
+    @Query('route') route: string,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('client') client?: string,
+    @Query('sku') sku?: string,
+    @Query('unit') unit?: string,
+    @Query('payment_method') paymentMethod?: string,
+    @Query('doc_type') docType?: string,
+    @Query('min_revenue') minRevenue?: string,
+    @Query('max_revenue') maxRevenue?: string,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.salesByRouteTickets({
+      route,
+      year: year ? Number(year) : undefined,
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
+      client: client?.trim() || undefined,
+      sku: sku?.trim() || undefined,
+      unit: unit?.trim() || undefined,
+      paymentMethod: paymentMethod?.trim() || undefined,
+      docType: docType?.trim() || undefined,
+      minRevenue: minRevenue != null && minRevenue !== '' ? Number(minRevenue) : undefined,
+      maxRevenue: maxRevenue != null && maxRevenue !== '' ? Number(maxRevenue) : undefined,
+      q: q?.trim() || undefined,
+      sort: sort as any,
+      dir: dir as any,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @Get('sales-by-route/ticket')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Un ticket con sus renglones: unidad en la que se vendió, precio unitario, equivalencia en cajas '
+      + '(factor canónico, sólo si el renglón se vendió en esa unidad), costo/margen e impuestos. '
+      + 'Param: key = `source|route|YYYY-MM-DD|consecutivo` (el folio no es único entre rutas y días).',
+  })
+  salesByRouteTicket(@Query('key') key: string) {
+    return this.service.salesByRouteTicket(key);
+  }
+
   @Get('sales-by-route/closure-reconciliation')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Conciliación cierre de ruta vs venta real (histórico D+1): incidencias cierre_faltante/descuadre/cierre_sin_venta. Params: from, to (YYYY-MM-DD).' })

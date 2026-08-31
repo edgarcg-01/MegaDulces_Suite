@@ -21,6 +21,10 @@ import {
   SalesByRouteParams,
   SalesByRouteReport,
   SalesByRouteRow,
+  SalesByRouteTicket,
+  SalesByRouteTicketDetail,
+  SalesByRouteTicketsPage,
+  SalesByRouteTicketsParams,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -29,7 +33,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 
-type DetailTab = 'productos' | 'dias' | 'clientes' | 'tickets';
+type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets';
 
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
@@ -224,16 +228,29 @@ const MES: Record<string, string> = {
           <div class="rr-dkpis">
             <div class="rr-dkpi"><span>Venta</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Tickets</span><b>{{ d.totals.tickets | number }}</b></div>
+            <div class="rr-dkpi"><span>Ticket prom.</span><b>{{ avgTicket(d) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Unidades</span><b>{{ d.totals.units | number:'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>SKUs</span><b>{{ d.totals.skus | number }}</b></div>
             <div class="rr-dkpi"><span>Clientes</span><b>{{ d.totals.clients | number }}</b></div>
+            <!-- Margen: siempre acompañado de su cobertura. El push de camionetas no trae
+                 costo, así que un margen "a secas" mezclaría peras con manzanas. -->
+            <div class="rr-dkpi rr-dkpi-wide">
+              <span>Margen</span>
+              @if (d.margin.margin_pct != null) {
+                <b>{{ d.margin.margin_pct | number:'1.0-1' }}%</b>
+                <em>sobre {{ d.margin.coverage_pct | number:'1.0-0' }}% de la venta (lo que trae costo en la fuente)</em>
+              } @else {
+                <b class="rr-nodata">—</b><em>la fuente de esta ruta no trae costo</em>
+              }
+            </div>
           </div>
 
           <div class="rr-tabs" role="tablist">
-            <button type="button" role="tab" [class.on]="tab()==='productos'" [attr.aria-selected]="tab()==='productos'" (click)="tab.set('productos')">Productos</button>
-            <button type="button" role="tab" [class.on]="tab()==='dias'" [attr.aria-selected]="tab()==='dias'" (click)="tab.set('dias')">Por día</button>
-            <button type="button" role="tab" [class.on]="tab()==='clientes'" [attr.aria-selected]="tab()==='clientes'" (click)="tab.set('clientes')">Clientes</button>
-            <button type="button" role="tab" [class.on]="tab()==='tickets'" [attr.aria-selected]="tab()==='tickets'" (click)="tab.set('tickets')">Tickets</button>
+            <button type="button" role="tab" [class.on]="tab()==='productos'" [attr.aria-selected]="tab()==='productos'" (click)="setTab('productos')">Productos</button>
+            <button type="button" role="tab" [class.on]="tab()==='unidades'" [attr.aria-selected]="tab()==='unidades'" (click)="setTab('unidades')">Unidades</button>
+            <button type="button" role="tab" [class.on]="tab()==='dias'" [attr.aria-selected]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
+            <button type="button" role="tab" [class.on]="tab()==='clientes'" [attr.aria-selected]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
+            <button type="button" role="tab" [class.on]="tab()==='tickets'" [attr.aria-selected]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
           </div>
 
           @switch (tab()) {
@@ -251,6 +268,23 @@ const MES: Record<string, string> = {
                 </ng-template>
               </p-table>
               <p class="rr-note">Top 50 por importe.</p>
+            }
+            @case ('unidades') {
+              <p-table [value]="detail()!.units_mix" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                <ng-template #header><tr>
+                  <th scope="col">Unidad</th><th scope="col" class="comm-num">Renglones</th>
+                  <th scope="col" class="comm-num">Cantidad</th><th scope="col" class="comm-num">Importe</th>
+                  <th scope="col" class="comm-num">%</th></tr>
+                </ng-template>
+                <ng-template #body let-u><tr>
+                  <td class="comm-cell-strong">{{ u.unidad || '—' }}</td>
+                  <td class="comm-num">{{ u.lines | number }}</td>
+                  <td class="comm-num">{{ u.units | number:'1.0-2' }}</td>
+                  <td class="comm-num rr-strong">{{ u.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="comm-num comm-muted">{{ u.share_pct | number:'1.0-1' }}%</td></tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Unidad tal como la declara la fuente (Wincaja: catálogo del artículo · Kepler: renglón del documento). "—" = SKU sin unidad en el catálogo de esa fuente.</p>
             }
             @case ('dias') {
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
@@ -281,18 +315,112 @@ const MES: Record<string, string> = {
               <p class="rr-note">Top 50 por importe. "Público" = venta a bordo sin cliente identificado.</p>
             }
             @case ('tickets') {
-              <p-table [value]="detail()!.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template #header><tr>
-                  <th scope="col">Folio</th><th scope="col">Fecha</th>
-                  <th scope="col" class="comm-num">Líneas</th><th scope="col" class="comm-num">Importe</th></tr>
-                </ng-template>
-                <ng-template #body let-t><tr>
-                  <td class="rr-mono">{{ t.folio }}</td><td>{{ t.date }}</td>
-                  <td class="comm-num">{{ t.lines | number }}</td>
-                  <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
-                </ng-template>
-              </p-table>
-              <p class="rr-note">Últimos 100 tickets.</p>
+              @if (ticket(); as t) {
+                <!-- Detalle de UN ticket (master-detail dentro del mismo panel) -->
+                <div class="rr-tk-head">
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="closeTicket()">
+                    <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
+                    <span class="p-button-label">Tickets</span>
+                  </button>
+                  <span class="rr-mono rr-strong">{{ t.folio }}</span>
+                  @if (t.doc_type) { <span class="rr-tag">{{ t.doc_type }}</span> }
+                  <span class="rr-tag rr-tag-src">{{ t.source === 'push' ? 'push' : 'wincaja' }}</span>
+                </div>
+                <div class="rr-tk-meta">
+                  <div><span>Fecha</span><b>{{ t.date }}@if (t.time) { · {{ t.time }}}</b></div>
+                  <div><span>Cliente</span><b>{{ t.client_name || '—' }}</b></div>
+                  <div><span>Pago</span><b>{{ t.payment_method_label || '—' }}</b></div>
+                  <div><span>Vendedor</span><b>{{ t.seller || '—' }}</b></div>
+                  <div><span>Importe</span><b>{{ t.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                  <div><span>Margen</span><b>{{ t.margin_pct != null ? (t.margin_pct | number:'1.0-1') + '%' : '—' }}</b></div>
+                </div>
+                <p-table [value]="t.lines_detail" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="42vh">
+                  <ng-template #header><tr>
+                    <th scope="col">Producto</th>
+                    <th scope="col" class="comm-num">Cant</th>
+                    <th scope="col">Unidad</th>
+                    <th scope="col" class="comm-num">Precio</th>
+                    <th scope="col" class="comm-num">Importe</th>
+                    <th scope="col" class="comm-num">Margen</th></tr>
+                  </ng-template>
+                  <ng-template #body let-l><tr>
+                    <td class="rr-prod"><span class="rr-sku">{{ l.sku }}</span> {{ l.name || '' }}</td>
+                    <td class="comm-num">{{ l.qty | number:'1.0-2' }}</td>
+                    <td>
+                      {{ l.unidad || '—' }}
+                      @if (l.boxes != null) { <em class="rr-eq">= {{ l.boxes | number:'1.0-2' }} cja</em> }
+                    </td>
+                    <td class="comm-num">{{ l.precio_unitario != null ? (l.precio_unitario | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                    <td class="comm-num rr-strong">{{ l.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td class="comm-num comm-muted">{{ l.margin_pct != null ? (l.margin_pct | number:'1.0-1') + '%' : '—' }}</td></tr>
+                  </ng-template>
+                </p-table>
+                <p class="rr-note">
+                  {{ t.lines | number }} renglones · {{ t.skus | number }} SKUs.
+                  La equivalencia en cajas se imprime sólo con factor de empaque real y compra ≥ 1 caja.
+                  @if (t.source === 'push') { El push de camionetas no trae costo ni impuestos por renglón. }
+                </p>
+              } @else {
+                <!-- Lista paginada de tickets (server-side) -->
+                <div class="rr-tk-filters">
+                  <p-iconfield styleClass="rr-tk-search">
+                    <p-inputicon styleClass="pi pi-search" />
+                    <input pInputText type="text" [ngModel]="tkQuery()" (ngModelChange)="tkQuery.set($event)"
+                           (keyup.enter)="loadTickets(true)" placeholder="Folio o cliente…" aria-label="Buscar folio o cliente" />
+                  </p-iconfield>
+                  <p-select [options]="tkUnitOpts()" [ngModel]="tkUnit()" (ngModelChange)="tkUnit.set($event); loadTickets(true)"
+                            optionLabel="label" optionValue="value" placeholder="Unidad" [showClear]="true"
+                            appendTo="body" styleClass="rr-tk-sel" ariaLabel="Filtrar por unidad" />
+                  <p-select [options]="docTypeOpts" [ngModel]="tkDocType()" (ngModelChange)="tkDocType.set($event); loadTickets(true)"
+                            optionLabel="label" optionValue="value" placeholder="Tipo" [showClear]="true"
+                            appendTo="body" styleClass="rr-tk-sel" ariaLabel="Filtrar por tipo de documento" />
+                  <button pButton size="small" severity="secondary" [outlined]="true" (click)="loadTickets(true)">
+                    <span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span>
+                    <span class="p-button-label">Buscar</span>
+                  </button>
+                </div>
+                @if (tkPage(); as pg) {
+                  <div class="rr-tk-sum">
+                    <span>{{ pg.total | number }} tickets</span>
+                    <span>{{ pg.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                    <span>prom. {{ pg.totals.avg_ticket | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  </div>
+                }
+                <p-table [value]="tkPage()?.rows || []" [loading]="tkLoading()" [rowHover]="true"
+                         [lazy]="true" (onLazyLoad)="onTicketsLazy($event)"
+                         [paginator]="true" [rows]="tkLimit" [first]="tkOffset()"
+                         [totalRecords]="tkPage()?.total || 0"
+                         [scrollable]="true" scrollHeight="42vh"
+                         styleClass="p-datatable-sm surf-table">
+                  <ng-template #header><tr>
+                    <th scope="col" pSortableColumn="date">Fecha <p-sorticon field="date" /></th>
+                    <th scope="col">Folio</th>
+                    <th scope="col">Cliente</th>
+                    <th scope="col" class="comm-num" pSortableColumn="lines">Líneas <p-sorticon field="lines" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="revenue">Importe <p-sorticon field="revenue" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="margin">Margen <p-sorticon field="margin" /></th></tr>
+                  </ng-template>
+                  <ng-template #body let-t>
+                    <tr class="rr-row" (click)="openTicket(t)" title="Ver renglones del ticket">
+                      <td>{{ t.date }}@if (t.time) { <em class="rr-hh">{{ t.time }}</em> }</td>
+                      <td>
+                        <button type="button" class="rr-link rr-mono" (click)="$event.stopPropagation(); openTicket(t)"
+                                [attr.aria-label]="'Ver renglones del ticket ' + t.folio">{{ t.folio }}</button>
+                      </td>
+                      <td class="rr-tk-cli">
+                        {{ t.client_name || '—' }}
+                        @if (t.is_public) { <span class="rr-tag">público</span> }
+                      </td>
+                      <td class="comm-num">{{ t.lines | number }}</td>
+                      <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="comm-num comm-muted">{{ t.margin_pct != null ? (t.margin_pct | number:'1.0-1') + '%' : '—' }}</td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #emptymessage>
+                    <tr><td colspan="6" class="rr-tk-empty">Ningún ticket coincide con los filtros.</td></tr>
+                  </ng-template>
+                </p-table>
+              }
             }
           }
         }
@@ -348,6 +476,24 @@ const MES: Record<string, string> = {
     .rr-note { margin:.5rem 0 0; font-size:.68rem; color:var(--text-muted); }
     .rr-barcol { width:80px; }
     .rr-bar { display:block; height:8px; border-radius:4px; background:var(--action); opacity:.55; }
+    /* RR2 — margen con cobertura + desglose por ticket */
+    .rr-dkpi-wide { grid-column:1 / -1; }
+    .rr-dkpi em { display:block; font-style:normal; font-size:.62rem; color:var(--text-muted); margin-top:.1rem; }
+    .rr-nodata { color:var(--text-muted); }
+    .rr-tk-filters { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin-bottom:.6rem; }
+    :host ::ng-deep .rr-tk-search input { min-width:11rem; }
+    :host ::ng-deep .rr-tk-sel { min-width:8.5rem; }
+    .rr-tk-sum { display:flex; gap:.9rem; font-size:.72rem; color:var(--text-muted); margin-bottom:.5rem; font-variant-numeric:tabular-nums; }
+    .rr-tk-empty { text-align:center; color:var(--text-muted); font-size:.8rem; padding:1.2rem 0; }
+    .rr-tk-cli { max-width:190px; }
+    .rr-hh { font-style:normal; color:var(--text-muted); margin-left:.35rem; font-size:.72rem; }
+    .rr-tk-head { display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem; }
+    .rr-tag-src { text-transform:none; }
+    .rr-tk-meta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.4rem .6rem; margin-bottom:.75rem; }
+    .rr-tk-meta > div { min-width:0; }
+    .rr-tk-meta span { display:block; font-size:.62rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    .rr-tk-meta b { display:block; font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .rr-eq { display:block; font-style:normal; font-size:.66rem; color:var(--text-muted); }
   `],
 })
 export class ComercialVentasPorRutaComponent {
@@ -506,6 +652,87 @@ export class ComercialVentasPorRutaComponent {
   tab = signal<DetailTab>('productos');
   private dailyMax = 1;
 
+  // RR2 — Tickets (paginado server-side) + drill al ticket
+  readonly tkLimit = 50;
+  readonly docTypeOpts = [{ label: 'Ticket', value: 'ticket' }, { label: 'Factura', value: 'factura' }];
+  tkPage = signal<SalesByRouteTicketsPage | null>(null);
+  tkLoading = signal(false);
+  tkQuery = signal('');
+  tkUnit = signal<string | null>(null);
+  tkDocType = signal<string | null>(null);
+  tkSort = signal<'date' | 'revenue' | 'units' | 'lines' | 'margin'>('date');
+  tkDir = signal<'asc' | 'desc'>('desc');
+  tkOffset = signal(0);
+  ticket = signal<SalesByRouteTicketDetail | null>(null);
+
+  /** Unidades para el filtro: las que REALMENTE aparecen en el periodo de esta ruta. */
+  readonly tkUnitOpts = computed(() =>
+    (this.detail()?.units_mix ?? [])
+      .filter((u) => !!u.unidad)
+      .map((u) => ({ label: u.unidad as string, value: u.unidad as string })));
+
+  avgTicket(d: SalesByRouteDetail): number {
+    return d.totals.tickets > 0 ? d.totals.revenue / d.totals.tickets : 0;
+  }
+
+  /** La carga de tickets la dispara el (onLazyLoad) de la tabla al montarse — no acá,
+   *  o se pediría dos veces la misma página. */
+  setTab(t: DetailTab) { this.tab.set(t); }
+
+  private ticketParams(): SalesByRouteTicketsParams {
+    const b = this.detailBounds();
+    return {
+      route: this.detail()?.route_code || '',
+      year: this.year,
+      from: b.from, to: b.to,
+      sku: this.fProduct() || undefined,
+      client: this.fClient() || undefined,
+      unit: this.tkUnit() || undefined,
+      docType: this.tkDocType() || undefined,
+      q: this.tkQuery().trim() || undefined,
+      sort: this.tkSort(), dir: this.tkDir(),
+      limit: this.tkLimit, offset: this.tkOffset(),
+    };
+  }
+
+  loadTickets(reset = false) {
+    if (!this.detail()) return;
+    if (reset) this.tkOffset.set(0);
+    this.tkLoading.set(true);
+    this.svc.salesByRouteTickets(this.ticketParams())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (p) => { this.tkPage.set(p); this.tkLoading.set(false); },
+        error: (e) => {
+          this.tkLoading.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error al cargar tickets', detail: e?.error?.message });
+        },
+      });
+  }
+
+  /** p-table lazy: paginación y orden los resuelve el server (la tabla puede tener 8k tickets). */
+  onTicketsLazy(ev: { first?: number; sortField?: string; sortOrder?: number }) {
+    const first = ev.first ?? 0;
+    const sort = (ev.sortField as any) || 'date';
+    const dir = ev.sortOrder === 1 ? 'asc' : 'desc';
+    const changed = first !== this.tkOffset() || sort !== this.tkSort() || dir !== this.tkDir();
+    this.tkOffset.set(first);
+    this.tkSort.set(sort);
+    this.tkDir.set(dir);
+    if (changed || !this.tkPage()) this.loadTickets();
+  }
+
+  openTicket(t: SalesByRouteTicket) {
+    this.svc.salesByRouteTicket(t.key)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.ticket.set(d),
+        error: (e) => this.toast.add({ severity: 'error', summary: 'Error al cargar el ticket', detail: e?.error?.message }),
+      });
+  }
+
+  closeTicket() { this.ticket.set(null); }
+
   yearOpts = computed(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2]; });
 
   constructor() {
@@ -577,6 +804,11 @@ export class ComercialVentasPorRutaComponent {
     this.detail.set(null);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
+    // El estado de tickets es por ruta: si no se limpia, la ruta nueva muestra los del anterior.
+    this.tkPage.set(null);
+    this.ticket.set(null);
+    this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
+    this.tkOffset.set(0); this.tkSort.set('date'); this.tkDir.set('desc');
     const b = this.detailBounds();
     this.svc.salesByRouteDetail(row.route_code, this.year, {
       from: b.from, to: b.to, sku: this.fProduct() || undefined, client: this.fClient() || undefined,
