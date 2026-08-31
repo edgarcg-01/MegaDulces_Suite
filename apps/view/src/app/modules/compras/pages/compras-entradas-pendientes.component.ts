@@ -929,8 +929,8 @@ interface Hoja {
     .ep-lote-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ep-lote-hint b { color: var(--text-main); }
 
-    /* ::ng-deep justificado (regla 16, "sólo vendor y con comentario"): `.ep-tag` se aplica a un
-       `<p-tag>` de PrimeNG y el estilo tiene que cruzar su encapsulación. No hay forma de
+    /* ::ng-deep justificado (regla 16, "sólo vendor y con comentario"): .ep-tag se aplica a un
+       p-tag de PrimeNG y el estilo tiene que cruzar su encapsulación. No hay forma de
        separarlo desde afuera sin envolver el componente en un span extra. */
     :host ::ng-deep .ep-tag { margin-left: var(--sp-2); }
   `],
