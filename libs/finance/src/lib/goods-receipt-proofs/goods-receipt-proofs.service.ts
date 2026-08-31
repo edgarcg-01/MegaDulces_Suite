@@ -2090,10 +2090,45 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * `[RE.21.2]` — ¿el descuadre lo explica un ajuste que **Kepler mismo liga** a esta entrada?
+   *
+   * Es la barra más alta de las tres de `forEntrada`: no basta que un ajuste del proveedor tenga
+   * el tamaño del hueco (eso es evidencia circunstancial y la decide una persona) — acá se pide
+   * que `entrada_folio` apunte a ESTA recepción **y** que la magnitud case. Es el ~4% de los
+   * ajustes, y es el único caso con liga estructural.
+   *
+   * Se consulta acá y no vía `PurchaseAdjustmentsService` para no acoplar `finance` →
+   * `commercial`: las dos leen la MISMA tabla de `analytics.*`, que no tiene RLS.
+   *
+   * Devuelve el ajuste (para dejarlo escrito en el historial) o `null`.
+   */
+  private async ajusteLigadoQueExplica(
+    trx: any, p: { sucursal: string; folio: string; delta: number; tolerancia: number },
+  ): Promise<{ doctype: string; folio: string; monto: number; categoria: string | null; adjustment_date: string } | null> {
+    const delta = Math.abs(Number(p.delta) || 0);
+    if (!delta) return null;
+    if (!(await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments'))) return null;
+    const r = await trx('analytics.erp_purchase_adjustments')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: p.sucursal, entrada_folio: p.folio })
+      // Magnitud, no signo: la dirección contable no es estable (el ajuste va del 0% al 100% de
+      // la entrada, y algunos son la recepción entera revertida). Ver §4.ter del plan RE.20.
+      .whereRaw('ABS(ABS(monto::numeric) - ?) <= ?', [delta, Math.max(0.01, p.tolerancia)])
+      .orderByRaw('ABS(ABS(monto::numeric) - ?) ASC', [delta])
+      .first('doctype', 'folio', trx.raw('monto::numeric AS monto'), 'categoria', 'adjustment_date');
+    return r ? { ...r, monto: Number(r.monto) } : null;
+  }
+
+  /**
    * RE.13.2 — valida VARIAS de una pasada, pero **sólo el caso limpio**: la factura cuadra al
    * peso (tolerancia del tenant) y no la subió el propio revisor. El server vuelve a
    * comprobarlo por id — la UI no es la que decide qué es "limpio". Devuelve el resultado por
    * id, no un booleano: el revisor tiene que poder ver qué se saltó y por qué.
+   *
+   * `[RE.21.2]` — "limpio" ahora incluye **cuadra con ajuste**: hasta acá una recepción con una
+   * devolución legítima **nunca** se podía aprobar en lote (el gate pedía `monto_match === true`)
+   * y se iba a revisión manual para siempre, aunque Kepler ya tuviera el X-D-40 que la explica.
+   * Se afloja **sólo** para el caso con liga estructural (ver `ajusteLigadoQueExplica`); el match
+   * por monto a secas y los ambiguos siguen yendo a mano, que es donde deben ir.
    */
   async validateBulk(ids: string[], actor?: string) {
     this.tenantCtx.requireTenantId();
@@ -2105,22 +2140,47 @@ export class GoodsReceiptProofsService {
         // Cada una en su propia trx: un descuadre en la 7ª no puede tumbar las 6 anteriores.
         await this.tk.run(async (trx) => {
           const prev = await trx('finance.goods_receipt_proofs').where({ id })
-            .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match');
+            .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match',
+              trx.raw('discrepancy_amount::numeric AS discrepancy_amount'));
           if (!prev) throw new BadRequestException('no existe');
           // RE.20.6 — el lote NO pasa por `validate()`: reimplementa la lógica acá, así que
           // también reimplementaba la ausencia del alcance. Es el peor caso de los cuatro —
           // hasta 200 expedientes de una pasada. El motivo vuelve por `out`, no tira el lote.
           await this.exigirAlcance(prev.sucursal);
           if (prev.status !== 'recibido') throw new BadRequestException(`ya está ${prev.status}`);
-          if (prev.monto_match !== true) throw new BadRequestException('el total no cuadra — se revisa a mano');
+
+          // RE.21.2 — el gate era `monto_match === true` a secas, y con eso una recepción con
+          // devolución legítima no se podía aprobar en lote NUNCA. Ahora hay una segunda puerta,
+          // más angosta: que Kepler ligue un ajuste a esta entrada y su magnitud sea el hueco.
+          let ajuste: Awaited<ReturnType<typeof this.ajusteLigadoQueExplica>> = null;
+          if (prev.monto_match !== true) {
+            const cfgB = await this.settings(trx);
+            ajuste = prev.discrepancy_amount != null
+              ? await this.ajusteLigadoQueExplica(trx, {
+                  sucursal: prev.sucursal, folio: prev.folio,
+                  delta: Number(prev.discrepancy_amount), tolerancia: cfgB.match_tolerance,
+                })
+              : null;
+            if (!ajuste) {
+              throw new BadRequestException(
+                prev.monto_match === null
+                  ? 'sin lectura del documento — se revisa a mano'
+                  : 'el total no cuadra y ningún ajuste ligado lo explica — se revisa a mano');
+            }
+          }
           if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');
           const [row] = await trx('finance.goods_receipt_proofs').where({ id }).where('status', 'recibido')
             .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
             .returning(['id']);
           if (!row) throw new BadRequestException('otra persona ya decidió');
+          // RE.21.2 — el motivo dice CUÁL ajuste lo explicó, no sólo que se aprobó en lote. Sin
+          // el folio del X-D-40/55 escrito, una aprobación con descuadre es indefendible después.
           await this.registrarHistorial(trx, {
             proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
-            status_from: prev.status, status_to: 'validado', motivo: 'aprobación en lote (cuadra al peso)', actor,
+            status_from: prev.status, status_to: 'validado', actor,
+            motivo: ajuste
+              ? `aprobación en lote — cuadra con ajuste ${ajuste.doctype} ${ajuste.folio} de $${ajuste.monto.toFixed(2)}${ajuste.categoria ? ` (${ajuste.categoria})` : ''}`
+              : 'aprobación en lote (cuadra al peso)',
           });
         });
         out.push({ id, ok: true });

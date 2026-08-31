@@ -214,8 +214,15 @@ export class PurchaseAdjustmentsService {
         // (verificado: el ajuste va del 8% al 100% de la entrada, y varios son la recepción
         // entera revertida). Afirmar dirección sería inventar; comparar tamaños no.
         const explica = delta != null && delta > 0 && Math.abs(monto - delta) <= tol;
+        // `[RE.21.3]` — **el cuadre es una FOTO, y esto lo dice.** El `monto_match` se calcula
+        // cuando se captura la factura, pero el 63% de los ajustes que ligan a una recepción
+        // llegan DESPUÉS (mediana 4 días, p90 40). Sin este número el revisor no puede saber si
+        // el ajuste ya existía cuando se juzgó el cuadre — o sea, si el descuadre era evitable.
+        const diasDespues = p.date && r.adjustment_date
+          ? Math.round((new Date(r.adjustment_date).getTime() - new Date(p.date).getTime()) / 86400000)
+          : null;
         return {
-          ...r, grupo: grupoOf(r.categoria), explica,
+          ...r, grupo: grupoOf(r.categoria), explica, dias_despues: diasDespues,
           // Tres niveles honestos en vez de dos: `exacto` es el 4% que Kepler sí liga; `monto`
           // es fuerte pero circunstancial; `proveedor+fecha` es un candidato que puede ser ruido.
           match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto'
@@ -239,6 +246,11 @@ export class PurchaseAdjustmentsService {
         candidatos: explican.length,
         // Honestidad: si el que explica NO es el ligado por Kepler, es evidencia circunstancial.
         confianza: explican[0]?.match === 'exacto' ? 'alta' : explican.length === 1 ? 'media' : explican.length > 1 ? 'ambigua' : 'ninguna',
+        // RE.21.3 — cuántos días después de recibir llegó el que explica. Si es > 0, el cuadre
+        // que se guardó al capturar NO pudo tomarlo en cuenta: no es que estuviera mal, es que
+        // se calculó antes. Es la diferencia entre "el capturista se equivocó" y "todavía no
+        // existía", y hoy el revisor no tiene con qué distinguirlas.
+        dias_despues: explican[0]?.dias_despues ?? null,
       };
       return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0), explicacion };
     });
