@@ -11,7 +11,8 @@
  * hereda el DISTINCT ON de la mig 20260822160000 y no dobla montos.
  *
  * Sólo cambia el CONTENIDO del jsonb `aplicaciones` — la firma de columnas de la vista es
- * idéntica → `CREATE OR REPLACE`. Mantiene el cobro CEDIS UA05 (mig 20260822170000).
+ * idéntica → `CREATE OR REPLACE`. Mantiene el cobro UA05 de la sucursal '00' (mig 20260822170000)
+ * — que es OFICINAS, no el CEDIS, pese a lo que dice el comentario de aquella mig (ERP_KEPLER §2.3).
  * PROD-ONLY (kepler_ods vacío local).
  *
  * @param { import("knex").Knex } knex

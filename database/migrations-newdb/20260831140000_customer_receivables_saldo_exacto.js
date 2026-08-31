@@ -7,7 +7,8 @@
  * La página sumaba `saldo_documento` (= importe − aplicado en `kdm5`). El saldo verdadero,
  * el que se verificó al peso contra el PDF de Kepler, es `Σ signed_amount` sobre `kdue`
  * (cargo +, abono −). La diferencia se descompuso exacta, por sucursal:
- *   · $2.04M  el `greatest(0, …)` recortaba en silencio lo aplicado de más (casi todo CEDIS)
+ *   · $2.04M  el greatest(0, …) recortaba en silencio lo aplicado de más (casi todo en la
+ *              sucursal Kepler '00' = OFICINAS, no el CEDIS — ver ERP_KEPLER §2.3)
  *   · $1.56M  abonos que existen en kdue pero no tienen linaje en kdm5 → nunca restaban
  *   · $0.11M  aplicado a documentos fuera del filtro de la vista
  * Y al revés: 213 clientes con saldo A FAVOR que la página no mostraba nunca.
