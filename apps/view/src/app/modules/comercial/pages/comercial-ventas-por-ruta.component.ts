@@ -711,7 +711,10 @@ export class ComercialVentasPorRutaComponent {
   }
 
   /** p-table lazy: paginación y orden los resuelve el server (la tabla puede tener 8k tickets). */
-  onTicketsLazy(ev: { first?: number; sortField?: string; sortOrder?: number }) {
+  // PrimeNG (v22) tipa TableLazyLoadEvent con sortField: string | string[] | null y
+  // sortOrder: number | null; ensanchamos la firma para matchear (el cuerpo ya normaliza
+  // vía `as any` / comparación estricta). Sin esto el build de view falla con TS2345.
+  onTicketsLazy(ev: { first?: number; sortField?: string | string[] | null; sortOrder?: number | null }) {
     const first = ev.first ?? 0;
     const sort = (ev.sortField as any) || 'date';
     const dir = ev.sortOrder === 1 ? 'asc' : 'desc';
