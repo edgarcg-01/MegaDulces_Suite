@@ -25,6 +25,9 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
 import { Permission } from '../../../core/constants/permissions';
+// WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
+// sus items de acá para que nunca se desincronice de la barra de tabs.
+import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
@@ -45,6 +48,18 @@ interface NavItem {
    * como root sería prefix de TODAS las otras rutas.
    */
   exact?: boolean;
+  /**
+   * Fase WMS.1 — item de **área** del proyecto Almacén. Se marca activo cuando
+   * la URL resuelve a esta área, no por prefijo del propio `route`: un área
+   * cubre rutas que NO comparten prefijo (`/almacen/warehouses`,
+   * `/almacen/dead-stock`, `/almacen/inventory-health`…).
+   *
+   * Usa el MISMO resolvedor que la barra de tabs (`resolveAlmacenArea`, prefijo
+   * más largo). Con prefijos sueltos, `/almacen/inventory` marcaba
+   * **Inventario** y **Conteo** a la vez, porque `/almacen/inventory/sessions`
+   * también empieza con `/almacen/inventory/`.
+   */
+  activeAreaKey?: string;
 }
 
 @Component({
@@ -376,6 +391,32 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Igual que `hasPermFor` pero para un permiso suelto (sin NavItem). Lo usa el
+   * getter de áreas de Almacén (WMS.1) para elegir el primer tab accesible.
+   */
+  private canPerm(p: Permission): boolean {
+    if (this.perms.can('manage', 'all')) return true;
+    const subject = this.permToSubject[p];
+    if (subject && this.perms.can('read', subject as any)) return true;
+    const legacy = this.user()?.permissions;
+    return legacy ? legacy[p] === true : false;
+  }
+
+  /**
+   * Resaltado del sidebar por **área** (WMS.1). `routerLinkActive` solo matchea
+   * el `route` del propio item; un área cubre rutas de prefijos distintos, así
+   * que el template hace OR entre las dos señales.
+   *
+   * Delega en `resolveAlmacenArea` —**el mismo** resolvedor de la barra de
+   * tabs— para que sidebar y tabs no puedan discrepar. Exactamente **un** item
+   * de área queda activo a la vez.
+   */
+  isNavActive(item: NavItem): boolean {
+    if (!item.activeAreaKey) return false;
+    return resolveAlmacenArea(this.currentUrl())?.key === item.activeAreaKey;
+  }
+
+  /**
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
@@ -576,44 +617,71 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
-  // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación
-  // de almacén — salió de Ventas. Reusa permisos COMMERCIAL_INVENTORY_*.
-  private almacenNavGroups: { title: string; items: NavItem[] }[] = [
-    {
-      title: 'Existencias',
-      items: [
-        { label: 'Existencias',  icon: 'pi pi-box',                  route: '/almacen/inventory',        permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-        { label: 'Almacenes',    icon: 'pi pi-warehouse',            route: '/almacen/warehouses',       permission: Permission.COMMERCIAL_WAREHOUSES_VER },
-        { label: 'Por vencer',   icon: 'pi pi-calendar-times',       route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-        { label: 'Caducidades',  icon: 'pi pi-clipboard',            route: '/almacen/inventory/caducidades', permission: Permission.COMMERCIAL_EXPIRY_VER },
-        { label: 'Recepción',    icon: 'pi pi-inbox',                route: '/almacen/inventory/recepcion', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
-        { label: 'Vales de entrada', icon: 'pi pi-list',             route: '/almacen/inventory/recepcion-sesiones', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR },
-        { label: 'Ubicaciones',  icon: 'pi pi-map-marker',           route: '/almacen/inventory/ubicaciones', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-        { label: 'Stock muerto', icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',       permission: Permission.COMMERCIAL_DEADSTOCK_VER },
-        { label: 'Salud inv.',   icon: 'pi pi-heart',                route: '/almacen/inventory-health', permission: Permission.COMMERCIAL_INVHEALTH_VER },
-      ],
-    },
-    {
-      title: 'Conteo físico',
-      items: [
-        { label: 'Conteo físico',   icon: 'pi pi-qrcode',    route: '/almacen/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
-        { label: 'Folios',          icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-        { label: 'Cíclico (ABC)',   icon: 'pi pi-sync',      route: '/almacen/inventory/abc',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-        { label: 'Pasillos',        icon: 'pi pi-th-large',  route: '/almacen/inventory/aisles',   permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
-        { label: 'Exactitud (IRA)', icon: 'pi pi-verified',  route: '/almacen/inventory/ira',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-      ],
-    },
-    {
-      title: 'Conciliación',
-      items: [
-        { label: 'Cuadre',      icon: 'pi pi-check-square',           route: '/almacen/cuadre',      permission: Permission.RECONCILIATION_VER },
-        { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_MOVEMENTS_VER, anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER] },
-        { label: 'Prevención',  icon: 'pi pi-shield',                route: '/almacen/prevencion', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },
-        { label: 'Monitoreo',   icon: 'pi pi-eye',                   route: '/almacen/monitoreo', permission: Permission.COMMERCIAL_PREVENTION_VER },
-        { label: 'Riesgo',      icon: 'pi pi-chart-bar',             route: '/almacen/riesgo', permission: Permission.COMMERCIAL_PREVENTION_VER },
-      ],
-    },
-  ];
+  /** Icono por área de Almacén (WMS.1). Vive acá y no en `almacen-tabs.ts`
+   *  porque es cosa del sidebar, no de la barra de tabs. */
+  private readonly almacenAreaIcons: Record<string, string> = {
+    entrada: 'pi pi-inbox',
+    inventario: 'pi pi-box',
+    conteo: 'pi pi-qrcode',
+    control: 'pi pi-shield',
+  };
+
+  /**
+   * **Diario de Movimientos — intocable** (decisión del equipo, 2026-08-31).
+   * No entra en ninguna área: item propio, sin barra de tabs, y su ruta cuelga
+   * fuera del shell. Se declara aparte a propósito para que un refactor futuro
+   * de áreas no se lo lleve por delante.
+   */
+  private readonly almacenMovimientosItem: NavItem = {
+    label: 'Movimientos',
+    icon: 'pi pi-arrow-right-arrow-left',
+    route: '/almacen/movimientos',
+    permission: Permission.COMMERCIAL_MOVEMENTS_VER,
+    anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER],
+  };
+
+  /**
+   * Almacén (WMS) — **Fase WMS.1**: un área = **un** item de sidebar; los
+   * subtemas son **tabs** (`app-page-tabs variant="liquid"`).
+   *
+   * Antes eran 3 grupos con **19 items planos**, y tres de ellos —*Caducidades*,
+   * *Recepción*, *Vales de entrada*— no eran tres áreas: eran tres estados del
+   * MISMO trabajo (un vale pasa por los tres).
+   *
+   * Es un **getter** y no un campo porque la ruta destino de cada área se elige
+   * en vivo: **el primer tab que el rol alcanza**. Con ruta fija, un contador
+   * con solo `CONTAR` aterrizaría en Folios (`SUPERVISAR`) y comería un 403, y
+   * un promotor con solo `EXPIRY_VER` perdería las hojas de anaquel. La fuente
+   * única de áreas y tabs es `modules/almacen/almacen-tabs.ts`.
+   */
+  private get almacenNavGroups(): { title: string; items: NavItem[] }[] {
+    const items: NavItem[] = [];
+    for (const area of ALMACEN_AREAS) {
+      // Primera pantalla accesible → destino del item. Incluye las de foco
+      // (`focusEntries`) al final: un contador con solo CONTAR no alcanza
+      // ningún tab de Conteo y aterriza en Contar. Si no hay ninguna, el área
+      // no se pinta (el rol no tiene nada que hacer ahí).
+      const landing = almacenLandingCandidates(area).find(
+        (t) => !t.permission || this.canPerm(t.permission),
+      );
+      if (!landing) continue;
+      items.push({
+        label: area.label,
+        icon: this.almacenAreaIcons[area.key] ?? 'pi pi-circle',
+        route: landing.route,
+        // Mismo permiso que el destino: `hasPermFor` volverá a evaluarlo y
+        // coincidirá con `canPerm`, así que nunca hay item que no se pueda abrir.
+        permission: landing.permission ?? Permission.COMMERCIAL_INVENTORY_VER,
+        // Resaltado por área, resuelto con el mismo `resolveAlmacenArea` que
+        // alimenta la barra de tabs → nunca dos items activos a la vez.
+        activeAreaKey: area.key,
+      });
+    }
+    // Movimientos va al final, fuera de las áreas y sin activePrefixes: su
+    // propio routerLinkActive lo resuelve. Intocable.
+    if (this.hasPermFor(this.almacenMovimientosItem)) items.push(this.almacenMovimientosItem);
+    return items.length ? [{ title: 'WMS', items }] : [];
+  }
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
   // el acceso a la superficie, por eso el nav no se re-filtra por permiso.
