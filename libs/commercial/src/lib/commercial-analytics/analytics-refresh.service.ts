@@ -29,6 +29,9 @@ const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
   { name: 'analytics.mv_top_customers_30d' },
   { name: 'analytics.mv_top_products_30d' },
   { name: 'public.products_top_sellers', requires_fdw: true },
+  // PERF (mig 20260831150000): momentum r30/r90 para ThotService.suggest(). Antes se
+  // agregaba 90d de sales_daily en vivo por request (~1.4 s); ahora es un join al matview.
+  { name: 'analytics.mv_product_momentum' },
 ];
 
 @Injectable()
