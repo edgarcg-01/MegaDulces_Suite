@@ -6,6 +6,40 @@
 
 ---
 
+## 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada)
+
+**Disparador:** *"que tipos de margenes… de donde sacas el costo estandar"*, y después: *"tenemos dos
+problemas claros que necesitan un análisis"*. La pregunta por el costo estándar destapó que
+`sales_daily.cost` tiene **dos escritores incompatibles**, uno de los cuales no guarda un costo sino
+un markup despejado de la venta.
+
+**Lo que se midió** (prod, 30 d, $41.1 M): Kepler 50.8% = `revenue/(1+markup_pct)` → margen que
+**no reacciona al precio** (3,269 SKUs, 51 con precios >20% distintos entre almacenes,
+**0.0000 pp** de spread); subdeclara 2.02 pp / $411,220. Wincaja 48.9% = `ValorCosto` real. La
+unidad: 91.4% cae en pieza, 5.5% se cuenta en paquete/caja publicado como «unidades», 3.1% no se
+ubica, 257 SKUs cuentan distinto según canal. Y **el costo por línea existe** (`kdm2.c62/c63`, 99.1%
+en `U-D-10`/`U-D-6`) pero viene por peldaño: 7.4% de líneas darían costo > venta.
+
+**Tres afirmaciones retiradas**, todas publicadas por el propio tablero: el spread por sucursal
+(artefacto de método), la validación tautológica del margen unitario, y el 11.32% como medición.
+ADR-051 enmendado.
+
+**Lecciones.**
+1. **Preguntar "de dónde sale este número" es una prueba, no una formalidad.** Tres documentos, la
+   ayuda contextual y dos respuestas mías afirmaban que el costo era del PdV. Nadie lo había seguido
+   hasta el importer.
+2. **La regla de Edgar de no copiar tablas predice el daño con precisión medible**: primarias y
+   vistas, 0 datos rotos; copias materializadas, todos. Con un matiz que hay que conservar —
+   materializar por costo es legítimo; el pecado es materializar un **valor inventado**, porque no
+   hay origen contra el cual cuadrarlo y ninguna verificación lo atrapa.
+3. **Una validación que no puede fallar no valida.** El «0 discrepancias en 4,922 productos» que
+   reporté como confirmación era el mismo cociente comparado consigo mismo.
+
+**Pendiente:** MR.7.1 (persistir el peldaño, ruta crítica) → MR.7.2 (costear con el peldaño) →
+MR.7.3 (declarar el método y bloquear cortes mixtos). Y MR.0 #10 sigue sin firma.
+
+---
+
 ## 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo
 
 **Disparador:** Edgar mandó dos capturas de Kepler —la pantalla *"Costos por Proveedor por
@@ -87,6 +121,57 @@ llevaba 6 días muerta. La misma tienda, viva por un transporte y muerta por el 
 
 **Pendiente:** MD-30 tiene el agente desplegado pero muerto desde el 13-ago (447 h). Y el último
 tramo de alertas (entrega fuera de la app + sacar los 3 tenants de prueba del barrido).
+
+---
+
+## 2026-08-29 — MR.5: auditoría de `/comercial/rentabilidad` y corrección de la cascada
+
+**Disparador:** Edgar — *"necesito que analices /comercial/rentabilidad"*, y después de la auditoría: *"hay que corregir todas estas acciones"*.
+
+### El hallazgo que cambia el número
+
+La pantalla calculaba el margen como `revenue − (catalog.products.cost_base × unidades vendidas)`. Ese costo de catálogo **viene por CAJA** en buena parte del catálogo, mientras las unidades del sell-out vienen **por PIEZA**. Medido contra `platform_test`:
+
+- **30 SKUs aportaban $1,757,050 de COGS — el 10.4% del total — sobre $123,289 de venta (0.6%).**
+- `analytics.v_product_box_factor` reproduce el ratio casi exacto: 78210 BUBBULUBU `bf=15` → $51.00/15 = **$3.40** contra un precio implícito de **$3.04**; 95285 TURIN `bf=32` → $4,356.72/32 = **$136.15** contra **$176.41**; 01007 BIMBO `bf=8` → **$7.77** contra **$7.19**.
+- La pantalla publicaba **13.05%**. `analytics.sales_daily` —que ya trae el costo que registró el punto de venta, en la misma unidad en que cobró— dice **10.32%**.
+
+La banda "Bajo costo" mostraba 60 SKUs con un margen promedio de **−665%**. No vendían bajo costo: estaban medidos en otra unidad.
+
+**Verificado después contra prod** (misma ventana de 30 días, $42M de venta): **57 SKUs, $3,565,336 de COGS falso — el 10.0% del COGS total — sobre $386,125 de venta (0.9%). La pantalla publicaba 14.62% contra 11.32% real: 3.30 pp, el 94% de la brecha.** Y el dato que cierra el caso: **el negocio reporta su margen en ~11.5%**. O sea el fact coincide con lo que Compras ya sabe por otras vías, y la pantalla —el tablero construido justamente para cerrar esa brecha— les estaba diciendo que ya casi estaba cerrada.
+
+### Por qué pasó
+
+**La pantalla (MR.5) se construyó sin MR.0–MR.4.** El plan de fase abre con *"esto no arranca programando la pantalla"* y pone cuatro sprints de definición antes de la UI, con la normalización de unidad (MR.1) como bloqueante explícito: *"un motor de rentabilidad que mezcle unidades produce números convincentes y falsos — que es peor que no tener el tablero"*. Los seis hallazgos restantes son variantes de lo mismo: cada ambigüedad sin cerrar se automatizó con un valor por defecto que después nadie volvió a mirar.
+
+### Decisiones (ADR-051)
+
+- **La venta y el costo salen del fact.** No se normaliza la unidad renglón por renglón: se toma la fuente que ya la tiene resuelta porque es la misma transacción. Estable en las tres ventanas: 10.32 / 10.29 / 10.33% a 30/90/365 días.
+- **`cost_base` no se corrige acá, se contrasta.** Dividir por `v_product_box_factor` arreglaría el margen y dejaría el catálogo mal — y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed. Acá se marca el conflicto (83 SKUs, $21.6M de capital) y **se suprime el GMROI** de esas filas.
+- **Se descartó valuar el inventario con el costo implícito de la venta.** Se midió en local: **empeora** ($375M → $398M). El CEDIS concentra el stock y no vende, así que cae al costo de retail. Un número que no se puede defender no reemplaza a otro que tampoco.
+- **⚠️ Corrección posterior (mismo día):** el "$375M / ~4 años de inventario" es de **`platform_test`, no de prod**. En prod el inventario está **sano**: $59,095,184 contra $564M de COGS anuales = **38 días**. Lo que sí persiste en prod es la calidad del costo — **564 de 6,972 SKUs (8.1%) valúan $11,423,059 = 19.3% del capital** con un `cost_base` que el PdV contradice. La lección de método: medir el hallazgo en la DB que sirve la pantalla **y** en prod antes de escribirlo como problema de negocio.
+- **Fuente vacía ≠ resultado en cero.** `erp_purchase_adjustments` está en 0 filas **en la DB local**: la cascada de palancas no valía cero, estaba ciega. Ahora lo dice. *(Prod sí tiene sus 1,403 ajustes y las 147 políticas de descuento, así que allá la cascada opera. El flag queda igual: la diferencia entre "no hubo descuentos" y "no los estamos midiendo" no puede depender de que alguien se acuerde de revisar la tabla.)*
+- **Lo no confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma 2/3/4/5 y el propio servicio advertía *"confirmar antes de restarlo del margen"* mientras la UI imprimía "−4.0%".
+
+### Bugs propios que salieron de la revisión
+
+- **El panel de cobertura decía 100% siempre.** 4,117 de 4,117 SKUs — por construcción, porque el filtro `cost_base > 0` ya había excluido a los demás antes de contar. Era el elemento de honestidad de la pantalla y no medía nada. Cobertura real: 99.88%, 4,009/4,082.
+- **El KPI de inventario y la columna de la tabla medían universos distintos** ($23.2M de diferencia): el KPI todo el stock, la tabla sólo productos con venta. El propio docstring del servicio decía que ese tipo de descuadre *"pierde credibilidad a la primera revisión"*.
+- **Las bandas estaban clavadas en 10/15/25** con el objetivo editable: con objetivo 20%, el KPI coloreaba contra 20 y las bandas contra 15.
+- **Ventanas mezcladas:** el fact iba dos días atrás y compras/pagos usaban `CURRENT_DATE`, sin decirlo en pantalla.
+- **ADR-048 estaba duplicado** con CxC, y MR no tenía entrada en el tracker.
+
+### Validación
+
+DB-direct 7/7 (margen, bandas contra objetivo, cuadre de inventario, testigos) + breakdown 26/26 (los 4 niveles cuadran exacto con el resumen: 10.32% vs 10.32%; las 9 columnas ordenables corren; los filtros de banda son exactos; 575–661 ms). Smoke HTTP extendido pero **sin correr**: los dev servers los levanta Edgar. Builds `api` + `view` verdes.
+
+### Lo que sigue abierto
+
+**MR.6** (la descomposición de la brecha) y **MR.0** (el diccionario) se construyeron el mismo día, después de esta entrada — ver [`FASE_MR_DICCIONARIO_MARGEN.md`](FASES/FASE_MR_DICCIONARIO_MARGEN.md), que queda **redactado y sin firmar**. Lo que sigue abierto son las **10 decisiones** de su §6, con dueño; la más importante es si el objetivo del 15% se mide contra el margen **bruto** o contra el **negociado**, porque a 365 días el negociado ya está en 15.87% y de eso depende si la fase está cerrada.
+
+### Lección
+
+El plan de fase había escrito el riesgo, con nombre y con datos, meses antes: *"la unidad de medida es el riesgo #1 (ya demostrado con datos)"*, con un ejemplo casi idéntico encontrado en `/comercial/pricing`. Un riesgo documentado no protege de nada si el sprint que lo mitiga se saltea; y la señal de que se salteó no fue un error, fue un tablero que se veía perfectamente bien.
 
 ---
 

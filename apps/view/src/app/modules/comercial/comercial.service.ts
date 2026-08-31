@@ -1243,6 +1243,34 @@ export class ComercialService {
     });
   }
 
+  /** RR2 — Tickets de una ruta (paginado server-side). */
+  salesByRouteTickets(p: SalesByRouteTicketsParams) {
+    let params = new HttpParams().set('route', p.route);
+    if (p.year) params = params.set('year', String(p.year));
+    if (p.from) params = params.set('from', p.from);
+    if (p.to) params = params.set('to', p.to);
+    if (p.client) params = params.set('client', p.client);
+    if (p.sku) params = params.set('sku', p.sku);
+    if (p.unit) params = params.set('unit', p.unit);
+    if (p.paymentMethod) params = params.set('payment_method', p.paymentMethod);
+    if (p.docType) params = params.set('doc_type', p.docType);
+    if (p.minRevenue != null) params = params.set('min_revenue', String(p.minRevenue));
+    if (p.maxRevenue != null) params = params.set('max_revenue', String(p.maxRevenue));
+    if (p.q) params = params.set('q', p.q);
+    if (p.sort) params = params.set('sort', p.sort);
+    if (p.dir) params = params.set('dir', p.dir);
+    if (p.limit != null) params = params.set('limit', String(p.limit));
+    if (p.offset != null) params = params.set('offset', String(p.offset));
+    return this.http.get<SalesByRouteTicketsPage>(`${this.base}/analytics/sales-by-route/tickets`, { params });
+  }
+
+  /** RR2 — Un ticket con sus renglones (unidad, precio, cajas, margen, impuestos). */
+  salesByRouteTicket(key: string) {
+    return this.http.get<SalesByRouteTicketDetail>(`${this.base}/analytics/sales-by-route/ticket`, {
+      params: new HttpParams().set('key', key),
+    });
+  }
+
   /** RR-PROMO — Evalúa una mecánica de incentivo de ruta desde un enunciado en lenguaje natural. */
   routePromo(body: RoutePromoBody) {
     return this.http.post<RoutePromoResult>(`${this.base}/analytics/sales-by-route/promo`, body);
@@ -1595,6 +1623,82 @@ export interface SalesByRouteDetail {
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
+  /** RR2 — Mezcla por unidad de medida en la que se vendió. `unidad: null` = SKU sin catálogo. */
+  units_mix: { unidad: string | null; lines: number; units: number; revenue: number; share_pct: number }[];
+  /** RR2 — `coverage_pct` = % del importe que trae costo en la fuente (el push no lo trae). */
+  margin: { revenue_with_cost: number; cost: number; margin_pct: number | null; coverage_pct: number };
+}
+
+// ── RR2 — Desglose por ticket ──
+export interface SalesByRouteTicketsParams {
+  route: string;
+  year?: number;
+  from?: string;
+  to?: string;
+  client?: string;
+  sku?: string;
+  unit?: string;
+  paymentMethod?: string;
+  docType?: string;
+  minRevenue?: number | null;
+  maxRevenue?: number | null;
+  q?: string;
+  sort?: 'date' | 'revenue' | 'units' | 'lines' | 'margin';
+  dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SalesByRouteTicket {
+  key: string;
+  source: 'wincaja' | 'push';
+  route_no: string;
+  folio: string;
+  date: string;
+  time: string | null;
+  doc_type: string | null;
+  client_code: string | null;
+  client_name: string | null;
+  is_public: boolean;
+  payment_method: string | null;
+  payment_method_label: string | null;
+  seller: string | null;
+  lines: number;
+  skus: number;
+  units: number;
+  revenue: number;
+  cost: number | null;
+  margin_pct: number | null;
+}
+
+export interface SalesByRouteTicketsPage {
+  rows: SalesByRouteTicket[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
+  generated_at: string;
+}
+
+export interface SalesByRouteTicketLine {
+  sku: string;
+  name: string | null;
+  unidad: string | null;
+  unidad_origen: string | null;
+  qty: number;
+  boxes: number | null;
+  box_factor: number | null;
+  precio_unitario: number | null;
+  importe: number;
+  costo: number | null;
+  margin_pct: number | null;
+  iva: number | null;
+  ieps: number | null;
+}
+
+export interface SalesByRouteTicketDetail extends SalesByRouteTicket {
+  warehouse_name: string | null;
+  lines_detail: SalesByRouteTicketLine[];
 }
 
 export interface SalesByRouteCell {

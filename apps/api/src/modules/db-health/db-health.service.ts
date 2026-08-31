@@ -250,6 +250,30 @@ const APP_SOURCES: SourceCfg[] = [
                           'cobertura completa') AS note_extra`,
     warnH: 24, critH: 48, cadence: 'mensual (verifica el mes anterior completo)',
   },
+  //  (c) EL CEDIS — el punto ciego que los dos sensores de arriba NO cubren. Ambos miran
+  //      `v_sales_lines` de las sucursales con `kepler_code IS NULL`, y el CEDIS queda fuera por
+  //      PARTIDA DOBLE: tiene `kepler_code='00'` (lo excluye el predicado) y **no vende** — es
+  //      bodegón, cero cortes/arqueos/retiros, cero filas en v_sales_lines. Podía congelarse
+  //      indefinidamente sin que nadie se enterara, y es el nodo que SURTE A LA RED.
+  //      Detectado 2026-08-31: llevaba 6 días parado (último movimiento 26/08) y ninguna alerta.
+  //
+  //      ⚠️ El CEDIS real es **BPIRAPUATO (Irapuato) y vive en WINCAJA**, no en Kepler — la
+  //      sucursal Kepler '00' es OFICINAS. Ver docs/ERP_KEPLER.md §2.3.
+  //
+  //      Se mide sobre MOVIMIENTOS (`maestro_mov_almacen`), no ventas. Umbrales derivados de la
+  //      cadencia real, no inventados: opera lunes-sábado (73 de 90 días), hueco máximo entre
+  //      días con movimiento = **2 días**, promedio 1.16. Con domingo cerrado, un lunes sano
+  //      puede mostrar el sábado (~48 h) → warn a 60 h para no flapear, crítico a 96 h.
+  {
+    key: 'wincaja_cedis_stale', label: 'Wincaja — CEDIS Irapuato (surte la red)', table: 'wincaja.maestro_mov_almacen', tsCandidates: [],
+    sql: `SELECT max(fecha)::timestamp AS last_update,
+                 'BPIRAPUATO · último mov. ' ||
+                 COALESCE(to_char(max(fecha), 'DD/MM'), '—') || ' · ' ||
+                 count(*) FILTER (WHERE fecha >= current_date - 7)::text || ' movs 7d' AS note_extra
+            FROM wincaja.maestro_mov_almacen
+           WHERE source_branch = '00'`,
+    warnH: 60, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
+  },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
   // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
   // CONSCIENTE DEL HORARIO: fuera de 10:00–21:30 MX la tienda está cerrada → last_update=now()

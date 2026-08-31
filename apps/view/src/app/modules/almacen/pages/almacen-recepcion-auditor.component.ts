@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -16,8 +17,16 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ReceivingAuditorService, ReceivingCapture, ReceivingPolicy, SupplierScore } from '../receiving-auditor.service';
+import { ReceivingLine, ReceivingSession, ReceivingSessionService } from '../receiving-session.service';
 
 type Verdict = 'green' | 'yellow' | 'red';
+
+/** Renglón del vale que todavía tiene piezas sin lote+caducidad declarados. */
+interface ValePendiente extends ReceivingLine {
+  /** received − declarado − retenido. Lo que falta fechar de este renglón. */
+  faltan: number;
+  nombre: string;
+}
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -59,22 +68,64 @@ type Verdict = 'green' | 'yellow' | 'red';
         <section class="rec-capture surf-card">
           <h2 class="rec-h2">Nueva captura</h2>
 
+          <!-- WMS.1 — contexto del vale que encadenó el cierre. Sin esto el
+               operario tenía que volver a teclear almacén, proveedor, producto y
+               cantidad de algo que la app ya sabía. -->
+          @if (vale(); as v) {
+            <div class="rec-vale">
+              <div class="rec-vale-head">
+                <span class="rec-vale-folio">Vale {{ v.folio }}</span>
+                <button pButton size="small" [text]="true" severity="secondary" (click)="clearVale()" title="Capturar suelto, sin vale">
+                  <span class="pi pi-times" aria-hidden="true"></span>
+                </button>
+              </div>
+              @if (valePendientes().length) {
+                <p class="rec-vale-sub">{{ valePendientes().length }} renglón(es) por fechar — elegí uno:</p>
+                <div class="rec-vale-lines">
+                  @for (l of valePendientes(); track l.id) {
+                    <button type="button" class="rec-vale-line" [class.is-active]="l.id === valeLineId()" (click)="pickLine(l)">
+                      <span class="rec-vale-line-name">{{ l.nombre }}</span>
+                      <span class="rec-vale-line-qty">faltan {{ l.faltan }}{{ l.expected_unit ? ' ' + l.expected_unit : '' }}</span>
+                    </button>
+                  }
+                </div>
+              } @else {
+                <p class="rec-vale-done">
+                  <span class="pi pi-check-circle" aria-hidden="true"></span>
+                  Este vale ya quedó fechado por completo.
+                  <button pButton size="small" [text]="true" (click)="goPorFechar()">Ver Por fechar</button>
+                </p>
+              }
+            </div>
+          }
+
           <label class="rec-field">
             <span>Almacén</span>
             <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-              placeholder="Elegí un almacén" styleClass="rec-w"></p-select>
+              placeholder="Elegí un almacén" styleClass="rec-w" [disabled]="!!vale()"></p-select>
           </label>
 
-          <label class="rec-field">
-            <span>Producto</span>
-            <app-product-search (productSelected)="onProduct($event)"></app-product-search>
-            @if (product()) { <small class="rec-hint">{{ product()!.sku || '—' }} · {{ product()!.label }}</small> }
-          </label>
+          @if (vale() && valeLineId()) {
+            <!-- Producto IMPUESTO por el renglón: el backend rechaza una captura
+                 ligada a un renglón de otro producto, así que dejarlo editable
+                 solo invita al 400. -->
+            <div class="rec-field">
+              <span>Producto (renglón del vale)</span>
+              <div class="rec-fixed">{{ product()?.label || '—' }}</div>
+              @if (product()?.sku) { <small class="rec-hint">{{ product()!.sku }}</small> }
+            </div>
+          } @else {
+            <label class="rec-field">
+              <span>Producto</span>
+              <app-product-search (productSelected)="onProduct($event)"></app-product-search>
+              @if (product()) { <small class="rec-hint">{{ product()!.sku || '—' }} · {{ product()!.label }}</small> }
+            </label>
+          }
 
           <div class="rec-row">
             <label class="rec-field">
               <span>Proveedor (código)</span>
-              <input pInputText [(ngModel)]="supplierCode" placeholder="ej. C001" />
+              <input pInputText [(ngModel)]="supplierCode" placeholder="ej. C001" [readOnly]="!!vale()" />
             </label>
             <label class="rec-field">
               <span>Cantidad recibida</span>
@@ -255,6 +306,23 @@ type Verdict = 'green' | 'yellow' | 'red';
     .rec-name { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rec-actions { display: flex; gap: .25rem; }
     .rec-pol-intro { margin: 0 0 1rem; }
+    /* WMS.1 — contexto del vale encadenado */
+    .rec-vale { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); padding: .6rem .7rem; margin-bottom: 1rem; background: var(--surface-ground); }
+    .rec-vale-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .rec-vale-folio { font-weight: 700; font-size: var(--fs-sm, .85rem); letter-spacing: -.01em; }
+    .rec-vale-sub { margin: .25rem 0 .5rem; font-size: var(--fs-xs, .78rem); color: var(--text-muted); }
+    .rec-vale-lines { display: flex; flex-direction: column; gap: 4px; }
+    .rec-vale-line { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%;
+      padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 6px);
+      background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-xs, .78rem);
+      cursor: pointer; text-align: left; min-height: 40px; }
+    .rec-vale-line:hover { border-color: var(--action); }
+    .rec-vale-line.is-active { border-color: var(--action); box-shadow: 0 0 0 1px var(--action); }
+    .rec-vale-line-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rec-vale-line-qty { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .rec-vale-done { display: flex; align-items: center; gap: .4rem; margin: .25rem 0 0; font-size: var(--fs-xs, .78rem); color: var(--text-muted); }
+    .rec-fixed { padding: .45rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 6px);
+      background: var(--surface-ground); font-size: var(--fs-sm, .85rem); font-weight: 500; }
     .rec-pol-form { margin-bottom: 1rem; }
     .rec-check { flex-direction: row; align-items: center; gap: .5rem; padding-top: 1.5rem; }
     .rec-check > span { font-weight: 500; color: var(--text-color); }
@@ -267,6 +335,35 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  private readonly sessions = inject(ReceivingSessionService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  // ── Vale encadenado (WMS.1) ──
+  /** Vale que llegó por `?session=` desde el cierre. Null = captura suelta. */
+  readonly vale = signal<ReceivingSession | null>(null);
+  readonly valeLineId = signal<string | null>(null);
+
+  /**
+   * Renglones del vale con piezas sin fechar. `faltan` se DERIVA
+   * (`received − declarado − retenido`) igual que en el detalle del vale: no se
+   * denormaliza, así que no puede quedar desfasado.
+   */
+  readonly valePendientes = computed<ValePendiente[]>(() => {
+    const v = this.vale();
+    if (!v?.lines?.length) return [];
+    return v.lines
+      .filter((l) => !!l.product_id)
+      .map((l) => ({
+        ...l,
+        nombre: l.product_name || l.expected_name || l.sku || l.expected_sku || 'Sin nombre',
+        faltan: Math.max(
+          0,
+          Number(l.received_qty || 0) - Number(l.declared_qty || 0) - Number(l.held_qty || 0),
+        ),
+      }))
+      .filter((l) => l.faltan > 0);
+  });
 
   readonly warehouses = signal<Warehouse[]>([]);
   readonly warehouseOptions = computed(() =>
@@ -314,11 +411,60 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
       next: (ws: Warehouse[]) => this.warehouses.set(ws || []),
       error: () => this.warehouses.set([]),
     });
+    // WMS.1 — el cierre del vale encadena acá con `?session=`.
+    const sessionId = this.route.snapshot.queryParamMap.get('session');
+    if (sessionId) this.loadVale(sessionId);
     this.reload();
   }
 
   onProduct(hit: ProductHit | null): void {
     this.product.set(hit);
+  }
+
+  // ── Vale encadenado (WMS.1) ──────────────────────────────────────────────
+
+  private loadVale(id: string): void {
+    this.sessions.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => {
+        this.vale.set(s);
+        this.warehouseId = s.warehouse_id;
+        this.supplierCode = s.supplier_code || '';
+        const next = this.valePendientes()[0];
+        if (next) this.pickLine(next);
+        else this.valeLineId.set(null);
+      },
+      error: () => {
+        // Vale ilegible → se degrada a captura suelta en vez de dejar la pantalla muerta.
+        this.vale.set(null);
+        this.toast.add({ severity: 'warn', summary: 'Vale', detail: 'No se pudo cargar el vale; capturá suelto.' });
+      },
+    });
+  }
+
+  pickLine(l: ValePendiente): void {
+    this.valeLineId.set(l.id);
+    // El producto viene del renglón, no del buscador: el backend rechaza una
+    // captura ligada a un renglón de otro producto.
+    this.product.set({ id: l.product_id!, label: l.nombre, sku: l.sku || l.expected_sku || null, brand: null });
+    this.quantity = l.faltan;
+    this.confirmedLot = '';
+    this.confirmedExpiry = '';
+    this.photoDataUri.set(null);
+    this.ocrConfidence.set(null);
+    this.lastResult.set(null);
+  }
+
+  /** Suelta el vale y vuelve a captura libre (el usuario puede querer otra cosa). */
+  clearVale(): void {
+    this.vale.set(null);
+    this.valeLineId.set(null);
+    this.product.set(null);
+    this.quantity = null;
+    this.router.navigate([], { relativeTo: this.route, queryParams: {} });
+  }
+
+  goPorFechar(): void {
+    this.router.navigate(['/almacen/inventory/por-fechar']);
   }
 
   onFile(event: Event): void {
@@ -370,14 +516,22 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
       confirmed_expiry: this.confirmedExpiry || undefined,
       ocr_confidence: this.ocrConfidence() ?? undefined,
       photo_data_uri: this.photoDataUri() || undefined,
+      // WMS.1 — liga la captura al renglón del vale: sin esto el cuadre
+      // "declarado vs recibido" del vale no se mueve y la línea sigue en Por fechar.
+      receiving_line_id: this.valeLineId() || undefined,
+      source_ref: this.vale()?.folio || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.evaluating.set(false);
         this.lastResult.set(r);
         const sev = r.verdict === 'green' ? 'success' : r.verdict === 'yellow' ? 'warn' : 'error';
         this.toast.add({ severity: sev, summary: this.verdictLabel(r.verdict), detail: this.ruleLabel(r.rule_broken) || 'Recepción evaluada' });
+        const valeId = this.vale()?.id;
         this.resetCapture();
         this.reload();
+        // Recarga el vale: el renglón fechado baja su `faltan` y se salta al
+        // siguiente pendiente solo. El 🔴 NO baja el pendiente (queda retenido).
+        if (valeId) this.loadVale(valeId);
       },
       error: (e) => {
         this.evaluating.set(false);
@@ -470,7 +624,10 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
 
   private resetCapture(): void {
     this.product.set(null);
-    this.supplierCode = '';
+    // Con vale encadenado el proveedor lo manda el vale, no el formulario:
+    // limpiarlo obligaría a re-teclearlo en cada renglón. `loadVale` repone el
+    // producto y la cantidad del siguiente pendiente justo después.
+    if (!this.vale()) this.supplierCode = '';
     this.quantity = null;
     this.confirmedLot = '';
     this.confirmedExpiry = '';

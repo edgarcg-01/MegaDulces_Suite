@@ -108,9 +108,13 @@ async function processBranch(dst, cfg) {
       ? new Date(new Date(maxRow.rows[0].d).getTime() - 864e5).toISOString().slice(0, 10)
       : cutover;
     if (since < cutover) since = cutover;
+    // RR2.2: `d.c11` = unidad de venta POR LÍNEA y `d.c12` = precio unitario (decode ya
+    // probado en la Fase AX: passthrough, cero unidades inventadas). Sin esto el desglose
+    // por ticket de las rutas vecinales no puede decir en qué unidad se vendió.
     const lines = (await src.query(
       `SELECT h.c12 AS route_no, h.c9::date AS business_date, h.c6 AS folio, d.c8 AS sku,
               max(d.c10) AS producto, max(NULLIF(NULLIF(btrim(h.c10), ''), '0001')) AS cliente,
+              max(NULLIF(btrim(d.c11), '')) AS unidad, max(d.c12)::numeric AS precio_unitario,
               sum(d.c9)::numeric AS qty, sum(d.c13)::numeric AS importe
          FROM ${J} WHERE ${V} AND h.c9 >= $2 AND h.c9 <= CURRENT_DATE AND btrim(coalesce(d.c8,'')) <> ''
         GROUP BY 1, 2, 3, 4`, [codes, since])).rows;
@@ -145,18 +149,22 @@ async function processBranch(dst, cfg) {
 
     // 3) line-level → route_push_lines (DO UPDATE: idempotente + corrige)
     let ins = 0;
-    const BATCH = 1000, N = 9;
+    const BATCH = 1000, N = 11;
     for (let i = 0; i < lines.length; i += BATCH) {
       const chunk = lines.slice(i, i + BATCH);
       const vals = chunk.map((_, ri) => `(${Array.from({ length: N }, (_, k) => `$${ri * N + k + 1}`).join(',')})`);
       const params = [];
-      for (const r of chunk) params.push(M, r.route_no, r.business_date, r.folio, r.sku, r.producto || null, r.cliente || null, r.qty, r.importe);
+      for (const r of chunk) {
+        params.push(M, r.route_no, r.business_date, r.folio, r.sku, r.producto || null, r.cliente || null,
+          r.qty, r.importe, r.unidad || null, r.precio_unitario ?? null);
+      }
       const res = await dst.query(
-        `INSERT INTO analytics.route_push_lines (tenant_id, route_no, business_date, folio, sku, producto, cliente, qty, importe)
+        `INSERT INTO analytics.route_push_lines (tenant_id, route_no, business_date, folio, sku, producto, cliente, qty, importe, unidad, precio_unitario)
          VALUES ${vals.join(',')}
          ON CONFLICT (tenant_id, route_no, business_date, folio, sku) DO UPDATE SET
            producto = EXCLUDED.producto, cliente = EXCLUDED.cliente,
-           qty = EXCLUDED.qty, importe = EXCLUDED.importe, imported_at = now()`, params);
+           qty = EXCLUDED.qty, importe = EXCLUDED.importe,
+           unidad = EXCLUDED.unidad, precio_unitario = EXCLUDED.precio_unitario, imported_at = now()`, params);
       ins += res.rowCount;
     }
     console.log(`    [APPLY] ${cat.length} rutas · ${roll.length} filas rollup · ${ins} líneas → ${wh.code}`);

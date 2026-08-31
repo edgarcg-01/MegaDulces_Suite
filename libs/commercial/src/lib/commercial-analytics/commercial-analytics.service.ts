@@ -168,6 +168,91 @@ export interface SalesByRouteDetail {
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
+  /** RR2 — Mezcla por unidad de medida en la que se vendió (PZA/PAQ/KG/CJA…). El rótulo
+   * lo dice la fuente; `unidad: null` = el SKU no está en el catálogo de la fuente. */
+  units_mix: { unidad: string | null; lines: number; units: number; revenue: number; share_pct: number }[];
+  /** RR2 — Margen del periodo. `coverage_pct` = % del importe que SÍ trae costo en la
+   * fuente (el push de camionetas no lo trae) → un margen sin su cobertura sería falso. */
+  margin: { revenue_with_cost: number; cost: number; margin_pct: number | null; coverage_pct: number };
+}
+
+// ── RR2 — Desglose por TICKET ──
+export interface SalesByRouteTicketsQuery {
+  /** Ruta obligatoria: sin scope la consulta barre toda la tabla-hecho. */
+  route: string;
+  year?: number;
+  from?: string;
+  to?: string;
+  client?: string;
+  sku?: string;
+  /** Unidad de venta (rótulo tal como lo dice la fuente). */
+  unit?: string;
+  /** Código de forma de pago (sólo tramo Wincaja). */
+  paymentMethod?: string;
+  /** 'ticket' | 'factura' (sólo tramo Wincaja). */
+  docType?: string;
+  minRevenue?: number;
+  maxRevenue?: number;
+  q?: string;
+  sort?: 'date' | 'revenue' | 'units' | 'lines' | 'margin';
+  dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SalesByRouteTicket {
+  /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
+  key: string;
+  source: 'wincaja' | 'push';
+  route_no: string;
+  folio: string;
+  date: string;
+  time: string | null;
+  doc_type: string | null;
+  client_code: string | null;
+  client_name: string | null;
+  is_public: boolean;
+  payment_method: string | null;
+  payment_method_label: string | null;
+  seller: string | null;
+  lines: number;
+  skus: number;
+  units: number;
+  revenue: number;
+  cost: number | null;
+  margin_pct: number | null;
+}
+
+export interface SalesByRouteTicketsPage {
+  rows: SalesByRouteTicket[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
+  generated_at: string;
+}
+
+export interface SalesByRouteTicketLine {
+  sku: string;
+  name: string | null;
+  unidad: string | null;
+  /** 'linea' = la fuente lo declara por renglón · 'catalogo' = sale del catálogo del SKU. */
+  unidad_origen: string | null;
+  qty: number;
+  /** Equivalencia en cajas: sólo con factor canónico real y compra ≥ 1 caja. */
+  boxes: number | null;
+  box_factor: number | null;
+  precio_unitario: number | null;
+  importe: number;
+  costo: number | null;
+  margin_pct: number | null;
+  iva: number | null;
+  ieps: number | null;
+}
+
+export interface SalesByRouteTicketDetail extends SalesByRouteTicket {
+  warehouse_name: string | null;
+  lines_detail: SalesByRouteTicketLine[];
 }
 
 export interface SalesByRouteCell {
@@ -2634,6 +2719,17 @@ export class CommercialAnalyticsService {
       // Wincaja: rollup también para el mes en curso (kepler no) — ver isWincajaRollupOk.
       const winRollupOk = this.isWincajaRollupOk(from, to);
 
+      // PERF (mig 20260831160000): el MES EN CURSO nunca es month-aligned (isMonthAligned
+      // exige `to < inicioMesActual`), así que el default siempre cae al path diario, que
+      // escanea sales_daily del mes (~111k filas) con Sort a disco (~1 s). Cuando el rango ES
+      // exactamente el mes en curso y la vista es por producto, leemos el matview
+      // `mv_sales_current_month` (mismo units/revenue, pre-agregado) en vez de sales_daily.
+      // FALLBACK seguro: si el matview no existe (entorno sin la migración) se usa sales_daily
+      // como siempre — nunca rompe el reporte, solo lo acelera cuando está disponible.
+      const curMonthMv = !monthAligned && !needMonth && this.isCurrentMonthRange(from, to)
+        && !!(await trx.raw(`SELECT to_regclass('analytics.mv_sales_current_month') AS t`)).rows?.[0]?.t;
+      const keplerDailySrc = curMonthMv ? 'analytics.mv_sales_current_month' : 'analytics.sales_daily';
+
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
       // RS.6 — la parte KEPLER sale de sales_daily/boxes (sin vendedor); la parte WINCAJA
@@ -2675,7 +2771,7 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
               (needMonth ? `, sd.year_month` : ''),
             )
-        : await trx('analytics.sales_daily as sd')
+        : await trx(`${keplerDailySrc} as sd`)
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
@@ -2691,9 +2787,15 @@ export class CommercialAnalyticsService {
               if (brandId) qb.andWhere('p.brand_id', brandId);
               if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
             })
-            .andWhere('sd.sale_date', '>=', from)
-            .andWhere('sd.sale_date', '<=', to)
-            .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`) // nunca fechas futuras (montos)
+            .modify((qb) => {
+              // El matview mv_sales_current_month ya está acotado a [inicio de mes .. hoy] y no
+              // tiene columna sale_date; los filtros de fecha solo aplican al escanear sales_daily.
+              if (!curMonthMv) {
+                qb.andWhere('sd.sale_date', '>=', from)
+                  .andWhere('sd.sale_date', '<=', to)
+                  .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`); // nunca fechas futuras (montos)
+              }
+            })
             .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
             .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
             .select(
@@ -3970,12 +4072,20 @@ export class CommercialAnalyticsService {
       if (opts?.sku) { W += ' AND sl.sku = ?'; P.push(opts.sku); }
       if (opts?.client) { W += ' AND sl.cliente = ?'; P.push(opts.client); }
 
+      // RR2: el margen viaja en el MISMO barrido (sólo suma dos columnas más). `cost` sale
+      // de `valor_costo`, que es el monto EXTENDIDO de la línea (verificado: Σcosto/Σventa
+      // da 13-16% por ruta; × qty daría −93%..−1234%) → NUNCA multiplicar por qty.
+      // `revenue_with_cost` es el denominador honesto: el push de camionetas no trae costo.
       const totals = (await trx.raw(
         `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
                 count(distinct sl.sku) skus,
-                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients
+                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       const totRev = num(totals.revenue);
+      const revWithCost = num(totals.revenue_with_cost);
+      const cost = num(totals.cost);
 
       const products = (await trx.raw(
         `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue
@@ -4008,6 +4118,14 @@ export class CommercialAnalyticsService {
          FROM analytics.v_route_sales_lines sl WHERE ${W}
          GROUP BY sl.consecutivo ORDER BY max(sl.business_date) DESC, revenue DESC NULLS LAST LIMIT 100`, P)).rows;
 
+      // RR2: mezcla por unidad de medida. El rótulo es passthrough de la fuente
+      // (Wincaja: catálogo del artículo · push/Kepler: `unidad` del renglón) — cero
+      // unidades inventadas, cero pluralización.
+      const unitsMix = (await trx.raw(
+        `SELECT sl.unidad, count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM analytics.v_route_sales_lines sl WHERE ${W}
+         GROUP BY sl.unidad ORDER BY revenue DESC NULLS LAST`, P)).rows;
+
       return {
         route_no: head.route_no,
         route_code: `WIN-${src}`,
@@ -4033,6 +4151,286 @@ export class CommercialAnalyticsService {
           folio: r.folio || r.consecutivo, date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
           lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
         })),
+        units_mix: unitsMix.map((r: any) => ({
+          unidad: r.unidad ?? null, lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
+          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+        })),
+        margin: {
+          revenue_with_cost: revWithCost,
+          cost,
+          margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+          coverage_pct: totRev > 0 ? Math.round((revWithCost / totRev) * 1000) / 10 : 0,
+        },
+      };
+    });
+  }
+
+  // ── RR2 — Desglose por TICKET ────────────────────────────────────────────────
+  /** Ruta → `source_branch` de la tabla-hecho (el UI manda `WIN-<n>`). */
+  private routeSrc(routeCode: string): string {
+    const src = (routeCode || '').replace(/^WIN-/i, '').trim();
+    if (!src) throw new BadRequestException('route requerido');
+    return src;
+  }
+
+  /** Llave del ticket: el folio NO es único (el push lo repite entre rutas y días). */
+  private ticketKey(r: { source: string; source_branch: string; date: string; consecutivo: string }): string {
+    return [r.source, r.source_branch, r.date, r.consecutivo].join('|');
+  }
+
+  private parseTicketKey(key: string) {
+    const parts = (key || '').split('|');
+    if (parts.length < 4) throw new BadRequestException('key de ticket inválida');
+    const [source, sourceBranch, date] = parts;
+    const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
+    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    return { source, sourceBranch, date, consecutivo };
+  }
+
+  private static readonly TICKET_SORT: Record<string, string> = {
+    date: 'business_date', revenue: 'revenue', units: 'units', lines: 'lines', margin: 'margin_pct',
+  };
+
+  /**
+   * RR2 — Lista de TICKETS de una ruta (paginada, server-side). Grano = documento:
+   * `(source, source_branch, business_date, consecutivo)`.
+   *
+   * `route` es OBLIGATORIA a propósito: sin scope la consulta barre la tabla-hecho
+   * completa (medido en prod: 1 ruta × 1 mes = 1.9 s vs barrido anual de todas = 110 s).
+   *
+   * Los filtros de LÍNEA (sku, unidad) eligen QUÉ tickets salen, pero los totales del
+   * ticket siguen siendo los completos — un ticket con un total recortado a las líneas
+   * que casaron el filtro sería una cifra falsa.
+   */
+  async salesByRouteTickets(q: SalesByRouteTicketsQuery): Promise<SalesByRouteTicketsPage> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const src = this.routeSrc(q.route);
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const y = Number(q.year) || new Date().getFullYear();
+    if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
+    const from = q.from && dRx.test(q.from) ? q.from : `${y}-01-01`;
+    const to = q.to && dRx.test(q.to) ? q.to : `${y + 1}-01-01`;
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const sortCol = CommercialAnalyticsService.TICKET_SORT[q.sort || 'date'] || 'business_date';
+    const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+    const num = (v: any) => Number(v) || 0;
+
+    // Scope: común a los dos pasos (selección de tickets y agregación de sus líneas).
+    const scope = `sl.tenant_id = ? AND sl.source_branch = ? AND sl.sale_channel = 'ruta_venta'
+                   AND sl.business_date >= ? AND sl.business_date < ? AND sl.business_date <= CURRENT_DATE`;
+    const scopeP: any[] = [tenantId, src, from, to];
+
+    // Filtros de LÍNEA → sólo acotan el conjunto de tickets.
+    let lineW = '';
+    const lineP: any[] = [];
+    if (q.sku) { lineW += ' AND sl.sku = ?'; lineP.push(q.sku); }
+    if (q.unit) { lineW += ' AND sl.unidad = ?'; lineP.push(q.unit.toUpperCase()); }
+
+    // Filtros de TICKET → se aplican sobre el agregado.
+    let tickW = '';
+    const tickP: any[] = [];
+    if (q.client) { tickW += ' AND a.cliente = ?'; tickP.push(q.client); }
+    if (q.paymentMethod) { tickW += ' AND a.forma_pago = ?'; tickP.push(q.paymentMethod); }
+    if (q.docType) { tickW += ' AND a.doc_tipo = ?'; tickP.push(q.docType); }
+    if (q.minRevenue != null && Number.isFinite(Number(q.minRevenue))) { tickW += ' AND a.revenue >= ?'; tickP.push(Number(q.minRevenue)); }
+    if (q.maxRevenue != null && Number.isFinite(Number(q.maxRevenue))) { tickW += ' AND a.revenue <= ?'; tickP.push(Number(q.maxRevenue)); }
+    if (q.q && q.q.trim()) {
+      // Paréntesis obligatorios: sin ellos el OR se come los AND anteriores.
+      tickW += ` AND (a.folio ILIKE ? OR COALESCE(a.cliente,'') ILIKE ? OR COALESCE(a.cliente_nombre,'') ILIKE ?)`;
+      const like = `%${q.q.trim()}%`;
+      tickP.push(like, like, like);
+    }
+
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `WITH sel AS (
+         SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
+         FROM analytics.v_route_sales_lines sl
+         WHERE ${scope}${lineW}
+       ),
+       agg AS (
+         SELECT sl.source, sl.source_branch, sl.business_date, sl.consecutivo,
+                max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl
+         JOIN sel ON sel.source = sl.source AND sel.source_branch = sl.source_branch
+                 AND sel.business_date = sl.business_date AND sel.consecutivo = sl.consecutivo
+         WHERE ${scope}
+         GROUP BY 1, 2, 3, 4
+       ),
+       enr AS (
+         SELECT a.*, c.nombre AS cliente_nombre,
+                CASE WHEN a.revenue_with_cost > 0 THEN round((1 - a.cost / a.revenue_with_cost) * 100, 1) END AS margin_pct
+         FROM agg a
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes
+                    WHERE tenant_id = ? AND source_branch = ? ORDER BY cliente, source_dataset DESC) c
+           ON c.cliente = a.cliente
+       )
+       SELECT *, count(*) OVER () AS total_rows,
+              sum(revenue) OVER () AS grand_revenue,
+              sum(units)   OVER () AS grand_units
+       FROM enr a
+       WHERE true${tickW}
+       ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
+       LIMIT ? OFFSET ?`,
+      [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
+    )).rows);
+
+    const total = rows.length ? num(rows[0].total_rows) : 0;
+    const grandRevenue = rows.length ? num(rows[0].grand_revenue) : 0;
+    const grandUnits = rows.length ? num(rows[0].grand_units) : 0;
+    const isPublic = (code: any) => !code || !String(code).trim() || String(code) === '0001';
+
+    return {
+      rows: rows.map((r) => {
+        const date = r.business_date instanceof Date
+          ? r.business_date.toISOString().slice(0, 10)
+          : String(r.business_date).slice(0, 10);
+        return {
+          key: this.ticketKey({ source: r.source, source_branch: r.source_branch, date, consecutivo: r.consecutivo }),
+          source: r.source,
+          route_no: r.source_branch,
+          folio: r.folio || r.consecutivo,
+          date,
+          time: r.hora ?? null,
+          doc_type: r.doc_tipo ?? null,
+          client_code: isPublic(r.cliente) ? null : r.cliente,
+          client_name: isPublic(r.cliente) ? 'Mostrador a bordo (público)' : (r.cliente_nombre || r.cliente),
+          is_public: isPublic(r.cliente),
+          payment_method: r.forma_pago ?? null,
+          payment_method_label: r.forma_pago_desc ?? null,
+          seller: r.vendedor ?? null,
+          lines: num(r.lines),
+          skus: num(r.skus),
+          units: num(r.units),
+          revenue: num(r.revenue),
+          cost: r.cost == null ? null : num(r.cost),
+          margin_pct: r.margin_pct == null ? null : Number(r.margin_pct),
+        };
+      }),
+      total,
+      limit,
+      offset,
+      totals: {
+        revenue: Math.round(grandRevenue * 100) / 100,
+        units: Math.round(grandUnits * 100) / 100,
+        tickets: total,
+        avg_ticket: total > 0 ? Math.round((grandRevenue / total) * 100) / 100 : 0,
+      },
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * RR2 — Un TICKET con sus renglones: unidad en la que se vendió, precio unitario,
+   * equivalencia en cajas, costo/margen e impuestos.
+   *
+   * Equivalencia en cajas (misma regla que la Fase AX, para no contradecir al resto del
+   * sistema): sólo con el factor CANÓNICO (`analytics.v_product_box_factor`), sólo si
+   * el renglón se vendió EN LA UNIDAD que ese factor cuenta (`unit_base`), sólo si el
+   * factor es > 1, no está marcado sospechoso, no es producto a peso y la compra alcanza
+   * al menos una caja. Si algo de eso falla se devuelve NULL — no se dibuja una
+   * equivalencia falsa.
+   */
+  async salesByRouteTicket(key: string): Promise<SalesByRouteTicketDetail> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { source, sourceBranch, date, consecutivo } = this.parseTicketKey(key);
+    const num = (v: any) => Number(v) || 0;
+
+    return this.tk.run(async (trx) => {
+      const W = `sl.tenant_id = ? AND sl.source = ? AND sl.source_branch = ?
+                 AND sl.business_date = ? AND sl.consecutivo = ?`;
+      const P: any[] = [tenantId, source, sourceBranch, date, consecutivo];
+
+      const head = (await trx.raw(
+        `SELECT max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue, sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
+      if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
+
+      const wname = (await trx.raw(
+        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+         FROM wincaja.branches b
+         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = (await trx.raw(
+        `SELECT nombre FROM wincaja.clientes
+         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+
+      const lines = (await trx.raw(
+        `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
+                sl.qty, sl.precio_unitario, sl.importe, sl.costo, sl.iva, sl.ieps,
+                CASE WHEN bf.box_factor > 1 AND COALESCE(bf.is_master_suspect, false) = false
+                       AND COALESCE(bf.is_weight, false) = false
+                       AND sl.unidad IS NOT NULL AND upper(btrim(bf.unit_base)) = sl.unidad
+                       AND sl.qty >= bf.box_factor
+                     THEN bf.box_factor END AS box_factor
+         FROM analytics.v_route_sales_lines sl
+         LEFT JOIN catalog.products p ON p.tenant_id = sl.tenant_id AND p.sku = sl.sku AND p.deleted_at IS NULL
+         LEFT JOIN analytics.v_product_box_factor bf
+           ON bf.tenant_id = sl.tenant_id AND bf.product_id = COALESCE(sl.product_id, p.id)
+         WHERE ${W}
+         ORDER BY sl.importe DESC NULLS LAST, sl.sku`, P)).rows;
+
+      const revWithCost = num(head.revenue_with_cost);
+      const cost = num(head.cost);
+      const isPublic = !head.cliente || !String(head.cliente).trim() || String(head.cliente) === '0001';
+
+      return {
+        key,
+        source: source as 'wincaja' | 'push',
+        route_no: sourceBranch,
+        folio: head.folio || consecutivo,
+        date,
+        time: head.hora ?? null,
+        doc_type: head.doc_tipo ?? null,
+        client_code: isPublic ? null : head.cliente,
+        client_name: isPublic ? 'Mostrador a bordo (público)' : (clientRow?.nombre || head.cliente),
+        is_public: isPublic,
+        payment_method: head.forma_pago ?? null,
+        payment_method_label: head.forma_pago_desc ?? null,
+        seller: head.vendedor ?? null,
+        lines: num(head.lines),
+        skus: num(head.skus),
+        units: num(head.units),
+        revenue: num(head.revenue),
+        cost: head.cost == null ? null : cost,
+        margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+        warehouse_name: wname?.wname ?? null,
+        lines_detail: lines.map((r: any) => {
+          const importe = num(r.importe);
+          const lineCost = r.costo == null ? null : num(r.costo);
+          const factor = r.box_factor == null ? null : Number(r.box_factor);
+          return {
+            sku: r.sku,
+            name: r.name ?? null,
+            unidad: r.unidad ?? null,
+            unidad_origen: r.unidad_origen ?? null,
+            qty: num(r.qty),
+            box_factor: factor,
+            boxes: factor ? Math.round((num(r.qty) / factor) * 100) / 100 : null,
+            precio_unitario: r.precio_unitario == null ? null : num(r.precio_unitario),
+            importe,
+            costo: lineCost,
+            margin_pct: lineCost != null && importe > 0 ? Math.round((1 - lineCost / importe) * 1000) / 10 : null,
+            iva: r.iva == null ? null : num(r.iva),
+            ieps: r.ieps == null ? null : num(r.ieps),
+          };
+        }),
       };
     });
   }
@@ -4313,6 +4711,15 @@ export class CommercialAnalyticsService {
    *  que es rápido). El fast path WINCAJA es aparte (ver isWincajaRollupOk). */
   private isMonthAligned(from: string, to: string): boolean {
     return this.isFullMonthRange(from, to) && to < this.currentMonthStartMx();
+  }
+
+  /** PERF — ¿el rango ES el mes en curso? (el default de sellOut). `from` = inicio del mes
+   *  actual y `to` dentro del mismo mes. Habilita el fast path por matview
+   *  `mv_sales_current_month`, que cubre [inicio de mes .. hoy] — el mismo universo que el
+   *  path diario acota con `sale_date <= hoy`, así que da los mismos números (verificado). */
+  private isCurrentMonthRange(from: string, to: string): boolean {
+    const start = this.currentMonthStartMx();
+    return from === start && to.slice(0, 7) === start.slice(0, 7);
   }
 
   /** Habilita el fast path por rollup WINCAJA (`sales_by_vendor_monthly`) para CUALQUIER

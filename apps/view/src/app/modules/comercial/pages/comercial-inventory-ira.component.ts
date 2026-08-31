@@ -10,8 +10,6 @@ import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ComercialService, InventoryIra, Warehouse } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_COUNT_TABS } from '../inventory-tabs';
 
 /**
  * KPI de exactitud de inventario (IRA) sobre folios reconciliados (Fase I.5 / P1).
@@ -21,11 +19,10 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-inventory-ira',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule, MetricCardComponent, PageTabsComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page ira">
-      <app-page-tabs [tabs]="inventoryTabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Exactitud de inventario (IRA)</h1>
@@ -123,7 +120,6 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialInventoryIraComponent {
-  readonly inventoryTabs = INV_COUNT_TABS;
   private svc = inject(ComercialService);
   private destroyRef = inject(DestroyRef);
 

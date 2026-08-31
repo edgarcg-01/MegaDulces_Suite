@@ -19,10 +19,17 @@ const RULES: FinanceRuleInput[] = [
   { rule_key: 'cxc_cliente_vencido', nombre: 'Cliente con saldo vencido', descripcion: 'Cartera vencida material por cliente (aging kdue).', clase: 'riesgo', params: { min_vencido: 2000 } },
   { rule_key: 'cxc_sobre_limite', nombre: 'Cliente sobre su línea de crédito', descripcion: 'Saldo supera el límite de crédito de Kepler (kdud.c15).', clase: 'riesgo', params: {} },
   { rule_key: 'cxc_promesa_incumplida', nombre: 'Compromiso de pago incumplido', descripcion: 'El cliente no pagó en la fecha que se comprometió (CXC.13).', clase: 'riesgo', params: {} },
+  { rule_key: 'cxc_embarcado_sin_facturar', nombre: 'Embarcado sin facturar', descripcion: 'Salió mercancía y no se generó el cargo: la factura no existe o quedó en $0.00. La cartera nunca lo va a reclamar.', clase: 'riesgo', params: { min_monto: 500 } },
+  { rule_key: 'cxc_factura_duplicada', nombre: 'Embarque facturado dos veces', descripcion: 'Un solo embarque generó facturas por más del doble de lo que salió: la cartera le cobra al cliente algo que no debe.', clase: 'error_captura', params: {} },
+  { rule_key: 'cxc_embarque_descuadrado', nombre: 'Embarque y factura no cuadran', descripcion: 'Lo facturado difiere de lo embarcado por encima de la tolerancia de redondeo.', clase: 'error_captura', params: { min_dif: 500 } },
 ];
 const MIN_VENCIDO = 2000;    // pesos: piso para no ahogar la bandeja
 const CRIT_VENCIDO = 20000;  // pesos: vencido crítico
 const CRIT_DIAS = 60;        // días vencido crítico
+const MIN_EMBARQUE = 500;    // pesos: piso del control embarcado-vs-facturado
+const CRIT_EMBARQUE = 10000; // pesos: fuga crítica
+const MIN_DIF_EMBARQUE = 500;// pesos: por debajo es redondeo por renglón (máximo real medido: $189)
+const DIAS_EMBARQUE = 365;   // ventana: no resucitar embarques antiguos ya conciliados a mano
 
 @Injectable()
 export class CustomerReceivablesScannerService {
@@ -63,18 +70,18 @@ export class CustomerReceivablesScannerService {
         `INSERT INTO analytics.customer_receivable_snapshots
            (tenant_id, snapshot_date, sucursal, saldo_total, vencido_total, n_clientes, por_vencer, d0_30, d31_60, d61_90, d90_plus, computed_at)
          SELECT ?::uuid, h.d, r.sucursal,
-           COALESCE(round(sum(r.saldo_documento), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < h.d), 2), 0),
            count(DISTINCT r.cliente_code),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento IS NULL OR r.vencimiento >= h.d), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d AND h.d - r.vencimiento <= 30), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 31 AND 60), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 61 AND 90), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento > 90), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento IS NULL OR r.vencimiento >= h.d), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < h.d AND h.d - r.vencimiento <= 30), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento BETWEEN 31 AND 60), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento BETWEEN 61 AND 90), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento > 90), 2), 0),
            now()
          FROM analytics.customer_receivables r
          CROSS JOIN (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date d) h
-         WHERE r.tenant_id = ?::uuid AND r.cargo_abono = 'C' AND r.saldo_documento > 0.005
+         WHERE r.tenant_id = ?::uuid AND r.cargo_abono = 'C' AND r.saldo_ajustado > 0.005
          GROUP BY h.d, r.sucursal
          ON CONFLICT (tenant_id, snapshot_date, sucursal) DO UPDATE SET
            saldo_total=EXCLUDED.saldo_total, vencido_total=EXCLUDED.vencido_total, n_clientes=EXCLUDED.n_clientes,
@@ -93,16 +100,16 @@ export class CustomerReceivablesScannerService {
       const r = await trx.raw(
         `SELECT r.sucursal, r.cliente_code, max(c.name) AS nombre, max(r.telefono) AS tel,
                 max(r.limite_credito) AS limite, max(r.vendedor) AS vendedor, max(r.zona) AS zona,
-                round(sum(r.saldo_documento), 2) AS saldo,
-                round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < ?::date), 2) AS vencido,
-                (min(r.vencimiento) FILTER (WHERE r.saldo_documento > 0.005 AND r.vencimiento < ?::date))::text AS oldest
+                round(sum(r.saldo_ajustado), 2) AS saldo,
+                round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < ?::date), 2) AS vencido,
+                (min(r.vencimiento) FILTER (WHERE r.saldo_ajustado > 0.005 AND r.vencimiento < ?::date))::text AS oldest
            FROM analytics.customer_receivables r
            LEFT JOIN analytics.erp_customers c ON c.tenant_id = r.tenant_id AND c.erp_code = r.cliente_code
           WHERE r.tenant_id = ? AND r.cargo_abono = 'C'
             AND r.cliente_code NOT ILIKE '%CONTADO%'
             AND COALESCE(c.name, '') NOT ILIKE '%CONTADO%'
           GROUP BY r.sucursal, r.cliente_code
-         HAVING sum(r.saldo_documento) > 0.005`,
+         HAVING sum(r.saldo_ajustado) > 0.005`,
         [hoy, hoy, tenantId]);
       return { hoy, data: r.rows };
     });
@@ -168,9 +175,88 @@ export class CustomerReceivablesScannerService {
       }
     } catch { /* tabla de promesas no migrada aún */ }
 
+    findings.push(...await this.embarqueFindings(tenantId));
+
     if (!findings.length) return 0;
     const res = await this.sink.pushFindings(tenantId, findings, RULES);
     return res.inserted;
+  }
+
+  /**
+   * Control **embarcado contra facturado** (`analytics.erp_shipment_billing`).
+   *
+   * `kdue` dice qué se debe; no dice qué DEBERÍA deberse. Si salió mercancía y nadie emitió el
+   * cargo, la deuda no existe y la cobranza jamás la va a ver. Esto lo caza aguas arriba.
+   *
+   * Sólo mira la serie 01 (Embarque Telemarketing) de clientes reales: la serie 02 es traspaso
+   * a sucursal y por diseño no factura, y en la suc 02 el embarque YA es el cargo en la cuenta
+   * (`cargo_directo`) — meter esos sería inventar 1,094 hallazgos falsos.
+   */
+  private async embarqueFindings(tenantId: string): Promise<FinanceFindingInput[]> {
+    const rows = await this.knex.transaction(async (trx) => {
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+      return (await trx.raw(
+        `SELECT sucursal, folio, folio_digital, fecha::text AS fecha, cliente_code, cliente_nombre,
+                total_embarcado, n_facturas, total_facturado, diferencia, diagnostico, facturas
+           FROM analytics.erp_shipment_billing
+          WHERE tenant_id = ?::uuid AND serie = 1 AND NOT cuenta_interna
+            AND fecha >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int
+            AND diagnostico IN ('sin_factura','facturado_en_cero','facturado_de_mas','diferencia')`,
+        [tenantId, DIAS_EMBARQUE])).rows;
+    }).catch((e) => { this.logger.warn(`embarques: ${e.message}`); return [] as any[]; });
+
+    const out: FinanceFindingInput[] = [];
+    for (const r of rows) {
+      const emb = Number(r.total_embarcado) || 0;
+      const fac = Number(r.total_facturado) || 0;
+      const dif = Number(r.diferencia) || 0;
+      const nombre = r.cliente_nombre || r.cliente_code;
+      const ent = { sucursal: r.sucursal, cliente_code: r.cliente_code, nombre, folio: r.folio_digital };
+      const base = { entity: ent, periodo: null as any, clase: 'riesgo' as const };
+
+      if ((r.diagnostico === 'sin_factura' || r.diagnostico === 'facturado_en_cero') && emb >= MIN_EMBARQUE) {
+        const enCero = r.diagnostico === 'facturado_en_cero';
+        out.push({
+          ...base, rule_key: 'cxc_embarcado_sin_facturar',
+          severity: emb >= CRIT_EMBARQUE ? 'critical' : 'warn',
+          score: Math.min(1, emb / 50000),
+          titulo: `${nombre}: ${this.mx(emb)} embarcado sin cargo`,
+          resumen: `Sucursal ${r.sucursal}, embarque ${r.folio_digital} del ${r.fecha}. Salieron ${this.mx(emb)} y ` +
+            (enCero ? `sus ${r.n_facturas} factura(s) quedaron en $0.00.` : 'no se emitió factura.') +
+            ' No hay cargo en la cuenta del cliente: la cartera nunca lo va a cobrar.',
+          importe: emb,
+          evidencia: { embarcado: emb, facturado: fac, n_facturas: r.n_facturas, diagnostico: r.diagnostico, facturas: r.facturas },
+          dedup_key: `cxc_sinfacturar:${r.sucursal}:${r.folio}`,
+        });
+      }
+      if (r.diagnostico === 'facturado_de_mas') {
+        const exceso = Math.round(-dif * 100) / 100;
+        out.push({
+          ...base, rule_key: 'cxc_factura_duplicada', clase: 'error_captura', severity: 'critical',
+          score: 0.9,
+          titulo: `${nombre}: se le cobra ${this.mx(exceso)} de más (embarque facturado ${r.n_facturas} veces)`,
+          resumen: `Sucursal ${r.sucursal}, embarque ${r.folio_digital} del ${r.fecha}. Salieron ${this.mx(emb)} ` +
+            `pero se emitieron ${r.n_facturas} facturas por ${this.mx(fac)}. La cartera está inflada en ${this.mx(exceso)} ` +
+            'y el cliente puede rechazar el cobro. Cancelar la factura repetida en Kepler.',
+          importe: exceso,
+          evidencia: { embarcado: emb, facturado: fac, n_facturas: r.n_facturas, facturas: r.facturas },
+          dedup_key: `cxc_facdup:${r.sucursal}:${r.folio}`,
+        });
+      }
+      if (r.diagnostico === 'diferencia' && Math.abs(dif) >= MIN_DIF_EMBARQUE) {
+        out.push({
+          ...base, rule_key: 'cxc_embarque_descuadrado', clase: 'error_captura', severity: 'warn',
+          score: Math.min(1, Math.abs(dif) / 20000),
+          titulo: `${nombre}: embarque y factura difieren ${this.mx(Math.abs(dif))}`,
+          resumen: `Sucursal ${r.sucursal}, embarque ${r.folio_digital} del ${r.fecha}. Embarcado ${this.mx(emb)} ` +
+            `contra facturado ${this.mx(fac)}. Revisar qué renglón cambió entre el surtido y la factura.`,
+          importe: Math.abs(dif),
+          evidencia: { embarcado: emb, facturado: fac, diferencia: dif, facturas: r.facturas },
+          dedup_key: `cxc_embdif:${r.sucursal}:${r.folio}`,
+        });
+      }
+    }
+    return out;
   }
 
   private mx(v: number) { return `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`; }
