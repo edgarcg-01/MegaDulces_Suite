@@ -456,6 +456,34 @@ Sin llave estructural (§4.ter.3), el motor **propone** y la persona **decide**:
 > intención del importer, no el contenido. `factura_ref` trae códigos de proveedor el 29% de las
 > veces. Mirar los datos, siempre — es la misma regla que ya está escrita para `c2/c3/c4`.
 
+### 4.ter.8 Estado de RE.21
+
+| # | Qué | Estado |
+|---|---|---|
+| **21.1** | Explicar por monto + 3 niveles de confianza + veredicto en Revisión | ✅ 2026-08-31 |
+| **21.2** | *Cuadra con ajuste* desbloquea el lote | ✅ 2026-08-31 |
+| **21.3** | El cuadre deja de ser una foto (días después) | ✅ 2026-08-31 |
+| 21.4 | Recalcular `monto_match` cuando llega un ajuste posterior (scanner) | ⬜ |
+| 21.5 | Naturaleza del ajuste en el cuadre persistido (`discrepancy_kind`) | ⬜ |
+
+**RE.21.2 — la puerta nueva es angosta a propósito.** `validateBulk` exigía `monto_match === true`
+a secas, así que una recepción con devolución legítima **nunca** se podía aprobar en lote. Ahora
+hay una segunda puerta, pero se abre **sólo** cuando Kepler mismo liga el ajuste a esa entrada
+(`entrada_folio`) **y** su magnitud es el hueco. El match por monto a secas y los ambiguos siguen
+yendo a mano — es el ~4% de los ajustes, el único caso con liga estructural.
+
+El historial escribe **cuál** ajuste lo explicó (`XD40 SMK-1234 de $1,234.56 (faltante)`): una
+aprobación con descuadre sin el folio del ajuste anotado es indefendible después.
+
+**RE.21.3 — el dato del timing ya estaba, sólo no se decía.** `dias_despues` por candidato y en el
+veredicto. Si el ajuste llegó después de recibir, el `monto_match` guardado **no pudo** tomarlo en
+cuenta: es la diferencia entre *"se equivocó el capturista"* y *"todavía no existía"*, y el revisor
+no tenía con qué distinguirlas.
+
+**Lo que queda (21.4/21.5)** es el trabajo de fondo: hoy el cuadre sigue siendo una foto **bien
+etiquetada**, no una verdad que se actualice. Cerrarlo pide un scanner que revisite las
+recepciones cuando entra un ajuste nuevo — y eso ya es una fase con cron propio.
+
 ---
 
 ## 5. Verificación
