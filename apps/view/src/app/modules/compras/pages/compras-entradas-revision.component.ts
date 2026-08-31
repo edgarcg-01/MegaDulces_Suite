@@ -374,22 +374,26 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                                 <p class="rv-adj-nota">No se pudo abrir el movimiento. <button type="button" class="rv-adj-retry" (click)="reintentarAjuste(a)">Reintentar</button></p>
                               } @else if (desglose(); as dg) {
                                 @if (dg.desglose === 'renglones') {
-                                  <table class="rv-adj-tab">
-                                    <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cant.</th><th>Unidad</th><th class="num">Costo</th><th class="num">Importe</th></tr></thead>
-                                    <tbody>
-                                      @for (l of dg.lineas; track l.linea) {
-                                        <tr>
-                                          <td class="mono">{{ l.sku || '—' }}</td>
-                                          <td>{{ l.nombre || '—' }}</td>
-                                          <td class="num">{{ l.cantidad }}</td>
-                                          <td>{{ l.unidad || '—' }}</td>
-                                          <td class="num">{{ money(l.costo_unitario) }}</td>
-                                          <td class="num">{{ money(l.importe) }}</td>
-                                        </tr>
-                                      }
-                                    </tbody>
-                                    <tfoot><tr><td colspan="5">{{ dg.lineas.length }} {{ dg.lineas.length === 1 ? 'renglón' : 'renglones' }}</td><td class="num">{{ money(dg.total_importe) }}</td></tr></tfoot>
-                                  </table>
+                                  <!-- Misma base compartida que el listado: una <table> cruda no
+                                       se re-estila por pantalla (surf-table--plain existe para eso). -->
+                                  <div class="rv-adj-scroll">
+                                    <table class="surf-table surf-table--plain is-dense">
+                                      <thead><tr><th>SKU</th><th>Producto</th><th class="comm-num">Cant.</th><th>Unidad</th><th class="comm-num">Costo</th><th class="comm-num">Importe</th></tr></thead>
+                                      <tbody>
+                                        @for (l of dg.lineas; track l.linea) {
+                                          <tr>
+                                            <td class="mono">{{ l.sku || '—' }}</td>
+                                            <td>{{ l.nombre || '—' }}</td>
+                                            <td class="comm-num">{{ l.cantidad }}</td>
+                                            <td>{{ l.unidad || '—' }}</td>
+                                            <td class="comm-num">{{ money(l.costo_unitario) }}</td>
+                                            <td class="comm-num">{{ money(l.importe) }}</td>
+                                          </tr>
+                                        }
+                                      </tbody>
+                                      <tfoot><tr><td colspan="5">{{ plural(dg.lineas.length, 'renglón', 'renglones') }}</td><td class="comm-num">{{ money(dg.total_importe) }}</td></tr></tfoot>
+                                    </table>
+                                  </div>
                                 } @else {
                                   <!-- RE.22.1 — una nota de crédito NO se desglosa por producto: es
                                        dinero, no mercancía. Decirlo es la mitad del valor; dejar la
@@ -780,37 +784,37 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
       background: none; border: 0; padding: .15rem .2rem; margin: 0;
       border-radius: var(--r-sm, 4px); color: inherit; font: inherit; text-align: left; cursor: pointer;
     }
-    .rv-adj-row:hover { background: var(--surface-hover, var(--surface-2)); }
-    .rv-adj-row:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
-    .rv-adj-caret { color: var(--text-faint); font-size: .65rem; width: .7rem; flex: none; }
+    .rv-adj-row:hover { background: var(--overlay-hover); }
+    .rv-adj-row:active { background: var(--overlay-active); }
+    .rv-adj-row:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+    /* La fila entera es el objetivo de clic, así que en touch se le da la altura mínima. */
+    @media (pointer: coarse) { .rv-adj-row { min-height: var(--tap-min); } }
+    .rv-adj-caret { color: var(--text-faint); font-size: var(--fs-micro); width: .7rem; flex: none; }
     .rv-adj li.is-abierto .rv-adj-caret { color: var(--text-muted); }
     .rv-adj em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
     .rv-adj-mot { flex: 1; min-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .rv-adj-monto { font-family: var(--font-mono); font-weight: 600; }
 
     /* El desglose cuelga de la fila, sangrado a la altura del caret para que se lea como su hijo. */
+    /* Elevación por borde (no borde+sombra): el desglose cuelga de su fila, sangrado a la
+       altura del caret para que se lea como su hijo y no como un bloque suelto. */
     .rv-adj-det {
-      margin: .2rem 0 .5rem 1.15rem; padding: var(--sp-2);
+      margin: var(--sp-1) 0 var(--sp-2) 1.15rem; padding: var(--sp-2);
       border-left: 2px solid var(--border-color); background: var(--surface-ground);
-      border-radius: 0 var(--r-sm, 4px) var(--r-sm, 4px) 0;
+      border-radius: 0 var(--r-sm) var(--r-sm) 0;
     }
     .rv-adj-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
-    .rv-adj-motivo { margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .rv-adj-motivo { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .rv-adj-motivo b { color: var(--text-main); }
     .rv-adj-retry {
       background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
       color: var(--action); text-decoration: underline;
     }
-    /* Tabla densa, sin zebra (DESIGN: Operations). Scroll propio para no empujar el panel. */
-    .rv-adj-tab { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
-    .rv-adj-tab th, .rv-adj-tab td { padding: .2rem .4rem; text-align: left; white-space: nowrap; }
-    .rv-adj-tab thead th { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border-color); }
-    .rv-adj-tab tbody td { border-bottom: 1px solid var(--border-color); }
-    .rv-adj-tab tbody tr:last-child td { border-bottom: 0; }
-    .rv-adj-tab td:nth-child(2) { white-space: normal; min-width: 9rem; }
-    .rv-adj-tab .num { text-align: right; font-family: var(--font-mono); }
-    .rv-adj-tab tfoot td { padding-top: .3rem; color: var(--text-muted); border-top: 1px solid var(--border-color); }
-    .rv-adj-tab tfoot .num { color: var(--text-main); font-weight: 600; }
+    .rv-adj-retry:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    /* La tabla usa la base compartida; acá sólo lo que ella no cubre: el nombre envuelve y el
+       panel es angosto, así que scrollea sola. */
+    .rv-adj-scroll { overflow-x: auto; }
+    .rv-adj-det .surf-table--plain > tbody > tr > td:nth-child(2) { white-space: normal; min-width: 9rem; }
     .rv-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; }
     .rv-hist li { display: flex; gap: .45rem; align-items: baseline; font-size: var(--fs-sm, .85rem); flex-wrap: wrap; }
     .rv-hist em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
