@@ -365,7 +365,8 @@ export class CustomerLedgerService {
       const pagos = partidas.map((p) => p.dias_pago).filter((d): d is number => d != null);
 
       // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
-      // Puente por cliente_code (los cobros CEDIS traen el código del cliente). Best-effort.
+      // Puente por cliente_code (los cobros de la suc '00' — Oficinas, no el CEDIS: ERP_KEPLER
+      // §2.3 — traen el código del cliente). Best-effort.
       let cobranza: any = null;
       try {
         const cc = (await trx.raw(
