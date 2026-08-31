@@ -70,18 +70,18 @@ export class CustomerReceivablesScannerService {
         `INSERT INTO analytics.customer_receivable_snapshots
            (tenant_id, snapshot_date, sucursal, saldo_total, vencido_total, n_clientes, por_vencer, d0_30, d31_60, d61_90, d90_plus, computed_at)
          SELECT ?::uuid, h.d, r.sucursal,
-           COALESCE(round(sum(r.saldo_documento), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < h.d), 2), 0),
            count(DISTINCT r.cliente_code),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento IS NULL OR r.vencimiento >= h.d), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < h.d AND h.d - r.vencimiento <= 30), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 31 AND 60), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento BETWEEN 61 AND 90), 2), 0),
-           COALESCE(round(sum(r.saldo_documento) FILTER (WHERE h.d - r.vencimiento > 90), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento IS NULL OR r.vencimiento >= h.d), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < h.d AND h.d - r.vencimiento <= 30), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento BETWEEN 31 AND 60), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento BETWEEN 61 AND 90), 2), 0),
+           COALESCE(round(sum(r.saldo_ajustado) FILTER (WHERE h.d - r.vencimiento > 90), 2), 0),
            now()
          FROM analytics.customer_receivables r
          CROSS JOIN (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date d) h
-         WHERE r.tenant_id = ?::uuid AND r.cargo_abono = 'C' AND r.saldo_documento > 0.005
+         WHERE r.tenant_id = ?::uuid AND r.cargo_abono = 'C' AND r.saldo_ajustado > 0.005
          GROUP BY h.d, r.sucursal
          ON CONFLICT (tenant_id, snapshot_date, sucursal) DO UPDATE SET
            saldo_total=EXCLUDED.saldo_total, vencido_total=EXCLUDED.vencido_total, n_clientes=EXCLUDED.n_clientes,
@@ -100,16 +100,16 @@ export class CustomerReceivablesScannerService {
       const r = await trx.raw(
         `SELECT r.sucursal, r.cliente_code, max(c.name) AS nombre, max(r.telefono) AS tel,
                 max(r.limite_credito) AS limite, max(r.vendedor) AS vendedor, max(r.zona) AS zona,
-                round(sum(r.saldo_documento), 2) AS saldo,
-                round(sum(r.saldo_documento) FILTER (WHERE r.vencimiento < ?::date), 2) AS vencido,
-                (min(r.vencimiento) FILTER (WHERE r.saldo_documento > 0.005 AND r.vencimiento < ?::date))::text AS oldest
+                round(sum(r.saldo_ajustado), 2) AS saldo,
+                round(sum(r.saldo_ajustado) FILTER (WHERE r.vencimiento < ?::date), 2) AS vencido,
+                (min(r.vencimiento) FILTER (WHERE r.saldo_ajustado > 0.005 AND r.vencimiento < ?::date))::text AS oldest
            FROM analytics.customer_receivables r
            LEFT JOIN analytics.erp_customers c ON c.tenant_id = r.tenant_id AND c.erp_code = r.cliente_code
           WHERE r.tenant_id = ? AND r.cargo_abono = 'C'
             AND r.cliente_code NOT ILIKE '%CONTADO%'
             AND COALESCE(c.name, '') NOT ILIKE '%CONTADO%'
           GROUP BY r.sucursal, r.cliente_code
-         HAVING sum(r.saldo_documento) > 0.005`,
+         HAVING sum(r.saldo_ajustado) > 0.005`,
         [hoy, hoy, tenantId]);
       return { hoy, data: r.rows };
     });

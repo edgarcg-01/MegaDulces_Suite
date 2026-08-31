@@ -66,6 +66,10 @@ import { Permission } from '../../../core/constants/permissions';
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.pct_vencido }}%</span><span class="ct-rs-lbl">del saldo vencido</span></div>
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.concentracion.top10_pct }}%</span><span class="ct-rs-lbl">en top-10 clientes</span></div>
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ money(rs.ventas_90d) }}</span><span class="ct-rs-lbl">ventas 90d (base DSO)</span></div>
+              @if (rs.pago; as pg) {
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.mediana }}d</span><span class="ct-rs-lbl">mediana real de pago ({{ pg.n | number }} facturas)</span></div>
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.tarde_30d | number }}</span><span class="ct-rs-lbl">pagos a más de 30 días</span></div>
+              }
             </div>
             <div class="ct-rs-proy">
               <h4 class="ct-rs-h4">Proyección de cobranza <span class="muted">cuánto debería entrar y cuándo</span></h4>
@@ -131,6 +135,7 @@ import { Permission } from '../../../core/constants/permissions';
             <thead>
               <tr>
                 <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
+                <th class="ta-r">Paga a</th>
                 <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th></th>
               </tr>
             </thead>
@@ -143,6 +148,11 @@ import { Permission } from '../../../core/constants/permissions';
                   <td>{{ c.vendedor || '—' }}</td>
                   <td class="ta-r">{{ c.n_partidas }}</td>
                   <td class="ta-r">
+                    @if (c.dias_pago_prom != null) {
+                      <span [class.ct-lento]="c.dias_pago_prom > 30" [title]="c.n_pagos + ' facturas ya pagadas'">{{ c.dias_pago_prom }}d</span>
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                  <td class="ta-r">
                     @if (c.uso_linea != null) { <span [class.ct-sobre]="c.sobre_linea" [title]="'Límite ' + money(c.limite_credito || 0)">{{ c.uso_linea }}%</span> } @else { <span class="muted">—</span> }
                     @if (c.sobre_linea) { <i class="pi pi-exclamation-triangle ct-sobre" title="Sobre su línea de crédito" aria-hidden="true"></i> }
                   </td>
@@ -151,7 +161,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="9" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
               }
             </tbody>
           </table>
@@ -182,6 +192,8 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="ct-det-saldos">
             <span>Saldo <b>{{ money(det.saldo) }}</b></span>
             @if (det.vencido > 0) { <span class="ct-venc-num">Vencido <b>{{ money(det.vencido) }}</b></span> }
+            @if (det.saldo_a_favor > 0) { <span class="ct-favor">A favor <b>{{ money(det.saldo_a_favor) }}</b></span> }
+            @if (det.dias_pago_prom != null) { <span class="muted" [title]="det.n_pagos + ' facturas pagadas'">paga a <b>{{ det.dias_pago_prom }}d</b></span> }
             @if (det.pagadas > 0) {
               <button type="button" class="ct-link-btn" (click)="verSaldadas.set(!verSaldadas())"
                       [attr.aria-pressed]="verSaldadas()"
@@ -272,7 +284,14 @@ import { Permission } from '../../../core/constants/permissions';
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
           </details>
         }
-        <p class="ct-det-note muted">Saldo por documento exacto: cada factura muestra los cobros y notas que Kepler le aplicó (kdm5). Espejo read-only del ERP.</p>
+        @if (det.sin_documento !== 0) {
+          <p class="ct-det-note ct-sin-doc">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            {{ money(det.sin_documento) }} del saldo no lo explica ningún documento: Kepler aplicó cobros
+            por encima de lo que la cuenta justifica. El total de arriba es el de Kepler; el desglose se queda corto.
+          </p>
+        }
+        <p class="ct-det-note muted">El saldo del cliente sale de <b>kdue</b> (cargos − abonos), que es la cifra que cuadra con Kepler. El reparto por documento usa las aplicaciones de <b>kdm5</b>; lo que no logran ubicar se aplica a las partidas más viejas primero. Espejo read-only del ERP.</p>
       }
     </p-dialog>
   `,
@@ -368,6 +387,9 @@ import { Permission } from '../../../core/constants/permissions';
     .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action, #c2410c); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
     .ct-link-btn:hover { text-decoration: underline; }
     .ct-nodoc { font-size: .7rem; opacity: .45; }
+    .ct-lento { color: #c2410c; font-weight: 600; }
+    .ct-favor { color: #4f6b54; }
+    .ct-sin-doc { display: flex; align-items: flex-start; gap: .4rem; color: #8a6d1f; background: rgba(201,162,39,.08); padding: .5rem .7rem; border-radius: 6px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   `],
 })
@@ -465,9 +487,9 @@ export class FinanzasCarteraComponent implements OnInit {
   exportCsv() {
     const rows = this.data()?.clientes || [];
     if (!rows.length) return;
-    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Vencido', 'Saldo'];
+    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Dias_pago_prom', 'Vencido', 'Saldo', 'Saldo_a_favor'];
     const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.vencido, c.saldo].map(esc).join(','));
+    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.dias_pago_prom, c.vencido, c.saldo, c.saldo_a_favor || ''].map(esc).join(','));
     const csv = '﻿' + [head.join(','), ...lines].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -553,6 +575,9 @@ export class FinanzasCarteraComponent implements OnInit {
       { label: 'Clientes con saldo', value: String(d.kpi.n_clientes) },
       { label: 'Sobre su línea', value: String(d.kpi.n_sobre_linea), tone: d.kpi.n_sobre_linea > 0 ? 'bad' : undefined },
       { label: 'Partidas vivas', value: String(d.kpi.n_partidas) },
+      ...(d.kpi.total_a_favor > 0
+        ? [{ label: `A favor (${d.kpi.n_a_favor})`, value: this.money(d.kpi.total_a_favor) } as MetricStripItem]
+        : []),
     ];
   }
 
