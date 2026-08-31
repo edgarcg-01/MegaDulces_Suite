@@ -55,6 +55,22 @@ export interface EntradaRow {
   gemela_delta: number | null;
   gemela_regla: string | null;
   gemela_score: number | null;
+  // RE.20.3 — sólo vienen con `estado=descartada`: por qué esta entrada salió del proceso.
+  // Una descartada sin el porqué a la vista es una fila que desapareció sin explicación.
+  descarte_motivo?: string | null;
+  descarte_nota?: string | null;
+  descarte_por?: string | null;
+  descarte_at?: string | null;
+  // RE.20.1 — sólo con `lente=dinero`: lo que absorbió de Compras 360. `factura` es `monto` con
+  // el nombre que usa la pregunta contable; `neto` = factura − ajuste ligado.
+  vale_folio?: string | null;
+  factura?: number;
+  ajuste?: number;
+  n_ajuste?: number;
+  /** El ajuste partido: 3 de cada 4 son beneficio negociado, no un problema. */
+  ajuste_comercial?: number;
+  ajuste_operativo?: number;
+  neto?: number;
 }
 
 /** RE.14.3 — un par de la misma recepción capturada dos veces, con los dos lados a la vista. */
@@ -75,6 +91,22 @@ export interface TwinPair {
   status: 'propuesto' | 'auto' | 'confirmado' | 'rechazado';
   decided_by: string | null;
   decided_at: string | null;
+  // RE.17.3 — cuántos renglones tiene cada lado. Es la señal que decide de un vistazo: la copia
+  // de sucursal lista productos (12–20) y la de oficinas suele traer uno de concepto.
+  suc_lineas: number | null;
+  cedis_lineas: number | null;
+}
+
+/** RE.17.3 — los renglones de un lado del par (los de Kepler, no los del OCR). */
+export interface TwinSideLines {
+  sucursal: string;
+  folio: string;
+  lineas: EntradaLinea[];
+}
+
+export interface TwinLines {
+  sucursal: TwinSideLines;
+  oficinas: TwinSideLines;
 }
 
 /** RE.14.6 — lo que encontró una corrida del motor de apareo. */
@@ -119,16 +151,33 @@ export interface EntradasAlcance {
   total_visibles: number | null;
 }
 
+/**
+ * `[RE.20.2]` — las claves de orden que entiende el endpoint. Es un tipo con nombre y no un
+ * union suelto para que el encabezado clickeable de las dos pantallas ordene por lo MISMO: un
+ * `'provedor'` mal tecleado tiene que ser error de compilación y no una lista que vuelve en el
+ * orden de siempre sin decir por qué.
+ */
+export type OrdenEntradas = 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fecha' | 'proveedor';
+
 /** RE.13.0 — filtros del listado. `warehouse_codes` es el nombre canónico ([ID.5]). */
 export interface EntradasQuery {
-  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | '';
+  /** `descartada` (RE.20.3) sale de todos los demás estados: sólo se ve pidiéndola por su nombre. */
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | '';
   from?: string;
   to?: string;
   search?: string;
   warehouse_codes?: string[];
   dias_min?: number;
   carril?: 'al_dia' | 'rezago' | 'todo';
-  orden?: 'antiguedad' | 'reciente' | 'monto' | 'riesgo';
+  /** `antiguedad`/`reciente` = las dos direcciones de `fecha` con nombre propio (las pide el
+   *  segmentado de la cabina de Revisión). `fecha`/`proveedor`/`monto` son las del encabezado. */
+  orden?: OrdenEntradas;
+  /** RE.20.2 — sin esto el encabezado no puede invertirse y la flecha miente. */
+  dir?: 'asc' | 'desc';
+  /** `[RE.20.1]` — `dinero` trae factura/ajuste/neto (lo que era *Compras 360*). Default `proceso`. */
+  lente?: 'proceso' | 'dinero';
+  ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
+  con_oc?: 'con' | 'sin';
   page?: number;
   pageSize?: number;
 }
@@ -161,6 +210,23 @@ export interface CoverageRow {
   dias_p90: number;
   pct_evidencia: number;
   pct_validadas: number;
+  /**
+   * `[RE.20.3]` — las que NUNCA van a tener factura (traspaso, $0, canceladas en el ERP).
+   * Salen del denominador de `pct_evidencia`, pero se muestran: si el descarte sólo restara,
+   * descartar sería el camino más corto al 100%.
+   */
+  descartadas?: number;
+  descartes_motivos?: Record<string, number>;
+}
+
+/** `[RE.20.3]` — motivos por los que una entrada nunca va a tener factura de proveedor. */
+export type MotivoDescarte = 'traspaso' | 'cancelada_erp' | 'duplicada' | 'sin_costo' | 'otro';
+
+/** `[RE.20.3]` — el contrapeso del descarte: cuántas y por qué, por sucursal. */
+export interface DescartesReport {
+  motivos: readonly string[];
+  rows: { sucursal: string; motivo_codigo: string; n: number }[];
+  total: number;
 }
 
 export interface CoverageReport {
@@ -194,6 +260,11 @@ export interface EntradasReport {
   };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];
+  /**
+   * `[RE.20.1]` — totales del lente del dinero sobre **todo lo filtrado**, no sobre la página:
+   * "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. `null` en `lente=proceso`.
+   */
+  totales: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number } | null;
   /** total del universo filtrado: antes la lista cortaba en 300 sin decirlo. */
   total: number;
   page: number;
@@ -393,6 +464,13 @@ export class EntradasService {
   scanTwins(): Observable<TwinScanResult | null> {
     return this.http.post<TwinScanResult | null>(`${this.base}/twins/scan`, {});
   }
+  /**
+   * RE.17.3 — los renglones de los DOS lados del par. Se pide al expandir la fila y no con la
+   * lista: son dos consultas contra el ODS por par, y la bandeja trae hasta 200.
+   */
+  twinLines(cedisFolio: string): Observable<TwinLines> {
+    return this.http.get<TwinLines>(`${this.base}/twins/${encodeURIComponent(cedisFolio)}/lines`);
+  }
   /** Dictamina el par: `confirmar` (es la misma recepción) o `rechazar` (es compra de oficinas). */
   decideTwin(cedisFolio: string, decision: 'confirmar' | 'rechazar'): Observable<{ cedis_folio: string; status: string }> {
     return this.http.post<{ cedis_folio: string; status: string }>(
@@ -447,6 +525,25 @@ export class EntradasService {
   reject(id: string, motivo?: string, motivo_codigo?: string): Observable<any> {
     return this.http.post(`${this.base}/${id}/reject`, { motivo, motivo_codigo });
   }
+  /**
+   * `[RE.20.3]` — saca del proceso una entrada que nunca va a tener factura de proveedor.
+   * Gateado con `_VALIDAR`: no lo decide quien tiene que subirla.
+   */
+  descartar(sucursal: string, folio: string, motivo_codigo: MotivoDescarte, motivo?: string): Observable<any> {
+    return this.http.post(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/discard`,
+      { motivo_codigo, motivo });
+  }
+  /** `[RE.20.3]` — deshace el descarte: apareció la factura de algo que se dio por perdido. */
+  reactivar(sucursal: string, folio: string): Observable<any> {
+    return this.http.delete(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/discard`);
+  }
+  /** `[RE.20.3]` — cuántas se descartaron por sucursal y motivo (el contrapeso del descarte). */
+  descartes(warehouse_codes?: string[]): Observable<DescartesReport> {
+    let params = new HttpParams();
+    if (warehouse_codes?.length) params = params.set('warehouse_codes', warehouse_codes.join(','));
+    return this.http.get<DescartesReport>(`${this.base}/discards`, { params });
+  }
+
   /** RE.13.2 — valida varias; el server revalida cada id y dice qué omitió y por qué. */
   validateBulk(ids: string[]): Observable<{ validadas: number; omitidas: number; detalle: { id: string; ok: boolean; motivo?: string }[] }> {
     return this.http.post<{ validadas: number; omitidas: number; detalle: { id: string; ok: boolean; motivo?: string }[] }>(`${this.base}/validate-bulk`, { ids });

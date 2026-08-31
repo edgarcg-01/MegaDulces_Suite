@@ -181,8 +181,14 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMPRAS_ENTRADAS_VER]: { label: 'Ver Órdenes de entrada', description: 'Recepción de mercancía + evidencia/comprobantes. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_ENTRADAS_GESTIONAR]: { label: 'Gestionar Órdenes de entrada', description: 'Subir evidencia, correr OCR y adjuntar la remisión/factura a la entrada.', category: 'Compras' },
   [Permission.COMPRAS_ENTRADAS_VALIDAR]: { label: 'Validar Órdenes de entrada', description: 'Validar o rechazar la evidencia (remisión). Permiso especial restringido — no lo tiene "Gestionar".', category: 'Compras' },
-  [Permission.COMPRAS_360_VER]: { label: 'Ver Compras 360', description: 'Grid recepción/factura + OC + ajuste + neto (el Excel). Solo lectura.', category: 'Compras' },
-  [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo neto', description: 'Landed cost por proveedor: compras − descuento efectivo. Solo lectura.', category: 'Compras' },
+  // RE.20.5 — la CLAVE del permiso no se toca (vive en identity.role_permissions); cambia la
+  // etiqueta, que es lo que lee quien reparte permisos.
+  // RE.20.1 — la pantalla que gateaba se fusionó con el Listado de entradas y ahora la protege
+  // `COMPRAS_ENTRADAS_VER`. Este permiso queda SIN uso: se deja en el catálogo (retirarlo obliga
+  // a tocar `identity.role_permissions` en prod) y se dice que no abre nada, para que nadie lo
+  // reparta creyendo que sí.
+  [Permission.COMPRAS_360_VER]: { label: 'Ver Costo por compra (retirado)', description: 'Sin uso desde RE.20.1: la pantalla se fusionó con el Listado de entradas y hoy la gatea "Ver Entradas". Dar este permiso no abre nada.', category: 'Compras' },
+  [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo por proveedor', description: 'La misma cifra agregada por proveedor (landed cost): compras − descuento efectivo. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_VER]: { label: 'Ver Descuentos y apoyos', description: 'Ajustes de compra (X-D-40/55), descuentos/apoyos y facturas duplicadas. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_GESTIONAR]: { label: 'Gestionar Descuentos', description: 'Empujar facturas duplicadas a la bandeja de hallazgos.', category: 'Compras' },
   [Permission.COMPRAS_HALLAZGOS_VER]: { label: 'Ver Hallazgos', description: 'Bandeja de hallazgos de reabastecimiento (agotados/bajo reorden). Solo lectura.', category: 'Compras' },

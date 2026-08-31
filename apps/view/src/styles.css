@@ -2948,6 +2948,45 @@ code.comm-code,
   box-shadow: inset -1px 0 0 var(--border-color);
 }
 
+/* ============================================================
+ * SURF-SORT — encabezado ordenable para tablas crudas.
+ *
+ * `p-table` trae `pSortableColumn`; una `<table>` propia no. Cada pantalla que necesitó
+ * ordenar se dibujó el suyo, y el de Finanzas (`.tw-sort`) vivía adentro de un archivo de
+ * estilos de módulo — invisible para el resto. `[RE.20.2]` lo subió acá, junto a la base de
+ * tabla que ya es global, y Finanzas pasó a usar este.
+ *
+ * Uso — el `<th>` lleva el `aria-sort` y el `<button>` adentro es el objetivo de clic
+ * (un `<th>` clickeable no es un control para el teclado; un botón sí):
+ *   <th class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+ *     <button type="button" class="surf-sort" (click)="ordenar('monto')">
+ *       Monto <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+ *     </button>
+ *   </th>
+ * ============================================================ */
+.surf-sort {
+  display: inline-flex; align-items: center; gap: 4px;
+  width: 100%; padding: 0;
+  background: none; border: none;
+  /* Hereda del `th`: el encabezado ordenable NO se ve distinto del que no lo es hasta
+   * que el mouse encima lo delata. Una tabla donde 4 de 6 columnas gritan "clickeame"
+   * es más ruidosa que útil. */
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  text-align: inherit; justify-content: inherit;
+  cursor: pointer;
+}
+/* La flecha sigue la alineación de la columna: pegada al número a la derecha, al texto a la
+ * izquierda. `comm-num`/`num` ya alinean el `th` (ver arriba), esto arrastra al botón. */
+.comm-num > .surf-sort, .num > .surf-sort, .ta-r > .surf-sort { justify-content: flex-end; }
+.ta-c > .surf-sort { justify-content: center; }
+.surf-sort i { font-size: .65rem; opacity: .45; }
+.surf-sort:hover i { opacity: .9; }
+.surf-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+/* La columna activa se marca con el color de acción — es el único estado que tiene que
+ * leerse de reojo, porque contesta "¿por qué está en este orden?". */
+th[aria-sort]:not([aria-sort='none']) > .surf-sort { color: var(--action); }
+th[aria-sort]:not([aria-sort='none']) > .surf-sort i { opacity: 1; }
+
 /* Alias canónico de celda numérica: .num == .comm-num (unifica
  * logística/command-center). Solo en celdas de tabla, no global. */
 td.num, th.num {

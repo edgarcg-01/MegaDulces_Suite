@@ -19,15 +19,26 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // distintos leen los mismos números y cada uno les daba un nombre propio.
   'compras-entradas': {
     title: 'Facturas de entrada — guía',
-    intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la sube, un revisor la valida o la devuelve, y el Centro de control mira la red completa. No escribe nada en Kepler: es evidencia.',
+    intro: 'Cada orden de entrada de Kepler necesita su factura del proveedor en PDF. La sucursal la captura, un revisor la valida o la devuelve, y Control de entradas mira la red completa. No escribe nada en Kepler: es evidencia.',
     groups: [
       {
-        heading: 'Los cuatro estados (mismos nombres en todas las pantallas)',
+        heading: 'Los cuatro estados del papel (mismos nombres en todas las pantallas)',
         entries: [
           { term: 'Sin factura', def: 'Kepler registró la entrada y todavía no hay PDF. Es lo que le toca a la sucursal.' },
           { term: 'Por revisar', def: 'Ya se subió el PDF y espera decisión del revisor. El reloj ahora es de él, no de la sucursal.' },
           { term: 'Validada', def: 'El revisor la aceptó: el expediente cierra y sostiene el pago.' },
           { term: 'Devuelta', def: 'El revisor la rechazó con un motivo (ilegible, no corresponde, el total no cuadra, falta una hoja, duplicada). Vuelve a la sucursal, que la corrige y la sube de nuevo. Es el único camino de regreso.' },
+        ],
+      },
+      {
+        heading: 'Descartada — la salida para lo que nunca va a tener factura',
+        entries: [
+          { term: 'Para qué está', def: 'Devolver le pide a la sucursal que suba algo que sí existe. Pero un traspaso entre sucursales o una entrada en $0 no tienen proveedor externo que facture: sin esta salida se quedan Sin factura para siempre e inflan el atraso de esa sucursal.' },
+          { term: 'Quién puede', def: 'Sólo quien valida. Si el que tiene que subir la factura pudiera declarar que no hace falta, la cobertura sería autoevaluación.' },
+          { term: 'Los motivos', def: 'Traspaso entre sucursales (el proveedor es otra sucursal, código TI…) · Cancelada o capturada por error en el ERP · Ya está capturada en otra orden · Entrada sin costo ($0: muestra, bonificación, corrección) · Otro, que obliga a escribir por qué.' },
+          { term: 'Qué le pasa al número', def: 'Sale del denominador del % comprobado, pero se sigue contando aparte en su propia columna. Si sólo restara, descartar sería el camino más corto al 100%.' },
+          { term: 'Reactivar', def: 'Deshace el descarte y la entrada vuelve a pedir factura. Pasa: se descarta como traspaso y después aparece el papel. Las dos decisiones quedan en el historial.' },
+          { term: 'No se descarta con factura subida', def: 'Si el PDF ya está, la respuesta es validarlo o devolverlo. Descartarlo borraría del tablero un expediente que sí existe.' },
         ],
       },
       {
@@ -132,8 +143,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-360': {
-    title: 'Compras 360 — guía',
-    intro: 'El "Excel" de recepción, vivo: una fila por orden de entrada / factura de compra de Kepler con su OC, la factura, el ajuste ligado y el neto. Es lectura (evidencia) sobre el ERP, no lo edita. Clic en una fila abre los ajustes que explican el descuadre.',
+    title: 'Costo por compra — guía',
+    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura sobre el ERP, no lo edita. Es la MISMA pantalla que el Listado de Control de entradas, con el otro lente: acá la pregunta es "¿cuánto pagamos?" y allá "¿tengo el papel?". El selector de arriba cambia entre las dos sin perder los filtros.',
     groups: [
       {
         heading: 'Qué es cada columna',
@@ -157,8 +168,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-costo-neto': {
-    title: 'Costo neto por proveedor — guía',
-    intro: 'Tu costo REAL con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada.',
+    title: 'Costo por proveedor — guía',
+    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra está en Costo por compra.',
     groups: [
       {
         heading: 'Los números',

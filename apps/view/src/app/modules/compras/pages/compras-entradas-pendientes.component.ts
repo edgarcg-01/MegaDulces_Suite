@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -17,11 +17,16 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
-  EntradasService, EntradaRow, EntradasReport, EntradasQuery, ProofFile, RemisionOcr, AttachReceipt,
+  EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
+  type OrdenEntradas,
 } from '../entradas.service';
+import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
-import { money } from '../../../shared/util';
-import { motivoLabel } from '../receipt-verdict';
+import { money, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
+import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -34,6 +39,13 @@ interface Hoja {
   id: number;
   name: string;
   dataUri: string;
+  /**
+   * `[RE.17.6]` — URL de objeto para PODER VER la hoja antes de enviarla. Es blob y no el
+   * `dataUri`: Chrome bloquea la navegación de un iframe a `data:`, así que la vista previa
+   * no se puede armar con el mismo string que se manda al servidor. Se revoca al sacar la
+   * hoja de la bandeja (si no, el PDF queda retenido en memoria hasta recargar).
+   */
+  blobUrl?: string;
   bytes: number;
   estado: EstadoHoja;
   sha256?: string;
@@ -83,7 +95,7 @@ interface Hoja {
   imports: [
     CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, SelectModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
-    FreshnessPillComponent, ContextHelpComponent,
+    FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
   ],
   providers: [MessageService],
   template: `
@@ -92,10 +104,10 @@ interface Hoja {
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Pendientes de subir</h1>
+          <h1>Captura de facturas de entrada</h1>
           <p class="surf-page-sub">
             Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
-            contra Kepler y te digo si cuadra antes de guardar. Lo más atrasado va primero.
+            contra Kepler y te digo si cuadra antes de guardar. Lo más reciente va primero.
           </p>
         </div>
         <div class="ep-head-actions">
@@ -108,6 +120,7 @@ interface Hoja {
               <i class="pi pi-building" aria-hidden="true"></i> {{ s }}
             </span>
           }
+          <app-table-density />
           <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
@@ -249,18 +262,37 @@ interface Hoja {
                    IDENTIFICADORA, y acá con 6 columnas no hay scroll horizontal que congelar.
                    El modificador compact afuera también: pisaba el alto de fila con !important. -->
               <table class="surf-table surf-table--plain surf-table--sticky ep-table"
-                     [class.loading]="loading()">
+                     [class.loading]="loading()" [class.is-dense]="density.dense()">
                 <colgroup>
                   <col class="c-dias" /><col class="c-folio" /><col />
                   <col class="c-fecha" /><col class="c-monto" /><col class="c-cta" />
                 </colgroup>
+                <!-- RE.20.2 — encabezados ordenables. Sólo las tres columnas que contestan una
+                     pregunta de trabajo: cuándo llegó, de quién es, cuánto es. Días es la MISMA
+                     fecha en otra unidad, así que no se ordena aparte: dos encabezados activos
+                     por un solo criterio se leen como dos órdenes distintos. -->
                 <thead>
                   <tr>
                     <th scope="col" class="comm-num" pTooltip="Días desde la recepción" tooltipPosition="top">Días</th>
                     <th scope="col">Folio</th>
-                    <th scope="col">Proveedor</th>
-                    <th scope="col" class="comm-num">Recepción</th>
-                    <th scope="col" class="comm-num">Total Kepler</th>
+                    <th scope="col" [attr.aria-sort]="ariaSort(sort(), 'proveedor')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('proveedor', 'asc')"
+                              aria-label="Ordenar por proveedor">
+                        Proveedor <i [class]="sortIcon(sort(), 'proveedor')" aria-hidden="true"></i>
+                      </button>
+                    </th>
+                    <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'fecha')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('fecha', 'desc')"
+                              aria-label="Ordenar por fecha de recepción">
+                        Recepción <i [class]="sortIcon(sort(), 'fecha')" aria-hidden="true"></i>
+                      </button>
+                    </th>
+                    <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+                      <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')"
+                              aria-label="Ordenar por total de Kepler">
+                        Total Kepler <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+                      </button>
+                    </th>
                     <th scope="col">Factura</th>
                   </tr>
                 </thead>
@@ -272,7 +304,14 @@ interface Hoja {
                         (drop)="onDropFila($event, c)">
                       <td class="comm-num ep-dias" [class]="'is-' + tono(c)">{{ c.dias }}<em>d</em></td>
                       <td class="ep-folio">
-                        <b class="comm-code" [pTooltip]="'Folio ' + c.folio" tooltipPosition="top">{{ ultimos4(c.folio) }}</b>
+                        <!-- RE.19 — el folio abre QUÉ TRAE la orden. El que sube tiene una factura
+                             en la mano y necesita saber si es de esta orden; hasta acá sólo veía
+                             proveedor y total, y para ver los productos tenía que irse a otra
+                             pantalla del Control de entradas. -->
+                        <button type="button" class="comm-code ep-folio-btn" (click)="abrirDetalle(c)"
+                                [pTooltip]="'Folio ' + c.folio + ' — ver qué trae'" tooltipPosition="top">
+                          {{ ultimos4(c.folio) }}
+                        </button>
                         @if (variasSucursales()) { <em>{{ suc(c.sucursal) }}</em> }
                       </td>
                       <td class="ep-prov">
@@ -291,7 +330,15 @@ interface Hoja {
                       </td>
                       <td class="comm-num ep-monto">{{ money(c.monto) }}</td>
                       <td class="ep-cta">
-                        @if (dragFila() === clave(c)) {
+                        @if (verDescartadas()) {
+                          <!-- RE.20.3 — acá no se sube nada: alguien con permiso de validar
+                               decidió que esta entrada nunca va a tener factura. Se dice el
+                               motivo para que el que la venía persiguiendo deje de hacerlo. -->
+                          <span class="ep-descartada">
+                            <i class="pi pi-ban" aria-hidden="true"></i>
+                            {{ motivoDescarteLabel(c.descarte_motivo) || 'Fuera del proceso' }}
+                          </span>
+                        } @else if (dragFila() === clave(c)) {
                           <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Soltá acá el PDF</b>
                         } @else if (c.deposit_status === 'validado') {
                           <span class="ep-ok"><i class="pi pi-check" aria-hidden="true"></i> Validada</span>
@@ -311,11 +358,29 @@ interface Hoja {
                     </tr>
                   }
                 </tbody>
+                <!-- RE.17.6 — DESIGN §O.2 (Almacén/Compras): la grid lleva totales a la vista.
+                     La tabla decía "te faltan 47 facturas" arriba y no cuánto dinero eran las
+                     que estabas mirando, que es lo que ordena por dónde empezar. -->
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Esta página · {{ rows().length }} {{ rows().length === 1 ? 'orden' : 'órdenes' }}</td>
+                    <td class="comm-num ep-monto">{{ money(totalPagina()) }}</td>
+                    <td>
+                      @if (sinFacturaPagina() > 0) {
+                        {{ sinFacturaPagina() }} sin factura
+                      }
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
 
               @if (report(); as r) {
                 <div class="ep-pager">
-                  <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong></span>
+                  <!-- RE.20.2 — el orden, dicho. La flecha del encabezado es la convención, pero
+                       acá el que trabaja no vive en tablas: si no dice "de la más reciente a la
+                       más vieja", el que ve una fecha rara no sabe si el orden está mal o los
+                       datos. Además es el aviso de que el orden cambió sin scrollear arriba. -->
+                  <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong><em class="ep-orden">{{ ordenTexto() }}</em></span>
                   <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
                     <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
                   </button>
@@ -349,6 +414,85 @@ interface Hoja {
         }
       }
     </div>
+
+    <!--
+      RE.19 — **Qué trae esta orden.** El capturista tiene una factura en la mano y la pregunta
+      que se hace es "¿es de esta orden?". La tabla contesta proveedor y total; lo que lo
+      confirma son los PRODUCTOS, y estaban a dos pantallas de distancia (Control de entradas ·
+      Todas las entradas). Es lectura, así que va en el cajón canónico de detalle y la lista se
+      sigue viendo detrás.
+    -->
+    <app-side-peek [(open)]="detalleAbierto" [width]="760" title="Qué trae esta orden"
+                   [subtitle]="detalleSubtitulo()">
+      @if (detalleLoading()) {
+        <div class="ep-det-skel" aria-busy="true" aria-label="Cargando el detalle">
+          @for (i of [1,2,3,4,5,6]; track i) { <span class="ep-sk"></span> }
+        </div>
+      } @else if (detalleError()) {
+        <app-load-state [error]="detalleError()" (retry)="recargarDetalle()" />
+      } @else if (detalle(); as d) {
+        <dl class="ep-det-ficha">
+          <div><dt>Proveedor</dt><dd>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code || '—' }}</dd></div>
+          <div><dt>Recepción</dt><dd>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</dd></div>
+          <div><dt>OC / Vale</dt><dd class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</dd></div>
+          <div><dt>Total Kepler</dt><dd class="mono ep-det-total">{{ money(d.entrada.monto) }}</dd></div>
+        </dl>
+
+        @if (d.entrada.concepto) { <p class="ep-det-concepto">{{ d.entrada.concepto }}</p> }
+
+        <!-- Lo que se vino a ver. -->
+        <p class="ep-det-lbl">{{ plural(d.lineas.length, 'producto', 'productos') }}</p>
+        @if (!d.lineas.length) {
+          <p class="ep-det-none">
+            Kepler no tiene renglones de detalle para esta orden. Suele pasar con las capturas de
+            oficinas, que traen un solo concepto con el total en vez de los productos.
+          </p>
+        } @else {
+          <div class="ep-det-wrap">
+            <table class="surf-table surf-table--plain ep-det-tabla">
+              <thead>
+                <tr>
+                  <th scope="col">SKU</th><th scope="col">Producto</th>
+                  <th scope="col" class="comm-num">Cant.</th>
+                  <th scope="col" class="comm-num">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (l of d.lineas; track l.linea) {
+                  <tr>
+                    <td class="mono">{{ l.sku || '—' }}</td>
+                    <td [title]="l.nombre || ''">{{ l.nombre || '—' }}</td>
+                    <td class="comm-num mono">{{ l.cantidad | number:'1.0-2' }}<em class="ep-det-u">{{ l.unidad || '' }}</em></td>
+                    <td class="comm-num mono">{{ money(l.importe) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        @if (d.cedis_twins?.length) {
+          <p class="ep-det-none">
+            <i class="pi pi-clone" aria-hidden="true"></i>
+            Oficinas capturó esta misma recepción como
+            <b class="mono">00/{{ d.cedis_twins![0].folio }}</b>. Subís la factura una sola vez, acá.
+          </p>
+        }
+
+        <!-- Si ya tiene evidencia, se ve; si no, se puede subir sin cerrar el cajón. -->
+        @if (d.deposits?.length) {
+          <p class="ep-det-lbl">Factura adjunta</p>
+          <div class="ep-det-doc">
+            <app-doc-viewer [files]="hojasDe(d)" emptyTitle="Sin hoja" emptyHint="El expediente no trae archivo." />
+          </div>
+        } @else if (canManage()) {
+          <label class="ep-pick">
+            <i class="pi pi-file-pdf" aria-hidden="true"></i> Subir la factura de esta orden…
+            <input type="file" accept="application/pdf" multiple hidden (change)="onFilesDetalle($event)" />
+          </label>
+        }
+      }
+    </app-side-peek>
 
     <!--
       Ventana de confirmación. Antes esto era un panel lateral, con el argumento de "que la
@@ -456,7 +600,25 @@ interface Hoja {
                     por <b>{{ money(h.entrada!.gemela_monto!) }}</b>.
                   </p>
                 }
-                <button type="button" class="ep-link" (click)="desenlazar(h)">No es esta entrada — cambiarla</button>
+
+                <!-- RE.17.6 — la hoja, antes de mandarla. Acá se confirma una factura de seis
+                     cifras y lo único que se veía era lo que leyó el OCR: si leyó mal el total,
+                     o el escáner cortó la hoja, no había forma de notarlo hasta el revisor. -->
+                <div class="ep-an-acts">
+                  <button type="button" class="ep-link" (click)="alternarVista(h)"
+                          [attr.aria-expanded]="vista() === h.id">
+                    <i class="pi" [ngClass]="vista() === h.id ? 'pi-eye-slash' : 'pi-eye'" aria-hidden="true"></i>
+                    {{ vista() === h.id ? 'Ocultar la hoja' : 'Ver la hoja' }}
+                  </button>
+                  <button type="button" class="ep-link" (click)="desenlazar(h)">No es esta entrada — cambiarla</button>
+                </div>
+                @if (vista() === h.id) {
+                  <div class="ep-an-doc">
+                    <app-doc-viewer [files]="archivoDe(h)"
+                                    emptyTitle="No se pudo previsualizar"
+                                    emptyHint="El archivo se va a enviar igual; abrilo desde tu carpeta si querés revisarlo." />
+                  </div>
+                }
               }
               @default {
                 <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a la
@@ -509,6 +671,41 @@ interface Hoja {
     :host { display: block; }
 
     .ep-head-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+    /* RE.17.6 — la hoja dentro de la ventana de confirmación. Alto acotado: el visor tiene
+       pantalla completa para cuando hace falta leer letra chica. */
+    .ep-an-acts { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+    .ep-an-doc { height: 22rem; margin-top: var(--sp-2); }
+
+    /* ── RE.19: qué trae la orden ──────────────────────────────────────── */
+    /* El folio es el disparador, así que se ve accionable — pero sin --action: el naranja es
+       el color de la acción primaria de la fila (soltar el PDF) y competir con él confunde. */
+    .ep-folio-btn {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--text-main); text-decoration: underline; text-decoration-style: dotted;
+      text-underline-offset: 3px; text-decoration-color: var(--text-faint);
+    }
+    .ep-folio-btn:hover { color: var(--action); text-decoration-color: var(--action); }
+    .ep-folio-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm, .35rem); }
+
+    .ep-det-ficha { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--sp-3); margin: 0 0 var(--sp-3); }
+    .ep-det-ficha dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+    .ep-det-ficha dd { margin: .1rem 0 0; font-size: var(--fs-sm); font-weight: 600; }
+    .ep-det-total { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    .ep-det-concepto { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); }
+    .ep-det-lbl { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-micro); text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-faint); }
+    .ep-det-none { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 60ch; }
+    .ep-det-wrap { overflow: auto; max-height: 26rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .35rem); }
+    .ep-det-tabla { font-size: var(--fs-xs); }
+    .ep-det-u { font-style: normal; color: var(--text-muted); margin-left: .15rem; }
+    .ep-det-doc { height: 24rem; }
+    .ep-det-skel { display: grid; gap: var(--sp-2); }
+    .ep-det-skel .ep-sk { height: 1.6rem; border-radius: var(--r-sm, .35rem);
+      background: linear-gradient(90deg, var(--border-color) 25%, var(--surface-2) 50%, var(--border-color) 75%);
+      background-size: 200% 100%; animation: ep-sh 1.2s infinite; }
+    @keyframes ep-sh { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .ep-det-skel .ep-sk { animation: none; } }
     .ep-suc-fija {
       display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs);
       color: var(--text-muted); border: 1px solid var(--border-color);
@@ -628,6 +825,13 @@ interface Hoja {
     .ep-cta { white-space: nowrap; font-size: var(--fs-xs); }
     .ep-drophere { color: var(--action); font-weight: 600; }
     .ep-ok { color: var(--ok-fg); }
+    /* RE.20.3 — gris, no rojo: descartar no es un error del que sube, es reconocer que esa
+       entrada nunca iba a tener factura. El rojo está reservado para "te la devolvieron". */
+    .ep-descartada {
+      display: inline-flex; align-items: center; gap: var(--sp-1);
+      color: var(--text-muted); font-size: var(--fs-xs);
+    }
+    .ep-descartada i { font-size: .75rem; }
     .ep-wait { color: var(--text-muted); }
     .ep-rowpick { color: var(--text-faint); cursor: pointer; }
     .ep-rowpick b { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid currentColor; }
@@ -647,6 +851,12 @@ interface Hoja {
       padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-xs); color: var(--text-muted);
     }
+    /* El orden en palabras, atado al contador: es la misma frase ("qué estás viendo"). El
+       separador es un punto medio y no un guion, para que no se lea como un rango de fechas. */
+    .ep-orden { font-style: normal; }
+    .ep-orden::before { content: ' · '; opacity: .55; }
+    /* En pantalla angosta el pager ya apila; la frase larga sobra antes que los botones. */
+    @media (max-width: 560px) { .ep-orden { display: none; } }
 
     /* Ventana de confirmación */
     .ep-dlg { display: grid; gap: var(--sp-4); }
@@ -727,6 +937,7 @@ export class ComprasEntradasPendientesComponent {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -742,6 +953,31 @@ export class ComprasEntradasPendientesComponent {
   readonly rezago = signal(false);
   readonly diasMin = signal<number | undefined>(undefined);
   readonly page = signal(1);
+  /**
+   * `[RE.19]` — **lo más RECIENTE primero.** RE.13 lo dejó al revés (más viejo primero) con el
+   * argumento de que una worklist persigue el rezago; en uso real es fricción: el que sube
+   * tiene en la mano las facturas de HOY y tenía que raspar tres semanas de atraso para
+   * encontrarlas. Perseguir lo viejo sigue estando, pero por su propio camino: el botón de
+   * "N ya pasaron los X días" del veredicto, que filtra por antigüedad. El orden es
+   * cambiable porque los dos modos de trabajo existen — sólo que el default estaba mal.
+   *
+   * `[RE.20.2]` — pasó de un segmentado de dos botones al **encabezado de la tabla**, que es
+   * donde se ordena una tabla y que además alcanza proveedor y monto. Un solo estado: tener el
+   * segmentado Y los encabezados obligaba a que uno de los dos mintiera en cuanto se ordenara
+   * por una columna que el segmentado no tiene. El default no cambia.
+   */
+  readonly sort = signal<SortState<OrdenEntradas>>({ field: 'fecha', dir: 'desc' });
+
+  /**
+   * El orden, dicho en palabras. Una flecha en un encabezado es una convención; esta pantalla
+   * la usa gente que no vive en tablas, y "de la más reciente a la más vieja" no se decodifica.
+   */
+  readonly ordenTexto = computed(() => {
+    const s = this.sort();
+    if (s.field === 'proveedor') return s.dir === 'asc' ? 'por proveedor, de la A a la Z' : 'por proveedor, de la Z a la A';
+    if (s.field === 'monto') return s.dir === 'asc' ? 'por importe, del más chico al más grande' : 'por importe, del más grande al más chico';
+    return s.dir === 'asc' ? 'de la más vieja a la más reciente' : 'de la más reciente a la más vieja';
+  });
   /** Señal, no propiedad suelta: el buscador con sugerencias reacciona a cada tecla. */
   readonly search = signal('');
   private readonly pageSize = 50;
@@ -757,7 +993,13 @@ export class ComprasEntradasPendientesComponent {
     { label: 'Por revisar', value: 'por_validar' },
     { label: 'Validadas', value: 'validado' },
     { label: 'Todas', value: '' },
+    // RE.20.3 — el capturista no descarta (eso es `_VALIDAR`), pero SÍ tiene que poder ver las
+    // descartadas: si no, un folio que venía persiguiendo desaparece de la lista y del buscador
+    // sin explicación, que es justo lo que se le critica al descarte.
+    { label: 'Descartadas', value: 'descartada' },
   ];
+  readonly verDescartadas = computed(() => this.estado() === 'descartada');
+  motivoDescarteLabel = motivoDescarteLabel;
 
   readonly canManage = computed(() =>
     this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
@@ -785,6 +1027,7 @@ export class ComprasEntradasPendientesComponent {
     return motivoLabel(c.motivo_codigo) || (c.motivo_rechazo || '').trim() || 'sin motivo registrado';
   }
   money = money;
+  plural = plural;
   ultimos4(folio: string): string { const d = String(folio || '').replace(/\D/g, ''); return d.slice(-4) || folio; }
   tope(): number { return this.report()?.settings?.bulk_max_files ?? 50; }
 
@@ -792,6 +1035,11 @@ export class ComprasEntradasPendientesComponent {
   avance(r: EntradasReport): number {
     return r.kpis.entradas === 0 ? 100 : Math.round((r.kpis.con_comprobante / r.kpis.entradas) * 100);
   }
+  /** Totales de lo que se está mirando (la página), no del universo: el KPI de arriba ya cuenta
+   *  el universo, y mezclarlos haría que ninguno de los dos se pueda leer. */
+  readonly totalPagina = computed(() => this.rows().reduce((t, c) => t + (Number(c.monto) || 0), 0));
+  readonly sinFacturaPagina = computed(() => this.rows().filter((c) => !c.deposits).length);
+
   desde(): number { const r = this.report(); return !r || r.total === 0 ? 0 : (this.page() - 1) * this.pageSize + 1; }
   hasta(): number { const r = this.report(); return !r ? 0 : Math.min(r.total, this.page() * this.pageSize); }
 
@@ -817,7 +1065,9 @@ export class ComprasEntradasPendientesComponent {
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
           dias_min: this.diasMin(),
-          orden: 'antiguedad',
+          // RE.20.2 — la tabla está paginada del lado del servidor: ordenar las 50 filas de
+          // enfrente NO es ordenar las 875, así que el orden viaja y la lista se recarga.
+          ...serverSortParams(this.sort()),
           page: this.page(),
           pageSize: this.pageSize,
         };
@@ -864,9 +1114,29 @@ export class ComprasEntradasPendientesComponent {
   }
   setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.syncUrl(); this.reload(); }
   setRezago(v: boolean): void { this.rezago.set(v); this.volverAlInicio(); this.reload(); }
+  /**
+   * `[RE.20.2]` — clic en un encabezado. Vuelve a la página 1 pero NO tira el filtro de
+   * antigüedad: reordenar no es re-filtrar, y perder "sólo las atrasadas" por tocar el orden se
+   * siente roto.
+   *
+   * `inicial` es por columna porque el primer clic útil no es el mismo en todas: en un importe
+   * se busca lo más grande, en un nombre se busca la A, y en la fecha se busca lo de hoy (que
+   * es el default de la pantalla). Sin esto, la mitad de las columnas pide siempre dos clics.
+   */
+  ordenarPor(field: OrdenEntradas, inicial: SortDir = 'desc'): void {
+    this.sort.set(toggleSort(this.sort(), field, inicial));
+    this.page.set(1); this.reload();
+  }
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+
   soloAtrasadas(): void {
     const sla = this.report()?.settings?.sla_capture_days ?? 3;
-    this.estado.set('pendiente'); this.diasMin.set(sla + 1); this.page.set(1); this.reload();
+    // Perseguir el atraso SÍ quiere lo más viejo arriba: es el otro modo de trabajo, y llegar
+    // acá con el orden de "recientes" mostraría las menos urgentes primero dentro del filtro.
+    this.estado.set('pendiente'); this.diasMin.set(sla + 1);
+    this.sort.set({ field: 'fecha', dir: 'asc' });
+    this.page.set(1); this.reload();
   }
   irPagina(n: number): void { this.page.set(Math.max(1, n)); this.reload(); }
 
@@ -895,7 +1165,7 @@ export class ComprasEntradasPendientesComponent {
           search: t,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
           carril: this.rezago() ? 'rezago' : 'al_dia',
-          orden: 'antiguedad',
+          ...serverSortParams(this.sort()),
           page: 1,
           pageSize: 8,
         }).pipe(catchError(() => of(null)));
@@ -1000,6 +1270,20 @@ export class ComprasEntradasPendientesComponent {
     if (!visible && !this.guardando()) this.limpiar();
   }
 
+  /**
+   * `[RE.17.2]` — DESIGN §8 (estado sucio). Cada hoja de la bandeja ya costó una llamada de
+   * visión a Claude, y un lote de CEDIS son treinta. Antes, un clic en el sidebar o un F5 se
+   * las llevaba todas sin preguntar: la ventana se desmontaba y no quedaba nada del lado del
+   * servidor porque todavía no se subió nada. Lo consume `unsavedChangesGuard` en la ruta.
+   */
+  hasUnsavedChanges(): boolean { return this.hojas().length > 0 && !this.guardando(); }
+
+  /** Salida EXTERNA (cerrar pestaña / F5): el Router no la ve. */
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (this.hasUnsavedChanges()) e.preventDefault();
+  }
+
   // ── arrastre ──
   onDragOverTabla(e: DragEvent): void {
     if (!this.canManage()) return;
@@ -1098,6 +1382,7 @@ export class ComprasEntradasPendientesComponent {
         id: ++this.seq,
         name: f.name || 'factura.pdf',
         dataUri,
+        blobUrl: URL.createObjectURL(f),
         bytes: Math.round((dataUri.length - (dataUri.indexOf(',') + 1)) * 0.75),
         estado: 'leyendo',
         entrada: destino,
@@ -1106,6 +1391,9 @@ export class ComprasEntradasPendientesComponent {
     }
     if (!nuevas.length) return;
     this.hojas.update((l) => [...l, ...nuevas]);
+    // Una sola hoja = el caso normal (una factura). Se abre la vista previa sola: si hay que
+    // pedir un clic para ver el papel que estás por mandar, nadie lo da.
+    if (this.hojas().length === 1) this.vista.set(nuevas[0].id);
     await this.procesar(nuevas);
   }
 
@@ -1164,8 +1452,80 @@ export class ComprasEntradasPendientesComponent {
   desenlazar(h: Hoja): void {
     this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });
   }
-  quitar(h: Hoja): void { this.hojas.update((l) => l.filter((x) => x.id !== h.id)); }
-  limpiar(): void { this.hojas.set([]); this.capError.set(''); this.abierta.set(null); }
+  quitar(h: Hoja): void {
+    this.soltarBlob(h);
+    if (this.vista() === h.id) this.vista.set(null);
+    this.hojas.update((l) => l.filter((x) => x.id !== h.id));
+  }
+  limpiar(): void {
+    this.hojas().forEach((h) => this.soltarBlob(h));
+    this.hojas.set([]); this.capError.set(''); this.abierta.set(null); this.vista.set(null);
+  }
+
+  // ── RE.19: qué trae la orden ──────────────────────────────────────────
+  readonly detalleAbierto = signal(false);
+  readonly detalle = signal<EntradaDetail | null>(null);
+  readonly detalleLoading = signal(false);
+  readonly detalleError = signal<string | null>(null);
+  /** La fila que se abrió: la necesitan el reintento y el alta de factura desde el cajón. */
+  private readonly detalleDe = signal<EntradaRow | null>(null);
+
+  detalleSubtitulo(): string {
+    const c = this.detalleDe();
+    if (!c) return '';
+    return [`${c.sucursal}/${c.folio}`, c.proveedor_nombre || c.proveedor_code || ''].filter(Boolean).join(' · ');
+  }
+
+  abrirDetalle(c: EntradaRow): void {
+    this.detalleDe.set(c);
+    this.detalleAbierto.set(true);
+    this.recargarDetalle();
+  }
+
+  recargarDetalle(): void {
+    const c = this.detalleDe();
+    if (!c) return;
+    this.detalle.set(null);
+    this.detalleError.set(null);
+    this.detalleLoading.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.detalleLoading.set(false); this.detalle.set(d); },
+      error: (e) => {
+        this.detalleLoading.set(false);
+        this.detalleError.set(e?.error?.message || 'No se pudo abrir el detalle de la orden.');
+      },
+    });
+  }
+
+  /** Las hojas ya adjuntas de esta orden, aplanadas para el visor. */
+  hojasDe(d: EntradaDetail): DocViewerFile[] {
+    return (d.deposits || []).flatMap((dep) =>
+      (dep.files || []).map((f) => ({ url: f.url, name: f.name, role: f.role, kind: f.kind })));
+  }
+
+  /**
+   * Elegir el PDF desde el cajón. Se cierra el cajón a propósito: lo que sigue es la ventana de
+   * confirmación, y dejar los dos abiertos apila una capa sobre otra para la misma orden.
+   */
+  onFilesDetalle(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    const c = this.detalleDe();
+    if (!files.length || !c) return;
+    this.detalleAbierto.set(false);
+    void this.agregar(files, c);
+  }
+
+  // ── vista previa de la hoja (RE.17.6) ──
+  /** Id de la hoja cuya vista previa está abierta. Una a la vez: son PDFs. */
+  readonly vista = signal<number | null>(null);
+  alternarVista(h: Hoja): void { this.vista.set(this.vista() === h.id ? null : h.id); }
+  /** Las hojas de la bandeja no viven en el servidor todavía: el visor lee el blob local. */
+  archivoDe(h: Hoja): DocViewerFile[] {
+    return h.blobUrl ? [{ url: h.blobUrl, name: h.name, kind: 'pdf' }] : [];
+  }
+  private soltarBlob(h: Hoja): void { if (h.blobUrl) URL.revokeObjectURL(h.blobUrl); }
   setBusqueda(h: Hoja, v: string): void { this.parchar(h.id, { busqueda: v }); }
 
   buscar(h: Hoja): void {
@@ -1279,6 +1639,7 @@ export class ComprasEntradasPendientesComponent {
             : `${r.cuadran} cuadran al peso; el resto lo mira el revisor.`,
         });
         // Las guardadas salen de la bandeja; lo que falló se queda con su motivo a la vista.
+        this.hojas().filter((h) => h.estado === 'guardada').forEach((h) => this.soltarBlob(h));
         this.hojas.update((l) => l.filter((h) => h.estado !== 'guardada'));
         if (!this.hojas().length) this.abierta.set(null);
         this.reload();

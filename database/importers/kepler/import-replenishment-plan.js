@@ -46,11 +46,14 @@ const urBody = `SELECT z.product_id,
 //
 // ⚠ UNIDAD: `kdm2.c9` viene en la unidad de `c11` — PAQ/PZA/KG/CJA mezcladas en la MISMA OC — y el
 // NOMBRE de la unidad no sirve para convertir (en la sucursal 03 las líneas 'PZA' traen ratio de
-// costo 13.5: son cajas). El DINERO sí: `c9 × c12` es invariante a la unidad, así que
-// `c12 / costo_por_unidad_de_stock` = cuántas unidades de stock trae la línea. Debajo de 1.5× ya
-// está en unidad de stock (~95 % de las líneas, mediana 1.00); arriba se usa el ratio topado en el
-// factor de caja. Se divide por `bf` acá, con los MISMOS factores que el resto del fact (`econ`),
-// así la conversión ocurre UNA vez y `t` ya sale en CAJAS.
+// costo 13.5: son cajas). RA-PRO.43: la línea trae su PROPIA conversión declarada (`c58` = unidades
+// de la línea por caja, `c55` = unidad de caja, `c57` = costo de esa caja; verificado `c12 × c58 =
+// c57` exacto), y ésa manda cuando el costo de caja del documento cuadra con el nuestro. Si no
+// cuadra —o el documento no la trae— se cae al fallback que infiere por costo. A/B sobre las 2,558
+// líneas abiertas: 84.4 % usan el factor declarado y sólo 5 líneas cambian ($3.1k sobre $21.3M), o
+// sea el dato confirma la heurística; se prefiere igual porque declarado > inferido.
+// `t` sale en CAJAS, con los MISMOS factores que el resto del fact (`econ`) — la conversión
+// ocurre UNA sola vez, acá.
 //
 // Esto reemplazó a `import-in-transit.js` + `analytics.purchase_in_transit` (2026-08-28): mientras
 // fueron un importer y una tabla aparte, el rename `qty_in_transit` → `transit_cajas` se comió la
@@ -59,11 +62,28 @@ const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
 const trOds = `
   tr AS (
     SELECT w.id AS warehouse_id, COALESCE(al.canonical_product_id, e.product_id) AS product_id,
-           SUM((l.c9 * CASE
-                 WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
-                 WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
-                 ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
-               ) / GREATEST(e.bf, 1)) AS t
+           SUM(CASE
+                 -- 1) FACTOR DECLARADO POR EL DOCUMENTO. La línea de la OC trae su propia
+                 --    conversión: c55 = unidad de caja, c58 = cuántas unidades de la línea hacen
+                 --    esa caja, c57 = su costo. Verificado: c12 × c58 = c57 exacto. Se acepta sólo
+                 --    si la caja del documento CUADRA con la nuestra por dinero (±15% de
+                 --    real_cost × bf) — si el proveedor empaca distinto a como lo tenemos en
+                 --    catálogo, el costo de caja no cuadra y no se usa (cae al fallback).
+                 WHEN NULLIF(btrim(l.c58::text), '')::numeric > 0
+                      AND e.real_cost > 0
+                      AND NULLIF(btrim(l.c57::text), '')::numeric > 0
+                      AND abs(NULLIF(btrim(l.c57::text), '')::numeric - e.real_cost * e.bf)
+                          <= 0.15 * (e.real_cost * e.bf)
+                   THEN l.c9 / NULLIF(btrim(l.c58::text), '')::numeric
+                 -- 2) FALLBACK — inferir la unidad por costo (lo único que había antes de RA-PRO.43):
+                 --    c9 × c12 es invariante a la unidad, así que c12 / costo_por_unidad_de_stock
+                 --    dice cuántas unidades de stock trae la línea; ÷bf la lleva a cajas.
+                 ELSE (l.c9 * CASE
+                         WHEN e.real_cost <= 0 OR l.c12::numeric <= 0 THEN 1
+                         WHEN l.c12::numeric / e.real_cost < 1.5 THEN 1
+                         ELSE LEAST(l.c12::numeric / e.real_cost, GREATEST(e.bf, 1)) END
+                      ) / GREATEST(e.bf, 1)
+               END) AS t
       FROM kepler_ods.kdm1 oc
       JOIN kepler_ods.kdm2 l
         ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3 AND l.c4=oc.c4 AND l.c6=oc.c6
@@ -279,6 +299,38 @@ const cte = (tr, lead) => `
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=s.tenant_id AND al.alias_product_id=s.product_id AND al.deleted_at IS NULL
            WHERE s.tenant_id=$1 GROUP BY 1,2),
   ${tr},
+  -- RA-PRO.42 — el TRÁNSITO BAJA POR EL ÁRBOL DE ABASTO. La compra está CENTRALIZADA: el 98% del
+  -- tránsito se captura en el CEDIS '00' ($13.0M, que vende $0) y en Padre Hidalgo '01' ($8.3M),
+  -- mientras Canindo '06' ($8.5M/mes de venta) y MD-30 ($14.6M/mes) tienen CERO. Atribuir el
+  -- tránsito al almacén donde se captura hacía dos daños opuestos a la vez: el que captura
+  -- sub-pide (su OC de red tapa su propia necesidad) y los demás SOBRE-piden (no reciben crédito
+  -- de lo que ya viene para ellos) — y lo parkeado en el CEDIS se perdía del todo, porque el CEDIS
+  -- tiene demanda propia 0 y ese crédito no le bajaba a nadie.
+  -- Reparto proporcional a la demanda del subárbol que ese almacén surte (mismo criterio con que
+  -- transferPlan reparte el stock del CEDIS). Σ tránsito de red se conserva: sólo cambia de manos.
+  whtree AS (
+    WITH RECURSIVE t AS (
+      SELECT w.id AS anc, w.id AS des, 0 AS depth
+        FROM commercial.warehouses w WHERE w.tenant_id=$1 AND w.deleted_at IS NULL
+      UNION ALL
+      SELECT t.anc, c.id, t.depth + 1
+        FROM t JOIN commercial.warehouses c
+          ON c.tenant_id=$1 AND c.deleted_at IS NULL AND c.source_warehouse_id = t.des
+       WHERE t.depth < 5   -- guarda anti-ciclo (el árbol real tiene profundidad 2)
+    ) SELECT DISTINCT anc, des FROM t),
+  tr_sub AS (   -- demanda del subárbol de cada almacén, por producto
+    SELECT wt.anc, d.product_id, sum(d.daily_pieces) AS sub_dem
+      FROM whtree wt JOIN dem d ON d.warehouse_id = wt.des
+     GROUP BY 1,2),
+  tr_eff AS (   -- tránsito EFECTIVO por almacén: lo propio + su parte de lo que baja de sus padres
+    SELECT wt.des AS warehouse_id, tr.product_id,
+           sum(tr.t * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
+                           WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS t
+      FROM tr
+      JOIN whtree wt ON wt.anc = tr.warehouse_id
+      LEFT JOIN tr_sub s ON s.anc = tr.warehouse_id AND s.product_id = tr.product_id
+      LEFT JOIN dem d ON d.warehouse_id = wt.des AND d.product_id = tr.product_id
+     GROUP BY 1,2),
   whs AS (SELECT w.id, w.source_warehouse_id,
                  -- hub REAL = tiene sucursales que surte (source_warehouse_id NULL solo no basta:
                  -- RUTA/aislados sin hijos NO son hub → su stock no es "sobrante de red")
@@ -291,7 +343,7 @@ const cte = (tr, lead) => `
   base AS (
     SELECT warehouse_id, product_id FROM dem
     UNION SELECT warehouse_id, product_id FROM stk
-    UNION SELECT warehouse_id, product_id FROM tr
+    UNION SELECT warehouse_id, product_id FROM tr_eff
   )`;
 
 const PROJECT = `
@@ -324,7 +376,7 @@ const PROJECT = `
       LEFT JOIN whs w      ON w.id = b.warehouse_id
       LEFT JOIN dem d      ON d.warehouse_id = b.warehouse_id AND d.product_id = b.product_id
       LEFT JOIN stk s      ON s.warehouse_id = b.warehouse_id AND s.product_id = b.product_id
-      LEFT JOIN tr  t      ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
+      LEFT JOIN tr_eff t   ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
       LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id
       LEFT JOIN season se  ON se.product_id = b.product_id
       LEFT JOIN saf sa     ON sa.product_id = b.product_id
@@ -387,6 +439,35 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     console.log(`  estación: ${chk.prods_con_estacion} productos con ratio≠1 (rango ${chk.season_min}–${chk.season_max}) · colchón cuantílico: ${chk.prods_con_colchon} · lead derivado: ${chk.prods_con_lead}`);
     if (Number(rutasResid.n) > 0) console.log(`  ⚠ ${rutasResid.n} filas de RUTA-* siguen en el fact (el fold a sucursal no cubrió todo)`);
     if (rutasSinMapa.codes) console.log(`  ⚠ rutas sin mapeo a sucursal (demanda se queda en la ruta): ${rutasSinMapa.codes}`);
+    // RA-PRO.43 — el proveedor declara su empaque en la OC (`c58` unidades por caja, `c57` costo de
+    // esa caja). La señal accionable NO es "c58 ≠ bf" a secas (la línea puede venir en otra unidad:
+    // 1,691 SKUs caen ahí y son ruido), sino la CONTRADICCIÓN: el dinero dice que hablamos de la
+    // MISMA caja (c57 ≈ caja_cost) pero el conteo difiere → o el catálogo está mal o el proveedor
+    // cambió la presentación. Eso descuadra el pedido ENTERO del SKU, no sólo su tránsito. Medido
+    // al introducirlo: 11 de 5,368 cajas verificables por dinero.
+    if (hasOds) {
+      const bfx = (await db.query(`
+        WITH oc AS (
+          SELECT DISTINCT l.c8 AS sku,
+                 NULLIF(btrim(l.c58::text), '')::numeric AS c58,
+                 NULLIF(btrim(l.c57::text), '')::numeric AS c57
+            FROM kepler_ods.kdm1 o
+            JOIN kepler_ods.kdm2 l
+              ON l.sucursal=o.sucursal AND l.c1=o.c1 AND l.c2=o.c2 AND l.c3=o.c3 AND l.c4=o.c4 AND l.c6=o.c6
+           WHERE o.sucursal=o.c1 AND o.c2='X' AND o.c3='A' AND o.c4='35'
+             AND o.c9::date >= CURRENT_DATE - 60
+             AND NULLIF(btrim(l.c58::text), '')::numeric > 0),
+        cat AS (SELECT DISTINCT sku, bf, caja_cost FROM stg_rplan)
+        SELECT count(*) FILTER (WHERE cat.caja_cost > 0
+                                 AND abs(oc.c57 - cat.caja_cost) <= 0.15 * cat.caja_cost
+                                 AND abs(oc.c58 - cat.bf) >= 0.01)            AS contradicen,
+               count(*) FILTER (WHERE cat.caja_cost > 0
+                                 AND abs(oc.c57 - cat.caja_cost) <= 0.15 * cat.caja_cost) AS verificables
+          FROM oc JOIN cat ON cat.sku = oc.sku`)).rows[0];
+      if (Number(bfx?.contradicen) > 0) {
+        console.log(`  ⚠ ${bfx.contradicen} de ${bfx.verificables} SKUs: el proveedor declara la MISMA caja por costo pero distinto conteo → revisar box_factor (descuadra todo el pedido de ese SKU)`);
+      }
+    }
     console.log(`  puntos ciegos conocidos: tránsito de MD-30/MD-32 (sus compras directas no están en el ODS — pendiente extender la replicación)`);
 
     const up = await db.query(
