@@ -205,10 +205,29 @@ Escriben tablas disjuntas (inc vs hash) → sin contención. Ambas `SISTEMAS\Des
 
 **WR.6 ✅ re-apuntado del bronze:** flag `--source replica` en `import-wincaja.js` — para `--dataset actual`, las sucursales con espejo (30/32/00) leen de `:5433/wincaja` por SQL (~seg; ej. 90k Precios en 454ms vs Jet ~5s por tabla); las demás (10/40/44/54 + rutas) caen a Jet automáticamente. `mapRow` compartido (coerce+derive idéntico) → cero divergencia; resolución de columnas case-insensitive (Postgres es case-sensitive). `sync-wincaja-actual.ps1` (daily 05:00) ya usa `--source replica`. Dry-run branch 30 = 27 tablas OK, valores verificados. **Falta:** correr un `--apply` real contra prod bronze para cerrar 🧪→✅ (lo hace el próximo daily, o `--source replica --apply` manual).
 
+**WR.7 ✅ falla fuerte en vez de girar en cero (2026-08-31, commit `3ff49337`):** del **27 al 31 de agosto la réplica estuvo 4 días sin mover un dato mientras `pm2 ls` decía "online"** — los dos carriles ciclaban puntuales reportando "0 tablas" en las 3 sucursales. No fue una falla sino **tres que se tapaban entre sí**:
+
+1. **`branchSchema()` cacheaba el descubrimiento VACÍO.** Sin alcanzar `Z:` devolvía 0 tablas, lo cacheaba y no reintentaba nunca — ni volviendo la red se curaba sola. Ahora un esquema vacío **tira y no se cachea**.
+2. **El heartbeat abortaba** por falta de `DATABASE_URL_NEW` (PM2 no hereda el entorno del shell de forma confiable) → lo único que podía avisar estaba roto. El ecosystem la pasa explícita y **falla al cargar** si no está; el replicador se niega a arrancar en watch sin destino de heartbeat, en vez de correr a ciegas.
+3. **Una sucursal caída cortaba el ciclo entero** (30 fallaba → 32 y 00 ni se intentaban). Ahora se aísla por sucursal y el ciclo reporta cuántas fallaron.
+
+Además: **preflight de la fuente en cada ciclo** (no sólo al arrancar → se cura sola cuando el share vuelve, sin reiniciar PM2); en watch un primer ciclo fallido ya no mata el proceso (PM2 quemaría sus `max_restarts` en minutos y quedaría "errored"). Verificado: `--dry` sale con **exit 1** y mensaje claro donde antes imprimía "0 tablas" y salía con **exit 0**.
+
+**Causa raíz de fondo — `Z:` es una unidad MAPEADA:** los mapeos de Windows son **por sesión de login**; un servicio, una tarea como SYSTEM o un PM2 levantado en otra sesión puede no verla nunca. El mensaje de error ahora lo explica y recomienda **UNC** (`\\servidor\share\...`) en `WINCAJA_MDB_BASE`.
+
+**Lección:** todos los chequeos que teníamos eran de **proceso vivo**, y el proceso estuvo vivo los 4 días. Un descubrimiento vacío nunca es un estado válido — es la fuente inalcanzable disfrazada de éxito.
+
+**El sensor de datos SÍ funcionó (y ahí está el hueco real):** `wincaja_branch_stale` estaba en **critical con 154 h** (umbral 72 h) y llevaba **18.9 días abierta**, junto a otras 23 alertas — **ninguna reconocida**. La detección fue perfecta; falló el último tramo: el WS emite **sólo en transiciones**, así que el toast salió una vez hacia quien tuviera la pestaña abierta y después silencio. Sumado a que el scanner itera todos los tenants (3 de 4 son de prueba → 6 alertas reales se ven como 24), la bandeja se volvió tapiz. Ver `project_db_health_alerts`.
+
+**Comparación que decide el rumbo:** el mismo día, **MD-32 empujaba en vivo** por `wincaja-store-agent.ps1` (agente que corre **en el servidor POS**, lee el `.mdb` local read-only, **no necesita drive mapeado**) mientras su réplica por `Z:` llevaba 6 días muerta. La misma tienda, viva por un transporte y muerta por el otro.
+
 **Diferido:**
 - **WR.5.2** — db-health source (frescura de la réplica en el tablero de salud).
 - **WR.6.1** — sumar 10/40/44/54 (+rutas) a la réplica → más sucursales salen de Jet.
 - Reconciliación de DELETEs en catálogos (barrido por diff de PK).
+- **WR.8** — extender el agente-POS de tickets a las **12 tablas base** que alimentan las vistas que consume la app (`v_sales_daily`, `v_lost_demand`, `v_stock`, `v_ar_customer`, `v_cash_authorizations`, `mv_branch_kpis`) → mata la dependencia de SMB. No son 70 tablas.
+- **MD-30**: tiene el agente desplegado pero **muerto desde el 13-ago** (447 h sin empujar) — sin diagnosticar.
+- **Último tramo de alertas**: entrega out-of-app (Web Push / WhatsApp / correo) + sacar tenants de prueba del barrido. Es el cuello de botella real de la observabilidad, no faltan sensores.
 
 ---
 
