@@ -169,8 +169,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
                   <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
-                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit">pz</span></div>
-                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' pz por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
+                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
+                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
                   </td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   <td class="pr-r">
@@ -662,6 +662,16 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   unitOf(pid: string): 'caja' | 'paquete' | 'pieza' { return this.orderUnit()[pid] ?? 'caja'; }
   setUnit(pid: string, u: 'caja' | 'paquete' | 'pieza'): void { this.orderUnit.update((m) => ({ ...m, [pid]: u })); }
   unitLabelShort(pid: string): string { const u = this.unitOf(pid); return u === 'pieza' ? 'pz' : u === 'paquete' ? 'paq' : 'caja'; }
+  /**
+   * RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (`kdii.c11`), no lo escribimos nosotros.
+   * Antes acá decía "pz" fijo y mentía en todo lo que se vende a granel: el azúcar 99029 se mide en
+   * 500 g (rótulo `500`), no en piezas. Sin dato, se muestra "u" — genérico honesto, no "pz" falso.
+   */
+  unidadBase(r: WorkbookRow): string { return (r.unidad_base || '').trim().toLowerCase() || 'u'; }
+  unidadTitle(r: WorkbookRow): string {
+    const u = (r.unidad_base || '').trim();
+    return u ? `${r.uxc} ${u} por caja (unidad declarada en Kepler)` : `${r.uxc} unidades por caja — Kepler no declara la unidad`;
+  }
   /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
   unitFactor(pid: string): number {
     const u = this.unitOf(pid), p = this.packOf(pid);

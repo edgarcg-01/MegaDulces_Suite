@@ -852,11 +852,16 @@ export class CommercialReplenishmentService {
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
                  rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
                  rp.season_ratio, rp.season_src,
+                 -- RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (kdii.c11 vía la vista
+                 -- derivada del ODS); antes la pantalla escribía "pz" a mano y mentía en los
+                 -- productos a granel (el azúcar 99029 se mide en 500 g, no en piezas).
+                 lad.u1_label AS unidad_base,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
+            LEFT JOIN analytics.v_supplier_cost_ladder lad ON lad.sku = pr.sku
             ${stockJoin}
            WHERE ${where}${whFilter}
              AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
@@ -873,13 +878,15 @@ export class CommercialReplenishmentService {
                  round(COALESCE(sum(b.transit_cajas),0)::numeric, 1) AS tran,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz,
-                 max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src
+                 max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
+                 max(b.unidad_base) AS unidad_base
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
+                 max(unidad_base) AS unidad_base,
                  jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped, 'tran', tran)) AS cells,
                  round(sum(tran)::numeric, 1) AS transito_cajas,   -- RA-PRO.44: explica el "Pedido 0"
                  -- Reorden/Máximo de RED en cajas (Σ piezas de las sucursales ÷ BF) + XYZ peor-caso.

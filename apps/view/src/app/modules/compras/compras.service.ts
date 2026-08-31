@@ -173,6 +173,8 @@ export interface OpenOcResponse {
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
   uxc: number; caja_cost: number;
+  unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
+                                   // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
   box_size: number | null;         // Pz/Caja (etiqueta) — normalmente = uxc
   pack_size: number | null;        // Pz/Paquete (solo multipacks)
   packs_per_box: number | null;    // box_size ÷ pack_size (solo si divide exacto)
