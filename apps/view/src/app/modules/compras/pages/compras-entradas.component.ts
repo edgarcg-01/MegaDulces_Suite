@@ -329,30 +329,36 @@ interface AttachFile {
                     <p class="cb-exp-nota">No se pudo abrir el movimiento. <button type="button" class="cb-exp-retry" (click)="reintentarFila(c)">Reintentar</button></p>
                   } @else if (filaDetalle(); as fd) {
                     @if (fd.lineas.length) {
-                      <table class="cb-exp-tab">
-                        <thead><tr><th>SKU</th><th>Producto</th><th class="ta-r">Cant.</th><th>Unidad</th><th class="ta-r">Costo</th><th class="ta-r">Importe</th></tr></thead>
-                        <tbody>
-                          @for (l of fd.lineas; track l.linea) {
+                      <!-- surf-table--plain es la BASE compartida para tablas crudas: existe
+                           justamente para que cada pantalla no reinvente th/padding/tamaño.
+                           comm-num ya trae mono + tabular-nums y, de paso, evita que la regla
+                           descendente .cb-table td.ta-r se filtre acá adentro. -->
+                      <div class="cb-exp-scroll">
+                        <table class="surf-table surf-table--plain is-dense">
+                          <thead><tr><th>SKU</th><th>Producto</th><th class="comm-num">Cant.</th><th>Unidad</th><th class="comm-num">Costo</th><th class="comm-num">Importe</th></tr></thead>
+                          <tbody>
+                            @for (l of fd.lineas; track l.linea) {
+                              <tr>
+                                <td class="mono">{{ l.sku || '—' }}</td>
+                                <td>{{ l.nombre || '—' }}</td>
+                                <td class="comm-num">{{ l.cantidad }}</td>
+                                <td>{{ l.unidad || '—' }}</td>
+                                <td class="comm-num">{{ money(l.costo_unitario) }}</td>
+                                <td class="comm-num">{{ money(l.importe) }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                          <tfoot>
                             <tr>
-                              <td class="mono">{{ l.sku || '—' }}</td>
-                              <td>{{ l.nombre || '—' }}</td>
-                              <td class="ta-r">{{ l.cantidad }}</td>
-                              <td>{{ l.unidad || '—' }}</td>
-                              <td class="ta-r">{{ money(l.costo_unitario) }}</td>
-                              <td class="ta-r">{{ money(l.importe) }}</td>
+                              <!-- lineasMeta explica de una vez por qué Σ renglones ≠ total del
+                                   documento: son el SUBTOTAL y c16 va con impuestos. No se afirma
+                                   "es el IVA" salvo que el número lo confirme — en dulcería hay IEPS. -->
+                              <td colspan="5">{{ filaLineasMeta(fd) }}</td>
+                              <td class="comm-num">{{ money(lineasTotal(fd.lineas)) }}</td>
                             </tr>
-                          }
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <!-- lineasMeta explica de una vez por qué Σ renglones ≠ total del
-                                 documento: son el SUBTOTAL y c16 va con impuestos. No se afirma
-                                 "es el IVA" salvo que el número lo confirme — en dulcería hay IEPS. -->
-                            <td colspan="5">{{ filaLineasMeta(fd) }}</td>
-                            <td class="ta-r">{{ money(lineasTotal(fd.lineas)) }}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
+                          </tfoot>
+                        </table>
+                      </div>
                     } @else {
                       <!-- Wincaja (sucursales 30/32/50) manda la recepción SIN renglones: es
                            header-only en el origen, no un fallo de carga. Decirlo evita que
@@ -1142,27 +1148,33 @@ interface AttachFile {
        ella y no flotando entre dos recepciones. Sin zebra (DESIGN Operations). */
     .cb-caret {
       border: none; background: transparent; color: var(--text-faint); cursor: pointer;
-      padding: 0 .3rem 0 0; font-size: .65rem; vertical-align: middle;
+      padding: 0 var(--sp-1) 0 0; font-size: var(--fs-micro); vertical-align: middle;
+      border-radius: var(--r-sm);
     }
     .cb-caret:hover { color: var(--text-main); }
-    .cb-caret:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-radius: 2px; }
-    .cb-row-open > td { background: var(--surface-hover, var(--surface-2)); }
+    .cb-caret:active { color: var(--action); }
+    .cb-caret:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+    /* El caret es el objetivo táctil más chico de la fila: las celdas ya crecen solas por los
+       tokens de altura, el botón no. En touch tiene que llegar al mínimo (Fitts). */
+    @media (pointer: coarse) {
+      .cb-caret { min-width: var(--tap-min); min-height: var(--tap-min); }
+    }
+    /* Datos densos: elevación por BORDE o sombra, nunca las dos. La fila abierta se ancla con
+       la barra de acento a la izquierda + el fondo de selección tokenizado. */
+    .cb-row-open > td { background: var(--table-row-selected-bg); }
     .cb-row-open > td:first-child { box-shadow: inset 2px 0 0 var(--action); }
-    .cb-exp > td { padding: var(--sp-2) var(--sp-3) var(--sp-3) 2rem; background: var(--surface-ground); }
-    .cb-exp-nota { margin: .4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+    .cb-exp > td { padding: var(--sp-2) var(--sp-3) var(--sp-3) var(--sp-6); background: var(--surface-ground); }
+    .cb-exp-nota { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
     .cb-exp-nota b { color: var(--text-main); }
-    .cb-exp-retry { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; color: var(--action); text-decoration: underline; }
-    /* Tabla propia, no surf-table: vive DENTRO de una celda y no debe heredar sticky ni el header
-       de la tabla madre. Scroll horizontal propio para que no empuje la página. */
-    .cb-exp-tab { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
-    .cb-exp-tab th, .cb-exp-tab td { padding: .2rem .45rem; text-align: left; white-space: nowrap; }
-    .cb-exp-tab thead th { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border-color); }
-    .cb-exp-tab tbody td { border-bottom: 1px solid var(--border-color); }
-    .cb-exp-tab tbody tr:last-child td { border-bottom: 0; }
-    .cb-exp-tab td:nth-child(2) { white-space: normal; min-width: 12rem; }
-    .cb-exp-tab .ta-r { text-align: right; font-family: var(--font-mono); }
-    .cb-exp-tab tfoot td { padding-top: .3rem; border-top: 1px solid var(--border-color); color: var(--text-muted); }
-    .cb-exp-tab tfoot .ta-r { color: var(--text-main); font-weight: 600; }
+    .cb-exp-retry {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--action); text-decoration: underline;
+    }
+    .cb-exp-retry:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    /* Lo único que la base compartida no cubre: el nombre del producto puede envolver, y la
+       tabla anidada scrollea sola para no empujar la página en móvil. */
+    .cb-exp-scroll { overflow-x: auto; }
+    .cb-exp .surf-table--plain > tbody > tr > td:nth-child(2) { white-space: normal; min-width: 12rem; }
 
     /* ── Detalle: veredicto + tres cifras ────────────────────────────────
        Jerarquia explicita en tres niveles y por TIPO+CONTRASTE, no por color
