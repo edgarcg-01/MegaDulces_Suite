@@ -36,6 +36,7 @@ const TESTS = [
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-oc-survival.js', label: 'RA-PRO.45 tránsito pesado por P(llega|edad) (curva monótona derivada del ODS + eff ≤ papel + estatus c43)', needsApi: false },
+  { file: 'test-newdb-fact-vs-kepler.js', label: 'existencia y ventas del fact vs Kepler (mediana por SKU + prueba de unidad bf/1÷bf)', needsApi: false },
   { file: 'test-newdb-cost-ladder.js', label: 'RA-PRO.46 el costo de caja se LEE de Kepler (Costo Uni Mayor), no se reconstruye con costo×bf', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
   { file: 'test-newdb-purchase-adjustments-findings.js', label: 'RE.10 bridge facturas duplicadas → finance.findings (duplicateGroups SQL + shape hallazgo + UPSERT idempotente por dedup_key + rule L2 + findings_total; skip-graceful sin feed)', needsApi: false },

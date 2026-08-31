@@ -28,7 +28,7 @@ El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exha
 | Tabla | Qué es | Columnas clave |
 |---|---|---|
 | **`kdii`** | Maestro de productos (por sucursal) | `c1`=SKU · `c2`=nombre · `c7`=código de barras (EAN) · `c8`=clave familia · `c84`=piezas por caja (⚠️ ver regla 5) · **`c33`=mínimo · `c34`=punto de reorden · `c35`=máximo** · **`c11`/`c80`/`c83`=rótulos de la escalera de unidades** (uni1/uni2/uni3 — ver §2.1) · `c90`=precio configurado (respaldo; sólo coincide ~58% con lo cobrado) |
-| **`kdil`** | Existencia/acumulados **por almacén** | ⚠️ `c1`=**ALMACÉN (no sucursal)** — filtrá por la columna `sucursal` + `c1`=almacén principal · `c3`=SKU · **`c9`=existencia actual** (validado vs `kdik.c6`; ~38% de drift entre ambas fuentes) · `c6/c7`=última compra/venta |
+| **`kdil`** | Existencia/acumulados **por almacén** | ⚠️ `c1`=**ALMACÉN (no sucursal)** — filtrá por la columna `sucursal` + `c1`=almacén principal · `c3`=SKU · **existencia = `c4`(inicial) + `c8`(entradas) − `c9`(salidas)** — ⚠️ `c9` es **SALIDAS**, NO la existencia (ver §2.2) · `c6/c7`=última compra/venta |
 | **`kdik`** | Valuación por sucursal | `c2`=SKU · `c6`=existencia · `c9`=valor a costo → costo unitario = `c9/c6` · **`c16`=costo unitario NETO almacenado** (es el que leemos; ver §2.1) |
 | **`kdpv_prov_prod`** | **Costo por proveedor por producto** (la pantalla "Costos por Proveedor por Productos") | `c1`=**código de proveedor** · `c2`=SKU · `c3`=descripción · **`c4`=Costo Uni Mayor** · `c5`/`c6`/`c7`=**% Desc 1/2/3** · **`c8`/`c9`/`c10`=Total Uni 1/2/3** (los 3 peldaños de la escalera) |
 | `kdpv_bitacora_precios` | Bitácora de cambios de precio/costo (el campo "Motivo Cambio Precio en Bitacora" de esa misma pantalla) | |
@@ -77,6 +77,33 @@ entradas: mismo centro, deriva propia (19.6%–52.8% idénticos al CEDIS, sin ma
 **Cross-check independiente:** `kdpv_prov_prod` valida el factor de caja desde una fuente distinta a
 `v_product_box_factor`. Medido: **5,568 de 5,571** coinciden. Sirve como validador de DQ, no como
 fuente primaria.
+
+### 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31)
+
+Mismo protocolo que el costo (§5 regla 0): contra un hecho independiente + prueba de unidad
+explícita. **Las dos salieron limpias** — el costo era el único roto.
+
+| | vs Kepler | mediana de la razón | prueba de unidad |
+|---|---|---|---|
+| **Existencia** (suc 03, 2,793 SKUs) | 97.9% exacta | **1.0000** | 0.0% en `bf` · 0.0% en `1/bf` |
+| **Ventas importe** (suc 01/03/05) | 89–96% exacta | **1.0000** | — |
+| **Ventas unidades** | 88–94% exacta | **1.0000** | 0.0% en `bf` · 0.0% en `1/bf` |
+
+**⚠️ `kdil.c9` NO es la existencia — son las SALIDAS.** La existencia es
+`c4`(inicial) + `c8`(entradas) − `c9`(salidas), y así la calcula `import-branch-stock-live.js`.
+Leer `c9` a secas da razón **0.1557** contra la existencia real (coincide sólo en 1.6% de los SKUs).
+Esta tabla decía lo contrario hasta hoy.
+
+**Trampas al comparar ventas** (las tres las pisé antes de que salieran los números):
+
+1. **El doctype de venta es `U-D-10`** ("Ticket Contado Caja N"), naturaleza **D**. `U-A-10` es
+   *"Entrada por Devolución"* — leelo de `kdmm`, no lo adivines.
+2. **El SKU de `kdm2` es `c8`**, no `c3` (`c3` es la naturaleza del documento). Verificable: 777,425
+   líneas de `c8` existen en `kdii`; de `c3`, cero.
+3. **⚠️ Los folios se RECICLAN.** Unir `kdm2`→`kdm1` por `(sucursal, c1, c2, c3, c4, c6)` filtrando
+   la fecha **sólo en el encabezado** hace que líneas viejas con folio repetido se peguen a
+   encabezados recientes: infló las ventas de Kepler a **$8.59M contra $4.34M reales (2×)**. Usá la
+   fecha propia de la línea (`kdm2.c32`) o acotá las dos puntas.
 
 ---
 
