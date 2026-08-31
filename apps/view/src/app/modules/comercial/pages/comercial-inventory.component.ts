@@ -15,8 +15,6 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, StockRow, Warehouse } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { makeLazyLoad } from '../../../shared/util';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_STOCK_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { Permission } from '../../../core/constants/permissions';
@@ -36,7 +34,6 @@ import { Permission } from '../../../core/constants/permissions';
     InputTextModule,
     ToastModule,
     TooltipModule,
-    PageTabsComponent,
     MetricCardComponent,
     ProductSearchComponent,
   ],
@@ -45,7 +42,6 @@ import { Permission } from '../../../core/constants/permissions';
     <div class="surf-page in">
       <p-toast></p-toast>
     
-      <app-page-tabs [tabs]="inventoryTabs" />
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -435,7 +431,6 @@ import { Permission } from '../../../core/constants/permissions';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialInventoryComponent {
-  readonly inventoryTabs = INV_STOCK_TABS;
 
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);

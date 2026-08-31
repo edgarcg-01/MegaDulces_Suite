@@ -16,8 +16,6 @@ import { ComercialService, ExpiryReview, Warehouse } from '../comercial.service'
 import { Permission } from '../../../core/constants/permissions';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
 /**
  * P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel.
@@ -27,13 +25,12 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-expiry-reviews',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, DatePickerModule, InputTextModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, DatePickerModule, InputTextModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      @if (showInvTabs) { <app-page-tabs [tabs]="inventoryTabs" /> }
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -109,7 +106,6 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialExpiryReviewsComponent {
-  readonly inventoryTabs = INV_ANALYTICS_TABS;
   readonly statusOptions = [
     { label: 'Todas', value: '' },
     { label: 'Borrador', value: 'draft' },
@@ -124,8 +120,10 @@ export class ComercialExpiryReviewsComponent {
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** El strip de tabs de Almacén solo tiene sentido bajo /almacen (no en /tienda). */
-  readonly showInvTabs = this.router.url.startsWith('/almacen');
+  // WMS.1 — se fue `showInvTabs`: la barra de tabs ya no la pinta esta página.
+  // La monta `AlmacenAreaShellComponent`, que solo envuelve `/almacen/*`, así
+  // que la condición "solo bajo /almacen (no en /tienda)" ahora la resuelve el
+  // árbol de rutas y no un check de URL acá.
 
   reviews = signal<ExpiryReview[]>([]);
   loading = signal(false);
