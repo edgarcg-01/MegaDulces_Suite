@@ -653,6 +653,27 @@ export interface AdjustmentExplicacion {
    */
   dias_despues?: number | null;
 }
+/** `[RE.22.1]` — un renglón del ajuste: qué mercancía se devolvió. */
+export interface AdjustmentLine {
+  linea: string; sku: string | null; nombre: string | null; unidad: string | null;
+  cantidad: number; costo_unitario: number; importe: number;
+}
+/**
+ * `[RE.22.1]` — el desglose de un ajuste. `desglose` NO es un estado de carga:
+ *  · `renglones` → hay detalle.
+ *  · `no_aplica` → es nota de crédito (X-D-55): no se desglosa por producto porque es dinero, no
+ *    mercancía. Medido: 1,256 documentos / $21.4M sin una sola línea en Kepler. La lista vacía es
+ *    la respuesta CORRECTA y hay que decirlo, no dejar un hueco que se lee como falla.
+ *  · `sin_dato`  → es una devolución que debería traer renglones y no los trae (~55 documentos).
+ */
+export interface AdjustmentLinesResponse {
+  desglose: 'renglones' | 'no_aplica' | 'sin_dato';
+  lineas: AdjustmentLine[];
+  total_importe: number;
+  motivo: string | null;
+  categoria?: string | null;
+  nota: string | null;
+}
 export interface AdjustmentsForEntradaResponse {
   rows: AdjustmentForEntradaRow[];
   total_monto: number;
@@ -1077,6 +1098,17 @@ export class ComprasService {
     if (p.tolerancia) q.set('tolerancia', String(p.tolerancia));
     const qs = q.toString();
     return this.http.get<AdjustmentsForEntradaResponse>(`${this.adjBase}/for-entrada${qs ? '?' + qs : ''}`);
+  }
+  /**
+   * `[RE.22.1]` — renglones de UN ajuste, al expandirlo. Ver `AdjustmentLinesResponse.desglose`:
+   * en una nota de crédito la lista vacía es la respuesta correcta, no un error.
+   */
+  adjustmentLines(p: { sucursal: string; folio: string; doctype?: string | null }): Observable<AdjustmentLinesResponse> {
+    const q = new URLSearchParams();
+    q.set('sucursal', p.sucursal);
+    q.set('folio', p.folio);
+    if (p.doctype) q.set('doctype', p.doctype);
+    return this.http.get<AdjustmentLinesResponse>(`${this.adjBase}/lines?${q.toString()}`);
   }
   /** RE.10 — reconciliación descuento pago (c84) vs nota (X-D-55) por proveedor. */
   adjustmentsDiscountReconciliation(q: { date_from?: string; date_to?: string; search?: string } = {}): Observable<DiscountReconResponse> {

@@ -224,7 +224,11 @@ interface AttachFile {
             </tr>
           </ng-template>
           <ng-template #body let-c>
-            <tr>
+            <!-- RE.22.2 — la fila se despliega: hasta ahora, para saber QUÉ traía una recepción
+                 había que abrir el expediente completo en un diálogo y cerrarlo. Auditar varias
+                 seguidas era abrir y cerrar. El clic en la fila (no en sus controles) muestra los
+                 renglones ahí mismo; el folio sigue abriendo el expediente. -->
+            <tr [class.cb-row-open]="filaAbierta() === claveFila(c)" (click)="filaClick(c, $event)">
               <td>
                 {{ c.receipt_date | date:'dd/MM/yy' }}
                 @if (c.fecha_futura) {
@@ -232,7 +236,11 @@ interface AttachFile {
                      title="Fecha capturada adelante de hoy en el ERP"></i>
                 }
               </td>
-              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button>
+              <td><button type="button" class="cb-caret" (click)="toggleFila(c)"
+                          [attr.aria-expanded]="filaAbierta() === claveFila(c)"
+                          [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
+                    <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
+                  </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
                 <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
                      porque esta pantalla es donde alguien llega con "tengo este número": el par
                      tiene que ser visible sin abrir el detalle. -->
@@ -312,6 +320,51 @@ interface AttachFile {
                 }
               </td>
             </tr>
+            @if (filaAbierta() === claveFila(c)) {
+              <tr class="cb-exp">
+                <td [attr.colspan]="dinero() ? 9 : 7">
+                  @if (filaLoading()) {
+                    <p class="cb-exp-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
+                  } @else if (filaError()) {
+                    <p class="cb-exp-nota">No se pudo abrir el movimiento. <button type="button" class="cb-exp-retry" (click)="reintentarFila(c)">Reintentar</button></p>
+                  } @else if (filaLineas(); as ls) {
+                    @if (ls.length) {
+                      <table class="cb-exp-tab">
+                        <thead><tr><th>SKU</th><th>Producto</th><th class="ta-r">Cant.</th><th>Unidad</th><th class="ta-r">Costo</th><th class="ta-r">Importe</th></tr></thead>
+                        <tbody>
+                          @for (l of ls; track l.linea) {
+                            <tr>
+                              <td class="mono">{{ l.sku || '—' }}</td>
+                              <td>{{ l.nombre || '—' }}</td>
+                              <td class="ta-r">{{ l.cantidad }}</td>
+                              <td>{{ l.unidad || '—' }}</td>
+                              <td class="ta-r">{{ money(l.costo_unitario) }}</td>
+                              <td class="ta-r">{{ money(l.importe) }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colspan="5">{{ plural(ls.length, 'renglón', 'renglones') }}</td>
+                            <td class="ta-r">{{ money(lineasTotal(ls)) }}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      <!-- Σ de los renglones vs el total del documento: si no coinciden, el
+                           desglose no explica la factura y eso hay que verlo, no esconderlo. -->
+                      @if (descuadreLineas(c, ls); as dif) {
+                        <p class="cb-exp-nota">Los renglones suman <b>{{ money(lineasTotal(ls)) }}</b> y el documento dice <b>{{ money(c.monto) }}</b> — difieren en {{ money(dif) }}. Suele ser IVA.</p>
+                      }
+                    } @else {
+                      <!-- Wincaja (sucursales 30/32/50) manda la recepción SIN renglones: es
+                           header-only en el origen, no un fallo de carga. Decirlo evita que
+                           alguien lo reporte como bug. -->
+                      <p class="cb-exp-nota">Esta recepción no trae renglones en el ERP. Se capturó sólo con el total.</p>
+                    }
+                  }
+                </td>
+              </tr>
+            }
           </ng-template>
           <!-- RE.20.1 — los totales del lente son de TODO lo filtrado, no de la página: la
                pregunta "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. Por eso
@@ -1086,6 +1139,33 @@ interface AttachFile {
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
 
+    /* ── RE.22.2 desglose en línea ────────────────────────────────────────
+       La fila abierta se ancla con un borde izquierdo: el desglose queda visualmente colgado de
+       ella y no flotando entre dos recepciones. Sin zebra (DESIGN Operations). */
+    .cb-caret {
+      border: none; background: transparent; color: var(--text-faint); cursor: pointer;
+      padding: 0 .3rem 0 0; font-size: .65rem; vertical-align: middle;
+    }
+    .cb-caret:hover { color: var(--text-main); }
+    .cb-caret:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-radius: 2px; }
+    .cb-row-open > td { background: var(--surface-hover, var(--surface-2)); }
+    .cb-row-open > td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+    .cb-exp > td { padding: var(--sp-2) var(--sp-3) var(--sp-3) 2rem; background: var(--surface-ground); }
+    .cb-exp-nota { margin: .4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+    .cb-exp-nota b { color: var(--text-main); }
+    .cb-exp-retry { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; color: var(--action); text-decoration: underline; }
+    /* Tabla propia, no surf-table: vive DENTRO de una celda y no debe heredar sticky ni el header
+       de la tabla madre. Scroll horizontal propio para que no empuje la página. */
+    .cb-exp-tab { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+    .cb-exp-tab th, .cb-exp-tab td { padding: .2rem .45rem; text-align: left; white-space: nowrap; }
+    .cb-exp-tab thead th { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border-color); }
+    .cb-exp-tab tbody td { border-bottom: 1px solid var(--border-color); }
+    .cb-exp-tab tbody tr:last-child td { border-bottom: 0; }
+    .cb-exp-tab td:nth-child(2) { white-space: normal; min-width: 12rem; }
+    .cb-exp-tab .ta-r { text-align: right; font-family: var(--font-mono); }
+    .cb-exp-tab tfoot td { padding-top: .3rem; border-top: 1px solid var(--border-color); color: var(--text-muted); }
+    .cb-exp-tab tfoot .ta-r { color: var(--text-main); font-weight: 600; }
+
     /* ── Detalle: veredicto + tres cifras ────────────────────────────────
        Jerarquia explicita en tres niveles y por TIPO+CONTRASTE, no por color
        (regla Q.5): primario = el veredicto y las tres cifras; secundario = las
@@ -1603,6 +1683,76 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+
+  // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
+  /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
+  readonly filaAbierta = signal<string | null>(null);
+  readonly filaLineas = signal<EntradaLinea[] | null>(null);
+  readonly filaLoading = signal(false);
+  readonly filaError = signal(false);
+  /** Caché por clave: reabrir no vuelve a pedir. `null` = se pidió y falló. */
+  private readonly filaCache = new Map<string, EntradaLinea[] | null>();
+
+  claveFila(c: EntradaRow): string { return c.sucursal + '/' + c.folio; }
+
+  /**
+   * Clic en cualquier parte de la fila. Se ignora si salió de un control: la fila está llena de
+   * botones (adjuntar, validar, rechazar, descartar, el folio, las fichas de proveedor/OC) y sin
+   * este corte cada uno de ellos abriría además el desglose.
+   */
+  filaClick(c: EntradaRow, ev: Event): void {
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest('button, a, input, .cb-comp-cell, .p-checkbox')) return;
+    this.toggleFila(c);
+  }
+
+  toggleFila(c: EntradaRow): void {
+    const clave = this.claveFila(c);
+    if (this.filaAbierta() === clave) { this.filaAbierta.set(null); return; }
+    this.abrirFila(c, clave);
+  }
+
+  /** Reintento: hay que OLVIDAR el fallo cacheado o se repite la misma respuesta. */
+  reintentarFila(c: EntradaRow): void {
+    this.filaCache.delete(this.claveFila(c));
+    this.abrirFila(c, this.claveFila(c));
+  }
+
+  /**
+   * Reusa `detail()` en vez de un endpoint nuevo: ya devuelve `lineas` y es la misma lectura que
+   * hace el expediente. La respuesta se descarta si mientras viajaba se abrió otra fila — sin ese
+   * corte se pintarían los renglones de una recepción bajo otra, que se ve correcto y no lo es.
+   */
+  private abrirFila(c: EntradaRow, clave: string): void {
+    this.filaAbierta.set(clave);
+    this.filaError.set(false);
+    if (this.filaCache.has(clave)) {
+      const hit = this.filaCache.get(clave) ?? null;
+      this.filaLineas.set(hit); this.filaError.set(hit === null); this.filaLoading.set(false);
+      return;
+    }
+    this.filaLineas.set(null);
+    this.filaLoading.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        const ls = d.lineas || [];
+        this.filaCache.set(clave, ls);
+        if (this.filaAbierta() !== clave) return;
+        this.filaLineas.set(ls); this.filaLoading.set(false);
+      },
+      error: () => {
+        this.filaCache.set(clave, null);
+        if (this.filaAbierta() !== clave) return;
+        this.filaLoading.set(false); this.filaError.set(true);
+      },
+    });
+  }
+
+  /** Σ renglones vs total del documento. Devuelve la diferencia sólo si es material (> EPS). */
+  descuadreLineas(c: EntradaRow, ls: EntradaLinea[]): number | null {
+    const dif = Math.abs(lineasTotal(ls) - Number(c.monto || 0));
+    return dif > EPS ? dif : null;
+  }
 
   // detail dialog (auditoría por línea + remisión adjunta)
   /** Ficha abierta en el panel lateral (`null` = cerrado). Hace clickeable la vista entera. */
