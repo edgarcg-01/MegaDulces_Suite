@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -251,6 +252,7 @@ export class ComercialDocumentosComponent {
   private readonly svc = inject(SalesDocumentsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
 
   readonly report = signal<SalesDocsReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -275,7 +277,14 @@ export class ComercialDocumentosComponent {
 
   private timer?: ReturnType<typeof setTimeout>;
 
-  constructor() { this.load(); }
+  constructor() {
+    this.load();
+    // Deep-link `?doc=01UD0801-0000875`: se llega desde otra pantalla (p.ej. el auxiliar de
+    // /finanzas/cartera) con un documento concreto en la mano. Abre el side-peek directo, sin
+    // depender de que ese folio caiga en la ventana de fechas de la tabla.
+    const doc = this.route.snapshot.queryParamMap.get('doc');
+    if (doc) this.abrirPorFolio(doc);
+  }
 
   kpis(r: SalesDocsReport): MetricStripItem[] {
     const k = r.kpis;
@@ -314,10 +323,15 @@ export class ComercialDocumentosComponent {
   abrir(row: SalesDocRow | null): void {
     if (!row) return;
     this.sel.set(row);
+    this.abrirPorFolio(row.folio_digital);
+  }
+
+  /** Abre el detalle por folio digital, venga de la tabla o de un deep-link. */
+  private abrirPorFolio(folioDigital: string): void {
     this.det.set(null);
     this.detLoading.set(true);
     this.peek.set(true);
-    this.svc.detail(row.folio_digital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.detail(folioDigital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.det.set(d); this.detLoading.set(false); },
       error: () => {
         this.detLoading.set(false);

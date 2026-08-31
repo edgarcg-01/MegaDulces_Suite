@@ -8,8 +8,12 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { Router } from '@angular/router';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida } from '../cartera.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -62,6 +66,10 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.pct_vencido }}%</span><span class="ct-rs-lbl">del saldo vencido</span></div>
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.concentracion.top10_pct }}%</span><span class="ct-rs-lbl">en top-10 clientes</span></div>
               <div class="ct-rs-kpi"><span class="ct-rs-num">{{ money(rs.ventas_90d) }}</span><span class="ct-rs-lbl">ventas 90d (base DSO)</span></div>
+              @if (rs.pago; as pg) {
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.mediana }}d</span><span class="ct-rs-lbl">mediana real de pago ({{ pg.n | number }} facturas)</span></div>
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.tarde_30d | number }}</span><span class="ct-rs-lbl">pagos a más de 30 días</span></div>
+              }
             </div>
             <div class="ct-rs-proy">
               <h4 class="ct-rs-h4">Proyección de cobranza <span class="muted">cuánto debería entrar y cuándo</span></h4>
@@ -127,6 +135,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
             <thead>
               <tr>
                 <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
+                <th class="ta-r">Paga a</th>
                 <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th></th>
               </tr>
             </thead>
@@ -139,6 +148,11 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
                   <td>{{ c.vendedor || '—' }}</td>
                   <td class="ta-r">{{ c.n_partidas }}</td>
                   <td class="ta-r">
+                    @if (c.dias_pago_prom != null) {
+                      <span [class.ct-lento]="c.dias_pago_prom > 30" [title]="c.n_pagos + ' facturas ya pagadas'">{{ c.dias_pago_prom }}d</span>
+                    } @else { <span class="muted">—</span> }
+                  </td>
+                  <td class="ta-r">
                     @if (c.uso_linea != null) { <span [class.ct-sobre]="c.sobre_linea" [title]="'Límite ' + money(c.limite_credito || 0)">{{ c.uso_linea }}%</span> } @else { <span class="muted">—</span> }
                     @if (c.sobre_linea) { <i class="pi pi-exclamation-triangle ct-sobre" title="Sobre su línea de crédito" aria-hidden="true"></i> }
                   </td>
@@ -147,7 +161,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="9" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
               }
             </tbody>
           </table>
@@ -178,7 +192,16 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
           <div class="ct-det-saldos">
             <span>Saldo <b>{{ money(det.saldo) }}</b></span>
             @if (det.vencido > 0) { <span class="ct-venc-num">Vencido <b>{{ money(det.vencido) }}</b></span> }
-            @if (det.pagadas > 0) { <span class="muted">{{ det.pagadas }} saldadas</span> }
+            @if (det.saldo_a_favor > 0) { <span class="ct-favor">A favor <b>{{ money(det.saldo_a_favor) }}</b></span> }
+            @if (det.dias_pago_prom != null) { <span class="muted" [title]="det.n_pagos + ' facturas pagadas'">paga a <b>{{ det.dias_pago_prom }}d</b></span> }
+            @if (det.pagadas > 0) {
+              <button type="button" class="ct-link-btn" (click)="verSaldadas.set(!verSaldadas())"
+                      [attr.aria-pressed]="verSaldadas()"
+                      [title]="'Facturas ya cobradas por ' + money(det.importe_pagado)">
+                <i class="pi" [class.pi-eye]="!verSaldadas()" [class.pi-eye-slash]="verSaldadas()" aria-hidden="true"></i>
+                {{ verSaldadas() ? 'Ocultar' : 'Ver' }} {{ det.pagadas }} pagadas
+              </button>
+            }
           </div>
           @if (det.cliente.telefono) {
             <div class="ct-det-contact">
@@ -188,22 +211,41 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
           }
         </div>
         <table class="ct-det-table">
-          <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Días</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Estado</th><th></th></tr></thead>
           <tbody>
-            @for (p of det.partidas; track p.folio_digital) {
-              <tr [class.ct-row-venc]="p.vencida">
+            @for (p of partidasVisibles(); track p.folio_digital) {
+              <tr [class.ct-row-venc]="p.vencida" [class.ct-row-pagada]="p.saldada">
                 <td>{{ p.doc_label }}</td>
                 <td class="ct-mono">{{ p.folio_digital }}</td>
                 <td>{{ p.fecha }}</td>
                 <td>{{ p.vencimiento || '—' }}</td>
                 <td class="ta-r">{{ p.importe | number:'1.2-2' }}</td>
                 <td class="ta-r"><b>{{ p.saldo_documento | number:'1.2-2' }}</b></td>
-                <td>@if (p.vencida) { <span class="ct-tag-venc">{{ p.dias_vencido }}d</span> } @else { <span class="muted">al día</span> }</td>
+                <td>
+                  @if (p.saldada) { <span class="ct-tag-pag">Pagada{{ p.pagada_el ? ' ' + p.pagada_el : '' }}</span> }
+                  @else if (p.vencida) { <span class="ct-tag-venc">{{ p.dias_vencido }}d</span> }
+                  @else { <span class="muted">al día</span> }
+                </td>
+                <td class="ta-r">
+                  @if (docAbrible(p)) {
+                    <button pButton type="button" class="p-button-text p-button-xs" (click)="abrirDoc(p)"
+                            [title]="'Abrir el documento ' + p.folio_digital">
+                      <i class="pi pi-external-link" aria-hidden="true"></i><span class="sr-only">Abrir documento</span>
+                    </button>
+                  } @else if (sinDetalle(p)) {
+                    <i class="pi pi-minus muted ct-nodoc" title="Traspaso/venta agregada: su único renglón es contable, no tiene desglose de producto" aria-hidden="true"></i>
+                  }
+                </td>
               </tr>
               @for (a of p.aplicaciones; track a.folio) {
-                <tr class="ct-app"><td class="ct-app-cell" colspan="7"><i class="pi pi-arrow-turn-down-right" aria-hidden="true"></i> {{ a.label }} {{ a.folio }} · {{ a.fecha || '—' }} <b>−{{ a.monto | number:'1.2-2' }}</b></td></tr>
+                <tr class="ct-app"><td class="ct-app-cell" colspan="8"><i class="pi pi-arrow-turn-down-right" aria-hidden="true"></i> {{ a.label }} {{ a.folio }} · {{ a.fecha || '—' }} <b>−{{ a.monto | number:'1.2-2' }}</b></td></tr>
               }
-            } @empty { <tr><td colspan="7" class="ct-empty">Sin partidas vivas. Todo cobrado.</td></tr> }
+            } @empty {
+              <tr><td colspan="8" class="ct-empty">
+                @if (det.pagadas > 0 && !verSaldadas()) { Sin partidas vivas — todo cobrado. Sus {{ det.pagadas }} facturas pagadas están arriba, en «Ver pagadas». }
+                @else { Sin partidas para este cliente. }
+              </td></tr>
+            }
           </tbody>
         </table>
         @if (det.cobranza; as cc) {
@@ -242,7 +284,14 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
           </details>
         }
-        <p class="ct-det-note muted">Saldo por documento exacto: cada factura muestra los cobros y notas que Kepler le aplicó (kdm5). Espejo read-only del ERP.</p>
+        @if (det.sin_documento !== 0) {
+          <p class="ct-det-note ct-sin-doc">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            {{ money(det.sin_documento) }} del saldo no lo explica ningún documento: Kepler aplicó cobros
+            por encima de lo que la cuenta justifica. El total de arriba es el de Kepler; el desglose se queda corto.
+          </p>
+        }
+        <p class="ct-det-note muted">El saldo del cliente sale de <b>kdue</b> (cargos − abonos), que es la cifra que cuadra con Kepler. El reparto por documento usa las aplicaciones de <b>kdm5</b>; lo que no logran ubicar se aplica a las partidas más viejas primero. Espejo read-only del ERP.</p>
       }
     </p-dialog>
   `,
@@ -333,10 +382,22 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-prom-in { width: 110px; } .ct-prom-nota-in { flex: 1; min-width: 140px; width: auto; }
     .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-2, #6b6b6b); }
     .ct-det-err { color: var(--danger, #b42318); }
+    .ct-row-pagada td { opacity: .6; }
+    .ct-tag-pag { background: rgba(107,143,113,.14); color: #4f6b54; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+    .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action, #c2410c); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+    .ct-link-btn:hover { text-decoration: underline; }
+    .ct-nodoc { font-size: .7rem; opacity: .45; }
+    .ct-lento { color: #c2410c; font-weight: 600; }
+    .ct-favor { color: #4f6b54; }
+    .ct-sin-doc { display: flex; align-items: flex-start; gap: .4rem; color: #8a6d1f; background: rgba(201,162,39,.08); padding: .5rem .7rem; border-radius: 6px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
   private readonly svc = inject(CarteraService);
+  private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -347,6 +408,12 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly detalleLoading = signal(false);
   readonly detalleError = signal<string | null>(null);
   readonly detalleRef = signal<{ sucursal: string; cliente: string; nombre: string } | null>(null);
+  /** Las saldadas viven en el payload; el default sigue siendo "partidas vivas". */
+  readonly verSaldadas = signal(false);
+  readonly partidasVisibles = computed(() => {
+    const p = this.detalle()?.partidas || [];
+    return this.verSaldadas() ? p : p.filter((x) => !x.saldada);
+  });
 
   sucursal: string | null = '01';
   grupo: string | null = null;
@@ -420,9 +487,9 @@ export class FinanzasCarteraComponent implements OnInit {
   exportCsv() {
     const rows = this.data()?.clientes || [];
     if (!rows.length) return;
-    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Vencido', 'Saldo'];
+    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Dias_pago_prom', 'Vencido', 'Saldo', 'Saldo_a_favor'];
     const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.vencido, c.saldo].map(esc).join(','));
+    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.dias_pago_prom, c.vencido, c.saldo, c.saldo_a_favor || ''].map(esc).join(','));
     const csv = '﻿' + [head.join(','), ...lines].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -448,6 +515,24 @@ export class FinanzasCarteraComponent implements OnInit {
   closeDetalle() {
     this.detalleOpen.set(false); this.detalle.set(null);
     this.detalleError.set(null); this.detalleLoading.set(false); this.detalleRef.set(null);
+    this.verSaldadas.set(false);
+  }
+
+  /**
+   * El documento de venta desglosado vive en `/comercial/documentos` (Fase AX, vistas en vivo
+   * sobre kepler_ods). Sólo existe para UD08 (Factura Telemarketing) y UD12 (Venta a crédito):
+   * verificado en prod, 2,410/2,410 partidas de esos dos tipos resuelven. UD13 NO está —su
+   * único renglón es contable ("VENTAS AL 0 %"), no hay producto que desglosar.
+   */
+  private readonly puedeVerDocs = computed(() =>
+    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMMERCIAL_SALES_DOCS_VER] === true);
+
+  docAbrible(p: Partida): boolean {
+    return this.puedeVerDocs() && /^UD(08|12)/.test(p.doc_code || '');
+  }
+  sinDetalle(p: Partida): boolean { return /^UD13/.test(p.doc_code || ''); }
+  abrirDoc(p: Partida) {
+    this.router.navigate(['/comercial/documentos'], { queryParams: { doc: p.folio_digital } });
   }
   retryDetalle() {
     const ref = this.detalleRef();
@@ -490,6 +575,9 @@ export class FinanzasCarteraComponent implements OnInit {
       { label: 'Clientes con saldo', value: String(d.kpi.n_clientes) },
       { label: 'Sobre su línea', value: String(d.kpi.n_sobre_linea), tone: d.kpi.n_sobre_linea > 0 ? 'bad' : undefined },
       { label: 'Partidas vivas', value: String(d.kpi.n_partidas) },
+      ...(d.kpi.total_a_favor > 0
+        ? [{ label: `A favor (${d.kpi.n_a_favor})`, value: this.money(d.kpi.total_a_favor) } as MetricStripItem]
+        : []),
     ];
   }
 

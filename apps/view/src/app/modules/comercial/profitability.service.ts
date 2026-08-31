@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
 
 export type MarginWindow = '30d' | '90d' | '365d';
-export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku';
+export type MarginLevel = 'supplier' | 'brand' | 'category' | 'sku' | 'warehouse' | 'channel';
 export type MarginBand = 'negativo' | 'critico' | 'bajo' | 'meta' | 'alto';
 
 export interface MarginBandRow {
@@ -30,6 +30,20 @@ export interface MarginLever {
   pp: number | null;
 }
 
+/**
+ * Un renglón del puente de la brecha (MR.6). `kind` dice cómo se lee:
+ * `start`/`subtotal` traen un margen %, los demás traen puntos que suman o restan.
+ */
+export interface BridgeStep {
+  key: string;
+  kind: 'start' | 'done' | 'cost' | 'action' | 'subtotal' | 'unknown';
+  label: string;
+  owner: string | null;
+  amount: number | null;
+  pct: number | null;
+  pp: number | null;
+}
+
 export interface NonMarginBlock {
   amount: number;
   docs: number;
@@ -39,6 +53,9 @@ export interface NonMarginBlock {
 export interface ProfitabilityOverview {
   window: MarginWindow;
   target: number;
+  /** Hasta qué día llega el fact de venta. */
+  data_as_of: string | null;
+  /** La venta que trae costo: el denominador del margen. */
   revenue: number;
   cost: number;
   margin_amount: number;
@@ -54,19 +71,54 @@ export interface ProfitabilityOverview {
   skus: number;
   inventory_value: number;
   inventory_days: number | null;
+  /** Partido para que el KPI cuadre con la suma de la tabla. */
+  inventory: { total: number; in_scope: number; no_sales: number; unverified: number };
+  /** Costo de catálogo que contradice al del PdV: no se valúa a ciegas. */
+  cost_quality: { conflict_skus: number; conflict_revenue: number; note: string };
   bands: MarginBandRow[];
   /** Base de los descuentos: lo comprado en la ventana. */
   purchases: number;
   levers: MarginLever[];
+  /** La fuente de ajustes está vacía: la cascada es ciega, no cero. */
+  levers_source_empty: boolean;
   levers_amount_total: number;
   levers_margin_effect: number;
   non_margin: { operacional: NonMarginBlock; error_captura: NonMarginBlock };
-  promotions: { skus_con_promo: number; avg_benefit_pct: number | null };
+
+  // ── MR.6 — la brecha descompuesta ─────────────────────────────────────────
+  /** Renglones aditivos: cada uno suma o resta pp sobre la misma venta. */
+  bridge: BridgeStep[];
+  /** Negociado − lo que le devolvemos al cliente. Incompleto a propósito. */
+  margin_integral_amount: number;
+  margin_integral_pct: number | null;
+  integral_complete: boolean;
+  integral_missing: { key: string; label: string; reason: string }[];
+  customer_discount: {
+    amount: number;
+    docs: number;
+    invoiced_revenue: number;
+    pct_of_invoiced: number | null;
+    note: string;
+  };
+  uncollected: {
+    amount: number;
+    margin_effect: number;
+    suppliers_with_policy: number;
+    suppliers_below: number;
+    top: { supplier_id: string; name: string; rate_pct: number; purchases: number; expected: number; taken: number; missing: number }[];
+    note: string;
+  };
+  /** Pronto pago por dos canales: cuánto del negociado podría estar duplicado. */
+  overlap_risk: { amount: number; suppliers: number; pct_of_levers: number | null; note: string };
+
+  /** `benefit` crudo: la unidad NO está confirmada, no se publica como %. */
+  promotions: { skus_con_promo: number; avg_benefit: number | null; benefit_unit: 'unconfirmed' };
   /** Sobre qué parte del universo se calculó el margen. El número honesto. */
   coverage: {
     revenue_with_cost: number;
     revenue_total: number;
     revenue_pct: number | null;
+    channels: { channel: string; revenue: number }[];
     skus_with_cost: number;
     skus_total: number;
   };
@@ -80,6 +132,9 @@ export interface ProfitabilityRow {
   supplier_name: string | null;
   abc_class: string | null;
   revenue: number;
+  /** La parte de la venta que trae costo: el denominador del margen. */
+  revenue_costed: number;
+  coverage_pct: number | null;
   cost: number;
   margin_amount: number;
   margin_pct: number | null;
@@ -87,12 +142,28 @@ export interface ProfitabilityRow {
   gap_amount: number | null;
   units: number;
   skus: number;
-  inventory_value: number;
+  /** Null por canal: el inventario no es de un canal, y un $0 se leería como "sin stock". */
+  inventory_value: number | null;
   inventory_days: number | null;
+  /** SKUs del renglón valuados con un costo que el PdV contradice. */
+  cost_conflict_skus: number;
   annual_contribution: number | null;
+  /** Null cuando el costo de valuación no es confiable: no se inventa. */
   gmroi: number | null;
-  /** Promoción vigente del SKU (kdpv_descuxq), en %. */
-  promo_pct: number | null;
+  /** Beneficio de promoción vigente (kdpv_descuxq), CRUDO. Unidad sin confirmar. */
+  promo_benefit: number | null;
+
+  // ── Margen unitario: sólo a nivel producto, nulo en los agregados ──────────
+  /** `weight` se cobra por kilo; `piece`, por la unidad en que factura el PdV. */
+  unit_kind: 'piece' | 'weight' | null;
+  price_unit: number | null;
+  cost_unit: number | null;
+  /** Lo que deja UNA unidad vendida. */
+  margin_unit: number | null;
+  margin_unit_pct: number | null;
+  /** Sólo cuando el factor canónico es confiable (no granel dudoso). */
+  box_factor: number | null;
+  margin_box: number | null;
 }
 
 export interface ProfitabilityBreakdown {
@@ -100,7 +171,14 @@ export interface ProfitabilityBreakdown {
   window: MarginWindow;
   target: number;
   data: ProfitabilityRow[];
-  totals: { revenue: number; margin_amount: number; margin_pct: number | null; gap_amount: number | null };
+  totals: {
+    revenue: number;
+    revenue_costed: number;
+    margin_amount: number;
+    margin_pct: number | null;
+    gap_amount: number | null;
+    inventory_value: number | null;
+  };
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
@@ -122,10 +200,13 @@ export interface SupplierLevers {
   non_margin: { operacional: NonMarginBlock; error_captura: NonMarginBlock };
   /** Pronto pago por nota Y por pago: puede ser el mismo descuento contado dos veces. */
   overlap_warning: boolean;
+  /** La fuente de ajustes está vacía: la cascada es ciega, no cero. */
+  levers_source_empty: boolean;
   promotions: {
     skus_con_promo: number;
-    avg_benefit_pct: number | null;
-    max_benefit_pct: number | null;
+    avg_benefit: number | null;
+    max_benefit: number | null;
+    benefit_unit: 'unconfirmed';
     note: string;
   };
   policy: {
@@ -141,8 +222,11 @@ export interface SupplierLevers {
 }
 
 /**
- * Motor de Rentabilidad (Fase MR). La venta sale del sell-out real, no de
- * `commercial.orders` — ver ADR-046.
+ * Motor de Rentabilidad (Fase MR). La venta Y el costo salen del sell-out real
+ * (`analytics.sales_daily`), no de `commercial.orders` — ver ADR-046. El costo
+ * es el que registró el PdV en la transacción, en la misma unidad en que cobró:
+ * `catalog.products.cost_base` viene por caja en buena parte del catálogo y
+ * mezclaba unidades.
  */
 @Injectable({ providedIn: 'root' })
 export class ProfitabilityService {
@@ -165,6 +249,8 @@ export class ProfitabilityService {
     supplier_id?: string | null;
     brand_id?: string | null;
     category_id?: string | null;
+    warehouse_id?: string | null;
+    channel?: string | null;
     page?: number;
     pageSize?: number;
     sort?: string;
@@ -179,6 +265,8 @@ export class ProfitabilityService {
     if (opts.supplier_id) params = params.set('supplier_id', opts.supplier_id);
     if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
     if (opts.category_id) params = params.set('category_id', opts.category_id);
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.channel) params = params.set('channel', opts.channel);
     if (opts.page != null) params = params.set('page', opts.page);
     if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
     if (opts.sort) params = params.set('sort', opts.sort).set('dir', opts.dir ?? 'desc');

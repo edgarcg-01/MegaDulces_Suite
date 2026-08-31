@@ -82,10 +82,12 @@ export class CustomerLedgerService {
         const s = `%${q.search.trim()}%`;
         qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
       }
-      // Solo cargos: el saldo por documento (kdm5, exacto) ya trae lo aplicado restado.
+      // `saldo_ajustado` (no `saldo_documento`): reparte FIFO el remanente que kdm5 no logró
+      // ubicar, así el total cuadra con la fórmula de Kepler. `saldo_cliente` es ese total.
       const rows = await qb.where('r.cargo_abono', 'C').select(
         'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona',
-        'r.importe', 'r.saldo_documento', 'r.limite_credito', 'r.dias_credito', 'r.telefono',
+        'r.importe', 'r.saldo_ajustado', 'r.saldo_cliente', 'r.dias_pago',
+        'r.limite_credito', 'r.dias_credito', 'r.telefono',
         trx.raw('r.vencimiento::text as vencimiento'),
         trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'),
       );
@@ -94,39 +96,51 @@ export class CustomerLedgerService {
       for (const r of rows) {
         const k = `${r.sucursal}||${r.cliente_code}`;
         let g = map.get(k);
-        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, limite: r.limite_credito != null ? M2(r.limite_credito) : null, dias_credito: r.dias_credito != null ? Number(r.dias_credito) : null, telefono: r.telefono, cargos: [] }; map.set(k, g); }
-        const saldoDoc = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
+        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, limite: r.limite_credito != null ? M2(r.limite_credito) : null, dias_credito: r.dias_credito != null ? Number(r.dias_credito) : null, telefono: r.telefono, saldo_cliente: M2(r.saldo_cliente), cargos: [], pagos: [] }; map.set(k, g); }
+        const saldoDoc = r.saldo_ajustado != null ? M2(r.saldo_ajustado) : M2(r.importe);
         g.cargos.push({ saldo: saldoDoc, venc: r.vencimiento || null });
+        if (r.dias_pago != null) g.pagos.push(Number(r.dias_pago));
         if (!g.cliente_nombre && r.cliente_nombre) g.cliente_nombre = r.cliente_nombre;
       }
 
       const clientes: any[] = [];
-      const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0, aging: emptyBucket() };
+      const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0, total_a_favor: 0, n_a_favor: 0, aging: emptyBucket() };
       for (const g of map.values()) {
         const aging = emptyBucket();
-        let saldo = 0; let vencido = 0; let nPartidas = 0;
+        let saldoDocs = 0; let vencido = 0; let nPartidas = 0; let nSaldadas = 0;
         for (const cg of g.cargos) {
           const residual = Math.round(cg.saldo * 100) / 100;
-          if (residual <= 0.005) continue;
-          saldo += residual; nPartidas += 1;
+          if (residual <= 0.005) { nSaldadas += 1; continue; }
+          saldoDocs += residual; nPartidas += 1;
           bucketFor(aging, cg.venc, hoy, residual);
           if (cg.venc && Date.parse(hoy) > Date.parse(cg.venc)) vencido += residual;
         }
-        saldo = Math.round(saldo * 100) / 100;
+        saldoDocs = Math.round(saldoDocs * 100) / 100;
+        // El total lo manda kdue. Lo que las partidas no alcanzan a explicar (kdm5 aplicó más
+        // de lo que kdue justifica: 5 clientes, $41k) se declara, no se esconde ni se reparte.
+        const saldo = Math.round(Math.max(M2(g.saldo_cliente), 0) * 100) / 100;
+        const sin_documento = Math.round((saldo - saldoDocs) * 100) / 100;
+        const saldo_a_favor = Math.round(Math.max(-M2(g.saldo_cliente), 0) * 100) / 100;
+        if (saldo_a_favor > 0.005) { kpi.total_a_favor += saldo_a_favor; kpi.n_a_favor += 1; }
         if (saldo <= 0.005 && q.incluir_saldados !== '1') continue;
         const limite = g.limite && g.limite > 0 ? g.limite : null;
         const uso_linea = limite ? Math.round((saldo / limite) * 1000) / 10 : null; // %
+        const dias_pago_prom = g.pagos.length
+          ? Math.round((g.pagos.reduce((s: number, d: number) => s + d, 0) / g.pagos.length) * 10) / 10 : null;
         clientes.push({
           sucursal: g.sucursal, cliente_code: g.cliente_code, cliente_nombre: g.cliente_nombre || g.cliente_code,
           rfc: g.rfc || null, vendedor: g.vendedor || null, grupo: g.grupo || null, zona: g.zona || null,
           telefono: g.telefono || null, limite_credito: limite, dias_credito: g.dias_credito || null,
           uso_linea, sobre_linea: limite != null && saldo > limite + 0.005,
-          saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, aging,
+          saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, n_saldadas: nSaldadas,
+          sin_documento: Math.abs(sin_documento) > 0.005 ? sin_documento : 0,
+          saldo_a_favor, dias_pago_prom, n_pagos: g.pagos.length, aging,
         });
         kpi.total_saldo += saldo; kpi.total_vencido += vencido; kpi.n_clientes += 1; kpi.n_partidas += nPartidas;
         if (limite != null && saldo > limite + 0.005) kpi.n_sobre_linea += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
       }
+      kpi.total_a_favor = Math.round(kpi.total_a_favor * 100) / 100;
       if (q.sort === 'vencido') clientes.sort((a, b) => b.vencido - a.vencido || b.saldo - a.saldo);
       else clientes.sort((a, b) => b.saldo - a.saldo);
       kpi.total_saldo = Math.round(kpi.total_saldo * 100) / 100;
@@ -159,7 +173,7 @@ export class CustomerLedgerService {
         const s = `%${q.search.trim()}%`;
         qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
       }
-      const rows = await qb.select('r.cliente_code', 'r.vendedor', 'r.zona', 'r.importe', 'r.saldo_documento',
+      const rows = await qb.select('r.cliente_code', 'r.vendedor', 'r.zona', 'r.importe', 'r.saldo_ajustado', 'r.dias_pago',
         trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'));
 
       const desde90 = new Date(Date.parse(hoy) - 90 * 86400000).toISOString().slice(0, 10);
@@ -169,9 +183,11 @@ export class CustomerLedgerService {
       const porZona = new Map<string, any>();
       // Proyección de cobranza (cashflow): lo NO vencido, por cuándo vence.
       const proy = { vencido: 0, d0_7: 0, d8_15: 0, d16_30: 0, d30_plus: 0, sin_fecha: 0 };
+      const pagos: number[] = [];
       for (const r of rows) {
-        const saldo = r.saldo_documento != null ? M2(r.saldo_documento) : M2(r.importe);
+        const saldo = r.saldo_ajustado != null ? M2(r.saldo_ajustado) : M2(r.importe);
         const importe = M2(r.importe);
+        if (r.dias_pago != null) pagos.push(Number(r.dias_pago));
         if (r.fecha && r.fecha >= desde90) ventas90 += importe;
         if (saldo <= 0.005) continue;
         saldoTotal += saldo;
@@ -202,6 +218,14 @@ export class CustomerLedgerService {
         saldo_total: r2(saldoTotal), vencido_total: r2(vencidoTotal),
         pct_vencido: saldoTotal > 0 ? Math.round((vencidoTotal / saldoTotal) * 1000) / 10 : 0,
         dso, ventas_90d: r2(ventas90), n_clientes: porCliente.size,
+        // Comportamiento de pago real (días entre factura y su último cobro). El DSO dice
+        // cuánto tarda la cartera; esto dice cuánto tardan los que SÍ pagan.
+        pago: pagos.length ? {
+          n: pagos.length,
+          promedio: Math.round((pagos.reduce((s, d) => s + d, 0) / pagos.length) * 10) / 10,
+          mediana: pagos.slice().sort((a, b) => a - b)[Math.floor(pagos.length / 2)],
+          tarde_30d: pagos.filter((d) => d > 30).length,
+        } : null,
         concentracion: { top10_pct: saldoTotal > 0 ? Math.round((top10Suma / saldoTotal) * 1000) / 10 : 0, top10 },
         proyeccion: { vencido: r2(proy.vencido), d0_7: r2(proy.d0_7), d8_15: r2(proy.d8_15), d16_30: r2(proy.d16_30), d30_plus: r2(proy.d30_plus), sin_fecha: r2(proy.sin_fecha) },
         por_vendedor: [...porVend.values()].map((v) => ({ vendedor: v.vendedor, saldo: r2(v.saldo), vencido: r2(v.vencido), n_clientes: v.clientes.size })).sort((a, b) => b.saldo - a.saldo),
@@ -300,9 +324,10 @@ export class CustomerLedgerService {
           this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
         })
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente })
-        .select('r.doc_tipo', 'r.doc_label', 'r.folio', 'r.folio_digital',
+        .select('r.doc_tipo', 'r.doc_label', 'r.doc_code', 'r.folio', 'r.folio_digital',
           trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'),
-          'r.importe', 'r.cargo_abono', 'r.referencia', 'r.vendedor', 'r.saldo_documento', 'r.aplicaciones',
+          'r.importe', 'r.cargo_abono', 'r.estatus', 'r.vendedor', 'r.saldo_documento', 'r.saldo_ajustado',
+          'r.saldo_cliente', 'r.dias_pago', 'r.aplicaciones',
           'r.limite_credito', 'r.dias_credito', 'r.telefono', 'r.grupo', 'r.zona',
           trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'))
         .orderBy([{ column: 'r.fecha', order: 'asc' }, { column: 'r.folio', order: 'asc' }]);
@@ -312,22 +337,36 @@ export class CustomerLedgerService {
 
       const partidas = cargos.map((cg: any) => {
         const importe = M2(cg.importe);
-        const saldo_documento = cg.saldo_documento != null ? M2(cg.saldo_documento) : importe;
+        // El saldo que se muestra es el ajustado (cuadra con kdue); `saldo_kdm5` es lo que
+        // dicen las aplicaciones. Difieren cuando hubo un abono que kdm5 no supo ubicar.
+        const saldo_kdm5 = cg.saldo_documento != null ? M2(cg.saldo_documento) : importe;
+        const saldo_documento = cg.saldo_ajustado != null ? M2(cg.saldo_ajustado) : saldo_kdm5;
         const venc = cg.vencimiento || null;
         const dias = venc ? Math.floor((Date.parse(hoy) - Date.parse(venc)) / 86400000) : null;
+        const aplicaciones: any[] = Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []);
+        const saldada = saldo_documento <= 0.005;
+        // Saldada = la última aplicación que la cerró (la vista ya las ordena por fecha).
+        const fechas = aplicaciones.map((a) => a?.fecha).filter(Boolean).sort();
         return {
-          doc_tipo: cg.doc_tipo, doc_label: cg.doc_label, folio: cg.folio, folio_digital: cg.folio_digital,
+          doc_tipo: cg.doc_tipo, doc_label: cg.doc_label, doc_code: cg.doc_code,
+          folio: cg.folio, folio_digital: cg.folio_digital,
           fecha: cg.fecha || null, vencimiento: venc,
-          importe, saldo_documento, dias_vencido: dias, vencida: dias != null && dias > 0 && saldo_documento > 0.005,
-          referencia: cg.referencia,
-          aplicaciones: Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []),
+          importe, saldo_documento, saldo_kdm5, dias_vencido: dias, vencida: dias != null && dias > 0 && !saldada,
+          saldada, pagada_el: saldada && fechas.length ? fechas[fechas.length - 1] : null,
+          dias_pago: cg.dias_pago != null ? Number(cg.dias_pago) : null,
+          estatus: cg.estatus,
+          aplicaciones,
         };
       });
       const head = rows[0] || {};
-      const saldo = Math.round(partidas.reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100;
+      const saldoDocs = Math.round(partidas.reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100;
+      const saldoCliente = head.saldo_cliente != null ? M2(head.saldo_cliente) : saldoDocs;
+      const saldo = Math.round(Math.max(saldoCliente, 0) * 100) / 100;
+      const pagos = partidas.map((p) => p.dias_pago).filter((d): d is number => d != null);
 
       // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
-      // Puente por cliente_code (los cobros CEDIS traen el código del cliente). Best-effort.
+      // Puente por cliente_code (los cobros de la suc '00' — Oficinas, no el CEDIS: ERP_KEPLER
+      // §2.3 — traen el código del cliente). Best-effort.
       let cobranza: any = null;
       try {
         const cc = (await trx.raw(
@@ -358,9 +397,16 @@ export class CustomerLedgerService {
           dias_credito: head.dias_credito != null ? Number(head.dias_credito) : null,
         },
         saldo,
+        saldo_a_favor: Math.round(Math.max(-saldoCliente, 0) * 100) / 100,
+        sin_documento: Math.abs(saldo - saldoDocs) > 0.005 ? Math.round((saldo - saldoDocs) * 100) / 100 : 0,
+        dias_pago_prom: pagos.length ? Math.round((pagos.reduce((s, d) => s + d, 0) / pagos.length) * 10) / 10 : null,
+        n_pagos: pagos.length,
         vencido: Math.round(partidas.filter((p) => p.vencida).reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100,
-        partidas: partidas.filter((p) => p.saldo_documento > 0.005),
-        pagadas: partidas.filter((p) => p.saldo_documento <= 0.005).length,
+        // Van TODAS: la partida saldada es historia de pago del cliente, no ruido. El front
+        // las esconde detrás de un toggle para que el default siga siendo "partidas vivas".
+        partidas,
+        pagadas: partidas.filter((p) => p.saldada).length,
+        importe_pagado: Math.round(partidas.filter((p) => p.saldada).reduce((s, p) => s + p.importe, 0) * 100) / 100,
         abonos: abonos.map((r: any) => ({
           doc_label: r.doc_label, folio: r.folio, fecha: r.fecha || null, importe: M2(r.importe),
         })),

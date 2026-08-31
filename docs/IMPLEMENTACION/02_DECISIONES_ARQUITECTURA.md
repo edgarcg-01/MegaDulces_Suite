@@ -1418,3 +1418,56 @@ Lo que **no cambia** de ADR-045: REST + Socket.IO, GraphQL sigue rechazado (mism
 - **GraphQL / tRPC** — exigen tipar todo el schema por adelantado (peor contra un boundary 78% sin tipar) y rompen Throttler / multiplican el riesgo de RLS. Ver ADR-045.
 
 Plan en [`FASE_TS_CONTRATOS_TIPADOS`](FASES/FASE_TS_CONTRATOS_TIPADOS.md).
+
+---
+
+## ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo
+
+**Estado:** ✅ Aceptado — 2026-08-29 · ⚠️ **enmendado 2026-08-31**. Reemplaza el cálculo original de `/comercial/rentabilidad`.
+
+> **Enmienda 2026-08-31 — la redacción original era falsa en la mitad del negocio.** Este ADR decía
+> que `analytics.sales_daily.cost` es "el costo que registró el PdV, en la unidad en que cobró". Eso
+> vale **sólo para la mitad Wincaja** (48.9% de la venta). En los canales Kepler (50.8%) el fact no
+> guarda un costo: guarda `revenue / (1 + markup_pct/100)`, con `markup_pct` copiado de
+> `md.kdpv_prod_util.c6` **de una sola sucursal**. Por álgebra ese margen es función únicamente del
+> markup y **no reacciona al precio cobrado** — medido: 3,269 SKUs vendidos a precios que difieren
+> hasta 20% entre almacenes dan **0.0000 pp** de spread de margen. Subdeclara **2.02 pp**
+> ($411,220 en 30 d).
+>
+> **Lo que sigue en pie:** la decisión de dejar de usar `cost_base × units` es correcta, porque
+> `markup_pct` es adimensional y no puede descuadrar unidades, mientras `cost_base` viene por CAJA.
+> Lo que estaba mal era el *por qué*, y con él la creencia de que el margen ya se estaba midiendo.
+>
+> **Lo que cambia:** el costo canónico pasa a ser `kdm2.c62`/`c63` (existe, 99.1% de cobertura en los
+> doctypes de venta grandes) resuelto contra `analytics.v_supplier_cost_ladder` — y eso **requiere
+> persistir primero el peldaño cobrado**, que hoy el ETL deduce y descarta. Diagnóstico completo,
+> con las cuatro pruebas, en [`FASE_MR_COSTO_Y_UNIDAD`](FASES/FASE_MR_COSTO_Y_UNIDAD.md).
+
+**Contexto:** la pantalla publicaba el margen como `revenue − (catalog.products.cost_base × units)`. Ese `cost_base` está capturado **por CAJA** en buena parte del catálogo, y las unidades vendidas vienen **por PIEZA**. `analytics.v_product_box_factor` reproduce el ratio casi exacto (78210 `bf=15`: $51.00/15 = $3.40 contra un precio implícito de $3.04; 95285 `bf=32`: $4,356.72/32 = $136.15 contra $176.41).
+
+Medido en **prod** (2026-08-29, ventana de 30 días, $42M de venta): **57 SKUs metían $3,565,336 de COGS falso — el 10.0% del COGS total — sobre $386k de venta (0.9%)**. La pantalla publicaba **14.62%** cuando el fact dice **11.32%**: **3.30 pp de diferencia, el 94% de la brecha de 3.5 pp que la fase existe para cerrar**. El negocio reporta su margen real en **~11.5%** — o sea el fact coincide con lo que Compras sabe, y la pantalla le estaba diciendo que la brecha estaba casi cerrada cuando no lo está. (En `platform_test`: 30 SKUs, $1.76M de COGS falso, 13.05% publicado contra 10.32% real.)
+
+Es exactamente el riesgo #1 del plan de fase (§2.3) y del sprint MR.1, que la pantalla salteó.
+
+**Decisión:**
+
+1. **La venta Y el costo salen de `analytics.sales_daily`.** `cost` es lo que el punto de venta registró en la transacción, en la **misma unidad en que cobró** — la unidad deja de ser una categoría de bug en vez de algo que hay que normalizar renglón por renglón. Estable en las tres ventanas: 10.32% / 10.29% / 10.33% a 30/90/365 días.
+2. **El denominador del margen es `revenue_costed`**, no la venta total: la venta sin costo no se puede juzgar y se reporta como cobertura (99.88% real, contra el 100% que el panel viejo mostraba siempre por construcción).
+3. **`catalog.products.cost_base` se conserva SOLO para valuar inventario** — sigue siendo la regla canónica del proyecto para valuación/ABC/capital parado — y se **contrasta** contra el costo del fact: fuera de `[1/1.5, 1.5]×` el SKU se marca (`cost_quality`), su GMROI se suprime en vez de imprimir un número inventado, y el monto de capital afectado se declara en pantalla.
+4. **Las bandas de salud se derivan del objetivo** (`⅔·target`, `target`, `5/3·target`) en un solo origen que genera el TS y el `CASE` de SQL. Estaban clavadas en 10/15/25 mientras el objetivo era editable.
+5. **Fuente vacía ≠ resultado en cero.** Si `erp_purchase_adjustments` no tiene filas, la respuesta lo declara (`levers_source_empty`) y la UI dice que no se está midiendo, en vez de dibujar una cascada de ceros indistinguible de "este mes no hubo descuentos". *(Verificado: en prod la tabla **sí** tiene 1,403 ajustes y `supplier_discount_policy` sus 147 políticas — el vacío es de la DB local. El flag es la defensa para que la diferencia entre "no hubo" y "no se midió" nunca vuelva a ser invisible.)*
+6. **Lo que no está confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma los valores 2/3/4/5: viaja crudo como `promo_benefit`, no como `−4.0%`, y no se resta del margen.
+
+**Consecuencias:**
+- El número de la pantalla coincide con el resto de los reportes de sell-out; deja de haber dos verdades del mismo mes.
+- El KPI de capital en inventario cuadra con la suma de la tabla (`total = in_scope + stock muerto`); antes diferían $23M sin explicación visible.
+- ⚠️ **La valuación de inventario queda acotada, no corregida.** En **prod está sana**: $59,095,184 contra $564M de COGS anuales = **38 días** (el $375M / ~4 años que apareció en la auditoría inicial era de `platform_test`, la DB local, no de prod). Lo que sí persiste en prod es la **calidad del costo**: 564 de 6,972 SKUs (8.1%) tienen un `cost_base` que el PdV contradice, y valúan **$11,423,059 = 19.3% del capital**. Se marca y se suprime su GMROI; corregir el catálogo es de su feed.
+- ⚠️ `sales_daily` arranca en 2025-10-03: la ventana de 365 días todavía no cubre 12 meses completos.
+- El costo por request sube (~0.7 s de agregación sobre 641k filas) contra leer un snapshot pre-calculado. Se acepta: el snapshot mentía.
+
+**Alternativas rechazadas:**
+- **Corregir `cost_base` dividiendo por `v_product_box_factor`** — arregla el margen pero deja el catálogo mal y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed, no acá.
+- **Valuar el inventario con el costo implícito de la venta** — se midió: el CEDIS no vende, cae al costo de retail y la valuación **sube** a $398M. Peor que el número que reemplaza.
+- **Seguir con `product_sales_stats`** — es un snapshot de dos días de antigüedad, no trae costo y obligaba a recomputarlo. Queda sólo como origen de `abc_class`.
+
+Plan en [`FASE_MR_MOTOR_RENTABILIDAD`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).

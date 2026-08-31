@@ -17,8 +17,6 @@ import { ReceivingAuditorService } from '../receiving-auditor.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_ANALYTICS_TABS } from '../../comercial/inventory-tabs';
 
 /** Un plazo corto es riesgo inmediato: entra y hay que sacarlo casi de inmediato. */
 const PLAZO_RIESGOSO_DIAS = 30;
@@ -47,14 +45,13 @@ const PLAZO_INTERMEDIO_DIAS = 90;
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
-    InputTextModule, DialogModule, ToastModule, TooltipModule, PageTabsComponent,
+    InputTextModule, DialogModule, ToastModule, TooltipModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -211,7 +208,6 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly inventoryTabs = INV_ANALYTICS_TABS;
 
   readonly rows = signal<PendingExpiryLine[]>([]);
   readonly loading = signal(false);
