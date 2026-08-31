@@ -919,6 +919,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
   currentPageTitle = computed(() => {
     const url = this.currentUrl();
     const all = [...this.navItems(), ...this.adminItems()];
+    // WMS.1 — el item de ÁREA manda, y se resuelve con `resolveAlmacenArea`
+    // (prefijo más largo), no con el match laxo de abajo. Ese match decía
+    // "Inventario" en `/almacen/inventory/ubicaciones`, que pertenece a
+    // **Entrada**, sólo porque la URL empieza con `/almacen/inventory/`.
+    // Mismo bug de prefijo ingenuo que ya se corrigió en el resaltado del
+    // sidebar. Sólo aplica a los items que declaran `activeAreaKey`, así que
+    // el resto de los proyectos cae al comportamiento de siempre.
+    const byArea = all.find((i) => this.isNavActive(i));
+    if (byArea) return byArea.label;
     // Match más laxo que ===: cubre query params, hijos y trailing slashes.
     const item =
       all.find((i) => url === i.route) ||
