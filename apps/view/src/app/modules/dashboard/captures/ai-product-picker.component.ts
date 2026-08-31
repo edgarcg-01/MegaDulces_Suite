@@ -2,10 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
-  Input,
   Output,
   computed,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -66,10 +66,10 @@ export class AiProductPickerComponent {
   private readonly haptic = inject(HapticService);
 
   /** Catálogo agrupado por marca, para mostrar nombre + lookup en alternativas. */
-  @Input() catalog: BrandGroup[] = [];
+  readonly catalog = input<BrandGroup[]>([]);
 
   /** Lista actual de pids ya seleccionados — los reflejamos como "ya añadido". */
-  @Input() currentSelected: string[] = [];
+  readonly currentSelected = input<string[]>([]);
 
   /** Emite los pids netos a agregar a `productosMarcados` (sin los ya seleccionados). */
   @Output() applied = new EventEmitter<string[]>();
@@ -171,7 +171,7 @@ export class AiProductPickerComponent {
     const pids = its
       .filter((it) => it.confirmed && it.selectedProductId)
       .map((it) => it.selectedProductId!) // safe por filter
-      .filter((pid) => !this.currentSelected.includes(pid)); // dedupe contra ya seleccionados
+      .filter((pid) => !this.currentSelected().includes(pid)); // dedupe contra ya seleccionados
 
     if (pids.length === 0) {
       this.haptic.notification('warning');
@@ -205,7 +205,7 @@ export class AiProductPickerComponent {
   }
 
   alreadyInList(productId: string): boolean {
-    return this.currentSelected.includes(productId);
+    return this.currentSelected().includes(productId);
   }
 
   trackByRawIndex(idx: number, _it: UiItem): number {
