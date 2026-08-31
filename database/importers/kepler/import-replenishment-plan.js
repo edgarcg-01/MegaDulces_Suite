@@ -354,13 +354,29 @@ const cte = (hist, tr, lead) => `
            ur.ratio,
            (uov.product_id IS NOT NULL) AS is_manual,
            COALESCE(pv.cost, pf.cwt, 0) AS real_cost,
-           pv.buy_rate, pv.last_purchase, pv.order_days, pv.primary_wh
+           pv.buy_rate, pv.last_purchase, pv.order_days, pv.primary_wh,
+           -- RA-PRO.46 — EL COSTO DE CAJA SE LEE DE KEPLER, NO SE CALCULA.
+           -- "Costo Uni Mayor" (kdpv_prov_prod.c4) YA ES el costo de una caja. Reconstruirlo con
+           -- real_cost × bf fallaba por los dos lados:
+           --   1. el MULTIPLICADOR: bf no siempre está en el peldaño del costo. En el azúcar 99029
+           --      lo pagado está en KG y bf=50 es el factor 500g→costal → $798.57 por un costal
+           --      de $415 (+92%);
+           --   2. la BASE: real_cost es el promedio ponderado de 90 d, o sea REZAGADO. En los
+           --      cerillos 00303 las compras reales son $11.0793 clavado (50 pzas = $553.97
+           --      exacto), pero una compra vieja a $11.8774 subía el promedio a $11.3454 →
+           --      $567.27 por una caja de $553.97. Multiplicar bien una base podrida sigue dando mal.
+           -- Medido: el costo del proveedor sigue a la ÚLTIMA compra con mediana 1.0000 (62.6%
+           -- exacto al 0.5%); el promedio de 90 d da 1.0058 y sólo 37.6% exacto. Leerlo sacó $1.1M
+           -- de costo inventado del catálogo. bf queda de respaldo para el 1.6% sin escalera.
+           -- Ver docs/ERP_KEPLER.md §2.1 y §5 regla 0.
+           lad.box_cost AS lad_box_cost
       FROM pf
       LEFT JOIN lbl ON lbl.product_id = pf.product_id
       LEFT JOIN uov ON uov.product_id = pf.product_id
       LEFT JOIN kbf ON kbf.product_id = pf.product_id
       LEFT JOIN ur  ON ur.product_id  = pf.product_id
       LEFT JOIN pv  ON pv.product_id  = pf.product_id
+      LEFT JOIN analytics.v_supplier_cost_ladder lad ON lad.sku = pf.sku
   ),
   dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id,
                  COALESCE(rm.home_wh, pd.warehouse_id) AS warehouse_id,   -- ruta → su sucursal madre
@@ -440,7 +456,11 @@ const PROJECT = `
            -- motor descuenta de la necesidad.
            round(COALESCE(t.te, 0)::numeric, 2) AS transit_eff_cajas,
            e.suf, e.bf,
-           e.real_cost * e.bf AS caja_cost,
+           -- RA-PRO.46: se LEE de Kepler; bf sólo si el SKU no tiene escalera (ver econ).
+           COALESCE(e.lad_box_cost, e.real_cost * e.bf) AS caja_cost,
+           -- Se DECLARA de dónde salió: kepler = lo dijo el ERP; bf = reconstruido (puede mezclar
+           -- peldaños y arrastra el rezago del promedio de 90 d).
+           CASE WHEN e.lad_box_cost IS NOT NULL THEN 'kepler' ELSE 'bf' END AS cost_source,
            round(e.ratio, 4) AS price_ratio,
            CASE WHEN e.is_manual THEN 'manual'
                 WHEN e.uxc <= 1 AND e.ratio >= 3 THEN 'granel'
@@ -468,7 +488,7 @@ const PROJECT = `
 const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'supplier_id', 'category_id',
   'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
   'transit_eff_cajas',
-  'suf', 'bf', 'caja_cost', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
+  'suf', 'bf', 'caja_cost', 'cost_source', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
   'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days', 'computed_at'];
 const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
 const DATA = COLS.filter((c) => !KEY.includes(c) && c !== 'computed_at');
