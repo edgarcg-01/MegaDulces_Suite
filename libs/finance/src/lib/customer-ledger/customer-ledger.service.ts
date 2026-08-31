@@ -12,6 +12,10 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * Aging por FIFO: el link exacto cobro→factura (kdm5) aún no se consume, así que el
  * saldo por documento se aproxima aplicando los abonos del cliente a sus cargos más
  * viejos primero (estándar de antigüedad de saldos; el saldo total es exacto).
+ *
+ * OJO multi-tenant: la vista estampa el uuid de mega_dulces como literal (kepler_ods no
+ * tiene tenant y es el único con Kepler), igual que el resto de la capa ODS-derivada. El
+ * `where tenant_id` de acá NO aísla nada — es forma, no defensa.
  */
 
 const M2 = (v: unknown) => Number(v) || 0;
@@ -136,14 +140,25 @@ export class CustomerLedgerService {
    * Resumen gerencial (lo que Kepler no da): DSO (días cartera), concentración top-10,
    * cartera por vendedor y por zona. Answer-first para dirección.
    */
-  async resumen(q: { sucursal?: string; grupo?: string; zona?: string } = {}) {
+  async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; search?: string } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const hoy = await this.hoy(trx);
-      let qb = trx('analytics.customer_receivables as r').where({ 'r.tenant_id': tenantId, 'r.cargo_abono': 'C' });
+      // Mismos filtros que `cartera()`: el resumen tiene que hablar del mismo universo
+      // que la tabla, o dirección lee dos números distintos en la misma pantalla.
+      let qb = trx('analytics.customer_receivables as r')
+        .leftJoin('analytics.erp_customers as c', function (this: any) {
+          this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
+        })
+        .where({ 'r.tenant_id': tenantId, 'r.cargo_abono': 'C' });
       if (q.sucursal) qb = qb.where('r.sucursal', q.sucursal);
       if (q.grupo) qb = qb.where('r.grupo', q.grupo);
       if (q.zona) qb = qb.where('r.zona', q.zona);
+      if (q.vendedor) qb = qb.where('r.vendedor', q.vendedor);
+      if (q.search) {
+        const s = `%${q.search.trim()}%`;
+        qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
+      }
       const rows = await qb.select('r.cliente_code', 'r.vendedor', 'r.zona', 'r.importe', 'r.saldo_documento',
         trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'));
 

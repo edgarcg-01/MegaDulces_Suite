@@ -58,7 +58,7 @@ export class CustomerReceivablesScannerService {
   /** CXC.12 — captura el agregado de HOY (tenant × sucursal) para la tendencia. Idempotente por día. */
   async snapshotTenant(tenantId: string): Promise<number> {
     return this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
       const res = await trx.raw(
         `INSERT INTO analytics.customer_receivable_snapshots
            (tenant_id, snapshot_date, sucursal, saldo_total, vencido_total, n_clientes, por_vencer, d0_30, d31_60, d61_90, d90_plus, computed_at)
@@ -88,7 +88,7 @@ export class CustomerReceivablesScannerService {
   async scanTenant(tenantId: string): Promise<number> {
     if (!this.sink) return 0;
     const rows = await this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
       const hoy = (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text d`)).rows[0].d;
       const r = await trx.raw(
         `SELECT r.sucursal, r.cliente_code, max(c.name) AS nombre, max(r.telefono) AS tel,
@@ -145,7 +145,7 @@ export class CustomerReceivablesScannerService {
     // Promesas de pago vencidas sin cumplir → marca incumplida + hallazgo (CXC.13).
     try {
       const broken = await this.knex.transaction(async (trx) => {
-        await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
         return (await trx.raw(
           `UPDATE finance.collection_promises
               SET estado = 'incumplida', updated_at = now()

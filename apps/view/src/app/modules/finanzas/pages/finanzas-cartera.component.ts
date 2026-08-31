@@ -147,7 +147,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+                <tr><td colspan="9" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
               }
             </tbody>
           </table>
@@ -158,7 +158,16 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
       }
     </div>
 
-    <p-dialog [visible]="!!detalle()" (visibleChange)="!$event && closeDetalle()" [modal]="true" [dismissableMask]="true" [style]="{ width: '820px', maxWidth: '96vw' }" [header]="detalle()?.cliente?.cliente_nombre || 'Auxiliar del cliente'">
+    <p-dialog [visible]="detalleOpen()" (visibleChange)="!$event && closeDetalle()" [modal]="true" [dismissableMask]="true" [style]="{ width: '820px', maxWidth: '96vw' }" [header]="detalle()?.cliente?.cliente_nombre || detalleRef()?.nombre || 'Auxiliar del cliente'">
+      @if (detalleLoading()) {
+        <div class="ct-det-state"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando el auxiliar…</div>
+      } @else if (detalleError(); as err) {
+        <div class="ct-det-state ct-det-err">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>No se pudo cargar el auxiliar del cliente. {{ err }}</span>
+          <button pButton type="button" class="p-button-sm p-button-outlined" label="Reintentar" (click)="retryDetalle()"></button>
+        </div>
+      }
       @if (detalle(); as det) {
         <div class="ct-det-head">
           <div>
@@ -322,6 +331,8 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
     .ct-prom-empty { font-size: .8rem; margin: .3rem 0; }
     .ct-prom-form { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; align-items: center; }
     .ct-prom-in { width: 110px; } .ct-prom-nota-in { flex: 1; min-width: 140px; width: auto; }
+    .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-2, #6b6b6b); }
+    .ct-det-err { color: var(--danger, #b42318); }
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
@@ -331,6 +342,11 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly data = signal<CarteraResp | null>(null);
   readonly detalle = signal<CarteraDetalle | null>(null);
+  /** Estado del drill: el diálogo abre al click y dice si carga o si falló (antes callaba). */
+  readonly detalleOpen = signal(false);
+  readonly detalleLoading = signal(false);
+  readonly detalleError = signal<string | null>(null);
+  readonly detalleRef = signal<{ sucursal: string; cliente: string; nombre: string } | null>(null);
 
   sucursal: string | null = '01';
   grupo: string | null = null;
@@ -388,7 +404,8 @@ export class FinanzasCarteraComponent implements OnInit {
     if (next) this.loadResumen();
   }
   loadResumen() {
-    this.svc.resumen({ sucursal: this.sucursal || undefined, grupo: this.grupo || undefined, zona: this.zona || undefined })
+    // Mismos filtros que la tabla: si no, el resumen gerencial contradice lo que se ve abajo.
+    this.svc.resumen({ sucursal: this.sucursal || undefined, grupo: this.grupo || undefined, zona: this.zona || undefined, search: this.search.trim() || undefined })
       .subscribe({ next: (r) => this.resumen.set(r), error: () => this.resumen.set(null) });
     this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
       .subscribe({ next: (t) => this.tendencia.set(t), error: () => this.tendencia.set([]) });
@@ -424,17 +441,28 @@ export class FinanzasCarteraComponent implements OnInit {
   }
 
   openDetalle(c: CarteraCliente) {
-    this.detalle.set(null);
-    this.svc.detalle(c.sucursal, c.cliente_code).subscribe({
-      next: (d) => this.detalle.set(d),
-      error: () => this.detalle.set(null),
+    this.detalleRef.set({ sucursal: c.sucursal, cliente: c.cliente_code, nombre: c.cliente_nombre });
+    this.detalleOpen.set(true);
+    this.fetchDetalle(c.sucursal, c.cliente_code);
+  }
+  closeDetalle() {
+    this.detalleOpen.set(false); this.detalle.set(null);
+    this.detalleError.set(null); this.detalleLoading.set(false); this.detalleRef.set(null);
+  }
+  retryDetalle() {
+    const ref = this.detalleRef();
+    if (ref) this.fetchDetalle(ref.sucursal, ref.cliente);
+  }
+
+  private fetchDetalle(sucursal: string, cliente: string) {
+    this.detalle.set(null); this.detalleError.set(null); this.detalleLoading.set(true);
+    this.svc.detalle(sucursal, cliente).subscribe({
+      next: (d) => { this.detalle.set(d); this.detalleLoading.set(false); },
+      error: (e) => { this.detalleError.set(e?.error?.message || e?.message || 'error'); this.detalleLoading.set(false); },
     });
   }
-  closeDetalle() { this.detalle.set(null); }
 
-  private reloadDetalle(sucursal: string, cliente: string) {
-    this.svc.detalle(sucursal, cliente).subscribe({ next: (d) => this.detalle.set(d) });
-  }
+  private reloadDetalle(sucursal: string, cliente: string) { this.fetchDetalle(sucursal, cliente); }
 
   savePromise(det: CarteraDetalle) {
     if (!this.promMonto || !this.promFecha) return;
