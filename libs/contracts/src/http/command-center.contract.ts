@@ -9,6 +9,17 @@
 
 import { z } from 'zod';
 
+// Timestamp del wire. Knex/node-postgres entrega las columnas timestamp/date como
+// objetos `Date` (pre-serializacion), pero el wire JSON siempre lleva un string ISO
+// —es lo que `JSON.stringify(date)` producia historicamente—. Este schema acepta
+// ambos y NORMALIZA a ISO, asi el `.parse()` del BFF no revienta con un Date y el
+// tipo inferido sigue siendo `string` (el front no cambia). Usar SOLO en campos que
+// pasan por un `.parse()` de verdad. No aplicar a fechas date-only (`day`), que ya
+// vienen como string 'YYYY-MM-DD' via to_char y no deben ganar hora/UTC.
+const wireTimestamp = z
+  .union([z.string(), z.date()])
+  .transform((v) => (v instanceof Date ? v.toISOString() : v));
+
 // ── piezas ──
 
 export const NetworkChannelRow = z.object({
@@ -25,10 +36,10 @@ export type NetworkChannelRow = z.infer<typeof NetworkChannelRow>;
 
 export const NetworkOverview = z.object({
   source: z.literal('network'),
-  updated_at: z.string().nullable(),
+  updated_at: wireTimestamp.nullable(),
   period: z.object({
     rolling_days: z.number(),
-    last_sale_date: z.string().nullable().optional(),
+    last_sale_date: wireTimestamp.nullable().optional(),
   }),
   cost_coverage_pct: z.number().optional(),
   revenue: z.object({
@@ -127,7 +138,7 @@ export const InactiveCustomerRow = z.object({
   name: z.string(),
   phone: z.string().nullable(),
   credit_limit: z.number(),
-  last_order_at: z.string().nullable(),
+  last_order_at: wireTimestamp.nullable(),
   days_since_last_order: z.number().nullable(),
 });
 export type InactiveCustomerRow = z.infer<typeof InactiveCustomerRow>;
