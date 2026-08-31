@@ -21,7 +21,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  WorkbookTerritory,
+  WorkbookTerritory, InTransitOc, InTransitResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -146,6 +146,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   <th rowspan="2" class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
                   <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
+                  <th rowspan="2" class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios y cuándo llega. El Pedido YA la descuenta — por eso un producto con OC en camino puede pedir 0.">En camino</th>
                   <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   @for (t of wbTerritories(); track t.code) {
@@ -183,6 +184,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
                   </td>
                   <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
+                  <td class="pr-r">
+                    @if (r.transito_cajas && r.transito_cajas > 0) {
+                      <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
+                              [title]="'Ver las órdenes de compra abiertas de ' + r.sku">
+                        <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
+                      </button>
+                    } @else { <span class="pr-muted">—</span> }
+                  </td>
                   <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
                   <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
                   @for (t of wbTerritories(); track t.code) {
@@ -291,7 +300,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − tránsito (la columna <strong>Est.</strong> muestra la razón estacional aplicada; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong> (la columna <strong>Est.</strong> muestra la razón estacional aplicada; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios y fechas, y ahí está la razón de que un producto pida 0; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
         @if (wbRows().length) {
@@ -306,6 +315,50 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
+
+        <!-- RA-PRO.44 — QUÉ VIENE EN CAMINO: las OCs abiertas del SKU. Es la explicación del
+             "Pedido 0" — el motor descuenta lo ya pedido, y hasta ahora eso era invisible. -->
+        <p-dialog [(visible)]="tranVisible" [modal]="true" [style]="{ width: '46rem' }" [dismissableMask]="true"
+                  [header]="'En camino — ' + (tranProduct()?.nombre || '')">
+          @if (tranLoading()) {
+            <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Consultando órdenes de compra…</div>
+          } @else if (tranError()) {
+            <div class="pr-state pr-error"><i class="pi pi-exclamation-triangle"></i>
+              <p>No se pudieron leer las órdenes de compra.</p></div>
+          } @else if (tranRows().length) {
+            <p class="pr-uov-hint">
+              <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
+              ({{ money(tranTotalValor()) }}). El pedido sugerido ya las descuenta.
+              La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
+              como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
+            </p>
+            <table class="pr-peek-tbl">
+              <thead><tr>
+                <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha OC</th><th>Llega aprox.</th>
+                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r">Valor</th>
+              </tr></thead>
+              <tbody>
+                @for (o of tranRows(); track o.folio + ':' + o.sucursal) {
+                  <tr>
+                    <td class="pr-mono">{{ o.folio }}</td>
+                    <td class="pr-mono pr-muted">{{ o.sucursal }}</td>
+                    <td class="pr-supp">{{ o.proveedor || '—' }}</td>
+                    <td class="pr-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
+                    <td>
+                      <p-tag [value]="(o.llega_aprox | date:'dd/MM/yy') || ''"
+                             [severity]="llegaSev(o)" styleClass="pr-cov-tag" [title]="llegaTitle(o)"></p-tag>
+                    </td>
+                    <td class="pr-r pr-muted">{{ o.cantidad | number:'1.0-0' }} {{ o.unidad }}</td>
+                    <td class="pr-r pr-strong">{{ o.cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-val">{{ money(o.valor) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <div class="pr-peek-loading">Este producto no tiene órdenes de compra abiertas.</div>
+          }
+        </p-dialog>
 
         <!-- RA-PRO.28 — override manual de unidad de venta (se abre desde el desglose por sucursal) -->
         <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
@@ -399,6 +452,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
+    /* RA-PRO.44 — "En camino": chip accionable que abre las OCs abiertas del SKU. */
+    .pr-tran-btn { display: inline-flex; align-items: center; gap: .25rem; font: inherit; font-size: .78rem;
+      padding: .1rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px);
+      background: transparent; color: var(--info-fg, var(--text-main)); cursor: pointer;
+      font-variant-numeric: tabular-nums; }
+    .pr-tran-btn:hover { background: var(--overlay-hover, var(--hover-bg)); border-color: var(--action); color: var(--action); }
+    .pr-tran-btn:focus-visible { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
+    .pr-tran-btn i { font-size: .7rem; }
     .pr-uov-prod { margin: 0 0 .5rem; }
     .pr-uov-hint { font-size: .78rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
     .pr-uov-f { display: block; margin-bottom: .9rem; }
@@ -554,8 +615,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
-  wbTableStyle = computed(() => ({ 'min-width': (43 + this.wbTerritories().length * 13) + 'rem' }));
-  wbColCount = computed(() => 8 + this.wbTerritories().length * 3 + 5);   // +1 = columna Est. (RA-PRO.41)
+  wbTableStyle = computed(() => ({ 'min-width': (48 + this.wbTerritories().length * 13) + 'rem' }));
+  // 7 base + Est. (RA-PRO.41) + En camino (RA-PRO.44) + 3/territorio + 5 de cierre
+  wbColCount = computed(() => 9 + this.wbTerritories().length * 3 + 5);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
@@ -673,6 +735,40 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return `${b?.txt ?? ''} ${v > 0 ? '+' : ''}${v.toFixed(2)}`.trim();
   }
   iadSev(r: WorkbookRow): Sev { return this.IAD_BANDS[r.iad_band ?? '']?.sev ?? 'secondary'; }
+
+  // ── RA-PRO.44 — "En camino": las OCs abiertas del SKU ────────────────
+  tranVisible = false;
+  readonly tranLoading = signal(false);
+  readonly tranError = signal(false);
+  readonly tranRows = signal<InTransitOc[]>([]);
+  readonly tranProduct = signal<{ sku: string; nombre: string } | null>(null);
+  readonly tranLead = signal<number | null>(null);
+  tranTotalCajas = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.cajas) || 0), 0));
+  tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
+
+  openTransit(r: WorkbookRow): void {
+    this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
+    this.tranRows.set([]); this.tranError.set(false); this.tranLoading.set(true); this.tranVisible = true;
+    this.api.inTransit(r.product_id)
+      .pipe(catchError(() => of(null as InTransitResponse | null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        this.tranLoading.set(false);
+        if (!res) { this.tranError.set(true); return; }   // NO tragar el error: se avisa (DESIGN §Ing.UI 6)
+        this.tranRows.set(res.rows ?? []);
+        this.tranLead.set(res.lead_days ?? null);
+        if (res.product) this.tranProduct.set(res.product);
+      });
+  }
+  /** Semáforo de llegada: vencida (debió llegar) · esta semana · más adelante. */
+  llegaSev(o: InTransitOc): Sev {
+    const d = Math.ceil((new Date(o.llega_aprox).getTime() - Date.now()) / 86400000);
+    return d < 0 ? 'danger' : d <= 7 ? 'warn' : 'info';
+  }
+  llegaTitle(o: InTransitOc): string {
+    const d = Math.ceil((new Date(o.llega_aprox).getTime() - Date.now()) / 86400000);
+    const base = o.llega_estimada ? 'Estimado (fecha de la orden + tiempo de surtido del proveedor)' : 'Fecha comprometida';
+    return d < 0 ? `${base} — lleva ${-d} día(s) de retraso` : `${base} — en ${d} día(s)`;
+  }
 
   // RA-PRO.41 — estacionalidad (el Pedido ya la trae puesta; el chip la hace visible).
   seasonOn(r: WorkbookRow): boolean { const v = Number(r.season_ratio ?? 1); return v !== 1 && v > 0; }

@@ -856,6 +856,7 @@ export class CommercialReplenishmentService {
                  round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
                  -- RA-PRO.41 — la demanda del horizonte lleva la estación (razón desestacionalizada).
                  round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
+                 round(COALESCE(sum(b.transit_cajas),0)::numeric, 1) AS tran,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src
@@ -865,7 +866,8 @@ export class CommercialReplenishmentService {
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
-                 jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
+                 jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped, 'tran', tran)) AS cells,
+                 round(sum(tran)::numeric, 1) AS transito_cajas,   -- RA-PRO.44: explica el "Pedido 0"
                  -- Reorden/Máximo de RED en cajas (Σ piezas de las sucursales ÷ BF) + XYZ peor-caso.
                  round((sum(reorder_pz) / NULLIF(max(bf),0))::numeric, 1) AS reorder_cajas,
                  round((sum(max_pz) / NULLIF(max(bf),0))::numeric, 1) AS max_cajas,
@@ -927,6 +929,91 @@ export class CommercialReplenishmentService {
    * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
    * desglose POR ALMACÉN (con su punto de compra/raíz resuelto por topología, sin hardcodear códigos).
    */
+  /**
+   * RA-PRO.44 — QUÉ VIENE EN CAMINO de un SKU, con folio y fecha. Es la explicación del "Pedido 0":
+   * cuando el motor no pide es casi siempre porque hay OC abierta, y hasta ahora eso era invisible
+   * (el comprador veía un cero sin causa). Lee el ODS en vivo — mismo criterio que el CTE `tr` del
+   * fact: OC `X-A-35` sin orden de entrada `X-A-40` aguas abajo vía su vale `X-A-37`.
+   *
+   * `llega_aprox` = fecha de la OC + lead time del proveedor (mediana derivada del ODS, RA-PRO.41).
+   * Es una ESTIMACIÓN: Kepler no registra fecha prometida (captura la cadena de un jalón), así que
+   * se marca `estimada: true` — no inventamos precisión que el ERP no tiene.
+   */
+  async inTransitDetail(productId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
+    return this.tk.run(async (trx) => {
+      const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
+      const prod = (await trx('catalog.products').where({ tenant_id: tenantId, id: productId })
+        .first('sku', 'nombre')) as { sku: string; nombre: string } | undefined;
+      if (!hasOds || !prod) return { product: prod ?? null, rows: [], total_cajas: 0, total_valor: 0 };
+
+      // El factor de caja y el costo salen del fact (misma fuente que el pedido) → las cantidades
+      // que ve el comprador acá cuadran con la columna "En camino" de la matriz.
+      const econ = (await trx.raw(
+        `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days
+           FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
+        [tenantId, productId])).rows[0] || {};
+      const bf = Number(econ.bf) || 1;
+      const cajaCost = Number(econ.caja_cost) || 0;
+      const lead = Number(econ.lead_days) || 4;
+
+      const rows = (await trx.raw(`
+        SELECT oc.c6                              AS folio,
+               oc.c1                              AS sucursal,
+               oc.c9::date                        AS fecha_oc,
+               (oc.c9::date + (?::numeric)::int)  AS llega_aprox,
+               btrim(oc.c32)                      AS proveedor,
+               btrim(l.c11)                       AS unidad,
+               sum(l.c9)                          AS cantidad,
+               round(sum(CASE
+                     WHEN NULLIF(btrim(l.c58::text), '')::numeric > 0
+                          AND NULLIF(btrim(l.c57::text), '')::numeric > 0
+                          AND ?::numeric > 0
+                          AND abs(NULLIF(btrim(l.c57::text), '')::numeric - ?::numeric)
+                              <= 0.15 * (?::numeric)
+                       THEN l.c9 / NULLIF(btrim(l.c58::text), '')::numeric
+                     ELSE l.c9 / (?::numeric) END)::numeric, 1) AS cajas
+          FROM kepler_ods.kdm1 oc
+          JOIN kepler_ods.kdm2 l
+            ON l.sucursal=oc.sucursal AND l.c1=oc.c1 AND l.c2=oc.c2 AND l.c3=oc.c3
+           AND l.c4=oc.c4 AND l.c6=oc.c6
+         WHERE oc.sucursal=oc.c1 AND oc.c2='X' AND oc.c3='A' AND oc.c4='35'
+           AND oc.c9::date >= CURRENT_DATE - 120
+           AND l.c8 = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM kepler_ods.kdm1 vale
+             JOIN kepler_ods.kdm1 oe
+               ON oe.sucursal=vale.sucursal AND oe.c1=vale.c1
+              AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c37='37' AND oe.c39=vale.c6
+            WHERE vale.sucursal=oc.sucursal AND vale.c1=oc.c1
+              AND vale.c2='X' AND vale.c3='A' AND vale.c4='37' AND vale.c37='35' AND vale.c39=oc.c6)
+         GROUP BY oc.c6, oc.c1, oc.c9::date, btrim(oc.c32), btrim(l.c11)
+         ORDER BY oc.c9::date`,
+        [lead, cajaCost, cajaCost, cajaCost, bf, prod.sku])).rows as Array<Record<string, unknown>>;
+
+      const out = rows.map((r) => ({
+        folio: String(r.folio ?? '').trim(),
+        sucursal: String(r.sucursal ?? '').trim(),
+        fecha_oc: r.fecha_oc,
+        llega_aprox: r.llega_aprox,
+        llega_estimada: true,          // Kepler no guarda fecha prometida — es OC + lead derivado
+        proveedor: (r.proveedor as string) || null,
+        unidad: (r.unidad as string) || null,
+        cantidad: Number(r.cantidad) || 0,
+        cajas: Number(r.cajas) || 0,
+        valor: Math.round((Number(r.cajas) || 0) * cajaCost * 100) / 100,
+      }));
+      return {
+        product: { sku: prod.sku, nombre: prod.nombre },
+        lead_days: lead,
+        rows: out,
+        total_cajas: Math.round(out.reduce((s, r) => s + r.cajas, 0) * 10) / 10,
+        total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
+      };
+    });
+  }
+
   async workbookDetail(productId: string, coverageDays?: number) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
