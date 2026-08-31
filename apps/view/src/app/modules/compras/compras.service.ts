@@ -616,6 +616,8 @@ export interface AdjustmentForEntradaRow extends AdjustmentRow {
   match: AdjustmentMatch;
   /** `[RE.21]` — su magnitud casa con el hueco dentro de la tolerancia. */
   explica?: boolean;
+  /** `[RE.21.3]` — días entre la recepción y el ajuste. >0 = el cuadre se calculó ANTES de que existiera. */
+  dias_despues?: number | null;
 }
 /** `[RE.21]` — el veredicto: ¿alguien explica el hueco, de qué naturaleza y con cuánta certeza? */
 export interface AdjustmentExplicacion {
@@ -625,6 +627,12 @@ export interface AdjustmentExplicacion {
   grupo: string | null;
   candidatos: number;
   confianza: 'alta' | 'media' | 'ambigua' | 'ninguna';
+  /**
+   * `[RE.21.3]` — días entre recibir y el ajuste que explica. Si es > 0, el `monto_match` que se
+   * guardó al capturar **no pudo** tomarlo en cuenta. Es la diferencia entre "se equivocó el
+   * capturista" y "todavía no existía".
+   */
+  dias_despues?: number | null;
 }
 export interface AdjustmentsForEntradaResponse {
   rows: AdjustmentForEntradaRow[];

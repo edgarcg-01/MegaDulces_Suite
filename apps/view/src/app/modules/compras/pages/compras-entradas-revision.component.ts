@@ -333,8 +333,15 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                           } @else {
                             Es un <b>problema operativo</b> — faltante, mal estado o no solicitado: la factura difiere porque no llegó completo.
                           }
+                          <!-- RE.21.3 — el cuadre es una foto: si el ajuste llegó después, el
+                               descuadre guardado no pudo tomarlo en cuenta. Es la diferencia
+                               entre "se equivocó el capturista" y "todavía no existía". -->
+                          @if (ex.dias_despues && ex.dias_despues > 0) {
+                            <em>Llegó <b>{{ ex.dias_despues }} {{ ex.dias_despues === 1 ? 'día' : 'días' }} después</b> de recibir: cuando se calculó el cuadre todavía no existía.</em>
+                          }
                           @if (ex.confianza === 'ambigua') { <em>Hay más de un candidato: confirmá cuál.</em> }
                           @else if (ex.confianza === 'media') { <em>Kepler no liga la nota a esta recepción — casa por monto, confirmalo.</em> }
+                          @else if (ex.confianza === 'alta') { <em>Kepler lo liga a esta entrada: se puede aprobar en lote.</em> }
                         } @else {
                           El hueco es de <strong>{{ money(ex.delta) }}</strong> y <b>ninguno de estos ajustes lo explica</b>.
                           Suele ser IVA o captura.
