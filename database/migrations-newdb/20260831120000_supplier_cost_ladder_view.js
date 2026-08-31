@@ -24,7 +24,14 @@
  * Ver `docs/ERP_KEPLER.md` §2.1 y §5 regla 0 (nunca adivinar la fuente: probar la unidad).
  *
  * Agregación: MEDIANA entre sucursales (la escalera es igual en todas; la mediana absorbe capturas
- * sueltas). El CEDIS '00' NO se excluye: acá el costo es del proveedor, no de valuación.
+ * sueltas). La sucursal Kepler '00' NO se excluye: acá el costo es del PROVEEDOR (mismo catálogo
+ * replicado en las 7 — medianas $554.63–$555.56), no de valuación, así que no sesga.
+ *
+ * ⚠️ OJO CON EL NOMBRE: la sucursal Kepler '00' es **OFICINAS**, no el CEDIS. No vende (cero líneas
+ * de mostrador U-D-10) y centraliza compra/tránsito/contabilidad. El **CEDIS real es BPIRAPUATO
+ * (Irapuato) y vive en WINCAJA**, no en Kepler. El nombre "Cedis Oficinas" de nuestro almacén '00'
+ * y los comentarios "CEDIS '00'" repartidos por los importers arrastran esa confusión. Ver
+ * docs/ERP_KEPLER.md §2.3.
  */
 exports.up = async function up(knex) {
   // Cómo se resolvió el costo de caja de cada fila. Se DECLARA, no se esconde:

@@ -94,6 +94,32 @@ explícita. **Las dos salieron limpias** — el costo era el único roto.
 Leer `c9` a secas da razón **0.1557** contra la existencia real (coincide sólo en 1.6% de los SKUs).
 Esta tabla decía lo contrario hasta hoy.
 
+### 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS
+
+Corrección de Edgar, 2026-08-31. Es la confusión más cara del modelo porque está **en el nombre**:
+
+| | qué es | dónde vive | evidencia |
+|---|---|---|---|
+| **Kepler `sucursal='00'`** | **OFICINAS** — centraliza compra, tránsito y contabilidad | Kepler (Postgres, en el ODS) | **cero** líneas de mostrador `U-D-10` en 30 d; las que venden son 01–06 |
+| **CEDIS real** | el bodegón que surte a la red | **WINCAJA** — `BPIRAPUATO`, archivo `0 BPIRAPUATO MOV.MDB` | `wincaja.branches`: `status='live_on_wincaja'`, *"CEDIS/bodegón Irapuato"* |
+
+**Consecuencias medidas:**
+
+- Nuestro almacén `code='00'` se llama **"Cedis Oficinas"** (`kepler_code` NULL) y es el **hub raíz de
+  la red de abasto** — 4 hijos (01, 06, MD-30, 03) — pero tiene **149 SKUs** de existencia contra
+  2,364–3,264 de las sucursales reales. El DRP planea contra un nodo administrativo.
+- `wincaja.branches` apunta el CEDIS a `warehouse_code='MD-00'`, **que no existe en
+  `commercial.warehouses`**: la existencia del CEDIS real no está modelada.
+- Hay **~11 importers** con comentarios del tipo *"CEDIS '00'"* que en realidad hablan de oficinas.
+  Funcionan bien (la lógica de incluir/excluir `00` es correcta para lo suyo); lo que engaña es el
+  nombre. Uno ya lo había notado: `import-stock-movements.js` escribe `CEDIS '00'='Cedis Oficinas'`.
+- Traer el CEDIS de verdad al pipeline es justamente el objetivo de la [`FASE_CA`](IMPLEMENTACION/FASES/FASE_CA_CEDIS_ACCESS_ODS.md)
+  (Access 97 → ODS), y por eso esa fase advierte que el `md_00` Postgres que hoy leen finanzas y
+  compras **es data de PRUEBA, no el CEDIS vivo**.
+
+**Al escribir cualquier consulta:** `sucursal='00'` te da oficinas. Si querés el CEDIS, la fuente es
+Wincaja (`w00` / `wincaja.*` con `source_branch='00'`), no Kepler.
+
 **Trampas al comparar ventas** (las tres las pisé antes de que salieran los números):
 
 1. **El doctype de venta es `U-D-10`** ("Ticket Contado Caja N"), naturaleza **D**. `U-A-10` es
