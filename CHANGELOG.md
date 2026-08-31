@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Fixed — los cortes se cierran EN ORDEN (SM.16, 2026-08-28)
+- La lista de turnos venía **del más nuevo al más viejo** y la pantalla preseleccionaba el primero, así que con un corte pendiente de ayer la cajera arqueaba el de hoy y **se saltaba el viejo**. Justo el que hay que mirar: un turno sin arquear es donde se esconde el hueco, y si se puede elegir cuál contar, se cuenta el que conviene y el otro envejece hasta que a nadie le importa. Además el efectivo de dos turnos se mezcla en el mismo cajón y ya no se sabe de cuál falta.
+- Ahora la lista va **del más viejo al más nuevo** y solo el primero es accionable. La guarda vive en el **backend** (`exigirElMasViejo`), no solo en la UI: mandar el folio de hoy a mano devuelve *"Tenés un corte pendiente antes que ese: caja 8 del 27/08"*.
+- Aplica al **cierre**, no al relevo: un relevo es intra-turno y urgente — bloquearlo porque quedó un cierre viejo pendiente pararía el mostrador sin proteger nada. El supervisor queda exento (captura por otros y en contingencia).
+
+### Added — "se acerca tu corte": el horario de cada caja, medido (SM.17, 2026-08-28)
+- **El patrón existe y es fuerte.** Sobre 3,268 cortes cerrados del ODS: dos picos claros, **15:00 (833 cortes)** y **20:00 (803)** — turno de mediodía y cierre. Pero la hora **no es global**: la 04 cierra ~19:57, la 05 ~18:52, la 02/03 ~20:35–20:50. Y una misma caja hace **los dos cortes**, así que una sola mediana por caja cae en el hueco entre ambos y no sirve (por eso daba rangos de 200–350 min).
+- Separando los dos modos, el corte de **cierre es muy predecible**: suc 04 caja 1 a las 19:58 **±7 min** · suc 05 caja 4 a las 18:52 **±7** · suc 03 caja 3 a las 20:35 **±8** · suc 02 caja 3 a las 20:38 **±10**. El de mediodía es más flojo pero varias cajas quedan en ±20–30.
+- `turnos` devuelve ahora `corte_tipico` / `corte_en_min` / `corte_iqr_min` para el turno **abierto**, calculados con la mediana histórica de esa caja y eligiendo el próximo corte que todavía no pasó. La pantalla avisa *"Tu corte es en 25 min. Suele cortar a las 20:35 (±8 min). Andá preparando el efectivo."*
+- **Se avisa solo cuando el pronóstico sirve** (IQR ≤ 60 min). Hay cajas con ±3 min y otras con ±210: en esas la hora "típica" es el promedio de dos costumbres distintas, y avisar sería ruido que entrena a ignorar la alerta.
+
+
 ### Changed — el arqueo va a la par de Kepler: cero calendarios, todo en vivo (SM.15, 2026-08-27)
 - **Se fueron los selectores de fecha.** La captura ya no tiene `p-datepicker` (ni en la vía manual del supervisor): un arqueo es de HOY, y elegir una fecha pasada permitiría sellar dinero de un día que ya cerró. El historial cambia el calendario por **ventanas relativas al presente** (`Hoy · 7 días · 30 días`, vía `app-segmented`) y **nunca manda un `to`**: el corte superior es siempre *ahora*. Un calendario invita a quedarse mirando un rango viejo creyendo que es el estado actual.
 - **La app pide el arqueo cuando Kepler lo pide.** `turnos` devuelve ahora `cerrado_hace_min`: en cuanto el ERP cierra la caja, la pantalla levanta un aviso — *"Kepler cerró tu caja a las 20:40. Te toca arquear."* — y el turno se marca en la lista. Antes la cajera tenía que darse cuenta sola.

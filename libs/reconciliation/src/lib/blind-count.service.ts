@@ -44,6 +44,12 @@ export interface TurnoPendiente {
    * caja, el arqueo se vuelve exigible y la pantalla lo pide sola.
    */
   cerrado_hace_min?: number | null;
+  /** SM.17 — hora a la que ESA caja suele cortar (mediana histórica). */
+  corte_tipico?: string | null;
+  /** Minutos que faltan para esa hora. Negativo = ya se pasó. */
+  corte_en_min?: number | null;
+  /** Dispersión (IQR) de esa hora en minutos: si es grande, el pronóstico no sirve. */
+  corte_iqr_min?: number | null;
 }
 const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -126,8 +132,49 @@ export class BlindCountService {
                     (now() AT TIME ZONE 'America/Mexico_City')
                     - (k.c10::date + COALESCE(NULLIF(btrim(k.c11), ''), '00:00:00')::time)
                   )) / 60))::int
-                END                                  AS cerrado_hace_min
+                END                                  AS cerrado_hace_min,
+                -- SM.17 — a qué hora suele cortar ESTA caja (solo si sigue abierta).
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN to_char(p.prox, 'HH24:MI') END AS corte_tipico,
+                CASE WHEN k.c10::date = DATE '1800-01-01' AND p.prox IS NOT NULL
+                     THEN round(EXTRACT(EPOCH FROM (p.prox - (now() AT TIME ZONE 'America/Mexico_City')::time)) / 60)::int
+                END                                  AS corte_en_min,
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN p.iqr END AS corte_iqr_min
            FROM kepler_ods.kdpv_folio_caja k
+           /**
+            * El horario del corte NO es global: cada caja tiene el suyo y cada
+            * sucursal cierra a una hora distinta (04 ~19:57 · 05 ~18:52 · 02/03
+            * ~20:35). Y una misma caja hace DOS cortes al día — mediodía y cierre —
+            * así que una sola mediana cae en el hueco entre los dos y no sirve.
+            * Por eso se calculan por separado y se elige el próximo que aún no pasó.
+            */
+           LEFT JOIN LATERAL (
+             SELECT (ARRAY_REMOVE(ARRAY[med_dia, med_cierre], NULL))[1] AS prox,
+                    CASE WHEN med_dia IS NOT NULL THEN iqr_dia ELSE iqr_cierre END AS iqr
+               FROM (
+                 SELECT
+                   (percentile_cont(0.5) WITHIN GROUP (ORDER BY h.cierre)
+                      FILTER (WHERE h.cierre < TIME '17:30' AND h.cierre > (now() AT TIME ZONE 'America/Mexico_City')::time)) AS med_dia,
+                   (percentile_cont(0.5) WITHIN GROUP (ORDER BY h.cierre)
+                      FILTER (WHERE h.cierre >= TIME '17:30' AND h.cierre > (now() AT TIME ZONE 'America/Mexico_City')::time)) AS med_cierre,
+                   round(EXTRACT(EPOCH FROM (
+                     (percentile_cont(0.75) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre < TIME '17:30'))
+                   - (percentile_cont(0.25) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre < TIME '17:30'))
+                   )) / 60)::int AS iqr_dia,
+                   round(EXTRACT(EPOCH FROM (
+                     (percentile_cont(0.75) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre >= TIME '17:30'))
+                   - (percentile_cont(0.25) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre >= TIME '17:30'))
+                   )) / 60)::int AS iqr_cierre
+                 FROM (
+                   SELECT (btrim(g.c11))::time AS cierre
+                     FROM kepler_ods.kdpv_folio_caja g
+                    WHERE g.sucursal = k.sucursal AND g.c2 = k.c2
+                      AND g.c10::date <> DATE '1800-01-01'
+                      AND btrim(COALESCE(g.c11, '')) ~ '^[0-9]{1,2}:'
+                      AND g.c5::date < current_date        -- historia, no el turno de hoy
+                    LIMIT 400
+                 ) h
+               ) m
+           ) p ON true
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL
           WHERE upper(btrim(k.c8)) = ?
@@ -139,7 +186,11 @@ export class BlindCountService {
                      AND b.warehouse_code = k.sucursal
                      AND b.tipo = 'cierre'
                      AND b.cash_cut_folio = k.c3::bigint::text)
-          ORDER BY k.c5 DESC, k.c2
+          -- Del MÁS VIEJO al más nuevo: el primero de la lista es el que toca.
+          -- Al revés (que es como estaba) la pantalla preseleccionaba el turno de
+          -- hoy y dejaba saltarse el corte pendiente de ayer — justo el que hay
+          -- que mirar, porque un turno sin arquear es donde se esconde el hueco.
+          ORDER BY k.c5 ASC, k.c2
           LIMIT 50`,
         [tenantId, cajero, dias, q.warehouseCodes ?? null, q.warehouseCodes ?? null, tenantId],
       );
