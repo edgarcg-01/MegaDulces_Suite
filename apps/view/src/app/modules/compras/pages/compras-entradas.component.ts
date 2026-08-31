@@ -327,12 +327,12 @@ interface AttachFile {
                     <p class="cb-exp-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
                   } @else if (filaError()) {
                     <p class="cb-exp-nota">No se pudo abrir el movimiento. <button type="button" class="cb-exp-retry" (click)="reintentarFila(c)">Reintentar</button></p>
-                  } @else if (filaLineas(); as ls) {
-                    @if (ls.length) {
+                  } @else if (filaDetalle(); as fd) {
+                    @if (fd.lineas.length) {
                       <table class="cb-exp-tab">
                         <thead><tr><th>SKU</th><th>Producto</th><th class="ta-r">Cant.</th><th>Unidad</th><th class="ta-r">Costo</th><th class="ta-r">Importe</th></tr></thead>
                         <tbody>
-                          @for (l of ls; track l.linea) {
+                          @for (l of fd.lineas; track l.linea) {
                             <tr>
                               <td class="mono">{{ l.sku || '—' }}</td>
                               <td>{{ l.nombre || '—' }}</td>
@@ -345,16 +345,14 @@ interface AttachFile {
                         </tbody>
                         <tfoot>
                           <tr>
-                            <td colspan="5">{{ plural(ls.length, 'renglón', 'renglones') }}</td>
-                            <td class="ta-r">{{ money(lineasTotal(ls)) }}</td>
+                            <!-- lineasMeta explica de una vez por qué Σ renglones ≠ total del
+                                 documento: son el SUBTOTAL y c16 va con impuestos. No se afirma
+                                 "es el IVA" salvo que el número lo confirme — en dulcería hay IEPS. -->
+                            <td colspan="5">{{ filaLineasMeta(fd) }}</td>
+                            <td class="ta-r">{{ money(lineasTotal(fd.lineas)) }}</td>
                           </tr>
                         </tfoot>
                       </table>
-                      <!-- Σ de los renglones vs el total del documento: si no coinciden, el
-                           desglose no explica la factura y eso hay que verlo, no esconderlo. -->
-                      @if (descuadreLineas(c, ls); as dif) {
-                        <p class="cb-exp-nota">Los renglones suman <b>{{ money(lineasTotal(ls)) }}</b> y el documento dice <b>{{ money(c.monto) }}</b> — difieren en {{ money(dif) }}. Suele ser IVA.</p>
-                      }
                     } @else {
                       <!-- Wincaja (sucursales 30/32/50) manda la recepción SIN renglones: es
                            header-only en el origen, no un fallo de carga. Decirlo evita que
@@ -1687,11 +1685,17 @@ export class ComprasEntradasComponent {
   // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
   /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
   readonly filaAbierta = signal<string | null>(null);
-  readonly filaLineas = signal<EntradaLinea[] | null>(null);
+  /**
+   * Se guarda el `EntradaDetail` completo y no sólo `lineas` para poder usar `receiptVerdict`:
+   * su `lineasMeta` ya explica bien por qué Σ renglones ≠ total del documento (los renglones son
+   * el SUBTOTAL y `c16` va con impuestos, y en dulcería no es sólo IVA — hay IEPS). Escribir acá
+   * una comparación propia era repetir peor lo que ese código ya afina.
+   */
+  readonly filaDetalle = signal<EntradaDetail | null>(null);
   readonly filaLoading = signal(false);
   readonly filaError = signal(false);
   /** Caché por clave: reabrir no vuelve a pedir. `null` = se pidió y falló. */
-  private readonly filaCache = new Map<string, EntradaLinea[] | null>();
+  private readonly filaCache = new Map<string, EntradaDetail | null>();
 
   claveFila(c: EntradaRow): string { return c.sucursal + '/' + c.folio; }
 
@@ -1728,17 +1732,16 @@ export class ComprasEntradasComponent {
     this.filaError.set(false);
     if (this.filaCache.has(clave)) {
       const hit = this.filaCache.get(clave) ?? null;
-      this.filaLineas.set(hit); this.filaError.set(hit === null); this.filaLoading.set(false);
+      this.filaDetalle.set(hit); this.filaError.set(hit === null); this.filaLoading.set(false);
       return;
     }
-    this.filaLineas.set(null);
+    this.filaDetalle.set(null);
     this.filaLoading.set(true);
     this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
-        const ls = d.lineas || [];
-        this.filaCache.set(clave, ls);
+        this.filaCache.set(clave, d);
         if (this.filaAbierta() !== clave) return;
-        this.filaLineas.set(ls); this.filaLoading.set(false);
+        this.filaDetalle.set(d); this.filaLoading.set(false);
       },
       error: () => {
         this.filaCache.set(clave, null);
@@ -1748,11 +1751,8 @@ export class ComprasEntradasComponent {
     });
   }
 
-  /** Σ renglones vs total del documento. Devuelve la diferencia sólo si es material (> EPS). */
-  descuadreLineas(c: EntradaRow, ls: EntradaLinea[]): number | null {
-    const dif = Math.abs(lineasTotal(ls) - Number(c.monto || 0));
-    return dif > EPS ? dif : null;
-  }
+  /** Cómo se compone el total, con las palabras que ya afinó `receiptVerdict` (IVA/IEPS incluidos). */
+  filaLineasMeta(d: EntradaDetail): string { return receiptVerdict(d).lineasMeta; }
 
   // detail dialog (auditoría por línea + remisión adjunta)
   /** Ficha abierta en el panel lateral (`null` = cerrado). Hace clickeable la vista entera. */
