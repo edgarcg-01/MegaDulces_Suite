@@ -2719,6 +2719,17 @@ export class CommercialAnalyticsService {
       // Wincaja: rollup también para el mes en curso (kepler no) — ver isWincajaRollupOk.
       const winRollupOk = this.isWincajaRollupOk(from, to);
 
+      // PERF (mig 20260831160000): el MES EN CURSO nunca es month-aligned (isMonthAligned
+      // exige `to < inicioMesActual`), así que el default siempre cae al path diario, que
+      // escanea sales_daily del mes (~111k filas) con Sort a disco (~1 s). Cuando el rango ES
+      // exactamente el mes en curso y la vista es por producto, leemos el matview
+      // `mv_sales_current_month` (mismo units/revenue, pre-agregado) en vez de sales_daily.
+      // FALLBACK seguro: si el matview no existe (entorno sin la migración) se usa sales_daily
+      // como siempre — nunca rompe el reporte, solo lo acelera cuando está disponible.
+      const curMonthMv = !monthAligned && !needMonth && this.isCurrentMonthRange(from, to)
+        && !!(await trx.raw(`SELECT to_regclass('analytics.mv_sales_current_month') AS t`)).rows?.[0]?.t;
+      const keplerDailySrc = curMonthMv ? 'analytics.mv_sales_current_month' : 'analytics.sales_daily';
+
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
       // RS.6 — la parte KEPLER sale de sales_daily/boxes (sin vendedor); la parte WINCAJA
@@ -2760,7 +2771,7 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
               (needMonth ? `, sd.year_month` : ''),
             )
-        : await trx('analytics.sales_daily as sd')
+        : await trx(`${keplerDailySrc} as sd`)
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
@@ -2776,9 +2787,15 @@ export class CommercialAnalyticsService {
               if (brandId) qb.andWhere('p.brand_id', brandId);
               if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
             })
-            .andWhere('sd.sale_date', '>=', from)
-            .andWhere('sd.sale_date', '<=', to)
-            .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`) // nunca fechas futuras (montos)
+            .modify((qb) => {
+              // El matview mv_sales_current_month ya está acotado a [inicio de mes .. hoy] y no
+              // tiene columna sale_date; los filtros de fecha solo aplican al escanear sales_daily.
+              if (!curMonthMv) {
+                qb.andWhere('sd.sale_date', '>=', from)
+                  .andWhere('sd.sale_date', '<=', to)
+                  .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`); // nunca fechas futuras (montos)
+              }
+            })
             .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
             .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
             .select(
@@ -4694,6 +4711,15 @@ export class CommercialAnalyticsService {
    *  que es rápido). El fast path WINCAJA es aparte (ver isWincajaRollupOk). */
   private isMonthAligned(from: string, to: string): boolean {
     return this.isFullMonthRange(from, to) && to < this.currentMonthStartMx();
+  }
+
+  /** PERF — ¿el rango ES el mes en curso? (el default de sellOut). `from` = inicio del mes
+   *  actual y `to` dentro del mismo mes. Habilita el fast path por matview
+   *  `mv_sales_current_month`, que cubre [inicio de mes .. hoy] — el mismo universo que el
+   *  path diario acota con `sale_date <= hoy`, así que da los mismos números (verificado). */
+  private isCurrentMonthRange(from: string, to: string): boolean {
+    const start = this.currentMonthStartMx();
+    return from === start && to.slice(0, 7) === start.slice(0, 7);
   }
 
   /** Habilita el fast path por rollup WINCAJA (`sales_by_vendor_monthly`) para CUALQUIER
