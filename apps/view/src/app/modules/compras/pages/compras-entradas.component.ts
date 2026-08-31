@@ -1062,7 +1062,9 @@ interface AttachFile {
     }
     .cb-orden { font-style: normal; }
     .cb-orden::before { content: ' · '; opacity: .55; }
-    @media (max-width: 560px) { .cb-orden { display: none; } }
+    /* En rem y no en px (regla 9): con px el breakpoint ignora el zoom del navegador y a 200%
+       la columna sigue escondida cuando ya había lugar de sobra. */
+    @media (max-width: 35rem) { .cb-orden { display: none; } }
     .cb-role-sel { min-width: 9rem; font-size: var(--fs-xs); }
     /* Cualquier dato que lleva a una ficha. Discreto en reposo: la tabla ya tiene
        suficiente color y esto aparece en muchas celdas a la vez. */

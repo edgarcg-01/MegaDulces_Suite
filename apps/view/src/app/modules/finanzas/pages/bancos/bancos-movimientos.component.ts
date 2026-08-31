@@ -140,8 +140,8 @@ import { BANCOS_STYLES } from './bancos.styles';
             @if (fl.cadena.length) {
               <div class="fb-flow-chain">
                 <div class="fb-flow-h">Compras del proveedor en el mes (orden → recepción → factura → pago)</div>
-                <table class="fb-flow-table">
-                  <thead><tr><th>Factura</th><th>Orden</th><th>Recepción</th><th>Pago</th><th class="ta-r">Total</th></tr></thead>
+                <table class="surf-table surf-table--plain is-dense fb-flow-table">
+                  <thead><tr><th>Factura</th><th>Orden</th><th>Recepción</th><th>Pago</th><th class="comm-num">Total</th></tr></thead>
                   <tbody>
                     @for (r of fl.cadena; track r.factura_folio) {
                       <tr>
@@ -149,7 +149,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                         <td class="mono muted">{{ r.orden_folio || '—' }}</td>
                         <td class="mono muted">{{ r.recepcion_folio || '—' }}</td>
                         <td class="mono muted">{{ r.pago_folio || '—' }} {{ ds(r.pago_fecha) }}</td>
-                        <td class="ta-r mono">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                        <td class="comm-num">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       </tr>
                     }
                   </tbody>
@@ -165,15 +165,15 @@ import { BANCOS_STYLES } from './bancos.styles';
             @if (fl.docs.length) {
               <div class="fb-flow-chain">
                 <div class="fb-flow-h">{{ fl.tipo === 'deposito' ? 'Ventas cobradas — folios en Kepler (102)' : 'Pagos del proveedor — folios en Kepler (102)' }} <span class="muted">· {{ fl.docs.length }}</span></div>
-                <table class="fb-flow-table">
-                  <thead><tr><th>Doc</th><th>Folio</th><th>Fecha</th><th class="ta-r">Importe</th></tr></thead>
+                <table class="surf-table surf-table--plain is-dense fb-flow-table">
+                  <thead><tr><th>Doc</th><th>Folio</th><th>Fecha</th><th class="comm-num">Importe</th></tr></thead>
                   <tbody>
                     @for (dc of fl.docs; track dc.doc_tipo + dc.folio) {
                       <tr>
                         <td class="mono muted">{{ dc.doc_tipo }}</td>
                         <td class="mono">{{ dc.folio }}</td>
                         <td class="mono muted">{{ ds(dc.fecha) }}</td>
-                        <td class="ta-r mono">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                        <td class="comm-num">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       </tr>
                     }
                   </tbody>
@@ -224,9 +224,11 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-flow-nums b { color: var(--text-main); font-weight: 600; }
     .fb-flow-h { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; margin-bottom: var(--sp-1); }
     .fb-flow-chain { margin-top: var(--sp-2); }
-    table.fb-flow-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
-    table.fb-flow-table th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
-    table.fb-flow-table td { padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    /* La base la pone surf-table--plain (th/padding/divisores/altura tokenizada); acá sólo
+       queda lo propio del panel: es angosto, así que la tabla scrollea sola en vez de
+       desbordarlo, y las columnas de folio no envuelven. */
+    .fb-flow-chain { overflow-x: auto; }
+    table.fb-flow-table > tbody > tr > td { white-space: nowrap; }
     .fb-flow-cob { font-size: var(--fs-sm); color: var(--text-main); margin: 0; line-height: 1.4; }
   `],
 })
