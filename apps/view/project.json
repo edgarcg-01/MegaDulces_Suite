@@ -7,25 +7,23 @@
   "tags": ["scope:view", "type:app"],
   "targets": {
     "build": {
-      "executor": "@nx/angular:browser-esbuild",
-      "outputs": ["{options.outputPath}"],
+      "//": "Angular 22: builder `application` (esbuild + dev server Vite). Reemplazó a browser-esbuild (deprecado). outputPath aplanado (browser: '') → sale a dist/apps/view directo, que es lo que copia el Dockerfile a nginx. serviceWorker toma el PATH (no true). Entry = `browser` (no `main`). aot/buildOptimizer no aplican (application siempre AOT).",
+      "executor": "@nx/angular:application",
+      "outputs": ["{options.outputPath.base}"],
       "options": {
-        "outputPath": "dist/apps/view",
+        "outputPath": { "base": "dist/apps/view", "browser": "" },
         "index": "apps/view/src/index.html",
-        "main": "apps/view/src/main.ts",
+        "browser": "apps/view/src/main.ts",
         "polyfills": ["apps/view/src/polyfills.ts"],
         "tsConfig": "apps/view/tsconfig.app.json",
         "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
         "allowedCommonJsDependencies": ["leaflet", "jsbarcode", "exceljs"],
-        "serviceWorker": true,
-        "ngswConfigPath": "apps/view/ngsw-config.json"
+        "serviceWorker": "apps/view/ngsw-config.json"
       },
       "configurations": {
         "production": {
-          "aot": true,
-          "buildOptimizer": true,
           "optimization": true,
           "budgets": [
             {
