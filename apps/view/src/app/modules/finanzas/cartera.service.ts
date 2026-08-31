@@ -64,7 +64,7 @@ export class CarteraService {
   filtros(): Observable<CarteraFiltros> {
     return this.http.get<CarteraFiltros>(`${this.base}/filtros`);
   }
-  resumen(q: { sucursal?: string; grupo?: string; zona?: string } = {}): Observable<CarteraResumen> {
+  resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; search?: string } = {}): Observable<CarteraResumen> {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
     const qs = p.toString();
