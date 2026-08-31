@@ -69,6 +69,20 @@ export class PurchaseAdjustmentsController {
     });
   }
 
+  // Va por query params y no por segmentos (`:sucursal/:doctype/:folio`) a propósito: este
+  // controller ya tiene rutas literales como `duplicates` y `compras-360`, y una ruta de 3
+  // segmentos variables las empezaría a capturar según el orden de declaración.
+  @Get('lines')
+  @RequirePermissions(Permission.COMPRAS_DESCUENTOS_VER)
+  @ApiOperation({ summary: 'RE.22 — renglones de UN ajuste (qué mercancía se devolvió), desde la vista viva analytics.erp_purchase_adjustment_lines. Devuelve `desglose`: `renglones` (hay detalle), `no_aplica` (es nota de crédito X-D-55: no se desglosa por producto porque es dinero, no mercancía — 1,256 docs/$21.4M sin líneas en Kepler) o `sin_dato` (devolución que debería traer renglones y no los trae). Params: sucursal, doctype, folio.' })
+  lines(
+    @Query('sucursal') sucursal: string,
+    @Query('folio') folio: string,
+    @Query('doctype') doctype?: string,
+  ) {
+    return this.svc.lines({ sucursal, folio, doctype: doctype || '' });
+  }
+
   @Get('duplicates')
   @RequirePermissions(Permission.COMPRAS_DESCUENTOS_VER)
   @ApiOperation({ summary: 'RE.10 — posibles facturas DUPLICADAS: entradas del mismo proveedor con el MISMO monto exacto repetido dentro de N días (window_days, default 30). Control proactivo HITL sobre las entradas reales.' })

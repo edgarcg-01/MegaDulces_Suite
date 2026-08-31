@@ -256,6 +256,70 @@ export class PurchaseAdjustmentsService {
     });
   }
 
+  /**
+   * `[RE.22.1]` — **Los renglones de UN ajuste**: qué mercancía se devolvió. Se pide al expandir
+   * la fila, no con la lista, porque sólo importa el documento que el revisor abre (12–16 ms).
+   *
+   * **La asimetría de abajo es del negocio, no un hueco de datos** (medido 2026-08-31 sobre el
+   * ODS): las notas de crédito **X-D-55 no tienen renglones en Kepler** — 1,256 documentos y
+   * $21.4M con CERO líneas — porque una nota no es mercancía, es dinero; sus motivos son
+   * "3% PP a 48 hrs", "DESCUENTO DEL 5%", "Complemento de Factura 1111". Las X-D-40 sí:
+   * 235 documentos con 766 renglones.
+   *
+   * Por eso el resultado NO es sólo una lista: `desglose` distingue tres situaciones que la
+   * pantalla tiene que contar distinto, porque una lista vacía se lee como falla de carga:
+   *   · `renglones`  → hay desglose, se muestra.
+   *   · `no_aplica`  → es una nota de crédito: no se desglosa por producto, y eso es correcto.
+   *   · `sin_dato`   → es una devolución que DEBERÍA traer renglones y no los trae (hay ~55 así).
+   * Confundir `no_aplica` con `sin_dato` es afirmar que falta información cuando no falta.
+   */
+  async lines(p: { sucursal: string; doctype: string; folio: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const sucursal = String(p.sucursal || '').trim();
+    const folio = String(p.folio || '').trim();
+    const doctype = String(p.doctype || '').trim().toUpperCase();
+    if (!sucursal || !folio) return { desglose: 'sin_dato' as const, lineas: [], total_importe: 0, motivo: null, nota: 'falta sucursal o folio' };
+    return this.tk.run(async (trx) => {
+      // La vista es una dependencia nueva; si el entorno no replica Kepler no existe. Se degrada
+      // en vez de tirar un 500 en la pantalla que ya funcionaba sin esto.
+      const hayVista = (await trx.raw(`SELECT to_regclass('analytics.erp_purchase_adjustment_lines') AS t`)).rows[0]?.t;
+      const cab = await trx('analytics.erp_purchase_adjustments')
+        .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
+        .first('doctype', 'motivo', 'categoria', trx.raw('monto::numeric AS monto'));
+      if (!hayVista) {
+        return { desglose: 'sin_dato' as const, lineas: [], total_importe: 0,
+          motivo: cab?.motivo ?? null, nota: 'el desglose por renglón no está disponible en este entorno' };
+      }
+      const crudas: any[] = await trx('analytics.erp_purchase_adjustment_lines')
+        .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
+        // El nº de línea es texto en Kepler: se ordena por su valor numérico o "10" va antes de "2".
+        .orderByRaw(`NULLIF(regexp_replace(linea, '[^0-9]', '', 'g'), '')::int NULLS LAST, linea`)
+        .limit(200)
+        .select('linea', 'sku', 'nombre', 'unidad',
+          trx.raw('cantidad::numeric AS cantidad'),
+          trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'));
+      const lineas = crudas.map((l) => ({
+        ...l, cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
+      }));
+      const dt = String(cab?.doctype || doctype || '');
+      const desglose = lineas.length ? ('renglones' as const)
+        : dt === 'XD55' ? ('no_aplica' as const)
+        : ('sin_dato' as const);
+      return {
+        desglose, lineas,
+        total_importe: Math.round(lineas.reduce((s, l) => s + Math.abs(l.importe), 0) * 100) / 100,
+        motivo: cab?.motivo ?? null,
+        categoria: cab?.categoria ?? null,
+        nota: desglose === 'no_aplica'
+          ? 'Una nota de crédito no se desglosa por producto: es un ajuste de dinero, no de mercancía. Lo que la explica es su motivo.'
+          : desglose === 'sin_dato'
+            ? 'Esta devolución no trae renglones en Kepler. No es que falten acá: el documento se capturó sin desglose.'
+            : null,
+      };
+    });
+  }
+
   /** RE.10 — top proveedores por $ de ajustes (¿quién da más apoyos / quién duplica facturas?). */
   async bySupplier(q: AdjustmentsQuery = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
