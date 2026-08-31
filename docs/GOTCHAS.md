@@ -931,3 +931,47 @@ silencio.
 **Al diagnosticar un feed, no preguntes si el proceso está vivo — preguntá cuándo avanzó el
 dato por última vez.** `max(business_date)` por sucursal, o el watermark. Estuvo `online`
 los 4 días.
+
+
+## 31. El folio se recicla: unir por folio filtrando fecha en UNA sola punta duplica
+
+Comparando las ventas del fact contra Kepler me dio que teníamos **$4.35M contra $8.59M** — o sea
+que faltaba la mitad. Falso. La consulta era mía:
+
+```sql
+-- MAL: el filtro de fecha está sólo en el encabezado
+FROM kepler_ods.kdm2 l
+JOIN kepler_ods.kdm1 h ON h.sucursal=l.sucursal AND h.c1=l.c1 AND h.c2=l.c2
+                      AND h.c3=l.c3 AND h.c4=l.c4 AND h.c6=l.c6
+WHERE h.c9::date >= current_date - 30        -- ← sólo el header
+```
+
+`kdm1` **es único** por esas llaves dentro de la ventana (lo verifiqué: 20,261 grupos / 20,261
+filas), así que el fan-out no venía de ahí. Venía de que **el folio `c6` se recicla con el tiempo**:
+las líneas de `kdm2` no tenían filtro de fecha, así que líneas de folios viejos se pegaron a
+encabezados recientes con el mismo número. Kepler quedó inflado **2×**.
+
+**La línea trae su propia fecha (`kdm2.c32`).** Con ella, sin join:
+
+```sql
+FROM kepler_ods.kdm2
+WHERE sucursal='03' AND c1='03' AND c2='U' AND c3='D' AND c4='10'
+  AND c32::date >= current_date - 30
+```
+
+→ $4,336,013 contra nuestros $4,353,308. **Razón 1.004.** Los datos siempre estuvieron bien.
+
+**Regla:** al unir por folio, acotá la fecha en **las dos puntas**, o usá la fecha propia del
+detalle. Y si el folio es la llave, asumí que se recicla salvo prueba en contrario.
+
+### El gotcha de fondo: desconfiá de tu propia consulta cuando el número sorprende
+
+Casi reporto un hueco de $4M que no existía. Lo que lo evitó no fue revisar el pipeline: fue que
+**0.5445 estaba sospechosamente cerca de ½**, y los números redondos son firma de duplicación, no
+de pérdida. Un feed que se cae da huecos irregulares por día; el 2× exacto grita "join".
+
+Antes de reportar que falta data, corré la magnitud **sin el join** y comparala. Si el total sin
+join cuadra, el problema es tu consulta. En la misma sesión pisé otras dos del mismo tipo —asumir
+que el doctype de venta era `U-A-10` (es *"Entrada por Devolución"*; el bueno es `U-D-10`) y que el
+SKU de `kdm2` era `c3` (es `c8`)—, y **las tres devuelven resultados plausibles**: cero filas, o un
+número creíble. Ninguna falla ruidosamente. Ver [`ERP_KEPLER.md`](ERP_KEPLER.md) §2.2 y §5 regla 0.

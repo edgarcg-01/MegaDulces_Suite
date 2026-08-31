@@ -718,3 +718,81 @@ Costo verificado: fact **41.7 s** (antes del refactor 42.2 s), vista de OC 332 m
 2.8 s. El camino hasta ahí dejó dos lecciones en GOTCHAS §28: el `btrim` de la vista mataba el
 índice de la cadena (331 s → 332 ms) y la vista con `EXISTS` por fila necesita `MATERIALIZED` río
 arriba (>10 min → 41 s). Mig `20260829190000`. Smoke ampliado a 15 aserciones.
+
+---
+
+## RA-PRO.46 — El costo de caja se LEE de Kepler, no se reconstruye (2026-08-31) ✅
+
+**Disparador:** Edgar mandó una captura de la pantalla real de Kepler *"Costos por Proveedor por
+Productos"* y después una fila del `/compras/pedido` con `50 pz · $799` para el azúcar `99029`.
+
+### El bug
+
+`caja_cost = costo_unitario × bf`. Fallaba **por los dos lados**, y ninguno se veía:
+
+1. **El multiplicador.** `bf` no siempre está en el peldaño del costo. En el azúcar 99029 lo pagado
+   está en **KG** y `bf=50` es el factor **500 g→costal**: $798.57 por un costal que Kepler cotiza
+   en **$415**. El peor caso llegó a **25×** — `70344 CARAT COVERLUX 10KG` en $28,343 contra $1,130.
+2. **La base.** `real_cost` es el promedio ponderado de 90 d, o sea **rezagado**. Los cerillos
+   `00303` se compran a $11.0793 clavado (tres entradas seguidas de 50 pzas = **$553.97 exacto**),
+   pero una compra vieja a $11.8774 subía el promedio a $11.3454 → $567.27 por una caja de $553.97.
+   **Multiplicar bien una base podrida sigue dando mal**, y por eso el primer arreglo —que sólo
+   corregía el multiplicador— marcaba ese SKU como correcto.
+
+### La corrección
+
+Kepler ya trae el dato: **"Costo Uni Mayor" (`kdpv_prov_prod.c4`) ES el costo de una caja.**
+
+```sql
+COALESCE(lad.box_cost, e.real_cost * e.bf) AS caja_cost   -- lee; bf sólo sin escalera
+CASE WHEN lad.box_cost IS NOT NULL THEN 'kepler' ELSE 'bf' END AS cost_source
+```
+
+Medido antes de rediseñar: el costo del proveedor sigue a la **última compra con mediana 1.0000**
+(62.6% exacto al 0.5%); el promedio de 90 d da 1.0058 y sólo 37.6% exacto. **El dato de Kepler es el
+costo actual** — no había nada que calcular.
+
+| | antes | ahora |
+|---|---|---|
+| costo de caja del catálogo | $7,705,489 | **$6,639,376** |
+| valuación de inventario del plan | $59.6M | **$55.6M** |
+
+Cobertura real **88.7%**; el 11.3% que cae a `bf` no es fallo nuestro — de 983 SKUs distintos sólo 1
+existe en `kdpv_prov_prod` (piezas sueltas de mostrador, 0.43% de la venta).
+
+- **Mig `20260831120000`**: `analytics.v_supplier_cost_ladder` **derivada del ODS** (montos
+  `c4/c8/c9/c10` + rótulos `kdii.c11/c80/c83`), sin importer ni tabla espejo, + columna `cost_source`.
+- **El fact declara** de dónde salió cada costo. Nada se esconde.
+- **UI**: el rótulo de la unidad sale de `u1_label`. Antes decía `pz` **hardcodeado** y mentía en
+  todo lo granel — y no es marginal: **el 79.1% de los SKUs no tiene base PZA** (la dominante es
+  PAQ, 74.9%; hay KG, 500, 250, CUB, BTO, SER). Sin dato muestra `u`, no un "pz" falso.
+
+### Auditoría de las otras dos magnitudes — salieron limpias
+
+Mismo protocolo (hecho independiente + prueba de unidad). **El costo era el único roto:**
+
+| | vs Kepler | mediana | unidad |
+|---|---|---|---|
+| Existencia (03/01/05) | 98.4–99.5% exacta | **1.0000** | 0.0% en `bf` / `1÷bf` |
+| Ventas importe | — | **1.0000** | total dentro de 1.7% |
+| Ventas unidades | — | **1.0000** | 0.0% en `bf` / `1÷bf` |
+
+### Candados
+
+- `test-newdb-cost-ladder` (23/23): exige que donde Kepler declara el costo el fact lo **copie**
+  (≤ $0.01), que 99029/70344/00303 no vuelvan a su número inventado, y que lo que cae a `bf` siga
+  pesando <2% de la venta.
+- `test-newdb-fact-vs-kepler` (21/21): vigila la **mediana por SKU** de existencia y ventas —no el
+  total, que puede cuadrar compensando errores opuestos— y que la razón no se pegue a `bf` ni `1/bf`.
+
+### Lecciones
+
+- **Kepler ya tiene el dato; el trabajo es tomar la columna correcta, no calcularla.** Regla 0 de
+  [`ERP_KEPLER.md`](../../ERP_KEPLER.md) §5.
+- **Arreglar el multiplicador y dejar la base rezagada no arregla nada** — y encima hace que el
+  SKU se vea correcto.
+- **Desconfiá de tu propia consulta cuando el número sorprende.** Comparando ventas me dio 0.5445 y
+  casi reporto un hueco de $4M: era mi join (folios reciclados, ver [`GOTCHAS`](../../GOTCHAS.md) §31).
+  Los números redondos son firma de duplicación, no de pérdida.
+
+**Pendiente:** redeploy api + view (sin migraciones ni permisos nuevos → sin re-login).
