@@ -842,3 +842,92 @@ Reglas al normalizar sobre el ODS:
    join después: 41 s. (Es el mismo mecanismo del §26, ahora disparado desde una vista.)
 3. **Medí antes de mover el camino caliente a una vista.** Que sea la capa correcta no la hace
    gratis; el gate de costo (§19) aplica igual.
+
+---
+
+## 29. Hay DOS `knex_migrations` y el `search_path` te da la equivocada
+
+En la DB nueva conviven `public.knex_migrations` (**la real**, la que configura
+`knexfile-newdb.js` con `schemaName: 'public'`) e `identity.knex_migrations` (**vacía**). Y el
+`search_path` de la base es:
+
+```
+{pg_catalog, identity, catalog, trade, commercial, logistics, public}
+```
+
+`identity` va **antes** que `public`. Un `SELECT ... FROM knex_migrations` sin calificar lee la
+vacía, devuelve 0 filas y **no falla**. Auditando el estado de prod me llevó a concluir que no
+había ninguna migración registrada, cuando había 517 y sólo faltaban 3.
+
+**Siempre `public.knex_migrations` explícito.** Y desconfiá de cualquier nombre de tabla sin
+calificar que pueda existir también en `identity` / `catalog` / `commercial`.
+
+### Registrar migraciones ya aplicadas a mano
+
+Cuando el DDL se aplicó a mano (para probar antes del deploy), NO se hace `INSERT` en
+`knex_migrations` (§ver la regla de "directory corrupt"). Se corre knex: como las migraciones son
+idempotentes (`hasColumn` / `hasTable` / `CREATE OR REPLACE`), el DDL es no-op y lo único que pasa
+es que quedan registradas.
+
+El obstáculo en un worktree multi-agente: knex aborta si hay filas registradas **sin archivo** en
+el directorio — y las migraciones de la otra rama están justo así. Solución sin ensuciar la rama:
+
+```bash
+git show <commit>:database/migrations-newdb/<archivo> > database/migrations-newdb/<archivo>
+# correr knex (esas quedan como "completed", sólo corren las tuyas)
+rm database/migrations-newdb/<archivo>
+```
+
+Quedan untracked, nunca entran al commit. Y preferí `migrate.up()` una por una sobre
+`migrate:latest`: si aparece una pendiente que no es tuya, te enterás antes de correrla.
+
+
+## 30. "Proceso vivo" no es "feed vivo": el descubrimiento vacío que se cachea
+
+Del 27 al 31 de agosto de 2026 la réplica Wincaja estuvo **4 días sin mover un solo dato**
+mientras `pm2 ls` decía `online` para los dos carriles. Ciclaban puntuales, cada 2 min,
+imprimiendo:
+
+```
+=== 30 Morelia Abastos → w30 (0 tablas carril=inc) ===
+  → 0 inc / 0 hash · read 0 · wrote 0 · 0.0s
+```
+
+Tres bugs independientes que **se tapaban entre sí**:
+
+**(a) Se cacheó un fallo.** `branchSchema()` descubría el esquema del `.mdb` una vez y lo
+guardaba en un `Map`. Con la fuente inalcanzable devolvía `[]`, cacheaba `[]`, y **no
+reintentaba nunca** — ni volviendo la red se recuperaba solo.
+
+> **Un descubrimiento vacío nunca es un estado válido.** Es la fuente inalcanzable
+> disfrazada de éxito. Tiene que **tirar**, y **no** cachearse: el próximo ciclo reintenta.
+> Cachear sólo el resultado bueno.
+
+**(b) El vigilante falló por la misma causa que lo vigilado.** El heartbeat abortaba con
+`sin DATABASE_URL_NEW/DATABASE_URL` porque PM2 no hereda el entorno del shell de forma
+confiable, y el ecosystem no la pasaba. Lo único que podía avisar estaba mudo. En un proceso
+desatendido, **arrancar sin destino de heartbeat debe ser fatal**, no un warning que se
+reintenta 3 veces y sigue.
+
+**(c) Un fallo parcial cortaba el todo.** `for (const b of list) await syncBranch(c, b)`:
+si la sucursal 30 tiraba, 32 y 00 ni se intentaban. Aislar por unidad y reportar cuántas
+fallaron.
+
+**La trampa de fondo:** la ruta era `Z:/...`, y **los mapeos de unidad de Windows son por
+sesión de login**. Un servicio, una tarea como SYSTEM o un PM2 levantado en otra sesión
+**puede no ver `Z:` nunca**. Usar UNC (`\servidor\share\...`), que no depende de la sesión.
+
+**Y el remate, que es la lección más cara:** el sensor de datos **sí detectó todo**.
+`wincaja_branch_stale` estaba en `critical` con 154 h (umbral 72) y llevaba **18.9 días
+abierta**, junto a otras 23 alertas — **ninguna reconocida**. La detección fue perfecta; lo
+que falló fue avisarle a un humano: el WS emite **sólo en transiciones** (anti-spam), así que
+el toast salió una vez, hacia quien tuviera la pestaña abierta en ese instante, y después
+silencio.
+
+> **Un toast a un navegador abierto no es una notificación.** Y una bandeja que nadie puede
+> vaciar entrena a ignorarla — el mismo argumento que ya estaba escrito en `db-health.service`
+> para una alarma que nunca se apagaba, ahora aplicando a la bandeja entera.
+
+**Al diagnosticar un feed, no preguntes si el proceso está vivo — preguntá cuándo avanzó el
+dato por última vez.** `max(business_date)` por sucursal, o el watermark. Estuvo `online`
+los 4 días.
