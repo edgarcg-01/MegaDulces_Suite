@@ -1421,9 +1421,27 @@ Plan en [`FASE_TS_CONTRATOS_TIPADOS`](FASES/FASE_TS_CONTRATOS_TIPADOS.md).
 
 ---
 
-## ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo que registró el PdV, no con el de catálogo
+## ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo
 
-**Estado:** ✅ Aceptado — 2026-08-29. Reemplaza el cálculo original de `/comercial/rentabilidad`.
+**Estado:** ✅ Aceptado — 2026-08-29 · ⚠️ **enmendado 2026-08-31**. Reemplaza el cálculo original de `/comercial/rentabilidad`.
+
+> **Enmienda 2026-08-31 — la redacción original era falsa en la mitad del negocio.** Este ADR decía
+> que `analytics.sales_daily.cost` es "el costo que registró el PdV, en la unidad en que cobró". Eso
+> vale **sólo para la mitad Wincaja** (48.9% de la venta). En los canales Kepler (50.8%) el fact no
+> guarda un costo: guarda `revenue / (1 + markup_pct/100)`, con `markup_pct` copiado de
+> `md.kdpv_prod_util.c6` **de una sola sucursal**. Por álgebra ese margen es función únicamente del
+> markup y **no reacciona al precio cobrado** — medido: 3,269 SKUs vendidos a precios que difieren
+> hasta 20% entre almacenes dan **0.0000 pp** de spread de margen. Subdeclara **2.02 pp**
+> ($411,220 en 30 d).
+>
+> **Lo que sigue en pie:** la decisión de dejar de usar `cost_base × units` es correcta, porque
+> `markup_pct` es adimensional y no puede descuadrar unidades, mientras `cost_base` viene por CAJA.
+> Lo que estaba mal era el *por qué*, y con él la creencia de que el margen ya se estaba midiendo.
+>
+> **Lo que cambia:** el costo canónico pasa a ser `kdm2.c62`/`c63` (existe, 99.1% de cobertura en los
+> doctypes de venta grandes) resuelto contra `analytics.v_supplier_cost_ladder` — y eso **requiere
+> persistir primero el peldaño cobrado**, que hoy el ETL deduce y descarta. Diagnóstico completo,
+> con las cuatro pruebas, en [`FASE_MR_COSTO_Y_UNIDAD`](FASES/FASE_MR_COSTO_Y_UNIDAD.md).
 
 **Contexto:** la pantalla publicaba el margen como `revenue − (catalog.products.cost_base × units)`. Ese `cost_base` está capturado **por CAJA** en buena parte del catálogo, y las unidades vendidas vienen **por PIEZA**. `analytics.v_product_box_factor` reproduce el ratio casi exacto (78210 `bf=15`: $51.00/15 = $3.40 contra un precio implícito de $3.04; 95285 `bf=32`: $4,356.72/32 = $136.15 contra $176.41).
 

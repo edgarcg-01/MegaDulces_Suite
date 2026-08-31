@@ -187,7 +187,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'De dónde salen los números',
         entries: [
-          { term: 'Venta y costo', def: 'Del sell-out real. El costo es el que registró el punto de venta en la transacción, en la MISMA unidad en que cobró.' },
+          { term: 'Venta y costo', def: 'La venta es el sell-out real. El costo NO es homogéneo: en los canales Wincaja es el que registró la caja en la transacción, pero en los canales Kepler (la mitad de la venta) se despeja del markup del catálogo, así que ahí el margen no reacciona a los descuentos. No compares el margen de un canal Kepler contra uno Wincaja.' },
           { term: 'Por qué no el catálogo', def: 'El costo de catálogo viene por CAJA en buena parte del catálogo y las unidades vendidas vienen por PIEZA. Multiplicarlos mezclaba unidades: inflaba el costo de unos pocos productos y movía el margen de toda la empresa más de 3 puntos.' },
           { term: 'Cobertura', def: 'Qué parte de la venta trae costo con qué juzgarla. Lo que no lo trae queda fuera del margen y se dice; no se esconde en el promedio.' },
           { term: 'Por unidad vendida', def: 'La unidad en que factura el punto de venta: según el producto puede ser la pieza o el paquete. No se nombra más fino a propósito, porque la unidad del catálogo se contradice con la de Kepler en más de la mitad de los productos. Los que se venden a granel dicen "por kilo".' },
