@@ -6,6 +6,90 @@
 
 ---
 
+## 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo
+
+**Disparador:** Edgar mandó dos capturas de Kepler —la pantalla *"Costos por Proveedor por
+Productos"* y una fila de `/compras/pedido`— y una corrección seca: *"nosotros no debemos inventar
+nada, ya está en Kepler, sólo es tomar las columnas adecuadas"*.
+
+### Qué estaba roto
+
+`caja_cost = costo_unitario × bf`, y fallaba **por los dos lados**:
+
+1. **Multiplicador** — `bf` no siempre está en el peldaño del costo. Azúcar `99029`: lo pagado está
+   en **KG**, `bf=50` es el factor **500 g→costal** → $798.57 por un costal de $415. Peor caso 25×.
+2. **Base** — `real_cost` es el promedio ponderado de 90 d, o sea rezagado. Cerillos `00303`: se
+   compran a $11.0793 clavado (**$553.97 la caja, exacto, tres entradas seguidas**), pero una compra
+   vieja a $11.8774 subía el promedio a $11.3454 → $567.27.
+
+El segundo punto es el que importa metodológicamente: **mi primer arreglo corrigió sólo el
+multiplicador y marcó `00303` como correcto.** Edgar tuvo que corregirme una segunda vez. Arreglar
+el multiplicador y dejar la base podrida no arregla nada — y encima hace que el SKU se vea sano.
+
+### El decode que lo destrabó
+
+Las capturas decodificaron en un minuto lo que la aritmética tardaba horas en inferir:
+
+- **`kdpv_prov_prod`** = la pantalla de costos por proveedor: `c1`=proveedor · `c2`=SKU ·
+  `c4`=**Costo Uni Mayor** · `c5/c6/c7`=%Desc · `c8/c9/c10`=**Total Uni 1/2/3**.
+- **`kdii.c11/c80/c83`** = los **rótulos** de esos tres peldaños (`PZA/PAQ/CJA`, pero también
+  `500/KG/BTO`). La escalera puede venir **corrida** (`c83` vacío → el costo de caja vive en `c9`).
+- **`kdik.c16`** = costo neto del peldaño base, **promedio móvil por sucursal** (no es costo
+  estándar ni último costo: 20.2% coincide con la última compra, 92.1% con la valuación `c9/c6`).
+
+### Resultado
+
+| | antes | ahora |
+|---|---|---|
+| costo de caja del catálogo | $7,705,489 | **$6,639,376** |
+| valuación de inventario del plan | $59.6M | **$55.6M** |
+
+Vista `analytics.v_supplier_cost_ladder` **derivada del ODS** (mig `20260831120000`, batch 238 en
+prod), `cost_source` declara `kepler` vs `bf`, y se fue el `pz` hardcodeado de la UI (**79.1% de los
+SKUs no tiene base PZA**).
+
+### Auditoría de existencia y ventas — limpias
+
+Mismo protocolo. **Mediana 1.0000 en las tres magnitudes, 0% de desfase de unidad.** El costo era el
+único roto. De paso salió un error de doc: `kdil.c9` **no** es la existencia, son las **salidas**.
+
+### Lecciones
+
+- **El trabajo es tomar la columna correcta, no calcularla.** Nueva **regla 0** en `ERP_KEPLER.md` §5
+  y en `CLAUDE.md`, a pedido de Edgar.
+- **Desconfiá de tu propia consulta cuando el número sorprende.** Comparando ventas me dio 0.5445 y
+  casi reporto un hueco de $4M: era mi join (folios reciclados, GOTCHAS §31). Los números redondos
+  son firma de duplicación, no de pérdida.
+- **Un umbral inventado es tan malo como un dato inventado.** El smoke falló por mi corte de 90%
+  cuando la cobertura real es 88.7%; investigué antes de bajarlo y resultó que a esos SKUs Kepler
+  no les captura costo (983 SKUs, sólo 1 en `kdpv_prov_prod`). La aserción pasó a vigilar que **no
+  se degrade** y que lo no cubierto siga siendo irrelevante (<2% de la venta).
+
+**Pendiente:** redeploy api + view (sin migraciones ni permisos → sin re-login).
+
+---
+
+## 2026-08-31 — WR.7: la réplica Wincaja estuvo 4 días en cero diciendo "online"
+
+Tres fallas que se tapaban entre sí: `branchSchema()` **cacheaba el descubrimiento vacío** y no
+reintentaba nunca; el **heartbeat abortaba** por falta de `DATABASE_URL_NEW` (el vigilante muerto por
+la misma causa que lo vigilado); y **una sucursal caída cortaba el ciclo entero**. Causa de fondo:
+`Z:` es una **unidad mapeada**, y los mapeos de Windows son **por sesión de login**.
+
+**Lo más caro no fue la falla, fue el último tramo:** el sensor `wincaja_branch_stale` **sí** detectó
+todo — estaba en `critical` con 154 h y llevaba **18.9 días abierta**, junto a otras 23 alertas,
+**ninguna reconocida**. El WS emite sólo en transiciones, así que el toast salió una vez hacia quien
+tuviera la pestaña abierta. **Un toast a un navegador abierto no es una notificación.**
+
+Y una comparación que decide el rumbo: el mismo día, **MD-32 empujaba en vivo** por el agente que
+corre **en el servidor POS** (lee el `.mdb` local, sin drive mapeado) mientras su réplica por `Z:`
+llevaba 6 días muerta. La misma tienda, viva por un transporte y muerta por el otro.
+
+**Pendiente:** MD-30 tiene el agente desplegado pero muerto desde el 13-ago (447 h). Y el último
+tramo de alertas (entrega fuera de la app + sacar los 3 tenants de prueba del barrido).
+
+---
+
 ## 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md
 
 **Disparador:** Edgar — *"ahora nos vamos a enfocar 100% en el aspecto visual; analizá cuáles son nuestras necesidades visuales, qué falta mejorar respecto a cómo se trabaja cada interfaz"*. Después de la auditoría: *"arreglemos todo documentando el plan e implementando con atención al detalle"*.
