@@ -119,6 +119,7 @@ O alternativamente: cutover a Railway (operacional, A.0mt.5.3-7), JwtAuthGuard f
 - **No borrar archivos de migración aplicados** (Knex valida `knex_migrations` vs filesystem → "directory corrupt" → crash loop. Vivido en este proyecto.).
 
 ### ✅ SÍ hacer por default
+- **NUNCA adivinar una fuente de datos — investigarla y verificarla.** Vale para cualquier `cN` de Kepler, columna sin documentar, tabla ajena o feed. Antes de usarla en código, contrastarla contra un hecho independiente (¿costo? contra lo que se pagó; ¿precio? contra lo que se cobró) y **probar la unidad** explícitamente (¿la razón se pega a 1, a `bf`, o a `1/bf`?). Si la fuente no alcanza para decidir, **declararlo** — no dibujarlo como cero ni publicarlo con `%`. Protocolo completo en [`docs/ERP_KEPLER.md`](docs/ERP_KEPLER.md) §5 regla 0. *Ya nos costó: ADR-051 (3.3 pp de margen falso por mezclar pieza y caja) y CANON.0.1 (costos 32× por leer un peldaño fijo de la escalera de unidades).*
 - Commits locales cuando se completa un item del tracker. Convención: `feat([A.0mt.1.1]): descripción`.
 - **Actualizar `01_TRACKER_PROGRESO.md` y `03_LOG_REVISIONES.md` al cerrar items**. Cambiar símbolo: ⬜ → 🔨 → 🧪 → 🚀 → ✅.
 - Crear ADRs en `02_DECISIONES_ARQUITECTURA.md` cuando se toma una decisión técnica relevante.

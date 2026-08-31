@@ -27,9 +27,11 @@ El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exha
 
 | Tabla | Qué es | Columnas clave |
 |---|---|---|
-| **`kdii`** | Maestro de productos (por sucursal) | `c1`=SKU · `c2`=nombre · `c7`=código de barras (EAN) · `c8`=clave familia · **`c84`=piezas por caja** (box factor canónico) · **`c33`=mínimo · `c34`=punto de reorden · `c35`=máximo** |
+| **`kdii`** | Maestro de productos (por sucursal) | `c1`=SKU · `c2`=nombre · `c7`=código de barras (EAN) · `c8`=clave familia · `c84`=piezas por caja (⚠️ ver regla 5) · **`c33`=mínimo · `c34`=punto de reorden · `c35`=máximo** · **`c11`/`c80`/`c83`=rótulos de la escalera de unidades** (uni1/uni2/uni3 — ver §2.1) · `c90`=precio configurado (respaldo; sólo coincide ~58% con lo cobrado) |
 | **`kdil`** | Existencia/acumulados **por almacén** | ⚠️ `c1`=**ALMACÉN (no sucursal)** — filtrá por la columna `sucursal` + `c1`=almacén principal · `c3`=SKU · **`c9`=existencia actual** (validado vs `kdik.c6`; ~38% de drift entre ambas fuentes) · `c6/c7`=última compra/venta |
-| **`kdik`** | Valuación por sucursal | `c2`=SKU · `c6`=existencia · `c9`=valor a costo → **costo unitario = c9/c6** |
+| **`kdik`** | Valuación por sucursal | `c2`=SKU · `c6`=existencia · `c9`=valor a costo → costo unitario = `c9/c6` · **`c16`=costo unitario NETO almacenado** (es el que leemos; ver §2.1) |
+| **`kdpv_prov_prod`** | **Costo por proveedor por producto** (la pantalla "Costos por Proveedor por Productos") | `c1`=**código de proveedor** · `c2`=SKU · `c3`=descripción · **`c4`=Costo Uni Mayor** · `c5`/`c6`/`c7`=**% Desc 1/2/3** · **`c8`/`c9`/`c10`=Total Uni 1/2/3** (los 3 peldaños de la escalera) |
+| `kdpv_bitacora_precios` | Bitácora de cambios de precio/costo (el campo "Motivo Cambio Precio en Bitacora" de esa misma pantalla) | |
 | **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · `c2/c3/c4`=género/naturaleza/tipo del doc · `c9`=fecha · `c10`=forma de pago |
 | **`kdm2`** | Detalle/líneas de documentos (1.26M filas) | `c8`=SKU · `c9`=cantidad · `c32`=fecha (≈ header) |
 | **`kdmm`** | **Catálogo de tipos de documento** (la piedra Rosetta) | `c1`=género · `c2`=naturaleza · `c4`=tipo · `c5`=descripción · **`c8`=¿afecta inventario?** · `c19/c20`=cuenta cargo/abono |
@@ -41,6 +43,40 @@ El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exha
 
 **No existe tabla de conteo físico** — Kepler ajusta inventario vía documento (`kdm1`/`kdm2`).
 La "existencia actual" del reporte NO está en `kdii`; se deriva de `kdil`/`kdik`.
+
+### 2.1 La escalera de unidades y el costo (decodificado 2026-08-31)
+
+Kepler NO guarda "un" costo por producto: guarda una **escalera de hasta 3 peldaños**, y el costo
+existe en cada peldaño. El monto vive en `kdpv_prov_prod`, el **rótulo** del peldaño en `kdii`:
+
+| peldaño | monto | rótulo | ejemplo `00303` | ejemplo `99029` |
+|---|---|---|---|---|
+| uni1 | `kdpv_prov_prod.c8` | `kdii.c11` | `PZA` $11.08 | `500` $8.30 |
+| uni2 | `kdpv_prov_prod.c9` | `kdii.c80` | `PAQ` $55.40 | `KG` $16.60 |
+| uni3 | `kdpv_prov_prod.c10` | `kdii.c83` | `CJA` $553.97 | `BTO` $415.00 |
+
+`c4` (**Costo Uni Mayor**) repite el peldaño más alto que esté lleno. Los rótulos NO son fijos: pueden
+ser `PZA/PAQ/CJA` pero también `500/KG/BTO` (azúcar a granel), `CUB`, `SER`, `250`, `2KG`…
+
+⚠️ **La escalera puede estar CORRIDA.** Si `kdii.c83` viene vacío, el producto tiene sólo 2 peldaños y
+el costo de caja vive en `c9`, no en `c10` (ej. `91059 TURIN 16KG`: `500 / CJA / ""` → `c8`=$144.75,
+`c9`=$4,632.00, `c10`=0). **Leer un peldaño fijo es el bug**: tomar `c10` a ciegas da 0, y tomar el
+más alto no-cero da el costo de caja donde esperabas el unitario — un error de ~32×. Éste es el
+origen del problema de unidades que arrastra CANON.0.1.
+
+**El factor de caja real se deriva de la escalera**: `c4 / c8` = unidades del peldaño base por unidad
+mayor. Verificado: `91059` → 4632.00/144.75 = **32** × 500 g = 16 KG ✓ (el nombre dice "16KG");
+`70344` → 1130.00/56.50 = **20** × 500 g = 10 KG ✓.
+
+**`kdik.c16` = costo unitario NETO, en el peldaño BASE, promedio móvil POR SUCURSAL.** Medido contra
+lo que realmente pagamos (entradas `X-A-40`, 90 d): mediana de la razón **1.000**. No es costo
+estándar ni último costo — sólo 20.2% coincide exacto con la última compra, mientras que concuerda
+92.1% con la valuación `c9/c6` (que *es* promedio por construcción). Cada sucursal promedia **sus**
+entradas: mismo centro, deriva propia (19.6%–52.8% idénticos al CEDIS, sin markup de traspaso).
+
+**Cross-check independiente:** `kdpv_prov_prod` valida el factor de caja desde una fuente distinta a
+`v_product_box_factor`. Medido: **5,568 de 5,571** coinciden. Sirve como validador de DQ, no como
+fuente primaria.
 
 ---
 
@@ -119,6 +155,28 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
 
 ## 5. Reglas de oro (te ahorran bugs de datos)
 
+> ### 0. NUNCA ADIVINES UNA COLUMNA. INVESTIGÁ LA FUENTE.
+>
+> Kepler no tiene nombres de columna ni comentarios: es `c1, c2, c3…` sobre 226 tablas. Eso vuelve
+> **irresistible** suponer — y toda suposición sobre un `cN` termina en dinero mal calculado, porque
+> nadie la ve fallar: devuelve un número plausible.
+>
+> Antes de usar un `cN` en código, **probalo contra una verdad externa**:
+> - **Contrastalo con un hecho independiente.** ¿El costo? contra lo que realmente pagamos. ¿El precio?
+>   contra lo que realmente cobró el PdV. Si la mediana de la razón no da ~1.000, no es lo que creés.
+> - **Probá la unidad explícitamente.** ¿La razón se pega a 1, a `bf`, o a `1/bf`? Es la prueba que
+>   destapó ADR-051 (3.3 pp de margen falso) y la que confirmó §2.1.
+> - **Buscá el placebo.** Corré el mismo test sobre la ventana espejo *anterior*. Un 78% que también
+>   da 78% hacia atrás no es señal, es rotación.
+> - **Pedí la pantalla.** Una captura del Kepler real decodifica en un minuto lo que la aritmética
+>   tarda horas en inferir — y encima la verifica renglón por renglón. `kdpv_prov_prod` salió así.
+> - **Escribí cómo lo verificaste**, no sólo la conclusión. El que venga necesita poder re-correr la prueba.
+>
+> Y cuando la fuente no alcance para decidir, **declaralo** — no lo dibujes como cero ni lo publiques
+> con `%`. Un dato ausente que se declara cuesta una consulta; uno que se adivina cuesta un trimestre
+> de decisiones. Corolario operativo: **un descubrimiento vacío nunca es un estado válido** — es la
+> fuente inalcanzable disfrazada de éxito (ver [`GOTCHAS.md`](GOTCHAS.md) §30).
+
 1. **Derivar, no copiar.** Si `analytics.*` necesita un dato de Kepler que ya está en `kepler_ods`, hacé una
    **vista/MV** sobre `kepler_ods`, no un importer que copie a otra tabla. Copiar = split-brain garantizado
    (el mismo atributo escrito por N feeds a N cadencias). Tabla real solo para dato **propio** de la app o
@@ -129,7 +187,10 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
    oct-2025 por un tema de factor de caja). Para demanda/rotación anclá a **revenue**, no a unidades.
 4. **RLS no aplica a vistas/MVs.** Si derivás una tabla tenant-scoped desde `kepler_ods` (que es single-tenant
    crudo), tenés que reinyectar `tenant_id` explícito o rompés el aislamiento. Ver [`docs/GOTCHAS.md`](GOTCHAS.md) §1.
-5. **Box factor = `kdii.c84`** (piezas por caja). `c84 IN (0,1)` = granel (factor 1). No lo adivines del nombre.
+5. **Box factor: usá `analytics.v_product_box_factor`, NUNCA `kdii.c84` crudo.** `c84 IN (0,1)` **no**
+   significa "no tiene caja" — significa "Kepler no lo capturó". Medido 2026-08-31: 7,247 SKUs marcados
+   así y **6,135 sí tienen escalera de unidades real** en `kdpv_prov_prod` (factor mediano 16×). Tomar
+   `c84` a ciegas falla en 4 de cada 5. Tampoco lo adivines del nombre. Ver §2.1.
 6. **`kepler_ods` filtra por `sucursal`, no por `c1`** (la PK de catálogos es `(sucursal, c1)`).
 7. **En las tablas de detalle (`kdil`, `kdij`, `kdue`, `kdxe`, `kdpv_descuxq`), `c1` es el ALMACÉN, no la sucursal.** En `kepler_ods`/`kp.*` la rama real es la columna `sucursal` (agregada al concentrar); `c1` es el almacén dentro de la rama. Para existencia de rama: `WHERE sucursal='03' AND c1='03'` (almacén principal). Existencia = `kdil.c9` (validado vs `kdik.c6`, con ~38% de drift entre ambas fuentes).
 8. **La notación `X-A-30` = género(`c2`)·naturaleza(`c3`)·grupo(`c4`) en `kdm1`.** El número (30/35/40…) es el **grupo** (`kdm1.c4` = `kdmm.c3`), no el "tipo". Validado vivo 2026-08-25.
