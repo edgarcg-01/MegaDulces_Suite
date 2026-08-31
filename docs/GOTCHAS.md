@@ -1009,6 +1009,12 @@ filas es una **proyección indexada**, no redundancia gratuita. El pecado no es 
 número que no existe en ninguna fuente, y por eso ninguna verificación contra el origen podía
 atraparlo.
 
+**Y siguió contestando dos días.** Al volver a intentar el 2026-08-31, el script de diagnóstico
+—que consultaba `SELECT ... FROM knex_migrations` sin calificar— reportó **"aplicadas en prod: 0 ·
+pendientes: 517"**. El estado real era 516 aplicadas / batch 233 / **1 pendiente**. Nada había
+cambiado en prod: cambió cuál de las dos tablas respondía. Una copia vacía no se delata sola porque
+*vacío* es un estado legítimo; el único antídoto es calificar el schema.
+
 **Cómo se evita:**
 
 1. Antes de crear una tabla: *¿este dato ya tiene tabla? ¿puede ser vista? ¿puede ser una columna de
