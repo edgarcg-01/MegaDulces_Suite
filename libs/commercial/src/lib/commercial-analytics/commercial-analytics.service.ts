@@ -2848,6 +2848,19 @@ export class CommercialAnalyticsService {
       // RLS bypass: el scan pesado en vivo de v_sales_lines (maestro 1.44M) corre por la conexión
       // admin sin RLS (con filtros tenant_id explícitos); fallback a trx si no hay admin.
       const winLiveKnex: any = this.adminKnex ?? trx;
+      // PASO 2 (mig 20260901120000): si el rango cae en la ventana del rollup diario de wincaja
+      // (analytics.mv_wincaja_sales_daily, SIN RLS) y está poblado, se lee de ahí en `trx`
+      // (sub-segundo — verificado 915ms bajo RLS) en vez del scan de v_sales_lines. Fuera de
+      // ventana o sin poblar → fallback a winLiveKnex (admin, paso 1). Misma query, solo cambia
+      // el FROM y la conexión; el matview tiene las mismas columnas → números idénticos.
+      const winDailyMvOk = !winRollupOk
+        && from >= this.prevMonthStartMx()
+        && to <= this.todayMx()
+        && !!(await trx.raw(
+          `SELECT 1 FROM pg_class WHERE relname = 'mv_wincaja_sales_daily' AND relnamespace = 'analytics'::regnamespace AND relispopulated`,
+        )).rows?.[0];
+      const winSrc = winDailyMvOk ? 'analytics.mv_wincaja_sales_daily' : 'wincaja.v_sales_lines';
+      const winKnex = winDailyMvOk ? trx : winLiveKnex;
       const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
@@ -2878,7 +2891,7 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${winChanRollup}, sd.vendor_code, sd.vendor_name` +
               (needMonth ? `, sd.year_month` : ''),
             )
-        : await winLiveKnex
+        : await winKnex
         .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
           .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
           .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
@@ -2896,7 +2909,9 @@ export class CommercialAnalyticsService {
             'p.id as pid', 'p.sku as psku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
             'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
           )
-          .from('wincaja.v_sales_lines as vl')
+          // FROM parametrizado: el rollup diario sin RLS (paso 2) o la vista v_sales_lines (fallback,
+          // por la conexión admin del paso 1). Ambos exponen las mismas columnas → misma query.
+          .from(`${winSrc} as vl`)
           .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
           .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
           .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
@@ -4783,5 +4798,21 @@ export class CommercialAnalyticsService {
   private currentMonthStartMx(): string {
     const mx = new Date(Date.now() - 6 * 3600 * 1000);
     return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+
+  // Primer día del mes ANTERIOR en TZ MX (YYYY-MM-01) — límite inferior de la ventana del rollup
+  // diario de wincaja (`analytics.mv_wincaja_sales_daily` cubre mes actual + anterior). Debe casar
+  // con el WHERE del matview: `date_trunc('month', now_mx) - interval '1 month'`.
+  private prevMonthStartMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000);
+    const prev = new Date(Date.UTC(mx.getUTCFullYear(), mx.getUTCMonth() - 1, 1));
+    return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+
+  // Hoy en TZ MX (YYYY-MM-DD) — cota superior de la ventana del rollup diario de wincaja
+  // (casa con el WHERE del matview: `business_date <= (now_mx)::date`).
+  private todayMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000);
+    return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-${String(mx.getUTCDate()).padStart(2, '0')}`;
   }
 }
