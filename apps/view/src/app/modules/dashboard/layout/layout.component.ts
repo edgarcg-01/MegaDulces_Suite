@@ -660,6 +660,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private get almacenNavGroups(): { title: string; items: NavItem[] }[] {
     const items: NavItem[] = [];
     for (const area of ALMACEN_AREAS) {
+      // Áreas ocultas (WMS-REC.7): siguen resolviendo URLs y dando su barra de
+      // tabs por deep-link, pero no se pintan como puerta de entrada. Es el caso
+      // de `entrada`, reemplazada por el Andén.
+      if (area.hidden) continue;
       // Primera pantalla accesible → destino del item. Incluye las de foco
       // (`focusEntries`) al final: un contador con solo CONTAR no alcanza
       // ningún tab de Conteo y aterriza en Contar. Si no hay ninguna, el área
