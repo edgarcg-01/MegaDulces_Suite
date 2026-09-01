@@ -55,6 +55,25 @@ if (!env.FEEDS_INGEST_KEY) {
 }
 const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true, env };
 
+// CDC.7 — RED DE SEGURIDAD. Un stream de WAL no tiene reintento hacia atrás: lo que se pierde (slot
+// `lost` por el cap de disco, o el bug de buffer que costó ~4,200 filas entre el 26 y el 31 de agosto)
+// no vuelve nunca. Hasta el 26/08 eso lo tapaba el POLL (`replicate-ods-live`), que se deshabilitó por
+// el corrimiento +6h (GOTCHAS §21) — y con él se fue lo único capaz de sanar huecos.
+// `reconcile-ods-window` compara las PK de la ventana reciente (replica vs kepler_ods) y repone sólo
+// el delta. Con el CDC sano imprime `huecos 0` y no shipea nada; cualquier número > 0 es la firma de
+// que algo se está perdiendo otra vez. Necesita DATABASE_URL_NEW (lee las llaves del ODS de prod).
+const RECONCILE = 'database/importers/kepler/reconcile-ods-window.js';
+const DEST = process.env.DATABASE_URL_NEW || process.env.DATABASE_URL || null;
+
 module.exports = {
-  apps: BRANCHES.map((code) => ({ name: `cdc-wal-${code}`, script: SCRIPT, args: `--branch=${code} --watch`, ...base })),
+  apps: [
+    ...BRANCHES.map((code) => ({ name: `cdc-wal-${code}`, script: SCRIPT, args: `--branch=${code} --watch`, ...base })),
+    ...(DEST ? [{
+      name: 'cdc-reconcile',
+      script: RECONCILE,
+      args: '--days=3 --apply --watch=900',
+      ...base,
+      env: { ...env, DATABASE_URL_NEW: DEST },
+    }] : []),
+  ],
 };
