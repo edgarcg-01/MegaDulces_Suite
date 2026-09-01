@@ -39,6 +39,12 @@ export interface PriceRow {
   sales_units_30d?: number | null;
   /** Rotación: 'alta' | 'media' | 'baja' (derivada en el sync ERP). */
   rotation_tier?: 'alta' | 'media' | 'baja' | null;
+  /**
+   * Quiebres de mayoreo por cantidad (analytics.product_volume_tiers): cada uno es
+   * un descuento real (min_qty>1 y price<base). Ordenados por min_qty asc. Sirve
+   * para incitar al vendedor ("mayoreo desde N → $X") — viaja en el catálogo offline.
+   */
+  tiers?: { min_qty: number; price: number }[];
 }
 
 /**
