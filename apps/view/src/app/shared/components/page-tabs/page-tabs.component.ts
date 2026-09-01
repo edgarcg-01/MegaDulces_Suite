@@ -1,6 +1,9 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, input, viewChild, viewChildren } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { filter } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
 export interface PageTab {
@@ -121,6 +124,8 @@ export interface PageTab {
 })
 export class PageTabsComponent implements AfterViewInit {
   private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly tabs = input.required<PageTab[]>();
@@ -130,16 +135,31 @@ export class PageTabsComponent implements AfterViewInit {
   readonly lqIndicator = viewChild<ElementRef<HTMLSpanElement>>('lqIndicator');
   readonly lqTabs = viewChildren<ElementRef<HTMLAnchorElement>>('lqTab');
 
-  readonly visibleTabs = computed(() =>
-    this.tabs().filter(
-      (t) => !t.permission || this.auth.user()?.permissions?.[t.permission] === true,
-    ),
-  );
+  /**
+   * Gate por permiso. El shortcut `manage:all` está a propósito: sin él, un
+   * superadmin cuyo JSONB de permisos no tenga la clave literal de un permiso
+   * NUEVO (los restrictivos nacen sin seed, ej. `COMMERCIAL_INVENTORY_RECIBIR`)
+   * veía la barra vacía aunque `permissionGuard` sí lo dejara entrar a la ruta
+   * — el mismo trap que ya resuelven el guard y el sidebar.
+   */
+  readonly visibleTabs = computed(() => {
+    const all = this.perms.can('manage', 'all');
+    return this.tabs().filter(
+      (t) => !t.permission || all || this.auth.user()?.permissions?.[t.permission] === true,
+    );
+  });
 
   ngAfterViewInit(): void {
     if (this.variant() !== 'liquid') return;
     // `routerLinkActive` marca .is-active tras el primer ciclo → reintentos escalonados.
     [0, 120, 350].forEach((d) => setTimeout(() => this.syncIndicator(), d));
+    // Re-sync en cada navegación: cuando la barra vive en un shell de área
+    // (Fase WMS.1) la instancia NO se recrea al cambiar de tab, así que sin
+    // esto el blob se quedaba clavado en el tab inicial. En las páginas que la
+    // montan una por una (Contabilidad) es un no-op inofensivo.
+    this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => [0, 120].forEach((d) => setTimeout(() => this.syncIndicator(), d)));
     const container = this.lqContainer()?.nativeElement;
     if (container && typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => this.syncIndicator());

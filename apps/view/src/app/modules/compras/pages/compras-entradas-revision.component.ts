@@ -22,7 +22,7 @@ import {
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion } from '../compras.service';
+import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion, type AdjustmentLinesResponse } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
 import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
@@ -350,15 +350,60 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                     }
                     <ul class="rv-adj">
                       @for (a of explica(); track a.doctype + a.folio) {
-                        <li [class.is-explica]="a.explica">
-                          <p-tag [value]="a.doctype === 'XD40' ? 'Devolución' : 'Nota de crédito'" [severity]="a.doctype === 'XD40' ? 'warn' : 'info'" />
-                          <span class="mono">{{ a.folio }}</span>
-                          <em>{{ a.adjustment_date | date:'dd/MM' }}</em>
-                          <span class="rv-adj-mot" [title]="a.motivo || ''">{{ a.motivo || '—' }}</span>
-                          <span class="rv-adj-monto">{{ money(a.monto) }}</span>
-                          <!-- title nativo y no pTooltip: esta pantalla no importa
-                               TooltipModule y no vale traerlo por un ícono. -->
-                          @if (a.explica) { <i class="pi pi-arrow-left rv-adj-hit" [title]="a.match === 'exacto' ? 'Kepler la liga a esta entrada Y tiene el tamaño del hueco' : 'Tiene exactamente el tamaño del hueco'"></i> }
+                        <li [class.is-explica]="a.explica" [class.is-abierto]="ajusteAbierto() === claveAjuste(a)">
+                          <!-- RE.22.1 — la fila entera abre el desglose: la lista decía CUÁNTO se
+                               ajustó y nunca QUÉ. Es botón (no div con click) por teclado. -->
+                          <button type="button" class="rv-adj-row" (click)="toggleAjuste(a)"
+                                  [attr.aria-expanded]="ajusteAbierto() === claveAjuste(a)">
+                            <i class="pi rv-adj-caret" [class.pi-chevron-right]="ajusteAbierto() !== claveAjuste(a)" [class.pi-chevron-down]="ajusteAbierto() === claveAjuste(a)" aria-hidden="true"></i>
+                            <p-tag [value]="a.doctype === 'XD40' ? 'Devolución' : 'Nota de crédito'" [severity]="a.doctype === 'XD40' ? 'warn' : 'info'" />
+                            <span class="mono">{{ a.folio }}</span>
+                            <em>{{ a.adjustment_date | date:'dd/MM' }}</em>
+                            <span class="rv-adj-mot" [title]="a.motivo || ''">{{ a.motivo || '—' }}</span>
+                            <span class="rv-adj-monto">{{ money(a.monto) }}</span>
+                            <!-- title nativo y no pTooltip: esta pantalla no importa
+                                 TooltipModule y no vale traerlo por un ícono. -->
+                            @if (a.explica) { <i class="pi pi-arrow-left rv-adj-hit" [title]="a.match === 'exacto' ? 'Kepler la liga a esta entrada Y tiene el tamaño del hueco' : 'Tiene exactamente el tamaño del hueco'"></i> }
+                          </button>
+
+                          @if (ajusteAbierto() === claveAjuste(a)) {
+                            <div class="rv-adj-det">
+                              @if (desgloseLoading()) {
+                                <p class="rv-adj-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
+                              } @else if (desgloseError()) {
+                                <p class="rv-adj-nota">No se pudo abrir el movimiento. <button type="button" class="rv-adj-retry" (click)="reintentarAjuste(a)">Reintentar</button></p>
+                              } @else if (desglose(); as dg) {
+                                @if (dg.desglose === 'renglones') {
+                                  <!-- Misma base compartida que el listado: una <table> cruda no
+                                       se re-estila por pantalla (surf-table--plain existe para eso). -->
+                                  <div class="rv-adj-scroll">
+                                    <table class="surf-table surf-table--plain is-dense">
+                                      <thead><tr><th>SKU</th><th>Producto</th><th class="comm-num">Cant.</th><th>Unidad</th><th class="comm-num">Costo</th><th class="comm-num">Importe</th></tr></thead>
+                                      <tbody>
+                                        @for (l of dg.lineas; track l.linea) {
+                                          <tr>
+                                            <td class="mono">{{ l.sku || '—' }}</td>
+                                            <td>{{ l.nombre || '—' }}</td>
+                                            <td class="comm-num">{{ l.cantidad }}</td>
+                                            <td>{{ l.unidad || '—' }}</td>
+                                            <td class="comm-num">{{ money(l.costo_unitario) }}</td>
+                                            <td class="comm-num">{{ money(l.importe) }}</td>
+                                          </tr>
+                                        }
+                                      </tbody>
+                                      <tfoot><tr><td colspan="5">{{ plural(dg.lineas.length, 'renglón', 'renglones') }}</td><td class="comm-num">{{ money(dg.total_importe) }}</td></tr></tfoot>
+                                    </table>
+                                  </div>
+                                } @else {
+                                  <!-- RE.22.1 — una nota de crédito NO se desglosa por producto: es
+                                       dinero, no mercancía. Decirlo es la mitad del valor; dejar la
+                                       lista vacía se leería como que falló la carga. -->
+                                  <p class="rv-adj-nota">{{ dg.nota }}</p>
+                                  @if (dg.motivo) { <p class="rv-adj-motivo">Motivo en Kepler: <b>{{ dg.motivo }}</b></p> }
+                                }
+                              }
+                            </div>
+                          }
                         </li>
                       }
                     </ul>
@@ -731,10 +776,45 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
     /* El que casa con el hueco se marca en la lista, para poder ir del veredicto a la fila. */
     .rv-adj li.is-explica { font-weight: 600; }
     .rv-adj-hit { color: var(--action); font-size: .7rem; }
-    .rv-adj li { display: flex; align-items: center; gap: .45rem; font-size: var(--fs-sm, .85rem); flex-wrap: wrap; }
+    /* RE.22.1 — el li pasa a bloque: ahora contiene la fila (botón) + el desglose debajo. */
+    .rv-adj li { display: block; font-size: var(--fs-sm, .85rem); }
+    .rv-adj-row {
+      display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; width: 100%;
+      /* Ghost: es una fila de lista que se abre, no un botón que compite con Aprobar/Devolver. */
+      background: none; border: 0; padding: .15rem .2rem; margin: 0;
+      border-radius: var(--r-sm, 4px); color: inherit; font: inherit; text-align: left; cursor: pointer;
+    }
+    .rv-adj-row:hover { background: var(--overlay-hover); }
+    .rv-adj-row:active { background: var(--overlay-active); }
+    .rv-adj-row:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+    /* La fila entera es el objetivo de clic, así que en touch se le da la altura mínima. */
+    @media (pointer: coarse) { .rv-adj-row { min-height: var(--tap-min); } }
+    .rv-adj-caret { color: var(--text-faint); font-size: var(--fs-micro); width: .7rem; flex: none; }
+    .rv-adj li.is-abierto .rv-adj-caret { color: var(--text-muted); }
     .rv-adj em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
     .rv-adj-mot { flex: 1; min-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .rv-adj-monto { font-family: var(--font-mono); font-weight: 600; }
+
+    /* El desglose cuelga de la fila, sangrado a la altura del caret para que se lea como su hijo. */
+    /* Elevación por borde (no borde+sombra): el desglose cuelga de su fila, sangrado a la
+       altura del caret para que se lea como su hijo y no como un bloque suelto. */
+    .rv-adj-det {
+      margin: var(--sp-1) 0 var(--sp-2) 1.15rem; padding: var(--sp-2);
+      border-left: 2px solid var(--border-color); background: var(--surface-ground);
+      border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    }
+    .rv-adj-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+    .rv-adj-motivo { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .rv-adj-motivo b { color: var(--text-main); }
+    .rv-adj-retry {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--action); text-decoration: underline;
+    }
+    .rv-adj-retry:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    /* La tabla usa la base compartida; acá sólo lo que ella no cubre: el nombre envuelve y el
+       panel es angosto, así que scrollea sola. */
+    .rv-adj-scroll { overflow-x: auto; }
+    .rv-adj-det .surf-table--plain > tbody > tr > td:nth-child(2) { white-space: normal; min-width: 9rem; }
     .rv-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; }
     .rv-hist li { display: flex; gap: .45rem; align-items: baseline; font-size: var(--fs-sm, .85rem); flex-wrap: wrap; }
     .rv-hist em { font-style: normal; color: var(--text-muted); font-size: var(--fs-micro, .72rem); }
@@ -935,6 +1015,63 @@ export class ComprasEntradasRevisionComponent {
   /** `[RE.21]` — el veredicto sobre el hueco: quién lo explica, de qué naturaleza y con cuánta certeza. */
   readonly explicacion = signal<AdjustmentExplicacion | null>(null);
   readonly inspect = signal<string | null>(null);
+
+  // ── `[RE.22.1]` desglose de un ajuste (clic en la fila) ──
+  /** Acordeón: un solo ajuste abierto. Clave = doctype+folio, la misma del `track`. */
+  readonly ajusteAbierto = signal<string | null>(null);
+  /** Caché por clave: reabrir no vuelve a pedir. `null` = pedido y falló. */
+  private readonly desgloseCache = new Map<string, AdjustmentLinesResponse | null>();
+  readonly desglose = signal<AdjustmentLinesResponse | null>(null);
+  readonly desgloseLoading = signal(false);
+  readonly desgloseError = signal(false);
+
+  claveAjuste(a: AdjustmentForEntradaRow): string { return a.doctype + a.folio; }
+
+  /**
+   * `[RE.22.1]` — abre/cierra el desglose de un ajuste. La respuesta se descarta si mientras
+   * viajaba se abrió otro (o se cerró): sin ese corte se pintarían los renglones de un ajuste
+   * bajo el encabezado de otro, que es peor que no mostrarlos porque se ve correcto.
+   */
+  toggleAjuste(a: AdjustmentForEntradaRow): void {
+    const clave = this.claveAjuste(a);
+    if (this.ajusteAbierto() === clave) { this.ajusteAbierto.set(null); return; }
+    this.abrirAjuste(a, clave);
+  }
+
+  /** Reintento tras un fallo: hay que OLVIDAR el fallo cacheado o se repite la misma respuesta. */
+  reintentarAjuste(a: AdjustmentForEntradaRow): void {
+    const clave = this.claveAjuste(a);
+    this.desgloseCache.delete(clave);
+    this.abrirAjuste(a, clave);
+  }
+
+  private abrirAjuste(a: AdjustmentForEntradaRow, clave: string): void {
+    this.ajusteAbierto.set(clave);
+    this.desgloseError.set(false);
+    if (this.desgloseCache.has(clave)) {
+      const hit = this.desgloseCache.get(clave) ?? null;
+      this.desglose.set(hit);
+      this.desgloseError.set(hit === null);
+      this.desgloseLoading.set(false);
+      return;
+    }
+    this.desglose.set(null);
+    this.desgloseLoading.set(true);
+    this.compras.adjustmentLines({ sucursal: a.sucursal, folio: a.folio, doctype: a.doctype })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.desgloseCache.set(clave, r);
+          if (this.ajusteAbierto() !== clave) return;   // se abrió otro mientras viajaba
+          this.desglose.set(r); this.desgloseLoading.set(false);
+        },
+        error: () => {
+          this.desgloseCache.set(clave, null);
+          if (this.ajusteAbierto() !== clave) return;
+          this.desgloseLoading.set(false); this.desgloseError.set(true);
+        },
+      });
+  }
 
   /**
    * `[RE.17.4]` — todas las hojas del expediente, aplanadas para el visor. Un expediente puede
