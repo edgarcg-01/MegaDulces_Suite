@@ -407,6 +407,14 @@ const CRON_JOBS: CronCfg[] = [
   // → cron_runs se congela → ROJO antes de que llene disco. Per-sucursal a propósito (uno global
   // enmascararía un branch caído — la lección de la 00). Sin heartbeat aún = 'unknown' = no alarma.
   ...['00', '01', '02', '03', '04', '05', '06'].map((c) => ({ key: `cdc_wal_${c}`, label: `CDC WAL sucursal ${c}`, cadence: 'continuo ~30s', warnH: 0.25, critH: 1 })),
+  // CDC.7 — la ÚNICA alarma de COMPLETITUD del sistema. Todo lo demás mide frescura (`max(fecha)`)
+  // y por construcción no puede ver un hueco EN MEDIO con datos frescos alrededor: así el CDC perdió
+  // 2-7% de las filas diarias del 26 al 31 de agosto **con los 7 latidos de arriba verdes y
+  // correctos** (un latido prueba que el caño se mueve, no que llegó todo), y lo encontró un
+  // humano abriendo una factura. `reconcile-ods-window --watch` compara las llaves de la ventana
+  // reciente (replica vs kepler_ods), repone el delta y late acá con lo que encontró; si supera el
+  // umbral escribe status='error' → CRÍTICO. Un número > 0 sostenido = se está perdiendo otra vez.
+  { key: 'cdc_reconcile',       label: 'Reconciliador ODS (completitud)', cadence: 'continuo ~15 min', warnH: 1, critH: 3 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },

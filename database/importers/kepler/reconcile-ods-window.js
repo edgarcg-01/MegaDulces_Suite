@@ -146,6 +146,47 @@ const resumen = (out) => ({
   errores: out.filter((r) => r.error).length,
 });
 
+// Umbral de alarma. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese intervalo se ve
+// "ausente" sin serlo. Un puñado por pasada es ese ruido; decenas son pérdida real.
+const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 50);
+
+/**
+ * Latido al MISMO tablero que mira Administración (`analytics.cron_runs` → db-health).
+ *
+ * Se escribe DIRECTO a prod, no por el feed `cdc-heartbeat`, por dos razones: acá ya hay conexión a
+ * prod (se usa para leer las llaves), y sobre todo porque un latido no debe viajar por el mismo canal
+ * que vigila. Cuando feeds-ingest se cae, el ship Y el latido fallan juntos y el dead-man's switch
+ * queda mudo justo cuando hace falta — ya pasó el 26/08 con la key rotada (401 en los 7 consumidores,
+ * sin alarma) y otra vez hoy 00:05-00:07 (404 `Application not found`). Ver ecosystem.cdc.config.js.
+ *
+ * `status='error'` → db-health lo marca CRÍTICO sin importar la antigüedad. Es la única alarma del
+ * sistema que mide COMPLETITUD. Ojo con la diferencia, que es el corazón del bug de CDC.7: los
+ * latidos de `cdc_wal_00..06` estuvieron **verdes y correctos** todo el tiempo mientras se perdía
+ * 2-7% de las filas diarias. Un latido prueba que el caño se mueve, no que llegó todo.
+ */
+async function latir(destUrl, r, ms) {
+  const c = new Client({ connectionString: destUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  try {
+    await c.connect();
+    const malo = r.huecos > ALERTA || r.errores > 0;
+    await c.query(`
+      INSERT INTO analytics.cron_runs
+        (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
+      VALUES ($1,'cdc_reconcile','Reconciliador ODS (completitud)', now() - ($2::int || ' ms')::interval, now(),
+              $3, $4, $2, $5, $6, $7, now())
+      ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+        last_start=EXCLUDED.last_start, last_finish=EXCLUDED.last_finish, status=EXCLUDED.status,
+        rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
+        note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
+    [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
+      `ventana ${DAYS}d · huecos ${r.huecos} · repuestas ${r.repuestas} · errores ${r.errores}`,
+      malo ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) · ${r.errores} tablas con error — el CDC esta perdiendo filas` : null,
+      require('os').hostname()]);
+  } catch (e) {
+    console.error(`latido falló: ${e.message}`);   // nunca corta la reconciliación
+  } finally { await c.end().catch(() => {}); }
+}
+
 (async () => {
   const destUrl = process.env.DATABASE_URL_NEW;
   if (!destUrl) { console.error('Falta DATABASE_URL_NEW (se lee para comparar las llaves del ODS).'); process.exit(2); }
@@ -169,6 +210,7 @@ const resumen = (out) => ({
       const r = resumen(out);
       if (r.huecos || r.errores) console.table(out.filter((x) => x.faltan || x.error || x.skip));
       console.log(`[${new Date().toISOString()}] huecos ${r.huecos} · repuestas ${r.repuestas} · errores ${r.errores} · ${Math.round((Date.now() - t0) / 1000)}s`);
+      await latir(destUrl, r, Date.now() - t0);
     } catch (e) {
       console.error(`[${new Date().toISOString()}] pasada falló: ${e.message}`);
     }
