@@ -1028,8 +1028,11 @@ resto del programa avanza. Si entre el `await` y el `clear()` alguien puede escr
 estructura, ese alguien pierde. El patrón correcto es *tomar y reemplazar*, no *usar y vaciar*.
 
 **Los sensores medían frescura; el fallo era de completitud.** Las ~20 alertas miran `max(fecha)`, y
-con datos frescos alrededor un agujero en el medio es invisible. Ninguna podía ver esto: lo encontró
-un humano abriendo una factura. Peor, la pantalla **traducía "cero renglones" a "es una venta de
-servicio"** — un hueco de datos disfrazado de hecho de negocio, que por definición nadie reporta.
+con datos frescos alrededor un agujero en el medio es invisible. Y no es que estuvieran rotas: los 7
+latidos `cdc_wal_00..06` estuvieron **verdes y correctos los seis días** — *un latido prueba que el
+caño se mueve, no que llegó todo*. Ninguna alerta podía ver esto: lo encontró un humano abriendo una
+factura. Peor, la pantalla **traducía "cero renglones" a "es una venta de servicio"** — un hueco de
+datos disfrazado de hecho de negocio, que por definición nadie reporta. El cierre es `cdc_reconcile`
+(`reconcile-ods-window --watch`): compara **llaves**, no fechas, y late con lo que encontró.
 Cuando una pantalla explique una ausencia, tiene que distinguir *"el ERP dice que no hay"* de
 *"no nos llegó"*: son la misma pantalla vacía y problemas opuestos.
