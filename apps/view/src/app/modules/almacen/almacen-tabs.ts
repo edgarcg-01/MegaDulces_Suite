@@ -41,6 +41,13 @@ export interface AlmacenArea {
   /** Pantallas del área — esto es la barra de tabs. */
   tabs: PageTab[];
   /**
+   * El área **no se pinta en el sidebar**, pero sigue resolviendo URLs y dando
+   * su barra de tabs a quien entre por deep-link. Es el paso intermedio entre
+   * "visible" y "borrada": retira la puerta sin tirar el código, que es lo que
+   * permite volver atrás si el reemplazo no rinde.
+   */
+  hidden?: boolean;
+  /**
    * Pantallas de **foco** del área: handheld, sin barra de tabs (cuelgan fuera
    * del shell de ruta). **NO son tabs**: si lo fueran, al hacer clic la barra
    * desaparecería y el operario quedaría sin salida visible. Se llega a ellas
@@ -57,20 +64,30 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
   {
     key: 'entrada',
     label: 'Entrada',
+    /**
+     * **OCULTA del sidebar** (decisión del equipo, 2026-09-01): el Andén es la
+     * única puerta del bodeguero, y dejar la entrada vieja a la vista invita a
+     * volver al recorrido de 79 toques.
+     *
+     * **Las rutas y los componentes NO se borraron.** Siguen vivos para
+     * deep-links y para el supervisor, y el área sigue declarada para que
+     * `resolveAlmacenArea` les dé su barra de tabs coherente al entrar por URL.
+     * Apagarlas de verdad es el último paso del plan, después de correr los dos
+     * flujos en paralelo y comprobar que el tablero de pendientes baja.
+     *
+     * *Por fechar* y *Ubicaciones* **se mudaron a Inventario**: el Andén resuelve
+     * un vale de punta a punta, pero no cubre la deuda de vales anteriores ni la
+     * consulta de dónde vive cada lote. Ocultarlas sin reubicarlas las volvía
+     * inalcanzables.
+     */
+    hidden: true,
     // Ojo: 'recepcion-sesiones' NO es hijo de 'recepcion' (no hay `/` entre
     // medio), por eso van los dos prefijos explícitos. El detalle handheld
-    // `/recepcion-sesiones/:id` cae por prefijo → el sidebar sigue en Entrada.
-    match: [
-      '/almacen/inventory/recepcion',
-      '/almacen/inventory/recepcion-sesiones',
-      '/almacen/inventory/por-fechar',
-      '/almacen/inventory/ubicaciones',
-    ],
+    // `/recepcion-sesiones/:id` cae por prefijo → sigue resolviendo a Entrada.
+    match: ['/almacen/inventory/recepcion', '/almacen/inventory/recepcion-sesiones'],
     tabs: [
       { label: 'Vales', icon: 'pi pi-list', route: '/almacen/inventory/recepcion-sesiones', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
       { label: 'Caducidad', icon: 'pi pi-camera', route: '/almacen/inventory/recepcion', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
-      { label: 'Por fechar', icon: 'pi pi-clock', route: '/almacen/inventory/por-fechar', permission: Permission.COMMERCIAL_EXPIRY_CAPTURAR, exact: true },
-      { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
     ],
   },
   {
@@ -82,6 +99,11 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     tabs: [
       { label: 'Existencias', icon: 'pi pi-box', route: '/almacen/inventory', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
       { label: 'Por vencer', icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+      // Mudadas desde Entrada al ocultarla: el Andén resuelve UN vale de punta a
+      // punta, pero no cubre la deuda que dejaron los vales anteriores (Por
+      // fechar) ni la consulta de dónde vive cada lote (Ubicaciones).
+      { label: 'Por fechar', icon: 'pi pi-clock', route: '/almacen/inventory/por-fechar', permission: Permission.COMMERCIAL_EXPIRY_CAPTURAR, exact: true },
+      { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
       // exact:false a propósito — el tab sigue activo en el detalle `/:id`.
       { label: 'Hojas de anaquel', icon: 'pi pi-clipboard', route: '/almacen/inventory/caducidades', permission: Permission.COMMERCIAL_EXPIRY_VER, exact: false },
       { label: 'Stock muerto', icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock', permission: Permission.COMMERCIAL_DEADSTOCK_VER, exact: false },
@@ -109,6 +131,18 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     focusEntries: [
       // Pantalla del contador: handheld, con `countFocusGuard` en canDeactivate.
       { label: 'Contar', icon: 'pi pi-qrcode', route: '/almacen/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
+    ],
+  },
+  {
+    key: 'anden',
+    label: 'Andén',
+    // El Andén es pantalla de FOCO: no tiene tabs propios. Se declara como área
+    // para que el sidebar lo resalte y para que el resolvedor no lo tire dentro
+    // de Entrada, que sí tiene barra.
+    match: ['/almacen/anden'],
+    tabs: [],
+    focusEntries: [
+      { label: 'Andén', icon: 'pi pi-truck', route: '/almacen/anden', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
     ],
   },
   {
