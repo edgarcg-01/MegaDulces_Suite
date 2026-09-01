@@ -172,7 +172,7 @@ vínculo formal.
 | **LC.0** | ✅ Layout investigado y validado campo por campo. Falta: 1 TXT real para confirmar separador, y decidir póliza mensual vs quincenal | — |
 | **LC.1** | ✅ **2026-09-01** — `import-contpaqi-cfdis.js`: ADD → `fiscal.cfdis`. **167,135 CFDIs recibidos (140,546 `I` + 26,589 `E`) de 2018 a hoy, en prod.** Falta agendarlo | — |
 | **LC.2** | ⚠️ **BLOQUEADO 2026-09-01** — el criterio no está en los datos. Ver "Qué decide que una factura entre al libro" | LC.1 |
-| **LC.3** | `finance.gl_supplier_accounts` — mapa RFC → cuentas `501/502/212`. Se siembra de `analytics.contpaqi_suppliers` (3,411 con RFC) + las 134 cuentas que ya usa el asiento. Editable desde la UI, no por script | LC.2 |
+| **LC.3** | ✅ **2026-09-01** — `finance.gl_supplier_accounts` con **929 proveedores**, sembrada de la hoja `DATOS` y validada contra el catálogo de cuentas de ContPAQi. **Acierto 1,555/1,555 (100%)** | — |
 | **LC.4** | Motor: `finance.purchase_book_lines` (por CFDI: base 0%, base IVA, base IEPS, IVA, IEPS, total, UUID, folio, proveedor, cuenta). Cuadre obligatorio contra el total del CFDI | LC.3 |
 | **LC.5** | Generador de póliza + TXT: patas `501`/`502`/`212` por proveedor, IEPS e IVA **separados por cuenta** (+82 a +95 renglones/mes), UUID por renglón. Descarga del archivo | LC.0, LC.4 |
 | **LC.6** | Pantalla `/finanzas/libro-de-compras`: selector de mes, tabla densa, semáforo de cuadre, botón *Generar TXT*, historial de entregas | LC.5 |
@@ -226,6 +226,40 @@ fenómeno visto desde dos lados.
 
 Sin esa respuesta LC.2 no se puede cerrar: cualquier clasificador que escribamos estaría
 adivinando el criterio, y de ahí cuelga todo lo demás.
+
+## El mapa proveedor → cuenta (LC.3, cerrado 2026-09-01)
+
+Cada proveedor tiene tres cuentas con el **mismo sufijo de 7 dígitos**: `212<sufijo>`
+pasivo, `501<sufijo>` compras al 0%, `502<sufijo>` compras c/IVA.
+
+**La fuente es la hoja `DATOS` del workbook** (1,009 proveedores con clave, nombre, RFC y
+cuenta). Empata con las 177 cuentas `212` que el asiento realmente usa: **177 de 177**, y
+el nombre coincide en 175 — las otras dos difieren solo en puntuación (`CANEL'S` vs
+`CANELS`, `S. DE R.L.` vs `S DE RL`).
+
+**No sale de `analytics.contpaqi_suppliers`, y por poco se cuela.** Su `codigo` empata
+numéricamente con el sufijo en 142 de 177 casos, pero es espurio: el código `2` es "MARIA
+SILVIA ANDRADE BARRA" mientras la cuenta `2120000002` es "ACEITES GRASAS Y DERIVADOS".
+ContPAQi numera Proveedores y Cuentas por separado. Se cayó al contrastar los **nombres** —
+el número solo daba un 80% de falso acierto.
+
+Sembrado en `finance.gl_supplier_accounts`: **929 proveedores**, cada uno validado contra
+el catálogo `Cuentas` de ContPAQi porque **el TXT no puede citar una cuenta inexistente**:
+
+| | |
+|---|---|
+| Cuenta de pasivo existe | 926 / 929 |
+| Compra exenta existe | 926 / 929 |
+| Compra c/IVA existe | 915 / 929 (los 14 restantes nunca han facturado con IVA) |
+| Sin RFC en el catálogo | 24 |
+| Cuenta de pasivo **inexistente** | 3 — `2120005109`, `2120005405`, `2120005406` |
+
+**Prueba de aceptación:** resolver por RFC la cuenta de las 1,555 facturas de ene–jun 2026
+y compararla contra la que el libro les asignó a mano → **1,555 de 1,555, 100%**. Cero RFC
+sin mapa, cero cuentas distintas.
+
+Consecuencia: **dado un CFDI ya sabemos exactamente a qué cuentas postearlo.** Lo único que
+falta para generar el TXT es saber *cuáles* CFDIs entran, que es LC.2.
 
 ## Nota: replicación real vs watermark (decidido 2026-09-01)
 
