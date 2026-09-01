@@ -41,6 +41,8 @@ que WR.0 y CA.0, que se pagaron solas):
    + rutas). Si Postgres es **una sola instancia consolidada**, el concepto `source_branch`
    cambia de "archivo" a "columna" y media capa de crosswalk sobra. Si es **una por tienda**, el
    problema de N-orígenes sigue igual y sólo cambia el driver.
+1.bis **¿Qué pasa con `source_dataset`?** Ver §1.bis — es la pregunta que más código toca (47
+   filtros) y la que falla en silencio si se elige mal.
 2. **¿El esquema es el mismo o lo rediseñaron?** ¿`MovimientoProveedores` sigue llamándose así,
    con las mismas columnas? Una migración de proveedor **casi nunca** es 1:1: suelen normalizar,
    renombrar y cambiar tipos. **Si el esquema cambia, el trabajo no es el conector — es el decode
@@ -53,6 +55,68 @@ que WR.0 y CA.0, que se pagaron solas):
    que es una responsabilidad distinta y hay que decidirla, no heredarla.
 5. **¿Fecha de corte y convivencia?** ¿Habrá un periodo con las dos fuentes vivas? Si sí, hay que
    decidir cuál manda **por sucursal y por fecha**, o se cuenta doble.
+
+---
+
+## 1.bis El terreno real (medido 2026-09-01) — **son DOS capas, no una**
+
+Confundirlas lleva a planear la fase equivocada. Lo verifiqué en vivo:
+
+| | Espejo crudo (WR) | **Bronze de prod** |
+|---|---|---|
+| Dónde | `localhost:5433/wincaja` | `trolley…/railway`, schema `wincaja` |
+| Qué | **70 tablas** por sucursal, schema por tienda (`w30`, `h10`…) | **28 tablas curadas**, 4.2 GB |
+| Dialecto | CamelCase de Access (`ValorVenta`) | **snake_case** (`valor_venta`) |
+| Alcance | 8 sucursales | 22 sucursales en `detalles_mov_almacen` |
+| Identidad | PK natural + `_dataset` | `(tenant_id, source_branch, source_dataset, <clave natural>)` |
+
+**El bronze ya es una curaduría**: se queda con las 28 que importan de las 70 del `.mdb`. Eso es
+una decisión de producto que **sobrevive a la migración** y hay que preservarla explícitamente —
+si el bronze se vuelve vista (§4), la vista es la que hace las dos traducciones: **recorte de 70→28
+y CamelCase→snake_case**. Es exactamente para lo que sirve una vista; el riesgo es hacerlo por
+accidente y perder el recorte.
+
+**Volumen (4.2 GB):** `detalles_mov_almacen` 9.88M filas / 2,202 MB · `precios` 2.24M / 639 MB ·
+`maestro_mov_almacen` 1.49M / 447 MB · `pagos_dia` 777k / 256 MB · `movimiento_clientes` 637k /
+273 MB · `articulos` y `existencias` 383k c/u.
+
+### ⚠️ `source_dataset` es la pieza que puede romper la migración
+
+La identidad incluye `source_dataset` (`actual` / `concentrada` / `2025`), y **existe por una razón
+que desaparece con Postgres**: los datasets son *archivos distintos* del mismo Access — una foto
+"actual", una "concentrada" y una por año. Conviven en la misma tabla sin pisarse porque el
+dataset es parte de la llave.
+
+Cuando la fuente sea una base viva, **ese concepto deja de tener sentido para lo nuevo**, pero las
+~13M filas históricas siguen cargando sus tres valores. Entonces: *¿con qué `source_dataset` nacen
+las filas nuevas?* Las opciones no son equivalentes —
+`actual` (y el histórico queda como estratos muertos) · un valor nuevo tipo `live` (y todo
+consumidor que filtre `= 'actual'` deja de ver lo nuevo, **en silencio**) · o retirar la columna
+(y romper la PK de 28 tablas). **Esto se decide en WP.0, no en el cutover.**
+
+> **Medido:** `source_dataset` aparece **154 veces** en el código (libs/apps/database), de las
+> cuales **29 filtran por `'actual'`**, más **18 en migraciones SQL** (vistas). Cualquiera de los
+> tres caminos las toca; el peligro es el segundo, porque **no falla** — simplemente deja de traer
+> filas, en 47 lugares a la vez.
+
+### El hueco de observabilidad tiene número
+
+**No hay índice sobre `imported_at` en ninguna tabla de `wincaja.*`** (verificado). Costo real de
+medir frescura hoy:
+
+| | |
+|---|---|
+| `max(imported_at)` en `detalles_mov_almacen` | **22.0 s** |
+| en `movimiento_proveedores` | 200 ms |
+
+Un monitor que tarda 22 segundos por corrida es un monitor que alguien apaga. Esto explica —
+mecánicamente— por qué el hueco del 29→31 de agosto lo reportó una persona y no una alarma.
+**Arreglo inmediato, independiente de toda la fase:** índice sobre `(source_branch, imported_at)`
+en las tablas que se vigilan.
+
+**Frescura medida (16:17 MX):** las tres sucursales del carril vivo cargan a las ~05:00 y el
+último movimiento es del día anterior → **~11.2 h de atraso estructural**, que es el batch diario
+haciendo lo que un batch diario hace. Con la fuente en Postgres ese número debería ser minutos.
 
 ---
 
