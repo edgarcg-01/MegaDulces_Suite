@@ -43,6 +43,12 @@ const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql:/
 const APPLY = process.argv.includes('--apply');
 const yi = process.argv.indexOf('--year');
 const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear();
+// `--days N` fuerza una ventana MÍNIMA hacia atrás (piso duro: el cutover de cada rama).
+// Sin esto el line-level arranca en el último día ya cargado y una columna nueva
+// (ej. `unidad` en RR2) nunca llega a las filas viejas. Mismo flag que
+// import-route-push-lines.js, para que el backfill se pida igual en los dos.
+const di = process.argv.indexOf('--days');
+const DAYS_FLOOR = di !== -1 ? Number(process.argv[di + 1]) : null;
 
 // Sucursales con ruta vecinal. Cada ruta cae en el almacén de SU sucursal dueña.
 // (env VECINAL_BRANCHES para override; el default cubre PH + Piedad Abastos + Yurécuaro.)
@@ -107,6 +113,10 @@ async function processBranch(dst, cfg) {
     let since = maxRow.rows[0]?.d
       ? new Date(new Date(maxRow.rows[0].d).getTime() - 864e5).toISOString().slice(0, 10)
       : cutover;
+    if (DAYS_FLOOR) {
+      const floor = new Date(Date.now() - DAYS_FLOOR * 864e5).toISOString().slice(0, 10);
+      if (floor < since) since = floor;
+    }
     if (since < cutover) since = cutover;
     // RR2.2: `d.c11` = unidad de venta POR LÍNEA y `d.c12` = precio unitario (decode ya
     // probado en la Fase AX: passthrough, cero unidades inventadas). Sin esto el desglose
