@@ -112,6 +112,18 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    key: 'anden',
+    label: 'Andén',
+    // El Andén es pantalla de FOCO: no tiene tabs propios. Se declara como área
+    // para que el sidebar lo resalte y para que el resolvedor no lo tire dentro
+    // de Entrada, que sí tiene barra.
+    match: ['/almacen/anden'],
+    tabs: [],
+    focusEntries: [
+      { label: 'Andén', icon: 'pi pi-truck', route: '/almacen/anden', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
+    ],
+  },
+  {
     key: 'control',
     label: 'Control',
     // `/almacen/movimientos` NO está acá a propósito: el **Diario de

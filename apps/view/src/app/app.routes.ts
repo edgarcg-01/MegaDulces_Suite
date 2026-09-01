@@ -676,6 +676,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
         canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
       },
+      {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: se entra escaneando el folio del papel, no eligiendo
+        // de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
       // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
       // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
       // deep-links y los redirects viejos (`/comercial/inventory/**`) siguen
