@@ -1,10 +1,10 @@
 import {
   Directive,
   ElementRef,
-  Input,
   NgZone,
   OnChanges,
   inject,
+  input
 } from '@angular/core';
 
 /**
@@ -20,8 +20,8 @@ import {
   standalone: true,
 })
 export class CountUpDirective implements OnChanges {
-  @Input('countUp') value: number | string | null = 0;
-  @Input() countCurrency = true;
+  readonly value = input<number | string | null>(0, { alias: "countUp" });
+  readonly countCurrency = input(true);
 
   private readonly el = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
@@ -33,7 +33,7 @@ export class CountUpDirective implements OnChanges {
   private tween?: { kill: () => void };
 
   ngOnChanges(): void {
-    const target = Number(this.value) || 0;
+    const target = Number(this.value()) || 0;
     const from = this.prev;
     this.prev = target;
 
@@ -73,7 +73,7 @@ export class CountUpDirective implements OnChanges {
   }
 
   private fmt(v: number): string {
-    if (!this.countCurrency) return Math.round(v).toLocaleString('es-MX');
+    if (!this.countCurrency()) return Math.round(v).toLocaleString('es-MX');
     try {
       return new Intl.NumberFormat('es-MX', {
         style: 'currency',

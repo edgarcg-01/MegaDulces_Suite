@@ -8,6 +8,7 @@ import {
   NgZone,
   OnDestroy,
   inject,
+  input
 } from '@angular/core';
 
 import { RouterModule } from '@angular/router';
@@ -26,16 +27,16 @@ import { RouterModule } from '@angular/router';
     @if (images.length) {
       <section class="fp">
         <div class="fp-text">
-          <span class="fp-eyebrow"><i class="pi pi-bolt" aria-hidden="true"></i> {{ eyebrow }}</span>
-          <h2 class="fp-title">{{ title }}</h2>
+          <span class="fp-eyebrow"><i class="pi pi-bolt" aria-hidden="true"></i> {{ eyebrow() }}</span>
+          <h2 class="fp-title">{{ title() }}</h2>
           <svg class="fp-underline" viewBox="0 0 220 16" aria-hidden="true" preserveAspectRatio="none">
             <path d="M5 9 C 55 2, 130 2, 215 7" fill="none" stroke="var(--brand-700)" stroke-width="3.5" stroke-linecap="round" />
           </svg>
-          <p class="fp-lead">{{ lead }}</p>
+          <p class="fp-lead">{{ lead() }}</p>
           <div class="fp-row">
-            <span class="fp-badge">{{ badge }}</span>
-            <a class="fp-cta" [routerLink]="ctaLink" [attr.aria-label]="ctaLabel">
-              {{ ctaLabel }}
+            <span class="fp-badge">{{ badge() }}</span>
+            <a class="fp-cta" [routerLink]="ctaLink()" [attr.aria-label]="ctaLabel()">
+              {{ ctaLabel() }}
               <i class="pi pi-arrow-right" aria-hidden="true"></i>
             </a>
           </div>
@@ -249,12 +250,12 @@ import { RouterModule } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeaturedPromoComponent implements AfterViewInit, OnDestroy {
-  @Input() eyebrow = 'Promo destacada';
-  @Input() title = 'Llévate un exhibidor gratis';
-  @Input() lead = 'En la compra de 6 productos Nutresa, te regalamos 1 exhibidor de Nucita Trisabor.';
-  @Input() badge = '6 + 1 GRATIS';
-  @Input() ctaLabel = 'Aprovechar';
-  @Input() ctaLink = '/portal/promotions';
+  readonly eyebrow = input('Promo destacada');
+  readonly title = input('Llévate un exhibidor gratis');
+  readonly lead = input('En la compra de 6 productos Nutresa, te regalamos 1 exhibidor de Nucita Trisabor.');
+  readonly badge = input('6 + 1 GRATIS');
+  readonly ctaLabel = input('Aprovechar');
+  readonly ctaLink = input('/portal/promotions');
   /** Productos que rotan en el escaparate. */
   @Input({ required: true }) images: string[] = [];
 
