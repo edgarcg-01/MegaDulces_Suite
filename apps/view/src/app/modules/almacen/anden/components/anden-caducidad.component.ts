@@ -137,7 +137,7 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
     .fx-sem { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
       border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
     .fx-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
-    .fx-sem--g { background: var(--good-soft-bg, var(--surface-ground)); color: var(--good-fg, var(--text-main)); }
+    .fx-sem--g { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .fx-sem--y { background: var(--warn-soft-bg, var(--surface-ground)); color: var(--warn-fg, var(--text-main)); }
     .fx-sem--r { background: var(--bad-soft-bg, var(--surface-ground)); color: var(--bad-fg); }
     .fx-sem--n { background: var(--surface-ground); color: var(--text-faint); }

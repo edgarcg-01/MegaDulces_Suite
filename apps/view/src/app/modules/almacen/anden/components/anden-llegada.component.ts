@@ -41,12 +41,6 @@ import { describirDiferencia } from '../cantidad.util';
           (confirmar)="contar.emit({ linea: c, cantidad: $event })" />
       </div>
     } @else {
-      <button type="button" class="ct-scan" (click)="abrirSiguiente()">
-        <span class="ct-scan-ic" aria-hidden="true">|||‖|‖||</span>
-        <span class="ct-scan-t">Escaneá la tarima</span>
-        <span class="ct-scan-d">o tocá una línea para capturar otra cantidad</span>
-      </button>
-
       <ul class="ct-lista">
         @for (l of lineas(); track l.id) {
           <li>
@@ -72,30 +66,21 @@ import { describirDiferencia } from '../cantidad.util';
       </ul>
 
       <p class="ct-nota" [class.ct-alerta]="diferencias() > 0">
-        Kepler mandó <b>{{ lineas().length }} líneas</b> ·
+        Kepler mandó <b>{{ lineas().length }} {{ lineas().length === 1 ? 'línea' : 'líneas' }}</b> ·
         {{ listo() ? (unidades() | number) + ' pz cotejadas' : contadas() + ' de ' + lineas().length + ' cotejadas' }}
-        @if (diferencias() > 0) { · <b>{{ diferencias() }} con diferencia</b> }
-        @else if (listo()) { · <b>sin diferencias</b> }
+        @if (diferencias() > 0) {
+          · <b>{{ diferencias() }} con diferencia</b>
+        } @else if (listo()) { · <b>sin diferencias</b> }
       </p>
 
       <button pButton type="button" class="ct-go" [disabled]="!listo() || guardando()"
         [loading]="guardando()" (click)="darAcceso.emit()">
-        {{ listo() ? 'Dar acceso' : 'Faltan ' + (lineas().length - contadas()) + ' por cotejar' }}
+        {{ listo() ? 'Dar acceso' : etiquetaFaltan() }}
       </button>
     }
   `,
   styles: [`
     :host { display: flex; flex-direction: column; gap: var(--sp-3); }
-    .ct-scan {
-      width: 100%; padding: var(--sp-4) var(--sp-3); cursor: pointer; text-align: center;
-      display: flex; flex-direction: column; gap: 3px;
-      background: var(--card-bg); color: var(--text-main); font: inherit;
-      border: 2px dashed var(--border-color); border-radius: var(--r-lg);
-    }
-    .ct-scan:hover, .ct-scan:focus-visible { border-color: var(--action); outline: none; }
-    .ct-scan-ic { font-size: 24px; letter-spacing: -2px; color: var(--action); }
-    .ct-scan-t { font-size: var(--fs-body); font-weight: var(--fw-bold); }
-    .ct-scan-d { font-size: var(--fs-micro); color: var(--text-faint); }
     .ct-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
     .ct-row {
       display: grid; grid-template-columns: 1fr auto; gap: 2px var(--sp-3); align-items: center;
@@ -153,14 +138,15 @@ export class AndenLlegadaComponent {
     return l.product_name || l.expected_name || l.sku || l.expected_sku || 'Sin nombre';
   }
 
+  /** "Falta 1 por cotejar", no "Faltan 1": el singular se lee mal en la pantalla. */
+  etiquetaFaltan(): string {
+    const n = this.lineas().length - this.contadas();
+    return n === 1 ? 'Falta 1 por cotejar' : `Faltan ${n} por cotejar`;
+  }
+
   describir(diff: number, uxc: number | null): string {
     // `diff` acá es esperado − contado, así que el signo se invierte para leerlo
     // en el idioma del bodeguero ("faltan" cuando contó de menos).
     return describirDiferencia(-diff, uxc);
-  }
-
-  abrirSiguiente(): void {
-    const l = this.siguiente();
-    if (l) this.abrir.emit(l);
   }
 }
