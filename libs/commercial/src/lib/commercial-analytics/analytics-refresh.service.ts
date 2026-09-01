@@ -35,6 +35,10 @@ const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
   // PERF (mig 20260831160000): ventas del mes en curso pre-agregadas para el path diario
   // de sellOut (mes en curso nunca es month-aligned → escaneaba 111k filas + sort-a-disco).
   { name: 'analytics.mv_sales_current_month' },
+  // PERF/RLS (mig 20260901120000): venta WINCAJA a grano día (ventana móvil mes actual+anterior)
+  // para el path en vivo de sellOut — bajo RLS el scan de v_sales_lines (maestro 1.44M) daba
+  // timeout 45s. Grano fino (~99k/mes) → depende del ANALYZE post-refresh (ver abajo).
+  { name: 'analytics.mv_wincaja_sales_daily' },
 ];
 
 @Injectable()
@@ -126,6 +130,11 @@ export class AnalyticsRefreshService {
           await this.adminKnex.raw(
             `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`,
           );
+          // ANALYZE post-refresh: REFRESH reemplaza los datos pero no actualiza las stats del
+          // planner. En MVs de grano fino (p.ej. mv_wincaja_sales_daily ~99k filas/mes) sin stats
+          // frescas el planner elige un plan catastrófico al leerlas (verificado: timeout vs 739ms
+          // con ANALYZE). Barato para las MVs chicas; `mv` sale de MVS (no user input).
+          await this.adminKnex.raw(`ANALYZE ${mv}`);
           const ms = Date.now() - start;
           this.logger.log(
             `Refreshed ${mv} (${ms}ms, source=${source}${concurrently ? '' : ', initial populate'})`,
