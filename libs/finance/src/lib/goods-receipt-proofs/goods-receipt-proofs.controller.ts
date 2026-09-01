@@ -56,6 +56,22 @@ export class GoodsReceiptProofsController {
     return this.svc.listReceipts(q);
   }
 
+  // Ruta literal: va ANTES de `:sucursal/:folio` o Nest la resolvería como un detalle.
+  @Get('aging')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.3 — QUÉ VENCE (calendario de pago), NO cuentas por pagar. Devuelve sólo lo que todavía no vence, porque no existe la liga recepción→pago: `erp_supplier_payments` no trae folio de entrada y `expense_doc_chain` está vacía, así que NO se puede saber qué ya se pagó. Lo vencido va como número declarado (`vencido_sin_confirmar`) y SIN lista: listarlo mandaría a cobrar facturas ya pagadas. Params: warehouse_codes, dias (ventana, default 30, máx 90).',
+  })
+  aging(
+    @Query('warehouse_codes') warehouse_codes?: string,
+    @Query('dias') dias?: string,
+  ) {
+    return this.svc.aging({
+      warehouse_codes: warehouse_codes ? warehouse_codes.split(',').map((s) => s.trim()).filter(Boolean) : null,
+      dias: dias ? Number(dias) : undefined,
+    });
+  }
+
   @Get('coverage')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({

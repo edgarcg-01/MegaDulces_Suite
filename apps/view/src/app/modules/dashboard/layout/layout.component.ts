@@ -548,6 +548,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
         { label: 'Revisión de facturas', icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
         { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
+        { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
     },
     {
