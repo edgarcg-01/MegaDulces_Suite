@@ -173,6 +173,9 @@ export enum Permission {
   // Comprobantes de Cobranza (CC) — ficha de depósito + OCR sobre cobros de Kepler.
   FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
   FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
+  // Libro de Compras (LC / ADR-052) — el trámite mensual se lleva aquí; a ContPAQi solo va el TXT.
+  FINANCE_PURCHASE_BOOK_VER = 'FINANCE_PURCHASE_BOOK_VER',
+  FINANCE_PURCHASE_BOOK_GESTIONAR = 'FINANCE_PURCHASE_BOOK_GESTIONAR',
   // Comprobantes de Pago a Proveedor (CC ext) — transferencia SPEI + OCR sobre pagos Kepler (XD2501).
   FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
   FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',

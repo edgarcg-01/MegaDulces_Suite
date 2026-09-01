@@ -206,6 +206,11 @@ export enum Permission {
   // de Kepler (UA0501). VER = capturista adjunta; GESTIONAR = revisor valida/rechaza.
   FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
   FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
+  // Libro de Compras (LC / ADR-052) — el trámite mensual se lleva aquí y a ContPAQi
+  // solo va el TXT. VER = consultar el mes y su cuadre; GESTIONAR = generar el
+  // archivo y mover el trámite (entregado / aplicado).
+  FINANCE_PURCHASE_BOOK_VER = 'FINANCE_PURCHASE_BOOK_VER',
+  FINANCE_PURCHASE_BOOK_GESTIONAR = 'FINANCE_PURCHASE_BOOK_GESTIONAR',
   // Comprobantes de Pago a Proveedor (CC ext) — adjuntar comprobante de
   // transferencia + OCR a un pago de Kepler (XD2501). VER = capturista adjunta;
   // GESTIONAR = revisor valida/rechaza.

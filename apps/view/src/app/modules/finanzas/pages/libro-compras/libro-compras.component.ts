@@ -1,0 +1,442 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { CheckboxModule } from 'primeng/checkbox';
+import { InputTextModule } from 'primeng/inputtext';
+import { MessageService } from 'primeng/api';
+import { ToastModule } from 'primeng/toast';
+import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
+import { FINANZAS_TABS } from '../../finanzas-tabs';
+import { AuthService } from '../../../../core/services/auth.service';
+import { Permission } from '../../../../core/constants/permissions';
+import { LibroComprasService, MesResumen, MesDetalle, FacturaMes, CuadreContpaqi, ImpuestosModo } from '../../libro-compras.service';
+import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
+
+/**
+ * Fase LC (ADR-052) — Libro de Compras.
+ *
+ * El trámite mensual dejó de vivir en un Excel: aquí se ve el mes, se decide qué entra,
+ * se genera el TXT y se registra que ya se subió. A ContPAQi solo va el archivo.
+ *
+ * Layout de sector Fiscal/Contable (DESIGN §14): master-detail permanente — la lista de
+ * meses a la izquierda no desaparece al abrir uno. Y answer-first (§15): antes de la
+ * tabla, el veredicto del mes en una línea.
+ */
+@Component({
+  selector: 'app-libro-compras',
+  standalone: true,
+  imports: [
+    CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
+    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule,
+    MetricStripComponent, PageTabsComponent,
+  ],
+  providers: [MessageService],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [LIBRO_COMPRAS_STYLES],
+  template: `
+    <p-toast />
+    <app-page-tabs [tabs]="tabs" />
+
+    <header class="lc-head">
+      <div>
+        <h1>Libro de Compras</h1>
+        <p class="muted">
+          El trámite se arma aquí y a ContPAQi solo va el TXT de la póliza. Lo sube contabilidad, como siempre.
+        </p>
+      </div>
+      <button pButton type="button" icon="pi pi-refresh" [text]="true"
+              (click)="cargarMeses()" [loading]="cargandoMeses()"
+              aria-label="Recargar los meses"></button>
+    </header>
+
+    <div class="lc-layout">
+      <!-- ── Master: los meses ─────────────────────────────────────────────── -->
+      <aside class="lc-meses" aria-label="Meses">
+        @if (cargandoMeses()) {
+          @for (i of [1,2,3,4,5,6]; track i) { <div class="lc-mes-skel"></div> }
+        } @else if (!meses().length) {
+          <div class="lc-empty">
+            <i class="pi pi-inbox"></i>
+            <p>No hay CFDIs recibidos cargados todavía.</p>
+            <small class="muted">El feed del ADD de ContPAQi los trae; revisa que esté corriendo.</small>
+          </div>
+        } @else {
+          @for (m of meses(); track m.anio_mes) {
+            <button type="button" class="lc-mes" [class.sel]="mesSel() === m.anio_mes"
+                    [attr.aria-current]="mesSel() === m.anio_mes" (click)="abrirMes(m.anio_mes)">
+              <div class="lc-mes-top">
+                <span class="lc-mes-nombre">{{ nombreMes(m.anio_mes) }}</span>
+                <p-tag [value]="etiquetaEstado(m)" [severity]="severidadEstado(m)" />
+              </div>
+              <div class="lc-mes-cifras">
+                <span class="mono">{{ m.cfdis }} CFDIs</span>
+                <span class="mono">{{ m.total_cfdis | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              </div>
+              @if (!m.patas_en_contpaqi && m.cfdis) {
+                <span class="lc-mes-alerta">Sin póliza en ContPAQi</span>
+              }
+            </button>
+          }
+        }
+      </aside>
+
+      <!-- ── Detail: el mes ────────────────────────────────────────────────── -->
+      <section class="lc-detalle">
+        @if (!mesSel()) {
+          <div class="lc-empty lc-empty-lg">
+            <i class="pi pi-book"></i>
+            <p>Elige un mes para ver sus facturas y armar la póliza.</p>
+          </div>
+        } @else if (cargandoMes()) {
+          <div class="lc-skel-bloque"></div>
+        } @else if (detalle(); as d) {
+          <!-- Answer-first: el veredicto antes que el grid -->
+          <div class="lc-veredicto" [class]="'v-' + veredicto().tono">
+            <i [class]="veredicto().icono"></i>
+            <div>
+              <strong>{{ veredicto().titulo }}</strong>
+              <span class="muted">{{ veredicto().detalle }}</span>
+            </div>
+            <div class="lc-acciones">
+              @if (puedeGestionar()) {
+                <button pButton type="button" label="Generar TXT" icon="pi pi-file-export"
+                        [disabled]="!!d.avisos.length || !d.resumen.incluidas || generando()"
+                        [loading]="generando()" (click)="generar()"></button>
+                @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
+                  <button pButton type="button" label="Descargar" icon="pi pi-download"
+                          severity="secondary" [outlined]="true" (click)="descargar()"></button>
+                }
+                @if (estadoRun() === 'generado') {
+                  <button pButton type="button" label="Marcar entregado" icon="pi pi-send"
+                          severity="secondary" [text]="true" (click)="dlgEntrega.set(true)"></button>
+                }
+                @if (estadoRun() === 'entregado') {
+                  <button pButton type="button" label="Marcar aplicado" icon="pi pi-check-circle"
+                          severity="secondary" [text]="true" (click)="marcar('aplicado')"></button>
+                }
+              }
+            </div>
+          </div>
+
+          <app-metric-strip [items]="kpis()" ariaLabel="Totales del mes" />
+
+          @if (d.avisos.length) {
+            <ul class="lc-avisos" aria-label="Cosas que impiden generar">
+              @for (a of d.avisos; track a) { <li><i class="pi pi-exclamation-triangle"></i>{{ a }}</li> }
+            </ul>
+          }
+
+          <div class="lc-opciones">
+            <label>
+              <span class="muted">Impuestos</span>
+              <p-selectbutton [options]="opcImpuestos" [(ngModel)]="impuestosModo" optionLabel="label"
+                              optionValue="value" [allowEmpty]="false" aria-label="Cómo postear IVA e IEPS" />
+            </label>
+            <label class="lc-chk">
+              <p-checkbox [(ngModel)]="incluirUuid" [binary]="true" inputId="lc-uuid" />
+              <span for="lc-uuid">Poner el UUID en cada renglón</span>
+            </label>
+            @if (cuadre(); as c) {
+              <span class="lc-cuadre" [class.ok]="c.existe_en_contpaqi && !c.solo_contpaqi && !c.solo_nuestro">
+                ContPAQi: {{ c.patas_en_contpaqi }} renglones · casan {{ c.casan }}
+              </span>
+            }
+          </div>
+
+          <div class="lc-tablewrap">
+            <p-table [value]="d.facturas" styleClass="p-datatable-sm" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="52vh" [paginator]="d.facturas.length > 100"
+                     [rows]="100" dataKey="uuid">
+              <ng-template #header>
+                <tr>
+                  <th class="c-chk"></th>
+                  <th>Proveedor</th>
+                  <th class="c-num">Folio</th>
+                  <th class="c-num">Fecha</th>
+                  <th class="c-num">Exento</th>
+                  <th class="c-num">Gravado 16%</th>
+                  <th class="c-num">IEPS</th>
+                  <th class="c-num">IVA</th>
+                  <th class="c-num">Total</th>
+                  <th class="c-cta">Cuentas</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr [class.excluida]="!f.incluida">
+                  <td class="c-chk">
+                    <p-checkbox [ngModel]="f.incluida" [binary]="true" [disabled]="!puedeGestionar()"
+                                (ngModelChange)="alternar(f, $event)"
+                                [ariaLabel]="'Incluir ' + f.emisor_nombre" />
+                  </td>
+                  <td>
+                    <span class="lc-prov">{{ f.emisor_nombre }}</span>
+                    <small class="muted mono">{{ f.emisor_rfc }}</small>
+                    @if (f.ieps_por_cuota) {
+                      <p-tag value="IEPS por cuota" severity="warn" [rounded]="true" />
+                    }
+                    @if (!f.incluida && f.motivo_exclusion) {
+                      <small class="muted">Excluida: {{ f.motivo_exclusion }}</small>
+                    }
+                  </td>
+                  <td class="c-num mono">{{ f.folio }}</td>
+                  <td class="c-num mono">{{ f.fecha }}</td>
+                  <td class="c-num mono">{{ f.base_exenta | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ f.subtotal16 | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-cta">
+                    @if (f.account_suffix && f.cuenta_existe) {
+                      <span class="mono muted">{{ f.cuenta_proveedor }}</span>
+                    } @else if (!f.account_suffix) {
+                      <p-tag value="RFC sin cuenta" severity="danger" />
+                    } @else {
+                      <p-tag value="Cuenta inexistente" severity="danger" />
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="10">
+                  <div class="lc-empty">
+                    <i class="pi pi-file"></i>
+                    <p>{{ nombreMes(mesSel()!) }} no tiene CFDIs de proveedor cargados.</p>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
+      </section>
+    </div>
+
+    <p-dialog header="Marcar como entregado" [(visible)]="dlgEntregaVisible" [modal]="true" [style]="{ width: '26rem' }">
+      <label class="lc-campo">
+        <span>¿A quién se le entregó?</span>
+        <input pInputText [(ngModel)]="entregadoA" placeholder="Nombre de quien lo sube a ContPAQi" />
+      </label>
+      <ng-template #footer>
+        <button pButton type="button" label="Cancelar" [text]="true" (click)="dlgEntrega.set(false)"></button>
+        <button pButton type="button" label="Confirmar" (click)="marcar('entregado')"></button>
+      </ng-template>
+    </p-dialog>
+  `,
+})
+export class LibroComprasComponent implements OnInit {
+  private svc = inject(LibroComprasService);
+  private toast = inject(MessageService);
+  private auth = inject(AuthService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+
+  readonly tabs = FINANZAS_TABS;
+  readonly opcImpuestos = [
+    { label: 'Un renglón al mes', value: 'global' as ImpuestosModo },
+    { label: 'Por proveedor', value: 'por-cuenta' as ImpuestosModo },
+  ];
+
+  meses = signal<MesResumen[]>([]);
+  detalle = signal<MesDetalle | null>(null);
+  cuadre = signal<CuadreContpaqi | null>(null);
+  mesSel = signal<string | null>(null);
+  cargandoMeses = signal(false);
+  cargandoMes = signal(false);
+  generando = signal(false);
+  dlgEntrega = signal(false);
+  impuestosModo: ImpuestosModo = 'global';
+  incluirUuid = true;
+  entregadoA = '';
+
+  get dlgEntregaVisible() { return this.dlgEntrega(); }
+  set dlgEntregaVisible(v: boolean) { this.dlgEntrega.set(v); }
+
+  puedeGestionar = computed(() => {
+    const u = this.auth.user();
+    return u?.permissions?.[Permission.FINANCE_PURCHASE_BOOK_GESTIONAR] === true
+      || u?.role_name === 'admin' || u?.role_name === 'superadmin';
+  });
+
+  estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
+
+  kpis = computed<MetricStripItem[]>(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    const r = d.resumen;
+    return [
+      { label: 'Total del asiento', value: r.total, format: 'currency', tone: 'brand',
+        sub: `${r.incluidas} de ${r.cfdis_del_mes} facturas` },
+      { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
+      { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
+      { label: 'IEPS acreditable', value: r.ieps, format: 'currency',
+        tone: r.ieps > 0 ? 'ok' : 'default' },
+      { label: 'IVA acreditable', value: r.iva, format: 'currency' },
+    ];
+  });
+
+  /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
+  veredicto = computed(() => {
+    const d = this.detalle();
+    if (!d) return { tono: 'neutral', icono: 'pi pi-circle', titulo: '', detalle: '' };
+    const estado = this.estadoRun();
+    const c = this.cuadre();
+    if (estado === 'aplicado') {
+      return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Aplicado en ContPAQi',
+        detalle: 'El trámite del mes está cerrado.' };
+    }
+    if (d.avisos.length) {
+      return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'No se puede generar todavía',
+        detalle: 'Hay facturas que ContPAQi rechazaría. Resuélvelas o exclúyelas.' };
+    }
+    if (estado === 'entregado') {
+      return { tono: 'warn', icono: 'pi pi-send', titulo: 'Entregado, falta confirmar',
+        detalle: c?.existe_en_contpaqi ? 'Ya aparece una póliza en ContPAQi: revisa el cuadre y márcalo aplicado.'
+          : 'Todavía no aparece la póliza en ContPAQi.' };
+    }
+    if (estado === 'generado') {
+      return { tono: 'warn', icono: 'pi pi-file-check', titulo: 'Archivo generado',
+        detalle: 'Descárgalo y pásalo a quien lo sube a ContPAQi.' };
+    }
+    if (c && !c.existe_en_contpaqi) {
+      return { tono: 'bad', icono: 'pi pi-exclamation-triangle', titulo: 'Este mes no tiene póliza en ContPAQi',
+        detalle: `${d.resumen.incluidas} facturas por ${this.money(d.resumen.total)} sin contabilizar.` };
+    }
+    return { tono: 'neutral', icono: 'pi pi-clock', titulo: 'Listo para generar',
+      detalle: `${d.resumen.incluidas} facturas por ${this.money(d.resumen.total)}.` };
+  });
+
+  ngOnInit() {
+    this.cargarMeses();
+    const mes = this.route.snapshot.queryParamMap.get('mes');
+    if (mes) this.abrirMes(mes);
+  }
+
+  private money(n: number) {
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n);
+  }
+
+  nombreMes(anioMes: string) {
+    const [y, m] = anioMes.split('-').map(Number);
+    return new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(Date.UTC(y, m - 1, 1)));
+  }
+
+  etiquetaEstado(m: MesResumen) {
+    if (m.estado === 'sin_iniciar') return m.patas_en_contpaqi ? 'En ContPAQi' : 'Sin armar';
+    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado', cancelado: 'Cancelado' }[m.estado] ?? m.estado;
+  }
+
+  severidadEstado(m: MesResumen): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
+    if (m.estado === 'aplicado') return 'success';
+    if (m.estado === 'entregado' || m.estado === 'generado') return 'warn';
+    if (m.estado === 'cancelado') return 'danger';
+    if (m.patas_en_contpaqi) return 'info';
+    return m.cfdis ? 'danger' : 'secondary';
+  }
+
+  cargarMeses() {
+    this.cargandoMeses.set(true);
+    this.svc.listMeses().subscribe({
+      next: (r) => { this.meses.set(r); this.cargandoMeses.set(false); },
+      error: (e) => { this.cargandoMeses.set(false); this.error('No se pudieron cargar los meses', e); },
+    });
+  }
+
+  abrirMes(mes: string) {
+    this.mesSel.set(mes);
+    this.cargandoMes.set(true);
+    this.cuadre.set(null);
+    // El mes queda en la URL para poder compartir la vista (DESIGN §10).
+    this.router.navigate([], { relativeTo: this.route, queryParams: { mes }, replaceUrl: true });
+    this.svc.getMes(mes).subscribe({
+      next: (d) => {
+        this.detalle.set(d);
+        this.impuestosModo = (d.run?.['impuestos_modo'] as ImpuestosModo) ?? 'global';
+        this.incluirUuid = d.run?.['incluye_uuid'] !== false;
+        this.cargandoMes.set(false);
+      },
+      error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
+    });
+    this.svc.cuadre(mes).subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+  }
+
+  /** Optimista: la fila cambia de inmediato y se revierte si el server dice que no. */
+  alternar(f: FacturaMes, incluida: boolean) {
+    const mes = this.mesSel(); if (!mes) return;
+    const antes = f.incluida;
+    this.aplicarInclusionLocal(f.uuid, incluida);
+    this.svc.setInclusion(mes, [f.uuid], incluida).subscribe({
+      error: (e) => { this.aplicarInclusionLocal(f.uuid, antes); this.error('No se pudo cambiar la factura', e); },
+    });
+  }
+
+  private aplicarInclusionLocal(uuid: string, incluida: boolean) {
+    const d = this.detalle(); if (!d) return;
+    const facturas = d.facturas.map((x) => (x.uuid === uuid ? { ...x, incluida } : x));
+    const dentro = facturas.filter((x) => x.incluida);
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    this.detalle.set({
+      ...d, facturas,
+      resumen: {
+        ...d.resumen,
+        incluidas: dentro.length,
+        excluidas: facturas.length - dentro.length,
+        total: r2(dentro.reduce((a, x) => a + x.total, 0)),
+        subtotal_exento: r2(dentro.reduce((a, x) => a + x.base_exenta, 0)),
+        subtotal_gravado: r2(dentro.reduce((a, x) => a + x.subtotal16, 0)),
+        iva: r2(dentro.reduce((a, x) => a + x.iva, 0)),
+        ieps: r2(dentro.reduce((a, x) => a + x.ieps, 0)),
+      },
+    });
+  }
+
+  generar() {
+    const mes = this.mesSel(); if (!mes) return;
+    this.generando.set(true);
+    this.svc.generar(mes, this.impuestosModo, this.incluirUuid).subscribe({
+      next: (r) => {
+        this.generando.set(false);
+        this.toast.add({ severity: 'success', summary: 'Póliza generada',
+          detail: `${r.facturas} facturas · ${r.renglones} renglones · ${this.money(r.cargos)}` });
+        this.abrirMes(mes); this.cargarMeses();
+      },
+      error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
+    });
+  }
+
+  descargar() {
+    const mes = this.mesSel(); if (!mes) return;
+    this.svc.descargar(mes, this.impuestosModo, this.incluirUuid).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `poliza-compras-${mes}.txt`;
+        a.click(); URL.revokeObjectURL(url);
+      },
+      error: (e) => this.error('No se pudo descargar', e),
+    });
+  }
+
+  marcar(estado: 'entregado' | 'aplicado' | 'cancelado') {
+    const mes = this.mesSel(); if (!mes) return;
+    this.svc.marcar(mes, estado, { entregado_a: this.entregadoA || undefined }).subscribe({
+      next: () => {
+        this.dlgEntrega.set(false); this.entregadoA = '';
+        this.toast.add({ severity: 'success', summary: 'Trámite actualizado', detail: `Mes marcado como ${estado}.` });
+        this.abrirMes(mes); this.cargarMeses();
+      },
+      error: (e) => this.error('No se pudo actualizar el trámite', e),
+    });
+  }
+
+  private error(resumen: string, e: unknown) {
+    const detalle = (e as { error?: { message?: string } })?.error?.message ?? 'Intenta de nuevo.';
+    this.toast.add({ severity: 'error', summary: resumen, detail: detalle, life: 8000 });
+  }
+}
