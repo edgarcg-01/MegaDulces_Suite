@@ -149,7 +149,9 @@ import { AuthService } from '../../../core/services/auth.service';
                         <span class="cbody">
                           <span class="nm">{{ c.name }}</span>
                           <span class="meta">
-                            <span class="code">{{ c.code }}</span>
+                            @if (customerRef(c); as ref) {
+                              <span class="code">{{ ref }}</span>
+                            }
                             @if (c.phone) {
                               <span>· {{ c.phone }}</span>
                             }
@@ -171,9 +173,7 @@ import { AuthService } from '../../../core/services/auth.service';
                     <span class="av">{{ initials(c.name) }}</span>
                     <div>
                       <span class="n">{{ c.name }}</span>
-                      <span class="cd">{{ c.code }}@if (c.sales_route) {
-                        · {{ c.sales_route }}
-                      }</span>
+                      <span class="cd">@if (customerRef(c); as ref) { {{ ref }} } @else { Cliente }</span>
                     </div>
                   </div>
                   <button class="sheet-primary" (click)="goOrder(c)">
@@ -604,5 +604,19 @@ export class VendorCustomersComponent implements OnInit {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
     return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  /**
+   * Referencia legible del cliente para la UI. NUNCA mostramos el código
+   * auto-generado aleatorio `V-<hex>` (lo asigna el alta del vendedor en
+   * commercial-vendor-routes.service) porque al vendedor le parece un "id raro".
+   * Preferimos la ruta de venta; si el código es real (no V-hex) lo usamos; si no,
+   * null → el template no muestra nada.
+   */
+  customerRef(c: VendorCustomer): string | null {
+    if (c.sales_route) return c.sales_route;
+    const code = (c.code || '').trim();
+    if (!code || /^V-[0-9A-F]{6,}$/i.test(code)) return null;
+    return code;
   }
 }
