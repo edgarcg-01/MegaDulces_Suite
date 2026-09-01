@@ -622,6 +622,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   /** Icono por área de Almacén (WMS.1). Vive acá y no en `almacen-tabs.ts`
    *  porque es cosa del sidebar, no de la barra de tabs. */
   private readonly almacenAreaIcons: Record<string, string> = {
+    anden: 'pi pi-truck',
     entrada: 'pi pi-inbox',
     inventario: 'pi pi-box',
     conteo: 'pi pi-qrcode',
