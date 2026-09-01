@@ -235,6 +235,26 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
      WHERE cm.RFCReceptor = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
      GROUP BY c.GuidDocument, itc.Impuesto, itc.ImpuestoDesc, itc.TipoFactor, itc.TasaOCuota`)).recordset;
 
+  // Subtotal NETO (importe del concepto menos su descuento, sin impuestos) de lo gravado a
+  // IVA 16%. Dos cosas que hay que respetar y que no son obvias:
+  //   1. NO es la base fiscal del IVA: **esa base incluye al IEPS**. Verificado en De la
+  //      Rosa — base IEPS 649,705.34 al 8% → base IVA 701,681.77, o sea subtotal + IEPS.
+  //      Cargar la base fiscal a la cuenta de compras cuenta el IEPS dos veces y descuadra
+  //      la póliza justo por su importe (caso EURO CANDY: $38,519.05).
+  //   2. Va **neto de descuento**. En jun-2026, 103 de 238 facturas traen descuento, y sin
+  //      restarlo la base exenta salía negativa en 11 de ellas (−$68,560.54).
+  // La identidad que manda, verificada en las 238: subtotal − descuento + IVA + IEPS = total.
+  const subGravado = (await mss.request().query(`
+    SELECT c.GuidDocument, SUM(c.Importe - ISNULL(c.Descuento, 0)) AS Subtotal16
+      FROM Comprobante cm
+      JOIN Conceptos c ON c.GuidDocument = cm.GuidDocument
+      JOIN Impuesto_Traslado_Concepto itc ON itc.IdConcepto = c.IdConcepto
+     WHERE cm.RFCReceptor = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
+       AND itc.Impuesto = '002'
+       AND TRY_CONVERT(decimal(18,6), itc.TasaOCuota) = 0.160000
+     GROUP BY c.GuidDocument`)).recordset;
+  const sub16 = new Map(subGravado.map((x) => [x.GuidDocument, round2(x.Subtotal16)]));
+
   const byDoc = new Map();
   for (const b of bases) {
     const arr = byDoc.get(b.GuidDocument) || [];
@@ -256,6 +276,9 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       // Lo que el libro de compras necesita, ya resuelto desde el CFDI (no por resta):
       base_iva_16: round2(traslados.filter((t) => t.impuesto === '002' && t.tasa === 0.16).reduce((a, t) => a + t.base, 0)),
       base_ieps: round2(traslados.filter((t) => t.impuesto === '003').reduce((a, t) => a + t.base, 0)),
+      // El que se carga a la cuenta 502: subtotal de los conceptos gravados a 16%, ya SIN
+      // el IEPS que la base fiscal del IVA trae adentro.
+      subtotal_iva_16: sub16.get(h.GuidDocument) || 0,
     };
     return [
       TENANT, String(h.UUID || '').toUpperCase(), h.Version || null, h.TipoComprobante || null,
