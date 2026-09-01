@@ -90,7 +90,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
     }
     .sf-in:focus {
       outline: none; border-color: var(--action);
-      box-shadow: 0 0 0 3px var(--action-ring, rgb(240 90 40 / 20%));
+      box-shadow: 0 0 0 3px var(--action-ring);
     }
     .sf-in::placeholder { color: var(--text-faint); font-weight: var(--fw-regular); }
     /* La clase icon-btn va a propósito: es el selector que ya aplica --tap-min
@@ -107,14 +107,14 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
       margin-top: var(--sp-1); font-size: var(--fs-micro);
     }
     .sf-est { display: flex; align-items: center; gap: 6px; color: var(--text-faint); }
-    .sf-listo { color: var(--good-fg, var(--text-muted)); }
+    .sf-listo { color: var(--ok-soft-fg); }
     .sf-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .sf-cnt { color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .sf-cam-ov {
       position: fixed; inset: 0; z-index: 1200;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3);
       /* Fondo propio, no un negro puro: el token vale en ambos temas. */
-      background: var(--surface-overlay, var(--surface-ground)); padding: var(--sp-3);
+      background: var(--layout-bg); padding: var(--sp-3);
     }
     .sf-cam-vid { width: min(100%, 520px); aspect-ratio: 4 / 3; object-fit: cover;
       background: var(--surface-ground); border-radius: var(--r-md); }

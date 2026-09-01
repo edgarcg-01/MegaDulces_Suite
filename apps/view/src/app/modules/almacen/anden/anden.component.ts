@@ -234,9 +234,14 @@ import { Buscable, coincide, normalizar } from './filtro.util';
     .an-pill {
       font-size: var(--fs-micro); font-weight: var(--fw-bold); letter-spacing: .07em; text-transform: uppercase;
       padding: 3px 8px; border-radius: var(--r-pill);
-      background: var(--info-soft-bg, var(--surface-ground)); color: var(--info-fg, var(--text-muted));
+      /* Chip NEUTRO para "abierto", no azul. DESIGN.md mata el azul #2563EB en la
+         paleta, y además el color aquí tiene que significar algo: neutro = en curso,
+         verde = con acceso. Dos chips de color distinto para dos estados que no son
+         opuestos era ruido. */
+      background: var(--surface-ground); color: var(--text-muted);
+      border: 1px solid var(--border-color);
     }
-    .an-on { background: var(--good-soft-bg, var(--surface-ground)); color: var(--good-fg, var(--text-main)); }
+    .an-on { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-color: transparent; }
     .an-save { font-size: var(--fs-micro); color: var(--text-faint); }
     .an-bd { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
     .an-nota {
@@ -270,7 +275,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       font-variant-numeric: tabular-nums; }
     .an-fin { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
       text-align: center; padding: var(--sp-8) var(--sp-3); }
-    .an-big { font-size: 48px; font-weight: var(--fw-black); line-height: 1; color: var(--good-fg, var(--action)); }
+    .an-big { font-size: 48px; font-weight: var(--fw-black); line-height: 1; color: var(--ok-fg); }
     .an-fin h2 { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); }
     .an-fin p { margin: 0 0 var(--sp-2); max-width: 30ch; font-size: var(--fs-sm); color: var(--text-muted); }
   `],
