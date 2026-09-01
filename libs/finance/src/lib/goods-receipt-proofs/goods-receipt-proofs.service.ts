@@ -604,6 +604,12 @@ export class GoodsReceiptProofsService {
           trx.raw('d.last_motivo AS motivo_rechazo'),
           trx.raw('d.last_motivo_codigo AS motivo_codigo'),
           trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
+          // `[RE.1]` — cuándo se debe. `fecha_vence` la dice el ERP (`c18`) y NO se deriva de la
+          // condición: "30 días" en Kepler es un mes de calendario, así que da 31 o 28 según el
+          // mes. `dias_para_vencer` es el reloj de la deuda — negativo = ya venció.
+          'c.fecha_vence', 'c.condicion_pago',
+          trx.raw('c.dias_credito::int AS dias_credito'),
+          trx.raw('(c.fecha_vence - current_date)::int AS dias_para_vencer'),
           // Días de antigüedad de la recepción (acotados a hoy) y días que la evidencia
           // lleva esperando decisión: son los dos relojes del proceso.
           trx.raw('(current_date - LEAST(c.receipt_date, current_date))::int AS dias'),
@@ -1343,7 +1349,11 @@ export class GoodsReceiptProofsService {
       const entrada = await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: tenantId, sucursal, folio })
         .first('sucursal', 'folio', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
-          'oc_folio', 'vale_folio', 'concepto', trx.raw('monto::numeric AS monto'));
+          'oc_folio', 'vale_folio', 'concepto', trx.raw('monto::numeric AS monto'),
+          // `[RE.1]` — el vencimiento va en el expediente: es la mitad de la decisión de pago.
+          'fecha_vence', 'condicion_pago',
+          trx.raw('dias_credito::int AS dias_credito'),
+          trx.raw('(fecha_vence - current_date)::int AS dias_para_vencer'));
       if (!entrada) throw new BadRequestException('entrada no encontrada');
       // Detalle por renglón (auditoría): qué SKU/cantidad/costo entró en este documento.
       const lineasRaw = await trx('analytics.erp_goods_receipt_lines')
