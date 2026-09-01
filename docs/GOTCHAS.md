@@ -1135,3 +1135,26 @@ lo que las delataba era `pg_stat_subscription.received_lsn IS NULL` (sin worker)
 capas de arriba lo notaba: el CDC seguía latiendo en verde porque *él* estaba bien — su fuente era la
 que había dejado de moverse. Tres monitores en verde, cero datos. Para diagnosticar la replicación
 lógica hay que mirar `pg_stat_subscription` y **el log del contenedor**, que es donde el error vive.
+
+
+## 34. Un backtick en un comentario de `styles`/`template` rompe el build sin decir dónde
+
+Los componentes Angular llevan el CSS y el HTML en **template literals**. Un backtick dentro de un
+comentario —en un comentario CSS, o en un `<!-- ... -->` del HTML— **cierra el literal antes de
+tiempo**. El compilador falla con:
+
+```
+FatalDiagnosticError: Code: 1010, Message: Failed to resolve styles at position 1 to a string
+```
+
+...o con errores de TypeScript aún más desorientadores (`Cannot find name 'styles'`,
+`Cannot find name 'policy'`). **Ninguno nombra el archivo.** Con cientos de componentes eso es una
+búsqueda a ciegas.
+
+**Regla:** nada de backticks dentro de `template:` ni del arreglo de `styles`, ni siquiera en
+comentarios. En prosa poné el identificador en negritas o sin adornos. En los **JSDoc de la clase**
+(fuera del decorador) los backticks sí son válidos y ahí conviene usarlos.
+
+Pisada dos veces en la misma sesión (2026-09-01): una en un comentario CSS de
+`almacen-area-shell.component.ts`, otra en un comentario HTML de `anden-caducidad.component.ts`.
+Si el build tira `1010` y el diff toca un componente, buscá el backtick antes de buscar el CSS.

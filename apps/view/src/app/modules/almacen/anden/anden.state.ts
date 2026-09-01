@@ -4,39 +4,52 @@ import { ErpOrderMatch, ReceivingLine, ReceivingSession } from '../receiving-ses
 /**
  * Fase WMS-REC — Andén de Entrada. Estado puro, sin red.
  *
- * **La tesis del rediseño: son DOS PUERTAS con dos relojes distintos.**
+ * **Dos puertas con dos relojes, y la segunda se parte en dos trabajos paralelos.**
  *
- *  - **Puerta 1 · Cotejo y acceso** corre contra el chofer. Se identifica el vale
- *    con el folio del papel, se cuenta contra lo que mandó Kepler y se da acceso.
- *    La mercancía entra sin fecha (lote `NA`) y el camión se va. Todo lo lento
- *    —foto, OCR, corrección de fecha— queda FUERA: el andén ocupado es el recurso
- *    que no se quiere gastar.
- *  - **Puerta 2 · Fechado y acomodo** corre contra el anaquel. Sin prisa, con la
- *    caja en la mano: foto, lote, caducidad, rack.
+ *  - **Llegada** corre contra el chofer: identificar el vale con el folio del
+ *    papel, contar contra lo que mandó Kepler, dar acceso. La mercancía entra sin
+ *    fecha en lote `NA` y el camión se va. Todo lo lento queda afuera.
+ *  - **Caducidad** y **Ubicación** corren contra el anaquel, y **NO son un paso
+ *    encadenado**: son dos colas hermanas que pueden trabajar dos personas
+ *    distintas en momentos distintos. Por eso son secciones, no pasos.
  *
- * Hoy el sistema mezcla las dos y por eso se acumula mercancía sin fechar y sin
- * ubicar: fechar y ubicar compiten con la siguiente tarima, y pierden siempre.
- *
- * El contador de toques es parte del producto, no telemetría: es la métrica del
- * rediseño (79 → 24 en un vale de 5 líneas) y se muestra en pantalla.
+ * El segmento activo **no vive en la ruta**: es estado de pantalla. El vale es el
+ * contexto y se conserva al saltar; meterlo en la URL rompe el flujo con el back
+ * del navegador.
  */
 
-export type Puerta = 'folio' | 'cotejo' | 'fechado';
+export type Seccion = 'llegada' | 'caducidad' | 'ubicacion';
 
-/** Renglón enriquecido con lo que la pantalla necesita derivar. */
+/** Renglón enriquecido con lo que la pantalla deriva. */
 export interface AndenLinea extends ReceivingLine {
   /** Piezas por unidad del código escaneado (24 = caja de 24). `null` = sin dato. */
   uxc: number | null;
+  /** Piezas cotejadas en Llegada. `undefined` = todavía no se contó. */
+  contado: number | undefined;
   /** Piezas ya declaradas con lote+caducidad. Derivado, nunca denormalizado. */
   declarado: number;
   /** Retenidas por un 🔴 sin autorizar: no entraron a stock. */
   retenido: number;
-  /** Lo que falta fechar: recibido − declarado − retenido. */
+  /** Falta fechar: contado − declarado − retenido. */
   faltaFechar: number;
-  /** Se completó la puerta 2 (fechado + acomodado) en esta sesión de pantalla. */
-  resuelta: boolean;
-  /** Se fechó pero el put-away falló: NO está terminada. */
-  sinUbicar: boolean;
+  /** Se acomodó en un rack durante esta sesión de pantalla. */
+  ubicado: string | null;
+  /** Rack sugerido por `pick-suggestion` — donde ya vive este SKU. */
+  binSugerido: string | null;
+}
+
+/** Lo que se persiste como borrador. Sólo lo que no se puede re-derivar del server. */
+export interface AndenBorrador {
+  sessionId: string;
+  seccion: Seccion;
+  acceso: boolean;
+  /** lineId → piezas contadas, para no perder el cotejo si muere la app. */
+  contado: Record<string, number>;
+  /** lineId → rack, para no re-escanear lo ya acomodado. */
+  ubicado: Record<string, string>;
+  /** Escaneos ya enviados, por `scan_uuid`: reenviar al recuperar no duplica. */
+  scans: string[];
+  guardadoEn: number;
 }
 
 const num = (v: unknown): number => {
@@ -45,98 +58,105 @@ const num = (v: unknown): number => {
 };
 
 export class AndenState {
-  // ── Paso 0: identificar el vale ──
+  // ── Identificación del vale ──
   readonly folio = signal('');
   readonly buscando = signal(false);
   readonly candidatos = signal<ErpOrderMatch[]>([]);
   readonly vale = signal<ReceivingSession | null>(null);
   readonly erp = signal<ErpOrderMatch | null>(null);
 
-  // ── Navegación entre puertas ──
-  readonly puerta = signal<Puerta>('folio');
+  // ── Navegación entre secciones (NO va en la ruta) ──
+  readonly seccion = signal<Seccion>('llegada');
+  readonly acceso = signal(false);
 
   // ── Renglones ──
   readonly lineas = signal<AndenLinea[]>([]);
-  readonly lineaActivaId = signal<string | null>(null);
-
-  // ── Métrica del rediseño ──
-  readonly toques = signal(0);
-  /** Un toque = una acción del operario. Se cuenta acá y se muestra en pantalla. */
-  toque(n = 1): void {
-    this.toques.update((t) => t + n);
-  }
+  /** Renglón abierto en Llegada para capturar cantidad. */
+  readonly capturando = signal<AndenLinea | null>(null);
+  /** Renglón abierto en Caducidad o Ubicación. */
+  readonly actual = signal<AndenLinea | null>(null);
 
   readonly cargando = signal(false);
   readonly guardando = signal(false);
+  /** El borrador está a salvo: el bodeguero puede cerrar la app. */
+  readonly guardado = signal(false);
 
   // ── Derivados ──
 
+  readonly abierto = computed(() => this.vale() !== null);
+
   /** El almacén SIEMPRE se hereda del vale. Si algo lo vuelve a pedir, se rompió el flujo. */
   readonly warehouseId = computed(() => this.vale()?.warehouse_id ?? null);
-  readonly almacenLabel = computed(() => {
+
+  readonly proveedor = computed(() => {
+    const e = this.erp();
     const v = this.vale();
-    if (!v) return '';
-    return [v.warehouse_code, v.warehouse_name].filter(Boolean).join(' · ');
+    if (!v) return 'Esperando camión';
+    const partes = [e?.proveedor_nombre || v.supplier_code, e?.folio ? `Kepler ${e.folio}` : null,
+      v.warehouse_name || v.warehouse_code].filter(Boolean);
+    return partes.join(' · ');
   });
 
-  readonly proveedor = computed(
-    () => this.erp()?.proveedor_nombre || this.vale()?.supplier_code || 'sin proveedor',
+  readonly estado = computed(() => (!this.abierto() ? 'sin identificar' : this.acceso() ? 'con_acceso' : 'abierto'));
+
+  /** Contadas ya en Llegada. */
+  readonly contadas = computed(() => this.lineas().filter((l) => l.contado !== undefined).length);
+  readonly porCotejar = computed(() => this.lineas().length - this.contadas());
+  readonly cotejoListo = computed(() => this.lineas().length > 0 && this.porCotejar() === 0);
+
+  /** Piezas cotejadas en total — lo que entra en lote `NA` al dar acceso. */
+  readonly unidades = computed(() => this.lineas().reduce((a, l) => a + num(l.contado), 0));
+
+  /** Renglones cuyo conteo no coincide con lo que mandó Kepler. */
+  readonly diferencias = computed(
+    () => this.lineas().filter((l) => l.contado !== undefined && l.contado !== num(l.expected_qty)).length,
   );
 
-  readonly lineaActiva = computed(() => {
-    const id = this.lineaActivaId();
-    return id ? this.lineas().find((l) => l.id === id) ?? null : null;
-  });
-
-  /** Puerta 2: lo que todavía no se fechó ni acomodó. */
-  readonly pendientes = computed(() => this.lineas().filter((l) => !l.resuelta && l.faltaFechar > 0));
-  readonly resueltas = computed(() => this.lineas().filter((l) => l.resuelta));
-
-  /** Puerta 1: cuánto se contó vs lo que mandó Kepler. */
-  readonly cotejo = computed(() => {
-    const ls = this.lineas();
-    const esperado = ls.reduce((a, l) => a + num(l.expected_qty), 0);
-    const recibido = ls.reduce((a, l) => a + num(l.received_qty), 0);
-    const contados = ls.filter((l) => l.discrepancy_kind !== 'pending').length;
-    return { lineas: ls.length, contados, esperado, recibido, diff: recibido - esperado };
-  });
-
-  readonly puedeDarAcceso = computed(() => {
-    const c = this.cotejo();
-    return c.lineas > 0 && c.contados === c.lineas;
-  });
-
-  /** Ya no queda nada por fechar: la puerta 2 terminó. */
-  readonly fechadoCompleto = computed(
-    () => this.lineas().length > 0 && this.pendientes().length === 0,
+  /** Cola de Caducidad: contado pero sin fechar. */
+  readonly pendientesFechar = computed(
+    () => this.lineas().filter((l) => l.contado !== undefined && l.faltaFechar > 0),
   );
+  /** Cola de Ubicación: contado pero sin rack. */
+  readonly pendientesUbicar = computed(
+    () => this.lineas().filter((l) => l.contado !== undefined && !l.ubicado),
+  );
+
+  readonly siguienteCotejar = computed(() => this.lineas().find((l) => l.contado === undefined) ?? null);
+  readonly siguienteFechar = computed(() => this.pendientesFechar()[0] ?? null);
+  readonly siguienteUbicar = computed(() => this.pendientesUbicar()[0] ?? null);
 
   // ── Mutaciones ──
 
   /**
    * Vuelca el detalle del vale a renglones de pantalla. `faltaFechar` se DERIVA
-   * (recibido − declarado − retenido), igual que en el detalle del vale: un
-   * contador denormalizado se desfasa en cuanto un supervisor autoriza un rojo.
+   * (contado − declarado − retenido): un contador denormalizado se desfasa en
+   * cuanto un supervisor autoriza un rojo.
+   *
+   * Conserva lo que sólo vive en la pantalla (uxc resuelto, rack sugerido, y lo
+   * ya acomodado) para no perderlo en cada recarga del detalle.
    */
   cargarDesdeVale(s: ReceivingSession): void {
     this.vale.set(s);
+    if (s.status === 'closed') this.acceso.set(true);
     const previas = new Map(this.lineas().map((l) => [l.id, l]));
     this.lineas.set(
       (s.lines ?? []).map((l) => {
+        const prev = previas.get(l.id);
         const recibido = num(l.received_qty);
         const declarado = num(l.declared_qty);
         const retenido = num(l.held_qty);
-        const prev = previas.get(l.id);
-        const faltaFechar = Math.max(0, recibido - declarado - retenido);
+        // Antes del acceso, `received_qty` sólo es "contado" si alguien lo tocó:
+        // el backend arranca las líneas en `pending` con received 0.
+        const contado = l.discrepancy_kind !== 'pending' ? recibido : prev?.contado;
         return {
           ...l,
-          uxc: null,
+          uxc: prev?.uxc ?? null,
+          contado,
           declarado,
           retenido,
-          faltaFechar,
-          // Sólo cuenta como resuelta si además quedó ubicada.
-          resuelta: faltaFechar === 0 && recibido > 0 && !prev?.sinUbicar,
-          sinUbicar: prev?.sinUbicar ?? false,
+          faltaFechar: Math.max(0, num(contado) - declarado - retenido),
+          ubicado: prev?.ubicado ?? null,
+          binSugerido: prev?.binSugerido ?? null,
         };
       }),
     );
@@ -146,15 +166,33 @@ export class AndenState {
     this.lineas.update((ls) => ls.map((l) => (l.id === lineId ? { ...l, ...patch } : l)));
   }
 
-  /** Salta al siguiente pendiente. Es el acelerador 01: un toque menos por renglón. */
-  siguientePendiente(desdeId?: string | null): string | null {
-    const pend = this.pendientes();
-    if (!pend.length) return null;
-    if (!desdeId) return pend[0].id;
-    const orden = this.lineas().map((l) => l.id);
-    const i = orden.indexOf(desdeId);
-    const despues = pend.find((l) => orden.indexOf(l.id) > i);
-    return (despues ?? pend[0]).id;
+  /** Aplica un borrador recuperado sobre los renglones ya cargados del server. */
+  aplicarBorrador(b: AndenBorrador): void {
+    this.seccion.set(b.seccion);
+    this.acceso.set(b.acceso);
+    this.lineas.update((ls) =>
+      ls.map((l) => {
+        const contado = b.contado[l.id] ?? l.contado;
+        return {
+          ...l,
+          contado,
+          faltaFechar: Math.max(0, num(contado) - l.declarado - l.retenido),
+          ubicado: b.ubicado[l.id] ?? l.ubicado,
+        };
+      }),
+    );
+  }
+
+  aBorrador(scans: string[]): AndenBorrador | null {
+    const v = this.vale();
+    if (!v) return null;
+    const contado: Record<string, number> = {};
+    const ubicado: Record<string, string> = {};
+    for (const l of this.lineas()) {
+      if (l.contado !== undefined) contado[l.id] = l.contado;
+      if (l.ubicado) ubicado[l.id] = l.ubicado;
+    }
+    return { sessionId: v.id, seccion: this.seccion(), acceso: this.acceso(), contado, ubicado, scans, guardadoEn: Date.now() };
   }
 
   reset(): void {
@@ -163,8 +201,10 @@ export class AndenState {
     this.vale.set(null);
     this.erp.set(null);
     this.lineas.set([]);
-    this.lineaActivaId.set(null);
-    this.puerta.set('folio');
-    this.toques.set(0);
+    this.capturando.set(null);
+    this.actual.set(null);
+    this.seccion.set('llegada');
+    this.acceso.set(false);
+    this.guardado.set(false);
   }
 }
