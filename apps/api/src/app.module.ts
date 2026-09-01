@@ -132,6 +132,7 @@ import { CommerceConversationBindingModule } from './composition/commerce-conver
 import { BankCaptureBindingModule } from './composition/bank-capture.binding.module';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
+import { MailerBindingModule } from './composition/mailer.binding.module';
 import { ReconNotifierBindingModule } from './composition/recon-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
 import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
@@ -206,6 +207,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       ReconNotifierBindingModule,
+      // DBH.3 — correo saliente. @Global(): va ANTES de quien lo inyecta (db-health), igual que el
+      // resto de los bindings. Sin SMTP_* configurado queda apagado y no rompe el arranque.
+      MailerBindingModule,
       FinanceMaatModule,
       FinanceExpenseProofsModule,
       FinanceExpenseComprobacionesModule,
