@@ -1,0 +1,150 @@
+{
+  "_doc": "Croquis físico del CEDIS transcrito del dibujo entregado por el equipo (2026-08-31). Fase WMS.3.",
+  "_hallazgo": "La bodega NO está organizada por coordenada (rack-nivel-posición) sino por MARCA y FAMILIA. Eso elimina el trabajo pesado del bin-level clásico: la ubicación se DERIVA de la marca del producto, así que el put-away sugerido sale casi gratis.",
+  "_supuestos": [
+    "UN almacén (el CEDIS) con 4 zonas físicas. Si en Kepler son 4 almacenes distintos, se parte por zona y el resto del archivo no cambia.",
+    "pick_sequence va en el ORDEN DEL DIBUJO (Tapanco → Arriba → Abajo → Macha). Es un BORRADOR: nadie ha dicho todavía por dónde entra el surtidor ni cómo se encadenan las 4 bodegas. Corregir desde el piso antes de usarlo para dirigir surtido.",
+    "'ZONA DE RESTOS' se marca como overflow, no como merma. Si es merma, sale del inventario vendible y hay que cambiar su kind."
+  ],
+  "_pendientes": [
+    "No hay zona de RECEPCIÓN, STAGING/EMBARQUE ni CUARENTENA en el croquis. El 🔴 del auditor retiene mercancía que físicamente tiene que quedarse en algún lado.",
+    "No se sabe si los pasillos tienen niveles/altura. Acá se modelan planos.",
+    "LA ROSA está en DOS ubicaciones (ARR-P1-A y MAC-P2). `commercial.stock.aisle_id` es UNO por SKU, así que sólo aguanta la principal; la segunda necesita `stock_lot_locations`."
+  ],
+
+  "warehouse_code": "MD-CENTRAL",
+  "grid_cols": 10,
+
+  "zones": [
+    { "code": "TAP", "name": "Tapanco (tercer piso)" },
+    { "code": "ARR", "name": "Bodega de Arriba" },
+    { "code": "ABA", "name": "Bodega de Abajo" },
+    { "code": "MAC", "name": "Bodega Macha" }
+  ],
+
+  "locations": [
+    {
+      "code": "TAP-1", "zone": "TAP", "name": "Charola grande",
+      "grid_row": 0, "grid_col": 0, "span_rows": 1, "span_cols": 3,
+      "pick_sequence": 1, "kind": "family",
+      "contents": [{ "label": "CHAROLA GRANDE", "match": "family" }]
+    },
+    {
+      "code": "TAP-2", "zone": "TAP", "name": "Charola chica",
+      "grid_row": 0, "grid_col": 3, "span_rows": 1, "span_cols": 3,
+      "pick_sequence": 2, "kind": "family",
+      "contents": [{ "label": "CHAROLA CHICA", "match": "family" }]
+    },
+    {
+      "code": "TAP-3", "zone": "TAP", "name": "Desechables, papeles y servilletas",
+      "grid_row": 0, "grid_col": 6, "span_rows": 1, "span_cols": 4,
+      "pick_sequence": 3, "kind": "family",
+      "contents": [
+        { "label": "DESECHABLES", "match": "family" },
+        { "label": "PAPELES", "match": "family" },
+        { "label": "SERVILLETAS", "match": "family" }
+      ]
+    },
+
+    {
+      "code": "ARR-P1-A", "zone": "ARR", "name": "Pasillo 1 · La Rosa / Jovy",
+      "grid_row": 1, "grid_col": 0, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 4, "kind": "brand",
+      "contents": [
+        { "label": "LA ROSA", "match": "brand", "primary": true },
+        { "label": "JOVY", "match": "brand" }
+      ]
+    },
+    {
+      "code": "ARR-P1-B", "zone": "ARR", "name": "Pasillo 1 · Mondelez / Galletas y las Rifas",
+      "grid_row": 2, "grid_col": 0, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 5, "kind": "brand",
+      "contents": [
+        { "label": "MONDELEZ", "match": "brand" },
+        { "label": "GALLETAS", "match": "family" },
+        { "label": "LAS RIFAS", "match": "brand" }
+      ]
+    },
+    {
+      "code": "ARR-P2", "zone": "ARR", "name": "Pasillo 2 · Tinajita / Arco / Winis",
+      "grid_row": 1, "grid_col": 2, "span_rows": 2, "span_cols": 2,
+      "pick_sequence": 6, "kind": "brand",
+      "contents": [
+        { "label": "TINAJITA", "match": "brand" },
+        { "label": "ARCO", "match": "brand" },
+        { "label": "WINIS", "match": "brand" }
+      ]
+    },
+    {
+      "code": "ARR-P3-A", "zone": "ARR", "name": "Pasillo 3 · Lucas / Vero",
+      "grid_row": 1, "grid_col": 4, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 7, "kind": "brand",
+      "contents": [
+        { "label": "LUCAS", "match": "brand" },
+        { "label": "VERO", "match": "brand" }
+      ]
+    },
+    {
+      "code": "ARR-P3-B", "zone": "ARR", "name": "Pasillo 3 · El Tradicional",
+      "grid_row": 2, "grid_col": 4, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 8, "kind": "brand",
+      "contents": [{ "label": "EL TRADICIONAL", "match": "brand" }]
+    },
+    {
+      "code": "ARR-P4", "zone": "ARR", "name": "Pasillo 4 · Jonyy / Karla",
+      "grid_row": 1, "grid_col": 6, "span_rows": 2, "span_cols": 2,
+      "pick_sequence": 9, "kind": "brand",
+      "contents": [
+        { "label": "JONYY", "match": "brand" },
+        { "label": "KARLA", "match": "brand" }
+      ]
+    },
+    {
+      "code": "ARR-P5", "zone": "ARR", "name": "Pasillo 5 · Exceso / Vasos",
+      "grid_row": 1, "grid_col": 8, "span_rows": 2, "span_cols": 2,
+      "pick_sequence": 10, "kind": "overflow",
+      "contents": [
+        { "label": "EXCESO", "match": "overflow" },
+        { "label": "VASOS", "match": "family" }
+      ]
+    },
+
+    {
+      "code": "ABA-1", "zone": "ABA", "name": "Pastas y bebidas",
+      "grid_row": 3, "grid_col": 0, "span_rows": 1, "span_cols": 3,
+      "pick_sequence": 11, "kind": "family",
+      "contents": [
+        { "label": "PASTAS", "match": "family" },
+        { "label": "BEBIDAS", "match": "family" }
+      ]
+    },
+    {
+      "code": "ABA-2", "zone": "ABA", "name": "Abarrotes y zona de restos",
+      "grid_row": 3, "grid_col": 3, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 12, "kind": "overflow",
+      "contents": [
+        { "label": "ABARROTES", "match": "family" },
+        { "label": "ZONA DE RESTOS", "match": "overflow" }
+      ]
+    },
+
+    {
+      "code": "MAC-P1", "zone": "MAC", "name": "Pasillo 1 · Picantes y Electrolit",
+      "grid_row": 3, "grid_col": 5, "span_rows": 1, "span_cols": 3,
+      "pick_sequence": 13, "kind": "brand",
+      "contents": [
+        { "label": "PICANTES", "match": "family" },
+        { "label": "ELECTROLIT", "match": "brand" }
+      ]
+    },
+    {
+      "code": "MAC-P2", "zone": "MAC", "name": "Pasillo 2 · Bolsa y La Rosa",
+      "grid_row": 3, "grid_col": 8, "span_rows": 1, "span_cols": 2,
+      "pick_sequence": 14, "kind": "brand",
+      "contents": [
+        { "label": "BOLSA", "match": "family" },
+        { "label": "LA ROSA", "match": "brand", "secondary": true }
+      ]
+    }
+  ]
+}
