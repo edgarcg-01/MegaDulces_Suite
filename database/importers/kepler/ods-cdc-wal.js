@@ -191,6 +191,23 @@ async function run(code) {
     heartbeat();
     const hbTimer = setInterval(() => heartbeat(), HEARTBEAT_MS);
     process.on('SIGINT', async () => { clearInterval(timer); clearInterval(hbTimer); await service.stop().catch(() => {}); process.exit(0); });
+    // CDC.5.1 — SI LA SUSCRIPCIÓN MUERE, SALIR PARA QUE PM2 REINICIE.
+    //
+    // Antes `muerta` sólo se anotaba: el proceso seguía vivo para siempre con el stream caído, así
+    // que PM2 (que tiene autorestart) nunca veía nada que reiniciar y el slot quedaba INACTIVO
+    // acumulando WAL. El único aviso era el heartbeat… que devolvía 404 en las 4 ramas. Los dos
+    // canales mudos a la vez. Medido 2026-08-31: sólo 1 de 4 slots activo; 01/05/06 con 2.1 GB de
+    // WAL retenido cada una y la 04 ya en `lost` (hueco de 3 días, backfill manual).
+    //
+    // No se reintenta acá a propósito: reconectar bien (backoff, re-crear slot si se perdió,
+    // re-suscribir el plugin) es justo lo que el supervisor ya sabe hacer. Salir con código ≠ 0 es
+    // la señal que PM2 entiende.
+    const muerteTimer = setInterval(() => {
+      if (!muerta) return;
+      clearInterval(timer); clearInterval(hbTimer); clearInterval(muerteTimer);
+      console.error(`[${code}] SUSCRIPCIÓN CAÍDA: ${muerta} — saliendo para que el supervisor reinicie`);
+      service.stop().catch(() => {}).then(() => process.exit(1));
+    }, Math.min(FLUSH_MS, 5000));
     console.log(`[${code}] --watch: streaming (flush ${FLUSH_MS}ms · heartbeat ${HEARTBEAT_MS}ms). Ctrl-C para parar.`);
     return; // corre indefinido
   }
