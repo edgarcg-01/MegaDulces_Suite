@@ -30,6 +30,7 @@
  *   node reconcile-ods-window.js                       # dry-run, 3 días, todas las sucursales
  *   node reconcile-ods-window.js --days=10 --apply     # repone
  *   node reconcile-ods-window.js --branch=06 --tables=kdm2 --days=15 --apply
+ *   node reconcile-ods-window.js --apply --watch=900   # continuo cada 15 min (bajo PM2)
  *
  * Env: ODS_SOURCE_BASE (base :5433) · DATABASE_URL_NEW (destino prod, sólo para LEER las llaves)
  *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY (el ship, igual que el CDC)
@@ -45,6 +46,8 @@ const arg = (n, d) => { const a = process.argv.find((x) => x.startsWith(`--${n}=
 const DAYS = Math.max(1, Number(arg('days', 3)));
 const ONLY_BRANCH = arg('branch', null);
 const TABLES = String(arg('tables', 'kdm1,kdm2,kdij,kdue,kdpord')).split(',').map((s) => s.trim()).filter(Boolean);
+const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
+const WATCH_SEC = WATCH_ARG ? Math.max(60, Number(WATCH_ARG.split('=')[1] || 900)) : 0;
 const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
 
 // Fecha de NEGOCIO por tabla. Una tabla sin entrada acá no se puede acotar → se salta (reconciliar
@@ -117,25 +120,58 @@ async function reconcile(local, prod, code, table) {
   return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, enviadas };
 }
 
+/** Una pasada completa. Devuelve el detalle por (sucursal, tabla). */
+async function pasada(destUrl) {
+  const prod = new Client({ connectionString: destUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 600000 });
+  await prod.connect();
+  const out = [];
+  try {
+    for (const code of BRANCH_CODES) {
+      const local = new Client({ connectionString: localUrl(code), statement_timeout: 600000 });
+      try { await local.connect(); } catch (e) { out.push({ suc: code, skip: `replica no conecta: ${e.message.slice(0, 40)}` }); continue; }
+      for (const t of TABLES) {
+        // Una tabla que falla NO corta la pasada: la siguiente sucursal todavía puede sanarse.
+        try { out.push(await reconcile(local, prod, code, t)); }
+        catch (e) { out.push({ suc: code, tabla: t, error: e.message.slice(0, 80) }); }
+      }
+      await local.end().catch(() => {});
+    }
+  } finally { await prod.end().catch(() => {}); }
+  return out;
+}
+
+const resumen = (out) => ({
+  huecos: out.reduce((a, r) => a + (r.faltan || 0), 0),
+  repuestas: out.reduce((a, r) => a + (r.enviadas || 0), 0),
+  errores: out.filter((r) => r.error).length,
+});
+
 (async () => {
   const destUrl = process.env.DATABASE_URL_NEW;
   if (!destUrl) { console.error('Falta DATABASE_URL_NEW (se lee para comparar las llaves del ODS).'); process.exit(2); }
-  const prod = new Client({ connectionString: destUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 600000 });
-  await prod.connect();
-  console.log(`reconcile-ods-window · ventana ${DAYS}d · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}\n`);
-  const out = [];
-  for (const code of BRANCH_CODES) {
-    const local = new Client({ connectionString: localUrl(code), statement_timeout: 600000 });
-    try { await local.connect(); } catch (e) { out.push({ suc: code, skip: `replica no conecta: ${e.message.slice(0, 40)}` }); continue; }
-    for (const t of TABLES) {
-      try { out.push(await reconcile(local, prod, code, t)); }
-      catch (e) { out.push({ suc: code, tabla: t, error: e.message.slice(0, 80) }); }
-    }
-    await local.end().catch(() => {});
+  console.log(`reconcile-ods-window · ventana ${DAYS}d · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
+
+  if (!WATCH_SEC) {
+    const out = await pasada(destUrl);
+    console.table(out);
+    const r = resumen(out);
+    console.log(`\nfilas ausentes en el ODS: ${r.huecos}${APPLY ? ` · repuestas: ${r.repuestas}` : ' (dry-run: nada se envió)'}`);
+    process.exit(0);
   }
-  await prod.end().catch(() => {});
-  console.table(out);
-  const huecos = out.reduce((a, r) => a + (r.faltan || 0), 0);
-  console.log(`\nfilas ausentes en el ODS: ${huecos}${APPLY ? ` · repuestas: ${out.reduce((a, r) => a + (r.enviadas || 0), 0)}` : ' (dry-run: nada se envió)'}`);
-  process.exit(0);
+
+  // Modo continuo (PM2). Una pasada limpia imprime UNA línea; un hueco imprime el detalle, porque
+  // con el CDC sano esto debe ser 0 siempre: cualquier número > 0 es la firma de que algo se está
+  // perdiendo otra vez, y se quiere ver dónde sin tener que reproducirlo.
+  for (;;) {
+    const t0 = Date.now();
+    try {
+      const out = await pasada(destUrl);
+      const r = resumen(out);
+      if (r.huecos || r.errores) console.table(out.filter((x) => x.faltan || x.error || x.skip));
+      console.log(`[${new Date().toISOString()}] huecos ${r.huecos} · repuestas ${r.repuestas} · errores ${r.errores} · ${Math.round((Date.now() - t0) / 1000)}s`);
+    } catch (e) {
+      console.error(`[${new Date().toISOString()}] pasada falló: ${e.message}`);
+    }
+    await new Promise((res) => setTimeout(res, WATCH_SEC * 1000));
+  }
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
