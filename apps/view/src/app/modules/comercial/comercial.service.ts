@@ -1228,12 +1228,13 @@ export class ComercialService {
     return this.http.get<{ value: string; label: string }[]>(`${this.base}/analytics/sales-by-route/clients`);
   }
 
-  salesByRouteDetail(routeCode: string, year: number, opts?: { from?: string; to?: string; sku?: string; client?: string }) {
+  salesByRouteDetail(routeCode: string, year: number, opts?: { from?: string; to?: string; sku?: string; client?: string; unit?: string }) {
     let params = new HttpParams().set('route', routeCode).set('year', String(year));
     if (opts?.from) params = params.set('from', opts.from);
     if (opts?.to) params = params.set('to', opts.to);
     if (opts?.sku) params = params.set('sku', opts.sku);
     if (opts?.client) params = params.set('client', opts.client);
+    if (opts?.unit) params = params.set('unit', opts.unit);
     return this.http.get<SalesByRouteDetail>(`${this.base}/analytics/sales-by-route/detail`, { params });
   }
 
@@ -1618,8 +1619,9 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
-  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  /** `lines` habilita los dos promedios: units/lines = profundidad, lines/tickets = surtido. */
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
