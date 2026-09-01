@@ -10,6 +10,7 @@ import {
   Output,
   inject,
   signal,
+  input
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
@@ -137,14 +138,14 @@ import { CountUpDirective } from './count-up.directive';
           <button
             type="button"
             class="psheet-add"
-            [disabled]="adding || p.price == null"
+            [disabled]="adding() || p.price == null"
             aria-label="Agregar al carrito"
             (click)="onAdd(p)"
             >
-            @if (adding) {
+            @if (adding()) {
               <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
             }
-            @if (!adding) {
+            @if (!adding()) {
               Agregar
               @if (p.price != null) {
                 <span class="psheet-add-sub" aria-hidden="true">
@@ -448,7 +449,7 @@ import { CountUpDirective } from './count-up.directive';
 })
 export class ProductSheetComponent implements OnDestroy {
   @Input() note: string | null = null;
-  @Input() adding = false;
+  readonly adding = input(false);
   /** Cross-sell "Va bien con esto" — hasta 3 SKUs. Vacío = no se muestra la sección. */
   @Input() crossSell: PriceRow[] = [];
 

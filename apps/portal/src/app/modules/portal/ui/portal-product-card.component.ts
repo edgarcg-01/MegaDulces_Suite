@@ -6,6 +6,7 @@ import {
   Input,
   Output,
   inject,
+  input
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import { TooltipModule } from 'primeng/tooltip';
@@ -24,11 +25,11 @@ import { CartFxService } from '../cart-fx.service';
   selector: 'portal-product-card',
   standalone: true,
   imports: [CommonModule, CurrencyPipe, TooltipModule],
-  host: { '[class.is-list]': 'list' },
+  host: { '[class.is-list]': 'list()' },
   template: `
     <article
       class="cat-card"
-      [class.cat-card-active]="inCart"
+      [class.cat-card-active]="inCart()"
       (click)="open.emit()"
       tabindex="0"
       role="button"
@@ -106,20 +107,20 @@ import { CartFxService } from '../cart-fx.service';
           }
         </div>
     
-        @if (!inCart) {
+        @if (!inCart()) {
           <button
             type="button"
             class="cat-add"
-            [disabled]="adding || isAdmin || product.price == null"
+            [disabled]="adding() || isAdmin() || product.price == null"
             (click)="$event.stopPropagation(); onAdd()"
             [attr.aria-label]="'Agregar ' + product.product_name + ' al carrito'"
-            [pTooltip]="isAdmin ? 'Solo lectura (admin)' : (product.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
+            [pTooltip]="isAdmin() ? 'Solo lectura (admin)' : (product.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
             >
-            <i [class]="adding ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i>
+            <i [class]="adding() ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i>
           </button>
         }
     
-        @if (inCart) {
+        @if (inCart()) {
           <div
             class="cat-stepper"
             role="group"
@@ -129,17 +130,17 @@ import { CartFxService } from '../cart-fx.service';
             <button
               type="button"
               class="cat-stepper-btn"
-              [disabled]="adding || isAdmin"
+              [disabled]="adding() || isAdmin()"
               (click)="$event.stopPropagation(); dec.emit()"
-              [attr.aria-label]="qty <= (product.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+              [attr.aria-label]="qty() <= (product.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
               >
-              <i [class]="qty <= (product.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'"></i>
+              <i [class]="qty() <= (product.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'"></i>
             </button>
-            <span class="cat-stepper-val" aria-live="polite">{{ adding ? '…' : qty }}</span>
+            <span class="cat-stepper-val" aria-live="polite">{{ adding() ? '…' : qty() }}</span>
             <button
               type="button"
               class="cat-stepper-btn"
-              [disabled]="adding || isAdmin"
+              [disabled]="adding() || isAdmin()"
               (click)="$event.stopPropagation(); inc.emit()"
               aria-label="Aumentar"
               >
@@ -481,11 +482,11 @@ export class PortalProductCardComponent {
   }
 
   @Input({ required: true }) product!: PriceRow;
-  @Input() list = false;
-  @Input() inCart = false;
-  @Input() qty = 0;
-  @Input() adding = false;
-  @Input() isAdmin = false;
+  readonly list = input(false);
+  readonly inCart = input(false);
+  readonly qty = input(0);
+  readonly adding = input(false);
+  readonly isAdmin = input(false);
   @Input() promo: { promo_name: string; promo_type: string } | null = null;
   @Input() score: number | null = null;
 

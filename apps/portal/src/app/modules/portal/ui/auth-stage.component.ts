@@ -4,9 +4,9 @@ import {
   Component,
   DestroyRef,
   ElementRef,
-  Input,
   NgZone,
   inject,
+  input
 } from '@angular/core';
 
 
@@ -26,7 +26,7 @@ import {
     <div class="as" aria-hidden="true">
       <span class="as-spot"></span>
       <span class="as-shadow"></span>
-      <img class="as-product" [src]="image" alt="" decoding="async" />
+      <img class="as-product" [src]="image()" alt="" decoding="async" />
       <span class="as-spark as-spark-1"></span>
       <span class="as-spark as-spark-2"></span>
     </div>
@@ -115,7 +115,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthStageComponent implements AfterViewInit {
-  @Input() image = '/assets/brands/nucita.webp';
+  readonly image = input('/assets/brands/nucita.webp');
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);

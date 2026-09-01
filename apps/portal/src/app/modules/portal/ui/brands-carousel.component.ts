@@ -4,11 +4,11 @@ import {
   Component,
   DestroyRef,
   ElementRef,
-  Input,
   NgZone,
   OnChanges,
   OnDestroy,
   inject,
+  input
 } from '@angular/core';
 
 import { RouterModule } from '@angular/router';
@@ -135,7 +135,7 @@ export interface BrandFacet {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDestroy {
-  @Input({ required: true }) brands: BrandFacet[] = [];
+  readonly brands = input.required<BrandFacet[]>();
 
   /** Lista duplicada para el loop continuo sin costura (solo marcas reconocidas). */
   loop: BrandFacet[] = [];
@@ -155,7 +155,7 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
 
   ngOnChanges(): void {
     // Solo marcas reconocidas (logo-only sin nombre necesita identidad clara).
-    const recognized = (this.brands || []).filter((b) => this.match(b.brand_name));
+    const recognized = (this.brands() || []).filter((b) => this.match(b.brand_name));
     this.half = recognized.length;
     this.loop = recognized.length ? [...recognized, ...recognized] : [];
     this.tryArm();
@@ -204,7 +204,7 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
 
     el.classList.add('is-marquee');
     // Velocidad proporcional al # de marcas (~3s por marca). ease none = constante.
-    const duration = Math.max(18, this.brands.length * 3);
+    const duration = Math.max(18, this.brands().length * 3);
 
     this.zone.runOutsideAngular(() => {
       this.tween = gsap.to(track, { xPercent: -50, duration, ease: 'none', repeat: -1 });
