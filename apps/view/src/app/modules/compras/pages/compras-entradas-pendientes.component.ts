@@ -856,7 +856,8 @@ interface Hoja {
     .ep-orden { font-style: normal; }
     .ep-orden::before { content: ' · '; opacity: .55; }
     /* En pantalla angosta el pager ya apila; la frase larga sobra antes que los botones. */
-    @media (max-width: 560px) { .ep-orden { display: none; } }
+    /* En rem y no en px (regla 9): con px el breakpoint ignora el zoom del navegador. */
+    @media (max-width: 35rem) { .ep-orden { display: none; } }
 
     /* Ventana de confirmación */
     .ep-dlg { display: grid; gap: var(--sp-4); }
@@ -928,6 +929,9 @@ interface Hoja {
     .ep-lote-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ep-lote-hint b { color: var(--text-main); }
 
+    /* ::ng-deep justificado (regla 16, "sólo vendor y con comentario"): .ep-tag se aplica a un
+       p-tag de PrimeNG y el estilo tiene que cruzar su encapsulación. No hay forma de
+       separarlo desde afuera sin envolver el componente en un span extra. */
     :host ::ng-deep .ep-tag { margin-left: var(--sp-2); }
   `],
 })

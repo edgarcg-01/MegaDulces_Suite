@@ -118,6 +118,116 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // MR.5 — la pantalla publica DOS márgenes distintos en la misma tira de KPIs y
+  // ninguno se explicaba solo. La confusión cara es leer "negociado" como si ya
+  // trajera todo: le faltan las tres restas del margen integral.
+  rentabilidad: {
+    title: 'Rentabilidad — guía',
+    intro: 'Mide el margen sobre la venta REAL —lo que cobró el punto de venta— y explica de dónde viene y dónde se pierde. Es lectura: no edita Kepler ni el catálogo.',
+    groups: [
+      {
+        heading: 'Los márgenes (van en cascada, en este orden)',
+        entries: [
+          { term: 'Por unidad', def: 'El más simple: cuánto se le gana a UNA unidad vendida (precio menos costo, los dos en la unidad en que cobra el punto de venta). Sólo aparece en la vista por Producto: promediar el precio de un paquete con el de un kilo no significa nada. Cuando la equivalencia de caja es confiable, muestra también lo que deja la caja completa.' },
+          { term: 'Comercial bruto', def: 'Venta menos costo, sobre la parte de la venta que trae costo. Es el mismo margen de arriba pero acumulado, y existe por producto, marca, categoría y proveedor. Dueño: Comercial + Compras.' },
+          { term: 'Negociado', def: 'El bruto MÁS lo que el proveedor devuelve (notas de crédito y descuento al pagar). Dueño: Compras. Sólo existe a nivel total y por proveedor: repartir una nota de crédito a cada SKU todavía no está construido.' },
+          { term: 'Integral', def: 'El negociado menos lo que le devolvemos al cliente. Se publica marcado como INCOMPLETO porque le faltan dos restas que hoy no tienen fuente: las promociones que absorbemos y el costo logístico. Se listan al pie de la cascada en vez de omitirlas en silencio — un integral que se calla un componente es peor que uno incompleto y honesto. Dueño: Dirección.' },
+        ],
+      },
+      {
+        heading: 'Las 5 palancas del proveedor (lo que suma el negociado)',
+        entries: [
+          { term: 'Descuento comercial', def: 'Lo que el proveedor reconoce por nota de crédito después de facturar. Es la palanca más grande. Dueño: Compras.' },
+          { term: 'Apoyo de marca', def: 'Aportación promocional del proveedor. Dueño: Compras + Marketing.' },
+          { term: 'Pronto pago', def: 'Descuento por pagar antes, cobrado como nota de crédito. Dueño: Compras + Finanzas.' },
+          { term: 'Bonificación', def: 'Saldo a favor que el proveedor reconoce. Dueño: Compras.' },
+          { term: 'Descuento al pagar', def: 'El que se toma en el momento de liquidar, no por nota (campo c84 de Kepler). Si un proveedor da pronto pago por los DOS canales, puede ser el mismo descuento contado dos veces: la ficha del proveedor lo avisa.' },
+          { term: 'Negociado vs "a margen"', def: 'Son dos columnas distintas a propósito. El descuento se gana sobre lo que COMPRÁS y el margen se mide sobre lo que VENDÉS, así que a margen sólo entra la parte de esa compra que ya se vendió. Sumar el monto crudo daría un margen imposible.' },
+        ],
+      },
+      {
+        heading: 'La brecha, descompuesta (quién debe cada punto)',
+        entries: [
+          { term: 'Para qué', def: 'Decir "faltan 3.5 puntos" no le sirve a nadie si no se sabe de dónde salen ni quién los debe. La cascada llega hasta el objetivo y cada renglón tiene un dueño y una acción.' },
+          { term: 'Es aditiva', def: 'Los renglones suman y restan puntos sobre la MISMA venta, y el último es el residuo: bruto + palancas − descuento al cliente + no cobrado + sin fuente = objetivo, exacto. Si no cerrara, serían cinco números sueltos y cada área discutiría el suyo.' },
+          { term: 'No cobrado', def: 'Lo que faltó cobrarle al proveedor comparado con la tasa que ÉL suele dar. Es la palanca accionable de Compras y el renglón lista quién deja más dinero sobre la mesa.' },
+          { term: 'Tasa habitual, no contrato', def: 'La referencia es la tasa observada de cada proveedor, no un acuerdo firmado. La brecha se lee "está dando menos de lo que suele dar", no "incumple lo pactado". La diferencia importa antes de sentarse a reclamar.' },
+          { term: 'Techo', def: 'Hasta dónde llegaría el margen si se cobrara todo lo habitual. Lo que queda debajo del objetivo después de eso es lo que ninguna palanca medible explica.' },
+          { term: 'Sin fuente todavía', def: 'El residuo, de Dirección. No es "lo que falta negociar": es lo que hoy no se puede atribuir a nada medible. Puede ser precio, mezcla de producto, o un componente que todavía no tiene dato.' },
+          { term: 'Doble conteo', def: 'Cuando un proveedor da pronto pago por nota de crédito Y por descuento al pagar, parte puede ser el mismo dinero contado dos veces. La pantalla lo acota (el mínimo de ambos canales) y lo avisa: acota el número, no lo invalida.' },
+        ],
+      },
+      {
+        heading: 'Las 6 vistas (el mismo margen, cortado distinto)',
+        entries: [
+          { term: 'Producto', def: 'La vista de trabajo. Es la única con el margen por unidad y con el detalle de qué marca, proveedor y clase ABC tiene cada renglón.' },
+          { term: 'Marca · Categoría · Proveedor', def: 'Resúmenes por lo que se vende. Proveedor abre la ficha con sus palancas negociadas; marca baja a sus productos.' },
+          { term: 'Sucursal · Canal', def: 'Cortan por DÓNDE se vendió, no por qué. Contestan "¿qué sucursal gana y cuál no?" y "¿qué canal deja más?". Un clic baja a los productos de esa sucursal o canal.' },
+          { term: 'Todas cuadran', def: 'Las seis miden el mismo universo: el total de cualquier vista da el mismo margen que el resumen de arriba. Si alguna no cuadrara, sería un error, no un matiz.' },
+          { term: 'Inventario por canal', def: 'Dice "n/a" a propósito: la existencia vive en la sucursal, no en el canal. Un $0 se leería como "no hay stock" en vez de "esta pregunta no aplica acá".' },
+        ],
+      },
+      {
+        heading: 'Objetivo, brecha y bandas',
+        entries: [
+          { term: 'Objetivo', def: 'El margen contra el que se mide todo. Es editable arriba a la derecha, y los cortes de las bandas se mueven con él.' },
+          { term: 'Brecha (pp)', def: 'Distancia al objetivo en puntos porcentuales. La del resumen ya descuenta las palancas: es lo que de verdad falta resolver.' },
+          { term: 'Brecha $', def: 'Los pesos que faltaron para llegar al objetivo. Ordená por esta columna para atacar por tamaño del problema y no por porcentaje: un producto al 2% que vende poco pesa menos que uno al 13% que vende mucho.' },
+          { term: 'Bandas', def: 'Cada contador es un filtro: hacé clic y la tabla se acota a esa banda. "Bajo costo" es margen negativo; los demás cortes salen del objetivo, no son fijos.' },
+        ],
+      },
+      {
+        heading: 'Capital y rotación',
+        entries: [
+          { term: 'Capital en inventario', def: 'Existencia por costo de catálogo, sobre TODO el stock. La columna de la tabla sólo cubre productos con venta en la ventana, por eso el indicador dice aparte cuánto es stock sin movimiento: así los dos números cuadran.' },
+          { term: 'GMROI', def: 'Margen anualizado por cada peso invertido en inventario. Un producto al 10% que rota rápido puede rendir más que uno al 20% parado. Queda en blanco cuando el costo con que se valúa no es confiable.' },
+          { term: 'Promo', def: 'Beneficio de la promoción vigente del producto, en CRUDO. La unidad no está confirmada —el campo sólo toma los valores 2, 3, 4 y 5—, así que no se publica como porcentaje ni se resta del margen.' },
+        ],
+      },
+      {
+        heading: 'De dónde salen los números',
+        entries: [
+          { term: 'Venta y costo', def: 'La venta es el sell-out real. El costo NO es homogéneo: en los canales Wincaja es el que registró la caja en la transacción, pero en los canales Kepler (la mitad de la venta) se despeja del markup del catálogo, así que ahí el margen no reacciona a los descuentos. No compares el margen de un canal Kepler contra uno Wincaja.' },
+          { term: 'Por qué no el catálogo', def: 'El costo de catálogo viene por CAJA en buena parte del catálogo y las unidades vendidas vienen por PIEZA. Multiplicarlos mezclaba unidades: inflaba el costo de unos pocos productos y movía el margen de toda la empresa más de 3 puntos.' },
+          { term: 'Cobertura', def: 'Qué parte de la venta trae costo con qué juzgarla. Lo que no lo trae queda fuera del margen y se dice; no se esconde en el promedio.' },
+          { term: 'Por unidad vendida', def: 'La unidad en que factura el punto de venta: según el producto puede ser la pieza o el paquete. No se nombra más fino a propósito, porque la unidad del catálogo se contradice con la de Kepler en más de la mitad de los productos. Los que se venden a granel dicen "por kilo".' },
+          { term: 'Datos al', def: 'Hasta qué día llega el sell-out. Las compras y los pagos se leen hasta hoy, así que al arranque del mes pueden ir un paso adelante.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Un renglón trae un triángulo en Inventario y "n/d" en GMROI',
+        kind: 'fix',
+        intro: 'El costo de catálogo de ese producto contradice al que cobra el punto de venta: está capturado en otra unidad (caja contra pieza). El margen no lo usa —sale del sell-out— pero la valuación de su inventario sí, y por eso no se publica su GMROI.',
+        steps: [
+          'Abrí el producto en el catálogo y compará su costo contra el precio al que se vende.',
+          'Si el costo es el de la caja, corregilo a la unidad en que se vende (o registrá el factor de caja).',
+          'El aviso de arriba dice cuánto capital total está valuado así: sirve para priorizar cuáles corregir primero.',
+        ],
+      },
+      {
+        heading: 'Dice que no hay ajustes de compra cargados',
+        kind: 'fix',
+        intro: 'Las cuatro palancas por categoría aparecen en cero porque la fuente no tiene datos, no porque el mes no haya tenido descuentos. Son dos cosas distintas y la pantalla lo distingue a propósito.',
+        steps: [
+          'Verificá que el feed de ajustes de compra haya corrido.',
+          'Mientras tanto, leé el margen negociado como incompleto: sólo trae el descuento tomado al pagar.',
+          'El detalle documento por documento vive en Compras → Descuentos y apoyos.',
+        ],
+      },
+      {
+        heading: 'El margen negociado es casi igual al bruto',
+        kind: 'info',
+        intro: 'No siempre es un problema. Puede significar tres cosas distintas y conviene descartarlas en este orden.',
+        steps: [
+          'Que la fuente de ajustes esté vacía: la pantalla lo avisa arriba de la cascada.',
+          'Que se compró poco en la ventana: el descuento se gana sobre las compras, así que con poca compra el efecto en margen es chico aunque la tasa sea buena.',
+          'Que efectivamente no se esté cobrando lo pactado: abrí un proveedor y compará "Lo pactado" contra lo que se cobró.',
+        ],
+      },
+    ],
+  },
   'ventas-generales': {
     title: 'Ventas generales — guía',
     intro: 'Consultá la venta global de la red y desglosala como quieras (métrica × dimensión). Los números salen tal cual de la base — la interfaz solo los ordena y grafica; no calcula ni inventa. Venta REAL (POS/ERP), no pedidos B2B.',

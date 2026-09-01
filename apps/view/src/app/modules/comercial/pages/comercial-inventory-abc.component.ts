@@ -14,8 +14,6 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, AbcRow, AbcSummary, CycleDueResult, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_COUNT_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
@@ -30,7 +28,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-inventory-abc',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, PageTabsComponent, MetricCardComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, MetricCardComponent, ProductSearchComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -38,7 +36,6 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
 
-      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -182,7 +179,6 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   `],
 })
 export class ComercialInventoryAbcComponent {
-  readonly inventoryTabs = INV_COUNT_TABS;
   readonly views = [
     { label: 'Agenda de conteo', value: 'due' },
     { label: 'Clasificación ABC', value: 'class' },

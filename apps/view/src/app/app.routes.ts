@@ -647,17 +647,50 @@ export const routes: Routes = [
         canActivate: [almacenHomeGuard],
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
       },
-      {
-        path: 'inventory',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
-      },
+      // ── Pantallas de FOCO (handheld) — Fase WMS.1 ─────────────────────
+      // Cuelgan FUERA del shell de área a propósito: NO llevan barra de tabs.
+      // Una barra acá invita al operario a irse a otra pantalla a media tarima
+      // (el conteo además tiene `countFocusGuard` en canDeactivate). Van ANTES
+      // del shell porque el router matchea en orden y el shell tiene path ''.
       {
         // Fase I.2 — página del contador (handheld, conteo ciego)
         path: 'inventory/count',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
         canDeactivate: [countFocusGuard]
+      },
+      {
+        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
+        path: 'inventory/recepcion-sesiones/:id',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
+        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
+        //
+        // ⛔ INTOCABLE (decisión del equipo, 2026-08-31): queda como estaba —
+        // item propio de sidebar, FUERA del shell de áreas y por lo tanto SIN
+        // barra de tabs. No moverlo a un área en refactors futuros.
+        path: 'movimientos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+      },
+      // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
+      // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
+      // deep-links y los redirects viejos (`/comercial/inventory/**`) siguen
+      // valiendo. La barra `liquid` se pinta UNA sola vez en el shell, en vez
+      // de repetir `<app-page-tabs>` en los ~19 componentes. El mapa
+      // área → tabs vive en `modules/almacen/almacen-tabs.ts`.
+      // Va AL FINAL: un padre con path vacío matchea cualquier URL restante.
+      {
+        path: '',
+        loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
+        children: [
+      {
+        path: 'inventory',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
         // Fase I.3 — supervisor: lista + apertura de folios
@@ -693,12 +726,6 @@ export const routes: Routes = [
         // WMS-REC Pieza 1 (ADR-044) — Vales de entrada (sesiones de recepción por escaneo)
         path: 'inventory/recepcion-sesiones',
         loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesiones.component').then(m => m.AlmacenRecepcionSesionesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
-      },
-      {
-        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
-        path: 'inventory/recepcion-sesiones/:id',
-        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
@@ -784,12 +811,7 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
-      {
-        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
-        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
-        path: 'movimientos',
-        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
-        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+        ]
       },
     ]
   },
