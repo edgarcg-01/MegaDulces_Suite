@@ -181,7 +181,14 @@ const MES: Record<string, string> = {
                             [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no">Ruta {{ row.route_no }}</button>
                   </td>
                   @for (m of visibleMonths(); track m) {
-                    <td class="comm-num">{{ cell(row, m)?.revenue != null ? (cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                    <td class="comm-num">
+                      @if (cell(row, m)?.revenue) {
+                        <!-- La celda abre la ruta ACOTADA a ese mes: es el drill más barato
+                             (1.2 s medido) y el más usado. -->
+                        <button type="button" class="rr-cell-link" (click)="$event.stopPropagation(); openRoute(row, m)"
+                                [attr.aria-label]="'Ver la ruta ' + row.route_no + ' en ' + mes(m)">{{ cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</button>
+                      } @else { · }
+                    </td>
                   }
                   <td class="comm-num rr-strong">{{ row._revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                   <td class="comm-num comm-muted">{{ row._share | number:'1.0-1' }}%</td>
@@ -232,6 +239,9 @@ const MES: Record<string, string> = {
             <div class="rr-dkpi"><span>Unidades</span><b>{{ d.totals.units | number:'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>SKUs</span><b>{{ d.totals.skus | number }}</b></div>
             <div class="rr-dkpi"><span>Clientes</span><b>{{ d.totals.clients | number }}</b></div>
+            <!-- Los dos promedios son preguntas distintas: profundidad vs surtido. -->
+            <div class="rr-dkpi"><span>Unid./renglón</span><b>{{ unitsPerLine(d) | number:'1.0-2' }}</b><em>de cada producto</em></div>
+            <div class="rr-dkpi"><span>Renglones/ticket</span><b>{{ linesPerTicket(d) | number:'1.0-2' }}</b><em>productos distintos por visita</em></div>
             <!-- Margen: siempre acompañado de su cobertura. El push de camionetas no trae
                  costo, así que un margen "a secas" mezclaría peras con manzanas. -->
             <div class="rr-dkpi rr-dkpi-wide">
@@ -243,6 +253,39 @@ const MES: Record<string, string> = {
                 <b class="rr-nodata">—</b><em>la fuente de esta ruta no trae costo</em>
               }
             </div>
+          </div>
+
+          <!-- El filtro ES el estado: cada click agrega una faceta y queda visible acá.
+               Sin esto, "todo clickeable" se vuelve un laberinto sin salida. -->
+          <div class="rr-chips" role="group" aria-label="Filtros del desglose">
+            <span class="rr-chip rr-chip-fixed">Ruta {{ d.route_no }}</span>
+            <button type="button" class="rr-chip" (click)="toggleFullYear()"
+                    [attr.aria-label]="'Periodo: ' + scopeLabel() + '. Cambiar'">
+              <i class="pi pi-calendar" aria-hidden="true"></i> {{ scopeLabel() }}
+            </button>
+            @if (dSku(); as s) {
+              <button type="button" class="rr-chip rr-chip-on" (click)="dSku.set(null); reloadDetail()">
+                SKU {{ s }} <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+            @if (dClient(); as c) {
+              <button type="button" class="rr-chip rr-chip-on" (click)="dClient.set(null); reloadDetail()">
+                {{ dClientName() || c }} <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+            @if (dUnit(); as u) {
+              <button type="button" class="rr-chip rr-chip-on" (click)="dUnit.set(null); reloadDetail()">
+                Unidad {{ u }} <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+            @if (dDay(); as day) {
+              <button type="button" class="rr-chip rr-chip-on" (click)="dDay.set(null); reloadDetail()">
+                {{ day }} <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+            @if (hasDrill()) {
+              <button type="button" class="rr-chip rr-chip-clear" (click)="clearDrill()">Quitar filtros</button>
+            }
           </div>
 
           <div class="rr-tabs" role="tablist">
@@ -258,16 +301,25 @@ const MES: Record<string, string> = {
               <p-table [value]="detail()!.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
                   <th scope="col">Producto</th><th scope="col" class="comm-num">Unid</th>
+                  <th scope="col" class="comm-num">U/ren</th>
                   <th scope="col" class="comm-num">Importe</th><th scope="col" class="comm-num">%</th></tr>
                 </ng-template>
-                <ng-template #body let-p><tr>
-                  <td class="rr-prod"><span class="rr-sku">{{ p.sku }}</span> {{ p.name }}</td>
-                  <td class="comm-num">{{ p.units | number:'1.0-0' }}</td>
-                  <td class="comm-num rr-strong">{{ p.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="comm-num comm-muted">{{ p.share_pct | number:'1.0-1' }}%</td></tr>
+                <ng-template #body let-p>
+                  <tr class="rr-row" (click)="drillSku(p.sku)" [title]="'Ver tickets con ' + p.sku">
+                    <td class="rr-prod">
+                      <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillSku(p.sku)"
+                              [attr.aria-label]="'Filtrar por el producto ' + p.sku">
+                        <span class="rr-sku">{{ p.sku }}</span> {{ p.name }}
+                      </button>
+                    </td>
+                    <td class="comm-num">{{ p.units | number:'1.0-0' }}</td>
+                    <td class="comm-num comm-muted">{{ p.units_per_line | number:'1.0-2' }}</td>
+                    <td class="comm-num rr-strong">{{ p.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="comm-num comm-muted">{{ p.share_pct | number:'1.0-1' }}%</td>
+                  </tr>
                 </ng-template>
               </p-table>
-              <p class="rr-note">Top 50 por importe.</p>
+              <p class="rr-note">Top 50 por importe. <b>U/ren</b> = unidades por renglón: dice si el producto se lleva de a uno o de a bulto.</p>
             }
             @case ('unidades') {
               <p-table [value]="detail()!.units_mix" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
@@ -276,12 +328,19 @@ const MES: Record<string, string> = {
                   <th scope="col" class="comm-num">Cantidad</th><th scope="col" class="comm-num">Importe</th>
                   <th scope="col" class="comm-num">%</th></tr>
                 </ng-template>
-                <ng-template #body let-u><tr>
-                  <td class="comm-cell-strong">{{ u.unidad || '—' }}</td>
-                  <td class="comm-num">{{ u.lines | number }}</td>
-                  <td class="comm-num">{{ u.units | number:'1.0-2' }}</td>
-                  <td class="comm-num rr-strong">{{ u.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="comm-num comm-muted">{{ u.share_pct | number:'1.0-1' }}%</td></tr>
+                <ng-template #body let-u>
+                  <tr class="rr-row" (click)="drillUnit(u.unidad)" [title]="u.unidad ? ('Ver tickets en ' + u.unidad) : ''">
+                    <td class="comm-cell-strong">
+                      @if (u.unidad) {
+                        <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillUnit(u.unidad)"
+                                [attr.aria-label]="'Filtrar por la unidad ' + u.unidad">{{ u.unidad }}</button>
+                      } @else { — }
+                    </td>
+                    <td class="comm-num">{{ u.lines | number }}</td>
+                    <td class="comm-num">{{ u.units | number:'1.0-2' }}</td>
+                    <td class="comm-num rr-strong">{{ u.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="comm-num comm-muted">{{ u.share_pct | number:'1.0-1' }}%</td>
+                  </tr>
                 </ng-template>
               </p-table>
               <p class="rr-note">Unidad tal como la declara la fuente (Wincaja: catálogo del artículo · Kepler: renglón del documento). "—" = SKU sin unidad en el catálogo de esa fuente.</p>
@@ -292,11 +351,16 @@ const MES: Record<string, string> = {
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
                 </ng-template>
-                <ng-template #body let-x><tr>
-                  <td>{{ x.date }}</td>
-                  <td class="comm-num">{{ x.tickets | number }}</td>
-                  <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barPct(x.revenue)"></span></td></tr>
+                <ng-template #body let-x>
+                  <tr class="rr-row" (click)="drillDay(x.date)" [title]="'Ver tickets del ' + x.date">
+                    <td>
+                      <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillDay(x.date)"
+                              [attr.aria-label]="'Filtrar por el día ' + x.date">{{ x.date }}</button>
+                    </td>
+                    <td class="comm-num">{{ x.tickets | number }}</td>
+                    <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barPct(x.revenue)"></span></td>
+                  </tr>
                 </ng-template>
               </p-table>
             }
@@ -306,13 +370,24 @@ const MES: Record<string, string> = {
                   <th scope="col">Cliente</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Importe</th></tr>
                 </ng-template>
-                <ng-template #body let-c><tr>
-                  <td>{{ c.name }} @if (c.is_public) {<span class="rr-tag">público</span>}</td>
-                  <td class="comm-num">{{ c.tickets | number }}</td>
-                  <td class="comm-num rr-strong">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                <ng-template #body let-c>
+                  <!-- El público no es UN cliente: es el mostrador a bordo. No se puede filtrar por él. -->
+                  <tr [class.rr-row]="!c.is_public" (click)="c.is_public ? null : drillClient(c.code, c.name)"
+                      [title]="c.is_public ? 'Venta sin cliente identificado' : ('Ver tickets de ' + c.name)">
+                    <td>
+                      @if (c.is_public) {
+                        {{ c.name }} <span class="rr-tag">público</span>
+                      } @else {
+                        <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillClient(c.code, c.name)"
+                                [attr.aria-label]="'Filtrar por el cliente ' + c.name">{{ c.name }}</button>
+                      }
+                    </td>
+                    <td class="comm-num">{{ c.tickets | number }}</td>
+                    <td class="comm-num rr-strong">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  </tr>
                 </ng-template>
               </p-table>
-              <p class="rr-note">Top 50 por importe. "Público" = venta a bordo sin cliente identificado.</p>
+              <p class="rr-note">Top 50 por importe. "Público" = venta a bordo sin cliente identificado (no es filtrable: no es un cliente).</p>
             }
             @case ('tickets') {
               @if (ticket(); as t) {
@@ -344,7 +419,12 @@ const MES: Record<string, string> = {
                     <th scope="col" class="comm-num">Margen</th></tr>
                   </ng-template>
                   <ng-template #body let-l><tr>
-                    <td class="rr-prod"><span class="rr-sku">{{ l.sku }}</span> {{ l.name || '' }}</td>
+                    <td class="rr-prod">
+                      <button type="button" class="rr-link" (click)="drillSku(l.sku)"
+                              [attr.aria-label]="'Ver todos los tickets con ' + l.sku">
+                        <span class="rr-sku">{{ l.sku }}</span> {{ l.name || '' }}
+                      </button>
+                    </td>
                     <td class="comm-num">{{ l.qty | number:'1.0-2' }}</td>
                     <td>
                       {{ l.unidad || '—' }}
@@ -397,6 +477,7 @@ const MES: Record<string, string> = {
                     <th scope="col">Folio</th>
                     <th scope="col">Cliente</th>
                     <th scope="col" class="comm-num" pSortableColumn="lines">Líneas <p-sorticon field="lines" /></th>
+                    <th scope="col" class="comm-num">U/ren</th>
                     <th scope="col" class="comm-num" pSortableColumn="revenue">Importe <p-sorticon field="revenue" /></th>
                     <th scope="col" class="comm-num" pSortableColumn="margin">Margen <p-sorticon field="margin" /></th></tr>
                   </ng-template>
@@ -412,12 +493,13 @@ const MES: Record<string, string> = {
                         @if (t.is_public) { <span class="rr-tag">público</span> }
                       </td>
                       <td class="comm-num">{{ t.lines | number }}</td>
+                      <td class="comm-num comm-muted">{{ ticketUnitsPerLine(t) | number:'1.0-2' }}</td>
                       <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="comm-num comm-muted">{{ t.margin_pct != null ? (t.margin_pct | number:'1.0-1') + '%' : '—' }}</td>
                     </tr>
                   </ng-template>
                   <ng-template #emptymessage>
-                    <tr><td colspan="6" class="rr-tk-empty">Ningún ticket coincide con los filtros.</td></tr>
+                    <tr><td colspan="7" class="rr-tk-empty">Ningún ticket coincide con los filtros.</td></tr>
                   </ng-template>
                 </p-table>
               }
@@ -494,6 +576,24 @@ const MES: Record<string, string> = {
     .rr-tk-meta span { display:block; font-size:.62rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
     .rr-tk-meta b { display:block; font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .rr-eq { display:block; font-style:normal; font-size:.66rem; color:var(--text-muted); }
+    /* RR3 — chips de drill (el filtro es el estado) + celdas navegables */
+    .rr-chips { display:flex; flex-wrap:wrap; gap:.35rem; margin-bottom:.7rem; }
+    .rr-chip { display:inline-flex; align-items:center; gap:.3rem; appearance:none; font:inherit;
+      font-size:.7rem; font-weight:600; padding:.2rem .5rem; border-radius:999px; cursor:pointer;
+      background:var(--hover-bg); color:var(--text-muted); border:1px solid var(--border-color); }
+    .rr-chip:hover { color:var(--text-main); }
+    .rr-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .rr-chip i { font-size:.62rem; }
+    .rr-chip-fixed { cursor:default; background:transparent; }
+    .rr-chip-fixed:hover { color:var(--text-muted); }
+    .rr-chip-on { background:var(--action); color:#fff; border-color:transparent; }
+    .rr-chip-on:hover { color:#fff; opacity:.9; }
+    .rr-chip-clear { border-style:dashed; }
+    .rr-cell-link { appearance:none; background:none; border:none; padding:0; font:inherit;
+      font-variant-numeric:tabular-nums; cursor:pointer; color:inherit; }
+    .rr-cell-link:hover { color:var(--action); text-decoration:underline; text-underline-offset:2px; }
+    .rr-cell-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }
+    .rr-prod .rr-link { text-align:left; white-space:normal; }
   `],
 })
 export class ComercialVentasPorRutaComponent {
@@ -671,6 +771,99 @@ export class ComercialVentasPorRutaComponent {
       .filter((u) => !!u.unidad)
       .map((u) => ({ label: u.unidad as string, value: u.unidad as string })));
 
+  // ── RR3 — El filtro ES el estado del panel ──────────────────────────────────
+  // Facetas del drill. Se siembran de los filtros de página al abrir la ruta y a
+  // partir de ahí viven sólo dentro del panel: quitarlas acá no toca la matriz.
+  dSku = signal<string | null>(null);
+  dClient = signal<string | null>(null);
+  dClientName = signal<string | null>(null);
+  dUnit = signal<string | null>(null);
+  dDay = signal<string | null>(null);
+  /** Mes al que está acotado el panel (`MM`); null = todo el periodo visible. */
+  dMonth = signal<string | null>(null);
+  /** Escape explícito al año completo (el caro: 7.1 s medidos). */
+  fullYear = signal(false);
+
+  readonly hasDrill = computed(() =>
+    !!this.dSku() || !!this.dClient() || !!this.dUnit() || !!this.dDay());
+
+  readonly scopeLabel = computed(() => {
+    if (this.dMonth()) return this.mes(this.dMonth() as string);
+    if (this.fullYear()) return `${this.year} completo`;
+    return this.periodLabel() || `${this.year} completo`;
+  });
+
+  /** Un solo lugar decide el alcance temporal del panel: mes > año completo > periodo de la vista. */
+  private detailBounds(): { from?: string; to?: string } {
+    const y = this.year;
+    const m = this.dMonth();
+    if (m) {
+      const n = Number(m);
+      return {
+        from: `${y}-${m}-01`,
+        to: n >= 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, '0')}-01`,
+      };
+    }
+    if (this.fullYear()) return {};
+    const vm = this.visibleMonths();
+    if ((!this.fMonthFrom() && !this.fMonthTo()) || !vm.length) return {};
+    const lastM = Number(vm[vm.length - 1]);
+    return {
+      from: `${y}-${vm[0]}-01`,
+      to: lastM >= 12 ? `${y + 1}-01-01` : `${y}-${String(lastM + 1).padStart(2, '0')}-01`,
+    };
+  }
+
+  /** El día es una faceta más fina que el mes: acota from/to a ese solo día. */
+  private dayBounds(): { from?: string; to?: string } | null {
+    const d = this.dDay();
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+    const next = new Date(new Date(`${d}T00:00:00Z`).getTime() + 864e5).toISOString().slice(0, 10);
+    return { from: d, to: next };
+  }
+
+  toggleFullYear() {
+    if (this.dMonth()) { this.dMonth.set(null); this.fullYear.set(true); }
+    else this.fullYear.update((v) => !v);
+    this.reloadDetail();
+  }
+
+  clearDrill() {
+    this.dSku.set(null); this.dClient.set(null); this.dClientName.set(null);
+    this.dUnit.set(null); this.dDay.set(null);
+    this.reloadDetail();
+  }
+
+  /** Agregar una faceta = re-consultar el desglose y saltar a Tickets (el "¿quiénes?"). */
+  private applyFacet() {
+    this.ticket.set(null);
+    this.tkPage.set(null);
+    this.tkOffset.set(0);
+    this.reloadDetail();
+    this.tab.set('tickets');
+  }
+
+  drillSku(sku: string) { if (!sku) return; this.dSku.set(sku); this.applyFacet(); }
+  drillUnit(unit: string | null) { if (!unit) return; this.dUnit.set(unit); this.applyFacet(); }
+  drillDay(date: string) { if (!date) return; this.dDay.set(date); this.applyFacet(); }
+  drillClient(code: string, name?: string) {
+    if (!code || code === '—') return;
+    this.dClient.set(code); this.dClientName.set(name || null); this.applyFacet();
+  }
+
+  // ── RR3 — Promedios. Dos preguntas distintas, no una. ───────────────────────
+  /** Profundidad: cuánto se llevan DE CADA producto. */
+  unitsPerLine(d: SalesByRouteDetail): number {
+    return d.totals.lines > 0 ? d.totals.units / d.totals.lines : 0;
+  }
+  /** Surtido: cuántos productos distintos entra la visita. */
+  linesPerTicket(d: SalesByRouteDetail): number {
+    return d.totals.tickets > 0 ? d.totals.lines / d.totals.tickets : 0;
+  }
+  ticketUnitsPerLine(t: SalesByRouteTicket): number {
+    return t.lines > 0 ? t.units / t.lines : 0;
+  }
+
   avgTicket(d: SalesByRouteDetail): number {
     return d.totals.tickets > 0 ? d.totals.revenue / d.totals.tickets : 0;
   }
@@ -680,14 +873,16 @@ export class ComercialVentasPorRutaComponent {
   setTab(t: DetailTab) { this.tab.set(t); }
 
   private ticketParams(): SalesByRouteTicketsParams {
-    const b = this.detailBounds();
+    const b = this.dayBounds() ?? this.detailBounds();
     return {
       route: this.detail()?.route_code || '',
       year: this.year,
       from: b.from, to: b.to,
-      sku: this.fProduct() || undefined,
-      client: this.fClient() || undefined,
-      unit: this.tkUnit() || undefined,
+      sku: this.dSku() || undefined,
+      client: this.dClient() || undefined,
+      // El select de unidad de la tab y la faceta de chip son el mismo filtro:
+      // la faceta manda (es la que el usuario ve declarada arriba).
+      unit: this.dUnit() || this.tkUnit() || undefined,
       docType: this.tkDocType() || undefined,
       q: this.tkQuery().trim() || undefined,
       sort: this.tkSort(), dir: this.tkDir(),
@@ -789,32 +984,57 @@ export class ComercialVentasPorRutaComponent {
       });
   }
 
-  /** El desglose respeta los filtros activos: rango de meses → fechas, + producto/cliente. */
-  private detailBounds(): { from?: string; to?: string } {
-    if (!this.fMonthFrom() && !this.fMonthTo()) return {};
-    const vm = this.visibleMonths();
-    if (!vm.length) return {};
-    const y = this.year;
-    const lastM = Number(vm[vm.length - 1]);
-    return {
-      from: `${y}-${vm[0]}-01`,
-      to: lastM >= 12 ? `${y + 1}-01-01` : `${y}-${String(lastM + 1).padStart(2, '0')}-01`,
-    };
+  /** Último mes CON VENTA de la fila: el default sano cuando no hay rango elegido. */
+  private lastMonthWithSales(row: SalesByRouteRow): string | null {
+    const months = this.visibleMonths();
+    for (let i = months.length - 1; i >= 0; i--) {
+      if ((row.monthly[months[i]]?.revenue ?? 0) > 0) return months[i];
+    }
+    return null;
   }
 
-  openRoute(row: SalesByRouteRow) {
+  /**
+   * RR3.0 — el desglose ya NO abre en el año completo. Medido en prod: año = 7.1 s,
+   * mes = 1.2 s. Se abre en el mes que el usuario clickeó, o en el último con venta;
+   * el año queda a un click explícito en el chip de periodo.
+   */
+  openRoute(row: SalesByRouteRow, month?: string) {
     this.tab.set('productos');
     this.detail.set(null);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
-    // El estado de tickets es por ruta: si no se limpia, la ruta nueva muestra los del anterior.
+    // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
     this.tkPage.set(null);
     this.ticket.set(null);
     this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
     this.tkOffset.set(0); this.tkSort.set('date'); this.tkDir.set('desc');
-    const b = this.detailBounds();
-    this.svc.salesByRouteDetail(row.route_code, this.year, {
-      from: b.from, to: b.to, sku: this.fProduct() || undefined, client: this.fClient() || undefined,
+    this.dUnit.set(null); this.dDay.set(null);
+    // Las facetas de producto/cliente se siembran del filtro de página: lo que el
+    // usuario ya eligió arriba sigue valiendo adentro, y queda visible como chip.
+    this.dSku.set(this.fProduct() || null);
+    this.dClient.set(this.fClient() || null);
+    this.dClientName.set(null);
+    this.fullYear.set(false);
+    this.dMonth.set(month ?? (this.fMonthFrom() || this.fMonthTo() ? null : this.lastMonthWithSales(row)));
+    this.fetchDetail(row.route_code);
+  }
+
+  /** Re-consulta el desglose con las facetas vigentes (sin cerrar ni reabrir el panel). */
+  reloadDetail() {
+    const code = this.detail()?.route_code;
+    if (!code) return;
+    this.tkPage.set(null);
+    this.fetchDetail(code);
+  }
+
+  private fetchDetail(routeCode: string) {
+    const b = this.dayBounds() ?? this.detailBounds();
+    this.detailLoading.set(true);
+    this.svc.salesByRouteDetail(routeCode, this.year, {
+      from: b.from, to: b.to,
+      sku: this.dSku() || undefined,
+      client: this.dClient() || undefined,
+      unit: this.dUnit() || undefined,
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -825,7 +1045,7 @@ export class ComercialVentasPorRutaComponent {
         },
         error: (e) => {
           this.detailLoading.set(false);
-          this.peekOpen.set(false);
+          if (!this.detail()) this.peekOpen.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar el desglose', detail: e?.error?.message });
         },
       });

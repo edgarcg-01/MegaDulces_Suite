@@ -809,12 +809,14 @@ export class CommercialAnalyticsController {
     @Query('to') to?: string,
     @Query('sku') sku?: string,
     @Query('client') client?: string,
+    @Query('unit') unit?: string,
   ) {
     return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear(), {
       from: from?.trim() || undefined,
       to: to?.trim() || undefined,
       sku: sku?.trim() || undefined,
       client: client?.trim() || undefined,
+      unit: unit?.trim() || undefined,
     });
   }
 

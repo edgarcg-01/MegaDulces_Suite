@@ -163,8 +163,11 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
-  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  /** `lines` = renglones del periodo. Con él salen los dos promedios que pidió negocio:
+   *  `units/lines` = profundidad (cuánto se llevan de cada producto) y
+   *  `lines/tickets` = surtido (cuántos productos distintos entra la visita). */
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
@@ -4042,7 +4045,7 @@ export class CommercialAnalyticsService {
    */
   async salesByRouteDetail(
     routeCode: string, year: number,
-    opts?: { from?: string; to?: string; sku?: string; client?: string },
+    opts?: { from?: string; to?: string; sku?: string; client?: string; unit?: string },
   ): Promise<SalesByRouteDetail> {
     const y = Number(year) || new Date().getFullYear();
     if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
@@ -4071,6 +4074,9 @@ export class CommercialAnalyticsService {
       const P: any[] = [tenantId, src, from, to];
       if (opts?.sku) { W += ' AND sl.sku = ?'; P.push(opts.sku); }
       if (opts?.client) { W += ' AND sl.cliente = ?'; P.push(opts.client); }
+      // RR3: la faceta de unidad acota TODO el desglose (no sólo la lista de tickets),
+      // para que las pestañas sigan contando la misma población que los chips declaran.
+      if (opts?.unit) { W += ' AND sl.unidad = ?'; P.push(opts.unit.toUpperCase()); }
 
       // RR2: el margen viaja en el MISMO barrido (sólo suma dos columnas más). `cost` sale
       // de `valor_costo`, que es el monto EXTENDIDO de la línea (verificado: Σcosto/Σventa
@@ -4080,6 +4086,7 @@ export class CommercialAnalyticsService {
         `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
                 count(distinct sl.sku) skus,
                 count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients,
+                count(*) lines,
                 sum(sl.costo) cost,
                 sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
@@ -4087,8 +4094,11 @@ export class CommercialAnalyticsService {
       const revWithCost = num(totals.revenue_with_cost);
       const cost = num(totals.cost);
 
+      // `lines` por SKU sale del mismo barrido; `units/lines` dice si el producto se
+      // vende de a uno o de a bulto — la señal directa para el tamaño de empaque.
       const products = (await trx.raw(
-        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue
+        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue,
+                count(*) lines
          FROM analytics.v_route_sales_lines sl
          LEFT JOIN catalog.products p ON p.tenant_id=sl.tenant_id AND p.sku=sl.sku AND p.deleted_at IS NULL
          WHERE ${W} GROUP BY sl.sku, p.nombre ORDER BY revenue DESC NULLS LAST LIMIT 50`, P)).rows;
@@ -4133,12 +4143,17 @@ export class CommercialAnalyticsService {
         year: y,
         totals: {
           revenue: totRev, units: num(totals.units), tickets: num(totals.tickets),
-          skus: num(totals.skus), clients: num(totals.clients),
+          skus: num(totals.skus), clients: num(totals.clients), lines: num(totals.lines),
         },
-        products: products.map((r: any) => ({
-          sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
-          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
-        })),
+        products: products.map((r: any) => {
+          const lines = num(r.lines);
+          return {
+            sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
+            share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+            lines,
+            units_per_line: lines > 0 ? Math.round((num(r.units) / lines) * 100) / 100 : 0,
+          };
+        }),
         daily: daily.map((r: any) => ({
           date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
           revenue: num(r.revenue), units: num(r.units), tickets: num(r.tickets),
