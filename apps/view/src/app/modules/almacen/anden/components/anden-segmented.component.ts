@@ -71,10 +71,14 @@ export interface SegItem {
     }
     .seg button.is-on {
       background: var(--card-bg); color: var(--text-main);
-      box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+      /* La sombra sola no dibuja en oscuro: negro sobre negro. El aro interior usa
+         --ink-rgb, que el tema invierte (tinta clara en oscuro), así que la pastilla
+         seleccionada se despega del riel en los dos temas. Sin él, #1A1A1A sobre
+         #141414 son 6 puntos de diferencia y no se ve cuál está activa. */
+      box-shadow: 0 1px 3px rgb(0 0 0 / 12%), inset 0 0 0 1px rgba(var(--ink-rgb), .12);
     }
     .seg button:disabled { opacity: .45; cursor: not-allowed; }
-    .seg button:focus-visible { outline: 2px solid var(--action-ring, var(--action)); outline-offset: 1px; }
+    .seg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .seg-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bdg {
       flex: 0 0 auto; min-width: 17px; height: 17px; padding: 0 4px;
@@ -84,7 +88,7 @@ export interface SegItem {
       background: var(--action); color: var(--action-ink, #fff);
     }
     .seg button:disabled .bdg { background: var(--text-faint); }
-    .bdg.done { background: var(--good-soft-bg, var(--surface-ground)); color: var(--good-fg, var(--text-muted)); }
+    .bdg.done { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     @media (prefers-reduced-motion: reduce) { .seg button { transition: none; } }
   `],
 })

@@ -86,7 +86,7 @@ import { calcularTotal, describirDiferencia } from '../cantidad.util';
     .ac-total-n { font-size: var(--fs-h1); font-weight: var(--fw-black); font-variant-numeric: tabular-nums; }
     .ac-total-u { margin-left: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .ac-diff { font-size: var(--fs-sm); font-weight: var(--fw-medium); }
-    .ac-ok { color: var(--good-fg, var(--text-muted)); }
+    .ac-ok { color: var(--ok-soft-fg); }
     .ac-bad { color: var(--bad-fg); }
     .ac-acciones { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
     .ac-acciones button { flex: 1; min-height: 48px; }
