@@ -1083,3 +1083,55 @@ cambiado en prod: cambió cuál de las dos tablas respondía. Una copia vacía n
    columna sin origen no es una proyección: es una invención.
 3. Para respaldar antes de un cambio riesgoso no se copia la tabla: **dump** afuera de la DB, o un
    `down()` real en la migración.
+
+---
+
+## 33. La bomba de calendario: la replicación lógica no replica DDL
+
+**Síntoma (2026-09-01, 00:00):** tres réplicas de Kepler (`md_01`, `md_03`, `md_06`) dejan de
+recibir. La subscription sigue `enabled`, el proceso del CDC sigue `online`, su latido sigue en
+**verde**. Lo único que lo dice está en el log del contenedor:
+
+```
+ERROR:  logical replication target relation "md.kdc22609" does not exist
+LOG:    background worker "logical replication apply worker" exited with exit code 1
+LOG:    logical replication apply worker for subscription "sub_md_01" has started
+ERROR:  logical replication target relation "md.kdc22609" does not exist
+```
+
+...cada 5 segundos, para siempre. **Kepler particiona por calendario** y creó la tabla de pólizas de
+septiembre en el publisher. La replicación lógica de Postgres **no replica DDL**: el subscriber no la
+tiene, el apply worker muere al primer INSERT que la toca, y no aplica NADA más — ni de esa tabla ni
+de ninguna otra. La rama se congela entera por una tabla que nadie había creado.
+
+Cuando lo encontramos ya había 3 sucursales muertas y las otras 3 a punto de caer en cuanto entrara
+su primera póliza de septiembre. El slot de la 06 iba en **795 MB de rezago creciendo**, camino al
+cap de 10 GB — o sea camino a `wal_status='lost'`, que es pérdida PERMANENTE (§32).
+
+**Familias con fecha en el nombre** (medidas en el schema, no supuestas):
+
+| familia | cadencia | ejemplo | próxima |
+|---|---|---|---|
+| `kdc2<YY><MM>` | **mensual** | `kdc22608` | cada día 1 |
+| `kdcn<YY>` | anual | `kdcn26` | `kdcn27` |
+| `orglogtbl_<YY>` | anual | `orglogtbl_26` | `orglogtbl_27` |
+| `kdmx_<YY>` | anual | `kdmx_26` | `kdmx_27` |
+
+El **1 de enero de 2027 vencen las cuatro a la vez**.
+
+**Fix inmediato:** `CREATE TABLE md.<nueva> (LIKE md.<hermana más reciente> INCLUDING ALL)` en cada
+réplica. El worker se recupera solo en segundos (no hace falta tocar la subscription) y el rezago del
+slot se drena: 795 MB → 84 kB en un minuto.
+
+**Prevención:** `ensure-monthly-tables.js` pre-crea los períodos por delante (2 meses, 1 año) usando
+como molde la hermana más reciente de cada familia; si la familia no existe en esa réplica, la salta
+en vez de inventar un molde. Corre dentro del loop de `reconcile-ods-window --watch`, antes de
+reconciliar: reponer filas no sirve de nada si la fuente dejó de recibir.
+
+### La lección
+
+**Un `enabled` no es un `running`.** `pg_subscription.subenabled` decía `true` en las tres muertas;
+lo que las delataba era `pg_stat_subscription.received_lsn IS NULL` (sin worker). Y ninguna de las
+capas de arriba lo notaba: el CDC seguía latiendo en verde porque *él* estaba bien — su fuente era la
+que había dejado de moverse. Tres monitores en verde, cero datos. Para diagnosticar la replicación
+lógica hay que mirar `pg_stat_subscription` y **el log del contenedor**, que es donde el error vive.
