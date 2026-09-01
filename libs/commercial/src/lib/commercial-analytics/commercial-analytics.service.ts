@@ -2831,6 +2831,13 @@ export class CommercialAnalyticsService {
       const winChanRollup = `CASE sd.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winChanExpr = `CASE vl.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winWhExpr = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' WHEN vl.source_branch='50' THEN '06' ELSE vl.warehouse_code END`;
+      // PERF (2026-09-01) — versiones sobre `base` (CTE materializado). El GROUP BY directo sobre
+      // v_sales_lines hacía flipear al planner a un plan que re-evalúa la vista compleja por grupo
+      // → 45s timeout en prod (sin group by: 1.1s; con group by: >45s). Materializando la base ya
+      // filtrada por marca ANTES de agrupar, el plan es sano (~2s). Mismo SQL/números (MATERIALIZED
+      // es no-op semántico en Postgres; verificado en prod units 407 / monto $20,168.0802 idénticos).
+      const winChanBase = `CASE base.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
+      const winWhBase = `CASE WHEN base.source_branch='10' THEN '01' WHEN base.source_branch='42' THEN '02' WHEN base.source_branch='50' THEN '06' ELSE base.warehouse_code END`;
       const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
@@ -2867,38 +2874,53 @@ export class CommercialAnalyticsService {
           .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
         .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
           .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
+        // Base MATERIALIZED: v_sales_lines ⋈ productos (+marca) con TODOS los filtros selectivos
+        // (marca/fecha/promo/almacén/anti-doble-conteo). Colapsa a las pocas filas de la marca
+        // ANTES de agrupar → el planner no re-evalúa la vista compleja por grupo. El enriquecimiento
+        // (almacén/etiqueta/artículo/vendedor) y el GROUP BY corren sobre esta base chica.
+        .withMaterialized('base', (qb) => qb
+          .select(
+            'vl.sale_channel as sale_channel', 'vl.source_branch as source_branch', 'vl.vendedor as vendedor',
+            'vl.qty as qty', 'vl.importe as importe', 'vl.sku as sku', 'vl.warehouse_code as warehouse_code',
+            'vl.tenant_id as tenant_id', 'vl.business_date as business_date',
+            'p.id as pid', 'p.sku as psku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
+            'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
+          )
+          .from('wincaja.v_sales_lines as vl')
+          .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
+          .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+          .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
+          .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
+          .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+          .modify((qb) => {
+            if (brandId) qb.andWhere('p.brand_id', brandId);
+            if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+            if (warehouseFilter) qb.whereRaw(`${winWhExpr} = ANY(?)`, [warehouseFilter]);
+          }))
         .select(
           'w.code as branch_code', 'w.name as branch_name',
-          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-          trx.raw(`${winChanExpr} as channel`),
+          'base.pid as product_id', 'base.psku as sku', 'base.nombre as nombre',
+          'base.factor_sale as factor_sale', 'base.brand_id as brand_id', 'base.brand_nombre as brand_nombre', 'base.brand_code as brand_code',
+          trx.raw(`${winChanBase} as channel`),
           trx.raw(`'wincaja'::text as source`),
-          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
-          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
+          trx.raw(`(base.source_branch || ':' || base.vendedor) as vendor_code`),
+          trx.raw(`coalesce(ven.nombre, base.vendedor) as vendor_name`),
           trx.raw(`CASE WHEN am.uv='KGS' THEN 'weight' ELSE 'piece' END as unit_kind`),
           trx.raw('max(lp.box_size) as box_size'),
-          trx.raw(`SUM(CASE WHEN am.uv='CJA' THEN vl.qty * COALESCE(NULLIF(am.factor_venta,0),1) ELSE vl.qty END) as units`),
-          trx.raw('SUM(vl.importe) as monto'),
+          trx.raw(`SUM(CASE WHEN am.uv='CJA' THEN base.qty * COALESCE(NULLIF(am.factor_venta,0),1) ELSE base.qty END) as units`),
+          trx.raw('SUM(base.importe) as monto'),
         )
-        .from('wincaja.v_sales_lines as vl')
-        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-        .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = vl.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhExpr}`)
-        .leftJoin('am', 'am.sku', 'vl.sku')
-        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+        .from('base')
+        .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = base.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhBase}`)
+        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'base.pid').andOn('lp.tenant_id', '=', 'base.tenant_id'); })
+        .leftJoin('am', 'am.sku', 'base.sku')
+        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'base.source_branch').andOn('ven.vendedor', '=', 'base.vendedor'); })
         .modify((qb) => {
-          if (brandId) qb.andWhere('p.brand_id', brandId);
-          if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-          if (warehouseFilter) qb.whereRaw(`${winWhExpr} = ANY(?)`, [warehouseFilter]);
-          if (needMonth) qb.select(trx.raw(`to_char(vl.business_date, 'YYYY-MM') as sale_month`));
+          if (needMonth) qb.select(trx.raw(`to_char(base.business_date, 'YYYY-MM') as sale_month`));
         })
         .groupByRaw(
-          `w.code, w.name, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, vl.sale_channel, vl.source_branch, vl.vendedor, coalesce(ven.nombre, vl.vendedor), am.uv, am.factor_venta` +
-          (needMonth ? `, to_char(vl.business_date, 'YYYY-MM')` : ''),
+          `w.code, w.name, base.pid, base.psku, base.nombre, base.factor_sale, base.brand_id, base.brand_nombre, base.brand_code, base.sale_channel, base.source_branch, base.vendedor, coalesce(ven.nombre, base.vendedor), am.uv, am.factor_venta` +
+          (needMonth ? `, to_char(base.business_date, 'YYYY-MM')` : ''),
         );
 
       const rawRows: any[] = [...keplerRows, ...wincajaRows];
