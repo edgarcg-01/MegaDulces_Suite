@@ -29,6 +29,16 @@ export interface EntradaRow {
   monto_match: boolean;
   /** fecha capturada adelante de hoy: el renglón se ordena como si fuera de hoy y se marca */
   fecha_futura: boolean;
+  /**
+   * `[RE.1]` — cuándo se debe. `fecha_vence` la dice el ERP (`c18`); **no se deriva** de
+   * `condicion_pago`, porque "30 días" en Kepler es un mes de calendario y da 31 o 28 según el
+   * mes de origen. `dias_para_vencer` negativo = ya venció. `dias_credito` puede venir negativo
+   * en un puñado de documentos: es calidad de dato del ERP, no un plazo.
+   */
+  fecha_vence?: string | null;
+  condicion_pago?: string | null;
+  dias_credito?: number | null;
+  dias_para_vencer?: number | null;
   // RE.13.0 — los dos relojes del proceso + el veredicto de atraso ya resuelto por el server.
   /** días desde la recepción, acotados a hoy (una fecha futura cuenta 0, no negativo). */
   dias: number;
@@ -386,6 +396,9 @@ export interface EntradaDetail {
     sucursal: string; folio: string; receipt_date: string | null;
     proveedor_code: string | null; proveedor_nombre: string | null; proveedor_rfc: string | null;
     oc_folio: string | null; vale_folio: string | null; concepto: string | null; monto: number;
+    // `[RE.1]` — el vencimiento es la mitad de la decisión de pago; va en el expediente.
+    fecha_vence?: string | null; condicion_pago?: string | null;
+    dias_credito?: number | null; dias_para_vencer?: number | null;
   };
   lineas: EntradaLinea[];
   deposits: ReceiptDeposit[];

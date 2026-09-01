@@ -71,9 +71,16 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Estado PROD (2026-08-10):** `analytics.erp_goods_receipts` = **9 sucursales / 14,377 recepciones / ~$654M** (antes 1 suc / 8,373 / $427M). Sin redeploy para la data; el **mapeo de nombres SÍ requiere redeploy** de api+view.
 - **Notas operacionales:** el feed Kepler corre desde la **máquina de feeds** (LAN; Railway no alcanza las DBs de sucursal) con `DATABASE_URL_NEW=<prod>`; el feed Wincaja puede correr desde cualquier lado (newdb→newdb) pero depende de que `import-wincaja.js` haya corrido antes (ese sí desde LAN por el .mdb). **Pendiente:** agregar ambos a la rotación de feeds para frescura; `payments` sigue CEDIS-only (correcto, centralizado).
 
-### RE.1 — Enriquecer el ancla (paridad de campos)
+### RE.1 — Enriquecer el ancla (paridad de campos) · ✅ COMPLETO (LOCAL) 2026-08-31
 - **Objetivo:** traer los campos del Excel que faltan.
 - **Entregable:** `fecha_vence` (`c18`), `condicion_pago` (`c30`), `dias_credito`, `poliza` (join `kdc2`). En `erp_goods_receipts` + importer.
+- **✅ Hecho (mig `20260831190000`):** las 3 primeras columnas se agregan **al final** de la vista viva con `CREATE OR REPLACE` (verificado que ninguna vista depende de ésta). Expuestas en la lista y en el detalle de `goods-receipt-proofs`, más `dias_para_vencer` calculado. Smoke `test-newdb-goods-receipts-vencimiento` en la regression. `tsc` api+view en 0.
+- **Decode verificado contra 12,200 documentos, no supuesto:** `c18` poblada **12,200/12,200**; `c30` en 12,199; el vencimiento casa con el plazo declarado en **99.92%** (±3 días).
+- **⚠️ Hallazgo de decode — "30 días" en Kepler es UN MES DE CALENDARIO, no 30 días.** La condición *"30 días fecha factura"* da **31** días en 711 documentos y **28** en 111: es el largo del mes de origen. Por eso `c18` **se guarda cruda y no se deriva del texto** — derivar `fecha + 30` habría inventado un vencimiento distinto al que el ERP y el proveedor tienen, en **822 documentos**.
+- **Dato que dimensiona RE.3:** el **68%** (8,323/12,200) es *"Pago de contado"* → vence el mismo día y **no genera cuenta por pagar a plazo**. El aging corre sobre las ~3,874 restantes, no sobre las 12,200.
+- **`dias_credito` puede ser negativo** (2 documentos con −1). Se deja crudo: es calidad de dato del ERP y clamparlo a 0 lo escondería.
+- **⬜ Wincaja (30/32/50): mapeado pero SIN VERIFICAR.** `movimiento_proveedores.fecha_vencimiento` existe en el esquema, pero la tabla está **vacía en local** (0 filas) → cobertura y formato sin comprobar. `condicion_pago` va NULL a propósito: Wincaja no tiene equivalente y poner "contado" sería inventarlo.
+- **⬜ La póliza NO entró a la vista.** `analytics.gl_polizas` está **vacía en local** (join inverificable); `polizaForReceipt` ya la sirve bajo demanda para el detalle; y una subconsulta correlacionada correría **12,200 veces** en el listado para un dato que sólo se mira al abrir un documento. Si se quiere en la lista, va como agregado, no como join.
 - **Reuso:** `expense_doc_chain` para la póliza.
 
 ### RE.2 — Cuadre 3-vías + AUTO-explicación del descuadre
