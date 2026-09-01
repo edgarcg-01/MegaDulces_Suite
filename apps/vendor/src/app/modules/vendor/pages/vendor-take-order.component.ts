@@ -255,6 +255,19 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="why"><i class="pi pi-comment"></i> por qué</span>
                   }
                 </div>
+                <!-- Incitar mayoreo: el quiebre por cantidad, siempre visible si existe. -->
+                @if (mayoreoHint(p); as mh) {
+                  <div class="may-hint" [class.reached]="mh.reached">
+                    <i class="pi pi-tag"></i>
+                    @if (mh.reached) {
+                      <span>Mayoreo aplicado · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                    } @else if (mh.need > 0 && cartQty(p.product_id) > 0) {
+                      <span>Faltan <b>{{ mh.need }}</b> para mayoreo · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                    } @else {
+                      <span>Mayoreo desde <b>{{ mh.from }}</b> · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                    }
+                  </div>
+                }
               </div>
               <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
                 <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
@@ -560,6 +573,12 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm .stk.ok { color: var(--ok-fg); } .prod .pm .stk.warn { color: var(--warn-fg); } .prod .pm .stk.bad { color: var(--bad-fg); }
       .prod .pm .rot { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--action); font-weight: 700; }
       .prod .pm .rot i { font-size: 0.62rem; }
+      /* Incitar mayoreo: quiebre por cantidad bajo la fila de producto. */
+      .prod .may-hint { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; font-weight: 600; color: var(--brand-900); background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.5rem; }
+      .prod .may-hint i { font-size: 0.66rem; color: var(--action); }
+      .prod .may-hint b { color: var(--action); font-weight: 800; }
+      .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+      .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
       .prod .pm .rsn i { font-size: 0.6rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -1940,6 +1959,36 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       savedUnit,
       pct: Math.round((savedUnit / base) * 100),
       savedTotal: +(savedUnit * qty).toFixed(2),
+    };
+  }
+  /**
+   * Incitar mayoreo: el PRIMER quiebre por cantidad de un producto del catálogo, para
+   * empujar al vendedor a venderlo. Devuelve null si el SKU no tiene mayoreo real.
+   *   - `from`  cantidad a la que arranca el mayoreo (en la unidad de venta base)
+   *   - `unit`  precio unitario en mayoreo · `pct` % de descuento vs base
+   *   - `need`  cuántas unidades más faltan desde lo que ya hay en el carrito (0 si ya llegó)
+   *   - `reached` true si la cantidad actual ya alcanza el mayoreo
+   * La escalera viaja en `p.tiers` (catálogo, también offline). Elige el quiebre de
+   * MENOR min_qty (el más alcanzable) para que el nudge sea accionable.
+   */
+  mayoreoHint(
+    p: PriceRow,
+  ): { from: number; unit: number; pct: number; need: number; reached: boolean } | null {
+    const tiers = p.tiers;
+    const base = Number(p.price);
+    if (!tiers?.length || !Number.isFinite(base) || base <= 0) return null;
+    const first = tiers.reduce((a, b) => (Number(b.min_qty) < Number(a.min_qty) ? b : a));
+    const from = Math.max(2, Number(first.min_qty) || 0);
+    const unit = Number(first.price);
+    if (!Number.isFinite(unit) || unit <= 0 || unit >= base * 0.999) return null;
+    const qty = this.cartQty(p.product_id) || 0;
+    const need = Math.max(0, from - qty);
+    return {
+      from,
+      unit,
+      pct: Math.round(((base - unit) / base) * 100),
+      need,
+      reached: qty >= from,
     };
   }
   initials(name: string): string {

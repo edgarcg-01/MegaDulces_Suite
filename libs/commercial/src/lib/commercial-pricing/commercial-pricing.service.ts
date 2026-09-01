@@ -453,6 +453,33 @@ export class CommercialPricingService {
       // sensible y queda visible para todos.
       const rows = this.stripCostIfCustomer(data);
 
+      // Incitar mayoreo: adjuntar la escalera de quiebres por cantidad a cada fila
+      // para que el app muestre "mayoreo desde N → $X (−Y%)" y viaje en el catálogo
+      // offline. Query APARTE (no en el JOIN principal) y en try/catch: la vista
+      // `analytics.product_volume_tiers` es una dependencia sobre kepler_ods; si
+      // falla o no existe, el catálogo sigue vivo (solo se pierde el nudge, nunca
+      // el pedido). Solo emite descuentos reales (min_qty>1 AND price<BASE).
+      const productIds = rows.map((r: any) => r.product_id).filter(Boolean);
+      if (productIds.length) {
+        try {
+          const tierRows = await trx('analytics.product_volume_tiers')
+            .whereIn('product_id', productIds)
+            .select('product_id', 'min_qty', 'price')
+            .orderBy(['product_id', 'min_qty']);
+          const byProduct = new Map<string, Array<{ min_qty: number; price: number }>>();
+          for (const t of tierRows as Array<{ product_id: string; min_qty: number; price: number }>) {
+            const arr = byProduct.get(t.product_id) ?? [];
+            arr.push({ min_qty: Number(t.min_qty), price: Number(t.price) });
+            byProduct.set(t.product_id, arr);
+          }
+          for (const r of rows as any[]) r.tiers = byProduct.get(r.product_id) ?? [];
+        } catch (err) {
+          this.logger.warn(
+            `product_volume_tiers no disponible para el catálogo; filas sin nudge de mayoreo. ${String((err as Error)?.message ?? err)}`,
+          );
+        }
+      }
+
       const totalNum = Number(total) || 0;
       return {
         data: rows,
