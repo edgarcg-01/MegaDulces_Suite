@@ -102,22 +102,46 @@ async function run(code) {
   const stats = { insert: 0, update: 0, delete: 0, shipU: 0, shipD: 0, tables: {} };
   // buf: table → { meta, rows:Map(pkText → {op:'U'|'D', row}) } — última operación por PK gana
   // (si una llave se borra y re-inserta en la misma ventana, el orden de commit deja la correcta).
-  const buf = new Map();
+  let buf = new Map();
   let lastLsn = null;
 
   const keyText = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
 
+  // CDC.7 — SWAP, no clear. El bug que costó ~4,200 filas (2026-08-26 → 31, ~2-7% DIARIO en las 7
+  // ramas, incl. renglones de venta de kdm2): `flush()` iteraba `buf`, hacía `await` de los ships
+  // (cientos de ms contra Railway) y AL VOLVER llamaba `buf.clear()`. Todo lo que el stream metió al
+  // buffer durante ese await se borraba sin haberse shipeado — y peor, el `acknowledge(lastLsn)` de
+  // más abajo ackeaba hasta la ÚLTIMA fila vista, incluidas las recién borradas → Postgres tiraba ese
+  // WAL y la pérdida quedaba permanente. Además `setInterval` no espera a la pasada anterior, así que
+  // dos flush concurrentes se pisaban el mismo Map.
+  //
+  // Ahora: se TOMA el lote y se deja un buffer nuevo en su lugar; lo que llegue durante el ship cae en
+  // el nuevo y sobrevive. Y se ackea el LSN capturado EN EL SWAP, nunca uno posterior al lote enviado.
+  let flushing = false;
   async function flush() {
-    if (!buf.size) { if (lastLsn) service.acknowledge(lastLsn); return; }
-    // Ship-then-ack: si un ship lanza, NO se limpia el buf ni se ackea → reintento (idempotente).
-    for (const [, { meta, rows }] of buf) {
-      const ups = [], dels = [];
-      for (const { op, row } of rows.values()) (op === 'D' ? dels : ups).push({ sucursal: code, ...row });
-      if (ups.length) { await sink.ship('raw-upsert', { rows: ups, tenantId: TENANT, meta }); stats.shipU += ups.length; }
-      if (dels.length) { await sink.ship('raw-delete', { rows: dels, tenantId: TENANT, meta }); stats.shipD += dels.length; }
-    }
-    buf.clear();
-    if (lastLsn) service.acknowledge(lastLsn);
+    if (flushing) return;                       // el timer no espera al ship anterior
+    flushing = true;
+    const lote = buf; const lsn = lastLsn;      // ← swap atómico (JS es single-thread: nada corre en medio)
+    buf = new Map();
+    try {
+      if (!lote.size) { if (lsn) service.acknowledge(lsn); return; }
+      for (const [, { meta, rows }] of lote) {
+        const ups = [], dels = [];
+        for (const { op, row } of rows.values()) (op === 'D' ? dels : ups).push({ sucursal: code, ...row });
+        if (ups.length) { await sink.ship('raw-upsert', { rows: ups, tenantId: TENANT, meta }); stats.shipU += ups.length; }
+        if (dels.length) { await sink.ship('raw-delete', { rows: dels, tenantId: TENANT, meta }); stats.shipD += dels.length; }
+      }
+      if (lsn) service.acknowledge(lsn);        // ack SOLO hasta lo que efectivamente se shipeó
+    } catch (e) {
+      // Ship fallido → el lote vuelve a la cola SIN pisar lo que llegó mientras tanto (eso es más
+      // nuevo y manda). Re-shipear de más es inofensivo: el destino es UPSERT idempotente.
+      for (const [t, entry] of lote) {
+        if (!buf.has(t)) { buf.set(t, entry); continue; }
+        const dest = buf.get(t).rows;
+        for (const [k, v] of entry.rows) if (!dest.has(k)) dest.set(k, v);
+      }
+      throw e;
+    } finally { flushing = false; }
   }
 
   service.on('data', (lsn, log) => {

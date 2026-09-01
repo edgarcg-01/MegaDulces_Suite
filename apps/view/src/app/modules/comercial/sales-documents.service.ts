@@ -34,6 +34,8 @@ export interface SalesDocDetail extends SalesDocRow {
   importe_bruto: number; lineas: SalesDocLine[];
   /** true si la factura no trae renglones de producto (sólo servicio) → no hay anexo que emitir */
   sin_detalle: boolean;
+  /** true si el ODS no tiene NINGÚN renglón del documento: hueco de replicación, no venta de servicio */
+  detalle_ausente: boolean;
   descuento_aplicado: number; descuento_pct_efectivo: number;
   /** false ⇒ los renglones no suman el total del CFDI (detalle incompleto en Kepler) */
   detalle_explica_total: boolean;

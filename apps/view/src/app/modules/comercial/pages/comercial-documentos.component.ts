@@ -164,6 +164,10 @@ import { REPORTS_TABS } from '../reports-tabs';
             @if (x.cancelada) {
               <p-tag severity="secondary" value="Cancelada en Kepler" />
               <span class="peek-hint">Sin anexo: el documento fue cancelado (estatus {{ x.doc_estatus }}).</span>
+            } @else if (x.detalle_ausente) {
+              <p-tag severity="danger" value="Detalle no replicado" />
+              <span class="peek-hint">Kepler tiene los renglones de este documento, pero no llegaron a la plataforma.
+                No es una factura de servicio: falta el detalle de nuestro lado.</span>
             } @else if (x.sin_detalle) {
               <p-tag severity="warn" value="Sin detalle de producto" />
               <span class="peek-hint">Su único renglón es de servicio, no hay mercancía que desglosar.</span>

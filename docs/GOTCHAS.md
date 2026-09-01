@@ -975,3 +975,61 @@ join cuadra, el problema es tu consulta. En la misma sesión pisé otras dos del
 que el doctype de venta era `U-A-10` (es *"Entrada por Devolución"*; el bueno es `U-D-10`) y que el
 SKU de `kdm2` era `c3` (es `c8`)—, y **las tres devuelven resultados plausibles**: cero filas, o un
 número creíble. Ninguna falla ruidosamente. Ver [`ERP_KEPLER.md`](ERP_KEPLER.md) §2.2 y §5 regla 0.
+
+---
+
+## 32. `buf.clear()` después de un `await`: el CDC que perdía 2-7% de las filas todos los días
+
+**Síntoma (2026-08-31):** Edgar abre una factura en `/comercial/documentos` y la pantalla dice
+*"su único renglón es de servicio, no hay mercancía que desglosar"*. La factura
+(`06 UD0801-0000265`, $4,518.00) tiene **3 renglones reales** en Kepler que suman exactamente el
+total de la cabecera. Al barrer: **~4,200 filas ausentes** en 12 días, en las 7 sucursales y en 5
+tablas (`kdm2` renglones de venta, `kdij`, `kdue` saldos de clientes, `kdm1`, `kdpord`).
+
+**Lo que NO era.** El barrido anterior de folios (cabeceras de `kdm1`) daba verde: las cabeceras sí
+llegaban. Tampoco era el slot `lost` ni el 404 del ingest (esos fueron eventos de minutos). La
+pérdida era **continua y proporcional**: cuadraba al 25 de agosto y desde el 26 perdía todos los
+días entre 2% y 7%.
+
+**Causa.** En `ods-cdc-wal.js`, el flush hacía:
+
+```js
+for (const [, { meta, rows }] of buf) { await sink.ship('raw-upsert', ...); }  // cientos de ms
+buf.clear();                       // ← borra TAMBIÉN lo que llegó durante el await
+service.acknowledge(lastLsn);      // ← y ackea hasta la ÚLTIMA fila vista, incluidas las borradas
+```
+
+El stream sigue llenando `buf` mientras el ship está en vuelo. Al volver, `clear()` las mata sin
+haberlas enviado y el `acknowledge` le dice a Postgres que ya están → ese WAL se descarta y **la
+pérdida es permanente**. Encima `setInterval` no espera a la pasada anterior, así que dos flush
+concurrentes se pisaban el mismo Map. La fracción perdida ≈ *tiempo enviando ÷ tiempo total*: por eso
+un porcentaje estable, no un hueco.
+
+**Por qué apareció el 26 de agosto** y no antes: el bug siempre estuvo, pero hasta esa fecha corría
+en paralelo el POLL (`replicate-ods-live`), cuyo carril ctid + ventana de seguridad re-shipeaba todo
+y tapaba el agujero. Se deshabilitó el 26/08 por el corrimiento +6h (§21) — y con él se fue **la
+única cosa capaz de sanar huecos**. Un stream de WAL no tiene reintento hacia atrás.
+
+**Fix (dos partes).**
+1. `ods-cdc-wal.js` — **swap, no clear**: se toma el lote y se deja un `Map` nuevo en su lugar; lo que
+   llega durante el ship cae en el nuevo. Se ackea el LSN capturado **en el swap**, nunca uno
+   posterior al lote enviado. Guard `flushing` contra re-entrada. Un ship fallido re-encola sin pisar
+   lo más nuevo (el destino es UPSERT idempotente).
+2. `reconcile-ods-window.js` (nuevo) — la red de seguridad, de vuelta y sin el bug del poll: compara
+   las **llaves primarias** de la ventana reciente (replica local vs `kepler_ods`) y repone sólo el
+   delta por el mismo `raw-upsert`. Verificado antes de correrlo: ninguna de las 5 tablas tiene
+   columna de fecha en su PK, así que re-shipear con el corrimiento +6h **no** duplica (§21).
+
+### Las dos lecciones que valen más que el bug
+
+**Un `await` dentro de un ciclo que después limpia el buffer compartido es siempre sospechoso.**
+En JS nada corre "en medio" de una línea, pero un `await` es exactamente eso: un hueco donde el
+resto del programa avanza. Si entre el `await` y el `clear()` alguien puede escribir en la misma
+estructura, ese alguien pierde. El patrón correcto es *tomar y reemplazar*, no *usar y vaciar*.
+
+**Los sensores medían frescura; el fallo era de completitud.** Las ~20 alertas miran `max(fecha)`, y
+con datos frescos alrededor un agujero en el medio es invisible. Ninguna podía ver esto: lo encontró
+un humano abriendo una factura. Peor, la pantalla **traducía "cero renglones" a "es una venta de
+servicio"** — un hueco de datos disfrazado de hecho de negocio, que por definición nadie reporta.
+Cuando una pantalla explique una ausencia, tiene que distinguir *"el ERP dice que no hay"* de
+*"no nos llegó"*: son la misma pantalla vacía y problemas opuestos.
