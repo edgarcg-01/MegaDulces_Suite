@@ -2392,6 +2392,24 @@ input:focus, textarea:focus, select:focus {
 }
 .comm-num.is-strong { font-weight: 600; }
 
+/* ============================================================
+ * .mono — la base global que faltaba.
+ *
+ * `.mono` es la clase que la app usa para SKU, folio, fecha y cifra suelta (fuera de tabla,
+ * donde manda `comm-num`). No estaba definida en ningún lado global: 28 componentes la
+ * redefinían por su cuenta y **sólo 9 ponían `tabular-nums`**. Los otros 19 pintan cifras con
+ * figuras proporcionales, o sea que el "1" es más angosto que el "8" y una columna de montos
+ * baila renglón a renglón — justo lo que la regla 4 del checklist marca como obligatorio.
+ *
+ * Se define acá una vez. Los componentes que ya traen su `.mono` con `font-size` propio la
+ * siguen ganando por especificidad (Angular les agrega el atributo de encapsulación); lo que
+ * heredan de acá es lo que ninguno declaraba: las figuras tabulares.
+ * ============================================================ */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .comm-actions {
   display: flex;
   gap: 0.25rem;

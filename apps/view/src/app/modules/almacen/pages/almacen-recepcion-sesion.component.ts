@@ -449,7 +449,28 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
   private doClose(): void {
     this.closing.set(true);
     this.svc.close(this.sessionId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.session.set(s); this.closing.set(false); this.toast.add({ severity: 'success', summary: 'Sesión cerrada' }); },
+      next: (s) => {
+        this.session.set(s);
+        this.closing.set(false);
+        // WMS.1 — el cierre ENCADENA a Caducidad. El alta ya ocurrió (lote `NA`),
+        // así que lo que sigue es ponerle fecha; obligar al operario a buscar la
+        // pantalla a mano es lo que deja mercancía sin trazabilidad. Lo que no se
+        // feche acá queda igual en la bandeja *Por fechar* — el encadenado es una
+        // conveniencia, no la única vía.
+        const sinFechar = Number(s.progress?.undeclared_units ?? 0);
+        if (sinFechar > 0) {
+          this.toast.add({
+            severity: 'success', summary: 'Vale cerrado',
+            detail: `${sinFechar} pieza(s) entraron sin caducidad — te llevo a fecharlas.`,
+          });
+          this.router.navigate(['/almacen/inventory/recepcion'], { queryParams: { session: s.id } });
+        } else {
+          this.toast.add({
+            severity: 'success', summary: 'Vale cerrado',
+            detail: 'Todo entró con lote y caducidad declarados.',
+          });
+        }
+      },
       error: (e) => { this.closing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cerrar' }); },
     });
   }

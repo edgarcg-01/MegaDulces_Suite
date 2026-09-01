@@ -13,18 +13,23 @@ import {
   MarginBand,
   MarginLevel,
   MarginWindow,
+  ProfitabilityOverview,
   ProfitabilityRow,
   ProfitabilityService,
 } from '../profitability.service';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
 
 // Producto primero: es el foco de la pantalla. Los agregados son el resumen.
+// Sucursal y canal van al final porque cortan por DÓNDE se vendió, no por qué.
 const LEVELS: { key: MarginLevel; label: string }[] = [
   { key: 'sku', label: 'Producto' },
   { key: 'brand', label: 'Marca' },
   { key: 'category', label: 'Categoría' },
   { key: 'supplier', label: 'Proveedor' },
+  { key: 'warehouse', label: 'Sucursal' },
+  { key: 'channel', label: 'Canal' },
 ];
 
 const WINDOWS: { key: MarginWindow; label: string }[] = [
@@ -46,6 +51,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     DrawerModule,
     RouterLink,
     MetricStripComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   template: `
@@ -78,6 +84,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   [loading]="loading()" pTooltip="Refrescar" aria-label="Refrescar">
             <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
           </button>
+          <app-context-help topic="rentabilidad" />
         </div>
       </header>
 
@@ -87,11 +94,27 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
 
         <p class="rp-coverage">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
-          Calculado sobre <b>{{ o.coverage.revenue_pct | number:'1.0-0' }}%</b> de la venta —
-          {{ o.coverage.skus_with_cost | number }} de {{ o.coverage.skus_total | number }} SKUs tienen costo con qué juzgarlos.
-          El resto vende pero no se puede evaluar.
-          <span class="rp-src">venta: sell-out real · costo: <code>cost_base</code></span>
+          Calculado sobre <b>{{ o.coverage.revenue_pct | number:'1.1-1' }}%</b> de la venta —
+          {{ o.coverage.skus_with_cost | number }} de {{ o.coverage.skus_total | number }} SKUs traen costo con qué juzgarlos.
+          @if (o.coverage.skus_total > o.coverage.skus_with_cost) {
+            Los {{ o.coverage.skus_total - o.coverage.skus_with_cost | number }} restantes venden pero no se pueden evaluar.
+          }
+          <span class="rp-src">
+            venta y costo: <code>sales_daily</code> (lo que cobró el PdV)
+            @if (o.data_as_of) { · datos al {{ o.data_as_of }} }
+            @if (channels(); as ch) { · {{ ch }} }
+          </span>
         </p>
+
+        @if (o.cost_quality.conflict_skus) {
+          <p class="rp-dq">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <b>{{ o.cost_quality.conflict_skus | number }} SKUs</b> tienen un costo de catálogo que contradice
+            al del punto de venta — está capturado en otra unidad (caja contra pieza).
+            El margen no los usa, pero <b>{{ o.inventory.unverified | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+            del capital en inventario se valúa con ese costo. Su GMROI queda en blanco.
+          </p>
+        }
 
         <!-- Bandas de salud. Cada contador es el filtro que lo abre. -->
         <div class="rp-bands" role="group" aria-label="Salud del margen">
@@ -118,6 +141,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               a margen entra solo lo ya vendido
             </span>
           </div>
+
+          <!-- Cascada ciega ≠ cascada en cero. Si la fuente no está cargada, se dice. -->
+          @if (o.levers_source_empty) {
+            <p class="rp-blind">
+              <i class="pi pi-ban" aria-hidden="true"></i>
+              <b>No hay ni un ajuste de compra cargado</b> (<code>erp_purchase_adjustments</code> está vacía).
+              Las palancas de proveedor de abajo no valen cero: no se están midiendo.
+              Falta correr el feed de descuentos.
+            </p>
+          }
+
           <div class="rp-casc-rows">
             <div class="rp-cr rp-cr-hd">
               <span></span><span class="rp-cr-a">negociado</span><span class="rp-cr-e">a margen</span><span class="rp-cr-p">pp</span>
@@ -148,15 +182,105 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <span class="rp-cr-e">{{ o.margin_negotiated_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               <span class="rp-cr-p">{{ o.margin_negotiated_pct | number:'1.2-2' }}%</span>
             </div>
-            <div class="rp-cr is-gap">
-              <span class="rp-cr-k">Brecha que queda vs {{ target() }}%</span>
+
+            <!-- ── MR.6: los puntos que faltan, con dueño y aditivos ────────── -->
+            <div class="rp-cr">
+              <span class="rp-cr-k">
+                − Descuento otorgado al cliente
+                <small>
+                  Comercial · {{ o.customer_discount.docs | number }} facturas ·
+                  {{ o.customer_discount.pct_of_invoiced | number:'1.2-2' }}% de lo facturado
+                </small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e">−{{ o.customer_discount.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <span class="rp-cr-p rp-neg">−{{ ppOf(o, o.customer_discount.amount) | number:'1.2-2' }}</span>
+            </div>
+
+            <div class="rp-cr is-total">
+              <span class="rp-cr-k">
+                Margen integral
+                <small>Dirección · incompleto: le faltan {{ o.integral_missing.length }} restas sin fuente</small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e">{{ o.margin_integral_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <span class="rp-cr-p">{{ o.margin_integral_pct | number:'1.2-2' }}%</span>
+            </div>
+
+            @if (o.uncollected.amount > 0) {
+              <div class="rp-cr">
+                <span class="rp-cr-k">
+                  + Descuento habitual que no se cobró
+                  <small>
+                    Compras · {{ o.uncollected.suppliers_below }} de
+                    {{ o.uncollected.suppliers_with_policy }} proveedores por debajo de su tasa
+                  </small>
+                </span>
+                <span class="rp-cr-a">{{ o.uncollected.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="rp-cr-e">{{ o.uncollected.margin_effect | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="rp-cr-p">+{{ ppOf(o, o.uncollected.margin_effect) | number:'1.2-2' }}</span>
+              </div>
+            }
+
+            <div class="rp-cr is-total is-final">
+              <span class="rp-cr-k">
+                Techo con lo que hoy se puede medir
+                <small>si se cobrara todo lo habitual</small>
+              </span>
               <span class="rp-cr-a"></span>
               <span class="rp-cr-e"></span>
-              <span class="rp-cr-p" [class.tone-bad]="(o.gap_pp_negotiated ?? 0) < 0">
-                {{ (o.gap_pp_negotiated ?? 0) > 0 ? '+' : '' }}{{ o.gap_pp_negotiated | number:'1.2-2' }} pp
+              <span class="rp-cr-p">{{ ceilingPct(o) | number:'1.2-2' }}%</span>
+            </div>
+
+            <div class="rp-cr is-gap">
+              <span class="rp-cr-k">
+                Sin fuente todavía, vs {{ target() }}%
+                <small>Dirección · lo que ninguna palanca medible explica</small>
+              </span>
+              <span class="rp-cr-a"></span>
+              <span class="rp-cr-e"></span>
+              <span class="rp-cr-p" [class.tone-bad]="residualPp(o) > 0">
+                {{ residualPp(o) > 0 ? '' : '+' }}{{ -residualPp(o) | number:'1.2-2' }} pp
               </span>
             </div>
           </div>
+
+          <!-- Lo que el margen integral NO alcanza a restar. Se declara, no se omite. -->
+          <div class="rp-missing">
+            <span class="rp-nm-t">El integral está incompleto</span>
+            @for (m of o.integral_missing; track m.key) {
+              <span class="rp-nm-i"><b>{{ m.label }}</b><small>{{ m.reason }}</small></span>
+            }
+          </div>
+
+          @if (o.overlap_risk.amount > 0) {
+            <p class="rp-dq rp-dq-inline">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <b>{{ o.overlap_risk.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+              del margen negociado podría estar contado dos veces:
+              {{ o.overlap_risk.suppliers }} proveedores dan pronto pago por nota de crédito
+              <b>y</b> por descuento al pagar. Es el {{ o.overlap_risk.pct_of_levers | number:'1.1-1' }}% de lo negociado —
+              el máximo que podría duplicarse, no una certeza.
+              <a routerLink="/compras/descuentos">Verificalo en Descuentos</a>.
+            </p>
+          }
+
+          @if (o.uncollected.top.length) {
+            <div class="rp-uncol">
+              <span class="rp-nm-t">Quién deja dinero sobre la mesa</span>
+              <ul>
+                @for (s of o.uncollected.top; track s.supplier_id) {
+                  <li>
+                    <b>{{ s.name }}</b>
+                    <span>suele dar {{ s.rate_pct | number:'1.2-2' }}% y dio
+                      {{ 100 * s.taken / (s.purchases || 1) | number:'1.2-2' }}%</span>
+                    <em>faltan {{ s.missing | currency:'MXN':'symbol-narrow':'1.0-0' }}</em>
+                  </li>
+                }
+              </ul>
+              <p class="rp-muted">{{ o.uncollected.note }}</p>
+            </div>
+          }
 
           <!-- Lo que NO es margen. Sumarlo inflaria el resultado. -->
           <div class="rp-nomargin">
@@ -172,9 +296,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <small>{{ o.non_margin.operacional.docs }} docs · faltante, mal estado, devolución</small>
             </span>
             @if (o.promotions.skus_con_promo) {
-              <span class="rp-nm-i">
+              <span class="rp-nm-i" pTooltip="El campo benefit de kdpv_descuxq sólo toma los valores 2/3/4/5. No está confirmado que sea un porcentaje, así que no se publica como tal ni se resta del margen.">
                 <b>{{ o.promotions.skus_con_promo | number }}</b> SKUs con promoción vigente
-                <small>{{ o.promotions.avg_benefit_pct | number:'1.1-1' }}% promedio · descuento al cliente</small>
+                <small>beneficio {{ o.promotions.avg_benefit | number:'1.1-1' }} promedio · unidad sin confirmar</small>
               </span>
             }
           </div>
@@ -227,6 +351,12 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <th scope="col" class="rp-c-name" pSortableColumn="name">{{ levelLabel() }} <p-sorticon field="name" /></th>
               <th scope="col" class="comm-num" pSortableColumn="revenue">Venta <p-sorticon field="revenue" /></th>
               <th scope="col" class="comm-num" pSortableColumn="cost">Costo <p-sorticon field="cost" /></th>
+              @if (level() === 'sku') {
+                <th scope="col" class="comm-num rp-c-unit" pSortableColumn="margin_unit"
+                    pTooltip="Lo que deja UNA unidad vendida: precio menos costo, los dos en la unidad en que cobra el punto de venta.">
+                  Gana por unidad <p-sorticon field="margin_unit" />
+                </th>
+              }
               <th scope="col" class="comm-num" pSortableColumn="margin_amount">Margen $ <p-sorticon field="margin_amount" /></th>
               <th scope="col" class="comm-num" pSortableColumn="margin_pct">Margen % <p-sorticon field="margin_pct" /></th>
               <th scope="col" class="comm-num rp-c-gap" pSortableColumn="gap_pp"
@@ -235,8 +365,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   pTooltip="Pesos que faltaron para el objetivo. Ordena por tamaño del problema, no por porcentaje.">Brecha $ <p-sorticon field="gap_amount" /></th>
               <th scope="col" class="comm-num" pSortableColumn="inventory_value"
                   pTooltip="Capital comprometido en existencia, al mismo costo">Inventario <p-sorticon field="inventory_value" /></th>
-              <th scope="col" class="comm-num" pTooltip="Margen anual generado por peso invertido en inventario">GMROI</th>
-              <th scope="col" class="comm-num rp-c-skus" pTooltip="Descuento al cliente vigente (kdpv_descuxq)">Promo</th>
+              <th scope="col" class="comm-num" pTooltip="Margen anual generado por peso invertido en inventario. En blanco cuando el costo de valuación no es confiable.">GMROI</th>
+              <th scope="col" class="comm-num rp-c-skus" pTooltip="Beneficio de la promoción vigente (kdpv_descuxq), en crudo. La unidad no está confirmada: no es un porcentaje.">Promo</th>
               <th scope="col" class="comm-num rp-c-skus" pSortableColumn="skus">SKUs <p-sorticon field="skus" /></th>
             </tr>
           </ng-template>
@@ -257,8 +387,27 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   <div class="rp-sub">{{ r.skus | number }} producto{{ r.skus === 1 ? '' : 's' }}</div>
                 }
               </td>
-              <td class="comm-num">{{ r.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="comm-num">
+                {{ r.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                @if (r.coverage_pct !== null && r.coverage_pct < 95) {
+                  <span class="rp-cov" [pTooltip]="coverageTip(r)">{{ r.coverage_pct | number:'1.0-0' }}%</span>
+                }
+              </td>
               <td class="comm-num rp-muted">{{ r.cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              @if (level() === 'sku') {
+                <td class="comm-num rp-c-unit">
+                  @if (r.margin_unit !== null) {
+                    <span class="rp-unit-m">{{ r.margin_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    <span class="rp-unit-sub">
+                      {{ unitLabel(r) }} · {{ r.price_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      − {{ r.cost_unit | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      @if (r.margin_box !== null) {
+                        <br />caja de {{ r.box_factor }}: {{ r.margin_box | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                      }
+                    </span>
+                  } @else { <span class="rp-none">—</span> }
+                </td>
+              }
               <td class="comm-num">{{ r.margin_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="comm-num">
                 @if (r.margin_pct !== null) {
@@ -276,12 +425,22 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                   <span class="rp-gapm">{{ r.gap_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 } @else { <span class="rp-none">—</span> }
               </td>
-              <td class="comm-num rp-muted">{{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="comm-num rp-muted">
+                @if (r.inventory_value === null) {
+                  <span class="rp-none" pTooltip="El inventario no es de un canal: la existencia vive en la sucursal.">n/a</span>
+                } @else { {{ r.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                @if (r.cost_conflict_skus) {
+                  <i class="pi pi-exclamation-triangle rp-warn-ico" aria-hidden="true"
+                     [pTooltip]="conflictTip(r)"></i>
+                }
+              </td>
               <td class="comm-num">
-                @if (r.gmroi !== null) { {{ r.gmroi | number:'1.1-1' }}× } @else { <span class="rp-none">—</span> }
+                @if (r.gmroi !== null) { {{ r.gmroi | number:'1.1-1' }}× }
+                @else if (r.cost_conflict_skus) { <span class="rp-none" pTooltip="Sin GMROI: el costo con que se valúa el inventario no coincide con el del punto de venta.">n/d</span> }
+                @else { <span class="rp-none">—</span> }
               </td>
               <td class="comm-num rp-c-skus">
-                @if (r.promo_pct !== null) { <span class="rp-promo">−{{ r.promo_pct | number:'1.0-1' }}%</span> }
+                @if (r.promo_benefit !== null) { <span class="rp-promo">{{ r.promo_benefit | number:'1.0-1' }}</span> }
                 @else { <span class="rp-none">—</span> }
               </td>
               <td class="comm-num rp-c-skus rp-muted">{{ r.skus | number }}</td>
@@ -294,6 +453,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                 <td>Total del filtro</td>
                 <td class="comm-num">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td></td>
+                <!-- El margen unitario no se suma: cada renglón está en su propia unidad. -->
+                @if (level() === 'sku') { <td></td> }
                 <td class="comm-num">{{ t.margin_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="comm-num">
                   @if (t.margin_pct !== null) { {{ t.margin_pct | number:'1.1-1' }}% }
@@ -308,14 +469,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
                     <span class="rp-gapm">{{ t.gap_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   }
                 </td>
-                <td colspan="4"></td>
+                <td class="comm-num rp-muted">
+                  @if (t.inventory_value !== null) { {{ t.inventory_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                </td>
+                <td colspan="3"></td>
               </tr>
             }
           </ng-template>
 
           <ng-template #emptymessage>
             <tr>
-              <td colspan="11" class="comm-empty-cell">
+              <td [attr.colspan]="colCount()" class="comm-empty-cell">
                 <div class="comm-empty">
                   <div class="comm-empty-icon"><i class="pi pi-chart-line" aria-hidden="true"></i></div>
                   <h3>{{ hasFilters() ? 'Sin resultados' : 'Sin venta en la ventana' }}</h3>
@@ -380,6 +544,15 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               </div>
             </div>
 
+            @if (l.levers_source_empty) {
+              <p class="rp-lv-warn">
+                <i class="pi pi-ban" aria-hidden="true"></i>
+                <b>No hay ajustes de compra cargados</b> para ningún proveedor
+                (<code>erp_purchase_adjustments</code> vacía). Las palancas de arriba
+                no son cero: no se están midiendo.
+              </p>
+            }
+
             @if (l.overlap_warning) {
               <p class="rp-lv-warn">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -404,11 +577,11 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
 
             @if (l.promotions.skus_con_promo) {
               <div class="rp-lv-block">
-                <h4>Descuento al cliente</h4>
+                <h4>Promoción al cliente</h4>
                 <p>
                   <b>{{ l.promotions.skus_con_promo | number }}</b> SKUs con promoción vigente ·
-                  {{ l.promotions.avg_benefit_pct | number:'1.1-1' }}% promedio
-                  (máx {{ l.promotions.max_benefit_pct | number:'1.0-1' }}%)
+                  beneficio {{ l.promotions.avg_benefit | number:'1.1-1' }} promedio
+                  (máx {{ l.promotions.max_benefit | number:'1.0-1' }})
                 </p>
                 <p class="rp-muted">{{ l.promotions.note }}</p>
               </div>
@@ -518,6 +691,33 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     .rp-coverage i { color: var(--c-text-3); }
     .rp-coverage b { color: var(--c-text-1); }
     .rp-src { color: var(--c-text-3); font-size: var(--fs-micro); }
+    .rp-src code { font-family: var(--font-mono); font-size: var(--fs-nano); }
+
+    /* Calidad del dato: se declara arriba, no se esconde en un tooltip. */
+    .rp-dq {
+      margin: var(--sp-2) 0 0; padding: var(--sp-2) var(--sp-3);
+      font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5;
+      background: var(--c-surface-2); border: 1px solid var(--c-divider);
+      border-left: 3px solid var(--c-warn); border-radius: var(--r-md);
+    }
+    .rp-dq i { color: var(--c-warn); margin-right: var(--sp-1); }
+    .rp-dq b { color: var(--c-text-1); }
+
+    /* Fuente vacía ≠ resultado en cero. */
+    .rp-blind {
+      margin: 0; padding: var(--sp-2) var(--sp-4);
+      font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5;
+      background: var(--c-surface-2); border-bottom: 1px solid var(--c-divider);
+    }
+    .rp-blind i { color: var(--c-bad); margin-right: var(--sp-1); }
+    .rp-blind b { color: var(--c-text-1); }
+    .rp-blind code { font-family: var(--font-mono); font-size: var(--fs-nano); }
+
+    .rp-warn-ico { color: var(--c-warn); font-size: var(--fs-nano); margin-left: var(--sp-1); }
+    .rp-cov {
+      font-size: var(--fs-nano); color: var(--c-warn); margin-left: var(--sp-1);
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ── Bandas ────────────────────────────────────────────────────────── */
     .rp-bands { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-4); }
@@ -600,7 +800,34 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     a.rp-nm-i:hover b { color: var(--action); }
     a.rp-nm-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-    .rp-promo { color: var(--c-warn); font-variant-numeric: tabular-nums; }
+    /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
+    /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
+    .rp-promo { color: var(--c-text-2); font-variant-numeric: tabular-nums; }
+    .rp-cr-p.rp-neg { color: var(--c-warn); }
+
+    /* Lo que el integral no alcanza a restar: se declara al pie de su cascada. */
+    .rp-missing {
+      display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-start;
+      padding: var(--sp-3) var(--sp-4); background: var(--c-surface-2);
+      border-top: 1px solid var(--c-divider);
+    }
+    .rp-dq-inline { margin: 0; border-radius: 0; border-left: 0; border-top: 0; }
+    .rp-dq-inline a { color: var(--action); }
+
+    .rp-uncol { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--c-divider); }
+    .rp-uncol ul { list-style: none; margin: var(--sp-2) 0 var(--sp-2); padding: 0; }
+    .rp-uncol li {
+      display: flex; gap: var(--sp-3); align-items: baseline; flex-wrap: wrap;
+      padding: var(--sp-1) 0; border-bottom: 1px solid var(--c-divider); font-size: var(--fs-xs);
+    }
+    .rp-uncol li:last-child { border-bottom: 0; }
+    .rp-uncol li b { color: var(--c-text-1); font-weight: var(--fw-medium); min-width: 16rem; }
+    .rp-uncol li span { color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+    .rp-uncol li em {
+      margin-left: auto; font-style: normal; color: var(--c-bad);
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    }
+    .rp-uncol p { margin: 0; font-size: var(--fs-nano); }
 
     /* ── Toolbar ───────────────────────────────────────────────────────── */
     .rp-toolbar {
@@ -636,6 +863,17 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     }
     .rp-c-name { min-width: 300px; }
     .rp-c-gap, .rp-c-skus { width: 5.5rem; }
+
+    /* El número del mostrador: se lee primero, con su cuenta abajo en chico. */
+    .rp-c-unit { width: 9.5rem; }
+    .rp-unit-m {
+      display: block; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1);
+    }
+    .rp-unit-sub {
+      display: block; font-size: var(--fs-nano); color: var(--c-text-3);
+      font-variant-numeric: tabular-nums; line-height: 1.35; margin-top: 1px;
+    }
     .rp-r-click { cursor: pointer; }
     .rp-pct, .rp-gap { font-variant-numeric: tabular-nums; font-weight: var(--fw-medium); }
     .rp-pct.tone-bad, .rp-gap.is-neg { color: var(--c-bad); }
@@ -709,6 +947,9 @@ export class ComercialRentabilidadComponent {
   readonly supplierName = signal<string | null>(null);
   readonly brandId = signal<string | null>(null);
   readonly brandName = signal<string | null>(null);
+  readonly warehouseId = signal<string | null>(null);
+  readonly warehouseName = signal<string | null>(null);
+  readonly channel = signal<string | null>(null);
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly sort = signal('revenue');
@@ -756,12 +997,60 @@ export class ComercialRentabilidadComponent {
       },
       {
         label: 'Capital en inventario',
-        value: o.inventory_value,
+        value: o.inventory.total,
         format: 'currency-short',
-        sub: o.inventory_days ? `${Math.round(o.inventory_days)} días de costo` : undefined,
+        // El KPI cubre TODO el stock; la tabla sólo lo que vendió. Decir cuánto
+        // es stock muerto es lo que hace que los dos números cuadren a la vista.
+        sub: o.inventory.no_sales > 0
+          ? `${this.fmtShort(o.inventory.no_sales)} sin venta en la ventana`
+          : o.inventory_days ? `${Math.round(o.inventory_days)} días de costo` : undefined,
       },
     ];
   });
+
+  /** Canales que alimentan la ventana. Sin esto, "cobertura" no dice de qué. */
+  readonly channels = computed(() => {
+    const ch = this.overview()?.coverage.channels ?? [];
+    if (!ch.length) return null;
+    return ch.map((c) => c.channel).join(' + ');
+  });
+
+  // ── MR.6: el puente se lee en puntos sobre la MISMA venta, o no cierra ────
+  ppOf(o: ProfitabilityOverview, amount: number): number {
+    return o.revenue > 0 ? (amount / o.revenue) * 100 : 0;
+  }
+
+  /** Margen integral + lo que se recuperaría cobrando la tasa habitual. */
+  ceilingPct(o: ProfitabilityOverview): number {
+    return (o.margin_integral_pct ?? 0) + this.ppOf(o, o.uncollected.margin_effect);
+  }
+
+  /** Lo que ninguna palanca medible explica. Positivo = todavía falta. */
+  residualPp(o: ProfitabilityOverview): number {
+    return this.target() - this.ceilingPct(o);
+  }
+
+  /** 11 columnas fijas + la de margen unitario, que sólo existe a nivel producto. */
+  readonly colCount = computed(() => (this.level() === 'sku' ? 12 : 11));
+
+  /**
+   * Cómo se cobra esa unidad. `weight` es kilo; `piece` es la unidad en que
+   * factura el PdV (paquete o pieza según el SKU) y no se puede nombrar más
+   * fino sin mentir: `unit_sale` del catálogo dice PZA donde Kepler dice PAQ.
+   */
+  unitLabel(r: ProfitabilityRow): string {
+    return r.unit_kind === 'weight' ? 'por kilo' : 'por unidad vendida';
+  }
+
+  conflictTip(r: ProfitabilityRow): string {
+    return r.skus === 1
+      ? 'El costo de catálogo de este SKU está en otra unidad que la venta: el inventario valuado no es confiable.'
+      : `${r.cost_conflict_skus} de ${r.skus} SKUs valúan con un costo que el punto de venta contradice.`;
+  }
+
+  coverageTip(r: ProfitabilityRow): string {
+    return `Sólo el ${Math.round(r.coverage_pct ?? 0)}% de esta venta trae costo. El margen se mide sobre esa parte.`;
+  }
 
   private fmtShort(n: number): string {
     const abs = Math.abs(n);
@@ -779,6 +1068,8 @@ export class ComercialRentabilidadComponent {
     band: this.band(),
     supplier_id: this.supplierId(),
     brand_id: this.brandId(),
+    warehouse_id: this.warehouseId(),
+    channel: this.channel(),
     page: this.page(),
     pageSize: this.pageSize(),
     sort: this.sort(),
@@ -797,11 +1088,17 @@ export class ComercialRentabilidadComponent {
 
   readonly levelLabel = computed(() => LEVELS.find((l) => l.key === this.level())?.label ?? '');
   readonly windowLabel = computed(() => WINDOWS.find((w) => w.key === this.window())?.label ?? '');
-  readonly canDrill = computed(() => this.level() === 'supplier' || this.level() === 'brand');
-  readonly hasFilters = computed(
-    () => !!this.band() || !!this.searchTerm() || !!this.supplierId() || !!this.brandId(),
+  readonly canDrill = computed(() =>
+    (['supplier', 'brand', 'warehouse', 'channel'] as MarginLevel[]).includes(this.level()),
   );
-  readonly crumb = computed(() => this.supplierName() ?? this.brandName());
+  readonly hasFilters = computed(
+    () =>
+      !!this.band() || !!this.searchTerm() || !!this.supplierId() || !!this.brandId() ||
+      !!this.warehouseId() || !!this.channel(),
+  );
+  readonly crumb = computed(
+    () => this.supplierName() ?? this.brandName() ?? this.warehouseName() ?? this.channel(),
+  );
 
   // ── Palancas ──────────────────────────────────────────────────────────
   readonly leverOpen = signal(false);
@@ -833,6 +1130,11 @@ export class ComercialRentabilidadComponent {
       this.brandId.set(q.get('brand_id'));
       this.brandName.set(q.get('brand_name'));
     }
+    if (q.get('warehouse_id')) {
+      this.warehouseId.set(q.get('warehouse_id'));
+      this.warehouseName.set(q.get('warehouse_name'));
+    }
+    if (q.get('channel')) this.channel.set(q.get('channel'));
     const term = q.get('q') ?? '';
     if (term) { this.search = term; this.searchTerm.set(term); }
 
@@ -867,17 +1169,26 @@ export class ComercialRentabilidadComponent {
 
   /** Bajar de nivel manteniendo el contexto: el filtro viaja, no se pierde. */
   drill(r: ProfitabilityRow): void {
-    if (this.level() === 'supplier') {
+    const lv = this.level();
+    if (lv === 'supplier') {
       this.leverId.set(r.id);
       this.leverOpen.set(true);
       return;
     }
-    if (this.level() === 'brand') {
+    if (lv === 'brand') {
       this.brandId.set(r.id);
       this.brandName.set(r.name);
-      this.level.set('sku');
-      this.resetPage();
+    } else if (lv === 'warehouse') {
+      this.warehouseId.set(r.id);
+      this.warehouseName.set(r.name);
+    } else if (lv === 'channel') {
+      // A nivel canal el `id` ES el canal: no hay catálogo detrás.
+      this.channel.set(r.id);
+    } else {
+      return;
     }
+    this.level.set('sku');
+    this.resetPage();
   }
 
   clearDrill(): void {
@@ -885,6 +1196,9 @@ export class ComercialRentabilidadComponent {
     this.supplierName.set(null);
     this.brandId.set(null);
     this.brandName.set(null);
+    this.warehouseId.set(null);
+    this.warehouseName.set(null);
+    this.channel.set(null);
     this.resetPage();
   }
 
@@ -935,6 +1249,9 @@ export class ComercialRentabilidadComponent {
         supplier_name: this.supplierName() || null,
         brand_id: this.brandId() || null,
         brand_name: this.brandName() || null,
+        warehouse_id: this.warehouseId() || null,
+        warehouse_name: this.warehouseName() || null,
+        channel: this.channel() || null,
         q: this.searchTerm() || null,
       },
       queryParamsHandling: 'merge',
