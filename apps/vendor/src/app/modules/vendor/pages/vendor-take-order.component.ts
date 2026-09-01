@@ -74,7 +74,18 @@ const foldText = (s: string | null | undefined): string =>
     @if (loading()) {
       <p-skeleton height="500px" styleClass="mt"></p-skeleton>
     }
-    
+
+    <!-- Estado de error: nunca dejar el cuerpo en blanco si la carga falló. -->
+    @if (!loading() && !customer()) {
+      <div class="load-err">
+        <i class="pi pi-cloud"></i>
+        <p>No se pudo cargar el pedido de este cliente.</p>
+        <span class="le-sub">Puede ser un permiso o la conexión. Reintentá.</span>
+        <button class="le-retry" (click)="reload()"><i class="pi pi-refresh"></i> Reintentar</button>
+        <button class="le-back" (click)="back()">Volver</button>
+      </div>
+    }
+
     @if (!loading() && customer()) {
       <div class="scroll">
         <!-- Modo offline: el pedido se arma local y se sincroniza al reconectar -->
@@ -488,6 +499,12 @@ const foldText = (s: string | null | undefined): string =>
       .mt { margin-top: 1rem; }
 
       .scroll { padding-bottom: 6rem; }
+      .load-err { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.4rem; padding: 3rem 1.5rem; }
+      .load-err > i { font-size: 2.25rem; color: var(--text-faint); margin-bottom: 0.3rem; }
+      .load-err p { font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0; }
+      .load-err .le-sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+      .load-err .le-retry { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.6rem 1.3rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 700; font-size: 0.9rem; }
+      .load-err .le-back { border: none; background: none; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; padding: 0.4rem; }
       .date-row { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.875rem; }
       .date-row label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; }
       .date-input { width: 100%; height: 2.9rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0 0.875rem; font-family: var(--font-body); font-size: 0.95rem; background: var(--card-bg); color: var(--text-main); }
@@ -787,6 +804,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   readonly loading = signal(true);
+  /** La carga falló (ej. 403/red). Sin esto, un fallo dejaba el cuerpo en blanco
+   *  (el template exige `customer()`), que el usuario percibe como "congelada". */
+  readonly loadError = signal(false);
   readonly customer = signal<VendorCustomer | null>(null);
   readonly prices = signal<PriceRow[]>([]);
   readonly cartLines = signal<OrderLine[]>([]);
@@ -1161,8 +1181,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private loadOnline(customerId: string): void {
     // Ronda 1: warehouse default + customer (en paralelo). El customer alimenta
     // el catálogo de la ronda 2 sin re-pedirlo (antes se fetcheaba 2 veces).
+    this.loadError.set(false);
     forkJoin({
-      warehouseId: this.api.defaultWarehouseId(),
+      // warehouse NO es crítico: si falla, seguimos con almacén vacío (sin badges
+      // de stock) en vez de tumbar toda la pantalla. El customer SÍ es crítico.
+      warehouseId: this.api.defaultWarehouseId().pipe(catchError(() => of(''))),
       customer: this.api.getCustomer(customerId),
     })
       .pipe(
@@ -1170,8 +1193,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           forkJoin({
             customer: of(customer),
             warehouseId: of(warehouseId),
-            catalog: this.api.catalogForCustomer(customer, warehouseId || undefined),
-            existingDraft: this.api.draftForCustomer(customerId),
+            // catalog/draft con fallback: un 403/red en ellos ya no deja la
+            // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
+            catalog: this.api
+              .catalogForCustomer(customer, warehouseId || undefined)
+              .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
+            existingDraft: this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
             frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
           }),
@@ -1215,10 +1242,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           }
         },
         error: (e) => {
+          // El customer (crítico) falló: marcamos error → el template muestra el
+          // estado de reintento en vez de quedar en blanco ("congelada").
           this.loading.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.message || e.message });
+          this.loadError.set(true);
+          this.toast.add({ severity: 'error', summary: 'No se pudo cargar', detail: e.error?.message || e.message });
         },
       });
+  }
+
+  /** Reintenta la carga (botón del estado de error). */
+  reload(): void {
+    if (!this.customerId) { this.back(); return; }
+    this.loadError.set(false);
+    this.loading.set(true);
+    if (this.conn.isOnline()) this.loadOnline(this.customerId);
+    else this.loadOffline(this.customerId);
   }
 
   /** Carga offline: del caché Dexie. Abre/crea el draft local del cliente. */
