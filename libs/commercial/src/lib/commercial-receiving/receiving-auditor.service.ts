@@ -250,7 +250,31 @@ export class ReceivingAuditorService {
     // abre la suya). El rojo NO escribe: espera autorización.
     const capture = await this.getCapture(captureId);
     if (capture.verdict !== 'red') {
-      await this.writeStockForCapture(capture);
+      try {
+        await this.writeStockForCapture(capture);
+      } catch (e: any) {
+        // COMPENSACIÓN (WMS-REC.7.2). La captura ya hizo commit arriba, así que si
+        // el alta de stock falla acá queda una fila `accepted` sin movimiento:
+        // `declared_qty` la cuenta (filtra por status='accepted'), el renglón se
+        // ve fechado y la mercancía NUNCA entró. Existencia fantasma, y el vale
+        // aparenta estar completo.
+        //
+        // Se marca `rejected` —dentro del CHECK de la tabla— que es el único
+        // estado que la saca del declarado sin romper el append-only: la fila
+        // queda con su evidencia y su foto, pero deja de contar, y el renglón
+        // vuelve a la cola de Caducidad para reintentarlo.
+        //
+        // `authorize()` ya hacía exactamente esto desde WMS-REC.4; `evaluate()`
+        // era el camino que faltaba, y es el que usa el 100% de las capturas
+        // verdes y amarillas.
+        await this.tk.run(async (trx) => {
+          await trx('commercial.receiving_lot_captures')
+            .where({ id: captureId })
+            .update({ status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida' });
+        });
+        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
+        throw e;
+      }
     }
     return this.getCapture(captureId);
   }
