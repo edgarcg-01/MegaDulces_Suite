@@ -171,7 +171,7 @@ vínculo formal.
 |---|---|---|
 | **LC.0** | ✅ Layout investigado y validado campo por campo. Falta: 1 TXT real para confirmar separador, y decidir póliza mensual vs quincenal | — |
 | **LC.1** | ✅ **2026-09-01** — `import-contpaqi-cfdis.js`: ADD → `fiscal.cfdis`. **167,135 CFDIs recibidos (140,546 `I` + 26,589 `E`) de 2018 a hoy, en prod.** Falta agendarlo | — |
-| **LC.2** | Clasificador "esto entra al libro de compras": CFDI tipo I de proveedor de mercancía vs gasto/servicio. **Validación dura: contra las 1,555 facturas de ene–jun 2026 del workbook tiene que dar el mismo conjunto** | LC.1 |
+| **LC.2** | ⚠️ **BLOQUEADO 2026-09-01** — el criterio no está en los datos. Ver "Qué decide que una factura entre al libro" | LC.1 |
 | **LC.3** | `finance.gl_supplier_accounts` — mapa RFC → cuentas `501/502/212`. Se siembra de `analytics.contpaqi_suppliers` (3,411 con RFC) + las 134 cuentas que ya usa el asiento. Editable desde la UI, no por script | LC.2 |
 | **LC.4** | Motor: `finance.purchase_book_lines` (por CFDI: base 0%, base IVA, base IEPS, IVA, IEPS, total, UUID, folio, proveedor, cuenta). Cuadre obligatorio contra el total del CFDI | LC.3 |
 | **LC.5** | Generador de póliza + TXT: patas `501`/`502`/`212` por proveedor, IEPS e IVA **separados por cuenta** (+82 a +95 renglones/mes), UUID por renglón. Descarga del archivo | LC.0, LC.4 |
@@ -187,6 +187,68 @@ Regenerar **ene–jun 2026 desde CFDI** y que los seis meses den el mismo TXT qu
 que ya está en ContPAQi: 1,555 facturas, 3,318 patas, totales al centavo
 (ene $30,033,013.71 · feb $36,471,924.85 · mar $45,187,137.83 · abr $35,034,209.66 ·
 may $33,489,993.56 · jun $30,278,735.58). Si no reproduce el pasado, no se usa para el futuro.
+
+## Qué decide que una factura entre al libro (LC.2 — pregunta abierta)
+
+Medido el 2026-09-01 contra las 54 hojas del workbook (14,838 facturas desde 2022) y los
+CFDIs de ene–jun 2026 ya en `fiscal.cfdis`:
+
+| Hallazgo | Número |
+|---|---|
+| Las 1,555 facturas del libro son de proveedores del catálogo `DATOS` | **1,555/1,555 · cobertura 100%** |
+| Pero hay más CFDIs de **esos mismos proveedores** que nunca aparecen en ninguna hoja | **2,068 · $58,120,916.23** |
+| Precisión del clasificador "RFC en el catálogo" | 42.9% |
+
+Estar en el catálogo de proveedores es **necesario pero no suficiente**. Y el criterio que
+falta **no está en el comprobante** — lo descarté midiendo:
+
+- **No es el proveedor.** De la Rosa, jun-2026: 40 CFDIs, 18 entran y 22 no.
+- **No es el día.** Del 15 de junio entran 6 y quedan fuera 3. Igual el 24 y el 29.
+- **No es un campo fiscal.** Los dos grupos son idénticos en serie (`F`), método (`PPD`),
+  uso (`G01`) y forma de pago (`99`).
+- **No es sustitución.** Cero CFDIs relacionados, en los dos grupos.
+- **No es desfase de captura.** Cada CFDI cae exactamente en la hoja de su propio mes
+  (2026-03 → `MAR26`, sin excepción).
+- **La recepción de mercancía da señal pero no explica**: de las que entran, 13.0% cruzan
+  contra `analytics.erp_goods_receipts` (RFC + monto exacto); de las que no entran, 3.5%.
+  Cuatro veces más, pero el 87% de las que sí entran tampoco cruza. Además el cruce es
+  débil por construcción: el total de la factura no vive en la recepción — es justo el
+  hueco que la Fase RE resolvió con OCR.
+
+**La pregunta para la contadora, textual:** *¿qué hace que una factura de un proveedor de
+mercancía entre al libro de compras, y otra del mismo proveedor y del mismo día no entre?*
+
+**La posibilidad que hay que poner sobre la mesa:** que el libro esté **incompleto**. Son
+$58.1M en seis meses de facturas de proveedores de mercancía que nunca se contabilizaron
+por esta vía. El orden de magnitud coincide con lo que Maat ya había detectado por su
+cuenta (631 facturas por $52.2M sin recepción), así que probablemente son el mismo
+fenómeno visto desde dos lados.
+
+Sin esa respuesta LC.2 no se puede cerrar: cualquier clasificador que escribamos estaría
+adivinando el criterio, y de ahí cuelga todo lo demás.
+
+## Nota: replicación real vs watermark (decidido 2026-09-01)
+
+Se evaluó quitar el polling por completo. Lo que hay:
+
+| Opción | Viable |
+|---|---|
+| Replicación transaccional | ❌ Express solo puede ser suscriptor, nunca publicador |
+| CDC (Change Data Capture) | ❌ Necesita SQL Server Agent, que Express no trae |
+| **Change Tracking** | ✅ Funciona en todas las ediciones, sin Agent |
+
+La instancia es **SQL Server 2022 Express Edition** — la edición gratuita, la más limitada.
+`CHANGETABLE(CHANGES …, @version)` devuelve solo las llaves que cambiaron, sin tocar la
+tabla base: es lo que pedía el planteamiento. Requiere `ALTER DATABASE … SET
+CHANGE_TRACKING = ON` más `ALTER TABLE` por tabla, y **`platform_ro` no tiene ningún rol
+de servidor** (verificado: la lista sale vacía), así que lo tendría que habilitar un
+administrador. Su retención por defecto son 2 días, así que **el carril full de respaldo no
+desaparece** ni con Change Tracking.
+
+Medición del costo real de lo que hay hoy: **no existe índice sobre `Documento.TimeStamp`**,
+así que cada pasada recorre las 615,511 filas de `Documento` aunque devuelva 0 — 119 ms.
+Un índice sobre esa columna lo volvería un seek, y es un cambio mucho menor que Change
+Tracking. Diferido por ahora: 119 ms cada 5 minutos es 0.04% del tiempo.
 
 ## Riesgos
 
