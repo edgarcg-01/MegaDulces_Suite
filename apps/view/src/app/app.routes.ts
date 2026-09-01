@@ -515,6 +515,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
       },
 
+      {
+        // RE.3 — el calendario de pago. Permiso de LECTURA de entradas: es una vista derivada
+        // del vencimiento que ya trae la orden, no una operación sobre dinero.
+        path: 'vencimientos',
+        loadComponent: () => import('./modules/compras/pages/compras-vencimientos.component').then(m => m.ComprasVencimientosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+
       // ── RE.16 — Centro de control: lo que el administrador OBSERVA, en 4 pestañas ────────
       // Antes eran items de sidebar sueltos y se leían como módulos distintos. Las rutas
       // viejas quedan como redirect: hay links pegados en chats y en Compras 360.

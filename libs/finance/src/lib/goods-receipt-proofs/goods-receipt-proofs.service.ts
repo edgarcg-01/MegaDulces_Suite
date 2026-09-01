@@ -837,6 +837,88 @@ export class GoodsReceiptProofsService {
     return out;
   }
 
+  /**
+   * `[RE.3]` — **Qué vence.** El calendario de pago a proveedores, sobre `fecha_vence` (RE.1).
+   *
+   * ⚠️ **Esto NO es "cuentas por pagar", y la diferencia importa.** No existe la liga
+   * recepción→pago: `analytics.erp_supplier_payments` (4,436 pagos) no trae folio de entrada, y
+   * `analytics.expense_doc_chain` —que sí lo tendría— está vacía. Sin eso **no se puede saber qué
+   * ya se pagó**.
+   *
+   * Medido: 11,845 de 12,200 recepciones tienen vencimiento pasado, por **$522M**. Un aging
+   * ingenuo publicaría esos $522M como deuda vencida; casi todo está pagado (los datos arrancan
+   * en ago-2024). Por eso este endpoint devuelve **sólo lo que todavía no vence** — donde la
+   * pregunta "¿ya se pagó?" casi no aplica— y lo vencido va como **un número declarado, sin
+   * lista**: listarlo mandaría a cobrar facturas ya pagadas, que es daño operativo real.
+   *
+   * Cuando exista RE.8 (liga a pago, heurística), lo vencido se puede abrir de verdad.
+   */
+  async aging(q: { warehouse_codes?: string[] | null; dias?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    // Ventana de planeación. 30 días cubre el 99% de lo por vencer (los plazos son ≤30d).
+    const dias = Math.min(90, Math.max(1, Number(q.dias) || 30));
+    return this.tk.run(async (trx) => {
+      const vacio = {
+        ventana_dias: dias,
+        buckets: { hoy: { n: 0, monto: 0 }, semana: { n: 0, monto: 0 }, ventana: { n: 0, monto: 0 } },
+        rows: [] as any[],
+        vencido_sin_confirmar: { n: 0, monto: 0, dias: 30 },
+      };
+      if (alcance && !alcance.length) return vacio;
+
+      const excluirDescartes = (await this.hayDescartes(trx))
+        ? ` AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
+              WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)`
+        : '';
+      const filtroAlcance = alcance ? ` AND c.sucursal = ANY(?)` : '';
+      const pAlcance = alcance ? [alcance] : [];
+
+      // Lo que todavía no vence: la única franja donde el dato es honesto sin liga a pago.
+      const rows = (await trx.raw(`
+        SELECT c.sucursal, c.folio, c.receipt_date, c.fecha_vence, c.condicion_pago,
+               c.proveedor_code, c.proveedor_nombre,
+               c.monto::numeric AS monto,
+               (c.fecha_vence - current_date)::int AS dias_para_vencer
+          FROM analytics.erp_goods_receipts c
+         WHERE c.tenant_id = ?
+           AND c.dup_of_folio IS NULL
+           AND c.fecha_vence IS NOT NULL
+           AND c.fecha_vence >= current_date
+           AND c.fecha_vence < current_date + ?::int
+           ${filtroAlcance} ${excluirDescartes}
+         ORDER BY c.fecha_vence ASC, c.monto DESC
+         LIMIT 500`, [tenantId, dias, ...pAlcance])).rows;
+
+      const num = (v: any) => Number(v) || 0;
+      const acc = (pred: (r: any) => boolean) => rows.reduce(
+        (a: { n: number; monto: number }, r: any) => (pred(r) ? { n: a.n + 1, monto: a.monto + num(r.monto) } : a),
+        { n: 0, monto: 0 });
+
+      // Lo vencido se CUENTA pero no se lista, y se dice por qué.
+      const venc = (await trx.raw(`
+        SELECT count(*)::int AS n, COALESCE(sum(c.monto), 0)::numeric AS monto
+          FROM analytics.erp_goods_receipts c
+         WHERE c.tenant_id = ?
+           AND c.dup_of_folio IS NULL
+           AND c.fecha_vence IS NOT NULL
+           AND c.fecha_vence < current_date
+           AND c.fecha_vence >= current_date - 30
+           ${filtroAlcance} ${excluirDescartes}`, [tenantId, ...pAlcance])).rows[0];
+
+      return {
+        ventana_dias: dias,
+        buckets: {
+          hoy: acc((r) => r.dias_para_vencer === 0),
+          semana: acc((r) => r.dias_para_vencer <= 7),
+          ventana: acc(() => true),
+        },
+        rows: rows.map((r: any) => ({ ...r, monto: num(r.monto) })),
+        vencido_sin_confirmar: { n: Number(venc.n) || 0, monto: num(venc.monto), dias: 30 },
+      };
+    });
+  }
+
   async coverage(q: { warehouse_codes?: string[] | null; from?: string; to?: string } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const alcance = await this.sucursalesVisibles(q.warehouse_codes);

@@ -91,9 +91,15 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **✅ Integración UI (2026-08-05):** en el diálogo de detalle de `/compras/entradas` — sección **"¿Por qué no cuadra? — ajustes del proveedor"**: al abrir una entrada carga `adjustmentsForEntrada({ proveedor_code, entrada_folio, date, ±15d })` y lista devoluciones/notas de crédito con doctype + folio + motivo + grupo (Descuento-apoyo / Operativo / Error de captura) + badge `exacto`/`≈ prov+fecha` + monto. Empty-state honesto ("la diferencia suele ser IVA o captura"). Build view OK. Commit `e1dae914`. **Falta:** reglas typo(Δ>70%)/IVA(≤2%) sobre la remisión OCR + persistir `discrepancy_kind`; **QA visual** (Edgar).
 - **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`, espejo `erp_purchase_adjustments`.
 
-### RE.3 — CxP / vencimientos (aging + worklist)
+### RE.3 — CxP / vencimientos (aging + worklist) · 🔨 PARCIAL (LOCAL) 2026-08-31 — **recortado a propósito**
 - **Objetivo:** lo que el Excel tenía roto.
 - **Entregable:** aging buckets (por vencer / vencidas) sobre `c18` + Wincaja `fecha_vencimiento`/`saldo`; worklist "por pagar esta semana"; tab/página. Días vencidos calculado bien (nunca −46,238).
+- **⛔ El "aging de cuentas por pagar" NO se puede construir hoy, y el orden del plan está invertido.** RE.3 depende de RE.8, no al revés: **no existe la liga recepción→pago**. `analytics.erp_supplier_payments` (4,436 pagos) **no trae folio de entrada**, y `analytics.expense_doc_chain` —que sí lo tendría— está **vacía**. Sin eso no hay forma de saber qué ya se pagó.
+- **El número que lo prueba:** **10,940** recepciones tienen vencimiento pasado, por **$507.8M**. Casi todo está pagado (los datos arrancan en ago-2024). Una pantalla de "CxP" publicaría esos $507M como deuda vencida.
+- **✅ Lo que sí se entregó — `GET /finance/goods-receipts/aging` + página `/compras/vencimientos` ("Qué vence"):** sólo **lo que todavía no vence**, donde la pregunta *"¿ya se pagó?"* casi no aplica. Ventana configurable 7/30/90d, buckets hoy · semana · ventana, respeta alcance por sucursal, excluye descartadas y **excluye gemelas** (`dup_of_folio`) — pagar dos veces la misma compra es el riesgo. Medido: **289 órdenes / $24.8M** en 30 días.
+- **Lo vencido se DECLARA, no se lista.** 1,023 órdenes de los últimos 30 días aparecen como un número con su explicación (*"no sabemos cuáles siguen sin pagarse"*), sin tabla. Listarlas mandaría a perseguir facturas mayormente pagadas: eso es daño operativo, no una funcionalidad incompleta.
+- ✅ Smoke `test-newdb-goods-receipts-aging` en la regression — afirma sobre todo **lo que no debe pasar**: que no se publique el histórico, que no se cuele un vencido en la lista, que lo declarado esté acotado a 30 días y que las gemelas queden fuera. `tsc` api+view en 0.
+- **⬜ Falta (bloqueado por RE.8):** abrir lo vencido de verdad, el saldo nativo de Wincaja (tabla vacía en local) y el worklist accionable "pagar esta semana" con estado.
 - **Reuso:** `c18` (limpio), Wincaja saldo nativo.
 
 ### RE.4 — Bandeja de excepciones + alertas

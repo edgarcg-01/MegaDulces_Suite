@@ -391,6 +391,31 @@ export interface ReceiptDeposit {
   created_at: string;
 }
 
+/** `[RE.3]` — una recepción que todavía no vence. */
+export interface VencimientoRow {
+  sucursal: string; folio: string;
+  receipt_date: string | null; fecha_vence: string | null;
+  condicion_pago: string | null;
+  proveedor_code: string | null; proveedor_nombre: string | null;
+  monto: number; dias_para_vencer: number;
+}
+/**
+ * `[RE.3]` — el calendario de pago. **No es cuentas por pagar**, y la diferencia es el contrato
+ * de esta pantalla: no existe la liga recepción→pago, así que **no se sabe qué ya se pagó**.
+ * Por eso `rows` trae SÓLO lo que todavía no vence, y lo vencido viene como un número declarado
+ * (`vencido_sin_confirmar`) **sin lista** — listarlo mandaría a perseguir facturas ya pagadas.
+ */
+export interface VencimientosReport {
+  ventana_dias: number;
+  buckets: {
+    hoy: { n: number; monto: number };
+    semana: { n: number; monto: number };
+    ventana: { n: number; monto: number };
+  };
+  rows: VencimientoRow[];
+  vencido_sin_confirmar: { n: number; monto: number; dias: number };
+}
+
 export interface EntradaDetail {
   entrada: {
     sucursal: string; folio: string; receipt_date: string | null;
@@ -456,6 +481,13 @@ export class EntradasService {
       params = params.set(k, Array.isArray(v) ? v.join(',') : String(v));
     }
     return this.http.get<CoverageReport>(`${this.base}/coverage`, { params });
+  }
+  /** `[RE.3]` — qué vence en los próximos N días (respeta el alcance del usuario). */
+  vencimientos(q: { dias?: number; warehouse_codes?: string[] } = {}): Observable<VencimientosReport> {
+    let params = new HttpParams();
+    if (q.dias) params = params.set('dias', String(q.dias));
+    if (q.warehouse_codes?.length) params = params.set('warehouse_codes', q.warehouse_codes.join(','));
+    return this.http.get<VencimientosReport>(`${this.base}/aging`, { params });
   }
   /** Parámetros vigentes del proceso (arranque, tolerancia, SLA, tope de lote). */
   /**
