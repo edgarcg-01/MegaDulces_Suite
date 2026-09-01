@@ -95,14 +95,16 @@ async function leerWatermark(pg) {
 /** Guarda el watermark alcanzado. Nunca retrocede: si la pasada no trajo nada, se queda igual. */
 async function guardarWatermark(pg, ts, rows) {
   await pg.query(
+    // `rows` va como $5 (integer) y $6 (bigint) a propósito: reusar el mismo placeholder
+    // para las dos columnas hace que Postgres deduzca tipos incompatibles para el parámetro.
     `INSERT INTO analytics.feed_watermarks (tenant_id, feed_key, label, watermark_ts, rows_last, rows_total, last_run, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$5, now(), now())
+     VALUES ($1,$2,$3,$4,$5::integer,$6::bigint, now(), now())
      ON CONFLICT (tenant_id, feed_key) DO UPDATE
        SET watermark_ts = GREATEST(analytics.feed_watermarks.watermark_ts, EXCLUDED.watermark_ts),
            rows_last = EXCLUDED.rows_last,
            rows_total = analytics.feed_watermarks.rows_total + EXCLUDED.rows_last,
            last_run = now(), updated_at = now()`,
-    [TENANT, FEED_KEY, 'CFDIs recibidos del ADD de ContPAQi', ts, rows]);
+    [TENANT, FEED_KEY, 'CFDIs recibidos del ADD de ContPAQi', ts, rows, rows]);
 }
 
 /** Una pasada completa. Devuelve cuántos CFDIs se escribieron. */

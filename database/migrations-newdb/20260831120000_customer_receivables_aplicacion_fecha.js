@@ -108,6 +108,27 @@ LEFT JOIN ap ON ap.suc = btrim(r.c1)
 `;
 
 exports.up = async function (knex) {
+  // ── Guarda contra el orden invertido (2026-09-01) ────────────────────────────────────
+  // En prod se aplicó ANTES la 20260831140000_customer_receivables_saldo_exacto (batch 241)
+  // y esta quedó rezagada. Esa versión posterior ya trae lo de aquí (el CTE `abo`, la
+  // `ultima_fecha` y el 'fecha' dentro del jsonb de aplicaciones) y ADEMÁS agrega cuatro
+  // columnas: saldo_ajustado, saldo_cliente, dias_pago, estatus.
+  //
+  // Correr este SQL sobre esa vista es un RETROCESO: dejaría la vista en 25 columnas y se
+  // llevaría esas cuatro. De hecho Postgres ya lo impedía con "cannot drop columns from
+  // view", que era el error que trababa toda la fila de migraciones.
+  //
+  // Entonces: si la vista ya está en la versión posterior, esta migración no hace nada.
+  // En una base desde cero las migraciones corren en orden y esta sí aplica, y la 140000
+  // la lleva después a su forma final.
+  const superada = await knex.raw(`
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='analytics' AND table_name='customer_receivables' AND column_name='saldo_ajustado'`);
+  if (superada.rowCount) {
+    console.log('  [20260831120000] la vista ya está en la versión de saldo_exacto → no-op');
+    return;
+  }
+
   await knex.raw(VIEW_SQL);
   await knex.raw(`GRANT SELECT ON analytics.customer_receivables TO app_runtime`);
 };
