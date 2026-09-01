@@ -155,3 +155,74 @@ Las rutas puras dan delta exacto 0. En 21–28 el delta **es exactamente** el tr
 3. Redeploy api + view.
 4. Correr `test-newdb-route-ticket-detail.js` contra prod: ahí sí muerden los 4 candados de data.
 5. Verificación visual del panel (no automatizable desde CLI) — y build del frontend en una máquina con `node_modules` completo.
+
+---
+
+## 7. Plan de mejora — RR3 "todo clickeable" + promedios por renglón
+
+> Pedido: que **todo** sea navegable y que aparezca un **promedio por línea (cantidad de productos)**.
+> Estado: ⬜ propuesto, sin código.
+
+### 7.1 Lo que hoy se puede clickear (y lo que no)
+
+| Superficie | Hoy | Debería llevar a |
+|---|---|---|
+| Matriz · fila de ruta | ✅ abre el desglose | (igual) |
+| Matriz · **celda de mes** | ❌ muerta | tickets de esa ruta **en ese mes** |
+| Matriz · fila TOTAL | ❌ | — (no aporta) |
+| Tab **Productos** · renglón | ❌ | tickets que llevaron ese SKU |
+| Tab **Unidades** · renglón | ❌ | tickets con renglones en esa unidad |
+| Tab **Por día** · renglón | ❌ | tickets de ese día |
+| Tab **Clientes** · renglón | ❌ | tickets de ese cliente |
+| Tab **Tickets** · fila | ✅ abre el ticket | (igual) |
+| Ticket · renglón (SKU) | ❌ | ficha del producto en esa ruta |
+| Ticket · cliente | ❌ | ficha del cliente en esa ruta |
+
+**La buena noticia: casi todo es frontend.** `GET …/sales-by-route/tickets` ya acepta `sku`, `client`, `unit`, `from`, `to`, `doc_type`, `payment_method`, `q`, orden y paginación. Los cuatro drills nuevos de tabs son **wiring**, no backend.
+
+### 7.2 Medición del patrón real (prod, ruta 27, 2026)
+
+Cada celda que se vuelve link es una consulta nueva, así que se midió antes de prometer:
+
+| Drill | Tiempo |
+|---|---|
+| tickets · ruta + **mes** | **1.19 s** ✅ |
+| tickets · ruta + año + **SKU** | **1.01 s** ✅ |
+| tickets · ruta + año + **cliente** | **0.23 s** ✅ |
+| tickets · ruta + año + **unidad** | 2.20 s ⚠️ |
+| detalle de un ticket | 0.17 s ✅ |
+| tickets · ruta + **año sin filtro** | **6.44 s** ❌ |
+| detalle de ruta · año completo | **7.11 s** ❌ |
+
+**Diagnóstico:** todo lo *filtrado* es rápido; lo único lento es el default que **no** filtra. Hacer la página navegable no la hace más lenta — al contrario, cada click reduce el conjunto. El problema es el punto de partida.
+
+### 7.3 Sprints
+
+| Item | Qué | Por qué |
+|---|---|---|
+| **RR3.0** ⬜ | **El scope por defecto deja de ser el año.** El desglose y los tickets abren en el **mes visible** (o el último mes con venta si no hay rango elegido), con un "ver año completo" explícito. | Ataca los dos únicos números rojos de 7.2 de un golpe: 7.11 s → ~1.2 s. Es prerrequisito de todo lo demás. |
+| **RR3.1** ⬜ | **El filtro es el estado.** Barra de chips removibles arriba del panel (`Ruta 27 · Ago · SKU 17089 · KG`) que refleja el drill acumulado; cada tab lee de ahí. Click en un renglón = agregar faceta, no navegar a otra pantalla. | Sin esto "todo clickeable" se vuelve un laberinto: el usuario no sabe qué está viendo ni cómo volver. |
+| **RR3.2** ⬜ | **Los 4 drills de tabs** (Productos/Unidades/Por día/Clientes → Tickets). Sólo frontend: agregan faceta y saltan a la tab Tickets. | Es el 80% del pedido y no necesita backend. |
+| **RR3.3** ⬜ | **Promedios por renglón** (ver 7.4). | El pedido explícito. |
+| **RR3.4** ⬜ | **Ficha de producto en la ruta** (click en el SKU de un ticket): serie mensual, clientes que lo compran, unidad en que se vende, precio promedio y dispersión. Endpoint nuevo. | Cierra el ciclo producto→cliente sin salir del panel. |
+| **RR3.5** ⬜ | **Ficha de cliente en la ruta** (click en el cliente): frecuencia de visita, ticket promedio, canasta, última compra. Endpoint nuevo. | Idem, y alimenta a Thot. |
+| **RR3.6** ⬜ | **`KGS` vs `KG`**: Wincaja y Kepler escriben el mismo kilo distinto y hoy salen como dos renglones en Unidades. Decidir: mostrar juntos con el rótulo original en el tooltip, o dejarlos separados. **Requiere tu decisión** — unificar es reescribir el rótulo de la fuente, que es justo lo que la regla prohíbe. | Es el único artefacto visible que quedó del multi-fuente. |
+| **RR3.7** ⏸️ | Drill desde la matriz **sin ruta** (ej. "todos los tickets de agosto de todas las rutas"). Hoy `route` es obligatoria a propósito. Requiere endpoint nuevo + matview, porque es justo el patrón de 110 s. | Diferido salvo que lo pidas: caro y de valor dudoso. |
+
+MVP = **RR3.0 → RR3.3**.
+
+### 7.4 Los promedios (medidos en prod, ruta 27 · 2026)
+
+"Promedio por línea (cantidad de productos)" admite dos lecturas y **son preguntas de negocio distintas**; propongo mostrar las dos porque juntas cuentan la historia:
+
+| Métrica | Valor | Qué contesta |
+|---|---|---|
+| **unidades / renglón** | **3.54** | Cuánto se lleva el cliente **de cada producto** que compra (profundidad) |
+| **renglones / ticket** | **6.14** | Cuántos productos **distintos** entra a la visita (surtido) |
+| ticket promedio | $715.85 | (ya existe) |
+
+Dónde van:
+- **KPI del desglose de ruta**: las dos, junto a Ticket promedio.
+- **Columna en la tabla de Tickets**: `unid/ren` por ticket — deja ver de un vistazo el ticket de "muchos productos poquitos" contra el de "un producto en volumen".
+- **Columna en la tab Productos**: unidades/renglón **de ese SKU** — dice si se vende de a uno o de a bulto, y es la señal directa para el tamaño de empaque sugerido.
+- Todas salen de `sum(qty)` y `count(*)` que las consultas **ya traen**: cero costo adicional.
