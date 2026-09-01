@@ -2845,17 +2845,19 @@ export class CommercialAnalyticsService {
       // es no-op semántico en Postgres; verificado en prod units 407 / monto $20,168.0802 idénticos).
       const winChanBase = `CASE base.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winWhBase = `CASE WHEN base.source_branch='10' THEN '01' WHEN base.source_branch='42' THEN '02' WHEN base.source_branch='50' THEN '06' ELSE base.warehouse_code END`;
-      // RLS bypass: el scan pesado en vivo de v_sales_lines (maestro 1.44M) corre por la conexión
-      // admin sin RLS (con filtros tenant_id explícitos); fallback a trx si no hay admin.
+      // Fallback SOLO para arranque en frío (matview aún sin poblar): el scan en vivo de v_sales_lines
+      // (maestro 1.49M + detalles 9.9M) corre por la conexión admin sin RLS (con filtros tenant_id
+      // explícitos) para no hacer Seq Scan bajo RLS; si no hay admin, cae a trx. En operación normal
+      // este path NO se usa (el matview all-history del paso 3 cubre todo rango) → sin pool admin.
       const winLiveKnex: any = this.adminKnex ?? trx;
-      // PASO 2 (mig 20260901120000): si el rango cae en la ventana del rollup diario de wincaja
-      // (analytics.mv_wincaja_sales_daily, SIN RLS) y está poblado, se lee de ahí en `trx`
-      // (sub-segundo — verificado 915ms bajo RLS) en vez del scan de v_sales_lines. Fuera de
-      // ventana o sin poblar → fallback a winLiveKnex (admin, paso 1). Misma query, solo cambia
-      // el FROM y la conexión; el matview tiene las mismas columnas → números idénticos.
+      // PASO 3 (mig 20260901160000): el rollup diario de wincaja (analytics.mv_wincaja_sales_daily,
+      // SIN RLS) pasó a TODO EL HISTÓRICO, así que cubre CUALQUIER rango parcial (ya no solo mes
+      // actual+anterior). Si existe y está poblado se lee de ahí en `trx` (sub-segundo: sin RLS, sin
+      // pool admin, sin el scan de v_sales_lines → maestro 1.49M + detalles 9.9M). Solo si aún no se
+      // pobló (arranque en frío, raro) cae al fallback winLiveKnex (admin, paso 1). Misma query, solo
+      // cambia el FROM y la conexión; el matview tiene las mismas columnas → números idénticos
+      // (verificado al centavo, matview == live, multi-mes).
       const winDailyMvOk = !winRollupOk
-        && from >= this.prevMonthStartMx()
-        && to <= this.todayMx()
         && !!(await trx.raw(
           `SELECT 1 FROM pg_class WHERE relname = 'mv_wincaja_sales_daily' AND relnamespace = 'analytics'::regnamespace AND relispopulated`,
         )).rows?.[0];
@@ -2909,8 +2911,9 @@ export class CommercialAnalyticsService {
             'p.id as pid', 'p.sku as psku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
             'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
           )
-          // FROM parametrizado: el rollup diario sin RLS (paso 2) o la vista v_sales_lines (fallback,
-          // por la conexión admin del paso 1). Ambos exponen las mismas columnas → misma query.
+          // FROM parametrizado: el rollup diario all-history sin RLS (paso 3, leído en trx) o la vista
+          // v_sales_lines (fallback admin en arranque en frío, paso 1). Ambos exponen las mismas
+          // columnas → misma query.
           .from(`${winSrc} as vl`)
           .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
           .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
@@ -4800,19 +4803,4 @@ export class CommercialAnalyticsService {
     return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
   }
 
-  // Primer día del mes ANTERIOR en TZ MX (YYYY-MM-01) — límite inferior de la ventana del rollup
-  // diario de wincaja (`analytics.mv_wincaja_sales_daily` cubre mes actual + anterior). Debe casar
-  // con el WHERE del matview: `date_trunc('month', now_mx) - interval '1 month'`.
-  private prevMonthStartMx(): string {
-    const mx = new Date(Date.now() - 6 * 3600 * 1000);
-    const prev = new Date(Date.UTC(mx.getUTCFullYear(), mx.getUTCMonth() - 1, 1));
-    return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}-01`;
-  }
-
-  // Hoy en TZ MX (YYYY-MM-DD) — cota superior de la ventana del rollup diario de wincaja
-  // (casa con el WHERE del matview: `business_date <= (now_mx)::date`).
-  private todayMx(): string {
-    const mx = new Date(Date.now() - 6 * 3600 * 1000);
-    return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-${String(mx.getUTCDate()).padStart(2, '0')}`;
-  }
 }
