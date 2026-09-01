@@ -224,7 +224,11 @@ interface AttachFile {
             </tr>
           </ng-template>
           <ng-template #body let-c>
-            <tr>
+            <!-- RE.22.2 — la fila se despliega: hasta ahora, para saber QUÉ traía una recepción
+                 había que abrir el expediente completo en un diálogo y cerrarlo. Auditar varias
+                 seguidas era abrir y cerrar. El clic en la fila (no en sus controles) muestra los
+                 renglones ahí mismo; el folio sigue abriendo el expediente. -->
+            <tr [class.cb-row-open]="filaAbierta() === claveFila(c)" (click)="filaClick(c, $event)">
               <td>
                 {{ c.receipt_date | date:'dd/MM/yy' }}
                 @if (c.fecha_futura) {
@@ -232,7 +236,11 @@ interface AttachFile {
                      title="Fecha capturada adelante de hoy en el ERP"></i>
                 }
               </td>
-              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button>
+              <td><button type="button" class="cb-caret" (click)="toggleFila(c)"
+                          [attr.aria-expanded]="filaAbierta() === claveFila(c)"
+                          [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
+                    <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
+                  </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
                 <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
                      porque esta pantalla es donde alguien llega con "tengo este número": el par
                      tiene que ser visible sin abrir el detalle. -->
@@ -312,6 +320,55 @@ interface AttachFile {
                 }
               </td>
             </tr>
+            @if (filaAbierta() === claveFila(c)) {
+              <tr class="cb-exp">
+                <td [attr.colspan]="dinero() ? 9 : 7">
+                  @if (filaLoading()) {
+                    <p class="cb-exp-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
+                  } @else if (filaError()) {
+                    <p class="cb-exp-nota">No se pudo abrir el movimiento. <button type="button" class="cb-exp-retry" (click)="reintentarFila(c)">Reintentar</button></p>
+                  } @else if (filaDetalle(); as fd) {
+                    @if (fd.lineas.length) {
+                      <!-- surf-table--plain es la BASE compartida para tablas crudas: existe
+                           justamente para que cada pantalla no reinvente th/padding/tamaño.
+                           comm-num ya trae mono + tabular-nums y, de paso, evita que la regla
+                           descendente .cb-table td.ta-r se filtre acá adentro. -->
+                      <div class="cb-exp-scroll">
+                        <table class="surf-table surf-table--plain is-dense">
+                          <thead><tr><th>SKU</th><th>Producto</th><th class="comm-num">Cant.</th><th>Unidad</th><th class="comm-num">Costo</th><th class="comm-num">Importe</th></tr></thead>
+                          <tbody>
+                            @for (l of fd.lineas; track l.linea) {
+                              <tr>
+                                <td class="mono">{{ l.sku || '—' }}</td>
+                                <td>{{ l.nombre || '—' }}</td>
+                                <td class="comm-num">{{ l.cantidad }}</td>
+                                <td>{{ l.unidad || '—' }}</td>
+                                <td class="comm-num">{{ money(l.costo_unitario) }}</td>
+                                <td class="comm-num">{{ money(l.importe) }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                          <tfoot>
+                            <tr>
+                              <!-- lineasMeta explica de una vez por qué Σ renglones ≠ total del
+                                   documento: son el SUBTOTAL y c16 va con impuestos. No se afirma
+                                   "es el IVA" salvo que el número lo confirme — en dulcería hay IEPS. -->
+                              <td colspan="5">{{ filaLineasMeta(fd) }}</td>
+                              <td class="comm-num">{{ money(lineasTotal(fd.lineas)) }}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    } @else {
+                      <!-- Wincaja (sucursales 30/32/50) manda la recepción SIN renglones: es
+                           header-only en el origen, no un fallo de carga. Decirlo evita que
+                           alguien lo reporte como bug. -->
+                      <p class="cb-exp-nota">Esta recepción no trae renglones en el ERP. Se capturó sólo con el total.</p>
+                    }
+                  }
+                </td>
+              </tr>
+            }
           </ng-template>
           <!-- RE.20.1 — los totales del lente son de TODO lo filtrado, no de la página: la
                pregunta "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. Por eso
@@ -1005,7 +1062,9 @@ interface AttachFile {
     }
     .cb-orden { font-style: normal; }
     .cb-orden::before { content: ' · '; opacity: .55; }
-    @media (max-width: 560px) { .cb-orden { display: none; } }
+    /* En rem y no en px (regla 9): con px el breakpoint ignora el zoom del navegador y a 200%
+       la columna sigue escondida cuando ya había lugar de sobra. */
+    @media (max-width: 35rem) { .cb-orden { display: none; } }
     .cb-role-sel { min-width: 9rem; font-size: var(--fs-xs); }
     /* Cualquier dato que lleva a una ficha. Discreto en reposo: la tabla ya tiene
        suficiente color y esto aparece en muchas celdas a la vez. */
@@ -1085,6 +1144,39 @@ interface AttachFile {
     .cb-gem { display: block; font-style: normal; font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
+
+    /* ── RE.22.2 desglose en línea ────────────────────────────────────────
+       La fila abierta se ancla con un borde izquierdo: el desglose queda visualmente colgado de
+       ella y no flotando entre dos recepciones. Sin zebra (DESIGN Operations). */
+    .cb-caret {
+      border: none; background: transparent; color: var(--text-faint); cursor: pointer;
+      padding: 0 var(--sp-1) 0 0; font-size: var(--fs-micro); vertical-align: middle;
+      border-radius: var(--r-sm);
+    }
+    .cb-caret:hover { color: var(--text-main); }
+    .cb-caret:active { color: var(--action); }
+    .cb-caret:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+    /* El caret es el objetivo táctil más chico de la fila: las celdas ya crecen solas por los
+       tokens de altura, el botón no. En touch tiene que llegar al mínimo (Fitts). */
+    @media (pointer: coarse) {
+      .cb-caret { min-width: var(--tap-min); min-height: var(--tap-min); }
+    }
+    /* Datos densos: elevación por BORDE o sombra, nunca las dos. La fila abierta se ancla con
+       la barra de acento a la izquierda + el fondo de selección tokenizado. */
+    .cb-row-open > td { background: var(--table-row-selected-bg); }
+    .cb-row-open > td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+    .cb-exp > td { padding: var(--sp-2) var(--sp-3) var(--sp-3) var(--sp-6); background: var(--surface-ground); }
+    .cb-exp-nota { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+    .cb-exp-nota b { color: var(--text-main); }
+    .cb-exp-retry {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--action); text-decoration: underline;
+    }
+    .cb-exp-retry:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    /* Lo único que la base compartida no cubre: el nombre del producto puede envolver, y la
+       tabla anidada scrollea sola para no empujar la página en móvil. */
+    .cb-exp-scroll { overflow-x: auto; }
+    .cb-exp .surf-table--plain > tbody > tr > td:nth-child(2) { white-space: normal; min-width: 12rem; }
 
     /* ── Detalle: veredicto + tres cifras ────────────────────────────────
        Jerarquia explicita en tres niveles y por TIPO+CONTRASTE, no por color
@@ -1603,6 +1695,78 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+
+  // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
+  /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
+  readonly filaAbierta = signal<string | null>(null);
+  /**
+   * Se guarda el `EntradaDetail` completo y no sólo `lineas` para poder usar `receiptVerdict`:
+   * su `lineasMeta` ya explica bien por qué Σ renglones ≠ total del documento (los renglones son
+   * el SUBTOTAL y `c16` va con impuestos, y en dulcería no es sólo IVA — hay IEPS). Escribir acá
+   * una comparación propia era repetir peor lo que ese código ya afina.
+   */
+  readonly filaDetalle = signal<EntradaDetail | null>(null);
+  readonly filaLoading = signal(false);
+  readonly filaError = signal(false);
+  /** Caché por clave: reabrir no vuelve a pedir. `null` = se pidió y falló. */
+  private readonly filaCache = new Map<string, EntradaDetail | null>();
+
+  claveFila(c: EntradaRow): string { return c.sucursal + '/' + c.folio; }
+
+  /**
+   * Clic en cualquier parte de la fila. Se ignora si salió de un control: la fila está llena de
+   * botones (adjuntar, validar, rechazar, descartar, el folio, las fichas de proveedor/OC) y sin
+   * este corte cada uno de ellos abriría además el desglose.
+   */
+  filaClick(c: EntradaRow, ev: Event): void {
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest('button, a, input, .cb-comp-cell, .p-checkbox')) return;
+    this.toggleFila(c);
+  }
+
+  toggleFila(c: EntradaRow): void {
+    const clave = this.claveFila(c);
+    if (this.filaAbierta() === clave) { this.filaAbierta.set(null); return; }
+    this.abrirFila(c, clave);
+  }
+
+  /** Reintento: hay que OLVIDAR el fallo cacheado o se repite la misma respuesta. */
+  reintentarFila(c: EntradaRow): void {
+    this.filaCache.delete(this.claveFila(c));
+    this.abrirFila(c, this.claveFila(c));
+  }
+
+  /**
+   * Reusa `detail()` en vez de un endpoint nuevo: ya devuelve `lineas` y es la misma lectura que
+   * hace el expediente. La respuesta se descarta si mientras viajaba se abrió otra fila — sin ese
+   * corte se pintarían los renglones de una recepción bajo otra, que se ve correcto y no lo es.
+   */
+  private abrirFila(c: EntradaRow, clave: string): void {
+    this.filaAbierta.set(clave);
+    this.filaError.set(false);
+    if (this.filaCache.has(clave)) {
+      const hit = this.filaCache.get(clave) ?? null;
+      this.filaDetalle.set(hit); this.filaError.set(hit === null); this.filaLoading.set(false);
+      return;
+    }
+    this.filaDetalle.set(null);
+    this.filaLoading.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.filaCache.set(clave, d);
+        if (this.filaAbierta() !== clave) return;
+        this.filaDetalle.set(d); this.filaLoading.set(false);
+      },
+      error: () => {
+        this.filaCache.set(clave, null);
+        if (this.filaAbierta() !== clave) return;
+        this.filaLoading.set(false); this.filaError.set(true);
+      },
+    });
+  }
+
+  /** Cómo se compone el total, con las palabras que ya afinó `receiptVerdict` (IVA/IEPS incluidos). */
+  filaLineasMeta(d: EntradaDetail): string { return receiptVerdict(d).lineasMeta; }
 
   // detail dialog (auditoría por línea + remisión adjunta)
   /** Ficha abierta en el panel lateral (`null` = cerrado). Hace clickeable la vista entera. */
