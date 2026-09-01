@@ -38,6 +38,7 @@
 
 const { Client } = require('pg');
 const sink = require('../lib/sink');
+const { asegurar: asegurarTablasCalendario } = require('./ensure-monthly-tables');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
@@ -206,6 +207,14 @@ async function latir(destUrl, r, ms) {
   for (;;) {
     const t0 = Date.now();
     try {
+      // CDC.8 — antes de reconciliar, asegurar las tablas de calendario. Si a Kepler le nace la
+      // tabla del mes y el replica no la tiene, el apply worker entra en bucle y la rama se
+      // congela entera: reponer filas no sirve de nada si la fuente dejó de recibir. Es barato
+      // (una consulta a information_schema por familia) e idempotente.
+      const tablas = await asegurarTablasCalendario({ apply: true });
+      const nuevas = tablas.filter((t) => t.creadas?.length);
+      if (nuevas.length) console.log(`[${new Date().toISOString()}] tablas de calendario creadas: ` + nuevas.map((t) => `${t.suc}:${t.creadas.join('/')}`).join(' · '));
+
       const out = await pasada(destUrl);
       const r = resumen(out);
       if (r.huecos || r.errores) console.table(out.filter((x) => x.faltan || x.error || x.skip));
