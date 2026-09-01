@@ -76,12 +76,12 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
         </label>
         <label class="fx-f">
           <span>Caducidad</span>
-          <input pInputText inputmode="numeric" maxlength="8" class="fx-fecha"
-            [ngModel]="fechaRaw()" (ngModelChange)="setFecha($event)" placeholder="0327" />
+          <input pInputText inputmode="numeric" maxlength="10" class="fx-fecha"
+            [ngModel]="fechaVista()" (ngModelChange)="setFecha($event)" placeholder="DD/MM/AA" />
         </label>
       </div>
       <p class="fx-eco" [class.fx-mal]="fechaRaw().length > 0 && !iso()">
-        {{ iso() ? '→ ' + eco() : '4 dígitos = MM/AA · 6 dígitos = DD/MM/AA' }}
+        {{ iso() ? '→ ' + eco() : 'DD/MM/AA · o sólo MM/AA si la etiqueta no trae día' }}
       </p>
 
       <div class="fx-sem" [class]="'fx-sem--' + semaforo()">
@@ -208,18 +208,68 @@ export class AndenCaducidadComponent {
     this.fechaRaw.set(String(v ?? '').replace(/\D/g, '').slice(0, 8));
   }
 
+  /**
+   * Lo que se ve en el campo: los mismos dígitos con las barras puestas. Se
+   * guardan sin formato (`fechaRaw`) y se pintan con barras, así el borrado no
+   * pelea con la máscara — al borrar cae un dígito, no una barra.
+   *
+   * `3` → `3` · `30` → `30/` · `3004` → `30/04/` · `300428` → `30/04/28`
+   */
+  readonly fechaVista = computed(() => {
+    const d = this.fechaRaw();
+    if (d.length <= 2) return d;
+    if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+    return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+  });
+
   onFoto(ev: Event): void {
     const f = (ev.target as HTMLInputElement).files?.[0];
     if (!f) return;
-    const r = new FileReader();
-    r.onload = () => {
-      const uri = String(r.result);
+    this.ocrConfianza.set(null);
+    this.ocrCorriendo.set(true);
+    this.comprimir(f).then((uri) => {
       this.fotoDataUri.set(uri);
-      this.ocrConfianza.set(null);
-      this.ocrCorriendo.set(true);
       this.pedirOcr.emit(uri);
-    };
-    r.readAsDataURL(f);
+    });
+  }
+
+  /**
+   * **Reduce la foto ANTES de mandarla.** La cámara de un celular tira 3–8 MB, y
+   * en base64 eso crece ~33 %: contra el límite de 2 MB del backend el guardado
+   * moría con `413 request entity too large` — o sea que fechar con foto **no
+   * funcionaba**. Además, subir 6 MB por el wifi de la bodega es lento.
+   *
+   * 1600 px de lado largo alcanzan de sobra para que el OCR lea una etiqueta; el
+   * resultado queda en ~200–400 KB. Si algo del canvas falla se manda el
+   * original: peor es quedarse sin evidencia.
+   */
+  private comprimir(f: File): Promise<string> {
+    return new Promise((resolve) => {
+      const crudo = new FileReader();
+      crudo.onload = () => {
+        const uri = String(crudo.result);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const MAX = 1600;
+            const esc = Math.min(1, MAX / Math.max(img.width, img.height));
+            const c = document.createElement('canvas');
+            c.width = Math.round(img.width * esc);
+            c.height = Math.round(img.height * esc);
+            const ctx = c.getContext('2d');
+            if (!ctx) return resolve(uri);
+            ctx.drawImage(img, 0, 0, c.width, c.height);
+            const chico = c.toDataURL('image/jpeg', 0.8);
+            resolve(chico.length < uri.length ? chico : uri);
+          } catch {
+            resolve(uri);
+          }
+        };
+        img.onerror = () => resolve(uri);
+        img.src = uri;
+      };
+      crudo.readAsDataURL(f);
+    });
   }
 
   /** Lo llama el padre con lo que devolvió el OCR: propone, no decide. */
