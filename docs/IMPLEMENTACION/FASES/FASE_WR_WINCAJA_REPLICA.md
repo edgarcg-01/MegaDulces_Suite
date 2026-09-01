@@ -231,6 +231,135 @@ Además: **preflight de la fuente en cada ciclo** (no sólo al arrancar → se c
 
 ---
 
+## 13. WR-hist — el corpus HISTÓRICO a Postgres (🔨 en carga, 2026-09-01)
+
+Decisión Edgar 2026-09-01: **mudar Wincaja actual e histórico a Postgres**, con tres definiciones —
+el crudo completo vive **LOCAL** (a prod sólo suben agregados), alcance **2017–2025** primero, y las
+**70 tablas** crudas. Más una directiva de orden: *"priorizar lo actual de prod, de reciente a viejo"*.
+
+### 13.1 De dónde partíamos (medido)
+
+| capa | dónde | cubría |
+|---|---|---|
+| bronze `wincaja.*` (28 tablas curadas) | Railway prod, 4.2 GB | `actual` = 21 sucursales · `concentrada` = 10/30/32/50 · `2025` = 18 sucursales |
+| réplica cruda (70 tablas) | local `:5433/wincaja`, 615 MB | sólo `w00`/`w30`/`w32`, sólo `Actuales` |
+
+**2026 sí estaba en prod**, pero dentro del corte `actual` (ene–ago 2026, 65–85k movs/mes), no como
+corte propio. Ojo: la cobertura cae de 20 sucursales en enero a 9 en agosto — consistente con las
+migraciones a Kepler, pero **sin verificar**. Y hay fechas basura (`2029-08-03` en el corte 2025,
+`2026-12-06` en `actual`), igual que en Kepler: `max(fecha)` no sirve como señal de frescura.
+
+Corpus en `Z:\Salidas\Bases`: `2017`–`2025` = **187 archivos / 22.4 GB** + `Actuales` (23) +
+`Concentradas` (10) + `Cierres` (368 MB) + `2009`–`2016` en **8 `.7z`** (~960 MB comprimidos, 7-Zip
+está instalado). Total del alcance actual: **206 unidades / 23.4 GB**.
+
+### 13.2 Los dos hechos que definieron el diseño
+
+**1. Cada carpeta `<año>` es el corte de ESE año, no un acumulado.** Verificado en la sucursal 32:
+
+| archivo | cabeceras | rango de `Fecha` |
+|---|---|---|
+| `2017/32 MORELIA MADERO.MDB` | 121,980 | 2017-01-02 → 2017-12-31 |
+| `2021/…` | 86,300 | 2021 (+ centinelas 2000-01-01) |
+| `2025/…` | 129,760 | 2025 |
+
+**2. El `Consecutivo` REINICIA en 1 cada año** — 2021 va `1..89,586` y 2025 va `1..129,760`: tickets
+distintos con el mismo número. Por eso **el corte es parte obligatoria de la identidad**. El bronze
+ya lo había resuelto con `source_dataset` en el PK; acá se replica el criterio con `_dataset`.
+
+### 13.3 La herramienta: mdbtools, no Jet
+
+El primer motor (Jet+PS32+INSERT, reusando `access-adapter.js`) funcionaba y era fiel, pero tardaba
+**554 s** por archivo de 70 MB → ~49 h para el corpus. El benchmark mostró que **Postgres no era el
+cuello**: escribir las 152,718 filas de `DetallesMovAlmacen` tardaba 16–31 s, contra ~129 s de
+lectura. El cuello era `ConvertTo-Json` **por fila** en PowerShell.
+
+**mdbtools** (C, lee Jet 3/4 directo, sin Jet ni PowerShell ni dependencia de 32 bits) corre en un
+contenedor Docker — no se instala nada en la máquina. Contra el MISMO archivo:
+
+| | Jet + PS32 + INSERT | mdbtools + COPY |
+|---|---|---|
+| las 70 tablas | 554 s | **156 s** (3.5×) |
+| sólo el export | ~490 s | 91 s |
+| `DetallesMovAlmacen` (152k filas) | 160 s | 15 s |
+| filas / ΣValorVenta | 469,609 / $7,629,584.75 | **idénticos, al centavo** |
+
+Dos trampas que costaron una iteración cada una:
+- **Un contenedor por tabla mata la ventaja**: `docker run` cuesta ~1.5 s, y con 2 llamadas por tabla
+  (header + export) × 70 se iban ~4 min por archivo. Se colapsó a **un contenedor por archivo**
+  (`mdb-tools.dumpAll`: versión Jet + tablas + esquema + un CSV por tabla, todo de una).
+- **Escribir los CSV al bind-mount de Docker Desktop cuesta el doble** (128 s vs 67 s): `mdb-export`
+  emite en chunks chicos y cada uno cruza el puente de archivos de Windows. Se escribe en `/tmp` del
+  contenedor y se copia todo junto al final.
+
+Y una que mentía sin fallar: **`psql -q` se calla el `COPY n`** → el conteo de filas volvía 0 en todas
+las tablas mientras la carga estaba perfecta. El reporte mentía, no el dato.
+
+### 13.4 Arquitectura del carril histórico
+
+```
+Z:\Salidas\Bases\<corte>\NN NOMBRE.MDB
+      │ copia local (~5.2 MB/s medido; Jet/mdbtools sobre SMB es inviable: un scan
+      │ sobre el archivo de 559 MB llevaba >17 min sin terminar)
+      ▼
+  <STAGE>\hNN_<corte>.mdb
+      │ UN contenedor mdbtools: mdb-ver + mdb-tables + mdb-schema --indexes + 70 CSV
+      ▼
+  <STAGE>\hNN_<corte>_csv\{0..69}.csv  +  _schema.sql  +  _tables.txt
+      │ psql \copy → zstg.hNN__<Tabla> (UNLOGGED, todo text)
+      ▼
+  un solo INSERT..SELECT con cast + md5(fila) server-side
+      ▼
+  :5433/wincaja  →  hNN.<Tabla>  (identidad (_dataset, _row_hash))
+```
+
+- **Identidad = surrogate `(_dataset, _row_hash)`, nunca la PK natural.** Vivido en la primera unidad
+  de la corrida: mdbtools reporta PK sobre `ArticulosRelacion.CodigoBarras` y **los propios datos la
+  violan** (hay NULLs). Access declara índices que su contenido no respeta, y el espejo crudo no está
+  para discutirle a la fuente. Se puede porque este carril es un append de cortes inmutables: no hay
+  UPDATE que aplicar. La PK declarada queda anotada en el `COMMENT` de la tabla.
+- **Drift de esquema entre cortes**: 9 años de versiones de Wincaja → se agregan las columnas que
+  falten y, si el tipo choca, se **ensancha a `text`** (nunca se angosta).
+- **Ledger `ods.wincaja_hist_load`** (schema, corte, tabla, filas, estado, lector) → la carga es
+  reanudable e idempotente. `--force` borra la partición antes de recargar; hace falta al cambiar de
+  lector, porque el `_row_hash` depende de él.
+- **`Actuales` saltea 30/32/00**: ya las mantiene el carril vivo, más fresco. `--include-live` fuerza.
+
+### 13.5 Prioridad de carga
+
+`Actuales` → `Concentradas` → `2025` → `2024` → … → `2017`, y dentro de cada corte por relevancia
+para prod (espejo de `wincaja.branches.status`): `live_on_wincaja` (00/30/32/50) → `transition` (10)
+→ rutas → `legacy_on_kepler` (40/42/44/54) → las que ya no existen (20/24/25/51/70/300/301/CEDIS B).
+Así lo que le falta a prod entra en la primera hora, no en la hora 14.
+
+El histórico trae **sucursales que hoy no existen** — `20 COMISIONISTAS`, `70 TELEMARKETING`,
+`51 CANINDO RD`, `CEDIS B`, rutas `24/25/300/301` — y eso es justamente parte del valor.
+
+### 13.6 Archivos
+
+| Archivo | Qué |
+|---|---|
+| `lib/mdbtools.Dockerfile` | imagen `mdbtools:local` (Debian slim + mdbtools 1.0.1) |
+| `lib/mdb-tools.js` | adapter bulk: `ensureImage` · `dumpAll` · `describeFromCsv` · `schemaRaw` |
+| `lib/access-read-bulk.ps1` | lector Jet alternativo (TSV con StringBuilder, sin `ConvertTo-Json`) — quedó como reserva; mdbtools lo superó |
+| `wincaja/wincaja-hist-config.js` | inventario del corpus + prioridad + parser de nombres de `.mdb` |
+| `wincaja/import-wincaja-hist.js` | el cargador (`--apply`, `--year`, `--branch`, `--force`, `--reader=mdbtools\|jet`) |
+| `wincaja/wincaja-hist-verify.js` | (A) ledger vs espejo · (B) **cruce contra el bronze de prod**, que se cargó con OTRO lector desde la misma fuente |
+
+`lib/access-mirror.js` recibió dos cambios **aditivos** (default apagado → el carril vivo no cambia):
+`extraKeys` para prefijar columnas de partición a la identidad, y aceptar un tipo Postgres ya
+resuelto (`c.pg`) además del tipo Jet crudo (`c.jet`).
+
+### 13.7 Pendiente
+
+- Terminar la corrida (206 unidades, ~14 h estimadas) y correr `wincaja-hist-verify.js`.
+- Confirmar la caída de cobertura de sucursales de ene→ago 2026 en el corte `actual` de prod.
+- `2009`–`2016`: descomprimir los `.7z` y revisar drift de esquema (Wincaja más viejo) antes de cargar.
+- Los agregados que suben a prod desde el histórico local (la mitad "híbrida" de la decisión).
+- **Fase CA** (CEDIS Kepler-Access) puede reusar mdbtools tal cual: mismo Jet3, otro esquema.
+
+---
+
 ## 8. Relacionado
 
 - [`FASE_W_WINCAJA.md`](FASE_W_WINCAJA.md) (bronze/silver/gold actual) · [`FASE_CA_CEDIS_ACCESS_ODS.md`](FASE_CA_CEDIS_ACCESS_ODS.md) (mismo adapter) · `project_fase_w_wincaja` · `project_logical_replication_kepler` (réplicas `kepler_md_XX`, el molde) · `project_canindo_wincaja_to_kepler` (Canindo salió de Wincaja).
