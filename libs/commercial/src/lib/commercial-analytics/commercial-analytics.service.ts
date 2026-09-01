@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { Injectable, BadRequestException, NotFoundException, Logger, Inject } from '@nestjs/common';
+import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
 import type {
   NetworkOverview,
   NetworkTopProductRow,
@@ -489,6 +490,12 @@ export class CommercialAnalyticsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // PERF/RLS (2026-09-01): conexión admin (postgres, bypassa RLS) para el scan en vivo de
+    // wincaja. Bajo RLS (app_runtime) la barrera de seguridad impide usar el índice de fecha
+    // de maestro_mov_almacen → Seq Scan de 1.44M filas → timeout 45s en /comercial/sell-out.
+    // Se lee con filtro tenant_id EXPLÍCITO (aislamiento garantizado, mismo patrón que los
+    // matviews analytics.* que tampoco tienen RLS). Fallback a `trx` (RLS) si no está disponible.
+    @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
   ) {}
 
   /**
@@ -2838,6 +2845,9 @@ export class CommercialAnalyticsService {
       // es no-op semántico en Postgres; verificado en prod units 407 / monto $20,168.0802 idénticos).
       const winChanBase = `CASE base.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winWhBase = `CASE WHEN base.source_branch='10' THEN '01' WHEN base.source_branch='42' THEN '02' WHEN base.source_branch='50' THEN '06' ELSE base.warehouse_code END`;
+      // RLS bypass: el scan pesado en vivo de v_sales_lines (maestro 1.44M) corre por la conexión
+      // admin sin RLS (con filtros tenant_id explícitos); fallback a trx si no hay admin.
+      const winLiveKnex: any = this.adminKnex ?? trx;
       const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
@@ -2868,7 +2878,7 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${winChanRollup}, sd.vendor_code, sd.vendor_name` +
               (needMonth ? `, sd.year_month` : ''),
             )
-        : await trx
+        : await winLiveKnex
         .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
           .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
           .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
