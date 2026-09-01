@@ -174,7 +174,7 @@ vínculo formal.
 | **LC.2** | ⚠️ **BLOQUEADO 2026-09-01** — el criterio no está en los datos. Ver "Qué decide que una factura entre al libro" | LC.1 |
 | **LC.3** | ✅ **2026-09-01** — `finance.gl_supplier_accounts` con **929 proveedores**, sembrada de la hoja `DATOS` y validada contra el catálogo de cuentas de ContPAQi. **Acierto 1,555/1,555 (100%)** | — |
 | **LC.4** | Motor: `finance.purchase_book_lines` (por CFDI: base 0%, base IVA, base IEPS, IVA, IEPS, total, UUID, folio, proveedor, cuenta). Cuadre obligatorio contra el total del CFDI | LC.3 |
-| **LC.5** | Generador de póliza + TXT: patas `501`/`502`/`212` por proveedor, IEPS e IVA **separados por cuenta** (+82 a +95 renglones/mes), UUID por renglón. Descarga del archivo | LC.0, LC.4 |
+| **LC.5** | ✅ **2026-09-01** — `generate-poliza-compras-txt.js`. Junio: 494 renglones, cuadra en $30,278,735.58, UUID en 491 de 493 movimientos | LC.0, LC.3 |
 | **LC.6** | Pantalla `/finanzas/libro-de-compras`: selector de mes, tabla densa, semáforo de cuadre, botón *Generar TXT*, historial de entregas | LC.5 |
 | **LC.7** | Cuadre post-trámite: comparar la póliza real en ContPAQi contra lo entregado. Diferencia = hallazgo en `finance.findings` | LC.5 |
 | **LC.8** | 3-way match contra la entrada de mercancía de Kepler (`XA2001`) — se empalma con Fase RE | LC.4 |
@@ -261,6 +261,42 @@ sin mapa, cero cuentas distintas.
 Consecuencia: **dado un CFDI ya sabemos exactamente a qué cuentas postearlo.** Lo único que
 falta para generar el TXT es saber *cuáles* CFDIs entran, que es LC.2.
 
+## El generador del TXT (LC.5, cerrado 2026-09-01)
+
+`database/scripts/generate-poliza-compras-txt.js`. Recibe el mes y una lista de UUIDs,
+resuelve las cuentas por el mapa de LC.3 y escribe el archivo con el layout de LC.0.
+
+**Junio 2026, 238 facturas:** 494 renglones, cargos = abonos = **$30,278,735.58**, neto 0.
+Los campos caen exactos en sus posiciones y el UUID va en 491 de los 493 movimientos — los
+dos sin UUID son los renglones globales de impuesto, que no pertenecen a ninguna factura.
+
+**Contra la póliza real en ContPAQi:** casan 451 de 493. Las diferencias son 42 contra 56
+renglones, y **suman exactamente lo mismo de los dos lados: $5,556,176.03**. No hay dinero
+de más ni de menos: es la misma plata repartida distinto entre `501` (compras al 0%) y
+`502` (compras c/IVA), en las mismas 28 cuentas. Nuestro reparto es el correcto, por dos
+razones que se encontraron construyendo esto:
+
+1. **La base fiscal del IVA incluye al IEPS.** Cargar esa base a la cuenta de compras
+   cuenta el IEPS dos veces. Se detectó porque la póliza descuadraba por $38,519.05, que es
+   exactamente el IEPS por cuota de EURO CANDY. Lo que va a la cuenta `502` es el subtotal
+   de los conceptos gravados, no la base fiscal.
+2. **El subtotal va neto de descuento.** En junio, 103 de 238 facturas traen descuento, y
+   sin restarlo la base exenta salía negativa en 11 de ellas (−$68,560.54). La identidad que
+   manda, verificada en las 238: `subtotal − descuento + IVA + IEPS = total`.
+
+De paso, en la póliza real aparecen renglones de $0.04 y $0.02 sueltos — la firma de un
+cuadre hecho a mano por diferencia.
+
+**Dos opciones que el Excel no puede dar:**
+
+- `--impuestos por-cuenta`: postea IVA e IEPS por proveedor en vez de un renglón global al
+  mes. Cuesta ~90 renglones más y hace auditable el acreditamiento.
+- `--uuid`: mete el folio fiscal en el `Concepto` del movimiento (campo libre de 100 chars,
+  hoy vacío en el 100% de las patas).
+
+**Lo que todavía no puede hacer solo:** la lista de facturas se le pasa a mano, porque LC.2
+sigue abierto. Hoy sale del libro que la contadora ya armó.
+
 ## Nota: replicación real vs watermark (decidido 2026-09-01)
 
 Se evaluó quitar el polling por completo. Lo que hay:
@@ -316,6 +352,36 @@ Tracking. Diferido por ahora: 119 ms cada 5 minutos es 0.04% del tiempo.
 - [`FASE_RE_RECEPCION_MERCANCIA.md`](FASE_RE_RECEPCION_MERCANCIA.md) — el 3-way match de LC.8.
 - [`FASE_CB_CONCILIACION_BANCARIA.md`](FASE_CB_CONCILIACION_BANCARIA.md) — mismo patrón:
   un workbook manual reemplazado por interfaz.
+
+## Pendientes (al 2026-09-01)
+
+### Bloquean la fase
+
+| # | Qué | De quién depende |
+|---|---|---|
+| 1 | **LC.2 — el criterio del libro.** ¿Qué hace que una factura de un proveedor de mercancía entre y otra del mismo proveedor y día no? Sin esto el generador necesita que le pasen la lista a mano | La contadora |
+| 2 | **Un TXT real ya importado**, para confirmar el separador exacto y descartar una variante propia de la empresa | La contadora |
+| 3 | **Decidir el formato de entrega**: ¿IVA e IEPS por cuenta o global? ¿el UUID va en el Concepto? ¿una póliza mensual o quincenal? | Edgar + contabilidad |
+
+### Se pueden hacer sin desbloquear nada
+
+| # | Qué | Nota |
+|---|---|---|
+| 4 | **LC.6 — pantalla `/finanzas/libro-de-compras`** | El generador ya funciona por CLI; falta el envoltorio y el permiso propio |
+| 5 | **LC.7 — cuadre post-trámite** | Comparar lo que se subió contra lo que entregamos |
+| 6 | **Arrancar el carril PM2** del feed del ADD | `ecosystem.contpaqi.config.js` listo; hay que levantarlo en una máquina de la LAN con `DATABASE_URL_NEW` |
+| 7 | **Los 3 proveedores con cuenta de pasivo inexistente** en ContPAQi (`2120005109`, `2120005405`, `2120005406`) | Si alguno factura, el TXT se detiene — a propósito |
+| 8 | **Los 24 proveedores sin RFC** en el catálogo | Sin RFC no se puede casar el CFDI con su cuenta |
+
+### Riesgos abiertos, con dueño por definir
+
+| # | Qué | Tamaño |
+|---|---|---|
+| 9 | **Nadie valida cancelaciones contra el SAT.** 167,053 CFDIs con `estatus_sat = 'desconocido'` | Acreditar IVA/IEPS de comprobantes cancelados |
+| 10 | **$58.1M en seis meses** de facturas de proveedores de mercancía que nunca entraron al libro | Coincide en orden de magnitud con las 631 facturas / $52.2M sin recepción que Maat ya detectó |
+| 11 | **IEPS por cuota mal capturado.** 47 facturas 2025–26 por $69,587.97; solo se verificó junio | El de EURO CANDY, $38,519.05, se fue al costo en vez de acreditarse |
+| 12 | **Change Tracking** para quitar el polling del feed | Necesita un admin de la instancia SQL Server; `platform_ro` no tiene rol de servidor |
+| 13 | **Índice sobre `Documento.TimeStamp`** | Alternativa barata al punto 12: convierte el scan de 615,511 filas en un seek |
 
 ## Estado
 
