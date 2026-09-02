@@ -98,7 +98,7 @@ export class CashCutsSyncService {
    */
   async syncTenant(tenantId: string, dias = CashCutsSyncService.DIAS): Promise<number> {
     return this.tenantKnex.run(tenantId, async (trx) => {
-      const r: any = await trx.raw(UPSERT, [dias, tenantId]);
+      const r: any = await trx.raw(UPSERT, { dias, tenant: tenantId });
       return r?.rowCount ?? 0;
     });
   }
@@ -109,7 +109,7 @@ export class CashCutsSyncService {
    */
   async gap(tenantId: string, dias = CashCutsSyncService.DIAS): Promise<{ kepler: number; nuestro: number; faltan: number }> {
     return this.tenantKnex.run(tenantId, async (trx) => {
-      const r: any = await trx.raw(GAP, [dias, tenantId]);
+      const r: any = await trx.raw(GAP, { dias, tenant: tenantId });
       const g = r.rows[0];
       return { kepler: Number(g.kepler), nuestro: Number(g.nuestro), faltan: Number(g.faltan) };
     });
@@ -166,7 +166,7 @@ const SRC = `
                      substring(btrim(k.c11) from '^[0-9]{1,2}')::int AS hc) t
     ) h
    WHERE (COALESCE(k.c25, 0) <> 0 OR COALESCE(k.c35, 0) <> 0)
-     AND k.c5::date >= current_date - ($1::int)
+     AND k.c5::date >= current_date - CAST(:dias AS int)
    ORDER BY k.sucursal, k.c2, k.c5::date, k.c3, k.c10 DESC NULLS LAST
 `;
 
@@ -185,7 +185,7 @@ INSERT INTO analytics.cash_cuts (
   hora_apertura, hora_cierre, duracion_horas,
   warehouse_id, cerrado, source
 )
-SELECT $2::uuid, s.sucursal, w.name, s.caja, s.folio, s.business_date,
+SELECT CAST(:tenant AS uuid), s.sucursal, w.name, s.caja, s.folio, s.business_date,
        s.opened_at, s.closed_at, s.cajero_apertura, s.cajero_cierre, s.turno,
        s.ef_esp, s.ef_cont, s.ef_diff,
        s.tj_esp, s.tj_cont, s.tj_diff,
@@ -196,7 +196,7 @@ SELECT $2::uuid, s.sucursal, w.name, s.caja, s.folio, s.business_date,
        w.id, true, 'kepler'
   FROM (${SRC}) s
   JOIN commercial.warehouses w
-    ON w.tenant_id = $2::uuid AND w.code = s.sucursal AND w.deleted_at IS NULL
+    ON w.tenant_id = CAST(:tenant AS uuid) AND w.code = s.sucursal AND w.deleted_at IS NULL
 ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SET
   warehouse_name    = EXCLUDED.warehouse_name,
   warehouse_id      = EXCLUDED.warehouse_id,
@@ -231,13 +231,13 @@ ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SE
 const GAP = `
   WITH src AS (${SRC})
   SELECT (SELECT count(*) FROM src s
-            JOIN commercial.warehouses w ON w.tenant_id = $2::uuid AND w.code = s.sucursal AND w.deleted_at IS NULL) kepler,
+            JOIN commercial.warehouses w ON w.tenant_id = CAST(:tenant AS uuid) AND w.code = s.sucursal AND w.deleted_at IS NULL) kepler,
          (SELECT count(*) FROM analytics.cash_cuts
-           WHERE tenant_id = $2::uuid AND business_date >= current_date - ($1::int)) nuestro,
+           WHERE tenant_id = CAST(:tenant AS uuid) AND business_date >= current_date - CAST(:dias AS int)) nuestro,
          (SELECT count(*) FROM src s
-            JOIN commercial.warehouses w ON w.tenant_id = $2::uuid AND w.code = s.sucursal AND w.deleted_at IS NULL
+            JOIN commercial.warehouses w ON w.tenant_id = CAST(:tenant AS uuid) AND w.code = s.sucursal AND w.deleted_at IS NULL
             LEFT JOIN analytics.cash_cuts c
-              ON c.tenant_id = $2::uuid AND c.warehouse_code = s.sucursal
+              ON c.tenant_id = CAST(:tenant AS uuid) AND c.warehouse_code = s.sucursal
              AND c.caja = s.caja AND c.business_date = s.business_date AND c.folio = s.folio
            WHERE c.id IS NULL) faltan
 `;
