@@ -1246,10 +1246,11 @@ falló fue que la alarma no salió del edificio y que el carril que de verdad al
 - [ ] ⬜ **OBS.5.4** `health-watchdog.js` (vigila al vigilante) — falta webhook + entrar al sustrato.
 - [ ] ⬜ **OBS.5.5** `run-feed-guardian.ps1` no cubre nada supervisado por PM2/Docker.
 
-### OBS.6 — El dato declara su rezago
-- [ ] ⬜ **OBS.6.1** `analytics.v_feed_freshness`.
-- [ ] ⬜ **OBS.6.2** `stale` + `age_human` sobre el `data_as_of` que ya devuelven rentabilidad y compras.
-- [ ] ⬜ **OBS.6.3** La etiquetera dice *"precio con N h de rezago"*. **No bloquea** (decisión de Edgar).
+### OBS.6 — El dato declara su rezago (commit `f7333af0`)
+- [x] ✅ **OBS.6.1** (2026-09-02) `analytics.v_feed_freshness` — unifica `analytics.cron_runs` (por carril) y `kepler_ods._sync_status` (por tabla) sin copiar ninguna. Devuelve **hechos** (edad), **no umbrales**: esos ya tienen dueño único en `CRON_JOBS`/`EXT_SOURCES`, y clavarlos también en SQL sería una segunda fuente que se separa en silencio. **`clase` va NULL para `ods_table`**: `last_push_at` marca el último EMPUJE, así que un valor viejo admite dos lecturas opuestas — el carril está caído, o la tabla no cambió. Medido en prod con los 3 carriles sanos, `k95doc`/`kdmt`/las de RH dan **~334 h y están al día**. Aplicada y verificada en local (262 filas en prod, 59 tablas + 7 carriles en local).
+- [x] ✅ **OBS.6.2** (2026-09-02) **La etiquetera declara su rezago.** Banner arriba del escáner, sin botón de cerrar (es una condición del dato, no un mensaje de una acción). **No bloquea** (decisión de Edgar) y **nombra qué eslabón** está viejo. La cadena tiene DOS pasos que mueren por separado — `ods_live_hot` shipea `kdii`/`kdpv_prod_util`, hop-2 recalcula `product_label_prices` — y se miran los dos: vigilar uno deja el otro ciego. ⚠️ **NO se usa el `computed_at` de la FILA**: se mueve sólo cuando ESE producto cambia de precio, así que un SKU estable daría semanas de "edad" estando al día (mismo falso positivo que 6.1); se usa `max(computed_at)` de la tabla. **Sin latido = stale**, no `ok`: el default permisivo es cómo un feed muerto se disfraza de sano. Guardia `to_regclass` → no se rompe entre el deploy y la migración. `tsc` (api) + `ngc` (view, con templates) limpios.
+- [ ] ⬜ **OBS.6.3** `stale` + `age_human` sobre el `data_as_of` que ya devuelven rentabilidad y compras (el patrón ya renderiza en ambas; falta el veredicto).
+- 🔵 **Nota de local**: en `.245` no existe `ods_live_hot` (los carriles latan a **prod**), así que la etiquetera local muestra el banner permanentemente. Es correcto — local no tiene carril — y es preferible al falso verde.
 
 ### OBS.7 — Regresión
 - [ ] ⬜ `test-newdb-feed-observability.js` en `run-all-tests.js`.
@@ -1258,6 +1259,44 @@ falló fue que la alarma no salió del edificio y que el carril que de verdad al
 `FEEDS_INGEST_KEY` en texto plano en 4 launchers + horneada en `dump.pm2` (→ INFRA.1.4) · **el CDC
 sigue muerto**, así que no hay propagación de DELETE: la rama 04 tiene **9,532 filas en el ODS contra
 9,525 en el replica**.
+
+---
+
+## Fase AUTHZ — Retiro de CASL (ADR-054)
+
+Disparador: Edgar, revisando `/admin/users`, preguntó **"¿qué tan bien se está usando CASL?"**. La medición contestó que no se estaba usando: el backend ya gateaba por clave exacta, y lo que quedaba de CASL sólo agregaba modos de falla. Se retiró en 3 fases para no romper el consumidor antes que el productor.
+
+### AUTHZ.0 — La medición ✅ 2026-09-02
+- [x] ✅ **AUTHZ.0.1** Auditoría del uso real. **74 llamadas** `can(action, subject)` con **14 pares distintos**, y **40 de ellas (54%) eran `can('manage','all')`** — o sea, la pregunta más frecuente al motor de permisos era *"¿es dios?"*.
+- [x] ✅ **AUTHZ.0.2** **Cuatro compuertas muertas**, encontradas cruzando cada call site contra las acciones que algún permiso puede otorgar: de los 32 `*_GESTIONAR/CONFIGURAR`, **sólo `ROLES_CONFIGURAR`** concedía `'manage'`. En CASL `manage` es comodín del lado de la **regla**, no de la consulta (verificado ejecutando el CASL del repo: con `['read','create','update','delete']`, `can('manage','users')` = `false`). Escondía los controles de **usuarios, catálogos, scoring y planogramas**.
+- [x] ✅ **AUTHZ.0.3** **No era teórico: 5 usuarios activos en prod** tenían un permiso que el sistema no honraba — `jefe_marketing` (2) con CATALOGO+SCORING+PLANOGRAMAS `_GESTIONAR`, `supervisor_ventas` (3) con `CATALOGO_GESTIONAR`. En catálogos era **403 real** (`catalogs.controller` decidía con `can('manage','catalogs')`), no sólo un botón escondido. `USUARIOS_GESTIONAR` no tenía víctimas **por casualidad**: hoy el único rol que lo lleva es `superadmin`, que pasa por god-mode.
+- [x] ✅ **AUTHZ.0.4** La copia era **incompleta por construcción**: **51 de 164** claves del enum sin subject, salteadas en silencio por `buildAbility`. Justo las de las fases nuevas (FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5). Por rol real: `marketing` 38 sin regla, `credito_cobranza` 37, `finanzas` 31, `contabilidad` 29 — esos módulos andaban **porque** el guard ya no usaba CASL.
+- [x] ✅ **AUTHZ.0.5** **Cero `conditions`/`fields` en todo el repo** — o sea, cero uso de lo único que justifica traer la librería. El alcance por fila ya vive en `ScopeService` (ADR-050).
+- [x] ✅ **AUTHZ.0.6** Peaje medido con data de prod: el JWT llevaba `permissions` **y** `rules`. `marketing` = 4,901 B de mapa + 3,554 B de reglas → **~11.6 KB de token**; de ahí el `large_client_header_buffers 4 32k` en los 3 nginx. De sus 65 reglas el front consultaba **3 pares**.
+
+### AUTHZ.1 — Backend fuera del camino ✅ 2026-09-02 (commit `5ccb571f`)
+- [x] ✅ `catalogs.controller` pasa a clave exacta → **destapa el 403 de los 5 usuarios**. `RolesGuard` deja de construir la ability y de serializar `rules` al request. `getDataScope` lee `permissions` en vez de reconstruir una ability desde `rules` — y de paso queda **mejor fuente**: el guard la relee del cache en cada request, mientras `rules` viajaba congelada en el token hasta el próximo login (un permiso revocado ahora se respeta al instante).
+
+### AUTHZ.2 — UI a clave exacta ✅ 2026-09-02 (commit `15c60bd7`)
+- [x] ✅ **73 de 82 gates** migrados. Aparecen **3 controles que estaban ocultos** (los de AUTHZ.0.2).
+
+### AUTHZ.3 — Borrado ✅ 2026-09-02 (commit `1555e817`)
+- [x] ✅ Los 9 gates restantes + `buildAbility`/`ability.factory.ts`/`ability.types.ts` borrados (sobrevive `isPlatformAdminRole` en `ability/platform-admin.ts`), `rules` fuera del JWT y de `accessFor`, `@casl/ability` fuera del `package.json`. `can-do.directive.ts` borrada (cero usos).
+- [x] ✅ **`has()` corta por rol de plataforma ANTES de mirar el mapa.** Es indispensable, no un atajo: el rol `superadmin` tiene el mapa **vacío** en prod (11 cuentas) — su acceso siempre vino del nombre del rol. Sin ese corte, el retiro dejaba a los 11 superadmin sin un solo control.
+- [x] ✅ ⚠️ **La trampa fue el productor, no el consumidor.** Al dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve. Es la razón de las 3 fases.
+
+### AUTHZ.4 — Cabos del retiro ✅ 2026-09-02
+- [x] ✅ **AUTHZ.4.1** `RequesterContext` de `users.service` y `AuthUser` de `users.controller` seguían declarando `rules?: unknown[]` —campo muerto— y **no** declaraban `permissions`/`role_name`, de los que `getDataScope` depende para acotar el padrón. Funcionaba sólo porque en runtime llega el `req.user` completo; nada impedía que un caller armara `{ sub, username }` y el alcance cayera **en silencio a `own`** (misma familia que el bug de vendor/portal, versión suave). Los dos tipos ahora declaran lo que usan. De paso muere la intersección redundante `AuthUser & { role_name?: string }` de `myAccess`.
+- [x] ✅ **AUTHZ.4.2** `npm install` — `@casl/ability` fuera del **lockfile** y de `node_modules` (el commit lo sacó del `package.json` pero el lockfile seguía resolviéndolo).
+- [x] ✅ **AUTHZ.4.3** Comentarios que apuntaban a archivos borrados: `roles.guard` (*"ver ability.factory"* → `ability/platform-admin.ts`), el docblock de `accessFor` (decía que devuelve `rules`, ya no) y el de `setPermissions` (*"`buildAbility` le da `manage:all`"*).
+- [x] ✅ **AUTHZ.4.4** Verificación: `tsc` api limpio · `nx build view` **verde** · `nx build vendor`+`portal` verdes · **cero `.can(`** en los 3 frontends · cero referencias a `@casl` en el repo · los 3 `permissions.service.ts` idénticos (md5).
+
+**Pendiente:**
+- ⬜ **Validación en navegador (Edgar).** Este retiro **cambia lo que se ve**: aparecen los controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject (p. ej. *Registrar visita* se le ofrecía a quien sólo tenía `VISITAS_VER`). Los 5 usuarios de AUTHZ.0.3 son el caso de prueba.
+- ⬜ **Redeploy** api + view + vendor + portal. **No hace falta re-login**: `permissions` y `role_name` ya viajaban en el JWT, y los tokens viejos que aún traen `rules` simplemente los ignoran.
+- 📌 **Deuda cosmética aceptada:** la carpeta `libs/platform-core/src/lib/ability/` quedó mal nombrada — hoy sólo tiene el cache de permisos, `platform-admin` y `data-scope`, nada de abilities.
+
+**Lo que este retiro NO arregló** (hallazgos de la misma revisión de `/admin/users`, abiertos): el padrón se sigue acotando por permisos de **reportes** (`getDataScope` mira `REPORTES_VER_GLOBAL/EQUIPO`, no `USUARIOS_*`), así que un rol de RH con `USUARIOS_GESTIONAR` y sin reportes vería **sólo su propia fila**; y `authz-tree` declara `view: USUARIOS_VER` mientras la ruta y el sidebar exigen `USUARIOS_GESTIONAR` para *ver*, o sea que `USUARIOS_VER` no sirve para nada en esa pantalla.
 
 ---
 

@@ -183,15 +183,56 @@ en prod. `tsc --noEmit` del API en verde.
   externo vigila los consumidores CDC ni los carriles de Wincaja. Extenderlo o reemplazarlo por el
   healthcheck de OBS.4.2.
 
-### OBS.6 — El dato declara su rezago
-- ⬜ **OBS.6.1** `analytics.v_feed_freshness` — vista sobre `cron_runs` + `kepler_ods._sync_status`
-  con edad por feed y su clase de umbral.
-- ⬜ **OBS.6.2** Los servicios que ya devuelven `data_as_of` suman `stale: boolean` + `age_human`.
+### OBS.6 — El dato declara su rezago ✅ 6.1 + 6.2 (2026-09-02, commit `f7333af0`)
+
+- ✅ **OBS.6.1** `analytics.v_feed_freshness` — unifica `analytics.cron_runs` (por carril) y
+  `kepler_ods._sync_status` (por tabla) sin copiar ninguna: `derive-no-copy` sobre las dos primarias.
+
+  **Devuelve hechos, no veredicto — y eso fue deliberado.** La vista da EDAD y no lleva umbrales:
+  esos ya tienen dueño único en `CRON_JOBS`/`EXT_SOURCES` de `db-health.service.ts`. Clavarlos
+  también en SQL crearía dos fuentes que se separan en silencio — alguien afloja el umbral en TS, la
+  vista sigue diciendo lo viejo, y el tablero y la pantalla se contradicen sin que nadie sepa cuál
+  manda. El veredicto lo emite quien tiene la política.
+
+  **Las dos lecturas de una tabla vieja** (lo que el diseño ingenuo habría roto): `last_push_at`
+  marca el último EMPUJE, no la última revisión. Un valor viejo admite dos lecturas opuestas —
+  *(a)* el carril está caído (el incidente del 27-ago) o *(b)* la tabla no cambió (frescura
+  perfecta: el carril hash sólo empuja lo que difiere). Medido en prod **con los tres carriles
+  sanos**, `k95doc`, `kdrhfpag`, `kdmt` y compañía dan ~334 h de "edad" y están al día. Por eso
+  `clase` va **NULL** para `origen='ods_table'`: el ritmo de una tabla del ERP no se deduce de su
+  nombre, y la vista no inventa lo que no puede medir. **El carril prueba que se REVISÓ; la tabla
+  dice cuándo CAMBIÓ.** Son preguntas distintas y hacen falta las dos.
+
+- ✅ **OBS.6.2** La etiquetera (`/tienda/etiquetas`) declara su rezago. Es el caso que originó la fase.
+
+  **Dos eslabones, no uno.** La cadena del precio son dos pasos que se mueren por separado:
+  *(1)* `ods_live_hot` shipea `kdii`/`kdpv_prod_util` del ERP al ODS — si muere, el ERP cambia el
+  precio y acá nunca llega (**lo del 27-ago**); *(2)* hop-2 recalcula
+  `commercial.product_label_prices` — si muere, el ODS está fresco y la etiqueta igual queda vieja.
+  Vigilar uno deja el otro ciego.
+
+  ⚠️ **No se usa el `computed_at` de la FILA como señal.** Se movería sólo cuando ESE producto
+  cambia de precio, así que un SKU estable daría semanas de "edad" estando al día — el mismo falso
+  positivo de 6.1. Se usa `max(computed_at)` de la tabla, que sí prueba que el recálculo sigue vivo.
+
+  **Sin latido = `stale`, nunca `ok`.** Es la falla más grave (el carril ni siquiera reporta), y el
+  default permisivo es exactamente cómo un feed muerto se disfraza de sano. Si la frescura no se
+  puede **medir**, se declara desconocida — jamás fresca.
+
+  **Declara, no bloquea** (decisión de Edgar): el banner va arriba del escáner, sin botón de cerrar
+  (es una condición del dato, no un mensaje de una acción) y **nombra qué eslabón** está viejo, para
+  que el aviso sea accionable y no sólo "hay rezago".
+
+  Tolerancias del consumidor (1 h el carril, 12 h el recálculo) **≠** umbrales de `db-health`:
+  *"¿puedo pegar este número en el anaquel?"* y *"¿hay que despertar a alguien?"* son preguntas
+  distintas, con audiencias distintas, y merecen números distintos.
+
+  Guardia `to_regclass` sobre la vista → la etiquetera no se rompe entre el deploy y la migración.
+
+- ⬜ **OBS.6.3** Los servicios que ya devuelven `data_as_of` suman `stale: boolean` + `age_human`.
   **El patrón ya existe y se renderiza**: `commercial-profitability.service.ts:663` →
   `comercial-rentabilidad.component.ts:104`, y `purchase-adjustments.service.ts:607` → las 5 páginas
-  de `/compras`.
-- ⬜ **OBS.6.3** La etiquetera (`/tienda/etiquetas`) muestra *"precio con N h de rezago"*. **No
-  bloquea** (decisión de Edgar). Es el caso que originó la fase.
+  de `/compras`. Falta el veredicto, no el canal.
 
 ### OBS.7 — Regresión
 - ⬜ `database/tests/test-newdb-feed-observability.js` en `run-all-tests.js`. Asertos: (a) cada
