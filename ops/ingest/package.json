@@ -1,0 +1,11 @@
+{
+  "name": "trade-ingest-lanes",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Carriles de ingesta del ODS (replica local -> prod kepler_ods) empaquetados. Imagen autocontenida: solo pg + dotenv, el resto es codigo copiado del repo.",
+  "engines": { "node": ">=20 <21" },
+  "dependencies": {
+    "pg": "^8.20.0",
+    "dotenv": "^17.4.1"
+  }
+}
