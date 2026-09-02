@@ -170,6 +170,8 @@ OCR `LlmExtractorService`, `expense_doc_chain` (Maat), `finance.findings`+scanne
 - **Clasificación `c24`:** keyword vs Haiku — arrancar keyword, Haiku para el ~$13.2M terso.
 - **Histórico (RE.9):** ¿migrar las 910 filas o arrancar limpio desde hoy?
 - **ADR-041:** aceptar el enfoque read-only multi-fuente + pago heurístico + **ajustes `X-D-40`/`X-D-55` clasificados por `c24`**.
+- **[RE.23] Alcance de quien captura Morelia:** el defecto de código está cerrado (la dimensión `warehouse` ya sabe nombrar `30`/`32`), pero falta la decisión de datos — **acotar a `janette_garcia` de `all` a `listed ['30','32']`** desde `/admin/usuarios`. Es *restringir* a una persona, así que lo decide Edgar. Vale para los otros 73 con `all` heredado de `[ID.3]`: la regla trae la nota *"Candidato a recortar"* y nadie la ha recortado.
+- **`zone_id` NULL en los almacenes de Morelia:** asignarle la sucursal a alguien no le deriva la zona (el alta la toma de `warehouses.zone_id`). La zona *"MORELIA ABASTOS"* existe y tiene 9 usuarios; el almacén no la apunta. ¿Se liga?
 
 ## 9. Riesgos / notas
 - **Pago heurístico** (no estructural) — comunicar como "match aproximado", no trazabilidad exacta.
