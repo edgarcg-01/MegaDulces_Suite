@@ -347,7 +347,16 @@ export class BlindCountService {
     const diffReal = Math.round((esperado - total) * 100) / 100;
     // Kepler dijo "cuadrado" (|diff|<50) pero el arqueo ciego revela ≥$50 → enmascaró.
     const keplerEnmascaro = Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50;
-    return { matched: true, ambiguous: false, folio: cut.folio, esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal, kepler_enmascaro: keplerEnmascaro };
+    // El desglose de Kepler viaja con la comparación para que el ticket se pueda
+    // imprimir COMPLETO en el momento del conteo, sin ir a buscarlo al historial.
+    return {
+      matched: true, ambiguous: false, folio: cut.folio,
+      esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff,
+      diff_real: diffReal, kepler_enmascaro: keplerEnmascaro,
+      kepler_billetes: cut.arqueo_billetes == null ? null : Number(cut.arqueo_billetes),
+      kepler_monedas: cut.arqueo_monedas == null ? null : Number(cut.arqueo_monedas),
+      kepler_retirado: cut.efectivo_retirado == null ? null : Number(cut.efectivo_retirado),
+    };
   }
 
   /**

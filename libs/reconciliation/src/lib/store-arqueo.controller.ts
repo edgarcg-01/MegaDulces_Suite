@@ -70,9 +70,14 @@ export class StoreArqueoController {
    * mismo cajón y casi nunca coinciden.
    */
   private proyectar<T extends Record<string, any>>(r: T, revela: boolean) {
-    const { kepler_enmascaro, kepler_contado, kepler_diff, esperado, diff_real, ...ciego } = r;
+    // El desglose de Kepler se recorta con el resto: sus billetes y monedas suman
+    // el contado declarado, así que publicarlos es publicar el esperado en dos
+    // partes. Van en la MISMA lista que `esperado` a propósito.
+    const { kepler_enmascaro, kepler_contado, kepler_diff, esperado, diff_real,
+            kepler_billetes, kepler_monedas, kepler_retirado, ...ciego } = r;
     return revela
-      ? { ...ciego, esperado, diff_real, kepler_contado, kepler_diff, kepler_enmascaro }
+      ? { ...ciego, esperado, diff_real, kepler_contado, kepler_diff, kepler_enmascaro,
+          kepler_billetes, kepler_monedas, kepler_retirado }
       : ciego;
   }
 
