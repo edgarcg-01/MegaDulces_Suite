@@ -128,6 +128,52 @@ const _lastSafety = new Map();
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ── LATIDO (OBS.1) ───────────────────────────────────────────────────────────────────────────
+// Este carril alimentaba prod y era MUDO: no escribía a `analytics.cron_runs`, así que db-health no
+// tenía nada que vigilar. Del 27/08 al 02/09/2026 estuvo parado 6 días y la única señal fue el mtime
+// de un .log. 23,200 filas de catálogo sin shipear (10,248 de costo) y la app publicando precio,
+// costo y margen con toda confianza. Se descubrió por accidente.
+//
+// ⚠️ VARIABLE PROPIA a propósito. `cron-heartbeat.js` toma su conexión de `DATABASE_URL_NEW`, y en
+// ESTE script esa var apunta al CONTENEDOR DE REPLICAS (:5433) — no a prod. Un latido escrito ahí es
+// invisible para el tablero, que vive en prod: el modo de falla exacto que la fase busca eliminar.
+// Ver GOTCHAS §17 ("DATABASE_URL_NEW significa tres cosas") y §18.
+// Fallback a `FLEET_DB_URL`, que es el handle de prod verificado (reference_prod_db_connection_topology).
+const HB_URL = process.env.ODS_HB_URL || process.env.FLEET_DB_URL || null;
+// Un carril = un umbral. El hot loop (@15s) y el espejo lento (@300s) no pueden compartir alarma.
+const HB_KEY = process.env.ODS_HB_KEY || (ALL_MODE ? 'ods_live_mirror' : 'ods_live_hot');
+const HB_LABEL = ALL_MODE ? 'ODS espejo completo (replica→prod)' : 'ODS carril vivo (replica→prod)';
+
+/** Latido DIRECTO a prod. Nunca tira: un latido que rompe el feed es peor que no tenerlo. */
+async function latir(fase, { status, rows, note, error, ms } = {}) {
+  if (!HB_URL) return;
+  const c = new Client({ connectionString: HB_URL, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  try {
+    await c.connect();
+    if (fase === 'begin') {
+      // Sana una corrida colgada antes de abrir la nueva (mismo contrato que lib/cron-heartbeat).
+      await c.query(
+        `UPDATE analytics.cron_runs SET status='error', last_finish=now(),
+                error=COALESCE(error,'la corrida anterior no reportó cierre (proceso caído)')
+          WHERE tenant_id=$1 AND job_key=$2 AND status='running'`, [TENANT, HB_KEY]);
+      await c.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
+        VALUES ($1,$2,$3, now(), 'running', $4, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), status='running', host=EXCLUDED.host, updated_at=now()`,
+      [TENANT, HB_KEY, HB_LABEL, require('os').hostname()]);
+    } else {
+      await c.query(`
+        UPDATE analytics.cron_runs
+           SET last_finish=now(), status=$3, rows_affected=$4, duration_ms=$5,
+               note=left($6,500), error=left($7,500), updated_at=now()
+         WHERE tenant_id=$1 AND job_key=$2`,
+      [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
+    }
+  } catch (e) { console.error(`  latido (${fase}) falló: ${e.message.slice(0, 70)}`); }
+  finally { await c.end().catch(() => {}); }
+}
+
 // Destino. En FEEDS_SINK=http (prod) el ship va por HTTP y no se usa cliente. En FEEDS_SINK=pg
 // (on-prem / test) se aplica directo con este cliente contra KP_DEST_URL (default = replicas base).
 const DEST_URL = process.env.KP_DEST_URL || null;
@@ -349,14 +395,24 @@ async function primeCtid() {
   }
 }
 
-/** Un ciclo: cada replica local × tablas, ruteando por carril. */
+/** Un ciclo: cada replica local × tablas, ruteando por carril.
+ *  `summary.fallas` = ramas que no se pudieron leer. Antes esto era un `continue` MUDO: una pasada
+ *  entera podía shipear CERO (las 7 ramas sin conectar) e imprimir "APPLY hecho." igual. Es la misma
+ *  falla silenciosa que tuvo Wincaja 4 días en cero con los dos carriles "online" — ahí se resolvió
+ *  agregando las fallas al error del latido (replicate-wincaja-live.js:200-207) y se copia acá. */
 async function cycleAll({ apply, full }) {
   const summary = [];
+  const fallas = [];
+  summary.fallas = fallas;
   for (const b of BRANCHES) {
     if (ONLY_BRANCH && b.code !== ONLY_BRANCH) continue;
     const p = new Client({ connectionString: b.url, ssl: false, ...CONN });
     try { await p.connect(); }
-    catch (e) { console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`); continue; }
+    catch (e) {
+      console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`);
+      fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
+      continue;
+    }
     try {
       await ensureLocalCtl(p);
       const tables = await tablesFor(p);
@@ -395,24 +451,74 @@ async function cycleAll({ apply, full }) {
     console.log(`  destino pg: ${new URL(destStr).host}${new URL(destStr).pathname}`);
   }
 
+  // Preflight del vigilante. En watch (desatendido, bajo supervisor) se ABORTA antes que correr a
+  // ciegas: sin destino de latido, un carril muerto es indistinguible de uno sano y el tablero queda
+  // verde — que es exactamente cómo se perdieron 6 días. En one-shot solo se avisa fuerte.
+  const late = (APPLY || WATCH_SEC) && sink.sinkMode() === 'http';
+  if (late && !HB_URL) {
+    const msg = 'falta ODS_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril.';
+    if (WATCH_SEC) { console.error(`✖ ${msg}\n  El ecosystem la pasa explícita. Abortando.`); process.exit(1); }
+    console.warn(`⚠ ${msg}`);
+  }
+  // El latido NO debe viajar por el canal que vigila (GOTCHAS §18): si apunta al mismo lugar que la
+  // FUENTE, no es prod y no sirve de nada.
+  if (HB_URL && new URL(HB_URL).host === new URL(SUB_BASE).host) {
+    console.error(`✖ ODS_HB_URL apunta a la FUENTE (${new URL(SUB_BASE).host}), no a prod — el latido sería invisible.`);
+    if (WATCH_SEC) process.exit(1);
+  }
+
+  /** Un ciclo con latido: begin → cycleAll → end(ok|error). Reporta ENTREGA, no "el proceso corre". */
+  const ciclarConLatido = async ({ full }) => {
+    const t0 = Date.now();
+    if (late) await latir('begin');
+    try {
+      const summary = await cycleAll({ apply: true, full });
+      const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
+      const errs = summary.filter((r) => r.error).length;
+      const fallas = summary.fallas || [];
+      // Una rama ilegible o una tabla en error es un ERROR del carril, aunque el proceso siga vivo.
+      const malo = fallas.length > 0 || errs > 0;
+      if (late) {
+        await latir('end', {
+          status: malo ? 'error' : 'ok',
+          rows: wrote,
+          ms: Date.now() - t0,
+          note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error`,
+          error: malo
+            ? [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
+              errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ')
+            : null,
+        });
+      }
+      return { wrote, ms: Date.now() - t0 };
+    } catch (e) {
+      if (late) await latir('end', { status: 'error', ms: Date.now() - t0, error: e.message });
+      throw e;
+    }
+  };
+
   if (!WATCH_SEC) {
-    const summary = await cycleAll({ apply: APPLY, full: FULL });
-    console.log('\n=== Resumen ===');
-    console.table(summary.slice(0, 200));
-    console.log(APPLY ? 'APPLY hecho.' : 'DRY-RUN — nada cambió. Corré con --apply.');
+    if (!APPLY) {
+      const summary = await cycleAll({ apply: false, full: FULL });
+      console.log('\n=== Resumen ===');
+      console.table(summary.slice(0, 200));
+      console.log('DRY-RUN — nada cambió. Corré con --apply.');
+      if (DEST) await DEST.end().catch(() => {});
+      return;
+    }
+    await ciclarConLatido({ full: FULL });
+    console.log('APPLY hecho.');
     if (DEST) await DEST.end().catch(() => {});
     return;
   }
 
-  console.log(`  watch activo — Ctrl+C para salir.`);
+  console.log(`  watch activo (latido → ${HB_KEY}) — Ctrl+C para salir.`);
   let cycle = 0;
   for (;;) {
     cycle++;
-    const t0 = Date.now();
     try {
-      const summary = await cycleAll({ apply: true, full: FULL && cycle === 1 });
-      const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
-      if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${Date.now() - t0}ms) ──`);
+      const { wrote, ms } = await ciclarConLatido({ full: FULL && cycle === 1 });
+      if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${ms}ms) ──`);
     } catch (e) {
       console.error(`  ✗ ciclo ${cycle}: ${e.message.slice(0, 120)}`);
     }

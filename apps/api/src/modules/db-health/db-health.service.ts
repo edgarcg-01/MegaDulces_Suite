@@ -415,6 +415,22 @@ const CRON_JOBS: CronCfg[] = [
   // reciente (replica vs kepler_ods), repone el delta y late acá con lo que encontró; si supera el
   // umbral escribe status='error' → CRÍTICO. Un número > 0 sostenido = se está perdiendo otra vez.
   { key: 'cdc_reconcile',       label: 'Reconciliador ODS (completitud)', cadence: 'continuo ~15 min', warnH: 1, critH: 3 },
+  // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
+  // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
+  // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
+  // (10,248 de costo) — y lo encontró un humano al corregir un precio a mano. Dos carriles, dos
+  // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
+  { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
+  { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // OBS.1 — HUÉRFANOS: estos SÍ latían, pero al no estar acá caían en el `cfg ? classify : 'ok'` de
+  // checkCronRuns() y se pintaban VERDE INCONDICIONAL por viejos que estuvieran. Un latido sin
+  // umbral registrado no es una alarma, es decoración. (wincaja_replica_* justo se pasó 4 días en
+  // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
+  { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
+  { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
+  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
+  { key: 'analytics_refresh_wincaja', label: 'Refresh MVs Wincaja',     cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
+  { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
