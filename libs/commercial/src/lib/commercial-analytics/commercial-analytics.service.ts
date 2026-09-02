@@ -3510,7 +3510,11 @@ export class CommercialAnalyticsService {
     const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
     const { rows, vendors, keplerCredito, identMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      const rows = await trx('analytics.sales_daily as sd')
+      // PERF (2026-09-02): el árbol de canales sale del rollup mensual `sales_boxes_monthly` (634k
+      // filas) en vez de `sales_daily` (4.4M) → mismo set canal×almacén (verificado IDÉNTICO) en ~230 ms
+      // vs ~1.2 s. El árbol es "qué canal×almacén tuvo venta EN CUALQUIER momento" → el grano mensual
+      // da exactamente lo mismo (un mes tiene venta sii algún día la tiene). Mismas columnas.
+      const rows = await trx('analytics.sales_boxes_monthly as sd')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
         .where('sd.tenant_id', tenantId)
         .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
@@ -3525,7 +3529,8 @@ export class CommercialAnalyticsService {
         .groupByRaw('sd.vendor_code, sd.vendor_name')
         .havingRaw('sum(sd.revenue) > 0');
       // Crédito Kepler (canal 'credito' NO wincaja): sin vendedor → una sola hoja aparte.
-      const kc = await trx('analytics.sales_daily as sd')
+      // Mismo rollup mensual (perf): la decisión es solo sum(revenue)>0 por canal.
+      const kc = await trx('analytics.sales_boxes_monthly as sd')
         .where('sd.tenant_id', tenantId).andWhere('sd.channel', 'credito')
         .sum({ rev: 'sd.revenue' }).first();
       return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0, identMap };
