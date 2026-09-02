@@ -8,19 +8,21 @@ Mega Dulces. Migrado desde el proyecto standalone `megadulces-api-ready`
 Plan completo, roadmap por sub-sprint y decisiones de arquitectura en
 [`docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md`](../../docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
 
-## Qué hay portado (CV.0)
+## Qué hay portado
 
-Sólo el módulo `kp` — lectura de `KP_CONCENTRADA` (schema `kp.*`, espejo crudo
-del ERP Kepler): catálogo, existencias, ventas, y los dos endpoints públicos
-que consumen los verificadores de mostrador (`/api/kp/precio`,
-`/api/kp/precios-todos`). Los endpoints que en origen exigían sesión responden
-**503** (`PendingAuthGuard`) hasta que CV.1 porte `auth` — no quedan abiertos
-por accidente.
+- **CV.0** — módulo `kp`: lectura de `KP_CONCENTRADA` (schema `kp.*`, espejo
+  crudo del ERP Kepler): catálogo, existencias, ventas, y los dos endpoints
+  públicos que consumen los verificadores de mostrador (`/api/kp/precio`,
+  `/api/kp/precios-todos`).
+- **CV.1** — `auth` (JWT propio + bcryptjs sobre `admin.usuarios`) y `admin`
+  (CRUD de usuarios del tablero, rol `admin`). Los endpoints de `kp` que
+  exigen sesión ya usan `AuthGuard('jwt')` de verdad.
 
-`auth`, `catalogo` (tablero interno), `admin` (confirmación de pedidos),
-`tienda` (carrito/checkout/cola de trabajos — dinero real, Mercado Pago
-pendiente), `monitor`, `salidas`, `dashboard` quedan pendientes, uno por
-sub-sprint.
+`catalogo` (tablero interno), `tienda` (carrito/checkout/cola de trabajos —
+dinero real, Mercado Pago pendiente), `monitor`, `salidas`, `dashboard`
+quedan pendientes, uno por sub-sprint. Las rutas `pedidos/pagos/cola` del
+`AdminController` original se agregan en CV.5, junto con `tienda` (de la que
+dependen) — ver el comentario en `src/admin/admin.controller.ts`.
 
 ## Correrlo local
 
@@ -33,9 +35,19 @@ esa LAN, no arranca (el provider de conexión hace `throw` a propósito — ver
 # .env (raíz del monorepo) necesita:
 #   DATABASE_URL_KP_CONCENTRADA=postgresql://catalogo_kp_runtime:PASSWORD@192.168.0.245:5432/KP_CONCENTRADA
 #   KP_EXCEL_FOLDER=C:\Users\Administrador\DataCenter\DataBases Sucursales\MES GLOBAL
+#   CATALOGO_KP_JWT_SECRET=<propio, NO el JWT_SECRET de la Suite>
 
 nx build catalogo-kp
 nx serve catalogo-kp
+```
+
+Crear el primer usuario del tablero (no hay seed — igual que en origen, para
+no dejar una contraseña en texto plano en el repo):
+
+```sql
+-- generar el hash: node -e "require('bcryptjs').hash(process.argv[1],10).then(h=>console.log(h))" "TU_CONTRASENA"
+INSERT INTO admin.usuarios (email, nombre, password, rol)
+VALUES ('alguien@megadulces.com.mx', 'Nombre', '<hash>', 'admin');
 ```
 
 ## Deployment
