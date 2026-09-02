@@ -71,13 +71,13 @@ const SELECT_HEALTH = `
       FROM vel
   ), stk AS (
     -- ADR-052 — la existencia se DERIVA del ODS, ya no se lee la copia commercial.stock.
-    -- Medido contra el POS en vivo: la vista acierta 100.0% y la copia 91.0%. Además la vista
-    -- NORMALIZA la unidad de Wincaja (MD-30/MD-32/00 guardan la existencia en su unidad de venta,
-    -- que en multipack es el PAQUETE) — acá eso movía los buckets agotado/critico/sobrestock y la
-    -- cobertura en dias, porque comparaba existencia en paquetes contra demanda en unidad base.
-    -- Mismo shape que traia commercial.stock (product_id, warehouse_id, quantity) y misma unidad,
-    -- asi que el resto de la query no cambia.
-    SELECT product_id, warehouse_id, sum(qty_base_units) AS quantity
+    -- Medido contra el POS en vivo: la vista acierta 100.0% y la copia 91.0%.
+    -- ⚠️ La vista NO convierte unidades a proposito: Wincaja guarda la existencia en su unidad de
+    -- venta y su DEMANDA (la que se cruza acá para dias de cobertura y buckets) viene en esa MISMA
+    -- unidad — verificado 1:1 contra wincaja.v_sales_daily. Auto-consistente por almacen.
+    -- Convertir solo la existencia inflaba la cobertura de los multipack a 534-900 dias y los
+    -- mandaba todos a 'sobrestock'. Mismo shape y misma unidad que traia commercial.stock.
+    SELECT product_id, warehouse_id, sum(qty_stock_units) AS quantity
       FROM analytics.v_erp_stock_on_hand
      WHERE tenant_id = $1
      GROUP BY 1, 2

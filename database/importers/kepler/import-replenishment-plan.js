@@ -389,14 +389,17 @@ const cte = (hist, tr, lead) => `
   -- Medido contra el POS en vivo (2026-09-02): la vista acierta 100.0% y la copia 91.0% (15,324
   -- unidades de error), porque el importer de la copia es delta contra un snapshot en disco que se
   -- desincroniza y deja valores fantasma para siempre.
-  -- Y la vista NORMALIZA la unidad: Wincaja (MD-30/MD-32/00) guarda la existencia en su unidad de
-  -- venta — el PAQUETE en multipack — y acá se dividía por \`bf\` como si fueran unidades base,
-  -- sub-declarando Morelia 3x-144x => $870,907 de sobre-pedido sobre 493 SKUs.
-  -- \`qty_base_units\` está en la MISMA unidad que traía \`s.quantity\` (la unidad base del ERP), así
-  -- que \`stock_pz\` y todo lo que divide por \`bf\` aguas abajo siguen siendo válidos.
+  -- ⚠️ LA VISTA NO CONVIERTE UNIDADES, Y ESO ES DELIBERADO. Wincaja guarda la existencia en su
+  -- unidad de venta (el PAQUETE en multipack) — pero su DEMANDA viene en esa MISMA unidad
+  -- (verificado: \`analytics.sales_daily.units\` coincide 1:1 con \`wincaja.v_sales_daily.qty\` en
+  -- los 182 multipack de MD-30), y \`reorder_policy\` se deriva de esa demanda. O sea existencia,
+  -- demanda y umbrales son AUTO-CONSISTENTES por almacén. Convertir sólo la existencia rompe el
+  -- pedido: se ve \`factor\` veces más grande que su demanda y el motor deja de pedir. Ya pasó —
+  -- mig 20260902200000 lo revirtió. El problema de Wincaja es de DISPLAY (mostrar cajas), y para
+  -- eso está \`display_box_factor\`, que NO se usa acá.
   -- El plegado de aliases se hace ACÁ a propósito: la vista es "existencia por almacén x producto"
   -- y no pliega (una sola responsabilidad).
-  stk AS (SELECT COALESCE(al.canonical_product_id, v.product_id) AS product_id, v.warehouse_id, sum(v.qty_base_units) AS quantity
+  stk AS (SELECT COALESCE(al.canonical_product_id, v.product_id) AS product_id, v.warehouse_id, sum(v.qty_stock_units) AS quantity
             FROM analytics.v_erp_stock_on_hand v
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=v.tenant_id AND al.alias_product_id=v.product_id AND al.deleted_at IS NULL
            WHERE v.tenant_id=$1 GROUP BY 1,2),
