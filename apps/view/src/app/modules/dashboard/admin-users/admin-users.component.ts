@@ -60,6 +60,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { AreaMeta } from '../../../core/constants/role-presets';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * Icono por departamento. El catálogo `identity.departments` guarda code/name/
@@ -176,7 +177,7 @@ export class AdminUsersComponent implements OnInit {
   saving = signal<boolean>(false);
 
   // Permisos para gating de botones de write
-  readonly canManageUsers = this.perms.can$('manage', 'users');
+  readonly canManageUsers = this.perms.has$(Permission.USUARIOS_GESTIONAR);
 
   // Búsqueda debounceada (250 ms) para no recomputar `filteredUsers` en cada
   // keystroke cuando el padrón crece.
@@ -751,10 +752,9 @@ export class AdminUsersComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    if (!this.perms.can('read', 'users')) {
+    if (!this.perms.hasAny(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)) {
       if (
-        this.perms.can('read', 'reports_team') ||
-        this.perms.can('read', 'reports_global')
+        this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)
       ) {
         this.router.navigate(['/dashboard']);
       } else {

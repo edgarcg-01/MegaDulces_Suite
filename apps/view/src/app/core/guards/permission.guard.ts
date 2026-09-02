@@ -33,7 +33,7 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
     // `can('read', subject)`, lo que mostraba nav que el API ahora 403ea.
     const legacyPerms = authService.user()?.permissions;
     const hasFallback = legacyPerms ? legacyPerms[requiredPermission] === true : false;
-    const hasAccess = perms.can('manage', 'all');
+    const hasAccess = perms.isAdmin();
 
     if (!hasAccess && !hasFallback) {
       return denied(router, state.url, requiredPermission);
@@ -61,7 +61,7 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
 
     const legacyPerms = authService.user()?.permissions;
     const ok =
-      perms.can('manage', 'all') ||
+      perms.isAdmin() ||
       requiredPermissions.some((p) => (legacyPerms ? legacyPerms[p] === true : false));
 
     if (!ok) {
@@ -92,7 +92,7 @@ export const landingRedirectGuard = (
   if (!authService.isAuthenticated) return router.parseUrl('/login');
 
   const p = authService.user()?.permissions || {};
-  const god = perms.can('manage', 'all');
+  const god = perms.isAdmin();
   for (const c of candidates) {
     if (god || p[c.perm] === true) return router.parseUrl(c.url);
   }
@@ -173,7 +173,7 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
     return false;
   }
 
-  const canAccessFullDashboard = perms.can('read', 'reports_team') || perms.can('read', 'reports_global');
+  const canAccessFullDashboard = perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
   const legacyPerms = authService.user()?.permissions;
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 

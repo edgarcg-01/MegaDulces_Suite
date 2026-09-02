@@ -254,6 +254,6 @@ export class AlmacenMonitoreoComponent implements OnInit {
   }
 
   canManage(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PREVENTION_GESTIONAR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PREVENTION_GESTIONAR];
   }
 }

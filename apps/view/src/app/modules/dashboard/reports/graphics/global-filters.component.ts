@@ -8,6 +8,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { FiltersStateService } from './filters-state.service';
 import { ReportsService } from '../reports.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 
 interface DropOption {
   label: string;
@@ -176,7 +177,7 @@ export class GlobalFiltersComponent implements OnInit {
   }
 
   private loadSupervisors() {
-    if (!this.perms.can('read', 'users')) {
+    if (!this.perms.hasAny(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)) {
       return;
     }
 

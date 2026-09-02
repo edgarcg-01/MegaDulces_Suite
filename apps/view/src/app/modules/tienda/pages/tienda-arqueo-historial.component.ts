@@ -191,7 +191,7 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   private readonly zone = inject(NgZone);
 
   /** Espeja la regla del backend: solo quien valida ve el cuadre. */
-  readonly revela = this.perms.can('manage', 'all')
+  readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 
   readonly porCajera = signal<ArqueoPorCajera[]>([]);

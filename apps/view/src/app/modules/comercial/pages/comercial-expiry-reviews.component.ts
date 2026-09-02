@@ -139,7 +139,7 @@ export class ComercialExpiryReviewsComponent {
   creating = signal(false);
 
   canCapture = () =>
-    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
+    this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
 
   constructor() {
     this.svc.listWarehouses(true)

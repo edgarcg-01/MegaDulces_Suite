@@ -379,7 +379,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * el fallback al record legacy se mantiene.
    */
   private hasPermFor(item: NavItem): boolean {
-    if (this.perms.can('manage', 'all')) return true;
+    if (this.perms.isAdmin()) return true;
     const legacy = this.user()?.permissions;
     // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
     if (item.anyOf?.length) {
@@ -395,7 +395,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * getter de áreas de Almacén (WMS.1) para elegir el primer tab accesible.
    */
   private canPerm(p: Permission): boolean {
-    if (this.perms.can('manage', 'all')) return true;
+    if (this.perms.isAdmin()) return true;
     const subject = this.permToSubject[p];
     if (subject && this.perms.can('read', subject as any)) return true;
     const legacy = this.user()?.permissions;

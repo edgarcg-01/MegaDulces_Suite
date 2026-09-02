@@ -131,6 +131,7 @@ export class AuthService {
       this.user.set(payload);
 
       if (payload.rules) {
+        this.perms.load(payload.permissions, payload.role_name);
         this.perms.loadRules(payload.rules);
       }
 

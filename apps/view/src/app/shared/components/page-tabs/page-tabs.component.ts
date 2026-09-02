@@ -143,7 +143,7 @@ export class PageTabsComponent implements AfterViewInit {
    * — el mismo trap que ya resuelven el guard y el sidebar.
    */
   readonly visibleTabs = computed(() => {
-    const all = this.perms.can('manage', 'all');
+    const all = this.perms.isAdmin();
     return this.tabs().filter(
       (t) => !t.permission || all || this.auth.user()?.permissions?.[t.permission] === true,
     );
