@@ -496,11 +496,15 @@ hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
 
 **En prod:** migraciones `20260902120000` (batch 247) y `20260902130000` (batch 248)
 aplicadas; el flag backfilleado con el rango completo. **Falta desplegar el código**
-(api + view) y, como los permisos no cambiaron en esta tanda, no hace falta re-login.
+(api + view) y, como los permisos de LC no cambiaron en esta tanda, no hace falta re-login
+para esta pantalla.
 
-> ⚠️ **Nota operativa:** prod tiene **91 migraciones pendientes** de otros devs (del 19-ago
-> en adelante). Las de LC se aplicaron una por una con `migrate:up`, nunca `migrate:latest`.
-> Correr `migrate:latest` contra prod hoy aplicaría las 91 de un golpe.
+> **Corrección (2026-09-02):** un aviso previo decía que prod tenía "91 migraciones
+> pendientes". **Era falso** — ese `migrate:list` corrió con `DATABASE_URL_NEW` vacío
+> (`$FLEET_DB_URL` no existe en el shell, vive dentro de `.env`) y midió
+> `localhost:5433`, no Railway. Prod tenía **2** pendientes; se aplicaron en el batch 249 y
+> quedó en **0 de 541**. La lección real es la del footgun de la variable, no la del
+> backlog: ver la nota en `reference_prod_db_connection_topology`.
 
 **Pendientes operativos de LC.1:**
 
