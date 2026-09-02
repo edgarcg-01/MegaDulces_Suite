@@ -18,11 +18,21 @@ export type PromoMetric = 'clientes_distintos' | 'piezas' | 'tickets' | 'monto';
 
 export interface PromoRule {
   canal: 'ruta' | 'todos';
+  /** Qué mercancía cuenta: un SKU suelto o TODA una marca/proveedor (ej "Vidis" = 160 SKUs). */
+  alcance?: 'sku' | 'marca';
+  marca_texto?: string | null;
   sku: string | null;
   producto_texto: string | null;
+  /** Canales cuyos vendedores participan. Vacío = todos los de venta con vendedor. */
+  canales?: PromoCanal[];
   metric: PromoMetric;
   rate: number;
   min_qty: number;
+  /**
+   * Umbral en PESOS por cliente para calificar (ej "al que se le venda $500"). 0 = sin
+   * umbral de dinero. Es acumulado del cliente con ESE vendedor en todo el periodo.
+   */
+  min_importe?: number;
   descripcion: string;
   supuestos: string;
   // Vigencia detectada por el AI en el enunciado (auto-inteligente). null si el enunciado no la menciona.
@@ -32,8 +42,12 @@ export interface PromoRule {
 }
 
 export interface PromoRouteRow {
+  /** Canal del que salió la fila: en RD el vendedor es la ruta; en los demás, el código del POS. */
+  canal: PromoCanal;
+  vendedor: string;
   warehouse_code: string;
   warehouse_name: string;
+  /** @deprecated alias de `vendedor`, se conserva para no romper consumidores. */
   route_no: string;
   label: string;
   clientes: number;                // clientes distintos que califican (≥ min_qty, en unidad base)
@@ -139,11 +153,13 @@ const DRX = /^\d{4}-\d{2}-\d{2}$/;
  * **o PAQ**: para 97192 la base es el paquete, así que `c84=24` son paquetes por caja.
  * Por eso el resultado se llama `unidades` y viaja con su rótulo, nunca "piezas".
  */
-const LADDER_CTE = `lad AS (SELECT * FROM analytics.v_product_unit_ladder WHERE sku = ?)`;
-
-/** LATERAL que elige el peldaño de la línea por su precio. Requiere `lad` en el WITH. */
-const TIER_LATERAL = `
-      LEFT JOIN lad ON true
+/**
+ * JOIN que resuelve el peldaño de cada línea contra la escalera del SKU. Sirve igual para
+ * un SKU que para los 160 de una marca: la escalera se une por `sl.sku`, no por parámetro.
+ * Espera un alias `sl` con `sku`, `qty` e `importe`.
+ */
+const TIER_JOIN = `
+      LEFT JOIN analytics.v_product_unit_ladder lad ON lad.sku = sl.sku
       LEFT JOIN LATERAL (
         SELECT t.f
         FROM (VALUES (1::numeric, lad.p1), (COALESCE(lad.f2, 1), lad.p2), (COALESCE(lad.f3, 1), lad.p3)) AS t(f, p)
@@ -152,6 +168,32 @@ const TIER_LATERAL = `
         ORDER BY abs(ln((sl.importe / sl.qty) / t.p))
         LIMIT 1
       ) tier ON true`;
+
+/**
+ * ── ALCANCE Y CANALES (RR-PROMO.2) ──────────────────────────────────────────────────────
+ * Una mecánica real no siempre habla de un SKU. La que originó esto:
+ *
+ *     Proveedor: vidis · del 01/06/2026 al 31/08/2026
+ *     Participan: vendedores de RD, vendedores de ruta vecinal y vendedores de mayoreo
+ *     Dinámica: bono de $50 por cliente distinto al que se le venda $500 de Vidis
+ *
+ * Trae tres cosas que el motor de un solo SKU no podía: alcance por MARCA (Vidis son 160
+ * SKUs), TRES canales con el vendedor como dimensión de pago, y un umbral en DINERO por
+ * cliente ($500) en vez de en cantidad.
+ *
+ * El umbral de dinero es, además, el único inmune a la unidad de medida: $500 son $500
+ * vengan en pieza, paquete o caja. Por eso `min_importe` no arrastra la incertidumbre de
+ * `min_qty` — y cuando la mecánica se puede expresar en dinero, es la forma más segura.
+ */
+export const PROMO_CANALES = ['ruta', 'vecinal', 'mayoreo', 'mostrador'] as const;
+export type PromoCanal = (typeof PROMO_CANALES)[number];
+
+const CANAL_LABEL: Record<PromoCanal, string> = {
+  ruta: 'RD / reparto',
+  vecinal: 'Ruta vecinal',
+  mayoreo: 'Mayoreo',
+  mostrador: 'Mostrador',
+};
 
 @Injectable()
 export class RoutePromoService {
@@ -175,12 +217,19 @@ export class RoutePromoService {
       input_schema: {
         type: 'object',
         properties: {
-          canal: { type: 'string', enum: ['ruta', 'todos'], description: 'RD / reparto / ruta / venta a bordo → "ruta". Si no se menciona canal → "todos".' },
+          canal: { type: 'string', enum: ['ruta', 'todos'], description: 'RD / reparto / ruta / venta a bordo → "ruta". Si no se menciona canal → "todos". (Heredado: para varios canales usá "canales".)' },
+          canales: {
+            type: 'array', items: { type: 'string', enum: ['ruta', 'vecinal', 'mayoreo', 'mostrador'] },
+            description: 'Canales cuyos VENDEDORES participan, del renglón "Participan:". Mapeo: "RD"/"reparto"/"venta a bordo"/"ruta" → "ruta"; "ruta vecinal"/"vecinal"/"preventa" → "vecinal"; "mayoreo"/"crédito" → "mayoreo"; "mostrador"/"piso"/"tienda" → "mostrador". Ej "vendedores de RD, de ruta vecinal y de mayoreo" → ["ruta","vecinal","mayoreo"]. Si el enunciado no dice quién participa, dejá el arreglo vacío.',
+          },
+          alcance: { type: 'string', enum: ['sku', 'marca'], description: '"sku" si la promo es de UN producto concreto. "marca" si aplica a TODA la mercancía de un proveedor/marca/línea (ej "Proveedor: vidis", "mercancía de Vidis", "productos Ricolino") — en ese caso llená marca_texto y dejá sku/producto_texto en null.' },
+          marca_texto: { type: ['string', 'null'], description: 'Nombre de la marca o proveedor tal como se menciona (ej "vidis"). Sólo cuando alcance="marca"; si no, null.' },
           sku: { type: ['string', 'null'], description: 'Código del producto si aparece (ej "cód:97192", "clave 97192" → "97192"). Si no hay código → null.' },
           producto_texto: { type: ['string', 'null'], description: 'Nombre del producto como se menciona (ej "choyitas 14 gr/40"), para resolverlo por catálogo si no hay código. null si no aplica.' },
           metric: { type: 'string', enum: ['clientes_distintos', 'piezas', 'tickets', 'monto'], description: '"clientes_distintos" si el pago es por CLIENTE/cuenta distinta que compró el producto (aunque compre varias piezas, cuenta una vez). "piezas" si es por cada pieza/unidad. "tickets" por ticket/venta. "monto" si es $/% sobre el importe vendido.' },
           rate: { type: 'number', description: 'Monto en pesos por cada unidad de la métrica (ej $6.00 → 6).' },
-          min_qty: { type: 'number', description: 'Piezas mínimas por cliente para calificar (ej "una o más piezas" → 1). Default 1.' },
+          min_qty: { type: 'number', description: 'Cantidad mínima por cliente para calificar (ej "una o más piezas" → 1). Default 1. Si el umbral está en DINERO, dejá 1 acá y usá min_importe.' },
+          min_importe: { type: 'number', description: 'Umbral en PESOS por cliente para calificar, cuando la mecánica lo pide en dinero (ej "al que se le venda $500 de mercancía" → 500). 0 si el enunciado no pone un umbral de dinero. Es acumulado del cliente en todo el periodo.' },
           descripcion: { type: 'string', description: 'La regla reformulada, clara, en una línea.' },
           supuestos: { type: 'string', description: 'Ambigüedades o supuestos que tomaste; "" si ninguno.' },
           date_from: { type: ['string', 'null'], description: 'Inicio de la VIGENCIA de la promo en YYYY-MM-DD, si el enunciado la menciona (ej "del 1 al 15 de agosto", "vigencia agosto", "primera quincena de septiembre", "esta semana"). Resolvé el año con la fecha de HOY que se te da. null si el enunciado NO menciona periodo.' },
@@ -192,10 +241,13 @@ export class RoutePromoService {
     };
     const hoy = this.iso(new Date()); // contenedor en TZ MX
     const system =
-      'Traduces mecánicas de incentivo a vendedores de RUTA (RD = reparto = venta a bordo) a parámetros ' +
-      'estructurados. "clientes distintos a los que se les vendió una o más piezas" = métrica clientes_distintos ' +
-      'con min_qty=1 (cada cliente cuenta UNA vez sin importar cuántas piezas compre). No inventes datos: si el ' +
-      'enunciado no lo dice, usa los defaults y anótalo en supuestos. ' +
+      'Traduces mecánicas de incentivo a vendedores (RD = reparto = venta a bordo; también ruta vecinal, ' +
+      'mayoreo y mostrador) a parámetros estructurados. "clientes distintos a los que se les vendió una o ' +
+      'más piezas" = métrica clientes_distintos con min_qty=1 (cada cliente cuenta UNA vez sin importar ' +
+      'cuántas piezas compre). "bono de $X por cliente distinto al que se le venda $Y de mercancía de M" = ' +
+      'metric clientes_distintos, rate=X, min_importe=Y, alcance="marca", marca_texto=M. Un renglón ' +
+      '"Proveedor: M" o "mercancía de M" es alcance="marca", NO un SKU. El renglón "Participan:" define ' +
+      '"canales". No inventes datos: si el enunciado no lo dice, usa los defaults y anótalo en supuestos. ' +
       `Hoy es ${hoy} (zona horaria de México). Si el enunciado indica una vigencia o periodo (fechas, mes, ` +
       'quincena, "esta semana"), extraela en date_from/date_to (YYYY-MM-DD, resolviendo el año con la fecha de hoy); ' +
       'si NO menciona periodo, dejá date_from/date_to en null. Responde SOLO llamando la herramienta.';
@@ -216,8 +268,16 @@ export class RoutePromoService {
     let dt = DRX.test(String(r.date_to || '')) ? String(r.date_to) : null;
     if (df && dt && df > dt) { const tmp = df; df = dt; dt = tmp; } // por si vienen invertidas
     if (!df || !dt) { df = null; dt = null; }
+    const canales = Array.isArray(r.canales)
+      ? (r.canales as any[]).map((x) => String(x).trim()).filter((x): x is PromoCanal => (PROMO_CANALES as readonly string[]).includes(x))
+      : [];
+    const alcance: 'sku' | 'marca' = r.alcance === 'marca' || (!r.sku && !r.producto_texto && r.marca_texto) ? 'marca' : 'sku';
     return {
       canal: r.canal === 'todos' ? 'todos' : 'ruta',
+      alcance,
+      marca_texto: r.marca_texto ? String(r.marca_texto).trim() : null,
+      canales: [...new Set(canales)],
+      min_importe: Number(r.min_importe) > 0 ? Number(r.min_importe) : 0,
       sku: r.sku ? String(r.sku).trim() : null,
       producto_texto: r.producto_texto ? String(r.producto_texto).trim() : null,
       metric: (['clientes_distintos', 'piezas', 'tickets', 'monto'] as PromoMetric[]).includes(r.metric) ? r.metric : 'clientes_distintos',
@@ -258,6 +318,22 @@ export class RoutePromoService {
   }
   private iso(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
   private money(v: number) { return `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+
+  /** Resultado vacío tipado, para las salidas tempranas (sin producto, sin alcance…). */
+  private emptyResult(enunciado: string, rule: PromoRule, period: { from: string; to: string; label: string }): PromoResult {
+    return {
+      enunciado, rule, product: null, period,
+      metric_label: METRIC_LABEL[rule.metric], base_label: METRIC_LABEL[rule.metric],
+      unit: {
+        unit_base: null, is_weight: false, sin_escalera: true,
+        lineas_sin_resolver: 0, unidades_sin_resolver: 0, importe_sin_resolver: 0,
+        confiable: false, nota: 'Sin alcance resuelto no hay unidad que declarar.',
+      },
+      rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
+      total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
+      note: '', generated_at: new Date().toISOString(),
+    };
+  }
   private nextDay(iso: string) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return this.iso(d); }
   private monthLabel(d: Date) {
     const M = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -323,11 +399,10 @@ export class RoutePromoService {
       let unitBase: string | null = null;
       if (routeUniverse) {
         // Idéntico al motor validado de /ventas-por-ruta (v_route_sales_lines), por ruta, y con
-        // la MISMA normalización de unidad que evaluate() (LADDER_CTE/TIER_LATERAL): si las dos
-        // rutas de código dieran cantidades distintas para la misma promo, no serviría ninguna.
+        // la MISMA normalización de unidad que evaluate() (TIER_JOIN): si las dos rutas de
+        // código dieran cantidades distintas para la misma promo, no serviría ninguna.
         rows = (await trx.raw(
-          `WITH ${LADDER_CTE},
-           base AS (
+          `WITH base AS (
              SELECT b.source_branch AS dim0, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
                     SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL) AS qty_base,
                     SUM(sl.importe) AS importe, COUNT(DISTINCT sl.consecutivo) AS tickets
@@ -335,7 +410,7 @@ export class RoutePromoService {
              JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
              JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
              LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
-             ${TIER_LATERAL}
+             ${TIER_JOIN}
              WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta' AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
              GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
            )
@@ -343,7 +418,7 @@ export class RoutePromoService {
              COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND COALESCE(qty_base,0) >= ?) AS clientes,
              COALESCE(SUM(qty_base),0) AS piezas, COALESCE(SUM(tickets),0) AS tickets, COALESCE(SUM(importe),0) AS monto
            FROM base GROUP BY wname, dim0 ORDER BY dim`,
-          [product.sku, tenantId, period.from, period.to, product.sku, minQty],
+          [tenantId, period.from, period.to, product.sku, minQty],
         )).rows;
         unitBase = (await trx.raw(
           `SELECT unit_base FROM analytics.v_product_unit_ladder WHERE sku = ?`, [product.sku],
@@ -410,6 +485,12 @@ export class RoutePromoService {
     const rule: PromoRule = q.rule?.metric
       ? {
           canal: q.rule.canal === 'todos' ? 'todos' : 'ruta',
+          alcance: q.rule.alcance === 'marca' ? 'marca' : 'sku',
+          marca_texto: q.rule.marca_texto ?? null,
+          canales: Array.isArray(q.rule.canales)
+            ? q.rule.canales.filter((x): x is PromoCanal => (PROMO_CANALES as readonly string[]).includes(x))
+            : [],
+          min_importe: Number(q.rule.min_importe) > 0 ? Number(q.rule.min_importe) : 0,
           sku: q.rule.sku ? String(q.rule.sku).trim() : null,
           producto_texto: q.rule.producto_texto ?? null,
           metric: q.rule.metric as PromoMetric,
@@ -430,10 +511,32 @@ export class RoutePromoService {
     return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
 
-      // 1) Resolver producto → SKU único.
+      // 1) Resolver el ALCANCE → conjunto de SKUs que cuentan.
+      //    Puede ser un producto suelto o toda una marca/proveedor ("Proveedor: vidis").
       let product: { sku: string; nombre: string } | null = null;
       let candidates: { sku: string; nombre: string }[] | undefined;
-      if (rule.sku) {
+      let skus: string[] = [];
+      let brand: { id: string; nombre: string } | null = null;
+
+      if (rule.alcance === 'marca' && rule.marca_texto) {
+        const b = await trx('catalog.brands')
+          .where('tenant_id', tenantId).whereNull('deleted_at')
+          .andWhereRaw('unaccent(nombre) ILIKE unaccent(?)', [rule.marca_texto])
+          .select('id', 'nombre').first()
+          // Sin match exacto, se intenta por contención — pero sólo si es UNA.
+          ?? (await trx('catalog.brands')
+            .where('tenant_id', tenantId).whereNull('deleted_at')
+            .andWhereRaw('unaccent(nombre) ILIKE unaccent(?)', [`%${rule.marca_texto}%`])
+            .select('id', 'nombre').limit(2))[0];
+        if (b) {
+          brand = { id: b.id, nombre: b.nombre };
+          const rows = await trx('catalog.products')
+            .where({ tenant_id: tenantId, brand_id: b.id }).whereNull('deleted_at').pluck('sku');
+          skus = rows.map((s: string) => String(s).trim()).filter(Boolean);
+          // El "producto" pasa a ser la marca: es lo que se muestra como alcance.
+          product = { sku: `marca:${b.nombre}`, nombre: `${b.nombre} · ${skus.length} SKU(s)` };
+        }
+      } else if (rule.sku) {
         const p = await trx('catalog.products').where({ tenant_id: tenantId, sku: rule.sku })
           .whereNull('deleted_at').select('sku', 'nombre').first();
         product = p ? { sku: p.sku, nombre: p.nombre } : { sku: rule.sku, nombre: rule.producto_texto || rule.sku };
@@ -444,6 +547,17 @@ export class RoutePromoService {
         const hits = await qb.select('sku', 'nombre').limit(8);
         if (hits.length === 1) product = { sku: hits[0].sku, nombre: hits[0].nombre };
         else if (hits.length > 1) candidates = hits.map((h: any) => ({ sku: h.sku, nombre: h.nombre }));
+      }
+      // Alcance de un solo producto → la lista de SKUs es ese SKU.
+      if (!skus.length && product) skus = [product.sku];
+
+      // Una marca sin productos no es "cero ventas": es un alcance vacío. Se dice.
+      if (brand && !skus.length) {
+        return {
+          ...this.emptyResult(enunciado, rule, period),
+          product,
+          note: `La marca "${brand.nombre}" no tiene productos activos en el catálogo: no hay mercancía que contar.`,
+        };
       }
 
       if (!product) {
@@ -459,43 +573,50 @@ export class RoutePromoService {
           total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
           note: candidates?.length
             ? 'El producto es ambiguo — elegí el SKU correcto y recalculá.'
-            : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
+            : rule.alcance === 'marca'
+              ? `No se encontró la marca/proveedor "${rule.marca_texto || ''}" en el catálogo. Verificá el nombre.`
+              : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
           generated_at: new Date().toISOString(),
         };
       }
 
-      // 2) Motor determinista: base por (ruta, cliente) → agregado por ruta según la métrica.
-      //    `qty` se normaliza a la unidad BASE del SKU resolviendo el peldaño por precio
-      //    (ver LADDER_CTE / TIER_LATERAL). Lo que no resuelve NO se suma: se declara.
+      // 2) Motor determinista: base por (canal, vendedor, cliente) → agregado por vendedor.
+      //    · `qty` se normaliza a la unidad BASE resolviendo el peldaño por precio (TIER_JOIN).
+      //    · El universo es `analytics.v_seller_sales_lines`: los 4 canales con el vendedor ya
+      //      resuelto y sin doble conteo (en RD la ruta ES el vendedor; el vecinal no se
+      //      cuenta dos veces). El filtro de canales sale de la mecánica.
+      //    · Un cliente califica por lo acumulado CON ESE VENDEDOR en todo el periodo, en
+      //      cantidad (min_qty) y/o en dinero (min_importe). El de dinero es inmune a la
+      //      unidad de medida: $500 son $500 vengan en pieza, paquete o caja.
+      const canales: PromoCanal[] = rule.canales?.length
+        ? rule.canales
+        : (rule.canal === 'ruta' ? ['ruta'] : [...PROMO_CANALES]);
+      const minImporte = Number(rule.min_importe) > 0 ? Number(rule.min_importe) : 0;
+
       const rows: any[] = (await trx.raw(
-        `WITH ${LADDER_CTE},
-         base AS (
-           SELECT b.source_branch AS route_no,
-                  w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
-                  sl.cliente,
+        `WITH base AS (
+           SELECT sl.canal, sl.vendedor, sl.cliente,
                   SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL)      AS qty_base,
                   SUM(sl.qty)          FILTER (WHERE tier.f IS NULL)          AS qty_unres,
                   COUNT(*)             FILTER (WHERE tier.f IS NULL)          AS lineas_unres,
                   SUM(sl.importe)      FILTER (WHERE tier.f IS NULL)          AS importe_unres,
                   SUM(sl.importe) AS importe,
                   COUNT(DISTINCT sl.consecutivo) AS tickets
-           FROM analytics.v_route_sales_lines sl
-           JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
-           JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
-           LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
-                AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
-           ${TIER_LATERAL}
-           WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+           FROM analytics.v_seller_sales_lines sl
+           ${TIER_JOIN}
+           WHERE sl.tenant_id=?
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
-             AND sl.sku=?
-           GROUP BY b.source_branch, w.code, w.name, pb.branch_name, sl.cliente
-         )
-         SELECT route_no, wcode, wname,
-           -- Califica por lo RESUELTO. Un cliente al que no se le pudo determinar el peldaño
-           -- no se cuenta como que compró ni como que no: se reporta aparte.
+             AND sl.sku = ANY(?) AND sl.canal = ANY(?)
+           GROUP BY sl.canal, sl.vendedor, sl.cliente
+         ),
+         agg AS (
+         SELECT canal, vendedor,
+           -- Califica por lo RESUELTO, en cantidad Y en dinero. Un cliente al que no se le
+           -- pudo determinar el peldaño no se cuenta como que compró ni como que no: aparte.
            COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001'
-                              AND COALESCE(qty_base,0) >= ?) AS clientes,
+                              AND COALESCE(qty_base,0) >= ? AND COALESCE(importe,0) >= ?) AS clientes,
            COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001'
+                              AND COALESCE(importe,0) >= ?
                               AND COALESCE(qty_base,0) < ? AND COALESCE(qty_unres,0) > 0) AS clientes_indet,
            COALESCE(SUM(qty_base),0)     AS unidades,
            COALESCE(SUM(qty_unres),0)    AS unidades_unres,
@@ -504,16 +625,31 @@ export class RoutePromoService {
            COALESCE(SUM(tickets),0)      AS tickets,
            COALESCE(SUM(importe),0)      AS monto
          FROM base
-         GROUP BY route_no, wcode, wname
-         ORDER BY wname, route_no`,
-        [product.sku, tenantId, period.from, period.to, product.sku, rule.min_qty, rule.min_qty],
+         GROUP BY canal, vendedor
+         )
+         -- El nombre de la sucursal sólo aplica al canal ruta, donde el vendedor ES la ruta.
+         SELECT agg.*, w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname
+         FROM agg
+         LEFT JOIN wincaja.branches b  ON agg.canal='ruta' AND b.tenant_id=?
+              AND b.source_branch=agg.vendedor AND b.is_route=true
+         LEFT JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
+              AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+         ORDER BY agg.canal, wname NULLS LAST, agg.vendedor`,
+        [tenantId, period.from, period.to, skus, canales, rule.min_qty, minImporte, minImporte, rule.min_qty, tenantId],
       )).rows;
 
-      // Rótulo y salud de la unidad (una fila, o ninguna si el SKU no está en el maestro del ERP).
-      const lad: any = (await trx.raw(
-        `SELECT unit_base, is_weight FROM analytics.v_product_unit_ladder WHERE sku = ?`,
-        [product.sku],
-      )).rows[0];
+      // Rótulo y salud de la unidad. Con alcance de MARCA hay muchos SKUs: la unidad base sólo
+      // se puede nombrar si TODOS coinciden; si no, se declara mixta en vez de elegir una.
+      const lads: any[] = (await trx.raw(
+        `SELECT DISTINCT unit_base, is_weight FROM analytics.v_product_unit_ladder WHERE sku = ANY(?)`,
+        [skus],
+      )).rows;
+      const unitBases = [...new Set(lads.map((l) => l.unit_base).filter(Boolean))];
+      const lad = lads.length
+        ? { unit_base: unitBases.length === 1 ? unitBases[0] : null, is_weight: lads.some((l) => l.is_weight) }
+        : null;
+      const unidadMixta = unitBases.length > 1;
 
       const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
       const baseOf = (r: any): number => {
@@ -527,9 +663,15 @@ export class RoutePromoService {
       const out: PromoRouteRow[] = rows
         .map((r) => {
           const base = baseOf(r);
+          // En ruta el vendedor ES la ruta y se nombra con su sucursal; en los demás canales
+          // el vendedor es un código del POS y se nombra con su canal.
+          const label = r.canal === 'ruta'
+            ? `${r.wname ? r.wname + ' · ' : ''}Ruta ${r.vendedor}`
+            : `${CANAL_LABEL[r.canal as PromoCanal] || r.canal} · Vendedor ${r.vendedor}`;
           return {
-            warehouse_code: r.wcode, warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
-            label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
+            canal: r.canal, vendedor: String(r.vendedor ?? '—'),
+            warehouse_code: r.wcode, warehouse_name: r.wname, route_no: String(r.vendedor ?? '—'),
+            label,
             clientes: Number(r.clientes) || 0,
             clientes_indeterminados: Number(r.clientes_indet) || 0,
             unidades: round(Number(r.unidades) || 0, 2),
@@ -550,7 +692,8 @@ export class RoutePromoService {
       const impTotal = round(rows.reduce((s, r) => s + (Number(r.monto) || 0), 0), 2);
       const sinEscalera = !lad;
       const isWeight = !!lad?.is_weight;
-      // Sólo la cuenta por CANTIDAD depende de la unidad. Clientes/tickets/monto no.
+      // Sólo la cuenta por CANTIDAD depende de la unidad. Clientes/tickets/monto no — y un
+      // umbral en DINERO tampoco: $500 son $500 vengan en pieza, paquete o caja.
       const dependeDeUnidad = rule.metric === 'piezas' || rule.min_qty > 1;
       const pctUnres = impTotal > 0 ? (impUnres / impTotal) * 100 : 0;
       const unit: PromoUnitInfo = {
@@ -560,46 +703,57 @@ export class RoutePromoService {
         lineas_sin_resolver: linUnres,
         unidades_sin_resolver: uniUnres,
         importe_sin_resolver: impUnres,
-        confiable: !dependeDeUnidad || (!sinEscalera && !isWeight && pctUnres < 1),
-        nota: sinEscalera
-          ? `El SKU ${product.sku} no está en el maestro del ERP: no hay escalera de unidades con qué normalizar la cantidad.`
-          : isWeight
-            ? `${product.nombre} se vende a GRANEL (${lad.unit_base || 'peso'}): la cuenta por unidades no aplica; usá clientes, tickets o monto.`
-            : linUnres > 0
-              ? `${linUnres} línea(s) por ${this.money(impUnres)} (${pctUnres.toFixed(2)}% del importe) no se pudieron ubicar en ningún peldaño de precio del ERP: no se sumaron a las unidades.`
-              : `Cantidad normalizada a ${lad.unit_base || 'la unidad base del ERP'}: todas las líneas se ubicaron en un peldaño de precio del ERP.`,
+        confiable: !dependeDeUnidad || (!sinEscalera && !isWeight && !unidadMixta && pctUnres < 1),
+        nota: !dependeDeUnidad
+          ? (minImporte > 0
+            ? `El umbral es en dinero (${this.money(minImporte)} por cliente), así que no depende de la unidad de medida.`
+            : 'La mecánica cuenta clientes/tickets/monto: no depende de la unidad de medida.')
+          : sinEscalera
+            ? `El alcance no está en el maestro del ERP: no hay escalera de unidades con qué normalizar la cantidad.`
+            : isWeight
+              ? `El alcance incluye mercancía a GRANEL: la cuenta por unidades no aplica; usá clientes, tickets o monto.`
+              : unidadMixta
+                ? `El alcance mezcla ${unitBases.length} unidades base distintas (${unitBases.join(', ')}): sumar cantidades entre ellas no significa nada. Usá clientes, tickets o un umbral en dinero.`
+                : linUnres > 0
+                  ? `${linUnres} línea(s) por ${this.money(impUnres)} (${pctUnres.toFixed(2)}% del importe) no se pudieron ubicar en ningún peldaño de precio del ERP: no se sumaron a las unidades.`
+                  : `Cantidad normalizada a ${lad.unit_base || 'la unidad base del ERP'}: todas las líneas se ubicaron en un peldaño de precio del ERP.`,
       };
 
       // 3) Detalle: QUÉ clientes participaron (los que califican ≥ min_qty), con piezas + importe.
       //    Nombre resuelto best-effort desde wincaja.clientes (los códigos de ruta no siempre resuelven → código).
       const det: any[] = (await trx.raw(
-        `WITH ${LADDER_CTE},
-         base AS (
-           SELECT b.source_branch AS route_no, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
+        `WITH base AS (
+           SELECT sl.canal, sl.vendedor, sl.cliente,
                   SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL) AS qty_base,
                   SUM(sl.importe) AS importe
-           FROM analytics.v_route_sales_lines sl
-           JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
-           JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
-           LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
-           ${TIER_LATERAL}
-           WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
-             AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
-           GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
+           FROM analytics.v_seller_sales_lines sl
+           ${TIER_JOIN}
+           WHERE sl.tenant_id=?
+             AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
+             AND sl.sku = ANY(?) AND sl.canal = ANY(?)
+           GROUP BY sl.canal, sl.vendedor, sl.cliente
          )
-         SELECT base.route_no, base.wname, base.cliente, base.qty_base, base.importe, cn.nombre
+         SELECT base.canal, base.vendedor, base.cliente, base.qty_base, base.importe, cn.nombre,
+                COALESCE(w.name, initcap(pb.branch_name)) AS wname
          FROM base
          LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn
            ON cn.cliente = base.cliente
+         LEFT JOIN wincaja.branches b  ON base.canal='ruta' AND b.tenant_id=?
+              AND b.source_branch=base.vendedor AND b.is_route=true
+         LEFT JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
+              AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
          WHERE base.cliente IS NOT NULL AND btrim(base.cliente)<>'' AND base.cliente<>'0001'
-           AND COALESCE(base.qty_base,0) >= ?
-         ORDER BY base.wname, base.route_no, base.importe DESC
+           AND COALESCE(base.qty_base,0) >= ? AND COALESCE(base.importe,0) >= ?
+         ORDER BY base.canal, wname NULLS LAST, base.vendedor, base.importe DESC
          LIMIT 5000`,
-        [product.sku, tenantId, period.from, period.to, product.sku, tenantId, rule.min_qty],
+        [tenantId, period.from, period.to, skus, canales, tenantId, tenantId, rule.min_qty, minImporte],
       )).rows;
       const clientes_detalle: PromoClientRow[] = det.map((r) => ({
-        warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
-        route_label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
+        warehouse_name: r.wname, route_no: String(r.vendedor ?? '—'),
+        route_label: r.canal === 'ruta'
+          ? `${r.wname ? r.wname + ' · ' : ''}Ruta ${r.vendedor}`
+          : `${CANAL_LABEL[r.canal as PromoCanal] || r.canal} · Vendedor ${r.vendedor}`,
         cliente: String(r.cliente), nombre: r.nombre || String(r.cliente),
         unidades: round(Number(r.qty_base) || 0, 2), importe: round(Number(r.importe) || 0, 2),
       }));
@@ -616,8 +770,11 @@ export class RoutePromoService {
       return {
         enunciado, rule, product, period,
         metric_label: rule.metric === 'piezas' ? `Unidades (${uLbl})` : METRIC_LABEL[rule.metric],
+        // La etiqueta dice el umbral REAL con el que se calificó — en dinero si lo hay.
         base_label: rule.metric === 'clientes_distintos'
-          ? `Clientes (≥${rule.min_qty} ${uLbl})`
+          ? (minImporte > 0
+            ? `Clientes (≥${this.money(minImporte)})`
+            : `Clientes (≥${rule.min_qty} ${uLbl})`)
           : rule.metric === 'piezas' ? `Unidades (${uLbl})` : METRIC_LABEL[rule.metric],
         unit,
         rows: out, clientes_detalle,

@@ -56,9 +56,13 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
             <!-- Regla interpretada (transparencia: el usuario valida lo que entendió el AI) -->
             <div class="rp-rule">
               <div class="rp-chips">
-                <span class="rp-chip"><b>{{ r.product?.nombre || r.rule.producto_texto || '—' }}</b>@if (r.product) { · {{ r.product.sku }} }</span>
+                <span class="rp-chip">
+                  @if (r.rule.alcance === 'marca') { <i class="pi pi-tag" title="Alcance: toda la marca" aria-hidden="true"></i> }
+                  <b>{{ r.product?.nombre || r.rule.marca_texto || r.rule.producto_texto || '—' }}</b>@if (r.product && r.rule.alcance !== 'marca') { · {{ r.product.sku }} }
+                </span>
                 <span class="rp-chip">\${{ r.rule.rate | number:'1.2-2' }} / {{ r.base_label.toLowerCase() }}</span>
-                <span class="rp-chip">{{ r.rule.canal === 'ruta' ? 'Ruta (RD)' : 'Todos los canales' }}</span>
+                <!-- Quiénes participan: se muestra lo que el AI entendió, no lo que se supone. -->
+                <span class="rp-chip">{{ canalesLbl(r) }}</span>
                 <span class="rp-chip rp-chip-mut">@if (r.rule.date_from) { <i class="pi pi-sparkles" title="Detectado del enunciado" aria-hidden="true"></i> }{{ r.period.label }}</span>
               </div>
               @if (r.rule.supuestos) { <p class="rp-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ r.rule.supuestos }}</p> }
@@ -226,6 +230,16 @@ export class RoutePromoComponent {
    * del SKU en el ERP (PZA / PAQ / CJA…), que NO siempre es la pieza: nombrarla es el punto.
    */
   unitLbl(r: RoutePromoResult): string { return r.unit?.unit_base ? `(${r.unit.unit_base})` : ''; }
+
+  /** Quiénes participan, tal como los entendió el AI — para que se pueda desmentir de un vistazo. */
+  canalesLbl(r: RoutePromoResult): string {
+    const L: Record<string, string> = {
+      ruta: 'RD / reparto', vecinal: 'Ruta vecinal', mayoreo: 'Mayoreo', mostrador: 'Mostrador',
+    };
+    const cs = r.rule.canales ?? [];
+    if (cs.length) return cs.map((c) => L[c] ?? c).join(' + ');
+    return r.rule.canal === 'ruta' ? 'RD / reparto' : 'Todos los canales';
+  }
 
   run(sku?: string | null): void {
     const enunciado = this.enunciado.trim();
