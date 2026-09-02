@@ -31,7 +31,14 @@ export class CommercialPushController {
     return { publicKey: this.push.publicKey, enabled: this.push.isEnabled() };
   }
 
-  /** Registra la suscripción del navegador del usuario autenticado. */
+  /**
+   * Registra la suscripción del navegador del usuario autenticado.
+   *
+   * `[AUTHZ.5]` — Las tres de abajo son sólo-auth **a propósito**: el `userId`/`tenantId` sale del
+   * contexto del JWT y nunca del body, así que un usuario sólo puede suscribir, dar de baja y
+   * probar **lo suyo**. Cualquier rol con sesión puede recibir notificaciones; exigir un permiso
+   * sería churn sin ganancia. Escrito para que la auditoría de cobertura lo lea como decisión.
+   */
   @ApiBearerAuth()
   @Post('subscribe')
   @ApiOperation({ summary: 'Registrar suscripción Web Push del usuario' })
