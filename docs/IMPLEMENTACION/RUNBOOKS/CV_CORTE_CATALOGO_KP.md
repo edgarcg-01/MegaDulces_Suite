@@ -5,30 +5,32 @@
 > que el anterior haya salido bien. Plan de fondo en
 > [`FASE_CV`](../FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), sección CV.6.
 
-**Bloqueante actual (2026-09-01):** la contraseña de `app_runtime` guardada
-hoy no autentica contra el `KP_CONCENTRADA` real (`28P01` — ver
-`docs/GOTCHAS.md` §24). Nada de este runbook se puede correr hasta que eso
-se resuelva; sin eso, el paso 2 tampoco tiene con qué conectar.
+**Estado (2026-09-02):** Pasos 0–2 completados y verificados. El bloqueante
+de credencial (`app_runtime` rechazada, `28P01`) se resolvió fuera de esta
+migración; Paso 3a (lectura contra datos reales) verificado con paridad
+byte a byte (ver `FASE_CV`, sección "Verificación real 2026-09-02"); el rol
+`catalogo_kp_runtime` quedó creado y confirmado con los permisos exactos de
+diseño (`kp.*` sólo lectura, `tienda.*`/`monitor.*` sin DELETE, `admin.usuarios`
+sólo lectura — DELETE probado y denegado). Sigue pendiente **Paso 3b**
+(camino de escritura contra datos reales — decisión de negocio) y **Paso 4**
+(corte real del Service).
 
 ---
 
-## Paso 0 — Ver dónde está parado el sistema hoy
+## Paso 0 — Ver dónde está parado el sistema hoy ✅ 2026-09-02
 
 `ADMINISTRAR.bat` (raíz de `megadulces-api-ready`, en `.163`) → **opción 3,
 "Ver estado del sistema"**. Sin riesgo, sólo lee. Correrla antes de tocar
 cualquier otra cosa, y otra vez después de cada paso de abajo, para
 confirmar que nada se rompió.
 
-## Paso 1 — Resolver la credencial de `app_runtime`
+## Paso 1 — Resolver la credencial de `app_runtime` ✅ resuelto 2026-09-01
 
-Fuera del alcance de este runbook (es un problema de administración del
-cluster `.245`, no de esta migración). Confirmar con quien administre esa
-base que la contraseña vigente coincide con la que trae el `.env` de
-`megadulces-api-ready`, o actualizar el `.env` con la correcta. **No seguir
-al paso 2 sin esto** — de lo contrario `007_rol_dedicado.sql` va a fallar en
-el `CREATE ROLE` o, peor, va a aplicarse con una contraseña que tampoco sirve.
+Resuelto fuera de esta migración (administración del cluster `.245`). El
+`.env` de `megadulces-api-ready` quedó con la contraseña vigente; el
+vigilante confirma sin fallos desde 2026-09-01 23:12.
 
-## Paso 2 — Aplicar el rol dedicado (`catalogo_kp_runtime`)
+## Paso 2 — Aplicar el rol dedicado (`catalogo_kp_runtime`) ✅ aplicado 2026-09-02
 
 Por qué: hoy `catalogo-kp` (en este monorepo) está preparado para usar un rol
 propio, no `app_runtime` — ver `apps/catalogo-kp/sql/007_rol_dedicado.sql` y
@@ -55,9 +57,32 @@ rotación de credencial).
    SELECT rolname FROM pg_roles WHERE rolname = 'catalogo_kp_runtime';
    ```
 
+**Hecho 2026-09-02** — aplicado vía `psql` directo (mismo mecanismo que
+`Aplicar_migracion.ps1`: `-h 192.168.0.245 -U postgres -d KP_CONCENTRADA -v
+ON_ERROR_STOP=1 -f 007_rol_dedicado.sql`), exit code 0, las 17 sentencias
+(`DO`/`GRANT`/`ALTER DEFAULT PRIVILEGES`) corrieron sin error. Verificado:
+`rolcanlogin=t`, `rolsuper/rolcreatedb/rolcreaterole=f`; grants exactos —
+`kp.*` 368 tablas SELECT-only, `admin.usuarios` SELECT-only, `tienda.*` 10
+tablas SELECT/INSERT/UPDATE (sin DELETE), `monitor.*` según diseño. Smoke
+test conectado como `catalogo_kp_runtime`: `SELECT count(*) FROM kp.kdii`
+→ 66,682 filas OK; `DELETE FROM tienda.pedidos` → `ERROR: permiso denegado`
+(comportamiento esperado). La contraseña real del rol nuevo quedó sólo en
+`sql/007_rol_dedicado.sql` dentro de `megadulces-api-ready` (fuera de este
+git) — el archivo versionado en este monorepo sigue con el placeholder
+`CAMBIA_ESTE_PASSWORD`, nunca se comitea un secreto real.
+
+**Pendiente:** actualizar `DATABASE_URL_KP_CONCENTRADA` del `.env` real de
+`catalogo-kp` para usar `catalogo_kp_runtime` en vez de `app_runtime` — se
+puede hacer sin downtime porque ambos roles siguen concediendo acceso
+mientras tanto. No ejecutado en esta sesión (afecta el proceso que sirve
+producción real).
+
 ## Paso 3 — Verificación end-to-end real
 
-**3a. Sólo lectura (bajo riesgo) — catálogo y precios.**
+**3a. Sólo lectura (bajo riesgo) — catálogo y precios. ✅ verificado 2026-09-02**
+(hecho con `app_runtime`, antes de tener el rol dedicado listo — ver `FASE_CV`
+sección "Verificación real 2026-09-02" para el detalle completo, incluido el
+bug de bindings SQL encontrado y corregido en esa misma pasada).
 
 Build de `catalogo-kp` sin `AdminModule`/`TiendaModule` (para no competir con
 la cola ya viva en `.163` — ver la nota en el propio `app.module.ts` de la

@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — rol dedicado `catalogo_kp_runtime` aplicado al cluster real (CV.8, 2026-09-02)
+- `apps/catalogo-kp/sql/007_rol_dedicado.sql` corrido contra `KP_CONCENTRADA` real (`192.168.0.245`) como `postgres`, mismo mecanismo que usa `ADMINISTRAR.bat` opción 8 (`psql -v ON_ERROR_STOP=1`). Aditivo: no tocó `app_runtime` ni ninguna tabla existente.
+- Verificado en el cluster real: rol sin superuser/createdb/createrole, grants exactos por schema (`kp.*` sólo lectura en 368 tablas, `admin.usuarios` sólo lectura, `tienda.*`/`monitor.*` sin `DELETE`). Smoke test conectado como el rol nuevo: lectura OK, `DELETE` denegado como se diseñó.
+- La contraseña real generada quedó sólo en la copia externa a este git (carpeta del proyecto origen en `.163`); el archivo versionado en este monorepo mantiene el placeholder.
+- Cierra el riesgo de credencial compartida entre `catalogo-kp` y `postgres_platform` (`docs/GOTCHAS.md` §24) a nivel de rol — falta el corte del `.env` de producción para que deje de usarse `app_runtime` ahí (sin downtime, pendiente de ventana).
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y [`CV_CORTE_CATALOGO_KP`](docs/IMPLEMENTACION/RUNBOOKS/CV_CORTE_CATALOGO_KP.md).
+
 ### Fixed — bug crítico de bindings SQL en `catalogo-kp`, primera verificación real de lectura (CV.7, 2026-09-02)
 - Con la credencial de `app_runtime` ya resuelta, la primera corrida real de `catalogo-kp` contra `KP_CONCENTRADA` reveló que **ninguna query parametrizada funcionaba** (`Expected N bindings, saw M`). Causa: `knex.raw()` sólo soporta su propio placeholder `?`, no los `$1,$2,...` nativos de Postgres que todo el código portado usaba (fiel al original con `pg.Pool`); tres constantes regex (`RE_NUM`, `COSTO`) sumaban `?` sueltos como cuantificador POSIX, agravando el conteo.
 - Fix: nuevo `apps/catalogo-kp/src/kp-concentrada/pg-raw.util.ts` (`pgRaw()`, traduce `$N`→`?`) + conversión de los 12 archivos de servicio afectados + 3 regex reescritas con `{0,1}`.

@@ -628,16 +628,25 @@ todos los devs arrancan con ése. Ante un desajuste, volver al default suele
 reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
 `.env` de todo el mundo.
 
-**Un consumidor más a tener en cuenta: `KP_CONCENTRADA` ya no comparte
-`app_runtime`.** El app `apps/catalogo-kp` (Fase CV) también vive en el
-cluster `.245`, pero desde su migración usa un rol **propio**,
-`catalogo_kp_runtime` (`apps/catalogo-kp/sql/007_rol_dedicado.sql`) — no
-`app_runtime`. Antes de esa migración, el proyecto standalone del que viene
-(`megadulces-api-ready`) sí reusaba `app_runtime` para conectarse a
-`KP_CONCENTRADA`, y ese acoplamiento es sospechoso de haber causado al menos
-una caída de producción ajena a esta Suite (6 horas, 27/08/2026, síntoma
-`28P01` idéntico al de esta entrada). Si `setup-runtime-role-local.js` no
-menciona `catalogo-kp` entre las bases afectadas, es porque ya no lo está —
+**Un consumidor más a tener en cuenta: `KP_CONCENTRADA` está dejando de
+compartir `app_runtime`.** El app `apps/catalogo-kp` (Fase CV) también vive
+en el cluster `.245`; su código ya usa un rol **propio**,
+`catalogo_kp_runtime` (`apps/catalogo-kp/sql/007_rol_dedicado.sql`), y ese rol
+**ya está creado y verificado en el cluster real** (2026-09-02: `rolcanlogin`,
+grants exactos por schema, `DELETE` confirmado denegado — detalle en
+`FASE_CV` sección "Rol dedicado aplicado al cluster real"). Lo que sigue
+apuntando a `app_runtime` es el `.env` de **producción** de
+`megadulces-api-ready` en `.163` (el proyecto standalone del que viene esta
+migración) — el corte a `catalogo_kp_runtime` no se ejecutó todavía porque
+afecta el proceso que sirve producción real, aunque es sin downtime (ambos
+roles conceden acceso mientras tanto). Hasta que ese corte pase, `.163` sigue
+expuesto al mismo acoplamiento: ese reuso de `app_runtime` es sospechoso de
+haber causado al menos una caída de producción ajena a esta Suite (6 horas,
+27/08/2026, síntoma `28P01` idéntico al de esta entrada), y fue justo el
+síntoma que se repitió el 2026-09-01 (ver nota siguiente). Si
+`setup-runtime-role-local.js` no menciona `catalogo-kp` entre las bases
+afectadas por `app_runtime`, confirmar el estado del corte en `FASE_CV` antes
+de asumir que ya no aplica.
 
 **Confirmado en vivo el 2026-09-01:** intentando la verificación de CV.5
 contra el `KP_CONCENTRADA` real, la contraseña de `app_runtime` guardada en
@@ -646,11 +655,12 @@ el `.env` de producción de `megadulces-api-ready` (en `.163`) fue
 directo, sin código de por medio. La API en `.163` seguía respondiendo
 porque sus conexiones ya estaban abiertas desde antes del desajuste —
 Postgres no cierra sesiones activas al rotar una contraseña, sólo rechaza
-intentos nuevos —, así que **cualquier reinicio de ese proceso ahora mismo
-repetiría la caída del 27/08**. 0Sistemas indica que ya está en
-conocimiento/gestión; queda anotado acá por si otra sesión se topa con el
-mismo síntoma antes de que se resuelva.
-confirmarlo antes de asumir lo contrario.
+intentos nuevos —, así que un reinicio de ese proceso en ese momento habría
+repetido la caída del 27/08. Se resolvió esa misma noche (23:12, confirmado
+en el log del vigilante) y sigue estable desde entonces — pero el `.env` de
+producción sigue en `app_runtime`, no en el rol dedicado, así que el riesgo
+de fondo (rotar la contraseña compartida del cluster) no desaparece hasta
+el corte del Paso 2 de `RUNBOOKS/CV_CORTE_CATALOGO_KP.md`.
 
 ---
 
