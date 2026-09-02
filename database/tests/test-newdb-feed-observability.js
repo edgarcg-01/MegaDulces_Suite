@@ -187,6 +187,26 @@ const leer = (rel) => {
       'bumpearla con error dejaría a una rama caída viéndose revisada para siempre');
   }
 
+  // ── 3b. Los carriles MUDOS no pueden shipear por accidente ───────────────────────────────
+  // `replicate-ods-fast.js` (superseded) y `ods-cdc-forward.js` (approach por triggers, abandonado)
+  // no latan y nadie los corre. Se evaluó ponerles latido y se descartó: instrumentar código muerto
+  // lo revive, y registrarlos en CRON_JOBS los dejaría en crítico permanente por no correr nunca.
+  // Lo que protege es que no puedan shipear a prod sin que el tablero los vea.
+  for (const [rel, envOk] of [
+    ['database/importers/kepler/replicate-ods-fast.js', 'ODS_FAST_RETIRED_OK'],
+    ['database/importers/kepler/ods-cdc-forward.js', 'ODS_CDC_FWD_RETIRED_OK'],
+  ]) {
+    const src = leer(rel);
+    const nombre = rel.split('/').pop();
+    check(`${nombre} se puede leer`, !!src);
+    if (src) {
+      check(`${nombre} está marcado RETIRADO`, /RETIRADO/.test(src));
+      check(`${nombre} aborta en --apply sin override explícito`,
+        new RegExp(`APPLY\\s*&&\\s*!RETIRO_OK`).test(src) && src.includes(envOk),
+        'un carril mudo que shipea a prod es la forma exacta del incidente');
+    }
+  }
+
   // ── 4. El healthcheck mide ENTREGA, no que el PID exista ─────────────────────────────────
   // `pm2 ls` decía **online** para dos carriles cuyo batch nunca se ejecutó. Un chequeo de proceso
   // no puede ver eso.
