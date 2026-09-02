@@ -30,10 +30,21 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+/**
+ * Lo que este controller usa de `req.user`.
+ *
+ * `permissions` y `role_name` NO son decorativos: se propagan tal cual al service, que se los pasa
+ * a `getDataScope()` para acotar el padrón. Estaban sin declarar (el tipo decía `rules?: unknown[]`,
+ * de la época de CASL) y funcionaba sólo porque en runtime llega el `req.user` completo — si alguien
+ * armaba el objeto a mano, TypeScript no se quejaba y el alcance caía en silencio a `own`.
+ */
 interface AuthUser {
   sub: string;
   username?: string;
-  rules?: unknown[];
+  /** Mapa fresco que `RolesGuard` relee del cache en cada request. */
+  permissions?: Record<string, boolean> | null;
+  /** Rol del que depende el god-mode de plataforma (`isPlatformAdminRole`). */
+  role_name?: string;
 }
 
 @ApiTags('users')
@@ -181,7 +192,7 @@ export class UsersController {
    */
   @Get('me/access')
   @ApiOperation({ summary: 'Permisos y reglas vigentes del usuario en sesión (frescos de DB, no del JWT)' })
-  async myAccess(@ReqUser() user: AuthUser & { role_name?: string }) {
+  async myAccess(@ReqUser() user: AuthUser) {
     const res = await this.usersService.accessFor(user.sub, user.role_name);
     // Nunca contestar un mapa vacío: el front reemplaza su snapshot con esto y
     // se quedaría sin menú. Vacío = algo salió mal (token legacy sin tenant,

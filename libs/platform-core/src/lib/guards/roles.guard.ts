@@ -76,7 +76,7 @@ export class RolesGuard implements CanActivate {
     request.user.permissions = permissions;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
-    // permiso de negocio (ver ability.factory: isPlatformAdminRole).
+    // permiso de negocio (ver `ability/platform-admin.ts`).
     if (isPlatformAdminRole(user.role_name)) {
       return true;
     }
