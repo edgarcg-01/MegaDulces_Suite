@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — dos archivos estáticos faltantes en `catalogo-kp`, encontrados en revisión visual (CV.10, 2026-09-02)
+- `public/tienda.html` (catálogo + carrito local para el cliente mayorista) y `public/reportar-errores.js` (captura de errores del navegador) nunca se copiaron durante la migración — ninguna verificación anterior había cargado una página HTML completa en un navegador, sólo endpoints JSON.
+- Más grave: `catalogo.html`, ya "verificado" desde CV.0/CV.2, referencia `reportar-errores.js` — esa página llevaba un 404 silencioso en su primer script desde el día uno de la migración.
+- Ambos copiados literal. Verificado con Playwright contra `KP_CONCENTRADA` real: `catalogo.html` limpio (gate de login correcto sin sesión), `tienda.html` con datos reales (6,168 productos), `reportar-errores.js` ya sirve 200.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Verified — canario de la cola de `catalogo-kp` probado contra datos reales (CV.9, 2026-09-02)
 - 0Sistemas autorizó el Paso 3b del runbook con el enfoque de menor riesgo: canario ahora (sin dinero de por medio), carrito real de punta a punta en una ventana fuera de horario a definir.
 - App completa (`tienda`+`admin`) corrida contra `KP_CONCENTRADA` real, ya con el rol dedicado `catalogo_kp_runtime` (primera vez ejercitado en escritura). `POST /api/admin/cola/prueba` simple → `HECHO` al primer intento; con fallo forzado dos veces → backoff exponencial exacto (60s, 120s) y éxito al tercer intento.
