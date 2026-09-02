@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🔨 **CV.0 en código** (2026-09-01).
+> Estado: 🔨 **CV.1 en código** (2026-09-01).
 
 ---
 
@@ -39,12 +39,13 @@ registra como "nadie sabe quién cambió la contraseña en `.245`".
 | P4 | **Migraciones SQL crudas, aplicadas a mano.** `sql/*.sql` por `psql` como superusuario — nunca por el framework Knex de migraciones de la Suite, para no aflojar la separación de privilegios (`catalogo_kp_runtime` sin DDL) que el proyecto origen ya documenta como deliberada. |
 | P5 | **Sin dependencias nativas nuevas.** `bcrypt` (nativo) del proyecto origen se porta como `bcryptjs` (ya usado en toda la Suite) — mismo hash `$2a$/$2b$`, sin tocar el árbol de dependencias nativas del monorepo. |
 | P6 | **Nada se expone sin verificar auth.** Mientras `auth` no esté portado, los endpoints que en origen exigían sesión responden 503 (`PendingAuthGuard`), no quedan abiertos. |
+| P7 | **Secretos con nombre propio, no compartido.** `CATALOGO_KP_JWT_SECRET`, no `JWT_SECRET` — ese nombre ya lo usa el auth multi-tenant de esta Suite (33 archivos); compartirlo firmaría/validaría tokens de dos sistemas de auth distintos con el mismo secreto. Mismo criterio que P2 (rol de DB dedicado), aplicado a JWT. |
 
 ## 2. Mapa de la fase
 
 ```
-CV.0  Scaffold + conexión DB + rol dedicado + módulo kp completo   ← esta entrega
-CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)
+CV.0  Scaffold + conexión DB + rol dedicado + módulo kp completo   ✅
+CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)                 ← esta entrega
 CV.2  catalogo (tablero interno, gating costo/margen) + dashboard
 CV.3  monitor (captura de errores del navegador)
 CV.4  salidas (reporte genérico)
@@ -56,14 +57,14 @@ CV.6  (aparte, no bloqueante) modelo operativo: watchdogs/alertas/secret-wizards
 
 ---
 
-## CV.0 — Scaffold + módulo `kp` — 🔨 en código (2026-09-01)
+## CV.0 — Scaffold + módulo `kp` — 🧪 código+build+boot verificados (2026-09-01)
 
 **Qué entrega:** `apps/catalogo-kp` compilando (NestJS 11), sirviendo estáticos
 (`catalogo.html`) y respondiendo `/api/kp/*` con datos en vivo de
 `KP_CONCENTRADA`. Sólo el módulo `kp` (incluye `kp-excel` — el endpoint
-`/concentrada` sigue en uso). `auth`/`tienda`/`admin`/etc. no están portados;
-sus rutas equivalentes (las que en origen exigían sesión) responden 503
-explícito vía `PendingAuthGuard`, no quedan abiertas.
+`/concentrada` sigue en uso). `auth`/`tienda`/`admin`/etc. no estaban portados
+en esta entrega; sus rutas equivalentes (las que en origen exigían sesión)
+respondían 503 explícito vía `PendingAuthGuard` (retirado en CV.1, ver abajo).
 
 **Decisiones de esta entrega:**
 - Conexión: provider Knex plano `KNEX_KP_CONCENTRADA` (`src/kp-concentrada/`),
@@ -79,10 +80,18 @@ explícito vía `PendingAuthGuard`, no quedan abiertas.
 - SQL crudo idéntico al original; único cambio mecánico: `pool.query()` →
   `knex.raw()`.
 
-**Verificación:** ver la sección "Verificación end-to-end" del plan de
-migración (comparación byte a byte de `/api/kp/precio` y
-`/api/kp/precios-todos` contra `.163:3000`, estáticos + API en el mismo
-proceso, 503 en endpoints protegidos).
+**Verificado en sesión (sin LAN a `.245`):** `nx build`/`nx lint` limpios (0
+errores). Arranque real con DB simulada inalcanzable — **encontró y corrigió
+un bug propio de la migración**: la ruta de estáticos (`join(__dirname, '..',
+'public')`, fiel al layout plano del `nest build` original) daba 404 en el
+layout de Nx, donde `public/` es hermano de `main.js`, no un nivel arriba.
+Corregido a `join(__dirname, 'public')`. Confirmado: estáticos + API en el
+mismo proceso, errores de DB devuelven JSON controlado (no tumban el
+proceso), endpoints protegidos sin fuga de datos. `nx build api` sigue verde.
+
+**Pendiente (requiere LAN on-prem a `.245`):** la comparación byte a byte de
+`/api/kp/precio` y `/api/kp/precios-todos` contra `.163:3000` con datos
+reales, y aplicar `sql/007_rol_dedicado.sql`.
 
 **Deferido explícitamente de CV.0:** `drive.service.ts` (código muerto en el
 proyecto origen — no wireado en `AppModule`, sin credencial en `.env` — no se
@@ -90,12 +99,51 @@ porta hasta que haya un uso real).
 
 ---
 
-## CV.1 — `auth` + `admin` (usuarios/roles) — ⬜ TODO
+## CV.1 — `auth` + `admin` (usuarios) — 🧪 código+build+boot verificados (2026-09-01)
 
-Porta JWT+bcryptjs sobre `admin.usuarios`, y `AdminController`/`roles.guard.ts`
-para confirmación de pedidos y CRUD de usuarios del tablero. Cuando esto
-aterrice, los endpoints con `PendingAuthGuard` de CV.0 vuelven a
-`@UseGuards(AuthGuard('jwt'))` de verdad.
+**Qué entrega:** JWT propio + `bcryptjs` sobre `admin.usuarios`
+(`AuthService`/`AuthController`/`JwtStrategy`), y `AdminController`/
+`RolesGuard`/`roles.decorator.ts` para el CRUD de usuarios del tablero (rol
+`admin`). Los endpoints de `kp` que en CV.0 tenían `PendingAuthGuard` (503)
+ahora usan `AuthGuard('jwt')` de verdad — `PendingAuthGuard` se retiró del
+código, ya no lo usa nadie.
+
+**Decisión nueva — P7, secreto propio:** `CATALOGO_KP_JWT_SECRET`, no
+`JWT_SECRET`. Se encontró que `JWT_SECRET` ya está en uso en 33 archivos del
+auth multi-tenant de esta Suite — reusar el nombre habría firmado/validado
+tokens de dos sistemas de auth completamente distintos con el mismo secreto
+si algún día comparten `.env` de dev. Mismo criterio que llevó a
+`catalogo_kp_runtime` en CV.0 (GOTCHAS §24), aplicado a JWT en vez de a DB.
+
+**El fallback inseguro se retira.** El original traía
+`process.env.JWT_SECRET || 'megadulces-secret-cambiar-en-prod'` como
+respaldo silencioso. Se reemplaza por **fail-fast**: `AuthModule` y
+`JwtStrategy` hacen `throw` en boot si `CATALOGO_KP_JWT_SECRET` falta —
+mismo criterio que `KpConcentradaModule` en CV.0. Verificado: sin el secreto,
+el proceso ni siquiera llega a intentar la conexión a la DB.
+
+**Recorte de alcance real, no cosmético:** el `AdminController` original
+también fronteaba `pedidos/pagos/cola` — pero esas rutas dependen de
+`PagosService`/`ColaService`/`PedidosService`/`AvisosService`, todos del
+módulo `tienda` (CV.5, aún no portado). Se agregan al mismo controller
+(mismas rutas `/api/admin/pedidos/*`, `/api/admin/pagos`, `/api/admin/cola*`)
+cuando `tienda` aterrice, no antes — no tiene sentido fingir esas rutas con
+otro guard-stub cuando de todas formas van a cambiar de forma en CV.5.
+
+**Verificado en sesión (sin LAN a `.245`):** `nx build`/`nx lint` limpios (0
+errores, 52 warnings `no-explicit-any` heredados del estilo original).
+Arranque real: sin `CATALOGO_KP_JWT_SECRET` falla antes de tocar la DB; con
+ambos secretos (DB falsa) — `/api/admin/usuarios` y `/api/kp/productos` sin
+token → 401 (ya no 503); `/api/kp/precio` sigue público; `/api/auth/login`
+falla controlado (500 genérico de Nest, sin filtrar nada) cuando la DB no
+responde — mismo comportamiento que tendría el original ante el mismo fallo,
+no es una regresión.
+
+**Pendiente (requiere LAN on-prem a `.245`):** login real contra
+`admin.usuarios` con un usuario de verdad, y confirmar que un hash bcrypt
+existente (creado con `bcrypt` nativo en origen) valida igual con
+`bcryptjs` — ambos implementan el mismo algoritmo y prefijo `$2a$/$2b$`, pero
+no se verificó contra un hash real todavía.
 
 ## CV.2 — `catalogo` (tablero interno) + `dashboard` — ⬜ TODO
 
@@ -120,9 +168,11 @@ El módulo más grande y de mayor riesgo: `carrito.service.ts` (tokens HMAC),
 huérfanos — **portar sin cambiar ni un detalle de comportamiento**, es el
 componente que garantiza "ningún pedido se pierde si la API muere a medio
 proceso"), `avisos.service.ts` (SMTP, ya wireado), `pagos.service.ts`
-(Mercado Pago, credenciales aún no cargadas). Migraciones `002`-`005` ya
-copiadas en CV.0 (sql/), pendiente de aplicar en el `KP_CONCENTRADA` real si
-no lo están ya.
+(Mercado Pago, credenciales aún no cargadas). Incluye agregar las rutas
+`pedidos/pagos/cola` al `AdminController` de CV.1 (recortadas ahí por
+depender de estos servicios — ver CV.1). Migraciones `002`-`005` ya copiadas
+en CV.0 (sql/), pendiente de aplicar en el `KP_CONCENTRADA` real si no lo
+están ya.
 
 ## CV.6 — Modelo operativo (aparte, no bloqueante) — ⬜ TODO
 
