@@ -464,7 +464,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
         { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
-        { label: 'Historial de arqueos', icon: 'pi pi-history', route: '/tienda/arqueos',          permission: Permission.STORE_ARQUEO_VER },
+        { label: 'Arqueos por cajera',  icon: 'pi pi-users',   route: '/tienda/arqueos',          permission: Permission.STORE_ARQUEO_VER },
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER },
         { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
       ],

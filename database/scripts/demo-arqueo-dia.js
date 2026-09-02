@@ -64,14 +64,14 @@ const PERSONAS = [
     caja: '7', folio: '9001', abrio: '07:05:00', cerro: '15:20:00', cerrado: true,
     efectivoEsperado: 18430.50, venta: 24300, tickets: 96,
     // Kepler declara contado == esperado (diff 0). En el cajón faltan $1,240.
-    contadoKepler: 18430.50, enCajon: 17190.50,
+    contadoKepler: 18430.50, enCajon: 17190.50, billetes: 6400.00, monedas: 30.50, retirado: 12000.00,
     guion: 'Kepler dice que cuadró al centavo, pero faltan $1,240',
   },
   {
     user: 'demo_rosa', nombre: 'Rosa María Tinoco Vega', rol: 'cajero',
     caja: '8', folio: '9002', abrio: '07:10:00', cerro: '15:25:00', cerrado: true,
     efectivoEsperado: 12780.00, venta: 15900, tickets: 71,
-    contadoKepler: 12780.00, enCajon: 12780.00,
+    contadoKepler: 12780.00, enCajon: 12780.00, billetes: 3770.00, monedas: 10.00, retirado: 9000.00,
     guion: 'Cuadra de verdad — el control del experimento',
   },
   {
@@ -83,7 +83,7 @@ const PERSONAS = [
     // Lo que Kepler escribirá cuando Luz termine (`--cerrar-turno 9`). Tercer caso:
     // aquí SOBRA dinero. Un sobrante no es "un faltante al revés" — suele ser un
     // cobro mal registrado, y también hay que verlo.
-    alCerrar: { hora: '20:40:00', efectivoEsperado: 6120.00, contadoKepler: 6120.00, enCajon: 6300.00 },
+    alCerrar: { hora: '20:40:00', efectivoEsperado: 6120.00, contadoKepler: 6120.00, enCajon: 6300.00, billetes: 6100.00, monedas: 20.00, retirado: 0 },
   },
 ];
 const ENCARGADA = { user: 'demo_encargada', nombre: 'Marisol Cázares Duarte', rol: 'encargado_tienda' };
@@ -134,9 +134,11 @@ async function cerrarTurno(pg, caja) {
   const diff = Math.round((c.efectivoEsperado - c.contadoKepler) * 100) / 100;
   const r = await pg.query(
     `UPDATE kepler_ods.kdpv_folio_caja
-        SET c10 = $1::timestamp, c11 = $2, c15 = $3, c25 = $4, c35 = $5, c49 = $3
+        SET c10 = $1::timestamp, c11 = $2, c15 = $3, c25 = $4, c35 = $5, c49 = $3,
+            c43 = $8, c44 = $9, c48 = $10
       WHERE sucursal = $6 AND c3::text = $7`,
-    [HOY, c.hora, c.efectivoEsperado, c.contadoKepler, diff, SUC, p.folio],
+    [HOY, c.hora, c.efectivoEsperado, c.contadoKepler, diff, SUC, p.folio,
+     c.billetes ?? 0, c.monedas ?? 0, c.retirado ?? 0],
   );
   if (!r.rowCount) throw new Error(`El turno ${p.folio} no existe — ¿corriste --apply?`);
   return { p, c, diff };
@@ -244,13 +246,15 @@ function correrLoader(script, extra = []) {
     const diff = Math.round((p.efectivoEsperado - p.contadoKepler) * 100) / 100;
     await pg.query(
       `INSERT INTO kepler_ods.kdpv_folio_caja
-         (sucursal, c1, c2, c3, c5, c6, c7, c8, c10, c11, c13, c15, c25, c35, c16, c26, c36, c17, c27, c37, c49)
+         (sucursal, c1, c2, c3, c5, c6, c7, c8, c10, c11, c13, c15, c25, c35, c16, c26, c36, c17, c27, c37, c49,
+          c43, c44, c45, c48)
        VALUES ($1,$1,$2,$3::numeric,$4::timestamp,$5,'GERENTE',$6,$7::timestamp,$8,'01',
-               $9,$10,$11, 0,0,0, 0,0,0, $9)
+               $9,$10,$11, 0,0,0, 0,0,0, $9, $12,$13,0, $14)
        ON CONFLICT (sucursal, c1, c2, c3) DO NOTHING`,
       [SUC, p.caja, p.folio, HOY, p.abrio, cajero,
         p.cerrado ? HOY : '1800-01-01', p.cerrado ? p.cerro : null,
-        p.efectivoEsperado, p.contadoKepler, diff],
+        p.efectivoEsperado, p.contadoKepler, diff,
+        p.billetes ?? 0, p.monedas ?? 0, p.retirado ?? 0],
     );
     // Tickets del día: es lo que le da "venta hoy" a la pantalla de cajas abiertas.
     const montos = repartir(p.venta, Math.min(p.tickets, 40));

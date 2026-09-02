@@ -86,6 +86,17 @@ export interface ArqueoRow {
    */
   esperado?: number | null; kepler_contado?: number | null; kepler_diff?: number | null;
   kepler_enmascaro?: boolean; diff_real?: number | null;
+  /**
+   * SM.18 — el desglose que Kepler SÍ manda (billetes/monedas, no por denominación)
+   * y el nuestro partido igual, para poder compararlos. `kepler_desglose_cuadra`
+   * verifica la identidad `billetes + monedas + retirado = contado`; cuando falla,
+   * `kepler_desglose_faltante` suele ser un retiro que nadie registró.
+   */
+  kepler_billetes?: number | null; kepler_monedas?: number | null; kepler_retirado?: number | null;
+  kepler_desglose_cuadra?: boolean | null; kepler_desglose_faltante?: number | null;
+  nuestro_billetes?: number; nuestro_monedas?: number;
+  /** El conteo pieza por pieza. Kepler no lo tiene: existe porque la cajera lo capturó. */
+  denominaciones?: { denominacion: number; cantidad: number; subtotal: number }[];
 }
 
 /**
@@ -103,6 +114,38 @@ export interface ArqueoHistorial {
   arqueos: ArqueoRow[];
   por_cajera: ArqueoPorCajera[];
   totales: { arqueos: number; sin_validar: number; faltante_total?: number; sobrante_total?: number };
+}
+
+/** Un corte de Kepler con el arqueo nuestro colgado (si existe). */
+export interface TurnoCorte {
+  arqueo_id: string | null;
+  business_date: string; caja: string; folio: string;
+  hora_apertura: string | null; hora_cierre: string | null; duracion_horas: number | null;
+  handoff?: boolean;
+  esperado?: number | null;
+  kepler_contado?: number | null; kepler_billetes?: number | null;
+  kepler_monedas?: number | null; kepler_retirado?: number | null; venta?: number | null;
+  /** `null` = el turno cerró en Kepler y nadie contó el efectivo. */
+  nuestro_contado: number | null;
+  diff_real?: number | null;
+  denominaciones: { denominacion: number; cantidad: number; subtotal: number }[];
+  capturado_por: string | null; capturado_at: string | null;
+  validado_por: string | null; validado_at: string | null;
+}
+
+/** Una cajera con todos sus cortes del período. */
+export interface CajeraCard {
+  cajero_code: string; cajero_nombre: string | null;
+  warehouse_code: string; warehouse_name: string | null;
+  cortes: number; dias: number; sin_arqueo: number; sin_validar?: number;
+  faltante_total?: number; sobrante_total?: number; venta_total?: number;
+  ultimo: string | null;
+  turnos: TurnoCorte[];
+}
+
+export interface PorCajeraResp {
+  cajeras: CajeraCard[];
+  totales: { cajeras: number; cortes: number; sin_arqueo: number; faltante_total?: number };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -129,6 +172,17 @@ export class ArqueoService {
     if (q?.limit) p.set('limit', String(q.limit));
     const qs = p.toString();
     return this.http.get<ArqueoHistorial>(`${this.base}/historial${qs ? '?' + qs : ''}`);
+  }
+
+  /** Tarjetas por cajera: sus cortes de Kepler + el arqueo nuestro cuando existe. */
+  porCajera(q?: { from?: string; to?: string; cajero?: string; limit?: number }): Observable<PorCajeraResp> {
+    const p = new URLSearchParams();
+    if (q?.from) p.set('from', q.from);
+    if (q?.to) p.set('to', q.to);
+    if (q?.cajero) p.set('cajero', q.cajero);
+    if (q?.limit) p.set('limit', String(q.limit));
+    const qs = p.toString();
+    return this.http.get<PorCajeraResp>(`${this.base}/por-cajera${qs ? '?' + qs : ''}`);
   }
 
   /** La encargada firma el arqueo tras contarlo en el lugar. */

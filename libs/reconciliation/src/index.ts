@@ -7,4 +7,5 @@ export * from './lib/movement-reconcile.service';
 export * from './lib/reconciliation-findings.service';
 export * from './lib/reconciliation-scanner.service';
 export * from './lib/blind-count.service';
+export * from './lib/cash-cuts-sync.service';
 export * from './lib/reconciliation-actions.service';

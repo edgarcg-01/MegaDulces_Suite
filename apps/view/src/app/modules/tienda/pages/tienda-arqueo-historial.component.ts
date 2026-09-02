@@ -1,9 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
@@ -11,28 +9,28 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoRow, ArqueoPorCajera } from '../arqueo.service';
+import { ArqueoService, CajeraCard, TurnoCorte } from '../arqueo.service';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { imprimirTicket } from '../ticket-arqueo';
 
 /**
- * Tienda — Historial de arqueos (/tienda/arqueos).
+ * Tienda — Arqueos por cajera (/tienda/arqueos).
  *
- * Dos preguntas distintas en una pantalla. Arriba, **por cajera**: a quién le
- * pasa seguido, cuánto acumula en faltantes y cuántos le faltan de firmar —
- * faltantes y sobrantes van separados a propósito, porque una cajera con +$500 y
- * −$500 no cuadra en promedio, tiene dos errores. Abajo, el **detalle**: cada
- * arqueo con lo que declaró Kepler, lo que contamos, quién lo capturó y **quién
- * lo validó**.
+ * Una **tarjeta por persona**, no una tabla de eventos. La pregunta que se hace
+ * la encargada no es "qué pasó el martes" sino "cómo viene Jessica": cuántos
+ * cortes lleva, en qué horarios, cuáles quedaron sin contar y cuánto acumula.
  *
- * Mismo recorte que el resto del arqueo: la cajera ve solo lo suyo y sin cuadre
- * (el backend no le manda esos campos, ni sueltos ni sumados); la encargada ve su
- * tienda completa y puede firmar desde acá.
+ * La fuente son **los cortes de Kepler**, no nuestros conteos — así el turno que
+ * nadie arqueó también aparece, que es justo el que hay que perseguir. Nuestro
+ * arqueo se cuelga de cada corte cuando existe, con su conteo pieza por pieza.
+ *
+ * Cada corte se puede imprimir en formato ticket (80 mm) como respaldo físico.
  */
 @Component({
   selector: 'app-tienda-arqueo-historial',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TagModule, SegmentedComponent, FreshnessPillComponent],
+  imports: [CommonModule, ButtonModule, ToastModule, TagModule, SegmentedComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -40,21 +38,18 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Historial de arqueos</h1>
+          <h1>Arqueos por cajera</h1>
           <p class="surf-page-sub">
-            @if (revela) { Quién contó, cuánto, y <strong>quién se lo validó</strong>. Acumulado por cajera y detalle arqueo por arqueo. }
-            @else { Tus arqueos, con la fecha en que tu encargada los validó. }
+            @if (revela) { Cada persona con <strong>sus cortes de Kepler</strong> y sus horarios. Kepler siempre trae su cifra; el chip marca los turnos donde <strong>nadie contó el efectivo</strong>. }
+            @else { Tus cortes y los conteos que capturaste. }
           </p>
         </div>
         <div class="ah-head-right">
-          <!-- Sin calendario: la operación es de hoy hacia atrás, no de una fecha
-               arbitraria. Ventanas fijas relativas al presente — así la pantalla
-               siempre está en vivo y nadie se queda mirando un rango viejo. -->
           <app-segmented [options]="ventanas" [value]="ventana()" (valueChange)="cambiarVentana($event)" ariaLabel="Ventana" />
           <app-freshness-pill [since]="cargadoAl()" [staleAfterSec]="180" />
           <button pButton type="button" class="p-button-sm p-button-text" [class.ah-on]="soloPendientes()" (click)="togglePendientes()">
             <span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span>
-            <span class="p-button-label">Solo sin validar</span>
+            <span class="p-button-label">Solo sin conteo físico</span>
           </button>
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="load()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span>
@@ -63,122 +58,183 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
       </header>
 
       <div class="ah-kpis">
-        <div class="ah-kpi"><span class="ah-kpi-v">{{ totales().arqueos }}</span><span class="ah-kpi-l">Arqueos</span></div>
-        <div class="ah-kpi"><span class="ah-kpi-v" [class.bad]="totales().sin_validar > 0">{{ totales().sin_validar }}</span><span class="ah-kpi-l">Sin validar</span></div>
+        <div class="ah-kpi"><span class="ah-kpi-v">{{ totales().cajeras }}</span><span class="ah-kpi-l">Cajeras</span></div>
+        <div class="ah-kpi"><span class="ah-kpi-v">{{ totales().cortes }}</span><span class="ah-kpi-l">Cortes</span></div>
+        <div class="ah-kpi"><span class="ah-kpi-v" [class.bad]="totales().sin_arqueo > 0">{{ totales().sin_arqueo }}</span><span class="ah-kpi-l">Sin conteo físico</span></div>
         @if (revela) {
-          <div class="ah-kpi"><span class="ah-kpi-v bad">{{ money(totales().faltante_total) }}</span><span class="ah-kpi-l">Faltantes acumulados</span></div>
-          <div class="ah-kpi"><span class="ah-kpi-v ok">{{ money(totales().sobrante_total) }}</span><span class="ah-kpi-l">Sobrantes acumulados</span></div>
+          <div class="ah-kpi"><span class="ah-kpi-v bad">{{ money(totales().faltante_total) }}</span><span class="ah-kpi-l">Faltantes</span></div>
         }
       </div>
 
-      @if (revela) {
-        <div class="card-premium card-flat ah-panel">
-          <h3 class="ah-card-title">Por cajera <span class="muted">— tocá una fila para ver solo sus arqueos</span></h3>
-          <p-table [value]="porCajera()" styleClass="p-datatable-sm ah-table" [rowHover]="true" [loading]="loading()">
-            <ng-template #header>
-              <tr>
-                <th>Cajera</th><th>Sucursal</th><th class="ta-r">Arqueos</th><th class="ta-r">Contado</th>
-                <th class="ta-r">Con diferencia</th><th class="ta-r">Faltantes</th><th class="ta-r">Sobrantes</th>
-                <th class="ta-r">Sin validar</th><th>Último</th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-g>
-              <tr class="ah-row" [class.sel]="g.cajero_code === cajeroSel()" (click)="filtrarCajera(g.cajero_code)">
-                <td class="strong">{{ g.cajero_nombre || g.cajero_code || '—' }}</td>
-                <td>{{ branchLabel(g.warehouse_code) }}</td>
-                <td class="ta-r">{{ g.arqueos }}</td>
-                <td class="ta-r">{{ money(g.total_contado) }}</td>
-                <td class="ta-r">{{ g.con_diferencia }}</td>
-                <td class="ta-r strong" [class.bad]="g.faltante_total > 0">{{ g.faltante_total ? money(g.faltante_total) : '—' }}</td>
-                <td class="ta-r" [class.ok]="g.sobrante_total > 0">{{ g.sobrante_total ? money(g.sobrante_total) : '—' }}</td>
-                <td class="ta-r" [class.bad]="g.sin_validar > 0">{{ g.sin_validar || '—' }}</td>
-                <td>{{ g.ultima_fecha | date:'dd/MM/yy' }}</td>
-              </tr>
-            </ng-template>
-            <ng-template #emptymessage><tr><td colspan="9" class="ah-empty">Sin arqueos en el rango.</td></tr></ng-template>
-          </p-table>
+      @if (loading() && !cajeras().length) {
+        <p class="muted ah-msg">Cargando…</p>
+      } @else if (!visibles().length) {
+        <div class="card-premium card-flat ah-vacio">
+          <i class="pi pi-inbox"></i>
+          <div>
+            <strong>Sin cortes en esta ventana.</strong>
+            <p class="muted">
+              @if (soloPendientes()) { Todos los turnos tienen conteo físico — probá quitando el filtro. }
+              @else { Kepler no registró cortes en el rango. Ampliá a 7 o 30 días. }
+            </p>
+          </div>
         </div>
       }
 
-      <div class="card-premium card-flat ah-panel">
-        <h3 class="ah-card-title">
-          Detalle
-          @if (cajeroSel()) { <span class="ah-chip">{{ cajeroSel() }} <button type="button" class="ah-x" (click)="filtrarCajera(null)" aria-label="Quitar filtro">✕</button></span> }
-        </h3>
-        <p-table [value]="filas()" styleClass="p-datatable-sm ah-table" [rowHover]="true" [loading]="loading()">
-          <ng-template #header>
-            <tr>
-              <th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajera</th>
+      <div class="ah-cards">
+        @for (c of visibles(); track c.cajero_code) {
+          <article class="card-premium card-flat ah-card">
+            <header class="ah-card-h">
+              <div class="ah-ini" aria-hidden="true">{{ iniciales(c) }}</div>
+              <div class="ah-card-id">
+                <h3>{{ c.cajero_nombre || c.cajero_code }}</h3>
+                <span class="muted">{{ branchLabel(c.warehouse_code) }} · {{ c.cajero_code }}</span>
+              </div>
+              @if (c.sin_arqueo) { <span class="ah-badge">{{ c.sin_arqueo }} solo Kepler</span> }
+            </header>
+
+            <div class="ah-card-kpis">
+              <div><span class="ah-k">{{ c.cortes }}</span><span class="ah-l">cortes</span></div>
+              <div><span class="ah-k">{{ c.dias }}</span><span class="ah-l">días</span></div>
               @if (revela) {
-                <th class="ta-r">Esperado</th><th class="ta-r">Arqueo Kepler</th>
+                <div><span class="ah-k" [class.bad]="(c.faltante_total || 0) > 0">{{ money(c.faltante_total) }}</span><span class="ah-l">faltantes</span></div>
+                <div><span class="ah-k" [class.ok]="(c.sobrante_total || 0) > 0">{{ money(c.sobrante_total) }}</span><span class="ah-l">sobrantes</span></div>
               }
-              <th class="ta-r">Nuestro arqueo</th>
-              @if (revela) { <th class="ta-r">Diferencia</th> }
-              <th>Capturó</th><th>Validó</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-b>
-            <tr>
-              <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
-              <td>{{ branchLabel(b.warehouse_code) }}</td>
-              <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="ah-tag-mini" /> }</td>
-              <td>{{ b.cajero_nombre || b.cajero_code || '—' }}</td>
-              @if (revela) {
-                <td class="ta-r muted">{{ b.esperado != null ? money(b.esperado) : '—' }}</td>
-                <td class="ta-r">{{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}@if (b.kepler_enmascaro) { <span class="ah-mask">enmascaró</span> }</td>
-              }
-              <td class="ta-r strong">{{ money(b.total_contado) }}</td>
-              @if (revela) {
-                <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">
-                  {{ b.diff_real != null ? signed(b.diff_real) : '—' }}
-                  @if (b.diff_real != null && b.diff_real !== 0) { <span class="ah-dif-l">{{ b.diff_real > 0 ? 'faltan' : 'sobran' }}</span> }
-                </td>
-              }
-              <td class="muted">{{ b.captured_by || '—' }}<span class="ah-hora">{{ b.captured_at | date:'dd/MM HH:mm' }}</span></td>
-              <td>
-                @if (b.validado_at) {
-                  <span class="ah-ok"><i class="pi pi-check-circle"></i> {{ b.validado_por }}</span>
-                  <span class="ah-hora">{{ b.validado_at | date:'dd/MM HH:mm' }}</span>
-                } @else if (revela) {
-                  <button pButton type="button" class="p-button-sm p-button-text" [disabled]="validando() === b.id" (click)="validar(b)">
-                    <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span>
+            </div>
+
+            <ul class="ah-turnos">
+              @for (t of turnosDe(c); track t.folio + t.business_date) {
+                <li class="ah-turno">
+                  <button type="button" class="ah-turno-h" (click)="alternar(t)">
+                    <span class="ah-t-fecha">{{ t.business_date | date:'dd/MM' }}</span>
+                    <span class="ah-t-caja">Caja {{ t.caja }}</span>
+                    <span class="ah-t-hora">
+                      {{ (t.hora_apertura || '--').slice(0,5) }}–{{ (t.hora_cierre || '--').slice(0,5) }}
+                      @if (t.duracion_horas != null) { <span class="muted">· {{ t.duracion_horas }}h</span> }
+                    </span>
+                    @if (t.nuestro_contado != null) {
+                      <span class="ah-t-monto">{{ money(t.nuestro_contado) }}</span>
+                      @if (revela && t.diff_real != null && t.diff_real !== 0) {
+                        <span class="ah-t-dif" [class.bad]="t.diff_real > 0" [class.ok]="t.diff_real < 0">
+                          {{ t.diff_real > 0 ? '+' : '' }}{{ money(t.diff_real) }}
+                        </span>
+                      }
+                    } @else {
+                      <!-- Kepler siempre trae su cifra, así que el turno no queda
+                           vacío: lo que falta es el conteo físico. A la cajera NO se
+                           le muestra el monto (SM.10) — vería su esperado por la puerta
+                           de atrás — pero sí que ese corte quedó sin contar. -->
+                      @if (revela) { <span class="ah-t-monto muted">{{ money(t.kepler_contado) }}</span> }
+                      <span class="ah-t-sin" title="Kepler declaró este corte; nadie contó el efectivo a ciegas">solo Kepler</span>
+                    }
+                    <i class="pi ah-chev" [class.pi-chevron-down]="abierto(t)" [class.pi-chevron-right]="!abierto(t)"></i>
                   </button>
-                } @else { <span class="muted">Pendiente</span> }
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="ah-empty">Sin arqueos en el rango.</td></tr></ng-template>
-        </p-table>
+
+                  @if (abierto(t)) {
+                    <div class="ah-t-det">
+                      @if (revela) {
+                        <div class="ah-t-kep">
+                          <span><span class="ah-l">Esperado</span>{{ money(t.esperado) }}</span>
+                          <span><span class="ah-l">Kepler</span>{{ money(t.kepler_contado) }}</span>
+                          <span><span class="ah-l">Billetes</span>{{ money(t.kepler_billetes) }}</span>
+                          <span><span class="ah-l">Monedas</span>{{ money(t.kepler_monedas) }}</span>
+                          <span><span class="ah-l">Retirado</span>{{ money(t.kepler_retirado) }}</span>
+                        </div>
+                      }
+                      @if (t.denominaciones?.length) {
+                        <table class="ah-den">
+                          @for (d of t.denominaciones; track d.denominacion) {
+                            <tr>
+                              <td class="ta-r">{{ d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢' }}</td>
+                              <td class="ta-c muted">×</td><td class="ta-r">{{ d.cantidad }}</td>
+                              <td class="ta-c muted">=</td><td class="ta-r strong">{{ money(d.subtotal) }}</td>
+                            </tr>
+                          }
+                          <tr class="ah-den-tot"><td colspan="4">Total contado</td><td class="ta-r strong">{{ money(t.nuestro_contado) }}</td></tr>
+                        </table>
+                      } @else {
+                        <p class="ah-nada">
+                          @if (revela) {
+                            <strong>Arqueo de Kepler: {{ money(t.kepler_contado) }}</strong>
+                            <span class="muted">— cifra <em>declarada</em> al cerrar el corte, sin conteo físico a ciegas.
+                            Kepler no guarda el detalle por denominación.</span>
+                          } @else {
+                            <span class="muted">Este corte se cerró en Kepler sin conteo físico. Contalo con tu encargada.</span>
+                          }
+                        </p>
+                      }
+                      <div class="ah-t-pie">
+                        <span class="muted">
+                          @if (t.capturado_por) { Capturó {{ t.capturado_por }} · {{ t.capturado_at | date:'dd/MM HH:mm' }} }
+                          @if (t.validado_por) { · Validó {{ t.validado_por }} }
+                        </span>
+                        <button pButton type="button" class="p-button-sm p-button-text" (click)="imprimir(c, t)">
+                          <span class="p-button-icon p-button-icon-left pi pi-print" aria-hidden="true"></span>
+                          <span class="p-button-label">Imprimir ticket</span>
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          </article>
+        }
       </div>
     </div>
   `,
   styles: [`
     :host { display: block; }
-    .ah-head-right { display: inline-flex; align-items: flex-end; gap: .6rem; margin-left: auto; flex-wrap: wrap; }
-    .ah-lbl { display: inline-flex; flex-direction: column; gap: .2rem; font-size: .72rem; color: var(--text-muted); }
-    :host ::ng-deep .ah-fld { font-size: .8rem; padding: .3rem .5rem; width: 8.2rem; }
+    .ah-head-right { display: inline-flex; align-items: center; gap: .6rem; margin-left: auto; flex-wrap: wrap; }
     :host ::ng-deep .ah-on { color: var(--action); font-weight: 700; }
-    .ah-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
+    .ah-msg { font-size: .85rem; }
+    .ah-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
     .ah-kpi { padding: .8rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .ah-kpi-v { display: block; font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .ah-kpi-l { display: block; font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-top: .15rem; }
-    .ah-panel { padding: 1rem; margin-bottom: 1rem; }
-    .ah-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
-    .ah-table { font-variant-numeric: tabular-nums; }
-    :host ::ng-deep .ah-table .p-datatable-tbody > tr > td { padding: .3rem .55rem; }
-    .ah-row { cursor: pointer; }
-    .ah-row.sel { background: color-mix(in srgb, var(--action) 8%, transparent); }
-    .ah-chip { display: inline-flex; align-items: center; gap: .3rem; margin-left: .4rem; font-size: .7rem; font-weight: 600;
-               padding: .1rem .45rem; border-radius: 999px; background: color-mix(in srgb, var(--action) 12%, transparent); color: var(--action); }
-    .ah-x { border: 0; background: none; cursor: pointer; color: inherit; font-size: .7rem; padding: 0 0 0 .1rem; }
-    .ah-mask { display: inline-block; margin-left: .3rem; font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 700;
-               padding: .05rem .28rem; border-radius: 4px; color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
-    .ah-dif-l { display: block; font-size: .6rem; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; opacity: .75; }
-    .ah-ok { display: inline-flex; align-items: center; gap: .25rem; font-size: .76rem; color: var(--ok-fg); font-weight: 600; }
-    .ah-hora { display: block; font-size: .62rem; color: var(--text-muted); }
-    :host ::ng-deep .ah-tag-mini { margin-left: .3rem; transform: scale(.8); }
-    .ah-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
-    .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
+    .ah-vacio { display: flex; gap: .8rem; align-items: flex-start; padding: 1.1rem; }
+    .ah-vacio i { color: var(--text-muted); margin-top: .15rem; }
+    .ah-vacio p { margin: .2rem 0 0; font-size: .82rem; }
+    /* Grid intrínseco: sin breakpoints, la tarjeta decide cuántas caben. */
+    .ah-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 27rem), 1fr)); gap: .9rem; }
+    .ah-card { padding: .9rem 1rem 1rem; }
+    .ah-card-h { display: flex; align-items: center; gap: .65rem; margin-bottom: .7rem; }
+    .ah-ini { width: 2.1rem; height: 2.1rem; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center;
+              font-size: .72rem; font-weight: 700; letter-spacing: .02em;
+              background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); }
+    .ah-card-id { min-width: 0; }
+    .ah-card-id h3 { margin: 0; font-size: .88rem; font-weight: 700; line-height: 1.2;
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ah-card-id span { font-size: .68rem; }
+    .ah-badge { margin-left: auto; flex: 0 0 auto; font-size: .62rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .04em; padding: .12rem .4rem; border-radius: 999px;
+                background: color-mix(in srgb, var(--bad-fg) 12%, transparent); color: var(--bad-fg); }
+    .ah-card-kpis { display: flex; gap: 1.2rem; padding: .5rem 0 .7rem; border-bottom: 1px solid var(--border-color); }
+    .ah-k { display: block; font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .ah-l { display: block; font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .ah-turnos { list-style: none; margin: 0; padding: 0; }
+    .ah-turno { border-bottom: 1px solid var(--border-color); }
+    .ah-turno:last-child { border-bottom: 0; }
+    .ah-turno-h { width: 100%; display: flex; align-items: center; gap: .55rem; padding: .42rem 0; background: none;
+                  border: 0; cursor: pointer; color: inherit; text-align: left; font-variant-numeric: tabular-nums; }
+    .ah-turno-h:hover { color: var(--action); }
+    .ah-t-fecha { font-size: .76rem; font-weight: 600; flex: 0 0 3rem; }
+    .ah-t-caja { font-size: .72rem; color: var(--text-muted); flex: 0 0 4rem; }
+    .ah-t-hora { font-size: .72rem; color: var(--text-muted); }
+    .ah-t-monto { margin-left: auto; font-size: .8rem; font-weight: 700; }
+    .ah-t-dif { font-size: .72rem; font-weight: 700; }
+    .ah-t-sin { margin-left: auto; font-size: .64rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .04em; color: var(--warn-fg); }
+    .ah-chev { font-size: .62rem; color: var(--text-muted); }
+    .ah-t-det { padding: .3rem 0 .7rem 3rem; }
+    .ah-t-kep { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-bottom: .5rem; font-size: .76rem; font-variant-numeric: tabular-nums; }
+    .ah-den { font-variant-numeric: tabular-nums; border-collapse: collapse; }
+    .ah-den td { padding: .07rem .45rem; font-size: .78rem; }
+    .ah-den-tot td { border-top: 1px solid var(--border-color); font-weight: 700; padding-top: .25rem; }
+    .ah-nada { font-size: .78rem; margin: .2rem 0; }
+    .ah-t-pie { display: flex; align-items: center; gap: .6rem; margin-top: .45rem; font-size: .68rem; flex-wrap: wrap; }
+    .ta-r { text-align: right; } .ta-c { text-align: center; }
+    .strong { font-weight: 700; } .muted { color: var(--text-muted); }
     .bad { color: var(--bad-fg); } .ok { color: var(--ok-fg); }
   `],
 })
@@ -194,47 +250,38 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   readonly revela = this.perms.can('manage', 'all')
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 
-  readonly porCajera = signal<ArqueoPorCajera[]>([]);
-  readonly arqueos = signal<ArqueoRow[]>([]);
-  readonly totales = signal<{ arqueos: number; sin_validar: number; faltante_total?: number; sobrante_total?: number }>({ arqueos: 0, sin_validar: 0 });
+  readonly cajeras = signal<CajeraCard[]>([]);
+  readonly totales = signal<{ cajeras: number; cortes: number; sin_arqueo: number; faltante_total?: number }>(
+    { cajeras: 0, cortes: 0, sin_arqueo: 0 });
   readonly loading = signal(false);
-  readonly validando = signal<string | null>(null);
-  readonly cajeroSel = signal<string | null>(null);
+  readonly cargadoAl = signal<string | null>(null);
   readonly soloPendientes = signal(false);
+  /** Turnos con el detalle desplegado, por `folio|fecha`. */
+  readonly desplegados = signal<Record<string, boolean>>({});
 
-  /**
-   * Ventanas RELATIVAS al presente, no fechas elegidas a mano: la pantalla tiene
-   * que estar siempre en vivo. Un calendario invita a quedarse mirando un rango
-   * viejo y creer que es el estado actual.
-   */
   readonly ventanas = [
     { label: 'Hoy', value: 'hoy' },
     { label: '7 días', value: '7' },
     { label: '30 días', value: '30' },
   ];
-  readonly ventana = signal<string>('hoy');
-  readonly cargadoAl = signal<string | null>(null);
+  readonly ventana = signal<string>('7');
 
-  /** El filtro por cajera es local: la tabla ya vino completa, no hace falta ir al server. */
-  readonly filas = computed(() => {
-    const c = this.cajeroSel();
-    return c ? this.arqueos().filter((a) => a.cajero_code === c) : this.arqueos();
-  });
-  readonly colspan = computed(() => 6 + (this.revela ? 3 : 0));
+  /** Con el filtro puesto, la tarjeta solo aparece si tiene pendientes. */
+  readonly visibles = computed(() =>
+    this.soloPendientes() ? this.cajeras().filter((c) => c.sin_arqueo > 0) : this.cajeras());
 
   ngOnInit() {
     this.load();
-    // A la par de Kepler: se repregunta sola. Fuera de Angular para no disparar
-    // change detection cada minuto por un timer de fondo.
     this.zone.runOutsideAngular(() => {
       const id = setInterval(() => this.zone.run(() => {
-        if (document.visibilityState === 'visible' && !this.validando()) this.load();
+        if (document.visibilityState === 'visible') this.load();
       }), 60_000);
       this.destroyRef.onDestroy(() => clearInterval(id));
     });
   }
 
   cambiarVentana(v: string) { this.ventana.set(v); this.load(); }
+  togglePendientes() { this.soloPendientes.set(!this.soloPendientes()); }
 
   /** Inicio de la ventana en hora de MÉXICO (§10), no en la del navegador. */
   private desdeTxt(): string {
@@ -247,39 +294,54 @@ export class TiendaArqueoHistorialComponent implements OnInit {
 
   load() {
     this.loading.set(true);
-    this.svc.historial({
-      from: this.desdeTxt(),   // sin `to`: el corte superior es SIEMPRE ahora
-      sin_validar: this.soloPendientes() || undefined, limit: 500,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.porCajera.set(r.por_cajera || []);
-        this.arqueos.set(r.arqueos || []);
-        this.totales.set(r.totales || { arqueos: 0, sin_validar: 0 });
-        this.cargadoAl.set(new Date().toISOString());
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false),
-    });
+    this.svc.porCajera({ from: this.desdeTxt(), limit: 600 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.cajeras.set(r.cajeras || []);
+          this.totales.set(r.totales || { cajeras: 0, cortes: 0, sin_arqueo: 0 });
+          this.cargadoAl.set(new Date().toISOString());
+          this.loading.set(false);
+        },
+        error: () => this.loading.set(false),
+      });
   }
 
-  togglePendientes() { this.soloPendientes.set(!this.soloPendientes()); this.load(); }
-  filtrarCajera(code: string | null) { this.cajeroSel.set(this.cajeroSel() === code ? null : code); }
+  /** Con el filtro puesto, dentro de la tarjeta también se ven solo los pendientes. */
+  turnosDe(c: CajeraCard): TurnoCorte[] {
+    return this.soloPendientes() ? c.turnos.filter((t) => t.nuestro_contado == null) : c.turnos;
+  }
 
-  validar(b: ArqueoRow) {
-    if (this.validando()) return;
-    this.validando.set(b.id);
-    this.svc.validar(b.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.validando.set(null);
-        this.toast.add({ severity: 'success', summary: 'Arqueo validado', detail: `Caja ${b.caja} · ${this.money(b.total_contado)}` });
-        this.load();
-      },
-      error: (e) => { this.validando.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo validar.' }); },
-    });
+  private clave(t: TurnoCorte) { return `${t.folio}|${t.business_date}`; }
+  abierto(t: TurnoCorte) { return !!this.desplegados()[this.clave(t)]; }
+  alternar(t: TurnoCorte) {
+    const k = this.clave(t); const d = { ...this.desplegados() };
+    if (d[k]) delete d[k]; else d[k] = true;
+    this.desplegados.set(d);
+  }
+
+  iniciales(c: CajeraCard): string {
+    const n = (c.cajero_nombre || c.cajero_code || '').trim();
+    const p = n.split(/\s+/).filter(Boolean);
+    return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '??';
+  }
+
+  imprimir(c: CajeraCard, t: TurnoCorte) {
+    const ok = imprimirTicket({
+      sucursal: this.branchLabel(c.warehouse_code), caja: t.caja, fecha: t.business_date, folio: t.folio,
+      cajera: c.cajero_nombre || c.cajero_code || '',
+      hora_apertura: t.hora_apertura, hora_cierre: t.hora_cierre,
+      denominaciones: t.denominaciones || [], total_contado: t.nuestro_contado ?? t.kepler_contado ?? 0,
+      esperado: t.esperado, diff_real: t.diff_real, kepler_contado: t.kepler_contado,
+      kepler_billetes: t.kepler_billetes, kepler_monedas: t.kepler_monedas, kepler_retirado: t.kepler_retirado,
+      capturado_por: t.capturado_por, validado_por: t.validado_por, validado_at: t.validado_at,
+    }, { revela: this.revela });
+    if (!ok) {
+      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });
+    }
   }
 
   branchLabel(code?: string | null): string { return branchName(code); }
-
-  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-  signed(v: number): string { return (v > 0 ? '+' : '') + this.money(v); }
+  money(v: number | string | null | undefined): string {
+    return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
 }
