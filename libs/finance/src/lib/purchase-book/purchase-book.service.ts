@@ -589,13 +589,43 @@ export class PurchaseBookService {
         total_cargos: cargos, total_abonos: abonos,
         subtotal_exento: resumen['subtotal_exento'], subtotal_gravado: resumen['subtotal_gravado'],
         total_iva: resumen['iva'], total_ieps: resumen['ieps'],
-        archivo_hash: hash, archivo_nombre: nombre,
+        // El contenido se guarda, no sólo su hash: `fiscal.cfdis` sigue creciendo, así que
+        // este archivo no se puede reproducir mañana. Es la evidencia de lo entregado.
+        archivo_hash: hash, archivo_nombre: nombre, archivo_contenido: txt,
         impuestos_modo: modo, incluye_uuid: conUuid,
         generado_at: knex.fn.now(), generado_by: userId,
         updated_at: knex.fn.now(), updated_by: userId,
       });
       this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
       return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
+    });
+  }
+
+  /**
+   * Devuelve el TXT **ya generado**, tal cual quedó guardado. Es sólo lectura a propósito.
+   *
+   * Antes la descarga llamaba a `generar()`, y eso escribía: bajar un mes que ya estaba en
+   * `entregado` lo regresaba a `generado` (el trámite retrocedía solo) y recalculaba el
+   * hash, así que si entre generar y descargar entraba un CFDI nuevo el archivo bajado ya
+   * no era el firmado — y nadie se enteraba, porque el hash se pisaba junto con él.
+   */
+  async obtenerArchivo(anioMes: string, tipo: TipoCorrida = 'libro') {
+    this.mesValido(anioMes);
+    return this.tk.run(async (knex) => {
+      const run = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run || !run.archivo_contenido) {
+        throw new NotFoundException(
+          `${anioMes} no tiene archivo generado todavía. Genéralo primero.`,
+        );
+      }
+      return {
+        anio_mes: anioMes,
+        tipo,
+        nombre: run.archivo_nombre || `${tipo === 'complemento' ? 'complemento' : 'poliza'}-compras-${anioMes}.txt`,
+        hash: run.archivo_hash as string,
+        txt: run.archivo_contenido as string,
+      };
     });
   }
 

@@ -147,15 +147,16 @@ export class LibroComprasService {
     return this.http.post<{ ok: boolean }>(`${this.base}/${mes}/estado`, { estado, ...datos });
   }
 
-  /** URL de descarga directa — el navegador la abre y guarda el archivo. */
-  urlArchivo(mes: string, impuestos: ImpuestosModo, uuid: boolean): string {
-    return `${this.base}/${mes}/archivo?impuestos=${impuestos}&uuid=${uuid ? '1' : '0'}`;
-  }
-
-  /** Descarga con el token puesto: el endpoint va detrás del guard, así que un
-   *  `<a href>` pelado devolvería 401. */
-  descargar(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<Blob> {
-    return this.http.get(this.urlArchivo(mes, impuestos, uuid), { responseType: 'blob' });
+  /**
+   * Baja el TXT **ya generado**. No lleva `impuestos` ni `uuid`: esas opciones deciden cómo
+   * se arma el archivo y eso se decidió al generarlo. Mandarlas en la descarga hacía que el
+   * server regenerara y sirviera uno distinto del que quedó firmado por su hash.
+   *
+   * Va por HttpClient y no por un `<a href>` pelado porque el endpoint está detrás del
+   * guard y sin el token devolvería 401.
+   */
+  descargar(mes: string): Observable<Blob> {
+    return this.http.get(`${this.base}/${mes}/archivo`, { responseType: 'blob' });
   }
 
   // ── Sub-módulo: movimientos no asociados ──────────────────────────────────────────────
@@ -185,9 +186,7 @@ export class LibroComprasService {
     return this.http.post<{ ok: boolean }>(`${this.noAso}/${mes}/estado`, { estado, ...datos });
   }
 
-  descargarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<Blob> {
-    return this.http.get(
-      `${this.noAso}/${mes}/archivo?impuestos=${impuestos}&uuid=${uuid ? '1' : '0'}`,
-      { responseType: 'blob' });
+  descargarNoAsociados(mes: string): Observable<Blob> {
+    return this.http.get(`${this.noAso}/${mes}/archivo`, { responseType: 'blob' });
   }
 }

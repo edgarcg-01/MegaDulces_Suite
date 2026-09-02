@@ -420,7 +420,7 @@ export class LibroComprasComponent implements OnInit {
 
   descargar() {
     const mes = this.mesSel(); if (!mes) return;
-    this.svc.descargar(mes, this.impuestosModo, this.incluirUuid).subscribe({
+    this.svc.descargar(mes).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
