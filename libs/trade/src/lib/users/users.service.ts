@@ -443,10 +443,7 @@ export class UsersService {
 
     // Scope enforcement: solo reports_global ve todo el padrón; team-scope ve
     // su equipo + sí mismo; own-scope solo a sí mismo.
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
     if (scope.type === 'team') {
       query.where((qb) => {
         qb.where('u.supervisor_id', requester.sub).orWhere(
@@ -502,10 +499,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
     if (scope.type === 'team') {
       const isSelf = user.id === requester.sub;
       const isDirectReport = user.parent_supervisor === requester.sub;

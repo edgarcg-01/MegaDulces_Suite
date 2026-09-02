@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY, ANY_PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { PermissionsCacheService } from '../ability/permissions-cache.service';
-import { buildAbility } from '../ability/ability.factory';
+import { isPlatformAdminRole } from '../ability/ability.factory';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -63,16 +63,21 @@ export class RolesGuard implements CanActivate {
       user.tenant_id,
       user.role_name,
     );
-    const ability = buildAbility(permissions, { roleName: user.role_name });
-
     // Adjuntamos al request para que controllers/services downstream consulten
     // `req.user.permissions` fresco (anti-escalation, /me).
+    //
+    // Ya NO se construye una ability de CASL acá. No aportaba: la decisión de abajo es un lookup
+    // por clave exacta sobre este mismo mapa, y el god-mode se resuelve por rol. Lo único que
+    // hacía era serializar `rules` al request — una copia paralela del permiso, incompleta por
+    // construcción (51 de 164 claves del enum no tienen subject en `ability.factory`) y que ya
+    // causó los dos errores opuestos: dejar pasar de más (el colapso a subject que documenta el
+    // comentario de abajo) y de menos (`can('manage','catalogs')` con reglas
+    // `['read','create','update','delete']` da false → 403 a todo rol no-admin).
     request.user.permissions = permissions;
-    request.user.rules = ability.rules;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
     // permiso de negocio (ver ability.factory: isPlatformAdminRole).
-    if (ability.can('manage', 'all')) {
+    if (isPlatformAdminRole(user.role_name)) {
       return true;
     }
 
