@@ -16,6 +16,9 @@ build_view_err.log
 .env.cloudinary
 .env.production
 .env.staging
+# env_file de los carriles de ingesta (OBS.4): el real vive en C:\KeplerRunner\ingest.env, pero si
+# alguien lo genera dentro del repo lleva FEEDS_INGEST_KEY. Sólo se versiona el .example.
+ops/ingest/ingest.env
 
 # Imágenes sueltas en la raíz (fotos de tickets/WhatsApp arrastradas por error)
 /WhatsApp*
