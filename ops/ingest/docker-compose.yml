@@ -72,6 +72,18 @@ services:
       ODS_HB_KEY: cdc_reconcile
       ODS_HB_MAX_MIN: "45"
       ODS_RECONCILE_ALERT: "50"
+      # Su `status='error'` significa "el pipeline pierde filas" (alarma de DATO), no "el contenedor
+      # está roto". Reiniciarlo no repone ni una fila, y justo cuando el dato viene mal es cuando más
+      # falta hace que siga corriendo y avisando. El healthcheck juzga sólo la antigüedad del latido.
+      ODS_HB_IGNORE_ERROR: "1"
     command: ["node", "database/importers/kepler/reconcile-ods-window.js", "--days=3", "--apply", "--watch=900"]
+    # Su primer latido llega recién al cerrar la primera pasada (~3 min de comparación de llaves) y
+    # el ciclo es de 15 min: el start_period de la imagen (180 s) lo declaraba enfermo antes de nacer.
+    healthcheck:
+      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      interval: 120s
+      timeout: 30s
+      start_period: 20m
+      retries: 3
     extra_hosts: ["host.docker.internal:host-gateway"]
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
