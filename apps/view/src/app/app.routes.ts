@@ -306,12 +306,6 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
       },
       {
-        // LC — el trámite del libro de compras: se arma aquí y a ContPAQi solo va el TXT.
-        path: 'libro-de-compras',
-        loadComponent: () => import('./modules/finanzas/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_PURCHASE_BOOK_VER)]
-      },
-      {
         path: 'cartera',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
         canActivate: [permissionGuard(Permission.FINANCE_RECEIVABLES_VER)]
@@ -427,6 +421,12 @@ export const routes: Routes = [
         path: 'polizas',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-polizas.component').then(m => m.ContabilidadPolizasComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        // LC — el trámite del libro de compras: se arma aquí y a ContPAQi solo va el TXT.
+        path: 'libro-de-compras',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
       },
       {
         path: 'impuestos',

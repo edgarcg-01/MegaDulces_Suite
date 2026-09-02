@@ -13,7 +13,7 @@ import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../../finanzas-tabs';
+import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesResumen, MesDetalle, FacturaMes, CuadreContpaqi, ImpuestosModo } from '../../libro-compras.service';
@@ -236,7 +236,7 @@ export class LibroComprasComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
-  readonly tabs = FINANZAS_TABS;
+  readonly tabs = CONTABILIDAD_TABS;
   readonly opcImpuestos = [
     { label: 'Un renglón al mes', value: 'global' as ImpuestosModo },
     { label: 'Por proveedor', value: 'por-cuenta' as ImpuestosModo },
@@ -259,7 +259,7 @@ export class LibroComprasComponent implements OnInit {
 
   puedeGestionar = computed(() => {
     const u = this.auth.user();
-    return u?.permissions?.[Permission.FINANCE_PURCHASE_BOOK_GESTIONAR] === true
+    return u?.permissions?.[Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] === true
       || u?.role_name === 'admin' || u?.role_name === 'superadmin';
   });
 

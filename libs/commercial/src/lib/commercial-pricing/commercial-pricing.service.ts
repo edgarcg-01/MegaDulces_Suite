@@ -478,6 +478,32 @@ export class CommercialPricingService {
             `product_volume_tiers no disponible para el catálogo; filas sin nudge de mayoreo. ${String((err as Error)?.message ?? err)}`,
           );
         }
+
+        // Medidas de venta (PZA/PAQ/CJA): escalera de presentaciones + factor a la
+        // unidad base, para que el app ofrezca "pedir en pieza / paquete / caja". Del
+        // mismo modo defensivo que `tiers`: si la vista `analytics.product_units` no
+        // existe, el catálogo queda sin selector de medida (pide en unidad base), nunca
+        // rompe. `units[0]` es siempre la unidad base (factor 1).
+        try {
+          const unitRows = await trx('analytics.product_units')
+            .whereIn('product_id', productIds)
+            .select('product_id', 'unit_base', 'unit_alt1', 'f_alt1', 'unit_alt2', 'f_alt2');
+          const unitsByProduct = new Map<string, Array<{ unit: string; factor: number }>>();
+          for (const u of unitRows as Array<any>) {
+            const list: Array<{ unit: string; factor: number }> = [];
+            if (u.unit_base) list.push({ unit: String(u.unit_base), factor: 1 });
+            if (u.unit_alt1 && Number(u.f_alt1) > 0)
+              list.push({ unit: String(u.unit_alt1), factor: Number(u.f_alt1) });
+            if (u.unit_alt2 && Number(u.f_alt2) > 0)
+              list.push({ unit: String(u.unit_alt2), factor: Number(u.f_alt2) });
+            unitsByProduct.set(u.product_id, list);
+          }
+          for (const r of rows as any[]) r.units = unitsByProduct.get(r.product_id) ?? [];
+        } catch (err) {
+          this.logger.warn(
+            `product_units no disponible para el catálogo; filas sin selector de medida. ${String((err as Error)?.message ?? err)}`,
+          );
+        }
       }
 
       const totalNum = Number(total) || 0;

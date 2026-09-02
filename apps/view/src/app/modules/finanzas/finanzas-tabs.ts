@@ -38,12 +38,6 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_RECEIVABLES_VER,
   },
   {
-    label: 'Libro de Compras',
-    route: '/finanzas/libro-de-compras',
-    icon: 'pi pi-book',
-    permission: Permission.FINANCE_PURCHASE_BOOK_VER,
-  },
-  {
     label: 'Pagos a proveedor',
     route: '/finanzas/pagos-comprobantes',
     icon: 'pi pi-send',

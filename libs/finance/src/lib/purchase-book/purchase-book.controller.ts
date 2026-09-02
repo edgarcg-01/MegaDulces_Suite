@@ -8,8 +8,9 @@ import { PurchaseBookService, ImpuestosModo } from './purchase-book.service';
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí y a ContPAQi
  * solo va el TXT, que sigue subiendo contabilidad (ADR-040: no escribimos en el SoR).
  *
- * VER = consultar el mes, su cuadre y el estado del trámite.
- * GESTIONAR = decidir qué facturas entran, generar el archivo y mover el trámite.
+ * Vive en el proyecto **Contabilidad**, junto a Pólizas y ContPAQi: es una póliza
+ * contable, no un reporte de finanzas. Reusa `FISCAL_CONTAB_VER` / `_GESTIONAR` — el
+ * mismo par que sus hermanos, para no partir en dos el acceso de quien lleva el libro.
  */
 @ApiTags('finance-purchase-book')
 @ApiBearerAuth()
@@ -19,28 +20,28 @@ export class PurchaseBookController {
   constructor(private readonly svc: PurchaseBookService) {}
 
   @Get()
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_VER)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Tablero de meses: CFDIs, estado del trámite y qué tiene ContPAQi hoy.' })
   listMeses(@Query('limit') limit?: string) {
     return this.svc.listMeses(limit ? Number(limit) : undefined);
   }
 
   @Get(':mes')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_VER)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Las facturas del mes con su cuadre, sus cuentas y los avisos que impedirían generar.' })
   getMes(@Param('mes') mes: string) {
     return this.svc.getMes(mes);
   }
 
   @Get(':mes/cuadre')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_VER)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Compara lo entregado contra la póliza que quedó en ContPAQi.' })
   cuadre(@Param('mes') mes: string) {
     return this.svc.cuadrarContraContpaqi(mes);
   }
 
   @Post(':mes/inclusion')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_GESTIONAR)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Incluye o excluye facturas del mes (con motivo si se excluye).' })
   setInclusion(
     @Param('mes') mes: string,
@@ -50,7 +51,7 @@ export class PurchaseBookController {
   }
 
   @Post(':mes/generar')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_GESTIONAR)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Genera el TXT del mes y deja la corrida firmada por su hash.' })
   async generar(
     @Param('mes') mes: string,
@@ -63,7 +64,7 @@ export class PurchaseBookController {
   }
 
   @Get(':mes/archivo')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_GESTIONAR)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Descarga el TXT del mes tal como se importa a ContPAQi.' })
   async archivo(
     @Param('mes') mes: string,
@@ -80,7 +81,7 @@ export class PurchaseBookController {
   }
 
   @Post(':mes/estado')
-  @RequirePermissions(Permission.FINANCE_PURCHASE_BOOK_GESTIONAR)
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Mueve el trámite: entregado | aplicado | cancelado.' })
   marcar(
     @Param('mes') mes: string,
