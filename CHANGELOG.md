@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — `catalogo-kp` gana el tablero interno y el dashboard de ventas (CV.2, 2026-09-01)
+- **`catalogo` + `dashboard` portados**: catálogo paginado con existencia/precio por sucursal, filtros de familia/subfamilia/marca, ficha de producto y frescura de datos; rollup de ventas anual/mensual con top-3 sucursales. Gating de costo/margen preservado igual (sesión opcional, sin rechazar la petición — la tienda anónima y el tablero interno comparten el mismo endpoint).
+- **Bug de ruta encontrado y corregido antes de compilar** (mismo patrón que el de estáticos en CV.0): `getImagenes()` asumía el layout de `nest build` del proyecto origen (un `.js` por módulo) en vez del bundle único de este monorepo. Verificado después contra el disco real: 112/112 fotos.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — `catalogo-kp` gana auth propio y CRUD de usuarios (CV.1, 2026-09-01)
 - **`auth` + `admin` portados**: JWT propio (`CATALOGO_KP_JWT_SECRET`, no `JWT_SECRET`) + `bcryptjs` sobre `admin.usuarios`, y CRUD de usuarios del tablero (rol `admin`). Los endpoints de `kp` que en CV.0 respondían 503 (`PendingAuthGuard`, mientras no había auth) ahora exigen sesión real.
 - **Mismo patrón de riesgo que la credencial de DB en CV.0, esta vez con JWT**: `JWT_SECRET` ya está en uso en 33 archivos del auth multi-tenant de esta Suite — se usa un nombre propio para no firmar tokens de dos sistemas de auth distintos con el mismo secreto. El fallback inseguro del original (`JWT_SECRET || 'secreto-hardcodeado'`) se retira a favor de fail-fast en boot.

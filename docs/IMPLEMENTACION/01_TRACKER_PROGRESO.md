@@ -1175,6 +1175,11 @@ Migración física de `megadulces-api-ready` (NestJS 10 standalone, en producci�
   - **Recorte de alcance real:** el `AdminController` original también fronteaba `pedidos/pagos/cola`, pero esas rutas dependen de servicios de `tienda` (CV.5, no portado). Se agregan al mismo controller cuando `tienda` aterrice.
   - Verificado: `nx build`/`nx lint` limpios (0 errores). Arranque real con DB simulada — sin el secreto falla antes de tocar la DB; con ambos secretos, `/api/admin/usuarios` y `/api/kp/productos` sin token → 401 (ya no 503); `/api/kp/precio` sigue público; `/api/auth/login` falla controlado (500 genérico) ante DB inalcanzable, mismo comportamiento que el original ante el mismo fallo.
   - **Pendiente (requiere LAN a `.245`):** login real contra un usuario existente + confirmar que `bcryptjs` valida un hash creado originalmente con `bcrypt` nativo (mismo algoritmo `$2a$/$2b$`, no verificado contra un hash real todavía).
+- [x] **[CV.2]** 🧪 **`catalogo` + `dashboard` portados** (2026-09-01) — catálogo paginado con existencia/precio por sucursal, sucursales, filtros, ficha de producto (`CatalogoService`/`CatalogoController`) y rollup de ventas (`DashboardService`/`DashboardController`). Sin dependencias de módulos no portados.
+  - 🔍 **Bug encontrado y corregido ANTES de compilar** (mismo tipo que el de `main.ts` en CV.0): `getImagenes()` usaba una ruta `__dirname/../../public/...` correcta para el layout `nest build` del origen pero rota en el bundle único de Nx. Corregida antes de probar; verificada después contra el disco real: **112/112 fotos**.
+  - Gating de costo/margen preservado igual (`esInterno(req)`, sesión opcional sin rechazo).
+  - Un `import type` corrigió un warning de build (interfaz importada como valor — SWC no la elide como sí hacía `tsc` en el origen).
+  - Verificado: `nx build`/`nx lint` limpios (0 errores), arranque real con rutas mapeadas, `/api/catalogo/imagenes` correcto, `/api/catalogo` falla controlado ante DB inalcanzable (mismo comportamiento que el original, sin try/catch ahí tampoco), `/api/dashboard/resumen` sin token → 401.
 
 ---
 
