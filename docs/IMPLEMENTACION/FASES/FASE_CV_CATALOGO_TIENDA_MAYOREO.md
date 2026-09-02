@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.0–CV.6 completos** (2026-09-01, CV.4 diferido). **Verificación de lectura contra `KP_CONCENTRADA` real completada 2026-09-02** (paridad byte a byte con `.163:3000`) — ver sección "Verificación real 2026-09-02". Pendiente: verificación del camino de escritura (`tienda`/`admin`), aplicar `007_rol_dedicado.sql`, y el corte operacional.
+> Estado: 🧪 **CV.0–CV.8 completos** (2026-09-02, CV.4 diferido). Verificación de lectura contra `KP_CONCENTRADA` real completada (paridad byte a byte con `.163:3000`) y rol dedicado `catalogo_kp_runtime` ya aplicado y verificado en el cluster real — ver secciones "Verificación real 2026-09-02" y "Rol dedicado aplicado al cluster real". Pendiente: apuntar el `.env` de producción al rol nuevo, verificación del camino de escritura (`tienda`/`admin`, decisión de negocio), y el corte operacional.
 
 ---
 
@@ -425,6 +425,46 @@ contra datos reales — `ColaService`, `CarritoService`, `CheckoutService`, y
 no se ejercieron con un pedido real para no competir con la cola viva en
 `.163`. Queda como paso explícito en
 `RUNBOOKS/CV_CORTE_CATALOGO_KP.md`.
+
+---
+
+## Rol dedicado aplicado al cluster real — 2026-09-02
+
+Con el bloqueante de credencial resuelto (ver CV.6), se aplicó
+`sql/007_rol_dedicado.sql` contra `KP_CONCENTRADA` real, cerrando el riesgo
+de credencial compartida (P2) que motivó parte de esta fase.
+
+Ejecutado con `psql -h 192.168.0.245 -U postgres -d KP_CONCENTRADA -v
+ON_ERROR_STOP=1 -f 007_rol_dedicado.sql` — el mismo mecanismo que usa
+`ADMINISTRAR.bat` opción 8 en `.163`. Exit 0, las 17 sentencias
+(`DO`/`GRANT`/`ALTER DEFAULT PRIVILEGES`) corrieron sin error, sin tocar
+`app_runtime` ni ninguna tabla existente (aditivo, como estaba diseñado).
+
+**Verificado contra el cluster real:**
+
+| Chequeo | Resultado |
+|---|---|
+| `rolcanlogin` | `t` |
+| `rolsuper` / `rolcreatedb` / `rolcreaterole` | `f` / `f` / `f` |
+| Grants `kp.*` | SELECT en 368 tablas (sólo lectura) |
+| Grants `admin.*` | SELECT en `admin.usuarios` únicamente |
+| Grants `tienda.*` | SELECT/INSERT/UPDATE en 10 tablas — sin DELETE |
+| Grants `monitor.*` | según spec del script (sin DELETE) |
+| Smoke: `SELECT count(*) FROM kp.kdii` conectado como `catalogo_kp_runtime` | 66,682 filas — OK |
+| Smoke: `DELETE FROM tienda.pedidos` conectado como `catalogo_kp_runtime` | `ERROR: permiso denegado` — esperado |
+
+**Higiene de secretos:** la contraseña real generada para el rol nuevo se
+escribió únicamente en la copia de `sql/007_rol_dedicado.sql` dentro de
+`megadulces-api-ready` (carpeta externa a este git, igual que cualquier
+`.env` con secretos reales). El archivo versionado en `apps/catalogo-kp/sql/`
+de este monorepo mantiene el placeholder `CAMBIA_ESTE_PASSWORD` — nunca se
+comiteó un secreto real.
+
+**Pendiente:** `DATABASE_URL_KP_CONCENTRADA` del `.env` real de producción
+sigue apuntando a `app_runtime`. El corte a `catalogo_kp_runtime` se puede
+hacer sin downtime (ambos roles siguen concediendo acceso mientras tanto),
+pero no se ejecutó en esta sesión por afectar el proceso que sirve
+producción real — ver `RUNBOOKS/CV_CORTE_CATALOGO_KP.md` Paso 2.
 
 ---
 
