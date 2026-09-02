@@ -28,6 +28,21 @@ async function bootstrap() {
   // `../public` daba 404 (buscaba dist/apps/public, que no existe).
   app.useStaticAssets(join(__dirname, 'public'));
 
+  // SPA fallback para /tienda/* (apps/tienda, Fase CV). Angular maneja sus
+  // propias rutas (/tienda/carrito, /tienda/checkout, /tienda/pedido/:x) —
+  // sin esto, recargar la página en una de esas rutas da 404 porque no es un
+  // archivo real. Deliberadamente un app.use() de Express plano, NO
+  // `setGlobalPrefix('api', { exclude: [...] })`: ese `exclude` pasa por el
+  // mismo path-to-regexp que causó el bug de Express 5 que retiró
+  // ServeStaticModule (ver comentario arriba) — este primitivo lo evita
+  // igual que useStaticAssets.
+  app.use((req: any, res: any, next: any) => {
+    if (req.path.startsWith('/tienda/') && !req.path.includes('.')) {
+      return res.sendFile(join(__dirname, 'public', 'tienda', 'index.html'));
+    }
+    next();
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`catalogo-kp corriendo en: http://localhost:${port}/api`);
