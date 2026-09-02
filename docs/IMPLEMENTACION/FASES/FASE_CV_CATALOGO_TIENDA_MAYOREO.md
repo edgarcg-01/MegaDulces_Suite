@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🔨 **CV.2 en código** (2026-09-01).
+> Estado: 🔨 **CV.3 en código** (2026-09-01).
 
 ---
 
@@ -46,8 +46,8 @@ registra como "nadie sabe quién cambió la contraseña en `.245`".
 ```
 CV.0  Scaffold + conexión DB + rol dedicado + módulo kp completo   ✅
 CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)                 ✅
-CV.2  catalogo (tablero interno, gating costo/margen) + dashboard  ← esta entrega
-CV.3  monitor (captura de errores del navegador)
+CV.2  catalogo (tablero interno, gating costo/margen) + dashboard  ✅
+CV.3  monitor (captura de errores del navegador)                   ← esta entrega
 CV.4  salidas (reporte genérico)
 CV.5  tienda completo: carrito, checkout, cola.service.ts, avisos, pagos   ← dinero real
 CV.6  (aparte, no bloqueante) modelo operativo: watchdogs/alertas/secret-wizards de herramientas/
@@ -180,9 +180,32 @@ falla controlado ante DB inalcanzable (500 genérico, mismo comportamiento
 que tendría el original ante el mismo fallo — no hay try/catch en
 `getCatalogo` tampoco en origen), `/api/dashboard/resumen` sin token → 401.
 
-## CV.3 — `monitor` (captura de errores del navegador) — ⬜ TODO
+## CV.3 — `monitor` (captura de errores del navegador) — 🧪 código+build+boot verificados (2026-09-01)
 
-Ingesta pública de errores del navegador con dedupe por hash, sin Sentry.
+**Qué entrega:** `ErroresService`/`ErroresController` — ingesta pública
+(`POST /api/errores`) de errores del navegador, con dedupe por hash SHA-256
+(mensaje + origen + primera línea del rastro, números normalizados), tope de
+20/min por IP, recorte de todos los campos, y tablero interno
+(`GET/POST /api/admin/errores*`, `AuthGuard('jwt')` real desde CV.1). Sin
+dependencias de módulos no portados — puerto directo.
+
+**El contrato más importante del módulo, verificado exacto:** `POST
+/api/errores` **nunca** falla visible al navegador, ni con la base
+completamente inalcanzable — el visitante ya tuvo un error, no se le suma
+otro. Probado con `DATABASE_URL_KP_CONCENTRADA` apuntando a un puerto muerto:
+`{"ok":true}` de todas formas.
+
+**Sin bugs de ruta esta vez** — `errores.service.ts` no toca el disco (a
+diferencia de `getImagenes()` en CV.2), así que no había ningún `__dirname`
+que ajustar.
+
+**Verificado en sesión (sin LAN a `.245`):** `nx build`/`nx lint` limpios (0
+errores). Arranque real: las 4 rutas mapeadas
+(`/api/errores`, `/api/admin/errores`, `/api/admin/errores/:id`,
+`/api/admin/errores/:id/resolver`) sin colisión con las rutas de
+`AdminController` (`/api/admin/usuarios*`) pese a compartir el prefijo
+`/api/admin`; `POST /api/errores` → `{"ok":true}` con DB inalcanzable;
+`GET /api/admin/errores` sin token → 401.
 
 ## CV.4 — `salidas` (reporte genérico) — ⬜ TODO
 
