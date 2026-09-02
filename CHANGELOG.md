@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Verified — canario de la cola de `catalogo-kp` probado contra datos reales (CV.9, 2026-09-02)
+- 0Sistemas autorizó el Paso 3b del runbook con el enfoque de menor riesgo: canario ahora (sin dinero de por medio), carrito real de punta a punta en una ventana fuera de horario a definir.
+- App completa (`tienda`+`admin`) corrida contra `KP_CONCENTRADA` real, ya con el rol dedicado `catalogo_kp_runtime` (primera vez ejercitado en escritura). `POST /api/admin/cola/prueba` simple → `HECHO` al primer intento; con fallo forzado dos veces → backoff exponencial exacto (60s, 120s) y éxito al tercer intento.
+- Confirma el motor de colas (`FOR UPDATE SKIP LOCKED`, reintentos, backoff) funcionando contra datos reales, y los permisos de escritura del rol dedicado sobre `tienda.trabajos`.
+- Pendiente: carrito real de punta a punta, para cuando se defina la ventana fuera de horario.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y [`CV_CORTE_CATALOGO_KP`](docs/IMPLEMENTACION/RUNBOOKS/CV_CORTE_CATALOGO_KP.md).
+
 ### Added — rol dedicado `catalogo_kp_runtime` aplicado al cluster real (CV.8, 2026-09-02)
 - `apps/catalogo-kp/sql/007_rol_dedicado.sql` corrido contra `KP_CONCENTRADA` real (`192.168.0.245`) como `postgres`, mismo mecanismo que usa `ADMINISTRAR.bat` opción 8 (`psql -v ON_ERROR_STOP=1`). Aditivo: no tocó `app_runtime` ni ninguna tabla existente.
 - Verificado en el cluster real: rol sin superuser/createdb/createrole, grants exactos por schema (`kp.*` sólo lectura en 368 tablas, `admin.usuarios` sólo lectura, `tienda.*`/`monitor.*` sin `DELETE`). Smoke test conectado como el rol nuevo: lectura OK, `DELETE` denegado como se diseñó.

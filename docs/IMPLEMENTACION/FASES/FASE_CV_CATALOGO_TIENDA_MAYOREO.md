@@ -468,6 +468,33 @@ producción real — ver `RUNBOOKS/CV_CORTE_CATALOGO_KP.md` Paso 2.
 
 ---
 
+## Camino de escritura — canario verificado, carrito real pendiente (2026-09-02)
+
+0Sistemas autorizó avanzar con el Paso 3b del runbook, con el enfoque de
+menor riesgo: canario ahora (no toca dinero), carrito real de punta a punta
+en una ventana fuera de horario a definir después.
+
+Corrido en horario de oficina, app completa (`tienda`+`admin`) contra
+`KP_CONCENTRADA` real, ya con **`catalogo_kp_runtime`** (primera vez que el
+rol dedicado se ejercita en escritura):
+
+| Prueba | Resultado |
+|---|---|
+| `POST /api/admin/cola/prueba` (simple) | `HECHO` al primer intento, `cuenta.hechos` 0→1 |
+| `POST /api/admin/cola/prueba` con `fallar_hasta:2` | Falló 2 veces, backoff exacto (60s, 120s — `esperaSegundos()`), `HECHO` al 3er intento, sin `fallidos` ni `PENDIENTE` colgado |
+
+Confirma el motor de colas (`FOR UPDATE SKIP LOCKED`, reintentos, backoff
+exponencial) funcionando contra datos reales sin competir visiblemente con
+el proceso viejo de `.163`, y confirma que `catalogo_kp_runtime` tiene los
+permisos de escritura correctos sobre `tienda.trabajos`.
+
+**No se ejecutó** el carrito real de punta a punta (crear→agregar producto→
+checkout OXXO→confirmar→verificar aviso) — queda para la ventana fuera de
+horario que 0Sistemas defina. Detalle de la ejecución en
+`RUNBOOKS/CV_CORTE_CATALOGO_KP.md`, Paso 3b.
+
+---
+
 ## Preguntas abiertas para 0Sistemas
 
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.
