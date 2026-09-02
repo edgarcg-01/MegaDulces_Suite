@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🔨 **CV.1 en código** (2026-09-01).
+> Estado: 🔨 **CV.2 en código** (2026-09-01).
 
 ---
 
@@ -45,8 +45,8 @@ registra como "nadie sabe quién cambió la contraseña en `.245`".
 
 ```
 CV.0  Scaffold + conexión DB + rol dedicado + módulo kp completo   ✅
-CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)                 ← esta entrega
-CV.2  catalogo (tablero interno, gating costo/margen) + dashboard
+CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)                 ✅
+CV.2  catalogo (tablero interno, gating costo/margen) + dashboard  ← esta entrega
 CV.3  monitor (captura de errores del navegador)
 CV.4  salidas (reporte genérico)
 CV.5  tienda completo: carrito, checkout, cola.service.ts, avisos, pagos   ← dinero real
@@ -145,10 +145,40 @@ existente (creado con `bcrypt` nativo en origen) valida igual con
 `bcryptjs` — ambos implementan el mismo algoritmo y prefijo `$2a$/$2b$`, pero
 no se verificó contra un hash real todavía.
 
-## CV.2 — `catalogo` (tablero interno) + `dashboard` — ⬜ TODO
+## CV.2 — `catalogo` (tablero interno) + `dashboard` — 🧪 código+build+boot verificados (2026-09-01)
 
-Tablero denso con costo/margen/valor de inventario (gating por sesión vía
-`sesion.util.ts`), y el rollup de ventas de `dashboard.service.ts`.
+**Qué entrega:** `CatalogoService`/`CatalogoController` (catálogo paginado con
+existencia/precio por sucursal, sucursales, filtros familia/subfamilia/marca,
+frescura de datos, ficha de producto) y `DashboardService`/
+`DashboardController` (rollup de ventas anual/mensual + top-3 sucursales).
+Sin dependencias de módulos aún no portados — puerto directo.
+
+**Bug encontrado y corregido antes de probarlo** (mismo tipo que el de
+`main.ts`/estáticos en CV.0): `getImagenes()` leía
+`join(__dirname, '..', '..', 'public', 'img', 'productos')`, ruta correcta
+para el layout de `nest build` del proyecto origen (`dist/catalogo/*.js`,
+dos niveles hasta la raíz) pero rota en el bundle único de Nx
+(`dist/apps/catalogo-kp/main.js`, `public/` ya es hermano directo). Corregida
+a `join(__dirname, 'public', 'img', 'productos')` **antes** de compilar, no
+descubierta por un 404 — se identificó por inspección al portar, y se
+verificó después: `/api/catalogo/imagenes` devuelve las 112 fotos reales.
+
+**Gating de costo/margen preservado tal cual:** `esInterno(req)` (de
+`auth/sesion.util.ts`, CV.1) decide si `getCatalogo`/`getProducto` incluyen
+costo, margen y valor de inventario — mismo mecanismo de "sesión opcional"
+del proyecto origen, sin guard que rechace: el mismo endpoint sirve a la
+tienda anónima y al tablero interno.
+
+**Verificado en sesión (sin LAN a `.245`):** `nx build`/`nx lint` limpios (0
+errores). Un import de un tipo (`CatalogoQuery`) se corrigió a
+`import type` — sin eso, SWC/webpack lo dejaba como `require` en el JS
+emitido y generaba un warning de export inexistente en runtime (la interfaz
+no existe compilada; el TS del proyecto origen lo elidía solo, este
+toolchain no). Arranque real: rutas de `catalogo`/`dashboard` mapeadas,
+`/api/catalogo/imagenes` correcto contra el disco real, `/api/catalogo`
+falla controlado ante DB inalcanzable (500 genérico, mismo comportamiento
+que tendría el original ante el mismo fallo — no hay try/catch en
+`getCatalogo` tampoco en origen), `/api/dashboard/resumen` sin token → 401.
 
 ## CV.3 — `monitor` (captura de errores del navegador) — ⬜ TODO
 
