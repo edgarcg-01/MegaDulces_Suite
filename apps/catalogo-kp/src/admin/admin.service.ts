@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 @Injectable()
 export class AdminService {
@@ -49,7 +50,6 @@ export class AdminService {
   }
 
   private async query<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 }

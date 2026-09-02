@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as crypto from 'crypto';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 import { TiendaService } from './tienda.service';
 import { CarritoService } from './carrito.service';
 import { PagosService } from './pagos.service';
@@ -118,8 +119,7 @@ export class CheckoutService {
   }
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   // ── Token de seguimiento ──────────────────────────────────────────────────
@@ -294,10 +294,10 @@ export class CheckoutService {
       resultado = await this.db.transaction(async (trx) => {
         // El folio se asigna aquí, no al crear el carrito: un carrito abandonado
         // no debe consumir folio ni dejar huecos en el consecutivo.
-        const f = await trx.raw(`SELECT nextval('tienda.folio_seq') AS n`);
-        const folio = `MD-${ahora.getFullYear()}-${String(f.rows[0].n).padStart(5, '0')}`;
+        const f = await pgRaw<any>(trx, `SELECT nextval('tienda.folio_seq') AS n`);
+        const folio = `MD-${ahora.getFullYear()}-${String(f[0].n).padStart(5, '0')}`;
 
-        const upd = await trx.raw(
+        const upd = await pgRaw<any>(trx,
           `UPDATE tienda.pedidos
            SET estado = 'PENDIENTE_CONFIRMACION',
                folio = $2,
@@ -315,11 +315,11 @@ export class CheckoutService {
            factura ? JSON.stringify(this.normalizarFiscales(d.datos_fiscales)) : null,
            PRIVACIDAD_VERSION, limpio(d.ip) || null, limite]);
 
-        if (!upd.rows.length) {
+        if (!upd.length) {
           throw { controlado: 'Ese carrito ya no se puede convertir en pedido' };
         }
 
-        await trx.raw(
+        await pgRaw(trx,
           `INSERT INTO tienda.pedido_eventos (pedido_id, estado_de, estado_a, actor, detalle, datos)
            VALUES ($1,'CARRITO','PENDIENTE_CONFIRMACION','cliente',$2,$3)`,
           [id, `Pedido ${folio} creado. Pago: ${metodo}.`,
@@ -331,7 +331,7 @@ export class CheckoutService {
         const aviso = await this.avisos.programar(
           id, 'PEDIDO_CREADO', String(datos[0].cliente_email), trx);
 
-        return { p: upd.rows[0], aviso };
+        return { p: upd[0], aviso };
       });
     } catch (e: any) {
       if (e?.controlado) return { ok: false, error: e.controlado as string };

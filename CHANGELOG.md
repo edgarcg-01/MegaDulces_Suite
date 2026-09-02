@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed — bug crítico de bindings SQL en `catalogo-kp`, primera verificación real de lectura (CV.7, 2026-09-02)
+- Con la credencial de `app_runtime` ya resuelta, la primera corrida real de `catalogo-kp` contra `KP_CONCENTRADA` reveló que **ninguna query parametrizada funcionaba** (`Expected N bindings, saw M`). Causa: `knex.raw()` sólo soporta su propio placeholder `?`, no los `$1,$2,...` nativos de Postgres que todo el código portado usaba (fiel al original con `pg.Pool`); tres constantes regex (`RE_NUM`, `COSTO`) sumaban `?` sueltos como cuantificador POSIX, agravando el conteo.
+- Fix: nuevo `apps/catalogo-kp/src/kp-concentrada/pg-raw.util.ts` (`pgRaw()`, traduce `$N`→`?`) + conversión de los 12 archivos de servicio afectados + 3 regex reescritas con `{0,1}`.
+- Verificado con paridad byte a byte contra el sistema en vivo (`.163:3000`): `/api/kp/precio`, `/api/catalogo/sucursales`, `/api/kp/precios-todos`, `/api/auth/login` con credenciales inválidas, y los guards de auth de `admin`/`dashboard`/`kp`. Build final con los 8 módulos verde.
+- Pendiente: el camino de escritura (`carrito`/`checkout`/`cola`) sigue sin ejercerse contra datos reales — requiere autorización explícita por el riesgo de negocio, no un problema técnico conocido.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) sección "Verificación real 2026-09-02".
+
 ### Fixed/Documented — hallazgo de credencial rota en producción + modelo operativo de catalogo-kp (CV.6, 2026-09-01)
 - Al intentar la verificación end-to-end de CV.5 se descubrió que la sesión de Claude Code corría físicamente en `192.168.0.163` — la máquina de producción del proyecto origen. Investigación en solo lectura, sin tocar nada: el Windows Service original sigue vivo (`:3000` responde) y las 3 tareas programadas de `Vigilar_API.ps1`/sincronización/verificador siguen activas.
 - **Hallazgo de producción, ajeno a esta migración, ya en conocimiento de 0Sistemas**: la contraseña de `app_runtime` guardada en el `.env` real no autentica contra el `KP_CONCENTRADA` real (`28P01`, confirmado con `psql` directo) — mismo síntoma que `docs/GOTCHAS.md` §24. La API en `.163` sigue respondiendo porque sus conexiones ya estaban abiertas; **cualquier reinicio repetiría la caída del 27/08/2026**. Documentado en `GOTCHAS.md` y en `FASE_CV` para que nadie más lo redescubra a ciegas.
