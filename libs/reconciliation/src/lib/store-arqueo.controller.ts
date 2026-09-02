@@ -5,6 +5,7 @@ import {
   ScopeService, CANONICAL_PARAM, isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import { BlindCountService } from './blind-count.service';
+import { CashCutsSyncService } from './cash-cuts-sync.service';
 import type { BlindCountDto } from './blind-count.service';
 
 /**
@@ -43,6 +44,7 @@ const WH = CANONICAL_PARAM.warehouse; // 'warehouse_codes'
 export class StoreArqueoController {
   constructor(
     private readonly blind: BlindCountService,
+    private readonly sync: CashCutsSyncService,
     private readonly scope: ScopeService,
   ) {}
 
@@ -279,6 +281,56 @@ export class StoreArqueoController {
         sin_validar: g.sin_validar, ultima_fecha: g.ultima_fecha,
       })),
       totales: { arqueos: res.totales.arqueos, sin_validar: res.totales.sin_validar },
+    };
+  }
+
+  /**
+   * SM.19 — Historial por PERSONA: una tarjeta por cajera con todos sus cortes.
+   *
+   * A diferencia de `/historial`, parte de los cortes de Kepler, así que también
+   * muestra los turnos que **nadie arqueó** — que son los que hay que perseguir.
+   *
+   * Mismo recorte: la cajera se ve solo a sí misma y sin nada del cuadre; a ella
+   * se le quitan hasta los acumulados, porque un faltante sobre un solo corte ES
+   * la diferencia de ese corte.
+   */
+  @Get('por-cajera')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiOperation({ summary: 'Tienda — tarjetas por cajera: sus cortes de Kepler con horarios, y el arqueo nuestro cuando existe.' })
+  async porCajera(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    const revela = this.revela(user);
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/por-cajera');
+    // Kepler genera el corte solo: antes de pintar, lo jalamos. Es un UPSERT de
+    // una sentencia sobre 3 días (~60 filas) en la misma base, así que cuesta
+    // milisegundos y garantiza que ningún turno cerrado se vea como inexistente
+    // aunque el cron todavía no haya corrido. Best-effort a propósito: si el ODS
+    // está caído, la pantalla muestra lo que ya teníamos en vez de romperse.
+    await this.sync.syncCurrentTenant();
+    const res = await this.blind.porCajera({
+      from: query['from'] as string | undefined,
+      to: query['to'] as string | undefined,
+      warehouse_codes,
+      cajero_code: revela ? ((query['cajero'] as string) || undefined) : (user?.username || ' '),
+      limit: query['limit'] ? Number(query['limit']) : undefined,
+    });
+    if (revela) return res;
+    return {
+      cajeras: res.cajeras.map((g: any) => ({
+        cajero_code: g.cajero_code, cajero_nombre: g.cajero_nombre,
+        warehouse_code: g.warehouse_code, warehouse_name: g.warehouse_name,
+        cortes: g.cortes, dias: g.dias, sin_arqueo: g.sin_arqueo, ultimo: g.ultimo,
+        turnos: g.turnos.map((t: any) => ({
+          arqueo_id: t.arqueo_id, business_date: t.business_date, caja: t.caja, folio: t.folio,
+          hora_apertura: t.hora_apertura, hora_cierre: t.hora_cierre, duracion_horas: t.duracion_horas,
+          nuestro_contado: t.nuestro_contado, denominaciones: t.denominaciones,
+          capturado_por: t.capturado_por, capturado_at: t.capturado_at,
+          validado_por: t.validado_por, validado_at: t.validado_at,
+        })),
+      })),
+      totales: { cajeras: res.totales.cajeras, cortes: res.totales.cortes, sin_arqueo: res.totales.sin_arqueo },
     };
   }
 
