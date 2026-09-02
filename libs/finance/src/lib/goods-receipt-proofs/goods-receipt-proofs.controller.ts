@@ -41,6 +41,11 @@ export class GoodsReceiptProofsController {
       limit: query['limit'] ? Number(query['limit']) : undefined,
       warehouse_codes,
       dias_min: query['dias_min'] ? Number(query['dias_min']) : undefined,
+      // `[RE.25]` El cuadre del documento. Lista blanca: un valor inventado no puede
+      // convertirse en un `WHERE` que no matchea nada y se lea como "no hay resultados".
+      cuadre: ['cuadra', 'revisar', 'sin_datos', 'sin_evidencia'].includes(String(query['cuadre']))
+        ? (query['cuadre'] as ListReceiptsQuery['cuadre'])
+        : undefined,
       carril: query['carril'] as ListReceiptsQuery['carril'],
       orden: query['orden'] as ListReceiptsQuery['orden'],
       // RE.20.2 — sólo pasan los dos literales: cualquier otra cosa cae al default de la clave.
