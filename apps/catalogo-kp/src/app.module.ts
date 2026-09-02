@@ -5,9 +5,10 @@ import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { MonitorModule } from './monitor/monitor.module';
 
-// CV.3+ agrega aquí TiendaModule, MonitorModule, SalidasModule — uno por
-// sub-sprint, ver docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md.
+// CV.4+ agrega aquí SalidasModule, TiendaModule — uno por sub-sprint, ver
+// docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md.
 @Module({
   imports: [
     KpConcentradaModule,
@@ -16,6 +17,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     KpModule,
     CatalogoModule,
     DashboardModule,
+    MonitorModule,
   ],
 })
 export class AppModule {}
