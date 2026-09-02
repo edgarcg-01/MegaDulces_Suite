@@ -1733,7 +1733,7 @@ export interface SalesByRouteReport {
 
 // ── RR-PROMO — Evaluador de mecánicas de incentivo por enunciado (agente AI) ──
 export type PromoMetric = 'clientes_distintos' | 'piezas' | 'tickets' | 'monto';
-export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; }
+export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; /** Pide el desglose cliente×producto (cuesta ~9 s: sólo al abrirlo). */ detalle?: boolean; }
 export type PromoCanal = 'ruta' | 'vecinal' | 'mayoreo' | 'mostrador';
 export interface PromoRule {
   canal: 'ruta' | 'todos';
@@ -1755,7 +1755,7 @@ export interface PromoRule {
   date_to?: string | null;
   periodo_texto?: string | null;
 }
-export interface PromoRouteRow { canal: PromoCanal; vendedor: string; warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
+export interface PromoRouteRow { canal: PromoCanal; vendedor: string; vendedor_nombre: string | null; source_branch: string; sucursal_nombre: string | null; warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
 /** Qué se le vendió a un cliente, por producto, con su unidad declarada. */
 export interface PromoClientItem { sku: string; nombre: string; unidades: number; unidad: string | null; unidades_sin_resolver: number; importe: number; }
 export interface PromoClientRow {
@@ -1777,6 +1777,8 @@ export interface PromoUnitInfo {
   unidades_sin_resolver: number;
   importe_sin_resolver: number;
   confiable: boolean;
+  /** ¿Se puede sumar la cantidad entre productos? Con marca casi nunca (PAQ + PZA). */
+  unidades_sumables: boolean;
   nota: string;
 }
 export interface RoutePromoResult {
