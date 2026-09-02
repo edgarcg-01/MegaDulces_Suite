@@ -267,6 +267,10 @@ exports.seed = async function (knex) {
         COMMERCIAL_INVENTORY_CONTAR: true,
         COMMERCIAL_INVENTORY_SUPERVISAR: true,
         COMMERCIAL_INVENTORY_ASIGNAR: true,
+        // Estación de recepción (Andén + Vales + Caducidad). Faltaba en TODOS los
+        // roles operativos, así que sólo se veía con ALL_PERMS: un tenant nuevo
+        // repetía el hueco aunque la migración 20260902120000 arregle los de hoy.
+        COMMERCIAL_INVENTORY_RECIBIR: true,
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true, // override gerencial: toma pedidos en la app de vendedor
         COMMERCIAL_ORDERS_CONFIRMAR: true,
