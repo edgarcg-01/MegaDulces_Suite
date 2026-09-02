@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.0–CV.12 completos** (2026-09-02, CV.4 diferido). Verificación real de punta a punta completa: lectura (paridad byte a byte), escritura (canario + primer pedido real de la historia vía UI, folio `MD-2026-00012`, cancelado por ser de prueba), rol dedicado `catalogo_kp_runtime` aplicado, y frontend Angular nuevo (`apps/tienda`) para el checkout transaccional. Pendiente: apuntar el `.env` de producción al rol nuevo, panel interno (fuera de alcance), y el corte operacional del Service en `.163`.
+> Estado: 🧪 **CV.0–CV.14 completos** (2026-09-02, CV.4 diferido). Verificación real de punta a punta completa: lectura (paridad byte a byte), escritura (canario + primer pedido real de la historia vía UI, folio `MD-2026-00012`, cancelado por ser de prueba), rol dedicado `catalogo_kp_runtime` aplicado **y ya en uso por el `.env` real de producción**, y frontend Angular nuevo (`apps/tienda`) para el checkout transaccional. Pendiente: panel interno (fuera de alcance) y el corte operacional del Service en `.163` (Paso 4 del runbook).
 
 ---
 
@@ -709,11 +709,59 @@ end-to-end del checkout, no es un pedido real"), no borrado ni tocado
 directo en la base — queda como registro auditable de que fue una prueba,
 no un pedido real cancelado sin explicación.
 
-**Con esto, el Paso 3b del runbook de corte queda completo.** Pendiente:
-`DATABASE_URL_KP_CONCENTRADA` de producción sigue en `app_runtime` (Paso 2
-del runbook, aplicación del rol dedicado al `.env` real); panel interno
-fuera de alcance; promover `/tienda/` sobre `tienda.html`; y el corte real
-del Service en `.163`.
+**Con esto, el Paso 3b del runbook de corte queda completo.**
+
+---
+
+## CV.14 — Corte del `.env` de producción al rol dedicado (2026-09-02)
+
+Único pendiente operacional que quedaba de CV.8/CV.9: el `.env` real de
+`megadulces-api-ready` en `.163` seguía usando `app_runtime`, el rol
+compartido con `postgres_platform` (`GOTCHAS.md` §24). Preguntado
+explícitamente cómo autorizar el corte, 0Sistemas eligió la "opción 1"
+(sólo el `.env`, no el corte completo del Service — eso queda como Paso 4
+aparte).
+
+**Verificación de seguridad antes de aplicar** (no bastaba con que los
+GRANTs coincidieran en el papel — había que confirmar que el código real
+no dependía de algo que `catalogo_kp_runtime` no tiene): único `DELETE` en
+todo el código fuente, en `monitor/errores.service.ts`
+(`DELETE FROM monitor.errores_detalle`, limpieza de retención). El propio
+comentario del código **original** (no el migrado) ya decía *"`app_runtime`
+tampoco tiene DELETE en monitor"* y lo envuelve en `.catch()` sin romper el
+reporte de errores — es decir, el gap de permiso ya existía con
+`app_runtime` y el desarrollador original ya lo había resuelto. Cambiar de
+rol no introduce ninguna regresión ahí.
+
+**Ejecutado:**
+1. Respaldo del `.env` (`.env.bak-2026-09-02_1725`).
+2. `PG_USER=catalogo_kp_runtime` / `PG_PASSWORD=<el generado en CV.8>`.
+3. Reinicio con el **mismo mecanismo** que ya usa `herramientas/Compilar_seguro.ps1`
+   para sus propios despliegues (detener el proceso en `:3000`, relanzar
+   vía la tarea programada `MegaDulces API - vigilante`, esperar y correr
+   la misma batería de 5 pruebas que ese script) — no se inventó un
+   mecanismo nuevo para esta operación de riesgo.
+
+**Verificado:**
+
+| Chequeo | Resultado |
+|---|---|
+| Las 5 pruebas de `Compilar_seguro.ps1` | 0 fallos (`catalogo/estado`, `catalogo/sucursales`, `kp/precio`, `kp/precios-todos`, `kp/productos`→401) |
+| `vigilar_api.log` | Recuperación limpia, sin mensaje de error de credenciales (`28P01`) |
+| `pg_stat_activity` | La conexión real del proceso (`client_addr=192.168.0.163`) usa `catalogo_kp_runtime` |
+| `catalogo.html` / `tienda.html` / `verificador-01.html` | 200 después del corte |
+
+**Con esto se cierra de punta a punta, para `catalogo-kp`, el riesgo de
+credencial compartida de `GOTCHAS.md` §24** — rotar `app_runtime` en
+cualquier otra parte del cluster `.245` ya no puede volver a tumbar este
+proceso.
+
+**Pendiente:** sólo el **Paso 4** del runbook (corte real del Service en
+`.163` al build de este monorepo, en vez del repo standalone) — requiere
+autorización explícita separada, y ajustar `Vigilar_API.ps1` (ruta relativa
+no calza con el layout de Nx). Panel interno (`catalogo.html`) fuera de
+alcance de esta fase. Promover `/tienda/` sobre `tienda.html` — decisión de
+0Sistemas, no automática.
 
 ---
 
