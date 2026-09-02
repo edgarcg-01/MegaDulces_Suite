@@ -24,7 +24,7 @@ import { DocViewerComponent, DocViewerFile } from '../../../shared/components/do
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
-import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
@@ -1017,10 +1017,13 @@ export class ComprasEntradasPendientesComponent {
    * Con alcance `all` las opciones salen del CATÁLOGO, no de las filas de la página: con
    * pageSize 50 sobre 1,096 entradas, derivarlas de `rows()` ofrecía sólo las sucursales que
    * cayeron en la primera página — el resto era invisible aunque el usuario pudiera verlas.
+   *
+   * `[RE.23]` Y el catálogo es la RED (9), no las Kepler (7): Morelia corre Wincaja y quedaba
+   * fuera del desplegable, que es exactamente el mismo agujero por otra puerta.
    */
   readonly sucursalOpts = computed(() => {
     const a = this.alcance();
-    const codes = a ?? STORE_BRANCHES.map((b) => b.code);
+    const codes = a ?? NETWORK_BRANCHES.map((b) => b.code);
     return codes.map((c) => ({ label: this.suc(c), value: c }));
   });
 

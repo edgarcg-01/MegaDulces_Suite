@@ -24,7 +24,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion, type AdjustmentLinesResponse } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
-import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -912,9 +912,12 @@ export class ComprasEntradasRevisionComponent {
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
-  /** Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales. */
+  /**
+   * Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales.
+   * `[RE.23]` El catálogo es la RED (9); las 7 Kepler dejaban Morelia sin poder filtrarse.
+   */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? STORE_BRANCHES.map((b) => b.code);
+    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
     return a.map((c) => ({ label: this.suc(c), value: c }));
   });
 
