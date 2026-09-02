@@ -3394,6 +3394,18 @@ export class CommercialAnalyticsService {
             WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
               AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
         )).rows?.[0];
+      // ODS (2026-09-02) — la pierna KEPLER del mayoreo por vendedor. Esta vista era 100% wincaja,
+      // así que al cutovear PH a Kepler (2026-07-01) los telemarketers (Sergio, Cinthia) salían en $0
+      // en Q3: sus ventas viven ahora en kepler_ods.kdm1.c12, que la copia sales_daily tira. Se leen del
+      // matview DERIVADO DEL ODS `analytics.mv_kepler_sales_daily` (vendedor `kduv` + canal horneados).
+      // Dedup: COMPLEMENTO EXACTO del blend wincaja de arriba (PH ≥jul, La Piedad ≥oct, Canindo ≥ago-15;
+      // 03/04/05 Kepler-native) → nunca doble-cuenta (verificado: wincaja 10 en Q3 = $0; 50 = pre-ago15).
+      // Rutas numeradas (21-28…) son source_branch WINCAJA, NO Kepler → sólo canal mayoreo/credito acá.
+      const keplerMvOk = !!(await trx.raw(
+        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+      )).rows?.[0];
       // RS.9 — fast path: meses completos → rollup persistido (units/unit_kind canónicos).
       // Se mapea al MISMO shape que espera el pivote (uv_win/fac_win/qty): uv_win='KGS'|'PZA',
       // fac_win=1, qty=units canónico → el cálculo de units/cajas de abajo funciona igual.
@@ -3480,8 +3492,37 @@ export class CommercialAnalyticsService {
         .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
         .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
         .groupByRaw('vl.source_branch, vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
+      // ODS — pierna KEPLER del mayoreo por vendedor (matview all-history, sin RLS, group-by por índice).
+      // channel IN (mayoreo,credito) → sale_channel 'mayoreo_credito' (el pivote lo agrupa como 'Mayoreo').
+      // Rutas/preventa quedan en wincaja. Mismo shape que las ramas wincaja (uv_win/fac_win=1/qty=units).
+      const keplerRows: any[] = keplerMvOk
+        ? await trx('analytics.mv_kepler_sales_daily as k')
+            .where('k.tenant_id', tenantId)
+            .where('k.product_deleted', false)
+            .modify((qb) => { if (promoMode === 'solo') qb.andWhere('k.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('k.is_promo', false); })
+            .whereIn('k.channel', ['mayoreo', 'credito'])
+            .andWhereRaw(`((k.source_branch='01' AND k.business_date >= DATE '2026-07-01')
+              OR (k.source_branch='02' AND k.business_date >= DATE '2025-10-01')
+              OR (k.source_branch='06' AND k.business_date >= DATE '2026-08-15')
+              OR k.source_branch IN ('03','04','05'))`)
+            .andWhere('k.business_date', '>=', from).andWhere('k.business_date', '<=', to)
+            .modify((qb) => { if (brandId) qb.andWhere('k.brand_id', brandId); if (search) qb.andWhereRaw('(k.sku ILIKE ? OR k.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
+            .select(
+              'k.vendor_code as vendor_code',
+              'k.vendor_name as vendor_name',
+              trx.raw(`'mayoreo_credito'::text as sale_channel`),
+              'k.product_id as product_id',
+              trx.raw('max(k.sku) as sku'), trx.raw('max(k.nombre) as nombre'), trx.raw('max(k.factor_sale) as factor_sale'),
+              'k.brand_id as brand_id', trx.raw('max(k.brand_nombre) as brand_nombre'), trx.raw('max(k.brand_code) as brand_code'),
+              trx.raw('max(k.box_size) as box_size'),
+              trx.raw(`CASE WHEN k.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
+              trx.raw('1 as fac_win'),
+              trx.raw('sum(k.units) as qty'), trx.raw('sum(k.monto) as monto'),
+            )
+            .groupByRaw('k.vendor_code, k.vendor_name, k.product_id, k.brand_id, k.unit_kind')
+        : [];
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, raw: rows, identMap };
+      return { brand: b, raw: [...rows, ...keplerRows], identMap };
     });
 
     const columns = new Map<string, SellOutColumn>();
