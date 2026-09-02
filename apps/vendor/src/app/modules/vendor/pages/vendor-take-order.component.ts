@@ -166,6 +166,25 @@ const foldText = (s: string | null | undefined): string =>
               </button>
             }
           </div>
+          <!-- Fuente de existencia: ver sucursal / ver camioneta -->
+          @if (stockSources().sucursal && !offlineMode()) {
+            <div class="stock-src">
+              <span class="ss-lbl"><i class="pi pi-box"></i> Existencia</span>
+              <div class="ss-seg">
+                <button type="button" class="ss-b" [class.on]="stockView() === 'sucursal'"
+                  (click)="switchStockView('sucursal')">
+                  <i class="pi pi-building"></i> {{ stockSources().sucursal?.name }}
+                </button>
+                @if (stockSources().camioneta; as cam) {
+                  <button type="button" class="ss-b" [class.on]="stockView() === 'camioneta'"
+                    (click)="switchStockView('camioneta')">
+                    <i class="pi pi-truck"></i> {{ cam.name }}
+                  </button>
+                }
+              </div>
+              @if (stockLoading()) { <i class="pi pi-spin pi-spinner ss-spin"></i> }
+            </div>
+          }
           <!-- Banner de escucha (transcripción en vivo) -->
           @if (listening()) {
             <div class="voice-live" (click)="stopVoice()">
@@ -595,6 +614,14 @@ const foldText = (s: string | null | undefined): string =>
       .prod .unit-sel .us-chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
       /* Unidad junto a la cantidad en el carrito. */
       .stepper .q .q-u { display: block; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
+      /* Toggle de fuente de existencia: ver sucursal / ver camioneta. */
+      .stock-src { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0 0.15rem; flex-wrap: wrap; }
+      .stock-src .ss-lbl { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
+      .stock-src .ss-seg { display: inline-flex; gap: 0.25rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.15rem; }
+      .stock-src .ss-b { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; font-weight: 700; line-height: 1; padding: 0.32rem 0.6rem; border: none; background: transparent; color: var(--text-muted); border-radius: var(--r-pill, 999px); cursor: pointer; }
+      .stock-src .ss-b.on { background: var(--action); color: #fff; }
+      .stock-src .ss-b i { font-size: 0.72rem; }
+      .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
       .prod .pm .rsn i { font-size: 0.6rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -861,6 +888,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   readonly warehouseId = signal<string>('');
+  /** Fuentes de existencia del vendedor (sucursal de surtido + camioneta). */
+  readonly stockSources = signal<{
+    sucursal: { id: string; code: string; name: string } | null;
+    camioneta: { id: string; code: string; name: string } | null;
+  }>({ sucursal: null, camioneta: null });
+  /** Vista de existencia activa: de qué almacén se muestra el stock. */
+  readonly stockView = signal<'sucursal' | 'camioneta'>('sucursal');
+  /** true mientras se re-consulta el catálogo tras cambiar la fuente de stock. */
+  readonly stockLoading = signal(false);
   /** Modo offline: fijado al cargar. true → el pedido se arma/confirma 100% local
    *  (Dexie) y se sincroniza al reconectar. No cambia a mitad de la sesión. */
   readonly offlineMode = signal(false);
@@ -1240,12 +1276,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     forkJoin({
       // warehouse NO es crítico: si falla, seguimos con almacén vacío (sin badges
       // de stock) en vez de tumbar toda la pantalla. El customer SÍ es crítico.
-      warehouseId: this.api.defaultWarehouseId().pipe(catchError(() => of(''))),
+      // Fuentes de stock del vendedor: sucursal de surtido (inicial) + camioneta.
+      sources: this.api
+        .myStockSources()
+        .pipe(catchError(() => of({ sucursal: null, camioneta: null }))),
       customer: this.api.getCustomer(customerId),
     })
       .pipe(
-        switchMap(({ warehouseId, customer }) =>
-          forkJoin({
+        switchMap(({ sources, customer }) => {
+          this.stockSources.set(sources);
+          this.stockView.set('sucursal');
+          const warehouseId = sources.sucursal?.id || '';
+          return forkJoin({
             customer: of(customer),
             warehouseId: of(warehouseId),
             // catalog/draft con fallback: un 403/red en ellos ya no deja la
@@ -1256,8 +1298,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             existingDraft: this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
             frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
-          }),
-        ),
+          });
+        }),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
@@ -1303,6 +1345,33 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.loadError.set(true);
           this.toast.add({ severity: 'error', summary: 'No se pudo cargar', detail: e.error?.message || e.message });
         },
+      });
+  }
+
+  /**
+   * Cambia la fuente de existencia mostrada (sucursal ↔ camioneta) y re-consulta el
+   * catálogo para traer el stock de ESE almacén. No cambia el pedido en curso; solo la
+   * existencia que ve el vendedor. Offline no aplica (el catálogo cacheado es de la
+   * sucursal). No hace nada si la fuente no existe.
+   */
+  switchStockView(view: 'sucursal' | 'camioneta'): void {
+    if (view === this.stockView() || this.offlineMode()) return;
+    const src = view === 'camioneta' ? this.stockSources().camioneta : this.stockSources().sucursal;
+    if (!src) return;
+    const c = this.customer();
+    if (!c) return;
+    this.stockView.set(view);
+    this.warehouseId.set(src.id);
+    this.stockLoading.set(true);
+    this.api
+      .catalogForCustomer(c, src.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (cat) => {
+          this.prices.set(cat.prices);
+          this.stockLoading.set(false);
+        },
+        error: () => this.stockLoading.set(false),
       });
   }
 
