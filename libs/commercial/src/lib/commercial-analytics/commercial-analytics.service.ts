@@ -2857,9 +2857,18 @@ export class CommercialAnalyticsService {
       // con los CTE de 383k en vivo) — ver la rama winDailyMvOk abajo. Solo si aún no se pobló (arranque
       // en frío, raro) cae al fallback COMPLEJO sobre v_sales_lines por la conexión admin (winLiveKnex,
       // paso 1). Dinero idéntico al live (verificado al centavo: grand + marca).
+      // Blindaje anti-desajuste de deploy: el fast-path lee columnas del matview ENRIQUECIDO
+      // (branch_name, product_id, channel…). Si prod aún tiene el matview RAW (o windowed) poblado
+      // —p.ej. la migración enriquecida no corrió—, usar el fast-path tira 42703 (column does not
+      // exist). Por eso exigimos NO solo `relispopulated` sino también que exista la columna
+      // `branch_name` (marca de la forma enriquecida). Si no, winDailyMvOk=false → fallback seguro.
       const winDailyMvOk = !winRollupOk
         && !!(await trx.raw(
-          `SELECT 1 FROM pg_class WHERE relname = 'mv_wincaja_sales_daily' AND relnamespace = 'analytics'::regnamespace AND relispopulated`,
+          `SELECT 1 FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+              AND EXISTS (SELECT 1 FROM pg_attribute a
+                           WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
         )).rows?.[0];
       const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
