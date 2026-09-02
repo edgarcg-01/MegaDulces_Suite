@@ -5,7 +5,7 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
 // `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
-import { parecidoNombre, rfcComparable, rfcBienFormado, CUADRE_SQL, CUADRE_MOTIVO_SQL } from './receipt-match';
+import { parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, CUADRE_SQL, CUADRE_MOTIVO_SQL } from './receipt-match';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -1433,10 +1433,14 @@ export class GoodsReceiptProofsService {
       const rfcPapel = rfcBienFormado(o.rfc) ? rfcComparable(o.rfc) : null;
       const rfcKepler = rfcBienFormado(entrada.proveedor_rfc) ? rfcComparable(entrada.proveedor_rfc) : null;
       const provRfcMatch = rfcPapel && rfcKepler ? rfcPapel === rfcKepler : null;
-      // `documents_present` puede venir vacío (el OCR no reconoció ninguna hoja): eso es
-      // `null` = "no se sabe", no `false` = "falta nuestra hoja".
-      const tiposEnPaquete = (o.documents_present || []).map((d) => d?.type).filter(Boolean);
-      const paqueteOk = tiposEnPaquete.length ? tiposEnPaquete.includes('aplica_orden_entrada') : null;
+      // El **rol que el capturista le puso a cada hoja** manda sobre lo que el OCR adivinó.
+      // Medido: el rol encuentra la hoja interna en 93 de 161 comprobantes, `documents_present`
+      // en 7 — o sea que el paquete SÍ la trae y lo que falla es el reconocimiento. Construir
+      // el control sobre el OCR reprobaba al capturista por un error del modelo.
+      const paqueteOk = evaluarPaquete(
+        files.map((f) => f.role),
+        (o.documents_present || []).map((d) => d?.type),
+      );
 
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({

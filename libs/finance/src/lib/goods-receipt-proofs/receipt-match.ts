@@ -134,6 +134,31 @@ export function rfcBienFormado(s?: string | null): boolean {
   return /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(limpio);
 }
 
+/**
+ * Los roles de hoja que valen como **nuestra hoja interna** — el documento que prueba que la
+ * mercancía se recibió contra ESTA orden de entrada. `vale` entra porque el vale de recepción
+ * cumple la misma función en las sucursales que no imprimen la orden.
+ */
+const ROLES_HOJA_INTERNA = new Set(['orden_entrada', 'vale']);
+
+/**
+ * ¿El paquete trae nuestra hoja interna?
+ *
+ * Prioriza lo **declarado** sobre lo inferido, y la diferencia está medida: el rol la encuentra
+ * en 93 de 161 comprobantes, `documents_present` en 7. Si no hay roles (comprobantes viejos), se
+ * cae al OCR; si tampoco hay, devuelve `null` = *"no se sabe"*, que no es lo mismo que *"falta"*.
+ */
+export function evaluarPaquete(
+  roles?: (string | null | undefined)[] | null,
+  documentosOcr?: (string | null | undefined)[] | null,
+): boolean | null {
+  const declarados = (roles || []).filter(Boolean).map(String);
+  if (declarados.length) return declarados.some((r) => ROLES_HOJA_INTERNA.has(r));
+  const docs = (documentosOcr || []).filter(Boolean).map(String);
+  if (docs.length) return docs.includes('aplica_orden_entrada');
+  return null;
+}
+
 export interface SenalesEntrada {
   /** Total de Kepler (`c16`) — la referencia. */
   keplerMonto: number;
@@ -145,7 +170,22 @@ export interface SenalesEntrada {
   ocrSubtotal?: number | null;
   ocrProveedor?: string | null;
   ocrRfc?: string | null;
-  /** Tipos de documento que el OCR reconoció en el paquete (`documents_present[].type`). */
+  /**
+   * **Los roles que el capturista le puso a cada hoja al subirla** (`files[].role`), que es la
+   * fuente buena para saber qué trae el paquete: es dato **declarado por una persona**, no
+   * inferido por el modelo.
+   *
+   * Medido en prod (2026-09-02) sobre los mismos 161 comprobantes, y la diferencia no es
+   * matizada: **el rol declarado encuentra la hoja interna en 93 (58%); `documents_present` en
+   * 7 (4%)**. O sea que el paquete SÍ la trae y lo que falla es el reconocimiento del OCR.
+   * Construir el control sobre `documents_present` reprobaba al capturista por un error del
+   * modelo — que es exactamente al revés de lo que el control busca.
+   */
+  rolesDeclarados?: (string | null | undefined)[] | null;
+  /**
+   * Tipos que el OCR reconoció (`documents_present[].type`). Queda como **respaldo** para los
+   * comprobantes viejos que se guardaron sin rol por hoja; nunca gana sobre lo declarado.
+   */
   documentosEnPaquete?: (string | null | undefined)[] | null;
   /** Se compara contra el monto de la copia de oficinas cuando el par está vigente (RE.14.4). */
   gemelaMonto?: number | null;
@@ -174,11 +214,17 @@ export interface SenalesCuadre {
  * sus dos señales. El importe solo no alcanza — dos facturas del mismo día por el mismo monto de
  * proveedores distintos cuadrarían igual, y ahí es donde se paga la factura equivocada.
  *
- * ⚠️ `paquete_ok` **NO entra en el bucket**, a propósito y medido: hoy sólo **7 de 161** paquetes
- * traen la hoja interna, así que exigirla mandaría el **96%** a revisión manual y el motor no
- * serviría para nada. Viaja aparte, como indicador de completitud, para que se pueda empujar al
- * capturista sin ensuciar el cuadre del dinero. Cuando la captura mejore, se vuelve puerta
- * cambiando una línea acá.
+ * ⚠️ `paquete_ok` **NO entra en el bucket**, pero por una razón distinta de la que se creyó al
+ * principio. La primera versión de esto decía *"sólo 7 de 161 paquetes traen la hoja interna,
+ * exigirla mandaría el 96% a manual"* — y ese 7 salía de `documents_present`, o sea de lo que el
+ * OCR **adivina**. Medido contra el rol que el capturista **declara** al subir cada hoja, la
+ * traen **93 de 161 (58%)**: el paquete sí la incluye y lo que fallaba era el reconocimiento.
+ *
+ * Se queda fuera del bucket igual, y ahora por el motivo correcto: *"el documento no concuerda"*
+ * y *"al paquete le falta una hoja"* son dos problemas distintos, con dos responsables distintos
+ * y dos arreglos distintos. Mezclarlos haría que un expediente perfectamente cuadrado apareciera
+ * como sospechoso de dinero. Viaja aparte como indicador de completitud — y con el 58% ya es un
+ * número que se puede exigir, si se decide.
  */
 export function evaluarCuadre(e: SenalesEntrada): SenalesCuadre {
   const tol = e.tolerancia ?? TOLERANCIA_DEFAULT;
@@ -205,8 +251,7 @@ export function evaluarCuadre(e: SenalesEntrada): SenalesCuadre {
   const rfcB = rfcBienFormado(e.keplerRfc) ? rfcComparable(e.keplerRfc) : null;
   const rfcMatch = rfcA && rfcB ? rfcA === rfcB : null;
 
-  const docs = (e.documentosEnPaquete || []).filter(Boolean).map((d) => String(d));
-  const paqueteOk = docs.length ? docs.includes('aplica_orden_entrada') : null;
+  const paqueteOk = evaluarPaquete(e.rolesDeclarados, e.documentosEnPaquete);
 
   const provCorroborado = (provScore != null && provScore >= UMBRAL_NOMBRE) || rfcMatch === true;
   const provContradicho = rfcMatch === false || (provScore != null && provScore < UMBRAL_NOMBRE);

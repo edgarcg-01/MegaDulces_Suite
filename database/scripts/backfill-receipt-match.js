@@ -32,7 +32,7 @@ require('ts-node').register({
   compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
 });
 const {
-  parecidoNombre, rfcComparable, rfcBienFormado, bucketDeSenales,
+  parecidoNombre, rfcComparable, rfcBienFormado, bucketDeSenales, evaluarPaquete,
 } = require(path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/receipt-match.ts'));
 
 const knex = require('knex')({
@@ -54,7 +54,7 @@ const knex = require('knex')({
     // `goods_receipt_proofs.proveedor_nombre`: esa se guardó al adjuntar y puede haber quedado
     // atrás si el catálogo se corrigió después. La entrada es la fuente.
     const rows = await knex.raw(`
-      SELECT p.id, p.ocr_proveedor, p.ocr_rfc, p.ocr_raw, p.monto_match,
+      SELECT p.id, p.ocr_proveedor, p.ocr_rfc, p.ocr_raw, p.monto_match, p.files,
              g.proveedor_nombre, g.proveedor_rfc
         FROM finance.goods_receipt_proofs p
         JOIN analytics.erp_goods_receipts g
@@ -73,9 +73,14 @@ const knex = require('knex')({
       const rfcKepler = rfcBienFormado(r.proveedor_rfc) ? rfcComparable(r.proveedor_rfc) : null;
       const prov_rfc_match = rfcPapel && rfcKepler ? rfcPapel === rfcKepler : null;
 
-      const tipos = Array.isArray(raw && raw.documents_present)
-        ? raw.documents_present.map((d) => d && d.type).filter(Boolean) : [];
-      const paquete_ok = tipos.length ? tipos.includes('aplica_orden_entrada') : null;
+      // El ROL declarado por el capturista manda sobre lo que el OCR adivinó: la hoja interna
+      // aparece en 93 de 161 por rol y en 7 por `documents_present`.
+      let files = r.files;
+      if (typeof files === 'string') { try { files = JSON.parse(files); } catch { files = null; } }
+      const paquete_ok = evaluarPaquete(
+        Array.isArray(files) ? files.map((f) => f && f.role) : null,
+        Array.isArray(raw && raw.documents_present) ? raw.documents_present.map((d) => d && d.type) : null,
+      );
 
       if (paquete_ok === true) conHoja++; else if (paquete_ok === false) sinHoja++; else hojaDesconocida++;
       reparto[bucketDeSenales({ n: 1, any_match: r.monto_match, prov_score, prov_rfc_match })]++;
