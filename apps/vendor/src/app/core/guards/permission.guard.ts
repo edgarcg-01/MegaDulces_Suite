@@ -67,7 +67,7 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
     return false;
   }
 
-  const canAccessFullDashboard = perms.can('read', 'reports_team') || perms.can('read', 'reports_global');
+  const canAccessFullDashboard = perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
   const legacyPerms = authService.user()?.permissions;
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 

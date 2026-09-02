@@ -19,7 +19,7 @@ import { Permission } from '../../core/constants/permissions';
 export const storeEntryRedirect = (): string => {
   const perms = inject(PermissionsService);
   const legacy = inject(AuthService).user()?.permissions;
-  const god = perms.can('manage', 'all');
+  const god = perms.isAdmin();
   if (god || legacy?.[Permission.STORE_LIVE_VER] === true) return 'live';
   if (legacy?.[Permission.STORE_ARQUEO_VER] === true || legacy?.[Permission.STORE_ARQUEO_CAPTURAR] === true) return 'arqueo';
   return 'etiquetas';

@@ -1492,10 +1492,10 @@ export class ComprasEntradasComponent {
   // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
   readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
-  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  readonly canManage = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
-  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  readonly canValidate = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   /**
    * `[RE.20.1]` — **el lente.** Las MISMAS filas contestando dos preguntas distintas:

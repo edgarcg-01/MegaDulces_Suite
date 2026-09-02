@@ -98,6 +98,9 @@ export class AuthService {
           if (actual) {
             this.user.set({ ...actual, permissions: res.permissions, rules: res.rules });
           }
+          // `permissions` es la fuente vigente del gating; `rules` sólo alimenta la API `can()`
+          // en retiro y se irá cuando no queden llamadas.
+          this.perms.load(res.permissions, actual?.role_name ?? null);
           if (res.rules?.length) this.perms.loadRules(res.rules);
         },
         error: () => { /* se queda el snapshot del JWT */ },
@@ -157,6 +160,7 @@ export class AuthService {
       this.token.set(token);
       this.user.set(payload);
 
+      this.perms.load(payload.permissions, payload.role_name);
       if (payload.rules) {
         this.perms.loadRules(payload.rules);
       }

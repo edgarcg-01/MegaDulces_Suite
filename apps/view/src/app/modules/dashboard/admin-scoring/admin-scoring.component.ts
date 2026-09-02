@@ -49,8 +49,8 @@ export class AdminScoringComponent implements OnInit {
   activeSection = '';
 
   ngOnInit() {
-    if (!this.perms.can('read', 'scoring_config')) {
-      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
+    if (!this.perms.hasAny(Permission.SCORING_CONFIG_VER, Permission.SCORING_CONFIG_GESTIONAR)) {
+      if (this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)) {
         this.router.navigate(['/dashboard']);
       } else {
         this.router.navigate(['/dashboard/captures']);

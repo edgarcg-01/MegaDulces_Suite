@@ -523,7 +523,7 @@ export class VendorReviewComponent {
 
   canAnalyzeHorus = computed(() => {
     const p = this.auth.user()?.permissions;
-    return this.perms.can('manage', 'all') || (p ? p[Permission.SUPERVISOR_AI_VER] === true : false);
+    return this.perms.isAdmin() || (p ? p[Permission.SUPERVISOR_AI_VER] === true : false);
   });
 
   constructor() {

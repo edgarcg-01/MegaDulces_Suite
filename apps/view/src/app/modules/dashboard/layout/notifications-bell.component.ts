@@ -149,14 +149,14 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
 
   readonly canSeeFinance = computed(() =>
     FINANCE_NOTIF_ENABLED &&
-    (this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_AI_CHAT] === true));
+    (this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_AI_CHAT] === true));
   /**
    * Quién ve los avisos de FEED (Kepler/ContPAQi trajo movimientos): quien tiene el
    * módulo de Bancos. Independiente de FINANCE_NOTIF_ENABLED (ese flag apaga los
    * hallazgos ruidosos de Maat, no estos avisos de feed).
    */
   readonly canSeeFinanceFeed = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.FINANCE_BANK_VER] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_BANK_VER] === true);
   readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
   readonly hasNew = computed(() => this.newSince());
 

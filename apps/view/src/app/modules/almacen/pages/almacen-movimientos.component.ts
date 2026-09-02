@@ -881,7 +881,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private static readonly DEST_DEFAULT = ['sucursal', 'ruta', 'cliente'];
 
-  readonly canAudit = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_MOVEMENTS_GESTIONAR];
+  readonly canAudit = this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_MOVEMENTS_GESTIONAR];
 
   days = signal<AggregateRow[]>([]);
   summary = signal<MovementsSummary | null>(null);

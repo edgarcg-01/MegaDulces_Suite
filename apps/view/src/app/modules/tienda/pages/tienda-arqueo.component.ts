@@ -372,7 +372,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * Espeja la regla del backend — acá es cosmético (el backend ya no manda los
    * campos), pero evita renderizar columnas que siempre saldrían vacías.
    */
-  readonly revela = this.perms.can('manage', 'all')
+  readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 
   /** Turnos que Kepler abrió a nombre del usuario. Sin turno no hay arqueo. */
@@ -395,7 +395,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
   readonly canCapture = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
 
   readonly tipoOptions = [
     { label: 'Cierre de día', value: 'cierre' as const },

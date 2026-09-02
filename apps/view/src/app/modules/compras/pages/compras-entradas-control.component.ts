@@ -347,8 +347,8 @@ export class ComprasEntradasControlComponent {
 
   // Este tablero lo abre cualquiera con VER — incluido el que sólo supervisa. Los atajos a las
   // pantallas de oficio se muestran según lo que la persona SÍ puede hacer.
-  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
-  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  readonly canManage = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  readonly canValidate = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   readonly tabs = ENTRADAS_CONTROL_TABS;
   readonly report = signal<CoverageReport | null>(null);
