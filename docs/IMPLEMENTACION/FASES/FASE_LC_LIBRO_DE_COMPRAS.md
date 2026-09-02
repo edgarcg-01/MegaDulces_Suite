@@ -494,10 +494,32 @@ hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
 - **LC.6 + LC.6.1 ✅**: el trámite en pantalla, con el sub-módulo de no asociados como
   entrada principal.
 
-**En prod:** migraciones `20260902120000` (batch 247) y `20260902130000` (batch 248)
-aplicadas; el flag backfilleado con el rango completo. **Falta desplegar el código**
-(api + view) y, como los permisos de LC no cambiaron en esta tanda, no hace falta re-login
-para esta pantalla.
+**En prod:** migraciones `20260902120000` (batch 247), `20260902130000` (batch 248) y
+`20260902140000` (batch 250) aplicadas; el flag backfilleado con el rango completo.
+**Falta desplegar el código** (api + view) **y que los roles de contabilidad vuelvan a
+entrar** — el grant de permisos viaja en el JWT.
+
+### El módulo estaba en prod y nadie podía abrirlo (LC.6.2, 2026-09-02)
+
+El par `FISCAL_PURCHASE_BOOK_VER` / `_GESTIONAR` nació con LC.6 pero **nunca lo repartió
+nadie**: sólo existía en el enum de `permissions.ts`, sin seed ni migración. Medido en prod,
+la única fila de `role_permissions` con esas claves era `almacenista`… **en `false`** —
+residuo de guardar el mapa completo desde `/admin/roles`, que escribe todo el JSONB y deja
+las claves nuevas del enum en `false`. O sea **cero roles con acceso**; sólo
+`superadmin`/`admin` entraban por `ALL_PERMS`, y quien copiara la URL recibía 403.
+
+`20260902140000` lo reparte calcando el hermano del mismo proyecto (`FISCAL_CONTAB_*`, que
+gatea Pólizas y Contabilidad electrónica): quien ya **ve** pólizas ve el libro, quien las
+**gestiona** genera el TXT. El criterio se lee del estado vivo de prod, no se inventa. Los
+`retirado_*` se excluyen a propósito.
+
+| | Roles |
+|---|---|
+| `_VER` (8) | auditor_externo, contabilidad, credito_cobranza, direccion, finanzas, gerente_compras, marketing, superadmin |
+| `_GESTIONAR` (6) | contabilidad, credito_cobranza, finanzas, gerente_compras, marketing, superadmin |
+
+`auditor_externo` y `direccion` quedan sólo de lectura. El `false` explícito de
+`almacenista` **no se pisa** (guarda `permissions -> 'KEY' IS NULL`).
 
 > **Corrección (2026-09-02):** un aviso previo decía que prod tenía "91 migraciones
 > pendientes". **Era falso** — ese `migrate:list` corrió con `DATABASE_URL_NEW` vacío
