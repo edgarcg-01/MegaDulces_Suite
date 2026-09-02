@@ -109,7 +109,32 @@ diff viejo_todos.json nuevo_todos.json
 ```
 
 **3b. Camino de escritura (carrito/checkout/cola) — decisión de riesgo, no
-sólo técnica.** Correr `catalogo-kp` completo (con `tienda`) contra el mismo
+sólo técnica. 🟡 Canario verificado 2026-09-02; carrito real de punta a
+punta pendiente de ventana fuera de horario.**
+
+0Sistemas eligió el enfoque de menor riesgo: canario ahora (no toca dinero),
+carrito real después, en una ventana fuera de horario de pedidos a definir.
+Corrido en horario de oficina (13:42–13:47) contra `KP_CONCENTRADA` real,
+app completa (`tienda`+`admin`) usando ya **`catalogo_kp_runtime`** (primera
+vez que el rol dedicado se ejercita en escritura, no sólo lectura):
+
+- `POST /api/admin/cola/prueba` simple → tomado por el trabajador, `HECHO` en
+  el primer intento. `cuenta.hechos` 0→1, sin competir visiblemente con la
+  cola del proceso viejo en `.163` (mismo `KP_CONCENTRADA`, `FOR UPDATE SKIP
+  LOCKED` funcionando como está diseñado).
+- `POST /api/admin/cola/prueba` con `fallar_hasta:2` → falló 2 veces, esperó
+  el backoff exponencial exacto (60s, luego 120s — `esperaSegundos()`), y
+  sanó al tercer intento. `reintentos` 0→2, `HECHO` final sin `fallidos` ni
+  `PENDIENTE` colgado.
+
+Confirma: el motor de colas (reintentos, backoff, `SKIP LOCKED`) funciona
+igual contra datos reales que en el código portado, y el rol
+`catalogo_kp_runtime` tiene los permisos de escritura correctos sobre
+`tienda.trabajos`. **No se corrió el carrito real de punta a punta** (crear→
+agregar producto→checkout OXXO→confirmar→verificar aviso) — eso queda para
+la ventana que 0Sistemas defina, siguiendo exactamente los pasos de abajo.
+
+Correr `catalogo-kp` completo (con `tienda`) contra el mismo
 `KP_CONCENTRADA` real pone su motor de colas a competir por trabajos con el
 que ya está vivo en `.163` — es seguro por diseño (`FOR UPDATE SKIP LOCKED`
 está hecho exactamente para eso), pero significa que un `aviso_cliente` de un
