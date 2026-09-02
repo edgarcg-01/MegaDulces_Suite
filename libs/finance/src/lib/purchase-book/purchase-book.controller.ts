@@ -2,15 +2,21 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { PurchaseBookService, ImpuestosModo } from './purchase-book.service';
+import { PurchaseBookService, ImpuestosModo, TipoCorrida } from './purchase-book.service';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí y a ContPAQi
  * solo va el TXT, que sigue subiendo contabilidad (ADR-040: no escribimos en el SoR).
  *
  * Vive en el proyecto **Contabilidad**, junto a Pólizas y ContPAQi: es una póliza
- * contable, no un reporte de finanzas. Reusa `FISCAL_CONTAB_VER` / `_GESTIONAR` — el
- * mismo par que sus hermanos, para no partir en dos el acceso de quien lleva el libro.
+ * contable, no un reporte de finanzas. Tiene sus propios permisos
+ * (`FISCAL_PURCHASE_BOOK_VER` / `_GESTIONAR`), no los presta ni los toma de otro módulo.
+ *
+ * Dos sub-módulos sobre el mismo motor:
+ *   - `/`              el libro completo del mes (para un mes que no se subió)
+ *   - `/no-asociados`  SOLO los movimientos que ContPAQi no tiene atados a ninguna póliza.
+ *                      Es el caso normal y el propósito del módulo: sacar lo que falta en
+ *                      TXT para que contabilidad complete el trámite.
  */
 @ApiTags('finance-purchase-book')
 @ApiBearerAuth()
@@ -24,6 +30,68 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Tablero de meses: CFDIs, estado del trámite y qué tiene ContPAQi hoy.' })
   listMeses(@Query('limit') limit?: string) {
     return this.svc.listMeses(limit ? Number(limit) : undefined);
+  }
+
+  // ── Sub-módulo: movimientos no asociados ────────────────────────────────────────────
+  // Va ANTES de `:mes` a propósito: Nest resuelve por orden de declaración y
+  // `@Get(':mes')` se comería `/no-asociados` como si fuera un mes.
+
+  @Get('no-asociados')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Por mes: cuántos CFDIs no están asociados a ninguna póliza y cuánto falta por entregar.' })
+  listNoAsociados(@Query('limit') limit?: string) {
+    return this.svc.listNoAsociados(limit ? Number(limit) : undefined);
+  }
+
+  @Get('no-asociados/:mes')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Los movimientos no asociados del mes, con los que ya están posteados marcados aparte.' })
+  getNoAsociados(@Param('mes') mes: string) {
+    return this.svc.getMes(mes, 'complemento');
+  }
+
+  @Post('no-asociados/:mes/inclusion')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Incluye o excluye movimientos del complemento (con motivo si se excluye).' })
+  setInclusionNoAsociados(
+    @Param('mes') mes: string,
+    @Body() body: { uuids: string[]; incluida: boolean; motivo?: string },
+  ) {
+    return this.svc.setInclusion(mes, body?.uuids ?? [], body?.incluida !== false, body?.motivo, 'complemento');
+  }
+
+  @Post('no-asociados/:mes/generar')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })
+  async generarNoAsociados(
+    @Param('mes') mes: string,
+    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean },
+  ) {
+    const r = await this.svc.generar(mes, { ...(body ?? {}), tipo: 'complemento' });
+    const { txt, ...resumen } = r;
+    return resumen;
+  }
+
+  @Get('no-asociados/:mes/archivo')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Descarga el TXT del complemento tal como se importa a ContPAQi.' })
+  async archivoNoAsociados(
+    @Param('mes') mes: string,
+    @Query('impuestos') impuestos: ImpuestosModo | undefined,
+    @Query('uuid') uuid: string | undefined,
+    @Res() res: Response,
+  ) {
+    await this.enviarTxt(res, mes, { impuestos, uuid: uuid !== '0', tipo: 'complemento' });
+  }
+
+  @Post('no-asociados/:mes/estado')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Mueve el trámite del complemento: entregado | aplicado | cancelado.' })
+  marcarNoAsociados(
+    @Param('mes') mes: string,
+    @Body() body: { estado: 'entregado' | 'aplicado' | 'cancelado'; entregado_a?: string; notas?: string },
+  ) {
+    return this.svc.marcar(mes, body?.estado, { ...(body ?? {}), tipo: 'complemento' });
   }
 
   @Get(':mes')
@@ -72,7 +140,15 @@ export class PurchaseBookController {
     @Query('uuid') uuid: string | undefined,
     @Res() res: Response,
   ) {
-    const r = await this.svc.generar(mes, { impuestos, uuid: uuid !== '0' });
+    await this.enviarTxt(res, mes, { impuestos, uuid: uuid !== '0' });
+  }
+
+  private async enviarTxt(
+    res: Response,
+    mes: string,
+    opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida },
+  ) {
+    const r = await this.svc.generar(mes, opts);
     // latin1: ContPAQi lee el archivo en la codificación de Windows, no en UTF-8. Con
     // acentos en UTF-8 los nombres de proveedor llegan rotos.
     res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');

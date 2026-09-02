@@ -49,16 +49,45 @@ export interface FacturaMes {
   cuenta_existe: boolean;
   incluida: boolean;
   motivo_exclusion: string | null;
+  /** `false` = ContPAQi no la tiene atada a ninguna póliza. `null` = no se sabe. */
+  aso_contabilidad: boolean | null;
+  /** Su importe ya está abonado al proveedor en la póliza del mes: re-meterla la duplica. */
+  ya_en_poliza: boolean;
+}
+
+/** Un renglón del tablero de movimientos no asociados. */
+export interface MesNoAsociado {
+  anio_mes: string;
+  cfdis: number;
+  no_asociados: number;
+  monto_no_asociado: number;
+  /** Sin marca pero ya posteadas: NO van al TXT. */
+  ya_posteados: number;
+  faltan: number;
+  monto_faltan: number;
+  /** Si no hay póliza del mes, el mes entero está sin contabilizar. */
+  existe_libro: boolean;
+  estado: EstadoRun;
+  run_id: string | null;
+  folio_poliza: number;
+  run_facturas: number | null;
+  total_cargos: number | null;
+  generado_at: string | null;
+  entregado_at: string | null;
+  aplicado_at: string | null;
 }
 
 export interface MesDetalle {
   mes: string;
+  /** `libro` = el mes completo · `complemento` = solo lo que quedó sin asociar. */
+  tipo: 'libro' | 'complemento';
   run: Record<string, unknown> | null;
   facturas: FacturaMes[];
   resumen: {
     cfdis_del_mes: number; incluidas: number; excluidas: number;
     total: number; subtotal_exento: number; subtotal_gravado: number;
     iva: number; ieps: number; total_todas: number;
+    no_asociadas: number; ya_posteadas: number; monto_ya_posteadas: number;
   };
   /** Renglones que ContPAQi rechazaría: apagan el botón de generar. */
   bloqueantes: string[];
@@ -77,8 +106,8 @@ export interface CuadreContpaqi {
 }
 
 export interface GenerarResultado {
-  anio_mes: string; nombre: string; hash: string;
-  facturas: number; renglones: number; cargos: number; abonos: number;
+  anio_mes: string; tipo: 'libro' | 'complemento'; nombre: string; hash: string;
+  folio: number; facturas: number; renglones: number; cargos: number; abonos: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -120,5 +149,38 @@ export class LibroComprasService {
    *  `<a href>` pelado devolvería 401. */
   descargar(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<Blob> {
     return this.http.get(this.urlArchivo(mes, impuestos, uuid), { responseType: 'blob' });
+  }
+
+  // ── Sub-módulo: movimientos no asociados ──────────────────────────────────────────────
+  // Mismo motor, otro alcance: en vez del mes completo, solo lo que ContPAQi no tiene
+  // atado a ninguna póliza. Es el propósito del módulo — sacar lo que falta en TXT.
+
+  private noAso = `${this.base}/no-asociados`;
+
+  listNoAsociados(limit = 24): Observable<MesNoAsociado[]> {
+    return this.http.get<MesNoAsociado[]>(this.noAso, { params: { limit } });
+  }
+
+  getNoAsociados(mes: string): Observable<MesDetalle> {
+    return this.http.get<MesDetalle>(`${this.noAso}/${mes}`);
+  }
+
+  setInclusionNoAsociados(mes: string, uuids: string[], incluida: boolean, motivo?: string) {
+    return this.http.post<{ ok: boolean; afectadas: number }>(
+      `${this.noAso}/${mes}/inclusion`, { uuids, incluida, motivo });
+  }
+
+  generarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<GenerarResultado> {
+    return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, { impuestos, uuid });
+  }
+
+  marcarNoAsociados(mes: string, estado: 'entregado' | 'aplicado' | 'cancelado', datos: { entregado_a?: string; notas?: string } = {}) {
+    return this.http.post<{ ok: boolean }>(`${this.noAso}/${mes}/estado`, { estado, ...datos });
+  }
+
+  descargarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<Blob> {
+    return this.http.get(
+      `${this.noAso}/${mes}/archivo?impuestos=${impuestos}&uuid=${uuid ? '1' : '0'}`,
+      { responseType: 'blob' });
   }
 }

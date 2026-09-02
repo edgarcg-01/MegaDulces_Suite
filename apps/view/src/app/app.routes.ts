@@ -423,7 +423,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
-        // LC — el trámite del libro de compras: se arma aquí y a ContPAQi solo va el TXT.
+        // LC — lo que ContPAQi no tiene atado a ninguna póliza. Es el propósito del módulo:
+        // sacar lo que falta en TXT para que contabilidad cierre el trámite.
+        path: 'movimientos-no-asociados',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component').then(m => m.MovimientosNoAsociadosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
+        // LC — el libro completo del mes. Solo aplica a un mes que nunca se subió.
         path: 'libro-de-compras',
         loadComponent: () => import('./modules/contabilidad/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
         canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]

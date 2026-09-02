@@ -239,7 +239,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'listas-sat', label: 'Listas SAT (EFOS 69-B / Art. 69)', route: '/contabilidad/listas-sat', view: [Permission.FISCAL_LISTAS_VER], manage: [Permission.FISCAL_LISTAS_GESTIONAR] },
           { id: 'cfdi', label: 'CFDI', route: '/contabilidad/cfdi', view: [Permission.FISCAL_CFDI_VER], manage: [] },
-          { id: 'libro-compras', label: 'Libro de Compras (póliza a ContPAQi)', route: '/contabilidad/libro-de-compras', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
+          // Un solo módulo con dos pantallas (no asociados + libro completo del mes); el
+          // par de permisos vive acá y en ningún otro nodo. La ruta apunta a la principal.
+          { id: 'libro-compras', label: 'Libro de Compras (no asociados → TXT a ContPAQi)', route: '/contabilidad/movimientos-no-asociados', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
