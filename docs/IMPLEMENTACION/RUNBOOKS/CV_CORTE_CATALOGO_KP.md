@@ -5,16 +5,17 @@
 > que el anterior haya salido bien. Plan de fondo en
 > [`FASE_CV`](../FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), sección CV.6.
 
-**Estado (2026-09-02):** Pasos 0–3 completados y verificados. El bloqueante
-de credencial (`app_runtime` rechazada, `28P01`) se resolvió fuera de esta
+**Estado (2026-09-02):** Pasos 0–3 completados y verificados, y el `.env`
+real de producción (`megadulces-api-ready` en `.163`) ya usa
+`catalogo_kp_runtime` (ver Paso 2, "Hecho 2026-09-02"). El bloqueante de
+credencial (`app_runtime` rechazada, `28P01`) se resolvió fuera de esta
 migración; Paso 3a (lectura contra datos reales) verificado con paridad
-byte a byte; el rol `catalogo_kp_runtime` quedó creado y confirmado con los
-permisos exactos de diseño; **Paso 3b completado** — canario + primer
-pedido real de la historia creado vía el frontend nuevo (`apps/tienda`,
-folio `MD-2026-00012`), cancelado después por ser explícitamente de prueba
-(ver `FASE_CV`, sección "Verificación final: primer pedido real de la
+byte a byte; **Paso 3b completado** — canario + primer pedido real de la
+historia creado vía el frontend nuevo (`apps/tienda`, folio
+`MD-2026-00012`), cancelado después por ser explícitamente de prueba (ver
+`FASE_CV`, sección "Verificación final: primer pedido real de la
 historia"). Sigue pendiente sólo **Paso 4** (corte real del Service en
-`.163`) y apuntar el `.env` de producción al rol dedicado.
+`.163` — apuntarlo al build de este monorepo en vez del repo standalone).
 
 ---
 
@@ -72,11 +73,22 @@ test conectado como `catalogo_kp_runtime`: `SELECT count(*) FROM kp.kdii`
 git) — el archivo versionado en este monorepo sigue con el placeholder
 `CAMBIA_ESTE_PASSWORD`, nunca se comitea un secreto real.
 
-**Pendiente:** actualizar `DATABASE_URL_KP_CONCENTRADA` del `.env` real de
-`catalogo-kp` para usar `catalogo_kp_runtime` en vez de `app_runtime` — se
-puede hacer sin downtime porque ambos roles siguen concediendo acceso
-mientras tanto. No ejecutado en esta sesión (afecta el proceso que sirve
-producción real).
+**Hecho 2026-09-02 (autorizado por 0Sistemas, "opción 1"):** `.env` real de
+`megadulces-api-ready` en `.163` (`PG_USER`/`PG_PASSWORD`) actualizado de
+`app_runtime` a `catalogo_kp_runtime`. Respaldo previo:
+`.env.bak-2026-09-02_1725`. Reinicio siguiendo el mismo mecanismo confiable
+de `Compilar_seguro.ps1` (detener el proceso en :3000, relanzar vía la
+tarea programada `MegaDulces API - vigilante`, verificar) — 0 fallos en las
+5 pruebas de siempre (`catalogo/estado`, `catalogo/sucursales`, `kp/precio`,
+`kp/precios-todos`, `kp/productos` 401). `vigilar_api.log` confirma
+recuperación limpia sin error de credenciales. `pg_stat_activity` confirma
+la conexión real del proceso (`client_addr=192.168.0.163`) usando
+`catalogo_kp_runtime`. Antes de aplicar se verificó que el único `DELETE`
+del código (`monitor.errores_detalle`, limpieza de retención) ya tenía
+manejo gracioso (`.catch()`) porque **`app_runtime` tampoco tenía ese
+permiso** — no es una regresión, el comportamiento es idéntico al de antes.
+Páginas reales (`catalogo.html`/`tienda.html`/`verificador-01.html`)
+confirmadas en 200 después del corte.
 
 ## Paso 3 — Verificación end-to-end real
 
