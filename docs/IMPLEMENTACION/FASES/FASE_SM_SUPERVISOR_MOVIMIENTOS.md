@@ -278,6 +278,25 @@ Smoke `http-store-arqueo-test.js` **30/30**: manda un `cajero_code` falseado y v
 
 **Pendiente prod:** correr `load-cash-cuts-from-ods.js --apply` contra Railway (requiere que `kepler_ods.kdpv_folio_caja` esté replicada ahí) y decidir si reemplaza al `import-cash-cuts` del nightly o convive.
 
+### El desglose por denominación no existe en ningún ERP (cerrado 2026-09-02)
+
+Pregunta recurrente: *"¿por qué no jalás el arqueo del corte pieza por pieza —$500 × 4, $200 × 3— como lo hace Wincaja?"*. Se agotó la búsqueda, con método, y la respuesta es que **ese dato no se genera en ningún sistema**. Queda escrito para no volver a buscarlo.
+
+**Kepler — tres pruebas independientes, todas negativas:**
+
+1. **Barrido por forma del dato.** Se recorrieron las **1,275 columnas numéricas** de `KP_CONCENTRADA` (242 tablas con datos, incluidas las 3 de más de 2M de filas) buscando cualquier columna cuyos valores distintos fueran todos denominaciones mexicanas. Aparecieron 3 y ninguna es arqueo: `kdpv_descuxq.c5` (descuento por cantidad), `kduv.c5` (zonas de vendedor), `kdvtamano.c6` (tamaño de empresa).
+2. **Persecución del monto.** Un desglose guardado como *11 columnas de cantidades* (17, 1, 1, 2…) no lo encuentra el barrido anterior, porque las cantidades no parecen nada. Así que se persiguió el **total del corte**: `$59,995.54` aparece en **una sola columna de toda la base**, `kdpv_folio_caja.c25`. Si existiera una tabla de detalle, su fila padre cargaría ese total. No existe.
+3. **Conteo de columnas.** `kdpv_folio_caja` tiene exactamente 50 columnas (`c1`–`c49` + `sucursal`), todas identificadas. No hay lugar físico donde meter 11 conteos.
+
+**Wincaja — sí tiene denominaciones, pero NO del corte.** Leído en vivo del `.mdb` de Morelia Abastos: la tabla `Arqueos` (`Consecutivo, Folio, Caja, Denominacion, Cantidad`) parece el arqueo soñado, pero **su `Folio` no existe en `Cortes`** — ata a **`Retiros`**. Verificado con el folio 88036 caja 32:
+
+    500 × 15 + 200 × 4 + 100 × 22 + 50 × 12 + 20 × 10 = 11,300
+    Retiros.Folio 88036 → Monto 11,300 · Observacion 'BILLETE'
+
+O sea: Wincaja desglosa **cada sangría**, no el corte. (Lo confirma la vista `v_cash_denomination`, que trae `dotacion_inicial` y `por_diferencia_corte` — columnas de `Retiros`.) Y de todos modos no cubriría estas tiendas: Padre Hidalgo dejó de escribir en Wincaja el **26/06/2026** y su tabla `Arqueos` está **vacía**; La Piedad Abastos tiene el `.mdb` congelado en enero de 2024.
+
+**Consecuencia.** Para una tienda en Kepler, la tabla `$500 × 4 = $2,000` solo puede salir de que **alguien abra el cajón y cuente** — que es exactamente `reconciliation.blind_counts`. No es una integración pendiente: es el trabajo que el arqueo ciego existe para capturar. Un turno marcado "solo Kepler" es un turno que nadie contó, y ninguna fuente lo va a llenar por detrás.
+
 ## SM.12–SM.19 — El arqueo como acto, no como formulario (✅ local 2026-08-27 → 2026-09-02)
 
 Ocho ajustes que comparten una sola idea: **el turno lo declara Kepler y el efectivo lo cuenta una persona**. Todo lo que la app puede dejar que alguien escriba a mano es una superficie para que el número salga distinto del hecho.
