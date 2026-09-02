@@ -2850,19 +2850,17 @@ export class CommercialAnalyticsService {
       // explícitos) para no hacer Seq Scan bajo RLS; si no hay admin, cae a trx. En operación normal
       // este path NO se usa (el matview all-history del paso 3 cubre todo rango) → sin pool admin.
       const winLiveKnex: any = this.adminKnex ?? trx;
-      // PASO 3 (mig 20260901160000): el rollup diario de wincaja (analytics.mv_wincaja_sales_daily,
-      // SIN RLS) pasó a TODO EL HISTÓRICO, así que cubre CUALQUIER rango parcial (ya no solo mes
-      // actual+anterior). Si existe y está poblado se lee de ahí en `trx` (sub-segundo: sin RLS, sin
-      // pool admin, sin el scan de v_sales_lines → maestro 1.49M + detalles 9.9M). Solo si aún no se
-      // pobló (arranque en frío, raro) cae al fallback winLiveKnex (admin, paso 1). Misma query, solo
-      // cambia el FROM y la conexión; el matview tiene las mismas columnas → números idénticos
-      // (verificado al centavo, matview == live, multi-mes).
+      // PASO 3 (mig 20260901160000): el matview ENRIQUECIDO de wincaja (analytics.mv_wincaja_sales_daily,
+      // SIN RLS, all-history) trae vendedor/unidad/canal/almacén/marca/etiquetas ya HORNEADOS. Si existe
+      // y está poblado, el path wincaja se lee de ahí en `trx` como un group-by por índice
+      // (tenant_id, brand_id, business_date) SIN un solo join → ~0 ms server-side (vs ~519 ms del raw
+      // con los CTE de 383k en vivo) — ver la rama winDailyMvOk abajo. Solo si aún no se pobló (arranque
+      // en frío, raro) cae al fallback COMPLEJO sobre v_sales_lines por la conexión admin (winLiveKnex,
+      // paso 1). Dinero idéntico al live (verificado al centavo: grand + marca).
       const winDailyMvOk = !winRollupOk
         && !!(await trx.raw(
           `SELECT 1 FROM pg_class WHERE relname = 'mv_wincaja_sales_daily' AND relnamespace = 'analytics'::regnamespace AND relispopulated`,
         )).rows?.[0];
-      const winSrc = winDailyMvOk ? 'analytics.mv_wincaja_sales_daily' : 'wincaja.v_sales_lines';
-      const winKnex = winDailyMvOk ? trx : winLiveKnex;
       const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
@@ -2893,7 +2891,51 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${winChanRollup}, sd.vendor_code, sd.vendor_name` +
               (needMonth ? `, sd.year_month` : ''),
             )
-        : await winKnex
+        : winDailyMvOk
+        // PASO 3 fast-path — el matview enriquecido ya trae TODO horneado (vendedor/unidad/canal/
+        // almacén/marca/etiquetas), así que esto es un group-by por índice (tenant_id, brand_id,
+        // business_date) SIN un solo join → ~0 ms server-side (vs ~519 ms del path raw con los CTE de
+        // 383k). Mismas columnas de salida que las otras ramas; dinero idéntico al live (verificado).
+        // El anti-doble-conteo, promo y borrados se filtran en request sobre columnas del matview.
+        ? await trx('analytics.mv_wincaja_sales_daily as vl')
+            .where('vl.tenant_id', tenantId)
+            .where('vl.product_deleted', false)
+            .modify((qb) => {
+              if (promoMode === 'solo') qb.andWhere('vl.is_promo', true);
+              else if (promoMode !== 'todo') qb.andWhere('vl.is_promo', false);
+            })
+            .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
+            .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+            .modify((qb) => {
+              if (brandId) qb.andWhere('vl.brand_id', brandId);
+              if (search) qb.andWhereRaw('(vl.sku ILIKE ? OR vl.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+              if (warehouseFilter) qb.whereIn('vl.warehouse_code', warehouseFilter);
+            })
+            .select(
+              'vl.warehouse_code as branch_code',
+              trx.raw('max(vl.branch_name) as branch_name'),
+              'vl.product_id as product_id',
+              trx.raw('max(vl.sku) as sku'),
+              trx.raw('max(vl.nombre) as nombre'),
+              trx.raw('max(vl.factor_sale) as factor_sale'),
+              'vl.brand_id as brand_id',
+              trx.raw('max(vl.brand_nombre) as brand_nombre'),
+              trx.raw('max(vl.brand_code) as brand_code'),
+              'vl.channel as channel',
+              trx.raw(`'wincaja'::text as source`),
+              'vl.vendor_code as vendor_code',
+              'vl.vendor_name as vendor_name',
+              'vl.unit_kind as unit_kind',
+              trx.raw('max(vl.box_size) as box_size'),
+              trx.raw('SUM(vl.units) as units'),
+              trx.raw('SUM(vl.monto) as monto'),
+            )
+            .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(vl.business_date, 'YYYY-MM') as sale_month`)); })
+            .groupByRaw(
+              `vl.warehouse_code, vl.product_id, vl.brand_id, vl.channel, vl.vendor_code, vl.vendor_name, vl.unit_kind` +
+              (needMonth ? `, to_char(vl.business_date, 'YYYY-MM')` : ''),
+            )
+        : await winLiveKnex
         .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
           .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
           .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
@@ -2911,10 +2953,10 @@ export class CommercialAnalyticsService {
             'p.id as pid', 'p.sku as psku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
             'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
           )
-          // FROM parametrizado: el rollup diario all-history sin RLS (paso 3, leído en trx) o la vista
-          // v_sales_lines (fallback admin en arranque en frío, paso 1). Ambos exponen las mismas
-          // columnas → misma query.
-          .from(`${winSrc} as vl`)
+          // Fallback de arranque en frío (matview aún sin poblar): el scan complejo en vivo de
+          // v_sales_lines por la conexión admin (paso 1), con los CTE de dedup en request. En operación
+          // normal NO se llega acá (el matview enriquecido del paso 3 cubre todo rango).
+          .from('wincaja.v_sales_lines as vl')
           .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
           .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
           .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
@@ -2976,13 +3018,21 @@ export class CommercialAnalyticsService {
             .select('product_id', 'cja_price')
         : [];
 
-      // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
-      const retailRows = await trx('analytics.sales_daily as sd')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        .where('sd.tenant_id', tenantId)
-        .andWhere('sd.sale_date', '>=', from)
-        .andWhere('sd.sale_date', '<=', to)
+      // Sucursales con venta (cualquier marca) en el periodo — para cobertura. PERF (2026-09-01):
+      // era un DISTINCT que ESCANEABA todo sales_daily del rango (~111k filas/mes → ~495ms server-side)
+      // solo para saber cuáles de los ~7 almacenes tuvieron venta. Ahora: por cada almacén un EXISTS
+      // que corta al primer hit por el índice (tenant_id, sale_date) → ~142ms. Mismo conjunto de
+      // nombres (verificado 19=19). Sin filtro de deleted (igual que antes) para no cambiar semántica.
+      const retailRows = await trx('commercial.warehouses as w')
+        .where('w.tenant_id', tenantId)
         .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
+        .whereExists(function () {
+          this.select(trx.raw('1')).from('analytics.sales_daily as sd')
+            .whereRaw('sd.warehouse_id = w.id')
+            .andWhere('sd.tenant_id', tenantId)
+            .andWhere('sd.sale_date', '>=', from)
+            .andWhere('sd.sale_date', '<=', to);
+        })
         .distinct('w.name as name')
         .orderBy('w.name');
 
