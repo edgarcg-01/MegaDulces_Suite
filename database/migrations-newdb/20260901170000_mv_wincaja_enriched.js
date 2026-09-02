@@ -92,6 +92,15 @@ async function createEnriched(knex) {
 }
 
 exports.up = async function (knex) {
+  // Guard idempotente (patrón "correr up() a mano ANTES del deploy, sin registrar en knex_migrations"):
+  // si el matview YA está enriquecido (tiene `branch_name`), NO lo dropees. Así, cuando el deploy corre
+  // `migrate:latest`, esta migración se vuelve no-op y NO tira la data ya poblada, y se registra sola.
+  const hasEnriched = (await knex.raw(
+    `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics'
+        AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+  )).rows.length;
+  if (hasEnriched) return;
   await createEnriched(knex);
 };
 
