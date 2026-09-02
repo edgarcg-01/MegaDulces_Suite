@@ -19,7 +19,9 @@ import {
 
 interface RequesterContext {
   sub: string;
-  rules?: unknown[];
+  /** Mapa de permisos que el guard relee del cache en cada request — la fuente de `getDataScope`. */
+  permissions?: Record<string, boolean> | null;
+  role_name?: string | null;
 }
 
 @Injectable()
@@ -58,10 +60,7 @@ export class StoresService {
   private async getRequesterZonaId(
     requester: RequesterContext,
   ): Promise<string | null> {
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
     if (scope.type === 'all') return null;
 
     const user = await this.knex('users')
