@@ -81,18 +81,27 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                 <span class="lc-mes-nombre">{{ nombreMes(m.anio_mes) }}</span>
                 <p-tag [value]="etiquetaEstado(m)" [severity]="severidadEstado(m)" />
               </div>
+              <!-- La tarjeta muestra lo ACCIONABLE (lo que entra al TXT), el mismo número
+                   que el encabezado del detalle. Mostrar aquí el total sin asociar y allá
+                   el que entra hacía que el mismo mes se leyera con dos cifras distintas,
+                   las dos rotuladas "por asociar". -->
               <div class="lc-mes-cifras">
-                <span class="na-falta" [class.cero]="!m.faltan">
-                  {{ m.faltan ? m.faltan + ' por asociar' : 'al día' }}
+                <span class="na-falta" [class.cero]="!m.entran">
+                  {{ m.entran ? m.entran + ' entran al TXT' : 'nada que entregar' }}
                 </span>
-                @if (m.faltan) {
-                  <span class="mono">{{ m.monto_faltan | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                @if (m.entran) {
+                  <span class="mono">{{ m.monto_entran | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 }
               </div>
               @if (!m.existe_libro && m.cfdis) {
                 <span class="na-mes-sinlibro">El mes no tiene póliza de compras</span>
-              } @else if (m.ya_posteados) {
-                <span class="lc-mes-alerta">{{ m.ya_posteados }} ya posteadas, no van</span>
+              }
+              @if (m.ya_posteados || m.fuera_catalogo) {
+                <span class="na-mes-nota">
+                  @if (m.ya_posteados) { {{ m.ya_posteados }} ya posteadas }
+                  @if (m.ya_posteados && m.fuera_catalogo) { · }
+                  @if (m.fuera_catalogo) { {{ m.fuera_catalogo }} de gasto }
+                </span>
               }
             </button>
           }
@@ -136,7 +145,18 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             </div>
           </div>
 
-          <app-metric-strip [items]="kpis()" ariaLabel="Lo que falta por asociar" />
+          <app-metric-strip [items]="kpis()" ariaLabel="Desglose de lo que falta por asociar" />
+
+          @if (contexto().length) {
+            <p class="na-contexto">
+              <span class="muted">Queda fuera del TXT:</span>
+              @for (c of contexto(); track c.texto; let last = $last) {
+                <span [class.warn]="c.tono === 'warn'">
+                  {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                </span>@if (!last) { <span class="muted"> · </span> }
+              }
+            </p>
+          }
 
           @if (d.bloqueantes.length) {
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
@@ -282,24 +302,45 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
   folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
 
+  /**
+   * La tira desglosa el total del asiento y **cuadra a la vista**:
+   * `0% + c/IVA + IEPS + IVA = Falta por asociar`. El IEPS estaba faltando y por eso los
+   * mosaicos no sumaban (en jul-2026 quedaban $54,912 sin explicar) — justo el concepto
+   * que el Excel venía capturando en cero.
+   *
+   * Lo que NO se acciona (ya posteadas, fuera del catálogo) va aparte en `contexto()`, para
+   * que no compita visualmente: en julio "ya posteadas" son $17.7M contra $1.27M del total
+   * que sí importa, y siendo 14× más grande se robaba la lectura.
+   */
   kpis = computed<MetricStripItem[]>(() => {
     const d = this.detalle();
     if (!d) return [];
     const r = d.resumen;
-    const fuera = r.cfdis_del_mes - r.incluidas - r.ya_posteadas;
     return [
       { label: 'Falta por asociar', value: r.total, format: 'currency', tone: 'brand',
         sub: `${r.incluidas} facturas entran al TXT` },
       { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
       { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
+      { label: 'IEPS acreditable', value: r.ieps, format: 'currency',
+        tone: r.ieps > 0 ? 'ok' : 'default' },
       { label: 'IVA acreditable', value: r.iva, format: 'currency' },
-      // El número que evita el doble registro: se muestra siempre, incluso en cero.
-      { label: 'Ya posteadas', value: r.monto_ya_posteadas, format: 'currency',
-        tone: r.ya_posteadas ? 'warn' : 'default',
-        sub: r.ya_posteadas ? `${r.ya_posteadas} excluidas para no duplicar` : 'ninguna' },
-      { label: 'Fuera del catálogo', value: fuera, format: 'number',
-        sub: 'gasto o servicio, no compras' },
     ];
+  });
+
+  /** Lo que queda FUERA del TXT, con su razón. Es control, no acción. */
+  contexto = computed(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    const r = d.resumen;
+    const fuera = r.cfdis_del_mes - r.incluidas - r.ya_posteadas;
+    const out: { texto: string; monto: number; tono: string }[] = [];
+    if (r.ya_posteadas) {
+      out.push({ texto: `${r.ya_posteadas} ya están en la póliza del mes`, monto: r.monto_ya_posteadas, tono: 'warn' });
+    }
+    if (fuera > 0) {
+      out.push({ texto: `${fuera} de proveedor de gasto o servicio`, monto: 0, tono: 'muted' });
+    }
+    return out;
   });
 
   /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
