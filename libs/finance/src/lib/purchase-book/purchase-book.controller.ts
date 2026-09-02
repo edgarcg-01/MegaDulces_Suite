@@ -74,14 +74,11 @@ export class PurchaseBookController {
 
   @Get('no-asociados/:mes/archivo')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
-  @ApiOperation({ summary: 'Descarga el TXT del complemento tal como se importa a ContPAQi.' })
-  async archivoNoAsociados(
-    @Param('mes') mes: string,
-    @Query('impuestos') impuestos: ImpuestosModo | undefined,
-    @Query('uuid') uuid: string | undefined,
-    @Res() res: Response,
-  ) {
-    await this.enviarTxt(res, mes, { impuestos, uuid: uuid !== '0', tipo: 'complemento' });
+  @ApiOperation({ summary: 'Descarga el TXT del complemento ya generado (sólo lectura).' })
+  async archivoNoAsociados(@Param('mes') mes: string, @Res() res: Response) {
+    // Sin `impuestos`/`uuid`: esas opciones cambian el archivo, y el archivo ya se decidió
+    // al generarlo. Aceptarlas acá servía uno distinto del que quedó firmado por su hash.
+    await this.enviarTxt(res, mes, 'complemento');
   }
 
   @Post('no-asociados/:mes/estado')
@@ -133,26 +130,24 @@ export class PurchaseBookController {
 
   @Get(':mes/archivo')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
-  @ApiOperation({ summary: 'Descarga el TXT del mes tal como se importa a ContPAQi.' })
-  async archivo(
-    @Param('mes') mes: string,
-    @Query('impuestos') impuestos: ImpuestosModo | undefined,
-    @Query('uuid') uuid: string | undefined,
-    @Res() res: Response,
-  ) {
-    await this.enviarTxt(res, mes, { impuestos, uuid: uuid !== '0' });
+  @ApiOperation({ summary: 'Descarga el TXT del mes ya generado (sólo lectura).' })
+  async archivo(@Param('mes') mes: string, @Res() res: Response) {
+    await this.enviarTxt(res, mes, 'libro');
   }
 
-  private async enviarTxt(
-    res: Response,
-    mes: string,
-    opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida },
-  ) {
-    const r = await this.svc.generar(mes, opts);
+  /**
+   * Sirve el archivo YA generado. Descargar es sólo lectura: antes esto llamaba a
+   * `generar()`, que escribe — bajar un mes en `entregado` lo regresaba a `generado` y
+   * recalculaba el hash contra datos más nuevos, así que el archivo dejaba de ser el que
+   * quedó firmado.
+   */
+  private async enviarTxt(res: Response, mes: string, tipo: TipoCorrida = 'libro') {
+    const r = await this.svc.obtenerArchivo(mes, tipo);
     // latin1: ContPAQi lee el archivo en la codificación de Windows, no en UTF-8. Con
     // acentos en UTF-8 los nombres de proveedor llegan rotos.
     res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
     res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+    res.setHeader('X-Archivo-Hash', r.hash ?? '');
     res.send(Buffer.from(r.txt, 'latin1'));
   }
 

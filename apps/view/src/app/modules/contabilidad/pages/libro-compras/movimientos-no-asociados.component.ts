@@ -493,7 +493,7 @@ export class MovimientosNoAsociadosComponent implements OnInit {
 
   descargar() {
     const mes = this.mesSel(); if (!mes) return;
-    this.svc.descargarNoAsociados(mes, this.impuestosModo, this.incluirUuid).subscribe({
+    this.svc.descargarNoAsociados(mes).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
