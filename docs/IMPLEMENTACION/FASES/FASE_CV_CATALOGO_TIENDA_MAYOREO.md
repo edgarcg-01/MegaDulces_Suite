@@ -356,6 +356,13 @@ programadas, ningún archivo de `herramientas/`, ninguna credencial real.
 Todo lo de arriba es lectura (`schtasks`, `curl` local, inspección de
 scripts) — cero cambios a la infraestructura viva.
 
+**Checklist paso a paso para cuando llegue el momento del corte:**
+[`RUNBOOKS/CV_CORTE_CATALOGO_KP.md`](../RUNBOOKS/CV_CORTE_CATALOGO_KP.md) —
+secuencia completa (resolver credencial → aplicar rol dedicado vía
+`ADMINISTRAR.bat` opción 8 → verificación real → corte del Service/tareas),
+con los comandos exactos y las decisiones de riesgo marcadas donde no son
+puramente técnicas.
+
 ---
 
 ## Preguntas abiertas para 0Sistemas
