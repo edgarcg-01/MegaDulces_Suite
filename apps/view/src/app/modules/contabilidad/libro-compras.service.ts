@@ -63,8 +63,15 @@ export interface MesNoAsociado {
   monto_no_asociado: number;
   /** Sin marca pero ya posteadas: NO van al TXT. */
   ya_posteados: number;
+  monto_ya_posteados: number;
   faltan: number;
   monto_faltan: number;
+  /** Lo accionable: sin asociar, sin postear y con cuenta de compras. Es lo que entra al TXT. */
+  entran: number;
+  monto_entran: number;
+  /** Sin asociar y sin postear, pero de proveedor de gasto/servicio: no entran. */
+  fuera_catalogo: number;
+  monto_fuera: number;
   /** Si no hay póliza del mes, el mes entero está sin contabilizar. */
   existe_libro: boolean;
   estado: EstadoRun;
