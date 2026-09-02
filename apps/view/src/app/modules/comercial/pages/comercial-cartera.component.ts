@@ -9,7 +9,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
-import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../cartera.service';
+import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWarehouseRow, WarehouseOption } from '../cartera.service';
 
 /**
  * V.0d — Cartera de ventas (supervisor_ventas). Asigna rutas de venta a vendedores
@@ -37,10 +37,55 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
           <h1>Cartera de ventas</h1>
           <p class="surf-page-sub">Asigná rutas de venta a cada vendedor y ordená la secuencia de visita de sus clientes.</p>
         </div>
-        <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+        <div class="ca-tabs">
+          <button type="button" class="ca-tab" [class.on]="view() === 'vendedores'" (click)="view.set('vendedores')"><i class="pi pi-users"></i> Vendedores</button>
+          <button type="button" class="ca-tab" [class.on]="view() === 'sucursales'" (click)="showSucursales()"><i class="pi pi-building"></i> Sucursal por ruta</button>
+        </div>
+        <button pButton [text]="true" severity="secondary" size="small" (click)="view() === 'sucursales' ? loadRoutesWh() : load()" [loading]="loading() || loadingWh()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
-    
-      <div class="ca-grid">
+
+      @if (view() === 'sucursales') {
+        <article class="ca-panel">
+          <div class="ca-panel-head"><i class="pi pi-building"></i> Sucursal de surtido por ruta</div>
+          <p class="surf-page-sub" style="margin:0 0 .6rem">De qué sucursal se surte cada ruta. El vendedor ve la existencia de esta sucursal en su app. La sugerencia sale de la zona — confirmala o corregila.</p>
+          @if (loadingWh()) { <p-skeleton height="220px"></p-skeleton> }
+          @if (!loadingWh()) {
+            <p-table [value]="routesWh()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="62vh">
+              <ng-template #header>
+                <tr><th scope="col">Ruta</th><th scope="col">Zona</th><th scope="col">Sucursal de surtido</th><th scope="col"><span class="sr-only">Asignar</span></th></tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td><i class="pi pi-directions" aria-hidden="true"></i> {{ r.route }}</td>
+                  <td><span class="comm-muted is-small">{{ r.zone || '—' }}</span></td>
+                  <td>
+                    @if (r.warehouse_id) {
+                      <span class="ca-chip">{{ r.warehouse_name }}</span>
+                    } @else if (r.suggested_id) {
+                      <span class="comm-muted is-small">sugerido: {{ r.suggested_name }}</span>
+                    } @else {
+                      <span class="comm-muted is-small">— sin asignar —</span>
+                    }
+                  </td>
+                  <td class="ca-assign">
+                    <p-select
+                      [options]="warehouses()" [(ngModel)]="assignWh[r.route_id]"
+                      optionLabel="name" optionValue="id" placeholder="Sucursal…"
+                      [filter]="true" filterBy="name" appendTo="body" styleClass="ca-vendor-select"
+                    ></p-select>
+                    <button pButton size="small" severity="contrast" [disabled]="!assignWh[r.route_id] || savingWh() === r.route_id" [loading]="savingWh() === r.route_id" (click)="assignRouteWh(r.route_id)" pTooltip="Asignar sucursal a la ruta"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">No hay rutas en el catálogo.</td></tr>
+              </ng-template>
+            </p-table>
+          }
+        </article>
+      }
+
+      <div class="ca-grid" [hidden]="view() !== 'vendedores'">
         <!-- RUTAS + ASIGNACION -->
         <article class="ca-panel">
           <div class="ca-panel-head"><i class="pi pi-directions"></i> Rutas de venta</div>
@@ -165,6 +210,10 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
     .ca-seq { font-weight:var(--fw-bold); color:var(--c-text-2); }
     .ca-empty { padding:3rem 1.5rem; text-align:center; color:var(--c-text-2); }
     .ca-empty i { font-size:1.5rem; color:var(--c-text-3); display:block; margin-bottom:.5rem; }
+    .ca-tabs { display:inline-flex; gap:.25rem; background:var(--c-surface-2); border:1px solid var(--c-divider); border-radius:8px; padding:.2rem; margin-left:auto; }
+    .ca-tab { display:inline-flex; align-items:center; gap:.4rem; background:transparent; border:none; cursor:pointer; color:var(--c-text-2); font-weight:var(--fw-medium); font-size:var(--fs-sm); padding:.35rem .7rem; border-radius:6px; }
+    .ca-tab.on { background:var(--c-surface-1); color:var(--c-text-1); font-weight:var(--fw-bold); box-shadow:var(--shadow-1, 0 1px 2px rgba(0,0,0,.08)); }
+    .ca-tab i { font-size:var(--fs-xs); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -186,6 +235,16 @@ export class ComercialCarteraComponent implements OnInit {
   customersList: RouteCustomer[] = [];
   /** route -> vendorId seleccionado en el select de asignación. */
   assignVendor: Record<string, string | null> = {};
+
+  // ── Pestaña "Sucursal por ruta" ──
+  readonly view = signal<'vendedores' | 'sucursales'>('vendedores');
+  readonly routesWh = signal<RouteWarehouseRow[]>([]);
+  readonly warehouses = signal<WarehouseOption[]>([]);
+  readonly loadingWh = signal(false);
+  readonly savingWh = signal<string | null>(null);
+  private routesWhLoaded = false;
+  /** route_id -> warehouse_id elegido (pre-lleno con la sugerencia). */
+  assignWh: Record<string, string | null> = {};
 
   ngOnInit(): void {
     this.load();
@@ -251,6 +310,39 @@ export class ComercialCarteraComponent implements OnInit {
     this.api.setOrder(route, ids).subscribe({
       next: () => { this.savingOrder.set(false); this.orderDirty.set(false); this.toast.add({ severity: 'success', summary: 'Orden guardado' }); },
       error: () => { this.savingOrder.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo guardar el orden' }); },
+    });
+  }
+
+  // ── Sucursal por ruta ──
+  showSucursales(): void {
+    this.view.set('sucursales');
+    if (!this.routesWhLoaded) this.loadRoutesWh();
+  }
+
+  loadRoutesWh(): void {
+    this.loadingWh.set(true);
+    this.api.routesWarehouses().subscribe({
+      next: (r) => {
+        this.warehouses.set(r.warehouses);
+        this.routesWh.set(r.routes);
+        // Pre-llenar el select con lo asignado, o la sugerencia por zona.
+        const pre: Record<string, string | null> = {};
+        for (const row of r.routes) pre[row.route_id] = row.warehouse_id || row.suggested_id || null;
+        this.assignWh = pre;
+        this.routesWhLoaded = true;
+        this.loadingWh.set(false);
+      },
+      error: (e) => { this.loadingWh.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron cargar las rutas' }); },
+    });
+  }
+
+  assignRouteWh(routeId: string): void {
+    const whId = this.assignWh[routeId];
+    if (!whId) return;
+    this.savingWh.set(routeId);
+    this.api.setRouteWarehouse(routeId, whId).subscribe({
+      next: () => { this.savingWh.set(null); this.toast.add({ severity: 'success', summary: 'Sucursal asignada' }); this.loadRoutesWh(); },
+      error: (e) => { this.savingWh.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo asignar' }); },
     });
   }
 }

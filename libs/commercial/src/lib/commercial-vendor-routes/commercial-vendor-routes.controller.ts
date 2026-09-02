@@ -159,6 +159,20 @@ export class CommercialVendorRoutesController {
     return this.service.assign(body);
   }
 
+  @Get('routes-warehouses')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Rutas del catálogo con su sucursal de surtido asignada + sugerencia por zona (para asignar)' })
+  routesWarehouses() {
+    return this.service.listRoutesWithWarehouse();
+  }
+
+  @Put('routes/:routeId/warehouse')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna/cambia la sucursal de surtido de una ruta (idempotente)' })
+  setRouteWarehouse(@Param('routeId') routeId: string, @Body('warehouse_id') warehouseId: string) {
+    return this.service.setRouteWarehouse(routeId, warehouseId);
+  }
+
   @Put('order')
   @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
   @ApiOperation({ summary: 'Setea el orden de visita (visit_sequence 1..N) de los clientes de una ruta' })
