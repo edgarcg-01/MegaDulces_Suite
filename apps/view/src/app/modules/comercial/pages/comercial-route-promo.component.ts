@@ -6,7 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TableModule } from 'primeng/table';
-import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial.service';
+import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } from '../comercial.service';
 
 /**
  * RR-PROMO — Agente AI de incentivos de ruta. Pegás el ENUNCIADO de la mecánica en lenguaje
@@ -122,14 +122,67 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
               @if (r.clientes_detalle.length) {
                 <button type="button" class="rp-detog" (click)="showDetail.set(!showDetail())">
                   <i class="pi" [class.pi-chevron-right]="!showDetail()" [class.pi-chevron-down]="showDetail()" aria-hidden="true"></i>
-                  Clientes que participaron ({{ r.clientes_detalle.length }})
+                  Desglose de clientes ({{ califican(r).length }} con bono@if (noCalifican(r).length) { · {{ noCalifican(r).length }} sin llegar })
                 </button>
                 @if (showDetail()) {
+                  <!-- Se listan también los que NO llegaron al umbral: un desglose que sólo
+                       muestra a los que cobran no deja auditar por qué el resto no. -->
+                  <div class="rp-cfilter" role="group" aria-label="Qué clientes mostrar">
+                    <button type="button" [class.on]="!soloBono()" (click)="soloBono.set(false)">Todos ({{ r.clientes_detalle.length }})</button>
+                    <button type="button" [class.on]="soloBono()" (click)="soloBono.set(true)">Solo con bono ({{ califican(r).length }})</button>
+                  </div>
                   <table class="rp-tbl rp-det">
-                    <thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th class="n">Cantidad {{ unitLbl(r) }}</th><th class="n">Importe</th></tr></thead>
+                    <thead><tr>
+                      <th></th><th>Vendedor</th><th>Cliente</th><th class="n">Tickets</th>
+                      <th class="n">Importe</th><th class="n">Bono</th>
+                    </tr></thead>
                     <tbody>
-                      @for (c of r.clientes_detalle; track $index) {
-                        <tr><td>{{ c.route_label }}</td><td class="mono">{{ c.cliente }}</td><td>{{ c.nombre }}</td><td class="n">{{ c.unidades | number:'1.0-2' }}</td><td class="n">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td></tr>
+                      @for (c of visibleClientes(r); track c.canal + c.vendedor + c.cliente) {
+                        <tr class="rp-crow" [class.rp-crow-no]="!c.califica" (click)="toggleCli(c)">
+                          <td class="rp-cexp">
+                            <i class="pi" [class.pi-chevron-right]="!isOpen(c)" [class.pi-chevron-down]="isOpen(c)" aria-hidden="true"></i>
+                          </td>
+                          <td>{{ c.route_label }}</td>
+                          <td>
+                            {{ c.nombre }}
+                            @if (c.nombre_ambiguo) {
+                              <i class="pi pi-exclamation-triangle rp-amb-i"
+                                 title="Este código de cliente existe en más de una sucursal: el nombre puede ser de otro cliente" aria-hidden="true"></i>
+                            }
+                            <span class="mono rp-ccode">{{ c.cliente }}</span>
+                          </td>
+                          <td class="n">{{ c.tickets | number }}</td>
+                          <td class="n">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                          <td class="n b">
+                            @if (c.califica) { {{ r.rule.rate | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                            @else { <span class="rp-nobono">—</span> }
+                          </td>
+                        </tr>
+                        @if (isOpen(c)) {
+                          <tr class="rp-citems">
+                            <td colspan="6">
+                              <table class="rp-tbl rp-itbl">
+                                <thead><tr><th>Producto</th><th>SKU</th><th class="n">Cantidad</th><th class="n">Importe</th></tr></thead>
+                                <tbody>
+                                  @for (it of c.items; track it.sku) {
+                                    <tr>
+                                      <td>{{ it.nombre }}</td>
+                                      <td class="mono">{{ it.sku }}</td>
+                                      <!-- La cantidad viaja SIEMPRE con su unidad: en el mismo
+                                           cliente conviven PAQ y PZA y sumarlas no significa nada. -->
+                                      <td class="n">{{ it.unidades | number:'1.0-2' }} <span class="rp-u">{{ it.unidad || '?' }}</span>
+                                        @if (it.unidades_sin_resolver) {
+                                          <span class="rp-indet" [title]="it.unidades_sin_resolver + ' sin peldaño identificable — no sumadas'">+{{ it.unidades_sin_resolver | number:'1.0-2' }}?</span>
+                                        }
+                                      </td>
+                                      <td class="n">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                                    </tr>
+                                  }
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        }
                       }
                     </tbody>
                   </table>
@@ -191,6 +244,22 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
       cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; padding:.3rem 0; }
     .rp-det { margin-top:.4rem; }
     .rp-tbl .mono { font-family:var(--font-mono); font-size:.76rem; }
+    /* Desglose de clientes: fila clickeable → qué se le vendió y en qué unidad. */
+    .rp-cfilter { display:flex; gap:.35rem; margin:.5rem 0 .1rem; }
+    .rp-cfilter button { font-size:.74rem; padding:.2rem .6rem; border-radius:var(--r-sm); cursor:pointer;
+      border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-muted); }
+    .rp-cfilter button.on { background:var(--surface-selected-bg); color:var(--text-main); font-weight:600; border-color:var(--text-faint); }
+    .rp-crow { cursor:pointer; }
+    .rp-crow:hover { background:var(--surface-selected-bg); }
+    .rp-crow-no td { color:var(--text-muted); }
+    .rp-cexp { width:1.4rem; color:var(--text-faint); font-size:.7rem; }
+    .rp-ccode { margin-left:.4rem; color:var(--text-faint); }
+    .rp-amb-i { color:var(--warn-fg, var(--text-faint)); font-size:.72rem; margin-left:.25rem; cursor:help; }
+    .rp-nobono { color:var(--text-faint); }
+    .rp-citems > td { padding:0 0 .5rem 1.4rem !important; background:var(--layout-bg); }
+    .rp-itbl { font-size:.76rem; }
+    .rp-itbl thead th { background:transparent; font-size:.66rem; }
+    .rp-u { color:var(--text-faint); font-size:.7rem; margin-left:.15rem; }
     .rp-totals { display:flex; gap:1.5rem; padding:.4rem 0; flex-wrap:wrap; }
     .rp-kpi { display:flex; flex-direction:column; gap:.15rem; }
     .rp-kpi .k-lbl { font-size:.7rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.03em; }
@@ -213,6 +282,9 @@ export class RoutePromoComponent {
   readonly loading = signal(false);
   readonly dl = signal<'' | 'xlsx' | 'pdf'>('');
   readonly showDetail = signal(false);
+  /** Desglose de clientes: qué filas están expandidas y si se filtra a los que cobran. */
+  readonly openCli = signal<ReadonlySet<string>>(new Set<string>());
+  readonly soloBono = signal(false);
   readonly res = signal<RoutePromoResult | null>(null);
   readonly err = signal<string | null>(null);
   enunciado = '';
@@ -230,6 +302,22 @@ export class RoutePromoComponent {
    * del SKU en el ERP (PZA / PAQ / CJA…), que NO siempre es la pieza: nombrarla es el punto.
    */
   unitLbl(r: RoutePromoResult): string { return r.unit?.unit_base ? `(${r.unit.unit_base})` : ''; }
+
+  /** Clientes que generan bono / los que no llegaron al umbral. */
+  califican(r: RoutePromoResult): PromoClientRow[] { return r.clientes_detalle.filter((c) => c.califica); }
+  noCalifican(r: RoutePromoResult): PromoClientRow[] { return r.clientes_detalle.filter((c) => !c.califica); }
+  visibleClientes(r: RoutePromoResult): PromoClientRow[] {
+    return this.soloBono() ? this.califican(r) : r.clientes_detalle;
+  }
+
+  private cliKey(c: PromoClientRow) { return `${c.canal}|${c.vendedor}|${c.cliente}`; }
+  isOpen(c: PromoClientRow): boolean { return this.openCli().has(this.cliKey(c)); }
+  toggleCli(c: PromoClientRow): void {
+    const k = this.cliKey(c);
+    const next = new Set(this.openCli());
+    if (next.has(k)) next.delete(k); else next.add(k);
+    this.openCli.set(next);
+  }
 
   /** Quiénes participan, tal como los entendió el AI — para que se pueda desmentir de un vistazo. */
   canalesLbl(r: RoutePromoResult): string {
