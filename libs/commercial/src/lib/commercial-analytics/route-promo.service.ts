@@ -45,6 +45,11 @@ export interface PromoRouteRow {
   /** Canal del que salió la fila: en RD el vendedor es la ruta; en los demás, el código del POS. */
   canal: PromoCanal;
   vendedor: string;
+  /** Nombre de la persona, resuelto por (sucursal, código). null si el ERP no lo tiene. */
+  vendedor_nombre: string | null;
+  /** La sucursal es parte de la IDENTIDAD del vendedor, no un adorno: el código se repite. */
+  source_branch: string;
+  sucursal_nombre: string | null;
   warehouse_code: string;
   warehouse_name: string;
   /** @deprecated alias de `vendedor`, se conserva para no romper consumidores. */
@@ -112,6 +117,13 @@ export interface PromoUnitInfo {
   importe_sin_resolver: number;
   /** true = hay evidencia suficiente para pagar por cantidad sin inventar nada. */
   confiable: boolean;
+  /**
+   * ¿Se puede SUMAR la cantidad entre productos? Con alcance de marca casi nunca: Vidis
+   * mezcla globos en PAQ con velas en PZA, y un total de "1,198" no significa nada.
+   * Cuando es false, la cantidad agregada NO se publica — el detalle por producto sí,
+   * porque ahí cada renglón lleva su unidad.
+   */
+  unidades_sumables: boolean;
   /** Explicación en una línea para la pantalla y el PDF. */
   nota: string;
 }
@@ -144,6 +156,13 @@ export interface PromoQuery {
   year?: number;
   from?: string;
   to?: string;
+  /**
+   * Traer el desglose cliente×producto. Es la mitad del costo de la corrida (medido en
+   * prod: 6.2 s el agregado, 8.8 s el desglose con 185 clientes), así que la pantalla
+   * pide primero el pago y el desglose sólo cuando se abre. Los exportables lo piden
+   * siempre, porque el documento tiene que llevarlo.
+   */
+  detalle?: boolean;
 }
 
 const METRIC_LABEL: Record<PromoMetric, string> = {
@@ -353,7 +372,8 @@ export class RoutePromoService {
       unit: {
         unit_base: null, is_weight: false, sin_escalera: true,
         lineas_sin_resolver: 0, unidades_sin_resolver: 0, importe_sin_resolver: 0,
-        confiable: false, nota: 'Sin alcance resuelto no hay unidad que declarar.',
+        confiable: false, unidades_sumables: false,
+        nota: 'Sin alcance resuelto no hay unidad que declarar.',
       },
       rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
       total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
@@ -596,7 +616,8 @@ export class RoutePromoService {
           unit: {
             unit_base: null, is_weight: false, sin_escalera: true,
             lineas_sin_resolver: 0, unidades_sin_resolver: 0, importe_sin_resolver: 0,
-            confiable: false, nota: 'Sin producto resuelto no hay unidad que declarar.',
+            confiable: false, unidades_sumables: false,
+            nota: 'Sin producto resuelto no hay unidad que declarar.',
           },
           rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
           total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
@@ -624,7 +645,10 @@ export class RoutePromoService {
 
       const rows: any[] = (await trx.raw(
         `WITH base AS (
-           SELECT sl.canal, sl.vendedor, sl.cliente,
+           -- La identidad del vendedor es (sucursal, código): el código solo se repite
+           -- entre sucursales y son PERSONAS distintas (33 en la 30 y en la 50). Agrupar
+           -- por código a secas las fusionaba y juntaba sus clientes para el umbral.
+           SELECT sl.canal, sl.source_branch, sl.vendedor, sl.cliente,
                   SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL)      AS qty_base,
                   SUM(sl.qty)          FILTER (WHERE tier.f IS NULL)          AS qty_unres,
                   COUNT(*)             FILTER (WHERE tier.f IS NULL)          AS lineas_unres,
@@ -636,10 +660,10 @@ export class RoutePromoService {
            WHERE sl.tenant_id=?
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
              AND sl.sku = ANY(?) AND sl.canal = ANY(?)
-           GROUP BY sl.canal, sl.vendedor, sl.cliente
+           GROUP BY sl.canal, sl.source_branch, sl.vendedor, sl.cliente
          ),
          agg AS (
-         SELECT canal, vendedor,
+         SELECT canal, source_branch, vendedor,
            -- Califica por lo RESUELTO, en cantidad Y en dinero. Un cliente al que no se le
            -- pudo determinar el peldaño no se cuenta como que compró ni como que no: aparte.
            COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001'
@@ -654,18 +678,31 @@ export class RoutePromoService {
            COALESCE(SUM(tickets),0)      AS tickets,
            COALESCE(SUM(importe),0)      AS monto
          FROM base
-         GROUP BY canal, vendedor
+         GROUP BY canal, source_branch, vendedor
+         ),
+         -- Nombre real del vendedor. Dentro de UNA sucursal el código sí es único
+         -- (verificado), así que el par resuelve a una persona sin ambigüedad.
+         vend AS (
+           SELECT DISTINCT ON (source_branch, btrim(vendedor))
+                  source_branch, btrim(vendedor) AS vendedor, nombre
+           FROM wincaja.vendedores WHERE tenant_id=? AND nombre IS NOT NULL
+           ORDER BY source_branch, btrim(vendedor), source_dataset DESC
          )
          -- El nombre de la sucursal sólo aplica al canal ruta, donde el vendedor ES la ruta.
-         SELECT agg.*, w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname
+         SELECT agg.*, w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
+                vn.nombre AS vendedor_nombre,
+                COALESCE(sb.branch_name, agg.source_branch) AS sucursal_nombre
          FROM agg
+         LEFT JOIN vend vn ON vn.source_branch=agg.source_branch AND vn.vendedor=btrim(agg.vendedor)
+         LEFT JOIN wincaja.branches sb ON sb.tenant_id=? AND sb.source_branch=agg.source_branch
          LEFT JOIN wincaja.branches b  ON agg.canal='ruta' AND b.tenant_id=?
               AND b.source_branch=agg.vendedor AND b.is_route=true
          LEFT JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
          LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
               AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
          ORDER BY agg.canal, wname NULLS LAST, agg.vendedor`,
-        [tenantId, period.from, period.to, skus, canales, rule.min_qty, minImporte, minImporte, rule.min_qty, tenantId],
+        [tenantId, period.from, period.to, skus, canales, rule.min_qty, minImporte, minImporte, rule.min_qty,
+          tenantId, tenantId, tenantId],
       )).rows;
 
       // Rótulo y salud de la unidad. Con alcance de MARCA hay muchos SKUs: la unidad base sólo
@@ -692,13 +729,18 @@ export class RoutePromoService {
       const out: PromoRouteRow[] = rows
         .map((r) => {
           const base = baseOf(r);
-          // En ruta el vendedor ES la ruta y se nombra con su sucursal; en los demás canales
-          // el vendedor es un código del POS y se nombra con su canal.
+          // En ruta el vendedor ES la ruta y se nombra con su sucursal. En los demás canales
+          // se nombra a la PERSONA (resuelta por sucursal+código) y se dice de qué sucursal
+          // es, porque el mismo código en otra sucursal es alguien más.
           const label = r.canal === 'ruta'
             ? `${r.wname ? r.wname + ' · ' : ''}Ruta ${r.vendedor}`
-            : `${CANAL_LABEL[r.canal as PromoCanal] || r.canal} · Vendedor ${r.vendedor}`;
+            : `${CANAL_LABEL[r.canal as PromoCanal] || r.canal} · ${r.vendedor_nombre || `Vendedor ${r.vendedor}`}`
+              + `${r.sucursal_nombre ? ` (${r.sucursal_nombre})` : ''}`;
           return {
             canal: r.canal, vendedor: String(r.vendedor ?? '—'),
+            vendedor_nombre: r.vendedor_nombre || null,
+            source_branch: String(r.source_branch ?? ''),
+            sucursal_nombre: r.sucursal_nombre || null,
             warehouse_code: r.wcode, warehouse_name: r.wname, route_no: String(r.vendedor ?? '—'),
             label,
             clientes: Number(r.clientes) || 0,
@@ -733,6 +775,11 @@ export class RoutePromoService {
         unidades_sin_resolver: uniUnres,
         importe_sin_resolver: impUnres,
         confiable: !dependeDeUnidad || (!sinEscalera && !isWeight && !unidadMixta && pctUnres < 1),
+        // Sumar cantidades sólo tiene sentido si TODO el alcance está en la misma unidad.
+        // Con marca casi nunca: Vidis mezcla globos en PAQ con velas en PZA, y el total de
+        // "1,198" que se publicaba no significaba nada. El detalle por producto sí se muestra,
+        // porque ahí cada renglón lleva su unidad.
+        unidades_sumables: !sinEscalera && !isWeight && !unidadMixta,
         nota: !dependeDeUnidad
           ? (minImporte > 0
             ? `El umbral es en dinero (${this.money(minImporte)} por cliente), así que no depende de la unidad de medida.`
@@ -760,7 +807,9 @@ export class RoutePromoService {
       //    existen en Wincaja (medido: resuelve 400 de los 2,812 códigos de ruta, justo los
       //    que salían en blanco). Y se marca `nombre_ambiguo` cuando el código vive en más
       //    de una sucursal, porque ahí el nombre puede ser el de otro cliente.
-      const det: any[] = (await trx.raw(
+      // Lazy: sólo si lo piden. Es la mitad del tiempo de la corrida y en la pantalla el
+      // primer número que importa es el pago, no la lista de 185 clientes.
+      const det: any[] = !q.detalle ? [] : (await trx.raw(
         `WITH lines AS (
            SELECT sl.canal, sl.vendedor, sl.cliente, sl.sku, sl.consecutivo,
                   sl.qty * tier.f AS qty_base,
