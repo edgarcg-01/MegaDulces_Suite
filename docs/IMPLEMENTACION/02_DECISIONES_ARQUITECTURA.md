@@ -1471,3 +1471,38 @@ Es exactamente el riesgo #1 del plan de fase (§2.3) y del sprint MR.1, que la p
 - **Seguir con `product_sales_stats`** — es un snapshot de dos días de antigüedad, no trae costo y obligaba a recomputarlo. Queda sólo como origen de `abc_class`.
 
 Plan en [`FASE_MR_MOTOR_RENTABILIDAD`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).
+
+---
+
+## ADR-053
+
+**Un feed sin latido propio es un feed invisible** (Fase OBS) · *propuesto 2026-09-02*
+
+**Contexto:** el carril de catálogos del ODS estuvo **parado 6 días** (2026-08-27 → 09-02) con ~23,200 filas sin shipear, 10,248 de ellas de costo, mientras la plataforma publicaba precio, costo, margen y reorden con toda confianza. Lo encontró un humano al corregir un precio a mano en Kepler (SKU `88222`, $54.00 → $165.28) y notar que el cambio no llegaba.
+
+**Lo importante del diagnóstico: la detección funcionó.** `db-health` tenía los 7 `cdc_wal_*` en `error` —con el comando exacto a correr en el `note`— y el sensor `kepler_ods` en crítico. El problema no fue la falta de alarma; fue que la alarma no salió del edificio y que el carril que de verdad alimentaba prod no estaba siendo vigilado por nadie.
+
+**Decisión:**
+
+1. **Todo carril de ingesta late su propia ENTREGA a `analytics.cron_runs`.** No "el proceso corre": una rama ilegible o una tabla en error es un `status='error'` del carril aunque el proceso siga vivo. Un carril mudo es inaceptable — `replicate-ods-live.js` alimentaba prod sin escribir una sola fila de latido.
+2. **Un latido no viaja por el canal que vigila.** `ods-cdc-wal.js` late por el sink que monitorea: el 2026-08-26 una rotación de key dio 401 en los 7 consumidores **sin alarma**. Todo latido va **directo a prod**, con su propia variable de conexión — en los shippers `DATABASE_URL_NEW` apunta al contenedor de replicas, no a prod (GOTCHAS §17).
+3. **Un latido sin umbral registrado no es una alarma.** `checkCronRuns()` pinta verde incondicional a cualquier job ausente de `CRON_JOBS`; había **cinco feeds reales** en esa condición. Registrar el umbral es parte de entregar el latido, no un paso opcional.
+4. **Latido ≠ completitud.** Un latido prueba que el caño se mueve, no que llegó todo: el CDC perdió 2-7% de las filas diarias con los 7 latidos verdes. El reconciliador (`cdc_reconcile`) es la única alarma que mide huecos y **tiene que estar corriendo**.
+5. **CDC y scan son complementos, no sustitutos.** Después de perder un slot queda un hueco de WAL que sólo un scan puede reponer. Tratarlos como sustitutos —el cutover de CDC.6, hecho sin su requisito CDC.5— es lo que convirtió **una** falla en 6 días de congelamiento. Los dos carriles quedan permanentes.
+6. **El supervisor mide entrega, no proceso vivo.** `restart: unless-stopped` + `HEALTHCHECK` que falla si el latido no avanzó. PM2 reportó `online` mientras el batch no se ejecutaba; un supervisor que sólo sabe si el PID existe reproduce el falso verde.
+7. **El proceso se auto-cura de sus modos de muerte conocidos.** Un slot `lost` se recrea y se dispara el backfill solo, en vez de reiniciarse 5,000 veces pidiéndole a un humano que corra un comando.
+8. **Lo derivado del ODS declara su rezago** (hereda ADR-051). La etiquetera dice *"precio con N h de rezago"* en vez de imprimir con confianza. No bloquea la operación.
+
+**Consecuencias:**
+- Objetivo medible: un carril parado se sabe en **< 15 min**, contra los 6 días de este incidente.
+- El sustrato queda **mixto a propósito**: Docker para lo que habla Postgres/HTTP, Windows para lo que necesita Jet 32-bit (los `.mdb` de Wincaja no se pueden containerizar).
+- Más piezas que latir y registrar. Se acepta: el costo de un feed invisible ya se pagó.
+- ⚠️ Se **descartó** endurecer el default de `checkCronRuns()` para huérfanos (decisión de Edgar): el próximo job que late sin registrarse puede volver a ser invisible. Se mitiga registrando a mano.
+
+**Alternativas rechazadas:**
+- **Grafana Alerting** — el stack LGTM está en prod (INFRA.2.3), pero `db-health` + `MAILER_PORT` ya cubren el caso con menos piezas.
+- **Túnel para que Railway se suscriba nativo a los replicas** — eliminaría el proceso del hop 2, pero el Postgres administrado de Railway no admite cliente de túnel adentro y la replicación nativa **no puede hacer el fan-in de 7 bases a una tabla con `sucursal`**: quedarían 7 esquemas + vista `UNION ALL`. Es rediseño.
+- **Redundancia multi-nodo con elección de líder** — sobrevive la pérdida de una máquina, pero pide una 2ª box en la LAN. Se eligió un nodo + auto-curación.
+- **Tarea programada de Windows** — es lo que se venía usando y lo que Edgar descartó explícitamente.
+
+Plan en [`FASE_OBS_INGESTA_OBSERVABLE`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md).
