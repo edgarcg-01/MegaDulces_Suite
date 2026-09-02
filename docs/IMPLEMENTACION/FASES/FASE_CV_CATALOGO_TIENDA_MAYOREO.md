@@ -495,6 +495,46 @@ horario que 0Sistemas defina. Detalle de la ejecución en
 
 ---
 
+## Revisión visual de la interfaz — 2 archivos estáticos faltantes encontrados y corregidos (2026-09-02)
+
+0Sistemas pidió revisar la interfaz completa. Al inventariar qué páginas
+existen en el proyecto origen (`public/*.html`) contra lo que CV.0 había
+portado, aparecieron **dos gaps reales**, ninguno detectado por la
+verificación de API de CV.0–CV.7 porque esa verificación probó respuestas
+JSON, no la carga de cada página HTML servida:
+
+- **`public/tienda.html` nunca se portó.** Es la vista de catálogo para el
+  cliente mayorista (browse + carrito **local**, en `localStorage` — no
+  llama a `/api/carrito` ni `/api/checkout`, sólo a `/api/catalogo/*` y
+  `/api/kp/precio`, todos ya portados desde CV.2). Copiado literal a
+  `apps/catalogo-kp/public/tienda.html`.
+- **`public/reportar-errores.js` nunca se portó** — y esto es más grave:
+  `catalogo.html` (ya "verificado" desde CV.0/CV.2) lo referencia
+  (`<script src="/reportar-errores.js">`), así que esa página llevaba desde
+  el principio un 404 silencioso en su primer script, sin que ninguna
+  verificación anterior lo notara (probaban rutas de API, no la carga
+  completa de la página en un navegador real). Copiado literal a
+  `apps/catalogo-kp/public/reportar-errores.js`.
+
+**Verificado con un navegador real (Playwright) contra `KP_CONCENTRADA`
+real**, `nx build` con ambos archivos incluidos:
+
+| Página | Resultado |
+|---|---|
+| `catalogo.html` | Carga limpio (sólo 404 de `favicon.ico`, inocuo). Gate de login se activa correctamente sin sesión ("Esta vista muestra costos y márgenes. Requiere cuenta."). |
+| `tienda.html` | Carga con datos reales: 6,168 productos / 11 categorías / 6 sucursales, timestamp de inventario al minuto. Filtros (subcategoría, marca, disponibilidad, precio) visibles. "Agregar" al carrito local funciona (badge del carrito se actualiza). |
+| `reportar-errores.js` | Sirve 200, ya no 404. |
+
+**Lección para el tracker:** ninguna fase de esta migración había cargado
+una página HTML completa en un navegador hasta ahora — todas las
+verificaciones anteriores (CV.0–CV.7) probaron endpoints JSON directamente.
+Un 404 de un `<script>` no rompe la carga de la página (por eso pasó
+desapercibido), pero si `reportar-errores.js` fuera el único mecanismo para
+detectar errores de checkout en producción, esa telemetría llevaba
+apagada desde el día uno de la migración.
+
+---
+
 ## Preguntas abiertas para 0Sistemas
 
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.
