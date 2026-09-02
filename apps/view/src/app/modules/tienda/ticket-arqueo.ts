@@ -80,6 +80,11 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
     if (a.kepler_retirado != null) L.push(fila('Retirado', money(a.kepler_retirado)));
     L.push(linea());
     L.push(fila('TOTAL KEPLER', money(a.kepler_contado)));
+    // Si el desglose no llega al total, el papel lo dice: casi siempre es un
+    // retiro que no quedó registrado, y es justo lo que hay que preguntar.
+    const suma = Number(a.kepler_billetes ?? 0) + Number(a.kepler_monedas ?? 0) + Number(a.kepler_retirado ?? 0);
+    const hueco = Number(a.kepler_contado ?? 0) - suma;
+    if (suma && Math.abs(hueco) >= 1) L.push(fila('  sin explicar', money(hueco)));
     L.push('');
     L.push('* Cifra declarada al cerrar el');
     L.push('  corte. SIN conteo fisico a');
