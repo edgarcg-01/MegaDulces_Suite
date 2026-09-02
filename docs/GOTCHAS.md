@@ -654,6 +654,18 @@ cluster `.245`, pero desde su migración usa un rol **propio**,
 una caída de producción ajena a esta Suite (6 horas, 27/08/2026, síntoma
 `28P01` idéntico al de esta entrada). Si `setup-runtime-role-local.js` no
 menciona `catalogo-kp` entre las bases afectadas, es porque ya no lo está —
+
+**Confirmado en vivo el 2026-09-01:** intentando la verificación de CV.5
+contra el `KP_CONCENTRADA` real, la contraseña de `app_runtime` guardada en
+el `.env` de producción de `megadulces-api-ready` (en `.163`) fue
+**rechazada** por el cluster real (`28P01`), verificado también con `psql`
+directo, sin código de por medio. La API en `.163` seguía respondiendo
+porque sus conexiones ya estaban abiertas desde antes del desajuste —
+Postgres no cierra sesiones activas al rotar una contraseña, sólo rechaza
+intentos nuevos —, así que **cualquier reinicio de ese proceso ahora mismo
+repetiría la caída del 27/08**. 0Sistemas indica que ya está en
+conocimiento/gestión; queda anotado acá por si otra sesión se topa con el
+mismo síntoma antes de que se resuelva.
 confirmarlo antes de asumir lo contrario.
 
 ---

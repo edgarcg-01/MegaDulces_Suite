@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.5 en código, roadmap principal cerrado** (2026-09-01). Sólo queda CV.6 (modelo operativo, no bloqueante) y CV.4 diferido.
+> Estado: 🧪 **CV.0–CV.6 completos** (2026-09-01, CV.4 diferido). Queda pendiente la verificación end-to-end contra datos reales — bloqueada hoy por una credencial rota, ver CV.6.
 
 ---
 
@@ -289,16 +289,72 @@ por cerrada la fase principal:**
 - Aplicar `sql/007_rol_dedicado.sql` + comparación de precios contra
   `.163:3000` (pendiente desde CV.0).
 
-## CV.6 — Modelo operativo (aparte, no bloqueante) — ⬜ TODO
+## CV.6 — Modelo operativo — 📝 documentado, decisión pendiente de ejecutar (2026-09-01)
 
-`herramientas/` del proyecto origen mezcla (a) scripts de prueba de
-integración reusables como tests y (b) tooling atado al modelo actual
-on-prem-Windows: vigilantes PowerShell (`Vigilar_API.ps1`,
-`Vigilar_Sincronizacion.ps1`), tareas programadas, un `.bat` de menú, wizards
-interactivos que escriben secretos al `.env`. Ninguna de (b) se porta como
-código — es una decisión de despliegue separada (¿sigue siendo un Windows
-Service en `.163`? ¿se moderniza a algo supervisado desde este monorepo?) que
-no bloquea CV.1-CV.5.
+**Hallazgo que cambió el enfoque de esta sub-fase:** esta sesión de Claude
+Code corre físicamente en `192.168.0.163` — la misma máquina que
+`CHECKPOINT.md` describe como "la Aplicación". No hay que planear un cutover
+en abstracto: se pudo verificar el estado real.
+
+**Confirmado en vivo (sólo lectura, sin tocar nada):**
+- El proceso Node del proyecto origen está corriendo ahora mismo como
+  Windows Service (puerto 3000, responde `HTTP 200`).
+- Las 3 tareas programadas de `CHECKPOINT.md` existen y están activas
+  (`schtasks`, todas en estado "Listo"): `MegaDulces API - vigilante`,
+  `MegaDulces - Vigilar sincronizacion de Kepler`, `MegaDulces - Actualizar
+  verificador de precios`.
+- `Vigilar_API.ps1` resuelve sus rutas en relativo a sí mismo
+  (`$api = Split-Path $PSScriptRoot -Parent`) y lanza `node dist\main` — no
+  tiene ninguna ruta absoluta al repo viejo hardcodeada, pero sí asume el
+  layout de `nest build` (`<raíz>\dist\main.js`), no el de este monorepo
+  (`dist\apps\catalogo-kp\main.js`, generado en la raíz del monorepo, no
+  dentro de `apps\catalogo-kp\`).
+
+**Hallazgo colateral, ya conocido por 0Sistemas (no es nuevo para este
+intento de verificación):** la contraseña de `app_runtime` guardada en el
+`.env` real del proyecto origen fue **rechazada** por el `KP_CONCENTRADA`
+real (`28P01`, confirmado también con `psql` directo, sin pasar por
+`catalogo-kp`) — el mismo síntoma de `GOTCHAS.md` §24. La API en `.163`
+sigue arriba porque sus conexiones ya estaban abiertas antes del cambio;
+**cualquier reinicio de ese proceso fallaría igual que el 27/08/2026** hasta
+que se resuelva. Esto bloquea, de hecho, cualquier cutover real (no se puede
+apuntar el Service a `catalogo-kp` sin que arranque con una credencial que
+funcione) — pero es un problema de la credencial compartida, no de esta
+migración, y ya está en conocimiento de 0Sistemas.
+
+**Recomendación (no ejecutada — requiere ventana de mantenimiento y
+autorización explícita, es un cambio a infraestructura viva):**
+
+1. **No reescribir el tooling operativo.** Los vigilantes PowerShell operan
+   a nivel de proceso/puerto/HTTP — no les importa de qué repo salió el
+   código, sólo que algo responda en `:3000`. Reescribirlos en Node dentro
+   del monorepo sería trabajo nuevo sin necesidad.
+2. **El corte es de una sola pieza:** compilar `catalogo-kp` desde este
+   monorepo (`nx build catalogo-kp`), copiar/enlazar `dist/apps/catalogo-kp/`
+   a donde el Windows Service y las 3 tareas programadas ya esperan
+   encontrar `dist/`, y ajustar la única asunción de ruta que no calza
+   (`Vigilar_API.ps1` espera `dist\main.js` relativo a su propio directorio
+   padre — con este layout hay que decirle dónde quedó, o copiar el build al
+   lugar de siempre).
+3. **Orden de las piezas, no todas a la vez:**
+   a. Resolver la credencial de `app_runtime` (ajeno a esta fase, ya en curso).
+   b. Aplicar `sql/007_rol_dedicado.sql` — con eso `catalogo-kp` deja de
+      depender de esa misma credencial compartida desde el día uno del corte.
+   c. Verificación end-to-end real (paridad de precios + carrito/checkout/
+      cola contra datos reales) — la que quedó pendiente en CV.0-CV.5.
+   d. Recién ahí, el corte del Service/tareas programadas al build nuevo,
+      en una ventana acordada — un servicio que hoy sirve pedidos reales no
+      se apunta a código nuevo sin haber hecho (a)-(c) primero.
+4. **`ADMINISTRAR.bat`** (crear usuario, compilar seguro, configurar correo/
+   Mercado Pago) sigue teniendo valor como panel de operación mientras no
+   exista un equivalente en este monorepo — no hace falta portarlo para
+   cerrar esta fase, sólo apuntar sus rutas al nuevo layout cuando se decida
+   el corte.
+
+**Qué NO se tocó en esta sesión:** el Windows Service, las tareas
+programadas, ningún archivo de `herramientas/`, ninguna credencial real.
+Todo lo de arriba es lectura (`schtasks`, `curl` local, inspección de
+scripts) — cero cambios a la infraestructura viva.
 
 ---
 
@@ -309,6 +365,16 @@ no bloquea CV.1-CV.5.
   externo) a algo más integrado en un sub-sprint futuro.
 - ¿Cuándo aplicar `007_rol_dedicado.sql` contra el `KP_CONCENTRADA` real, y
   quién lo corre?
-- `salidas` (CV.4) — ¿sigue en uso en producción?
-- Modelo operativo final (CV.6) — ¿`.163` sigue siendo el destino, o cambia
-  con esta migración?
+- ~~`salidas` (CV.4) — ¿sigue en uso en producción?~~ **Resuelto 2026-09-01:
+  no está en uso real hoy. Diferido.**
+- ~~Modelo operativo final (CV.6) — ¿`.163` sigue siendo el destino?~~
+  **Resuelto 2026-09-01: sí, confirmado en vivo — `.163` es esta misma
+  máquina, con el Service y las 3 tareas programadas activas.** Queda
+  pendiente decidir CUÁNDO ejecutar el corte (ver recomendación en CV.6:
+  después de resolver la credencial de `app_runtime` + `007_rol_dedicado.sql`
+  + verificación end-to-end real).
+- **Nuevo:** la credencial de `app_runtime` guardada en el `.env` de
+  producción del proyecto origen no autentica contra el `KP_CONCENTRADA`
+  real (confirmado 2026-09-01, ver CV.6) — 0Sistemas indica que ya está en
+  conocimiento/gestión. Cualquier reinicio del Service en `.163` antes de
+  resolverlo repetiría la caída del 27/08.
