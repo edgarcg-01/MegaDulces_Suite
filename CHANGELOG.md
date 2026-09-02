@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — `catalogo-kp` gana la tienda mayorista completa (CV.5, 2026-09-01)
+- **`tienda` completo portado**: catálogo de mayoreo, carrito (tokens HMAC firmados, revalidación de precio/existencia), checkout (folio, datos fiscales, aviso de privacidad, dos flujos de pago tarjeta/efectivo), el motor de la cola de trabajos (`FOR UPDATE SKIP LOCKED`, backoff exponencial, reclamo de huérfanos — portado línea por línea, sin cambiar comportamiento), avisos por correo, configuración de Mercado Pago, y la pantalla de confirmación en lote. Las rutas `pedidos/pagos/cola` vuelven al `AdminController` de CV.1.
+- **Transacciones migradas a Knex**: el original pasaba un `PoolClient` de `pg.Pool.connect()` entre servicios para enlazar operaciones en la misma transacción (p. ej. registrar el pedido y programar su aviso atómicamente); ahora es `this.db.transaction(async trx => ...)`, mismo patrón de paso explícito entre servicios, commit/rollback automático.
+- `ColaService` deja de abrir su propia conexión Postgres dedicada — usa la compartida de todo el app, mismo criterio ya establecido desde CV.0.
+- `salidas` (CV.4) queda diferido: confirmado que no está en uso real hoy.
+- Con esto, **el roadmap principal de la Fase CV queda cerrado**; sólo falta CV.6 (modelo operativo, no bloqueante) y la verificación end-to-end que requiere LAN on-prem a `.245`.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — `catalogo-kp` gana captura de errores del navegador (CV.3, 2026-09-01)
 - **`monitor` portado**: ingesta pública `POST /api/errores` con dedupe por hash SHA-256 (mensaje + origen + primera línea del rastro), tope de 20/min por IP, y tablero interno `GET/POST /api/admin/errores*`. Sin dependencias de módulos aún no portados.
 - **Contrato verificado exacto**: el endpoint nunca falla visible al navegador, ni con la base de datos completamente inalcanzable — un visitante que ya tuvo un error no debe enterarse de un segundo.
