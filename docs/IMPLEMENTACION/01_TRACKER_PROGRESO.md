@@ -1180,6 +1180,10 @@ Migración física de `megadulces-api-ready` (NestJS 10 standalone, en producci�
   - Gating de costo/margen preservado igual (`esInterno(req)`, sesión opcional sin rechazo).
   - Un `import type` corrigió un warning de build (interfaz importada como valor — SWC no la elide como sí hacía `tsc` en el origen).
   - Verificado: `nx build`/`nx lint` limpios (0 errores), arranque real con rutas mapeadas, `/api/catalogo/imagenes` correcto, `/api/catalogo` falla controlado ante DB inalcanzable (mismo comportamiento que el original, sin try/catch ahí tampoco), `/api/dashboard/resumen` sin token → 401.
+- [x] **[CV.3]** 🧪 **`monitor` portado** (2026-09-01) — captura de errores del navegador (`ErroresService`/`ErroresController`): ingesta pública con dedupe por hash SHA-256, tope 20/min por IP, y tablero interno (`AuthGuard('jwt')` real). Sin dependencias de módulos no portados.
+  - **Contrato verificado exacto**: `POST /api/errores` nunca falla visible, ni con la DB completamente inalcanzable — probado, responde `{"ok":true}` de todas formas.
+  - Sin bugs de ruta esta vez (el servicio no toca disco).
+  - Verificado: `nx build`/`nx lint` limpios (0 errores), 4 rutas mapeadas sin colisión con `AdminController` pese a compartir prefijo `/api/admin`, `GET /api/admin/errores` sin token → 401.
 
 ---
 

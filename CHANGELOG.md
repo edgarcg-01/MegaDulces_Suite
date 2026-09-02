@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — `catalogo-kp` gana captura de errores del navegador (CV.3, 2026-09-01)
+- **`monitor` portado**: ingesta pública `POST /api/errores` con dedupe por hash SHA-256 (mensaje + origen + primera línea del rastro), tope de 20/min por IP, y tablero interno `GET/POST /api/admin/errores*`. Sin dependencias de módulos aún no portados.
+- **Contrato verificado exacto**: el endpoint nunca falla visible al navegador, ni con la base de datos completamente inalcanzable — un visitante que ya tuvo un error no debe enterarse de un segundo.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — `catalogo-kp` gana el tablero interno y el dashboard de ventas (CV.2, 2026-09-01)
 - **`catalogo` + `dashboard` portados**: catálogo paginado con existencia/precio por sucursal, filtros de familia/subfamilia/marca, ficha de producto y frescura de datos; rollup de ventas anual/mensual con top-3 sucursales. Gating de costo/margen preservado igual (sesión opcional, sin rechazar la petición — la tienda anónima y el tablero interno comparten el mismo endpoint).
 - **Bug de ruta encontrado y corregido antes de compilar** (mismo patrón que el de estáticos en CV.0): `getImagenes()` asumía el layout de `nest build` del proyecto origen (un `.js` por módulo) en vez del bundle único de este monorepo. Verificado después contra el disco real: 112/112 fotos.
