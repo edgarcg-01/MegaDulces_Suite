@@ -644,6 +644,18 @@ todos los devs arrancan con ése. Ante un desajuste, volver al default suele
 reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
 `.env` de todo el mundo.
 
+**Un consumidor más a tener en cuenta: `KP_CONCENTRADA` ya no comparte
+`app_runtime`.** El app `apps/catalogo-kp` (Fase CV) también vive en el
+cluster `.245`, pero desde su migración usa un rol **propio**,
+`catalogo_kp_runtime` (`apps/catalogo-kp/sql/007_rol_dedicado.sql`) — no
+`app_runtime`. Antes de esa migración, el proyecto standalone del que viene
+(`megadulces-api-ready`) sí reusaba `app_runtime` para conectarse a
+`KP_CONCENTRADA`, y ese acoplamiento es sospechoso de haber causado al menos
+una caída de producción ajena a esta Suite (6 horas, 27/08/2026, síntoma
+`28P01` idéntico al de esta entrada). Si `setup-runtime-role-local.js` no
+menciona `catalogo-kp` entre las bases afectadas, es porque ya no lo está —
+confirmarlo antes de asumir lo contrario.
+
 ---
 
 ## 25. `DATABASE_URL` y `DATABASE_URL_NEW` tienen que ser la MISMA base física
