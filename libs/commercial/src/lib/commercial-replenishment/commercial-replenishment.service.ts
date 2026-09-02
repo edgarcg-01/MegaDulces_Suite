@@ -1439,7 +1439,19 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
-    const valueExpr = 'COALESCE(s.quantity,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    // ADR-052 — la existencia sale de la vista derivada del ODS (`qty_base_units`), no de la copia
+    // `commercial.stock`. Importa acá porque este panel vive en la MISMA pantalla que el Pedido
+    // (tab "Stock muerto") y el Pedido ya lee la vista: con dos fuentes, la pantalla se contradecía
+    // sola. Además la vista normaliza la unidad de Wincaja, así que el "inmovilizado" de MD-30/MD-32
+    // dejaba de estar sub-declarado: medido, el total pasa de $3.28M a $8.48M.
+    //
+    // ⚠️ DEUDA QUE ESTO AMPLIFICA (ADR-051, no la introduce esta línea): el multiplicador sigue
+    // siendo `cost_with_tax`/`cost_base` del CATÁLOGO, que en buena parte viene por CAJA, no por
+    // unidad base — así que este producto mezcla unidades y el "inmovilizado" está inflado para
+    // esos SKUs. Al subir las cantidades, el error de valuación sube con ellas. El costo correcto
+    // por unidad base es `analytics.v_supplier_cost_ladder.box_cost / bf`. Se DECLARA acá en vez de
+    // dibujarlo: arreglarlo es de la Fase MR, no de este cambio de fuente.
+    const valueExpr = 'COALESCE(s.qty_base_units,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
     // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
     const lastActivity =
       `GREATEST(
@@ -1451,7 +1463,7 @@ export class CommercialReplenishmentService {
       const base = trx('catalog.products as pr')
         // cross join producto × almacén (mismo tenant); luego filtra a los gestionados
         .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'pr.tenant_id'))
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin('analytics.v_erp_stock_on_hand as s', (j) =>
           j.on('s.tenant_id', 'pr.tenant_id').andOn('s.warehouse_id', 'w.id').andOn('s.product_id', 'pr.id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('pr.tenant_id', tenantId)
@@ -1479,7 +1491,7 @@ export class CommercialReplenishmentService {
           'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
-          trx.raw('COALESCE(s.quantity,0) AS on_hand'),
+          trx.raw('COALESCE(s.qty_base_units,0) AS on_hand'),
           trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
           trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
           trx.raw(`${lastActivity} AS last_activity`),
