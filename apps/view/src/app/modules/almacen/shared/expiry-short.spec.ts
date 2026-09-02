@@ -66,3 +66,24 @@ describe('formatExpiryEcho', () => {
     expect(formatExpiryEcho('31/03/2027')).toBe('');
   });
 });
+
+describe('parseExpiryShort — año completo (8 dígitos)', () => {
+  it('acepta DDMMAAAA, que es lo que se teclea al ver la máscara DD/MM/AA', () => {
+    expect(parseExpiryShort('15032027')).toBe('2027-03-15');
+    expect(parseExpiryShort('30/04/2028')).toBe('2028-04-30');
+  });
+
+  it('sigue validando el día contra SU mes', () => {
+    expect(parseExpiryShort('31022028')).toBeNull();
+  });
+
+  it('rechaza un año fuera del siglo — un dedazo no puede pasar como plazo bueno', () => {
+    expect(parseExpiryShort('15032820')).toBeNull();
+    expect(parseExpiryShort('15031999')).toBeNull();
+  });
+
+  it('no confunde largos: 5 o 7 dígitos siguen siendo incompletos', () => {
+    expect(parseExpiryShort('1503202')).toBeNull();
+    expect(parseExpiryShort('15032')).toBeNull();
+  });
+});
