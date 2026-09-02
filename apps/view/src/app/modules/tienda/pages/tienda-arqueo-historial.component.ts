@@ -150,18 +150,35 @@ import { imprimirTicket } from '../ticket-arqueo';
                               <td class="ta-c muted">=</td><td class="ta-r strong">{{ money(d.subtotal) }}</td>
                             </tr>
                           }
-                          <tr class="ah-den-tot"><td colspan="4">Total contado</td><td class="ta-r strong">{{ money(t.nuestro_contado) }}</td></tr>
+                          <tr class="ah-den-tot"><td colspan="4" class="ta-r">TOTAL CONTADO</td><td class="ta-r strong">{{ money(t.nuestro_contado) }}</td></tr>
                         </table>
                       } @else {
-                        <p class="ah-nada">
-                          @if (revela) {
-                            <strong>Arqueo de Kepler: {{ money(t.kepler_contado) }}</strong>
-                            <span class="muted">— cifra <em>declarada</em> al cerrar el corte, sin conteo físico a ciegas.
-                            Kepler no guarda el detalle por denominación.</span>
-                          } @else {
-                            <span class="muted">Este corte se cerró en Kepler sin conteo físico. Contalo con tu encargada.</span>
+                        @if (revela) {
+                          <!-- Kepler no guarda el conteo pieza por pieza (verificado contra las
+                               307 tablas del ERP): solo el total de billetes y el de monedas.
+                               Se muestra ese desglose en el mismo formato alineado que el
+                               nuestro, para que las dos columnas se lean igual — pero el
+                               renglón dice "billetes", no "$500 × 4", porque esa línea no
+                               existe en ningún lado y no se inventa. -->
+                          <table class="ah-den">
+                            <tr><td class="ta-r">Billetes</td><td class="ta-c muted">=</td><td class="ta-r strong">{{ money(t.kepler_billetes) }}</td></tr>
+                            <tr><td class="ta-r">Monedas</td><td class="ta-c muted">=</td><td class="ta-r strong">{{ money(t.kepler_monedas) }}</td></tr>
+                            <tr><td class="ta-r">Retirado</td><td class="ta-c muted">=</td><td class="ta-r strong">{{ money(t.kepler_retirado) }}</td></tr>
+                            <tr class="ah-den-tot"><td class="ta-r">TOTAL KEPLER</td><td class="ta-c muted">=</td><td class="ta-r strong">{{ money(t.kepler_contado) }}</td></tr>
+                          </table>
+                          @if (hueco(t) !== null) {
+                            <p class="ah-nada bad">
+                              El desglose no llega al total: faltan {{ money(hueco(t)) }} sin explicar
+                              <span class="muted">(billetes + monedas + retirado ≠ contado).</span>
+                            </p>
                           }
-                        </p>
+                          <p class="ah-nada muted">
+                            Cifra <em>declarada</em> al cerrar el corte, sin conteo físico a ciegas.
+                            Kepler no guarda el detalle por denominación — eso solo sale del arqueo de la cajera.
+                          </p>
+                        } @else {
+                          <p class="ah-nada muted">Este corte se cerró en Kepler sin conteo físico. Contalo con tu encargada.</p>
+                        }
                       }
                       <div class="ah-t-pie">
                         <span class="muted">
@@ -228,8 +245,9 @@ import { imprimirTicket } from '../ticket-arqueo';
     .ah-chev { font-size: .62rem; color: var(--text-muted); }
     .ah-t-det { padding: .3rem 0 .7rem 3rem; }
     .ah-t-kep { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-bottom: .5rem; font-size: .76rem; font-variant-numeric: tabular-nums; }
-    .ah-den { font-variant-numeric: tabular-nums; border-collapse: collapse; }
-    .ah-den td { padding: .07rem .45rem; font-size: .78rem; }
+    .ah-den { font-variant-numeric: tabular-nums; border-collapse: collapse;
+              font-family: var(--font-mono, ui-monospace, "Geist Mono", monospace); }
+    .ah-den td { padding: .07rem .45rem; font-size: .76rem; white-space: nowrap; }
     .ah-den-tot td { border-top: 1px solid var(--border-color); font-weight: 700; padding-top: .25rem; }
     .ah-nada { font-size: .78rem; margin: .2rem 0; }
     .ah-t-pie { display: flex; align-items: center; gap: .6rem; margin-top: .45rem; font-size: .68rem; flex-wrap: wrap; }
@@ -338,6 +356,22 @@ export class TiendaArqueoHistorialComponent implements OnInit {
     if (!ok) {
       this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });
     }
+  }
+
+  /**
+   * Lo que el desglose de Kepler no alcanza a explicar. La identidad que cierra
+   * es `billetes + monedas + retirado = contado` (63.6% de los cortes); cuando
+   * no da, el hueco suele ser un retiro que no quedó registrado en `c48`, así
+   * que vale la pena verlo en vez de sumar en silencio. `null` = cuadra, o no
+   * hay con qué comparar.
+   */
+  hueco(t: TurnoCorte): number | null {
+    const c = Number(t.kepler_contado ?? 0);
+    if (!c) return null;
+    const suma = Number(t.kepler_billetes ?? 0) + Number(t.kepler_monedas ?? 0) + Number(t.kepler_retirado ?? 0);
+    if (!suma) return null;
+    const d = c - suma;
+    return Math.abs(d) < 1 ? null : d;
   }
 
   branchLabel(code?: string | null): string { return branchName(code); }
