@@ -628,25 +628,22 @@ todos los devs arrancan con ése. Ante un desajuste, volver al default suele
 reparar **las dos** máquinas a la vez; poner una fuerte obliga a actualizar el
 `.env` de todo el mundo.
 
-**Un consumidor más a tener en cuenta: `KP_CONCENTRADA` está dejando de
-compartir `app_runtime`.** El app `apps/catalogo-kp` (Fase CV) también vive
-en el cluster `.245`; su código ya usa un rol **propio**,
-`catalogo_kp_runtime` (`apps/catalogo-kp/sql/007_rol_dedicado.sql`), y ese rol
-**ya está creado y verificado en el cluster real** (2026-09-02: `rolcanlogin`,
-grants exactos por schema, `DELETE` confirmado denegado — detalle en
-`FASE_CV` sección "Rol dedicado aplicado al cluster real"). Lo que sigue
-apuntando a `app_runtime` es el `.env` de **producción** de
+**`KP_CONCENTRADA` ya NO comparte `app_runtime`, resuelto de punta a punta
+2026-09-02.** El app `apps/catalogo-kp` (Fase CV) también vive en el
+cluster `.245`; usa un rol **propio**, `catalogo_kp_runtime`
+(`apps/catalogo-kp/sql/007_rol_dedicado.sql`), creado y verificado en el
+cluster real (`rolcanlogin`, grants exactos por schema, `DELETE`
+confirmado denegado). **El corte del `.env` de producción de
 `megadulces-api-ready` en `.163` (el proyecto standalone del que viene esta
-migración) — el corte a `catalogo_kp_runtime` no se ejecutó todavía porque
-afecta el proceso que sirve producción real, aunque es sin downtime (ambos
-roles conceden acceso mientras tanto). Hasta que ese corte pase, `.163` sigue
-expuesto al mismo acoplamiento: ese reuso de `app_runtime` es sospechoso de
-haber causado al menos una caída de producción ajena a esta Suite (6 horas,
-27/08/2026, síntoma `28P01` idéntico al de esta entrada), y fue justo el
-síntoma que se repitió el 2026-09-01 (ver nota siguiente). Si
-`setup-runtime-role-local.js` no menciona `catalogo-kp` entre las bases
-afectadas por `app_runtime`, confirmar el estado del corte en `FASE_CV` antes
-de asumir que ya no aplica.
+migración) ya se ejecutó** — `PG_USER`/`PG_PASSWORD` apuntan a
+`catalogo_kp_runtime`, reiniciado y verificado sin downtime real (respaldo
+del `.env` anterior en `.env.bak-2026-09-02_1725`). El acoplamiento que
+causó el incidente de abajo ya no existe: rotar `app_runtime` en cualquier
+otra parte del cluster no puede volver a tumbar este proceso. Detalle
+completo en `FASE_CV`, sección "Paso 2" del runbook
+`RUNBOOKS/CV_CORTE_CATALOGO_KP.md`. Si `setup-runtime-role-local.js` no
+menciona `catalogo-kp` entre las bases afectadas por `app_runtime`, es
+correcto — ya no aplica.
 
 **Confirmado en vivo el 2026-09-01:** intentando la verificación de CV.5
 contra el `KP_CONCENTRADA` real, la contraseña de `app_runtime` guardada en

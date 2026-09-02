@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Changed — el `.env` de producción de `catalogo-kp` ya usa el rol dedicado (CV.14, 2026-09-02)
+- Autorizado explícitamente por 0Sistemas. `PG_USER`/`PG_PASSWORD` del `.env` real de `megadulces-api-ready` en `.163` actualizados de `app_runtime` a `catalogo_kp_runtime`, con respaldo previo del `.env` anterior.
+- Verificado antes de aplicar: el único `DELETE` en el código (limpieza de retención de `monitor.errores_detalle`) ya tenía manejo gracioso porque `app_runtime` tampoco tenía ese permiso — no es una regresión.
+- Reinicio con el mismo mecanismo confiable que usa la herramienta de compilación del proyecto (detener, relanzar por tarea programada, correr la misma batería de 5 pruebas). 0 fallos; conexión real confirmada usando el rol nuevo.
+- Cierra de punta a punta, para `catalogo-kp`, el riesgo de credencial compartida documentado en `docs/GOTCHAS.md` §24.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y el runbook de corte.
+
 ### Verified — primer pedido real de la historia, creado vía UI (CV.13, 2026-09-02)
 - Completado el clic final de checkout que había quedado pendiente en CV.11/Paso 3b del runbook: catálogo → producto → carrito → checkout completo → envío real, contra producción.
 - Folio `MD-2026-00012`: verificado en `tienda.pedidos` (estado, totales), `tienda.pedido_items` (línea correcta) y `tienda.avisos` (el correo de confirmación se envió de verdad por SMTP, no sólo se encoló).
