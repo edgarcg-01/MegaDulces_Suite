@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import * as fs from 'fs';
 import { join } from 'path';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 /**
  * Catálogo de productos de KP_CONCENTRADA con existencias y precios por sucursal.
@@ -21,7 +22,10 @@ import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants'
 const SUC_CANONICA = '03';
 
 // c77 (costo) es texto en kdii → castear con guarda para no reventar en basura.
-const COSTO = `CASE WHEN TRIM(i.c77) ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN i.c77::numeric ELSE 0 END`;
+// {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
+// aquí colisiona con el escaneo de placeholders de knex.raw() — ver
+// kp-concentrada/pg-raw.util.ts.
+const COSTO = `CASE WHEN TRIM(i.c77) ~ '^-{0,1}[0-9]+(\\.[0-9]+){0,1}$' THEN i.c77::numeric ELSE 0 END`;
 
 // Los códigos casan exactamente con TRIM (no usar LPAD: hay 6 códigos de 6
 // dígitos que LPAD(...,5) truncaría). El padding es sólo para mostrar.
@@ -75,8 +79,7 @@ export class CatalogoService {
   constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   private static iso(v: any): string | null {

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 import { TiendaService, SUC_TIENDA } from './tienda.service';
 import { AvisosService, type TipoAviso } from './avisos.service';
 import { ColaService } from './cola.service';
@@ -78,14 +79,13 @@ export class PedidosService {
   }
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   private async anotar(ejecutor: Knex, pedidoId: number, de: string | null, a: string,
                        actor: string, detalle: string, datos?: any) {
     try {
-      await ejecutor.raw(
+      await pgRaw(ejecutor,
         `INSERT INTO tienda.pedido_eventos (pedido_id, estado_de, estado_a, actor, detalle, datos)
          VALUES ($1,$2,$3,$4,$5,$6)`,
         [pedidoId, de, a, actor, detalle, datos ? JSON.stringify(datos) : null]);
@@ -110,7 +110,7 @@ export class PedidosService {
               SUM(CASE WHEN sucursal =  $1 THEN c5::numeric ELSE 0 END) AS ph,
               SUM(CASE WHEN sucursal <> $1 THEN c5::numeric ELSE 0 END) AS otras
        FROM kp.kdik
-       WHERE c5::text ~ '^[[:space:]]*-?[0-9]+([.][0-9]*)?[[:space:]]*$'
+       WHERE c5::text ~ '^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'
          AND TRIM(c2) = ANY($2)
        GROUP BY TRIM(c2)`, [SUC_TIENDA, codigos]);
     for (const f of filas) {
@@ -251,26 +251,26 @@ export class PedidosService {
   async confirmar(id: number, actor: Actor, opciones?: { forzar?: boolean }) {
     try {
       return await this.db.transaction(async (trx) => {
-        const p = await trx.raw(
+        const p = await pgRaw<any>(trx,
           `SELECT id, folio, estado, metodo_pago, total, cliente_email
            FROM tienda.pedidos WHERE id = $1 FOR UPDATE`, [id]);
-        if (!p.rows.length) {
+        if (!p.length) {
           throw { controlado: { ok: false, error: 'Pedido no encontrado' } };
         }
-        const pedido = p.rows[0];
+        const pedido = p[0];
         if (pedido.estado !== 'PENDIENTE_CONFIRMACION') {
           throw { controlado: { ok: false, error: `El pedido ${pedido.folio} ya no está por confirmar (${pedido.estado})` } };
         }
 
-        const its = await trx.raw(
+        const its = await pgRaw<any>(trx,
           `SELECT id, codigo, nombre, unidad, cantidad, piezas_por_unidad
            FROM tienda.pedido_items WHERE pedido_id = $1 AND activo`, [id]);
-        if (!its.rows.length) {
+        if (!its.length) {
           throw { controlado: { ok: false, error: `El pedido ${pedido.folio} no tiene partidas` } };
         }
 
-        const existencias = await this.existenciasDe(its.rows.map((i: any) => i.codigo));
-        const revision = its.rows.map((i: any) => {
+        const existencias = await this.existenciasDe(its.map((i: any) => i.codigo));
+        const revision = its.map((i: any) => {
           const hay = this.hayDe(existencias, i.codigo);
           const necesita = Number(i.cantidad) * Number(i.piezas_por_unidad);
           return {
@@ -298,17 +298,17 @@ export class PedidosService {
 
         // cantidad_surtida se llena con lo pedido: si se forzó con faltante, se
         // deja constancia de que se surtió menos.
-        for (const i of its.rows) {
+        for (const i of its) {
           const necesita = Number(i.cantidad);
           const hay = this.hayDe(existencias, i.codigo);
           const cabe = Math.min(necesita,
             Math.floor((hay.ph + hay.otras) / Number(i.piezas_por_unidad)));
-          await trx.raw(
+          await pgRaw(trx,
             `UPDATE tienda.pedido_items SET cantidad_surtida = $2 WHERE id = $1`,
             [i.id, opciones?.forzar ? cabe : necesita]);
         }
 
-        await trx.raw(
+        await pgRaw(trx,
           `UPDATE tienda.pedidos
            SET estado = 'CONFIRMADO', confirmado_por = $2, confirmado_en = NOW()
            WHERE id = $1`, [id, actor.email]);
@@ -403,13 +403,13 @@ export class PedidosService {
 
     try {
       const r = await this.db.transaction(async (trx) => {
-        const upd = await trx.raw(
+        const upd = await pgRaw<any>(trx,
           `UPDATE tienda.pedidos
            SET estado = 'CANCELADO', cancelado_motivo = $3,
                confirmado_por = $2, confirmado_en = NOW()
            WHERE id = $1 AND estado IN ('PENDIENTE_CONFIRMACION','CONFIRMADO')
            RETURNING folio, estado, cliente_email`, [id, actor.email, razon]);
-        if (!upd.rows.length) {
+        if (!upd.length) {
           throw { controlado: { ok: false, error: 'Ese pedido no se puede cancelar en su estado actual' } };
         }
         await this.anotar(trx, id, 'PENDIENTE_CONFIRMACION', 'CANCELADO', actor.email, razon);
@@ -417,9 +417,9 @@ export class PedidosService {
         // Cancelar sin avisar es lo que genera la llamada de "¿y mi pedido?".
         // Se le dice el motivo y, si pagó con tarjeta, que no se le cobró.
         const aviso = await this.avisar(
-          trx, id, 'CANCELADO', String(upd.rows[0].cliente_email || ''));
+          trx, id, 'CANCELADO', String(upd[0].cliente_email || ''));
 
-        return { folio: upd.rows[0].folio, aviso };
+        return { folio: upd[0].folio, aviso };
       });
 
       this.encolarAviso(r.aviso, r.folio);
@@ -486,13 +486,13 @@ export class PedidosService {
 
     try {
       const r = await this.db.transaction(async (trx) => {
-        const upd = await trx.raw(
+        const upd = await pgRaw<any>(trx,
           `UPDATE tienda.pedidos
            SET estado = 'ENVIADO', paqueteria = $2, guia = $3,
                enviado_en = NOW(), enviado_por = $4
            WHERE id = $1 AND estado = 'CONFIRMADO'
            RETURNING folio, cliente_email`, [id, paq, guia, actor.email]);
-        if (!upd.rows.length) {
+        if (!upd.length) {
           throw { controlado: {
             ok: false,
             error: 'Sólo se puede registrar la guía de un pedido confirmado que aún no se ha enviado',
@@ -503,9 +503,9 @@ export class PedidosService {
           `Enviado por ${paq}, guía ${guia}`, { paqueteria: paq, guia });
 
         const aviso = await this.avisar(
-          trx, id, 'ENVIADO', String(upd.rows[0].cliente_email || ''));
+          trx, id, 'ENVIADO', String(upd[0].cliente_email || ''));
 
-        return { folio: upd.rows[0].folio, aviso };
+        return { folio: upd[0].folio, aviso };
       });
 
       this.encolarAviso(r.aviso, r.folio);

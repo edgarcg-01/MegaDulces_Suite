@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 @Injectable()
 export class DashboardService {
@@ -15,7 +16,7 @@ export class DashboardService {
 
     try {
       // Ventas totales año en curso (kp.kdm2)
-      const kpAnual = (await this.db.raw(`
+      const kpAnual = await pgRaw<any>(this.db, `
         SELECT
           ROUND(SUM(c13::numeric), 2)       AS venta_anual,
           ROUND(SUM(CASE WHEN TO_CHAR(c32::timestamp,'YYYY-MM') = $1
@@ -23,10 +24,10 @@ export class DashboardService {
           COUNT(DISTINCT sucursal)           AS num_sucursales
         FROM kp.kdm2
         WHERE EXTRACT(YEAR FROM c32::timestamp) = $2
-      `, [mesActual, anio])).rows;
+      `, [mesActual, anio]);
 
       // Top 3 sucursales del mes
-      const topSuc = (await this.db.raw(`
+      const topSuc = await pgRaw<any>(this.db, `
         SELECT sucursal AS suc,
                ROUND(SUM(c13::numeric), 2) AS total
         FROM kp.kdm2
@@ -34,21 +35,21 @@ export class DashboardService {
         GROUP BY sucursal
         ORDER BY total DESC
         LIMIT 3
-      `, [mesActual])).rows;
+      `, [mesActual]);
 
       // Comparativa mes actual vs mes anterior
       const mesAnterior = hoy.getMonth() === 0
         ? `${anio - 1}-12`
         : `${anio}-${String(hoy.getMonth()).padStart(2, '0')}`;
 
-      const compMes = (await this.db.raw(`
+      const compMes = await pgRaw<any>(this.db, `
         SELECT
           TO_CHAR(c32::timestamp,'YYYY-MM')  AS mes,
           ROUND(SUM(c13::numeric), 2)         AS total
         FROM kp.kdm2
         WHERE TO_CHAR(c32::timestamp,'YYYY-MM') IN ($1, $2)
         GROUP BY TO_CHAR(c32::timestamp,'YYYY-MM')
-      `, [mesActual, mesAnterior])).rows;
+      `, [mesActual, mesAnterior]);
 
       return {
         generado: new Date().toISOString(),

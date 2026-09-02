@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as nodemailer from 'nodemailer';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 /**
  * Avisos por correo al cliente.
@@ -46,8 +47,7 @@ export class AvisosService {
   constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   get configurado(): boolean {
@@ -73,12 +73,12 @@ export class AvisosService {
     const ejecutor = trx ?? this.db;
     // ON CONFLICT y no un SELECT previo: dos confirmaciones simultáneas
     // pasarían las dos la comprobación y mandarían el correo dos veces.
-    const r = await ejecutor.raw(
+    const r = await pgRaw<any>(ejecutor,
       `INSERT INTO tienda.avisos (pedido_id, tipo, destino)
        VALUES ($1, $2, $3)
        ON CONFLICT (pedido_id, tipo) DO NOTHING
        RETURNING id`, [pedidoId, tipo, correo]);
-    return r.rows.length ? Number(r.rows[0].id) : null;
+    return r.length ? Number(r[0].id) : null;
   }
 
   /** Arma el correo de un aviso, con los datos del pedido al momento de enviar. */

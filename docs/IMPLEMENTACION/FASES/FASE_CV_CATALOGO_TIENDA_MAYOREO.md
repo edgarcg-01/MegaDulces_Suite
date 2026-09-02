@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.0–CV.6 completos** (2026-09-01, CV.4 diferido). Queda pendiente la verificación end-to-end contra datos reales — bloqueada hoy por una credencial rota, ver CV.6.
+> Estado: 🧪 **CV.0–CV.6 completos** (2026-09-01, CV.4 diferido). **Verificación de lectura contra `KP_CONCENTRADA` real completada 2026-09-02** (paridad byte a byte con `.163:3000`) — ver sección "Verificación real 2026-09-02". Pendiente: verificación del camino de escritura (`tienda`/`admin`), aplicar `007_rol_dedicado.sql`, y el corte operacional.
 
 ---
 
@@ -362,6 +362,69 @@ secuencia completa (resolver credencial → aplicar rol dedicado vía
 `ADMINISTRAR.bat` opción 8 → verificación real → corte del Service/tareas),
 con los comandos exactos y las decisiones de riesgo marcadas donde no son
 puramente técnicas.
+
+---
+
+## Verificación real 2026-09-02 — bug crítico encontrado y corregido
+
+Con la credencial de `app_runtime` ya resuelta (ver CV.6), se arrancó
+`catalogo-kp` contra `KP_CONCENTRADA` real por primera vez desde la migración.
+**Ninguna query parametrizada funcionaba**: `/api/kp/precio?q=17083` fallaba
+con `Error: Expected 1 bindings, saw 18`.
+
+**Causa raíz** (diagnosticada leyendo `node_modules/knex/lib/raw.js` y
+`node_modules/knex/lib/formatter/rawFormatter.js`): `db.raw(sql, bindings)` de
+Knex sólo entiende su propia convención de placeholder `?` — no soporta los
+placeholders nativos de Postgres `$1, $2, ...`. Cuando `bindings` es un array,
+Knex cuenta literalmente cada `?` en el string SQL como un placeholder a
+llenar. El código portado (fiel al original, que usaba `pg.Pool.query(sql,
+$N)`) usaba `$1`/`$2`/... en todos lados, y además tres constantes de
+validación (`RE_NUM` en `kp.service.ts`/`tienda.service.ts`/
+`pedidos.service.ts`, `COSTO` en `catalogo.service.ts`) traían regex POSIX con
+`?` como cuantificador ("cero o uno"), sumando `?` sueltos que Knex también
+contaba como placeholders. Doble colisión con la misma convención.
+
+El patrón ya establecido en la Suite (`kepler-consolidado.service.ts`) sí usa
+`?`, no `$N` — este bug era exclusivo del código recién portado.
+
+**Fix:** nuevo `apps/catalogo-kp/src/kp-concentrada/pg-raw.util.ts` — helper
+`pgRaw(db, sql, params)` que traduce `$N` → `?` (expandiendo repeticiones)
+antes de llamar a `db.raw()`, y devuelve el array de filas directo (no
+`{rows: [...]}`). Se convirtieron sistemáticamente **12 archivos de servicio**
+(`kp`, `catalogo`, `dashboard`, `auth`, `admin`, `monitor`, y los 8 de
+`tienda/`) para pasar por `pgRaw()`, ajustando cada acceso `.rows`/`.rows[0]`/
+`.rows.length` a array directo. Las 3 constantes regex con `?` literal se
+reescribieron con `{0,1}` (equivalente POSIX libre de `?`).
+
+**Verificado 2026-09-02** contra `KP_CONCENTRADA` real (puerto de prueba
+`3092`, app completa con los 8 módulos):
+
+| Endpoint | Resultado |
+|---|---|
+| `/api/kp/precio?q=17083` | Idéntico byte a byte vs `.163:3000` |
+| `/api/kp/precios-todos?sucursal=03` | 9,479 productos, formato correcto |
+| `/api/catalogo/sucursales` | Idéntico byte a byte vs `.163:3000` |
+| `/api/kp/schema` | 401 sin token (guard-stub correcto) |
+| `/api/auth/login` (credenciales inválidas) | 401 idéntico vs `.163:3000` (mismo mensaje) |
+| `/api/admin/errores` sin token | 401 (guard correcto) |
+| `/api/dashboard/resumen` sin token | 401 (guard correcto) |
+
+Build final con los 8 módulos (`AdminModule`/`TiendaModule` de vuelta):
+`webpack compiled successfully`, 304 KiB / 53 módulos — mismo tamaño que el
+build de CV.5.
+
+**Lección para el tracker/GOTCHAS:** el build y el boot simulado (CV.0–CV.5)
+NO detectan bugs de binding de SQL crudo — sólo una llamada real con
+parámetros los expone. Ninguna verificación anterior había ejecutado una
+query parametrizada contra una base real hasta este punto.
+
+**No verificado aún (fuera de alcance de esta pasada, requiere autorización
+de riesgo de negocio):** el camino de escritura (`carrito`/`checkout`/`cola`)
+contra datos reales — `ColaService`, `CarritoService`, `CheckoutService`, y
+`PedidosService` usan el mismo `pgRaw()` y el mismo patrón de conversión, pero
+no se ejercieron con un pedido real para no competir con la cola viva en
+`.163`. Queda como paso explícito en
+`RUNBOOKS/CV_CORTE_CATALOGO_KP.md`.
 
 ---
 
