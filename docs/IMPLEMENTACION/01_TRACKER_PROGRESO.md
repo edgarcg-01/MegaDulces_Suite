@@ -1401,6 +1401,13 @@ Migración física de `megadulces-api-ready` (NestJS 10 standalone, en producci�
   - **Contrato verificado exacto**: `POST /api/errores` nunca falla visible, ni con la DB completamente inalcanzable — probado, responde `{"ok":true}` de todas formas.
   - Sin bugs de ruta esta vez (el servicio no toca disco).
   - Verificado: `nx build`/`nx lint` limpios (0 errores), 4 rutas mapeadas sin colisión con `AdminController` pese a compartir prefijo `/api/admin`, `GET /api/admin/errores` sin token → 401.
+- [ ] **[CV.4]** ⏸️ **`salidas` diferido** (2026-09-01) — 0Sistemas confirmó que no está en uso real por ahora. No se porta hasta que haga falta.
+- [x] **[CV.5]** 🧪 **`tienda` completo portado — dinero real** (2026-09-01) — los 9 archivos de dominio: `tienda`, `carrito`, `checkout`, `cola` (el motor `SKIP LOCKED`+backoff+reclamo de huérfanos), `avisos`, `pagos`, `pedidos`, `horario`. Rutas `pedidos/pagos/cola` restauradas en `AdminController` (recortadas en CV.1).
+  - **Transacciones portadas a `this.db.transaction(async trx => ...)`**: el original pasaba un `PoolClient` de `pg.Pool.connect()` entre servicios (checkout→avisos, pedidos→avisos) para enlazar operaciones en la misma transacción; ahora es el objeto `trx` de Knex, mismo patrón, commit/rollback automático. Simplificación adicional: `carrito.quitar()`/`cancelar()` tomaban una conexión sólo para anotar sin ninguna transacción real de por medio — ahora usan `this.db` directo, comportamiento idéntico.
+  - **`ColaService` deja de tener su propia conexión dedicada** (`max:4` en origen) — usa la `KNEX_KP_CONCENTRADA` compartida (`max:10`), mismo criterio que el resto desde CV.0; por eso `onModuleDestroy` ya no cierra el pool (no es dueño). El motor en sí (`FOR UPDATE SKIP LOCKED`, intentos sumados al tomar, `GRACIA_ARRANQUE_MIN=2`) se portó línea por línea.
+  - **P7 aplicado dos veces más**: `carrito`/`checkout` firman sus tokens (HMAC de carrito, seguimiento de pedido) con `CATALOGO_KP_JWT_SECRET`, no `JWT_SECRET`.
+  - Verificado: build+lint limpios (0 errores; un error de tipos del toolchain, no del original, corregido con anotación explícita). Arranque real: las 3 comprobaciones de migración fallan gracioso igual que el original; `TiendaModule.onModuleInit()` (la inyección cruzada más delicada: Pagos+Cola+Avisos) registró su manejador correctamente; endpoints públicos y protegidos responden como se espera; `nx build api` sigue verde.
+  - **Pendiente (requiere LAN a `.245`) — lo único que falta para la fase principal:** ejercer el motor de la cola contra Postgres real, un checkout de punta a punta con SMTP real, aplicar `sql/007_rol_dedicado.sql`, y la comparación de precios contra `.163:3000` (arrastrada desde CV.0).
 
 ---
 
