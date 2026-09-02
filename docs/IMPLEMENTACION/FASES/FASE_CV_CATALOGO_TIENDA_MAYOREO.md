@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.0–CV.8 completos** (2026-09-02, CV.4 diferido). Verificación de lectura contra `KP_CONCENTRADA` real completada (paridad byte a byte con `.163:3000`) y rol dedicado `catalogo_kp_runtime` ya aplicado y verificado en el cluster real — ver secciones "Verificación real 2026-09-02" y "Rol dedicado aplicado al cluster real". Pendiente: apuntar el `.env` de producción al rol nuevo, verificación del camino de escritura (`tienda`/`admin`, decisión de negocio), y el corte operacional.
+> Estado: 🧪 **CV.0–CV.12 completos** (2026-09-02, CV.4 diferido). Verificación real de punta a punta completa: lectura (paridad byte a byte), escritura (canario + primer pedido real de la historia vía UI, folio `MD-2026-00012`, cancelado por ser de prueba), rol dedicado `catalogo_kp_runtime` aplicado, y frontend Angular nuevo (`apps/tienda`) para el checkout transaccional. Pendiente: apuntar el `.env` de producción al rol nuevo, panel interno (fuera de alcance), y el corte operacional del Service en `.163`.
 
 ---
 
@@ -493,10 +493,11 @@ checkout OXXO→confirmar→verificar aviso) — queda para la ventana fuera de
 horario que 0Sistemas defina. Detalle de la ejecución en
 `RUNBOOKS/CV_CORTE_CATALOGO_KP.md`, Paso 3b.
 
-**Actualización 2026-09-02 (CV.11):** el carrito/checkout de punta a punta,
-salvo el envío final, terminó ejerciéndose de todas formas — ver CV.11 abajo,
-sección "Verificación real". Sólo falta el último clic (`POST
-.../checkout`), que sigue pendiente de la decisión de ventana.
+**Actualización 2026-09-02:** completado. El carrito/checkout de punta a
+punta, incluido el envío final, se ejerció contra producción real — ver
+CV.11 (frontend nuevo) y la sección "Verificación final: primer pedido
+real de la historia" más abajo. Folio `MD-2026-00012`, cancelado después
+por ser explícitamente de prueba.
 
 ---
 
@@ -616,15 +617,103 @@ no un bug de esta migración. Sólo afecta la vista sin buscar/filtrar; una
 búsqueda por nombre real (ej. "mazapan") no los muestra.
 
 **Pendiente:**
-- Decisión de negocio: ejecutar el envío final del checkout ahora (crea el
-  primer pedido real vía UI) o esperar la ventana fuera de horario ya
-  acordada para el Paso 3b del runbook.
-- Filtrar (o no) los productos tipo "DESC..." del catálogo de la tienda —
-  decisión de negocio, no de código.
 - Panel interno (reemplazo de `catalogo.html`) — explícitamente fuera de
   alcance de este corte.
 - Promover `/tienda/` a la URL principal (retirar `tienda.html`) — decisión
   de 0Sistemas, no automática.
+
+---
+
+## CV.12 — Ocultar "* DESC" + exponer unidad base (pieza/paquete individual) (2026-09-02)
+
+0Sistemas resolvió el hallazgo de CV.11 con contexto de negocio: los
+productos `* DESC ...` son un código de producto aparte en Kepler para un
+descuento por volumen (aplica desde 3 piezas/cajas/paquetes) — no mercancía
+normal. Pidió ocultarlos por ahora y, aprovechando la investigación,
+exponer también la unidad BASE (individual) en el catálogo/ficha para que
+el cliente elija pieza/paquete individual vs. caja de mayoreo.
+
+**Investigación en la base real** (antes de tocar código, siguiendo la
+regla de "nunca adivinar una fuente de datos"): los productos `* DESC` no
+tienen una contraparte "normal" separada — son la ÚNICA fila para ese
+producto en `kp.kdii`, con el descuento ya aplicado en el precio de la
+propia fila. El patrón de nombre varía (`* DESC ...`, `***DESC. ...`,
+`***Desc ...`, `DESCUENTO A FACTURA...`); un regex de prefijo
+(`^\*{0,3}\s*DESC`, insensible a mayúsculas) los captura todos sin falsos
+positivos — se probó contra `LECHE SEMIDESCREMADA` y `MANIOBRA DE
+DESCARGA`, que NO coinciden. **937 de 9,485 filas** en sucursal PH.
+
+Por separado, se confirmó que `kdii.c90` (precio de la unidad BASE — c11,
+casi siempre `PZA` o a veces el empaque más chico real, ej. `PAQ`) **ya se
+leía pero nunca se exponía** en `tienda.service.ts` — la tienda sólo dejaba
+comprar por caja/paquete completo de mayoreo, nunca individual, aunque el
+dato de precio individual siempre existió.
+
+**Cambios en `apps/catalogo-kp/src/tienda/tienda.service.ts`:**
+- `FILTRO_DESCUENTO` — nueva constante SQL (`TRIM(i.c2) !~* '^\*{0,3}\s*DESC'`),
+  aplicada en el `WHERE` de `getCatalogo()` y `getProducto()`. Comentario en
+  el código lo marca explícitamente como **oculto TEMPORAL**, a revisar
+  cuando se decida cómo representar el descuento por volumen correctamente
+  (¿tabla de precios por cantidad sobre el producto normal?).
+- `armarUnidades()` — nueva función `agregarBase()` que agrega la unidad
+  `c11`/`c90` con `piezas: 1`, **sin** pasar por `esUnidadMayoreo` (esa regla
+  exige `factor > 1` a propósito, para mayoreo) — usa su propio piso de
+  sanidad (`precio no nulo && >= 1`) para no reabrir el problema original de
+  marcadores contables a $0.01 que motivó la regla de mayoreo. Nueva
+  `etiquetaBase()` para el texto ("Pieza individual", "Paquete individual",
+  etc.). `c90` (`pv1`) agregado al `SELECT` de ambos métodos.
+
+**Verificado contra `KP_CONCENTRADA` real:**
+
+| Chequeo | Resultado |
+|---|---|
+| Búsqueda "mazapan" | 0 resultados con "DESC" (antes los tenía) |
+| Catálogo por defecto (sin buscar) | Ya no empieza con productos `* DESC...`; total sube de 4,562 a 5,908 (productos que sólo tenían unidad base ahora califican) |
+| Ficha `07303` (AVILA MAZAPAN) | Ahora muestra 2 unidades: "Paquete individual" $75.15 y "Caja de 20 piezas" $1,361.12 — antes sólo la caja |
+| UI (Playwright) | Ambas opciones seleccionables, precio tabular correcto |
+
+---
+
+## Verificación final: primer pedido real de la historia (2026-09-02)
+
+Con el hallazgo de CV.12 corregido, 0Sistemas pidió completar el clic final
+del checkout que se había dejado pendiente en CV.11 — la prueba de punta a
+punta que el runbook (Paso 3b) dejaba para una ventana fuera de horario.
+
+**Ejecutado en vivo contra producción real:** catálogo → producto 07303
+(unidad "Paquete individual", nueva desde CV.12) → carrito → checkout
+completo (contacto/dirección OXXO/revisión) → **`POST
+/tienda/carrito/:token/checkout` real, sin frenar esta vez**.
+
+**Resultado — folio `MD-2026-00012`:**
+
+| Verificación | Resultado |
+|---|---|
+| `tienda.pedidos` | Fila real, estado `PENDIENTE_CONFIRMACION`, subtotal $75.15 + envío $199 = total $274.15 |
+| `tienda.pedido_items` | 1 línea, código 07303, unidad `PAQ`, cantidad 1, importe 75.15 |
+| `tienda.avisos` | Aviso `PEDIDO_CREADO` encolado y **`enviado_en` con timestamp real** — el correo de confirmación se mandó de verdad por SMTP |
+| Página `/tienda/pedido/:seguimiento` | Muestra estado, fecha límite de confirmación y totales correctos |
+
+**Confirma de punta a punta:** checkout → orden → cola de trabajos → envío
+de correo real, todo contra la base de producción, con el frontend nuevo
+como único cliente. Es el primer pedido creado a través de una interfaz de
+usuario en la historia de este backend.
+
+**Limpieza:** el pedido era explícitamente de prueba (nombre "Prueba QA
+Playwright", correo de prueba) y habría aparecido en la bandeja real de
+`/admin/pedidos/por-confirmar` que usa el equipo de e-commerce — 0Sistemas
+pidió cancelarlo. Cancelado vía la API real (`POST
+/api/admin/pedidos/34/cancelar`, mismo endpoint que usa el panel de
+administración) con motivo explícito ("Pedido de prueba QA — verificación
+end-to-end del checkout, no es un pedido real"), no borrado ni tocado
+directo en la base — queda como registro auditable de que fue una prueba,
+no un pedido real cancelado sin explicación.
+
+**Con esto, el Paso 3b del runbook de corte queda completo.** Pendiente:
+`DATABASE_URL_KP_CONCENTRADA` de producción sigue en `app_runtime` (Paso 2
+del runbook, aplicación del rol dedicado al `.env` real); panel interno
+fuera de alcance; promover `/tienda/` sobre `tienda.html`; y el corte real
+del Service en `.163`.
 
 ---
 
