@@ -360,6 +360,118 @@ resuelto (`c.pg`) además del tipo Jet crudo (`c.jet`).
 
 ---
 
+## 14. WR.8 — el agente-POS alimenta la BD, no sólo la pantalla (🔨 8.0+8.1 en código, 2026-09-01)
+
+### 14.1 Por qué: el diagnóstico de frescura
+
+Medido el 2026-09-01 a las 16:17 MX, el mismo dato por dos transportes:
+
+| camino para MD-30 / MD-32 | último dato |
+|---|---|
+| **agente-POS** → `analytics.store_live_tickets` | **hoy 17:57** (minutos) |
+| SMB `Z:` → bronze `wincaja.maestro_mov_almacen` | **30-ago** (2 días) |
+
+La tienda vendió hoy. El feed corrió hoy a las 05:03 y está `ok`. Lo que está viejo es **la
+copia-sombra que lee**: el `.mdb` en `Z:` se escribió a las 11:13 — *después* de que el ingest de las
+05:03 lo leyera, así que el batch siempre ingiere una copia de ~18 h antes. Todo verde, dato viejo:
+la misma clase de falla de WR.7.
+
+Y hay **tres** alimentadores de `store_live_tickets`, sólo uno realmente vivo:
+
+| alimentador | corre en | lee de | frescura |
+|---|---|---|---|
+| **`wincaja-store-agent.ps1`** | **el servidor POS** | el `.mdb` **VIVO local**, `Mode=Read` | **minutos** |
+| `kepler/live-tickets-poller.js` | on-prem | `kepler_ods` (CDC) | minutos |
+| `wincaja-tickets-poller.js` | on-prem | **el bronze ya importado** | hereda el atraso del batch |
+
+El tercero lo confiesa su propio header. Es el que tapa el problema sin resolverlo.
+
+También: **MD-30 está vivo** (contra la nota de WR.7 que lo daba por muerto desde el 13-ago), y el
+**CEDIS `00` no tiene ningún camino vivo** aunque siga `live_on_wincaja`.
+
+### 14.2 La tesis: el delta lo calcula Postgres, no la caja
+
+`raw-upsert` (el handler que ya usa el CDC de Kepler) hace **UPSERT SIN CHURN**:
+`ON CONFLICT … DO UPDATE … WHERE IS DISTINCT FROM` → una fila que no cambió **no se reescribe**.
+Verificado: segundo push idéntico de `Existencias` (14,873 filas / 248.6 KB gzip) → `rowCount=0`.
+
+Eso significa que **el POS no necesita hash-delta**. En el ODS de Kepler el hash existe para no pagar
+egress desde la sucursal; acá la dirección (ingress a Railway) es la gratis. La caja sólo lee y manda;
+el trabajo caro corre donde hay un motor de verdad. Y PowerShell **no puede** hacer trabajo por fila:
+`ConvertTo-Json` por fila es exactamente lo que costó 8× en el lector Jet.
+
+### 14.3 WR.8.0 — habilitación (✅ código + compuerta)
+
+- `raw-upsert` acepta `meta.schema` contra whitelist `{kepler_ods, wincaja_ods}`. Default sin cambios
+  → el carril Kepler no se entera. `_sync_status` pasa a ser **por schema**, y sólo el carril nuevo
+  lleva sucursal en la llave (`Existencias@44`): cambiarla en `kepler_ods` le rompía el sensor a
+  `db-health`, que ya lee esas llaves.
+- **Dos bugs de CamelCase** que el carril Kepler nunca pisó porque sus columnas son `c1`/`c2`:
+  `to_regclass` sobre un literal sin comillas baja el nombre a minúsculas → daba `null` para
+  `Existencias` aunque existiera y el handler intentaba re-crearla; y `copyIntoTemp` insertaba sin
+  citar → `column "almacen" of relation "stg_raw" does not exist`.
+- `wincaja-ods-lib.ps1` — el sink sin Node: Jet `Mode=Read` → JSONL a mano con StringBuilder →
+  GZipStream → POST. Resuelve los nombres de PK **case-insensitive** contra las columnas reales,
+  porque Access es inconsistente (`Cortes` tiene `caja`, `Retiros` tiene `Caja`).
+- `wincaja-feed-push.ps1` — CLI de una tabla (pruebas y empujes puntuales).
+
+### 14.4 WR.8.1 — carril de movimientos (🔨 código + probado en estado estable)
+
+`wincaja-ods-agent.ps1`: hermano del agente de tickets (que sigue igual, alimentando `/tienda/live`).
+Dos carriles como el ODS, y la cadencia escalonada **por tamaño de tabla, no por tipo**:
+
+| carril | tablas | llave | cadencia |
+|---|---|---|---|
+| incremental | `MaestroMovAlmacen` `DetallesMovAlmacen` `PagosDia` `Arqueos` `Cortes` `Retiros` | watermark `Consecutivo`/`Folio` | ~1 min |
+| snapshot | `Existencias` (15.5k) · `Articulos` `Clientes` · `Ofertas` `Precios` (90k) | PK natural | 15 / 60 / 720 min |
+
+**PKs verificadas contra la réplica** (índices reales descubiertos por Jet), no de memoria.
+
+**`DetallesMovAlmacen` no tiene llave natural** y el hallazgo explica por qué:
+`(Consecutivo, Articulo)` deja 0.04–0.15% de renglones repetidos, y al abrirlos son **venta mixta del
+mismo SKU** — una línea en caja (`UnidadVenta=1`) y otra en pieza (`UnidadVenta=0`). Ese es el
+mecanismo concreto detrás de la trampa del flag `unidad_venta`. Ni sumando `TipoPrecio` cierra
+(quedan 34/7/14 filas) → la llave es `(Consecutivo, Articulo, UnidadVenta, _row_hash)`: prefijo
+legible + hash de desempate. El hash sólo se calcula donde no hay PK natural, y ahí el delta son
+cientos de filas por ciclo; los catálogos de 90k tienen PK y no hashean.
+
+**Tres cosas que salieron de probarlo, no de diseñarlo:**
+
+1. **La ventana tiene que tener tope.** Sin `chunk`, la primera pasada de `DetallesMovAlmacen`
+   (152k filas) se llevó **más de 10 minutos** — inaceptable en una caja de producción. El tope va
+   sobre el **valor de la llave**, no sobre el número de filas: un `Consecutivo` tiene N renglones y
+   capar por filas cortaría un ticket a la mitad. Corolario: **la carga inicial no va por este
+   carril** — se prima con el camino rápido (mdbtools+COPY) y el agente arranca desde ese watermark.
+2. **El contador del origen REINICIA.** Wincaja archiva al cierre de año y el `Consecutivo` vuelve a
+   1 (verificado en las carpetas por año: 2021 va `1..89,586` y 2025 va `1..129,760`). Con el
+   watermark alto, `> wm` no devuelve **nada nunca más** y el carril queda mudo sin fallar. El agente
+   lo detecta con un `MAX()` — y sólo cuando la ventana vino vacía, así no se paga el scan en el
+   camino feliz. ⚠️ **El agente de tickets tiene el mismo hueco** y no lo detecta: al cierre de año
+   `$ci -le $sinceCons` descarta todo y la tienda se va a silencio.
+3. **El estado se escribe por tabla, no al final del ciclo.** Si el ciclo muere a la mitad, lo ya
+   empujado no se re-empuja. Es idempotente igual, pero re-leer el `.mdb` de una caja no es gratis.
+
+**Probado end-to-end** contra una instancia local de `feeds-ingest` (sin tocar prod), sobre un `.mdb`
+real: ciclo de estado estable en **16 s**, con `MaestroMovAlmacen` mandando 885 filas y
+`cambiaron=0` (churn cero también en el carril incremental). Fidelidad contra el lector independiente
+(mdbtools+COPY sobre el mismo archivo): `MaestroMovAlmacen` **48,560 = 48,560**, `PagosDia`
+**80,415 = 80,415**, `Cortes` **740 = 740**.
+
+### 14.5 Pendiente de WR.8
+
+- **Desplegar `services/feeds-ingest`** con el handler nuevo. Prod corre el viejo: hoy un push con
+  `meta.schema` desde una caja escribiría en `kepler_ods`. Es el bloqueante para salir de local.
+- **Desplegar el agente en el CEDIS `00`** (no tiene camino vivo) y en 30/32 junto al de tickets.
+- **`MovimientoClientes` / `MovimientoProveedores` quedan fuera**: no tienen PK natural **y su
+  `Saldo` muta** → con `_row_hash` por llave, un cambio insertaría fila nueva en vez de actualizar.
+  Hay que identificar su llave real antes de entrarlas (WR.8.3).
+- WR.8.4 ventana de reconciliación (tapa DELETEs y ediciones retroactivas, que ningún watermark ve).
+- WR.8.5 cutover: `wincaja.*` pasa a derivarse de `wincaja_ods` y se retira el batch 05:00 + `Z:`.
+- `deploy-wincaja-agent.ps1` **embebe una copia** del agente de tickets como here-string → el archivo
+  canónico y el desplegado pueden driftear. Al tocar el agente hay que actualizar los dos.
+
+---
+
 ## 8. Relacionado
 
 - [`FASE_W_WINCAJA.md`](FASE_W_WINCAJA.md) (bronze/silver/gold actual) · [`FASE_CA_CEDIS_ACCESS_ODS.md`](FASE_CA_CEDIS_ACCESS_ODS.md) (mismo adapter) · `project_fase_w_wincaja` · `project_logical_replication_kepler` (réplicas `kepler_md_XX`, el molde) · `project_canindo_wincaja_to_kepler` (Canindo salió de Wincaja).
