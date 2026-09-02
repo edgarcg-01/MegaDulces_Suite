@@ -31,7 +31,7 @@ require('ts-node').register({
 });
 const {
   evaluarCuadre, parecidoNombre, rfcComparable, rfcBienFormado, UMBRAL_NOMBRE,
-  bucketDeSenales, CUADRE_SQL, CUADRE_MOTIVO_SQL,
+  bucketDeSenales, evaluarPaquete, CUADRE_SQL, CUADRE_MOTIVO_SQL,
 } = require(path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/receipt-match.ts'));
 
 const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV', keplerRfc: 'ACO1011124I1' };
@@ -93,15 +93,27 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
     const v7 = evaluarCuadre({ ...base, ocrTotal: 1234.56, ocrProveedor: base.keplerProveedor });
     ok(v7.cuadre === 'revisar' && v7.monto_match === false, 'proveedor bien, importe mal → revisar');
 
-    // ── 4. `paquete_ok` viaja aparte y NO decide ────────────────────────────
-    console.log('\n═══ 4. La hoja interna informa, no decide ═══');
-    const sinHoja = evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, documentosEnPaquete: ['factura'] });
-    const conHoja = evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, documentosEnPaquete: ['factura', 'aplica_orden_entrada'] });
-    ok(sinHoja.paquete_ok === false && conHoja.paquete_ok === true, 'detecta si el paquete trae nuestra hoja interna');
-    ok(sinHoja.cuadre === conHoja.cuadre,
-      'el bucket NO cambia por la hoja: hoy sólo 7 de 161 la traen y exigirla mandaría el 96% a manual');
-    ok(evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, documentosEnPaquete: [] }).paquete_ok === null,
-      'sin lectura de documentos → null (no se afirma que falte)');
+    // ── 4. `paquete_ok`: lo DECLARADO manda, y viaja aparte del bucket ──────
+    //
+    // La primera versión de esto leía `documents_present` (lo que el OCR adivina) y fijaba
+    // "sólo 7 de 161 traen la hoja interna". Medido contra el ROL que el capturista declara al
+    // subir cada hoja: **93 de 161 (58%)**. El paquete sí la trae; fallaba el reconocimiento.
+    // Estos casos existen para que nadie vuelva a construir el control sobre el OCR.
+    console.log('\n═══ 4. La hoja interna: lo declarado manda, e informa sin decidir ═══');
+    const conRol = evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, rolesDeclarados: ['factura', 'orden_entrada'] });
+    const sinRol = evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, rolesDeclarados: ['factura'] });
+    ok(conRol.paquete_ok === true && sinRol.paquete_ok === false, 'lo detecta por el rol que declaró el capturista');
+    ok(evaluarCuadre({ ...base, ocrTotal: 1000, rolesDeclarados: ['vale'] }).paquete_ok === true,
+      'el `vale` de recepción también cuenta: cumple la misma función donde no se imprime la orden');
+    // El caso que motivó el cambio: el capturista SÍ subió la hoja y el OCR no la reconoció.
+    ok(evaluarPaquete(['factura', 'orden_entrada'], ['factura']) === true,
+      'el rol declarado GANA sobre `documents_present` cuando el OCR no reconoció la hoja');
+    ok(evaluarPaquete(null, ['factura', 'aplica_orden_entrada']) === true,
+      'sin roles (comprobante viejo) se cae al OCR como respaldo');
+    ok(evaluarPaquete(null, null) === null && evaluarPaquete([], []) === null,
+      'sin ninguna de las dos fuentes → null = "no se sabe", que no es "falta"');
+    ok(sinRol.cuadre === conRol.cuadre,
+      'el bucket NO cambia por la hoja: "no concuerda el documento" y "falta una hoja" son dos problemas distintos');
 
     // ── 5. TS vs SQL: las dos implementaciones de la MISMA regla ────────────
     //
@@ -166,7 +178,7 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
       try {
         const T = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
         const { rows } = await knex.raw(`
-          SELECT p.ocr_proveedor, p.ocr_rfc, p.ocr_subtotal, p.ocr_monto, p.ocr_raw,
+          SELECT p.ocr_proveedor, p.ocr_rfc, p.ocr_subtotal, p.ocr_monto, p.ocr_raw, p.files,
                  g.proveedor_nombre, g.proveedor_rfc, g.monto AS kepler
             FROM finance.goods_receipt_proofs p
             JOIN analytics.erp_goods_receipts g
@@ -176,22 +188,32 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
           console.log('  ⚠️  no hay comprobantes en este ambiente — bloque SIN VERIFICAR');
         } else {
           const cuenta = { cuadra: 0, revisar: 0, sin_datos: 0 };
-          let cuadraSinImporte = 0, sinMotivo = 0;
+          let cuadraSinImporte = 0, sinMotivo = 0, hojaPorRol = 0, hojaPorOcr = 0;
           for (const r of rows) {
             let raw = r.ocr_raw;
             if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = null; } }
+            let files = r.files;
+            if (typeof files === 'string') { try { files = JSON.parse(files); } catch { files = null; } }
+            const roles = Array.isArray(files) ? files.map((f) => f && f.role) : null;
+            const docsOcr = Array.isArray(raw && raw.documents_present) ? raw.documents_present.map((d) => d && d.type) : null;
             const v = evaluarCuadre({
               keplerMonto: Number(r.kepler),
               keplerProveedor: r.proveedor_nombre, keplerRfc: r.proveedor_rfc,
               ocrTotal: r.ocr_monto != null ? Number(r.ocr_monto) : null,
               ocrSubtotal: r.ocr_subtotal != null ? Number(r.ocr_subtotal) : null,
               ocrProveedor: r.ocr_proveedor, ocrRfc: r.ocr_rfc,
-              documentosEnPaquete: Array.isArray(raw && raw.documents_present) ? raw.documents_present.map((d) => d && d.type) : null,
+              rolesDeclarados: roles, documentosEnPaquete: docsOcr,
             });
             cuenta[v.cuadre]++;
             if (v.cuadre === 'cuadra' && v.monto_match !== true) cuadraSinImporte++;
             if (!v.motivo) sinMotivo++;
+            if (evaluarPaquete(roles, null) === true) hojaPorRol++;
+            if (evaluarPaquete(null, docsOcr) === true) hojaPorOcr++;
           }
+          // El invariante que protege la corrección: lo declarado tiene que encontrar la hoja
+          // interna MÁS veces que lo adivinado. Si alguien vuelve a preferir el OCR, esto cae.
+          ok(hojaPorRol > hojaPorOcr,
+            `el rol declarado encuentra la hoja interna más que el OCR (${hojaPorRol} vs ${hojaPorOcr})`);
           const n = rows.length;
           ok(cuenta.cuadra + cuenta.revisar + cuenta.sin_datos === n,
             `los 3 buckets cubren los ${n} comprobantes, sin fila huérfana`);
