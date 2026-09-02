@@ -121,6 +121,15 @@ interface AttachFile {
           <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        <!--
+          RE.25 — Cuadre. Eje SEPARADO del Estado a propósito: "Validado" dice que alguien
+          decidió, "Cuadra" dice que los números concuerdan. Una entrada puede estar validada a
+          mano y no cuadrar, y ése es justo el caso que hay que poder pedir.
+        -->
+        <div class="cb-field"><label>Cuadre</label>
+          <p-select [options]="cuadreOpts" [ngModel]="cuadreSel()" (onChange)="setCuadre($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
+                    appendTo="body" ariaLabel="Filtrar por cuadre del documento" /></div>
         @if (dinero()) {
           <div class="cb-field"><label>Ajuste</label>
             <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
@@ -284,8 +293,16 @@ interface AttachFile {
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
                     <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
-                    <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El total de la remisión cuadra con la entrada' : 'El total de la remisión NO cuadra'">
-                      <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                    <!--
+                      RE.25 — el cuadre del DOCUMENTO. Reemplaza al ícono anterior, que miraba
+                      SÓLO el importe y por eso ponía la palomita en facturas del proveedor
+                      equivocado con el monto correcto — que es justo donde se paga de más.
+                      El motivo va en el tooltip: el chip dice qué, el texto dice por qué.
+                    -->
+                    <span class="cb-cuadre" [attr.data-cuadre]="c.cuadre"
+                          [pTooltip]="c.cuadre_motivo || ''" tooltipPosition="left">
+                      <i class="pi" [ngClass]="cuadreIcon(c.cuadre)" aria-hidden="true"></i>
+                      <span class="cb-cuadre-txt">{{ cuadreLabel(c.cuadre) }}</span>
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -1133,8 +1150,18 @@ interface AttachFile {
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
-    .cb-match.ok { color: var(--ok-fg); }
-    .cb-match.bad { color: var(--bad-fg); }
+    /* RE.25 — el cuadre del documento. El color NUNCA va solo (DESIGN.md §5): cada estado
+       trae su ícono Y su palabra, porque el veredicto tiene que leerse en gris, en dark y
+       para quien no distingue verde de ámbar. */
+    .cb-cuadre { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); white-space: nowrap; }
+    .cb-cuadre .pi { font-size: .8rem; }
+    .cb-cuadre-txt { font-weight: 600; }
+    .cb-cuadre[data-cuadre="cuadra"] { color: var(--ok-fg); }
+    .cb-cuadre[data-cuadre="revisar"] { color: var(--warn-fg); }
+    /* "No se leyó" en gris a propósito: no es un descuadre del proveedor, es una hoja que no se
+       pudo leer. Pintarla de ámbar la mete en la misma cola que los descuadres reales, y son
+       cosas que se arreglan distinto — una se re-escanea, la otra se audita. */
+    .cb-cuadre[data-cuadre="sin_datos"] { color: var(--text-muted); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -1883,6 +1910,10 @@ export class ComprasEntradasComponent {
     else if (deRuta === 'dinero') this.lente.set('dinero');
     const est = qp.get('estado');
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
+    // RE.25 — se valida contra las opciones por la misma razón que `estado`: un valor inventado
+    // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
+    const cua = qp.get('cuadre');
+    if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
     this.load();
     // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
     this.grSocket.connect();
@@ -1904,7 +1935,25 @@ export class ComprasEntradasComponent {
    */
   applyNew(): void { this.newCount.set(0); this.page.set(1); this.load(); }
 
+  /**
+   * `[RE.25]` En el lente de **dinero** la pregunta es *"¿este documento cuadra?"*, así que la
+   * tira muestra el reparto del cuadre. En **proceso** la pregunta sigue siendo *"¿tengo el
+   * papel?"* y los KPIs no cambian: son dos preguntas distintas sobre las mismas filas, y
+   * mostrar los seis números a la vez no contesta ninguna.
+   *
+   * `No se leyó` va aparte de `Por revisar` porque son dos trabajos: uno se re-escanea, el otro
+   * se audita. Y va en tono neutro, no de alerta — el proveedor no hizo nada mal.
+   */
   kpiItems(r: EntradasReport): MetricStripItem[] {
+    if (this.dinero()) {
+      return [
+        { label: 'Entradas', value: r.kpis.entradas },
+        { label: 'Cuadran', value: r.kpis.cuadran ?? 0, tone: 'ok' },
+        { label: 'Por revisar', value: r.kpis.por_revisar ?? 0, tone: 'warn' },
+        { label: 'No se leyó', value: r.kpis.sin_datos ?? 0 },
+        { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
+      ];
+    }
     return [
       { label: 'Entradas', value: r.kpis.entradas },
       { label: 'Con remisión', value: r.kpis.con_comprobante, tone: 'ok' },
@@ -1923,6 +1972,18 @@ export class ComprasEntradasComponent {
    * viaja como `warehouse_codes` (el server igual lo intersecta con el alcance).
    */
   readonly sucursalSel = signal<string | null>(null);
+  /**
+   * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
+   * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
+   * forma más rápida de que nadie confíe en ninguno.
+   */
+  readonly cuadreSel = signal<string | null>(null);
+  readonly cuadreOpts = [
+    { label: 'Cuadra', value: 'cuadra' },
+    { label: 'Por revisar', value: 'revisar' },
+    { label: 'No se leyó', value: 'sin_datos' },
+  ];
+  setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
   readonly rezago = signal(false);
   readonly page = signal(1);
   readonly pageSize = 100;
@@ -1984,7 +2045,12 @@ export class ComprasEntradasComponent {
       relativeTo: this.route,
       // RE.20.1 — el lente viaja en la URL para que el link se pueda pegar. `proceso` es el
       // default, así que se omite y la URL no se ensucia con lo que ya es implícito.
-      queryParams: { suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null },
+      queryParams: {
+        suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null,
+        // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
+        // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
+        cuadre: this.cuadreSel() || null,
+      },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -1998,6 +2064,7 @@ export class ComprasEntradasComponent {
       estado: this.estadoSel() || undefined,
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
+      cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
       carril: this.rezago() ? 'rezago' : 'al_dia',
       // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
       // de enfrente no ordena las 875.
@@ -2514,6 +2581,22 @@ export class ComprasEntradasComponent {
   // a reclamarle a quien no se equivocó.
   discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
   discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  /**
+   * `[RE.25]` — El cuadre del DOCUMENTO, que es un eje distinto del estado del trámite:
+   * `Validado` dice que alguien decidió, `Cuadra` dice que los números concuerdan. Una entrada
+   * puede estar validada a mano y no cuadrar — y ése es exactamente el caso a mirar.
+   *
+   * `sin_datos` se llama **"No se leyó"** y no "Revisar" a propósito: no es un descuadre, es una
+   * hoja ilegible. El trabajo es re-escanearla, no auditarla, y son 27% de los comprobantes.
+   */
+  cuadreLabel(k: string | null): string {
+    return ({ cuadra: 'Cuadra', revisar: 'Revisar', sin_datos: 'No se leyó', sin_evidencia: '' } as Record<string, string>)[k || ''] ?? '';
+  }
+  cuadreIcon(k: string | null): string {
+    return ({
+      cuadra: 'pi-check-circle', revisar: 'pi-exclamation-triangle', sin_datos: 'pi-eye-slash',
+    } as Record<string, string>)[k || ''] || 'pi-minus';
+  }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   /**
