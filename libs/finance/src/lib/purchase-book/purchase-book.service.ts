@@ -28,6 +28,19 @@ const TIPO_POLIZA_DIARIO = '3';
 export type ImpuestosModo = 'global' | 'por-cuenta';
 export type EstadoRun = 'borrador' | 'generado' | 'entregado' | 'aplicado' | 'cancelado';
 
+/**
+ * Las dos corridas que puede tener un mes:
+ *   `libro`       → la póliza completa del mes (folio 1). Se usa cuando el mes no se subió.
+ *   `complemento` → SOLO los CFDIs que quedaron sin asociar a ninguna póliza. Es el
+ *                   sub-módulo "Movimientos no asociados" y es el caso normal: la póliza
+ *                   del mes ya existe y se le quedaron facturas fuera.
+ */
+export type TipoCorrida = 'libro' | 'complemento';
+
+/** Folio 1 del Diario es siempre el registro de compras; el 2 está libre en todos los meses. */
+const FOLIO_LIBRO = 1;
+const FOLIO_COMPLEMENTO = 2;
+
 export interface FacturaMes {
   uuid: string;
   emisor_rfc: string;
@@ -51,8 +64,19 @@ export interface FacturaMes {
   cuenta_existe: boolean;
   incluida: boolean;
   motivo_exclusion: string | null;
-  /** Ya está asociada a una póliza en ContPAQi, según el ADD. */
+  /**
+   * `Documento.IsAsoContabilidad` del ADD: ContPAQi la tiene atada a una póliza.
+   * `false` = **movimiento no asociado**, que es el universo del sub-módulo.
+   * `null` = no se sabe (CFDI cargado antes de LC.6).
+   */
   aso_contabilidad: boolean | null;
+  /**
+   * Su importe ya aparece como abono a proveedor en la póliza de compras del mes, aunque no
+   * tenga marca de asociación. Pasa porque nuestro propio TXT no lleva UUID: ContPAQi la
+   * contabiliza y nadie la asocia. Es **heurístico por importe**, no prueba — pero alcanza
+   * para no re-meterla: son 271 facturas por $32.6M en 2026 (jul solo, 150 por $17.9M).
+   */
+  ya_en_poliza: boolean;
 }
 
 export interface Movimiento {
@@ -113,7 +137,8 @@ export class PurchaseBookService {
                 p.patas_en_contpaqi, p.total_en_contpaqi
            FROM meses m
            LEFT JOIN finance.purchase_book_runs r
-             ON r.tenant_id = current_tenant_id() AND r.anio_mes = m.anio_mes AND r.deleted_at IS NULL
+             ON r.tenant_id = current_tenant_id() AND r.anio_mes = m.anio_mes
+                AND r.tipo = 'libro' AND r.deleted_at IS NULL
            LEFT JOIN LATERAL (
              SELECT count(*) AS patas_en_contpaqi,
                     sum(importe) FILTER (WHERE cargo_abono = 'A') AS total_en_contpaqi
@@ -143,12 +168,103 @@ export class PurchaseBookService {
     });
   }
 
+  // ── El sub-módulo: movimientos no asociados ───────────────────────────────────────────
+  /**
+   * El tablero del sub-módulo. Un renglón por mes con los tres números que importan:
+   * cuántos CFDIs no están asociados a ninguna póliza, cuántos de esos ya se postearon (y
+   * por eso NO hay que volver a mandarlos) y cuántos faltan de verdad.
+   *
+   * La señal de "no asociado" es `Documento.IsAsoContabilidad` del ADD. Verificada
+   * 2026-09-02 contra `AsocCFDIs`, que es donde ContPAQi guarda la asociación de verdad:
+   * coinciden dentro del 1% en jun/jul/ago-2026. Lo que NO se usa —y hay que no volver a
+   * intentarlo— es `analytics.gl_poliza_lines.cfdi_uuid`: ese espejo tiene 18,979 de los
+   * 504,365 UUID asociados (3.8%), así que reportaría miles de "no asociados" falsos.
+   */
+  async listNoAsociados(limit = 24) {
+    return this.tk.run(async (knex) => {
+      const { rows } = await knex.raw(
+        // Las patas de proveedor de todas las pólizas de compras, deduplicadas por
+        // (mes, importe). Se pre-agregan a propósito: con un EXISTS correlacionado por
+        // CFDI el tablero tardaba 4.3 s, y el GROUP BY evita que el LEFT JOIN multiplique
+        // filas cuando dos proveedores casan el mismo importe en el mes.
+        `WITH patas AS (
+           SELECT anio_mes, round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ?
+              AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'
+            GROUP BY 1, 2
+         ), base AS (
+           SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
+                  (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
+                  (p.importe IS NOT NULL) AS ya_en_poliza
+             FROM fiscal.cfdis f
+             LEFT JOIN patas p
+               ON p.anio_mes = to_char(f.fecha, 'YYYY-MM') AND p.importe = round(f.total, 2)
+            WHERE f.tenant_id = current_tenant_id()
+              AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
+              -- Acotado a los meses que el tablero va a mostrar. Sin esto se escanean los
+              -- 167 mil CFDIs del ADD para tirar 24 renglones.
+              AND f.fecha >= date_trunc('month', now()) - make_interval(months => ?)
+         ), agg AS (
+           SELECT anio_mes,
+                  count(*)                                              AS cfdis,
+                  count(*) FILTER (WHERE sin_asociar)                   AS no_asociados,
+                  sum(total) FILTER (WHERE sin_asociar)                 AS monto_no_asociado,
+                  count(*) FILTER (WHERE sin_asociar AND ya_en_poliza)  AS ya_posteados,
+                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza)   AS faltan,
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan
+             FROM base GROUP BY 1
+         ), libro AS (
+           SELECT anio_mes, count(*) AS patas
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ?
+            GROUP BY 1
+         )
+         SELECT a.*, r.id AS run_id, r.estado, r.folio_poliza, r.facturas AS run_facturas,
+                r.total_cargos, r.generado_at, r.entregado_at, r.aplicado_at,
+                coalesce(lb.patas, 0) AS patas_libro
+           FROM agg a
+           LEFT JOIN libro lb ON lb.anio_mes = a.anio_mes
+           LEFT JOIN finance.purchase_book_runs r
+             ON r.tenant_id = current_tenant_id() AND r.anio_mes = a.anio_mes
+                AND r.tipo = 'complemento' AND r.deleted_at IS NULL
+          ORDER BY a.anio_mes DESC
+          LIMIT ?`,
+        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit, TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit],
+      );
+      return rows.map((r: Record<string, unknown>) => ({
+        anio_mes: r['anio_mes'],
+        cfdis: Number(r['cfdis']),
+        no_asociados: Number(r['no_asociados']),
+        monto_no_asociado: r2(r['monto_no_asociado']),
+        ya_posteados: Number(r['ya_posteados']),
+        faltan: Number(r['faltan']),
+        monto_faltan: r2(r['monto_faltan']),
+        // Sin patas del libro, el mes entero está sin contabilizar (caso ago-2026).
+        existe_libro: Number(r['patas_libro'] ?? 0) > 0,
+        estado: (r['estado'] as string) ?? 'sin_iniciar',
+        run_id: r['run_id'],
+        folio_poliza: r['folio_poliza'] ? Number(r['folio_poliza']) : FOLIO_COMPLEMENTO,
+        run_facturas: r['run_facturas'] ? Number(r['run_facturas']) : null,
+        total_cargos: r['total_cargos'] ? r2(r['total_cargos']) : null,
+        generado_at: r['generado_at'], entregado_at: r['entregado_at'], aplicado_at: r['aplicado_at'],
+      }));
+    });
+  }
+
   // ── El mes: sus facturas y su cuadre ──────────────────────────────────────────────────
-  async getMes(anioMes: string): Promise<{ mes: string; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[] }> {
+  /**
+   * En modo `libro` devuelve TODOS los CFDIs del mes. En modo `complemento` devuelve solo
+   * los **no asociados** — el universo del sub-módulo. Los que ya aparecen en la póliza
+   * vienen marcados y excluidos por default, para no postearlos dos veces.
+   */
+  async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[] }> {
     this.mesValido(anioMes);
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes }).whereNull('deleted_at').first();
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
 
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
       // factura por el join. Se prefiere la cuenta que ya se usó en pólizas reales.
@@ -163,6 +279,17 @@ export class PurchaseBookService {
                 a.account_suffix, a.supplier_name, a.cuenta_proveedor,
                 a.cuenta_compra_exenta, a.cuenta_compra_iva,
                 coalesce(a.proveedor_existe, false) AS cuenta_existe,
+                f.aso_contabilidad,
+                -- ¿Su importe ya está abonado al proveedor en la póliza de compras del mes?
+                -- Es la única defensa contra el doble registro mientras el TXT no lleve UUID.
+                EXISTS (
+                  SELECT 1 FROM analytics.gl_poliza_lines l
+                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
+                     AND l.tipo_pol = ? AND l.folio = ?
+                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
+                     AND l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A'
+                     AND round(l.importe, 2) = round(f.total, 2)
+                ) AS ya_en_poliza,
                 i.incluida, i.motivo
            FROM fiscal.cfdis f
            LEFT JOIN finance.gl_supplier_accounts a
@@ -172,13 +299,22 @@ export class PurchaseBookService {
           WHERE f.tenant_id = current_tenant_id()
             AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
             AND to_char(f.fecha, 'YYYY-MM') = ?
+            -- El sub-módulo solo mira lo no asociado. IS NOT TRUE y no = false a
+            -- propósito: NULL es "no sabemos" y también hay que mirarlo, no esconderlo.
+            AND (? = 'libro' OR f.aso_contabilidad IS NOT TRUE)
           ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
-        [run?.id ?? null, anioMes],
+        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), run?.id ?? null, anioMes, tipo],
       );
 
       const facturas: FacturaMes[] = rows.map((r: Record<string, unknown>) => {
         const total = r2(r['total']), iva = r2(r['iva']), ieps = r2(r['ieps']);
         const subtotal16 = r2(r['subtotal16']);
+        const conCuenta = r['cuenta_existe'] === true;
+        const yaEnPoliza = r['ya_en_poliza'] === true;
+        // El default de inclusión es lo que cambia entre los dos modos:
+        //  · libro       → entra si su proveedor está en el catálogo de compras
+        //  · complemento → además: que no esté ya posteada (si no, la duplicamos)
+        const porDefault = tipo === 'complemento' ? conCuenta && !yaEnPoliza : conCuenta;
         return {
           uuid: String(r['uuid']),
           emisor_rfc: String(r['emisor_rfc'] ?? ''),
@@ -194,19 +330,19 @@ export class PurchaseBookService {
           cuenta_proveedor: (r['cuenta_proveedor'] as string) ?? null,
           cuenta_compra_exenta: (r['cuenta_compra_exenta'] as string) ?? null,
           cuenta_compra_iva: (r['cuenta_compra_iva'] as string) ?? null,
-          cuenta_existe: r['cuenta_existe'] === true,
-          // Default: entra si su proveedor está en el catálogo de compras. Es lo único que
-          // hoy sabemos del criterio con evidencia — las 1,555 facturas de ene–jun del
-          // libro son 100% de proveedores del catálogo (cobertura total). NO es suficiente
-          // (hay 2,068 CFDIs más de esos mismos proveedores que no entraron), por eso la
-          // decisión final la sigue tomando una persona; pero arrancar con las 645 de gasto
-          // y servicio marcadas dejaría el mes bloqueado desde el primer clic.
-          // Cuando LC.2 responda, este default se reemplaza por la regla real.
+          cuenta_existe: conCuenta,
+          // La decisión guardada manda; si no hay, el default del modo. En `complemento` el
+          // default es además el criterio que LC.2 buscaba y no encontraba en el CFDI: lo
+          // que falta por contabilizar es lo que ContPAQi mismo dice que no está asociado.
           incluida: r['incluida'] === null || r['incluida'] === undefined
-            ? r['cuenta_existe'] === true
+            ? porDefault
             : r['incluida'] === true,
-          motivo_exclusion: (r['motivo'] as string) ?? null,
-          aso_contabilidad: null,
+          motivo_exclusion: (r['motivo'] as string)
+            ?? (tipo === 'complemento' && yaEnPoliza ? 'su importe ya está en la póliza del mes' : null),
+          aso_contabilidad: r['aso_contabilidad'] === null || r['aso_contabilidad'] === undefined
+            ? null
+            : r['aso_contabilidad'] === true,
+          ya_en_poliza: yaEnPoliza,
         };
       });
 
@@ -221,6 +357,11 @@ export class PurchaseBookService {
         iva: r2(dentro.reduce((a, f) => a + f.iva, 0)),
         ieps: r2(dentro.reduce((a, f) => a + f.ieps, 0)),
         total_todas: r2(facturas.reduce((a, f) => a + f.total, 0)),
+        // Los tres números del sub-módulo: cuántas no están asociadas, cuántas de esas ya
+        // se postearon (y por eso NO van), y cuántas faltan de verdad.
+        no_asociadas: facturas.filter((f) => f.aso_contabilidad !== true).length,
+        ya_posteadas: facturas.filter((f) => f.ya_en_poliza).length,
+        monto_ya_posteadas: r2(facturas.filter((f) => f.ya_en_poliza).reduce((a, f) => a + f.total, 0)),
       };
 
       // Dos listas distintas, y la diferencia importa: los BLOQUEANTES son renglones que
@@ -240,19 +381,30 @@ export class PurchaseBookService {
       if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
       if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
 
-      return { mes: anioMes, run: run ?? null, facturas, resumen, bloqueantes, avisos };
+      if (tipo === 'complemento') {
+        const yaPost = facturas.filter((f) => f.ya_en_poliza);
+        if (yaPost.length) {
+          avisos.push(`${yaPost.length} factura(s) sin marca pero con su importe ya en la póliza del mes — excluidas para no duplicarlas`);
+        }
+        const sinDato = facturas.filter((f) => f.aso_contabilidad === null);
+        if (sinDato.length) avisos.push(`${sinDato.length} factura(s) sin dato de asociación: corre el feed del ADD`);
+        const fuera = facturas.filter((f) => !f.incluida && !f.ya_en_poliza && !f.motivo_exclusion);
+        if (fuera.length) avisos.push(`${fuera.length} factura(s) no asociadas de proveedores fuera del catálogo de compras (gasto o servicio)`);
+      }
+
+      return { mes: anioMes, tipo, run: run ?? null, facturas, resumen, bloqueantes, avisos };
     });
   }
 
   // ── Decidir qué entra ─────────────────────────────────────────────────────────────────
   /** Excluye (o vuelve a incluir) facturas del mes. Mientras LC.2 esté abierto, esto es
    *  el criterio: lo pone una persona y queda registrado con su motivo. */
-  async setInclusion(anioMes: string, uuids: string[], incluida: boolean, motivo?: string) {
+  async setInclusion(anioMes: string, uuids: string[], incluida: boolean, motivo?: string, tipo: TipoCorrida = 'libro') {
     this.mesValido(anioMes);
     if (!Array.isArray(uuids) || !uuids.length) throw new BadRequestException('sin facturas que marcar');
     const userId = this.ctx.get()?.userId ?? null;
     return this.tk.run(async (knex) => {
-      const run = await this.ensureRun(knex, anioMes);
+      const run = await this.ensureRun(knex, anioMes, tipo);
       if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado; no se puede cambiar');
       const filas = uuids.map((u) => ({
         tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: String(u).toUpperCase(),
@@ -270,15 +422,19 @@ export class PurchaseBookService {
     });
   }
 
-  private async ensureRun(knex: any, anioMes: string) {
+  private async ensureRun(knex: any, anioMes: string, tipo: TipoCorrida = 'libro') {
     const existente = await knex('finance.purchase_book_runs')
-      .where({ anio_mes: anioMes }).whereNull('deleted_at').first();
+      .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
     if (existente) return existente;
+    const esComplemento = tipo === 'complemento';
     const [creado] = await knex('finance.purchase_book_runs')
       .insert({
-        tenant_id: knex.raw('current_tenant_id()'), anio_mes: anioMes, estado: 'borrador',
-        folio_poliza: 1, fecha_poliza: this.finDeMes(anioMes).toISOString().slice(0, 10),
-        concepto: `REGISTRO DE COMPRAS DEL MES ${anioMes}`,
+        tenant_id: knex.raw('current_tenant_id()'), anio_mes: anioMes, estado: 'borrador', tipo,
+        folio_poliza: esComplemento ? FOLIO_COMPLEMENTO : FOLIO_LIBRO,
+        fecha_poliza: this.finDeMes(anioMes).toISOString().slice(0, 10),
+        concepto: esComplemento
+          ? `COMPLEMENTO REGISTRO DE COMPRAS ${anioMes}`
+          : `REGISTRO DE COMPRAS DEL MES ${anioMes}`,
         created_by: this.ctx.get()?.userId ?? null,
       })
       .returning('*');
@@ -346,13 +502,30 @@ export class PurchaseBookService {
   }
 
   /** Genera el archivo del mes y deja la corrida en `generado`, firmada por su hash. */
-  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean } = {}) {
+  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida } = {}) {
     this.mesValido(anioMes);
     const modo: ImpuestosModo = opts.impuestos === 'por-cuenta' ? 'por-cuenta' : 'global';
     const conUuid = opts.uuid !== false;
-    const { facturas, resumen, bloqueantes } = await this.getMes(anioMes);
+    const tipo: TipoCorrida = opts.tipo === 'complemento' ? 'complemento' : 'libro';
+    const { facturas, resumen, bloqueantes } = await this.getMes(anioMes, tipo);
     const dentro = facturas.filter((f) => f.incluida);
-    if (!dentro.length) throw new BadRequestException('el mes no tiene facturas incluidas');
+    if (!dentro.length) {
+      throw new BadRequestException(tipo === 'complemento'
+        ? 'no hay movimientos sin asociar por entregar en este mes'
+        : 'el mes no tiene facturas incluidas');
+    }
+
+    // Freno propio del complemento: si alguna de las incluidas ya está posteada, el archivo
+    // duplicaría un asiento. No es un aviso, es un bloqueo — el daño es irreversible del
+    // lado de ContPAQi y nadie lo notaría hasta cuadrar la balanza.
+    if (tipo === 'complemento') {
+      const dobles = dentro.filter((f) => f.ya_en_poliza);
+      if (dobles.length) {
+        throw new BadRequestException(
+          `${dobles.length} factura(s) incluidas ya tienen su importe en la póliza del mes: se duplicarían. Exclúyelas antes de generar.`,
+        );
+      }
+    }
 
     // Frenos duros: mejor no entregar archivo que entregar uno que ContPAQi va a rechazar.
     const rechazables = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
@@ -371,12 +544,14 @@ export class PurchaseBookService {
     }
 
     return this.tk.run(async (knex) => {
-      const run = await this.ensureRun(knex, anioMes);
+      const run = await this.ensureRun(knex, anioMes, tipo);
       if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado');
       const concepto = run.concepto || `REGISTRO DE COMPRAS DEL MES ${anioMes}`;
-      const txt = this.construirTxt(anioMes, run.folio_poliza ?? 1, concepto, movs);
+      const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs);
       const hash = createHash('sha256').update(txt, 'latin1').digest('hex');
-      const nombre = `poliza-compras-${anioMes}.txt`;
+      const nombre = tipo === 'complemento'
+        ? `complemento-compras-${anioMes}.txt`
+        : `poliza-compras-${anioMes}.txt`;
       const userId = this.ctx.get()?.userId ?? null;
 
       await knex('finance.purchase_book_runs').where({ id: run.id }).update({
@@ -389,18 +564,19 @@ export class PurchaseBookService {
         generado_at: knex.fn.now(), generado_by: userId,
         updated_at: knex.fn.now(), updated_by: userId,
       });
-      this.logger.log(`Póliza ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
-      return { anio_mes: anioMes, nombre, hash, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
+      this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
+      return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
     });
   }
 
   /** Mueve el trámite. `entregado` = se le pasó a quien lo sube; `aplicado` = ya está en ContPAQi. */
-  async marcar(anioMes: string, estado: Extract<EstadoRun, 'entregado' | 'aplicado' | 'cancelado'>, datos: { entregado_a?: string; notas?: string } = {}) {
+  async marcar(anioMes: string, estado: Extract<EstadoRun, 'entregado' | 'aplicado' | 'cancelado'>, datos: { entregado_a?: string; notas?: string; tipo?: TipoCorrida } = {}) {
     this.mesValido(anioMes);
+    const tipo: TipoCorrida = datos.tipo === 'complemento' ? 'complemento' : 'libro';
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes }).whereNull('deleted_at').first();
-      if (!run) throw new NotFoundException(`no hay corrida para ${anioMes}`);
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run) throw new NotFoundException(`no hay corrida ${tipo} para ${anioMes}`);
       if (estado !== 'cancelado' && run.estado === 'borrador') {
         throw new BadRequestException('genera el archivo antes de mover el trámite');
       }

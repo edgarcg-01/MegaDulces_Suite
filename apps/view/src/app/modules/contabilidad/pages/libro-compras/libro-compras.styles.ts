@@ -94,3 +94,19 @@ export const LIBRO_COMPRAS_STYLES = `
 .lc-campo { display: flex; flex-direction: column; gap: .35rem; font-size: var(--fs-sm); }
 .lc-campo input { width: 100%; }
 `;
+
+/**
+ * Extras del sub-módulo "Movimientos no asociados". Se concatenan a los de arriba en vez de
+ * duplicar el archivo: es la misma pantalla con otro alcance, no otro diseño.
+ */
+export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
+/* En el tablero del sub-módulo el número que manda es lo que FALTA, no el total del mes. */
+.na-falta { font-weight: var(--fw-semibold); color: var(--text-color); }
+.na-falta.cero { color: var(--ok-fg); font-weight: var(--fw-medium); }
+.na-mes-sinlibro { font-size: var(--fs-micro); color: var(--bad-fg); }
+
+/* Las que ya están posteadas: visibles pero apagadas, con la razón a la vista. Se muestran
+   a propósito — esconderlas haría creer que el mes tiene menos pendientes de los que tiene. */
+.lc-tablewrap tr.dup td { opacity: .55; }
+.lc-tablewrap tr.dup td:first-child { box-shadow: inset 2px 0 0 var(--warn-fg); }
+`;

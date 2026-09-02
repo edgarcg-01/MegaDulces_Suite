@@ -292,6 +292,13 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       estatusSat(h.CancelStatus),
       String(h.CancelStatus || '').trim() || null,   // cancel_reason = el crudo del ADD
       h.GuidDocument || null,
+      // LC.6 — la marca de asociación contable. Es la señal del sub-módulo "Movimientos no
+      // asociados". Verificado 2026-09-02 contra `AsocCFDIs` (el SoR de la asociación) en
+      // jun/jul/ago-2026: el flag y la evidencia coinciden dentro del 1% (175/181, 441/448,
+      // 724/722), así que el flag sirve y no hace falta un segundo feed. Lo que NO sirve es
+      // `analytics.gl_poliza_lines.cfdi_uuid`: ahí solo hay 18,979 de los 504,365 UUID
+      // asociados (3.8%), o sea que ese espejo daría falsos "no asociado" a montones.
+      h.IsAsoContabilidad === null || h.IsAsoContabilidad === undefined ? null : !!h.IsAsoContabilidad,
     ];
   });
 
@@ -305,7 +312,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
     'emisor_rfc', 'emisor_nombre', 'emisor_regimen', 'receptor_rfc', 'receptor_nombre', 'receptor_regimen',
     'receptor_uso_cfdi', 'subtotal', 'descuento', 'total', 'moneda', 'tipo_cambio', 'metodo_pago', 'forma_pago',
     'lugar_expedicion', 'no_certificado', 'total_trasladados', 'total_retenidos', 'impuestos', 'rol', 'source',
-    'estatus_sat', 'cancel_reason', 'stored_ref'];
+    'estatus_sat', 'cancel_reason', 'stored_ref', 'aso_contabilidad'];
   const upd = COLS.filter((c) => !['tenant_id', 'uuid'].includes(c)).map((c) => `${c}=EXCLUDED.${c}`).join(',');
 
   // El ADD puede traer el mismo UUID más de una vez (tiene su tabla MetadataDuplicados);

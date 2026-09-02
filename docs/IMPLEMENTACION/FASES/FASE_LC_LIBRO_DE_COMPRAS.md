@@ -171,15 +171,17 @@ vínculo formal.
 |---|---|---|
 | **LC.0** | ✅ Layout investigado y validado campo por campo. Falta: 1 TXT real para confirmar separador, y decidir póliza mensual vs quincenal | — |
 | **LC.1** | ✅ **2026-09-01** — `import-contpaqi-cfdis.js`: ADD → `fiscal.cfdis`. **167,135 CFDIs recibidos (140,546 `I` + 26,589 `E`) de 2018 a hoy, en prod.** Falta agendarlo | — |
-| **LC.2** | ⚠️ **BLOQUEADO 2026-09-01** — el criterio no está en los datos. Ver "Qué decide que una factura entre al libro" | LC.1 |
+| **LC.2** | ✅ **2026-09-02** — el criterio no había que predecirlo: es `IsAsoContabilidad` del ADD **+** no estar ya posteada. Ver "Movimientos no asociados" | LC.1 |
 | **LC.3** | ✅ **2026-09-01** — `finance.gl_supplier_accounts` con **929 proveedores**, sembrada de la hoja `DATOS` y validada contra el catálogo de cuentas de ContPAQi. **Acierto 1,555/1,555 (100%)** | — |
 | **LC.4** | Motor: `finance.purchase_book_lines` (por CFDI: base 0%, base IVA, base IEPS, IVA, IEPS, total, UUID, folio, proveedor, cuenta). Cuadre obligatorio contra el total del CFDI | LC.3 |
 | **LC.5** | ✅ **2026-09-01** — `generate-poliza-compras-txt.js`. Junio: 494 renglones, cuadra en $30,278,735.58, UUID en 491 de 493 movimientos | LC.0, LC.3 |
-| **LC.6** | Pantalla `/finanzas/libro-de-compras`: selector de mes, tabla densa, semáforo de cuadre, botón *Generar TXT*, historial de entregas | LC.5 |
+| **LC.6** | ✅ **2026-09-01** — el trámite en pantalla: `finance.purchase_book_runs` + `/contabilidad/libro-de-compras` (master-detail, answer-first, inclusión optimista, estados borrador→generado→entregado→aplicado) | LC.5 |
+| **LC.6.1** | ✅ **2026-09-02** — sub-módulo **Movimientos no asociados**: `aso_contabilidad` en el feed, criterio de dos condiciones, `tipo` de corrida, `/contabilidad/movimientos-no-asociados` | LC.6 |
 | **LC.7** | Cuadre post-trámite: comparar la póliza real en ContPAQi contra lo entregado. Diferencia = hallazgo en `finance.findings` | LC.5 |
 | **LC.8** | 3-way match contra la entrada de mercancía de Kepler (`XA2001`) — se empalma con Fase RE | LC.4 |
 
-**MVP = LC.0 → LC.5.** LC.6 lo vuelve autoservicio; LC.7 lo vuelve confiable.
+**MVP = LC.0 → LC.6.1**, y ahí está el valor: LC.6.1 es el propósito del módulo (sacar lo no
+asociado en TXT). LC.7 lo vuelve confiable.
 
 ## Criterio de aceptación
 
@@ -188,7 +190,18 @@ que ya está en ContPAQi: 1,555 facturas, 3,318 patas, totales al centavo
 (ene $30,033,013.71 · feb $36,471,924.85 · mar $45,187,137.83 · abr $35,034,209.66 ·
 may $33,489,993.56 · jun $30,278,735.58). Si no reproduce el pasado, no se usa para el futuro.
 
-## Qué decide que una factura entre al libro (LC.2 — pregunta abierta)
+## Qué decide que una factura entre al libro (LC.2 — **cerrada 2026-09-02**)
+
+> **La respuesta no estaba en el CFDI: la tiene ContPAQi.** Todo lo de abajo (el clasificador
+> al 42.9%, los discriminantes descartados uno por uno) sigue siendo cierto y por eso se
+> conserva — pero la pregunta estaba mal planteada. No hay que **predecir** qué entra al
+> libro; hay que **preguntarle a ContPAQi qué no está asociado**. Ver
+> [Movimientos no asociados](#movimientos-no-asociados-lc6--cerrado-2026-09-02).
+>
+> Y la sospecha de abajo se confirmó: el libro **está incompleto**. Son 4,166 CFDIs sin
+> asociar, y en 2026 solo, 1,772 por **$61.5M**.
+
+### La medición original (2026-09-01) — por qué el clasificador no alcanzaba
 
 Medido el 2026-09-01 contra las 54 hojas del workbook (14,838 facturas desde 2022) y los
 CFDIs de ene–jun 2026 ya en `fiscal.cfdis`:
@@ -215,17 +228,99 @@ falta **no está en el comprobante** — lo descarté midiendo:
   débil por construcción: el total de la factura no vive en la recepción — es justo el
   hueco que la Fase RE resolvió con OCR.
 
-**La pregunta para la contadora, textual:** *¿qué hace que una factura de un proveedor de
-mercancía entre al libro de compras, y otra del mismo proveedor y del mismo día no entre?*
+La sospecha que quedó de esa medición —**que el libro esté incompleto**— era la correcta.
+Eran $58.1M en seis meses de facturas de proveedores de mercancía nunca contabilizadas por
+esta vía, y el orden de magnitud coincidía con lo que Maat ya había detectado por su cuenta
+(631 facturas por $52.2M sin recepción): el mismo fenómeno visto desde dos lados.
 
-**La posibilidad que hay que poner sobre la mesa:** que el libro esté **incompleto**. Son
-$58.1M en seis meses de facturas de proveedores de mercancía que nunca se contabilizaron
-por esta vía. El orden de magnitud coincide con lo que Maat ya había detectado por su
-cuenta (631 facturas por $52.2M sin recepción), así que probablemente son el mismo
-fenómeno visto desde dos lados.
+## Movimientos no asociados (LC.6 — cerrado 2026-09-02)
 
-Sin esa respuesta LC.2 no se puede cerrar: cualquier clasificador que escribamos estaría
-adivinando el criterio, y de ahí cuelga todo lo demás.
+**El propósito del módulo, dicho por Edgar:** *sacar los movimientos no asociados en un TXT
+como lo rige ContPAQi, pasarlo a ContPAQi y hacer el debido proceso.*
+
+Eso reencuadra la fase. Lo que estaba construido era "la póliza completa del mes"; lo que se
+necesita es "lo que falta por asociar" — un conjunto mucho más chico y accionable, y que
+además **trae su propio criterio**, el que LC.2 buscaba sin encontrar.
+
+### La señal: cuál sirve y cuál no
+
+| Señal | Qué es | Sirve |
+|---|---|---|
+| `Documento.IsAsoContabilidad` (ADD) | el flag: ContPAQi la tiene atada a una póliza | **sí** |
+| `AsocCFDIs.UUID` (empresa contabilidad) | la evidencia: en qué póliza está | sí, es el SoR |
+| `analytics.gl_poliza_lines.cfdi_uuid` | nuestro espejo de la evidencia | **NO** |
+
+Verificado el 2026-09-02 con las tres a la vez. El flag y la evidencia **coinciden dentro
+del 1%**: jun-2026 175 vs 181, jul 441 vs 448, ago 724 vs 722. Nuestro espejo, en cambio,
+tiene **18,979 de los 504,365 UUID asociados (3.8%)** — usarlo habría reportado miles de
+"no asociados" falsos. Por eso el flag se persiste en `fiscal.cfdis.aso_contabilidad`
+(el importer ya lo leía y lo tiraba) en vez de derivarse del espejo.
+
+`NULL` significa "no se sabe", no "no asociado": es lo que se cargó antes de LC.6.
+
+### La trampa: sin marca ≠ sin contabilizar
+
+**271 CFDIs de 2026 por $32.6M no tienen marca de asociación pero su importe YA está en la
+póliza del mes.** La causa es nuestra: el TXT no lleva UUID, así que ContPAQi contabiliza la
+factura y nadie la asocia. Con el criterio ingenuo (`IsAsoContabilidad = 0` a secas) se
+habrían vuelto a mandar y se habrían **duplicado $32.6 millones**.
+
+Así que el criterio tiene **dos condiciones**, no una:
+
+1. `aso_contabilidad IS NOT TRUE` — ContPAQi no la tiene atada, y
+2. su importe **no** aparece ya como abono a proveedor (`212*`, cargo/abono `A`) en la
+   póliza de compras del mes (Diario, folio 1).
+
+La segunda es **heurística por importe**, no prueba: dos facturas del mismo monto en el mes
+casan igual. Por eso se marca y se **excluye por default**, se muestra en la tabla con su
+razón a la vista, y el generador **bloquea** (no avisa) si alguna quedó incluida. Se puede
+forzar a mano, con advertencia — quien lleva el libro es quien sabe.
+
+> **Esto es una razón más para poner el UUID en el TXT desde el primer envío.** Sin eso,
+> cada archivo que generemos vuelve a ensuciar la marca y el detector se degrada solo.
+
+### Lo que falta, medido en prod (2026-09-02)
+
+| Mes | Sin asociar | Ya posteadas (no van) | **Falta de verdad** | Monto |
+|---|---:|---:|---:|---:|
+| ene-2026 | 80 | 4 | 76 | $1,426,032 |
+| feb-2026 | 75 | 6 | 69 | $602,355 |
+| mar-2026 | 114 | 28 | 86 | $1,725,117 |
+| abr-2026 | 181 | 28 | 153 | $1,584,775 |
+| may-2026 | 160 | 24 | 136 | $777,829 |
+| jun-2026 | 175 | 31 | 144 | $1,099,136 |
+| **jul-2026** | 441 | **150** | 291 | $2,539,526 |
+| **ago-2026** | 724 | 0 | **724** | **$48,203,284** |
+| sep-2026 | 93 | 0 | 93 | $3,530,966 |
+
+Hasta junio es goteo. Julio y agosto son el hueco real, y cuadra con el diagnóstico
+original: julio se subió parcial y agosto no tiene póliza de compras en absoluto.
+
+**El complemento cuadra al centavo** en los dos meses grandes (validado DB-direct, Δ 0.00):
+
+- jul-2026: 441 sin asociar → 150 ya posteadas → 92 fuera del catálogo → **199 entran**, $1,265,797.22
+- ago-2026: 724 sin asociar → 0 posteadas → 209 fuera del catálogo → **515 entran**, $46,133,945.25
+
+### Cómo quedó armado
+
+Un sub-módulo, no otro módulo: mismo motor, mismos permisos
+(`FISCAL_PURCHASE_BOOK_VER`/`_GESTIONAR`), otro alcance.
+
+- `TipoCorrida = 'libro' | 'complemento'` en `PurchaseBookService`. `libro` = el mes
+  completo (para un mes que nunca se subió); `complemento` = solo lo no asociado.
+- `finance.purchase_book_runs.tipo` (mig `20260902130000`) — el UNIQUE
+  `(tenant_id, anio_mes, folio_poliza)` ya permitía dos corridas por mes; faltaba poder
+  decir cuál es cuál.
+- **Folio 2** para el complemento, y no es arbitrario: en el Diario el folio 1 es siempre el
+  registro de compras y el 2 está libre en **todos** los meses medidos (jul-2026 salta de 1
+  a 3; ago-2026 arranca en 3). Editable — el folio definitivo lo decide quien sube.
+- Endpoints `/finance/purchase-book/no-asociados[/:mes[/generar|archivo|inclusion|estado]]`.
+  Declarados **antes** de `@Get(':mes')` o Nest se come `/no-asociados` como si fuera un mes.
+- Pantalla `/contabilidad/movimientos-no-asociados`, primera en el tab bar (el libro
+  completo es el caso excepcional). Master-detail + answer-first, igual que su hermana.
+- Índices: `fiscal.cfdis_no_asociados_idx` y `analytics.gl_poliza_lines (tenant_id,
+  upper(cfdi_uuid))` (mig `20260902120000`). El tablero pasó de **4,335 ms → 376 ms** al
+  pre-agregar las patas por `(mes, importe)` y acotar el rango a los meses que muestra.
 
 ## El mapa proveedor → cuenta (LC.3, cerrado 2026-09-01)
 
@@ -353,42 +448,59 @@ Tracking. Diferido por ahora: 119 ms cada 5 minutos es 0.04% del tiempo.
 - [`FASE_CB_CONCILIACION_BANCARIA.md`](FASE_CB_CONCILIACION_BANCARIA.md) — mismo patrón:
   un workbook manual reemplazado por interfaz.
 
-## Pendientes (al 2026-09-01)
+## Pendientes (al 2026-09-02)
 
 ### Bloquean la fase
 
 | # | Qué | De quién depende |
 |---|---|---|
-| 1 | **LC.2 — el criterio del libro.** ¿Qué hace que una factura de un proveedor de mercancía entre y otra del mismo proveedor y día no? Sin esto el generador necesita que le pasen la lista a mano | La contadora |
 | 2 | **Un TXT real ya importado**, para confirmar el separador exacto y descartar una variante propia de la empresa | La contadora |
 | 3 | **Decidir el formato de entrega**: ¿IVA e IEPS por cuenta o global? ¿el UUID va en el Concepto? ¿una póliza mensual o quincenal? | Edgar + contabilidad |
+| 3b | **Confirmar el folio del complemento.** Se usa el 2 porque está libre en todos los meses medidos, pero no sabemos si ContPAQi lo respeta o renumera al importar | La contadora (con el primer TXT) |
+
+*(el punto 1 —LC.2, el criterio del libro— se cerró el 2026-09-02: no había que predecirlo.)*
 
 ### Se pueden hacer sin desbloquear nada
 
 | # | Qué | Nota |
 |---|---|---|
-| 4 | **LC.6 — pantalla `/finanzas/libro-de-compras`** | El generador ya funciona por CLI; falta el envoltorio y el permiso propio |
 | 5 | **LC.7 — cuadre post-trámite** | Comparar lo que se subió contra lo que entregamos |
-| 6 | **Arrancar el carril PM2** del feed del ADD | `ecosystem.contpaqi.config.js` listo; hay que levantarlo en una máquina de la LAN con `DATABASE_URL_NEW` |
+| 6 | **Arrancar el carril PM2** del feed del ADD | `ecosystem.contpaqi.config.js` listo; hay que levantarlo en una máquina de la LAN con `DATABASE_URL_NEW`. Ahora importa más: de ese carril sale la marca de asociación |
 | 7 | **Los 3 proveedores con cuenta de pasivo inexistente** en ContPAQi (`2120005109`, `2120005405`, `2120005406`) | Si alguno factura, el TXT se detiene — a propósito |
 | 8 | **Los 24 proveedores sin RFC** en el catálogo | Sin RFC no se puede casar el CFDI con su cuenta |
+| 8b | **Poner el UUID en el TXT desde el primer envío** | Es la causa raíz de las 271 facturas por $32.6M que quedan "sin marca pero ya posteadas". Sin UUID, cada archivo que generemos vuelve a ensuciar la señal |
+| 8c | **Los 209 CFDIs de ago-2026 fuera del catálogo de compras** ($2.1M) | No son compras (gasto/servicio) y por eso no entran al complemento; hay que confirmar que se contabilizan por su propia póliza de egresos |
 
 ### Riesgos abiertos, con dueño por definir
 
 | # | Qué | Tamaño |
 |---|---|---|
 | 9 | **Nadie valida cancelaciones contra el SAT.** 167,053 CFDIs con `estatus_sat = 'desconocido'` | Acreditar IVA/IEPS de comprobantes cancelados |
-| 10 | **$58.1M en seis meses** de facturas de proveedores de mercancía que nunca entraron al libro | Coincide en orden de magnitud con las 631 facturas / $52.2M sin recepción que Maat ya detectó |
+| 10 | **El libro está incompleto y ya está medido.** 4,166 CFDIs sin asociar; en 2026, **1,772 por $61.5M**, de los cuales ago-2026 solo son 724 por **$48.2M** (ese mes no tiene póliza de compras) | Es el trabajo que el sub-módulo pone en la mesa: ya se puede generar y entregar |
 | 11 | **IEPS por cuota mal capturado.** 47 facturas 2025–26 por $69,587.97; solo se verificó junio | El de EURO CANDY, $38,519.05, se fue al costo en vez de acreditarse |
 | 12 | **Change Tracking** para quitar el polling del feed | Necesita un admin de la instancia SQL Server; `platform_ro` no tiene rol de servidor |
 | 13 | **Índice sobre `Documento.TimeStamp`** | Alternativa barata al punto 12: convierte el scan de 615,511 filas en un seek |
 
 ## Estado
 
-🔨 **EN CURSO 2026-09-01.** LC.0 desbloqueado (layout documentado y validado contra la
-póliza real). **LC.1 ✅ en prod**: 167,135 CFDIs recibidos de 2018 a hoy en `fiscal.cfdis`
-con `source='contpaqi_add'`, incluidas las bases gravables por impuesto y tasa. Sigue LC.2
-(clasificar qué CFDI entra al libro de compras).
+🔨 **EN CURSO 2026-09-02.** LC.0 → LC.6.1 cerrados. El módulo ya hace lo que existe para
+hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
+
+- **LC.1 ✅ en prod**: 167,418 CFDIs recibidos de 2018 a hoy en `fiscal.cfdis`
+  (`source='contpaqi_add'`), con bases gravables por impuesto y tasa **y** la marca de
+  asociación contable.
+- **LC.2 ✅**: el criterio no era un clasificador — es la marca del ADD más el filtro
+  anti-duplicado. Se cerró sin necesitar a la contadora.
+- **LC.6 + LC.6.1 ✅**: el trámite en pantalla, con el sub-módulo de no asociados como
+  entrada principal.
+
+**En prod:** migraciones `20260902120000` (batch 247) y `20260902130000` (batch 248)
+aplicadas; el flag backfilleado con el rango completo. **Falta desplegar el código**
+(api + view) y, como los permisos no cambiaron en esta tanda, no hace falta re-login.
+
+> ⚠️ **Nota operativa:** prod tiene **91 migraciones pendientes** de otros devs (del 19-ago
+> en adelante). Las de LC se aplicaron una por una con `migrate:up`, nunca `migrate:latest`.
+> Correr `migrate:latest` contra prod hoy aplicaría las 91 de un golpe.
 
 **Pendientes operativos de LC.1:**
 

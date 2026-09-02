@@ -18,6 +18,9 @@ export const CONTABILIDAD_TABS: PageTab[] = [
   { label: 'Contabilidad e.', route: '/contabilidad/contabilidad', icon: 'pi pi-book', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'ContPAQi', route: '/contabilidad/contpaqi', icon: 'pi pi-database', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'Pólizas', route: '/contabilidad/polizas', icon: 'pi pi-check-circle', permission: Permission.FISCAL_CONTAB_VER },
+  // Fase LC. El sub-módulo va primero: es el trámite del día a día. El libro completo del
+  // mes es el caso excepcional (un mes que nunca se subió).
+  { label: 'No asociados', route: '/contabilidad/movimientos-no-asociados', icon: 'pi pi-link', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
   { label: 'Libro de Compras', route: '/contabilidad/libro-de-compras', icon: 'pi pi-book', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
   { label: 'Provisionales', route: '/contabilidad/impuestos', icon: 'pi pi-calculator', permission: Permission.FISCAL_DIOT_VER },
   { label: 'e.firma', route: '/contabilidad/credenciales', icon: 'pi pi-key', permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
