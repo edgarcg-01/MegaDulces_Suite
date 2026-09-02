@@ -81,14 +81,22 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
       }
 
-      <div class="ah-cards">
-        @for (c of visibles(); track c.cajero_code) {
+      @for (g of grupos(); track g.code) {
+        <section class="ah-suc">
+          <header class="ah-suc-h">
+            <h2>{{ g.nombre }}</h2>
+            <span class="ah-suc-m">{{ g.cajeras.length }} cajeras · {{ g.cortes }} cortes</span>
+            @if (g.sin_arqueo) { <span class="ah-badge">{{ g.sin_arqueo }} solo Kepler</span> }
+            @if (revela && g.faltante > 0) { <span class="ah-suc-f bad">{{ money(g.faltante) }} de faltantes</span> }
+          </header>
+          <div class="ah-cards">
+        @for (c of g.cajeras; track c.cajero_code) {
           <article class="card-premium card-flat ah-card">
             <header class="ah-card-h">
               <div class="ah-ini" aria-hidden="true">{{ iniciales(c) }}</div>
               <div class="ah-card-id">
                 <h3>{{ c.cajero_nombre || c.cajero_code }}</h3>
-                <span class="muted">{{ branchLabel(c.warehouse_code) }} · {{ c.cajero_code }}</span>
+                <span class="muted">{{ c.cajero_code }}</span>
               </div>
               @if (c.sin_arqueo) { <span class="ah-badge">{{ c.sin_arqueo }} solo Kepler</span> }
             </header>
@@ -197,7 +205,9 @@ import { imprimirTicket } from '../ticket-arqueo';
             </ul>
           </article>
         }
-      </div>
+          </div>
+        </section>
+      }
     </div>
   `,
   styles: [`
@@ -212,6 +222,15 @@ import { imprimirTicket } from '../ticket-arqueo';
     .ah-vacio { display: flex; gap: .8rem; align-items: flex-start; padding: 1.1rem; }
     .ah-vacio i { color: var(--text-muted); margin-top: .15rem; }
     .ah-vacio p { margin: .2rem 0 0; font-size: .82rem; }
+    .ah-suc { margin-bottom: 1.4rem; }
+    /* Encabezado pegajoso: al recorrer una lista larga, saber en qué tienda vas
+       importa más que ganar esos 30px de alto. */
+    .ah-suc-h { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+                padding: .45rem 0 .5rem; margin-bottom: .55rem; background: var(--page-bg, var(--surface-ground));
+                border-bottom: 1px solid var(--border-color); }
+    .ah-suc-h h2 { margin: 0; font-size: .92rem; font-weight: 700; letter-spacing: -.01em; }
+    .ah-suc-m { font-size: .72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .ah-suc-f { font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; }
     /* Grid intrínseco: sin breakpoints, la tarjeta decide cuántas caben. */
     .ah-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 27rem), 1fr)); gap: .9rem; }
     .ah-card { padding: .9rem 1rem 1rem; }
@@ -287,6 +306,31 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   /** Con el filtro puesto, la tarjeta solo aparece si tiene pendientes. */
   readonly visibles = computed(() =>
     this.soloPendientes() ? this.cajeras().filter((c) => c.sin_arqueo > 0) : this.cajeras());
+
+  /**
+   * Las cajeras van **dentro de su sucursal**: quien mira esta pantalla es de una
+   * tienda, y una lista que mezcla Padre Hidalgo con La Piedad la obliga a filtrar
+   * con la vista. Cada grupo lleva su propio conteo, así el encargado sabe cuánto
+   * le falta a SU tienda sin restar del total.
+   *
+   * El orden es por pendientes primero: la sucursal con más cortes sin contar es
+   * la que hay que abrir, no la que salga alfabéticamente antes.
+   */
+  readonly grupos = computed(() => {
+    const acc = new Map<string, { code: string; nombre: string; cajeras: CajeraCard[]; cortes: number; sin_arqueo: number; faltante: number }>();
+    for (const c of this.visibles()) {
+      const code = c.warehouse_code || '—';
+      let g = acc.get(code);
+      if (!g) { g = { code, nombre: this.branchLabel(code), cajeras: [], cortes: 0, sin_arqueo: 0, faltante: 0 }; acc.set(code, g); }
+      g.cajeras.push(c);
+      g.cortes += Number(c.cortes || 0);
+      g.sin_arqueo += Number(c.sin_arqueo || 0);
+      g.faltante += Number(c.faltante_total || 0);
+    }
+    // `Array.from`, no spread del iterador: el spread de un Map.values() en este
+    // repo ya devolvió el iterador como único elemento y rompió los totales.
+    return Array.from(acc.values()).sort((a, b) => b.sin_arqueo - a.sin_arqueo || a.nombre.localeCompare(b.nombre));
+  });
 
   ngOnInit() {
     this.load();
