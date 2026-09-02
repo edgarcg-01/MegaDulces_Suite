@@ -27,11 +27,29 @@
  * por pieza existe únicamente en Wincaja (`wincaja.arqueos`, 3 sucursales) y en el
  * nuestro. Por eso la comparación es total contra total.
  *
- * ⚠️ `c43/c44/c45` se traen tal cual por compatibilidad con el importer viejo, que los
- * mapeó como billetes/monedas/otros en SM.7. **Ese mapeo NO se sostiene con los datos
- * de hoy**: `c43+c44+c45` reproduce `c25` en apenas 428/3048 cortes, y `c46`/`c47`
- * tienen 42 y 44 valores distintos en 3,048 filas (o sea, son parámetros/límites, no
- * montos). No usar esas 3 columnas como desglose del efectivo contado hasta re-decodificarlas.
+ * ── El desglose SÍ existe (rectificado 2026-09-02)
+ *
+ * `c43` = **billetes** · `c44` = **monedas**. Vienen poblados en **84–100%** de los
+ * cortes según sucursal (2,901 y 2,807 de 3,051). La identidad que cierra NO es
+ * `c43+c44 = c25` sino:
+ *
+ *     c43 (billetes) + c44 (monedas) + c48 (retirado) = c25 (contado)   → 63.6%
+ *
+ * porque lo que queda en el cajón al cerrar es lo contado MENOS lo que se fue en
+ * sangrías durante el turno. Ejemplo real: 590 + 67 + 9,000 = 9,657 vs contado
+ * 9,657.16. En la suc 04 (que no registra retiros así) cuadra directo: 48% exacto,
+ * desvío mediano $16.68.
+ *
+ * Una nota anterior de este archivo decía que el mapeo "no se sostenía" — ese
+ * análisis metía `c45` en la suma y exigía tolerancia de centavos. **`c45` no es
+ * parte del efectivo contado.** `c46`/`c47` sí son parámetros (42 y 44 valores
+ * distintos en 3,048 filas), no montos.
+ *
+ * 💡 Cuando la identidad no cierra, el hueco suele ser un número redondo ($9,000)
+ * = un **retiro que no quedó en `c48`**. Sirve como chequeo de coherencia del corte.
+ *
+ * Lo que Kepler **no** tiene es el conteo POR DENOMINACIÓN (cuántos billetes de
+ * $500): eso vive solo en `wincaja.arqueos` (3 sucursales) y en el nuestro.
  *
  * Uso (desde la raíz del repo):
  *   node database/importers/kepler/load-cash-cuts-from-ods.js                 # dry-run

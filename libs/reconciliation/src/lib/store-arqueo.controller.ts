@@ -151,6 +151,7 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
+    await this.exigirElMasViejo(body, folio, revela, cajero_code);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -159,6 +160,41 @@ export class StoreArqueoController {
       turno: turno.turno || undefined,
       turno_abierto_at: turno.abierto_at || null,
     };
+  }
+
+  /**
+   * SM.16 — Los cortes se cierran EN ORDEN. Con un turno pendiente de ayer no se
+   * puede arquear el de hoy.
+   *
+   * El turno sin arquear es donde se esconde el hueco: si se puede elegir cuál
+   * contar, se cuenta el que conviene y el otro se deja envejecer hasta que a
+   * nadie le importe. Además el conteo se vuelve inauditable — el efectivo de dos
+   * turnos se mezcla en el mismo cajón y ya no se sabe de cuál falta.
+   *
+   * Va en el BACKEND y no solo en la pantalla: la lista es una ayuda, la regla es
+   * esto. Mandar el folio de hoy a mano no la salta.
+   *
+   * Solo aplica al **cierre**. El relevo es intra-turno y urgente (la cajera está
+   * entregando la caja ahora); bloquearlo porque quedó un cierre viejo pendiente
+   * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
+   * Y el supervisor queda exento: captura por otros y en contingencia.
+   */
+  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code?: string) {
+    if (revela) return;
+    if ((body?.tipo ?? 'cierre') !== 'cierre') return;
+    const scope = (await this.scope.current()).dims.warehouse;
+    const pendientes = await this.blind.turnosPendientes({
+      cajeroCode: cajero_code,
+      warehouseCodes: scope.mode === 'all' ? null : scope.values,
+    });
+    const primero = pendientes[0];               // viene ordenada del más viejo
+    if (!primero || primero.folio === folio) return;
+    const cuando = new Date(`${primero.business_date}T12:00:00`)
+      .toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' });
+    throw new BadRequestException(
+      `Tenés un corte pendiente antes que ese: caja ${primero.caja} del ${cuando}. ` +
+      'Cerrá ese primero — los arqueos se hacen en orden.',
+    );
   }
 
   @Post()
