@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { PendingAuthGuard } from '../common/pending-auth.guard';
+import { AuthGuard } from '@nestjs/passport';
 import { KpService } from './kp.service';
 
 /**
@@ -9,10 +9,9 @@ import { KpService } from './kp.service';
  * con quién autenticarse): `precio` y `precios-todos`. Sólo devuelven precios
  * de venta, nunca costos ni márgenes.
  *
- * INTERNAS (exigían sesión en el proyecto origen): el resto. Exponen costo,
- * margen y ventas. `auth` todavía no se porta (CV.1) — en vez de dejarlas
- * abiertas, `PendingAuthGuard` responde 503 explícito. Se cambia por
- * `@UseGuards(AuthGuard('jwt'))` de verdad en CV.1.
+ * INTERNAS (exigen sesión): el resto. Exponen costo, margen y ventas.
+ * `AuthGuard('jwt')` de verdad desde CV.1 (antes de auth, CV.0 las cubría con
+ * un guard-stub que respondía 503 — ver git log de este archivo).
  */
 @Controller('kp')
 export class KpController {
@@ -22,22 +21,22 @@ export class KpController {
    * Inspecciona kp.kdm2: columnas reales + mapeo automático + 3 filas de muestra.
    * GET /api/kp/schema
    */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('schema')
   getSchema() { return this.kpService.getSchema(); }
 
   /** Ventas totales y documentos por sucursal. GET /api/kp/ventas-suc */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('ventas-suc')
   getVentasSuc() { return this.kpService.getVentasSuc(); }
 
   /** Ventas mensuales por sucursal (trend). GET /api/kp/trend */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('trend')
   getTrend() { return this.kpService.getTrend(); }
 
   /** Top 20 artículos por importe. GET /api/kp/articulos */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('articulos')
   getArticulos() { return this.kpService.getArticulos(); }
 
@@ -46,7 +45,7 @@ export class KpController {
    * Incluye costo, IVA, IEPS, margen y precio_final calculado.
    * GET /api/kp/productos
    */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('productos')
   getProductos() { return this.kpService.getProductos(); }
 
@@ -56,7 +55,7 @@ export class KpController {
    * GET /api/kp/explorador          usa el cache si está vigente
    * GET /api/kp/explorador?refrescar=1   fuerza el recálculo
    */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('explorador')
   getExplorador(@Query('refrescar') refrescar?: string) {
     return this.kpService.getExplorador(refrescar === '1' || refrescar === 'true');
@@ -91,7 +90,7 @@ export class KpController {
    *   ?soloDiscrepancias=true  → sólo artículos con diferencias PG vs Excel
    *   ?sucursal=03             → filtrar por sucursal
    */
-  @UseGuards(PendingAuthGuard)
+  @UseGuards(AuthGuard('jwt'))
   @Get('concentrada')
   async getConcentrada(
     @Query('soloDiscrepancias') soloDiscrepancias?: string,
