@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 /**
  * Trabajador de la cola (Fase 2, entregable 7).
@@ -222,15 +223,15 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
        ON CONFLICT DO NOTHING
        RETURNING id`;
 
-    const r = await ejecutor.raw(sql,
+    const r = await pgRaw<any>(ejecutor, sql,
       [tipo, JSON.stringify(carga ?? {}), opciones?.correrEn ?? null,
        opciones?.maxIntentos ?? null]);
 
-    if (!r.rows.length) {
+    if (!r.length) {
       this.logger.debug(`Trabajo '${tipo}' ya estaba encolado (idempotencia).`);
       return null;
     }
-    return Number(r.rows[0].id);
+    return Number(r[0].id);
   }
 
   // ── Arranque ───────────────────────────────────────────────────────────────
@@ -292,10 +293,10 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
 
   private async hayTabla(): Promise<boolean> {
     try {
-      const r = await this.db.raw(
+      const r = await pgRaw<any>(this.db,
         `SELECT 1 FROM information_schema.tables
          WHERE table_schema='tienda' AND table_name='trabajos'`);
-      return r.rows.length > 0;
+      return r.length > 0;
     } catch { return false; }
   }
 
@@ -348,7 +349,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
    * significa lo de siempre: "no correr antes de".
    */
   private async tomar(): Promise<TrabajoTomado | null> {
-    const r = await this.db.raw(
+    const r = await pgRaw<any>(this.db,
       `UPDATE tienda.trabajos t
           SET estado    = 'PROCESANDO',
               intentos  = t.intentos + 1,
@@ -363,8 +364,8 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
                  LIMIT 1)
       RETURNING id, tipo, carga, intentos, max_intentos`);
 
-    if (!r.rows.length) return null;
-    const f = r.rows[0];
+    if (!r.length) return null;
+    const f = r[0];
     const t: TrabajoTomado = {
       id: Number(f.id), tipo: String(f.tipo), carga: f.carga,
       intentos: Number(f.intentos), max_intentos: Number(f.max_intentos),
@@ -403,7 +404,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async hecho(t: TrabajoTomado) {
-    await this.db.raw(
+    await pgRaw(this.db,
       `UPDATE tienda.trabajos
           SET estado='HECHO', terminado_en=NOW(), ultimo_error=NULL
         WHERE id=$1`, [t.id]);
@@ -415,7 +416,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
     const agotado = t.intentos >= t.max_intentos;
 
     if (agotado) {
-      await this.db.raw(
+      await pgRaw(this.db,
         `UPDATE tienda.trabajos
             SET estado='FALLIDO', terminado_en=NOW(), ultimo_error=$2
           WHERE id=$1`, [t.id, error]);
@@ -428,7 +429,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
       const espera = esperaSegundos(t.intentos);
       // make_interval en vez de concatenar texto: no depende de como el driver
       // infiera el tipo del parametro.
-      await this.db.raw(
+      await pgRaw(this.db,
         `UPDATE tienda.trabajos
             SET estado='PENDIENTE',
                 correr_en = NOW() + make_interval(secs => $2::int),
@@ -455,7 +456,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
    */
   private async reclamarHuerfanos(minutos: number) {
     try {
-      const r = await this.db.raw(
+      const r = await pgRaw<any>(this.db,
         `UPDATE tienda.trabajos
             SET estado='PENDIENTE',
                 correr_en=NOW(),
@@ -467,16 +468,16 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
         [minutos,
          'Reclamado: la API se reinicio o el trabajo quedo colgado mientras se procesaba']);
 
-      if (r.rows.length) {
-        this.cuenta.reclamados += r.rows.length;
+      if (r.length) {
+        this.cuenta.reclamados += r.length;
         this.logger.warn(
-          `Se reclamaron ${r.rows.length} trabajo(s) que quedaron en PROCESANDO: ` +
-          r.rows.map((x: any) => `${x.id}/${x.tipo}`).join(', '));
+          `Se reclamaron ${r.length} trabajo(s) que quedaron en PROCESANDO: ` +
+          r.map((x: any) => `${x.id}/${x.tipo}`).join(', '));
       }
 
       // Los que ya agotaron intentos no se pueden reclamar (volverian a
       // quedarse en PROCESANDO para siempre), asi que se cierran como FALLIDO.
-      const c = await this.db.raw(
+      const c = await pgRaw<any>(this.db,
         `UPDATE tienda.trabajos
             SET estado='FALLIDO', terminado_en=NOW(),
                 ultimo_error=COALESCE(ultimo_error,'') ||
@@ -485,10 +486,10 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
             AND correr_en < NOW() - make_interval(mins => $1::int)
             AND intentos >= max_intentos
         RETURNING id`, [minutos]);
-      if (c.rows.length) {
-        this.cuenta.fallidos += c.rows.length;
+      if (c.length) {
+        this.cuenta.fallidos += c.length;
         this.logger.warn(
-          `${c.rows.length} trabajo(s) quedaron FALLIDOS: estaban en PROCESANDO sin intentos restantes.`);
+          `${c.length} trabajo(s) quedaron FALLIDOS: estaban en PROCESANDO sin intentos restantes.`);
       }
     } catch (e: any) {
       this.logger.error(`No se pudieron reclamar huerfanos: ${e.message}`);
@@ -507,7 +508,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
     if (!this.enVuelo.size) return;
     const ids = [...this.enVuelo];
     try {
-      await this.db.raw(
+      await pgRaw(this.db,
         `UPDATE tienda.trabajos
             SET estado='PENDIENTE', correr_en=NOW(),
                 ultimo_error='Devuelto a la cola: la API se estaba apagando'
@@ -580,13 +581,13 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
     if (!this.listo) return { ...base, error: 'Falta la migracion 002_tienda_pedidos.sql' };
 
     try {
-      const r = await this.db.raw(
+      const r = await pgRaw<any>(this.db,
         `SELECT estado, COUNT(*)::int AS n,
                 MIN(creado_en) AS mas_viejo
            FROM tienda.trabajos
           GROUP BY estado`);
       const por: Record<string, any> = {};
-      for (const f of r.rows) por[f.estado] = { n: f.n, mas_viejo: f.mas_viejo };
+      for (const f of r) por[f.estado] = { n: f.n, mas_viejo: f.mas_viejo };
       return { ...base, por_estado: por };
     } catch (e: any) {
       return { ...base, error: e.message };

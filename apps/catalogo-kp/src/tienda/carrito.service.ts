@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as crypto from 'crypto';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 import { TiendaService, SUC_TIENDA } from './tienda.service';
 
 /**
@@ -164,8 +165,7 @@ export class CarritoService {
   // ── Utilidades ────────────────────────────────────────────────────────────
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   /**
@@ -177,7 +177,7 @@ export class CarritoService {
   private async anotar(ejecutor: Knex, pedidoId: number, estadoA: string,
                        actor: string, detalle: string, datos?: any) {
     try {
-      await ejecutor.raw(
+      await pgRaw(ejecutor,
         `INSERT INTO tienda.pedido_eventos (pedido_id, estado_a, actor, detalle, datos)
          VALUES ($1, $2, $3, $4, $5)`,
         [pedidoId, estadoA, actor, detalle, datos ? JSON.stringify(datos) : null]);
@@ -348,12 +348,12 @@ export class CarritoService {
         // Si el producto y la presentación ya están, se suma la cantidad en vez
         // de duplicar el renglón: al cliente le resulta natural y evita un
         // carrito con la misma caja repetida cinco veces.
-        const ya = await trx.raw(
+        const ya = await pgRaw<any>(trx,
           `SELECT id, cantidad FROM tienda.pedido_items
            WHERE pedido_id = $1 AND codigo = $2 AND unidad = $3 AND activo
            FOR UPDATE`, [id, cod, u.unidad]);
 
-        const total = cant + (ya.rows.length ? Number(ya.rows[0].cantidad) : 0);
+        const total = cant + (ya.length ? Number(ya[0].cantidad) : 0);
 
         // La existencia se valida contra el TOTAL, no contra lo que se agrega.
         const piezas = total * Number(u.piezas);
@@ -365,13 +365,13 @@ export class CarritoService {
 
         const importe = centavos(Number(u.precio) * total);
 
-        if (ya.rows.length) {
-          await trx.raw(
+        if (ya.length) {
+          await pgRaw(trx,
             `UPDATE tienda.pedido_items
              SET cantidad = $2, precio_unitario = $3, importe = $4
-             WHERE id = $1`, [ya.rows[0].id, total, u.precio, importe]);
+             WHERE id = $1`, [ya[0].id, total, u.precio, importe]);
         } else {
-          await trx.raw(
+          await pgRaw(trx,
             `INSERT INTO tienda.pedido_items
                (pedido_id, codigo, nombre, unidad, piezas_por_unidad,
                 cantidad, precio_unitario, importe, existencia_al_comprar)

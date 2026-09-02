@@ -8,8 +8,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { TiendaModule } from './tienda/tienda.module';
 
-// CV.4 (salidas) queda diferido — sin uso real hoy (confirmado 2026-09-01).
-// Ver docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md.
 @Module({
   imports: [
     KpConcentradaModule,

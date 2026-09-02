@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 
 /**
  * Catálogo de la tienda en línea. NO es el mismo que el catálogo interno.
@@ -28,7 +29,10 @@ export const SUC_TIENDA = '01';
 export const ENVIO_GRATIS_DESDE = 999;
 export const ENVIO_COSTO = 199;
 
-const RE_NUM = `'^[[:space:]]*-?[0-9]+([.][0-9]*)?[[:space:]]*$'`;
+// {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
+// aquí colisiona con el escaneo de placeholders de knex.raw() — ver
+// kp-concentrada/pg-raw.util.ts.
+const RE_NUM = `'^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'`;
 const NUM = (c: string) =>
   `CASE WHEN ${c}::text ~ ${RE_NUM} THEN ${c}::numeric ELSE NULL END`;
 
@@ -116,8 +120,7 @@ export class TiendaService {
   constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   /** Reglas de envío, para que el frontend no las traiga escritas a mano. */

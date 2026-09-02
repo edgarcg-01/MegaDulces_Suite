@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
+import { pgRaw } from '../kp-concentrada/pg-raw.util';
 import { KpExcelService, ExcelArticuloMes } from './kp-excel.service';
 
 export interface VentaSuc  { suc: string; total: number; docs: number; }
@@ -58,7 +59,10 @@ export interface UnidadPrecio {
 // Se usa la clase POSIX [[:space:]] en vez de \s porque el regex viaja dentro de
 // una cadena de JS y el escape se pierde.
 // ─────────────────────────────────────────────────────────────────────────────
-const RE_NUM = "'^[[:space:]]*-?[0-9]+([.][0-9]*)?[[:space:]]*$'";
+// {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
+// aquí colisiona con el escaneo de placeholders de knex.raw() — ver
+// kp-concentrada/pg-raw.util.ts.
+const RE_NUM = "'^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'";
 
 /** Castea a numeric; 0 si el valor no es un número. */
 const NUMC = (col: string) =>
@@ -806,8 +810,7 @@ export class KpService implements OnModuleInit {
   }
 
   private async query<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const r = await this.db.raw(sql, params ?? []);
-    return r.rows as T[];
+    return pgRaw<T>(this.db, sql, params);
   }
 
   /**
@@ -824,8 +827,7 @@ export class KpService implements OnModuleInit {
     return this.db.transaction(async (trx) => {
       // El valor no viene de fuera, es una constante del código.
       await trx.raw(`SET LOCAL work_mem = '${memoria}'`);
-      const r = await trx.raw(sql, params ?? []);
-      return r.rows as T[];
+      return pgRaw<T>(trx, sql, params);
     });
   }
 }
