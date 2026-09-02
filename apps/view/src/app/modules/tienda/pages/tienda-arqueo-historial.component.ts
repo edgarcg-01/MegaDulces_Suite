@@ -83,13 +83,18 @@ import { imprimirTicket } from '../ticket-arqueo';
 
       @for (g of grupos(); track g.code) {
         <section class="ah-suc">
-          <header class="ah-suc-h">
-            <h2>{{ g.nombre }}</h2>
-            <span class="ah-suc-m">{{ g.cajeras.length }} cajeras · {{ g.cortes }} cortes</span>
-            @if (g.sin_arqueo) { <span class="ah-badge">{{ g.sin_arqueo }} solo Kepler</span> }
-            @if (revela && g.faltante > 0) { <span class="ah-suc-f bad">{{ money(g.faltante) }} de faltantes</span> }
-          </header>
-          <div class="ah-cards">
+          <h2 class="ah-suc-h2">
+            <button type="button" class="ah-suc-h" (click)="alternarSuc(g.code)"
+                    [attr.aria-expanded]="abiertaSuc(g.code)" [attr.aria-controls]="'suc-' + g.code">
+              <i class="pi ah-suc-chev" [class.pi-chevron-down]="abiertaSuc(g.code)" [class.pi-chevron-right]="!abiertaSuc(g.code)" aria-hidden="true"></i>
+              <span class="ah-suc-n">{{ g.nombre }}</span>
+              <span class="ah-suc-m">{{ g.cajeras.length }} cajeras · {{ g.cortes }} cortes</span>
+              @if (g.sin_arqueo) { <span class="ah-badge">{{ g.sin_arqueo }} solo Kepler</span> }
+              @if (revela && g.faltante > 0) { <span class="ah-suc-f bad">{{ money(g.faltante) }} de faltantes</span> }
+            </button>
+          </h2>
+          @if (abiertaSuc(g.code)) {
+          <div class="ah-cards" [id]="'suc-' + g.code">
         @for (c of g.cajeras; track c.cajero_code) {
           <article class="card-premium card-flat ah-card">
             <header class="ah-card-h">
@@ -206,6 +211,7 @@ import { imprimirTicket } from '../ticket-arqueo';
           </article>
         }
           </div>
+          }
         </section>
       }
     </div>
@@ -225,10 +231,17 @@ import { imprimirTicket } from '../ticket-arqueo';
     .ah-suc { margin-bottom: 1.4rem; }
     /* Encabezado pegajoso: al recorrer una lista larga, saber en qué tienda vas
        importa más que ganar esos 30px de alto. */
-    .ah-suc-h { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
-                padding: .45rem 0 .5rem; margin-bottom: .55rem; background: var(--page-bg, var(--surface-ground));
-                border-bottom: 1px solid var(--border-color); }
-    .ah-suc-h h2 { margin: 0; font-size: .92rem; font-weight: 700; letter-spacing: -.01em; }
+    /* El sticky vive en el <h2>: si va en el botón, el borde se despega al scrollear. */
+    .ah-suc-h2 { position: sticky; top: 0; z-index: 2; margin: 0 0 .55rem; }
+    .ah-suc-h { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+                width: 100%; padding: .5rem .4rem .55rem; text-align: left;
+                background: var(--page-bg, var(--surface-ground)); border: 0;
+                border-bottom: 1px solid var(--border-color); border-radius: var(--r-sm);
+                cursor: pointer; color: inherit; font: inherit; }
+    .ah-suc-h:hover { background: var(--surface-hover, var(--card-bg)); }
+    .ah-suc-h:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+    .ah-suc-chev { align-self: center; font-size: .72rem; color: var(--text-muted); }
+    .ah-suc-n { font-size: .92rem; font-weight: 700; letter-spacing: -.01em; }
     .ah-suc-m { font-size: .72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .ah-suc-f { font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; }
     /* Grid intrínseco: sin breakpoints, la tarjeta decide cuántas caben. */
@@ -340,6 +353,28 @@ export class TiendaArqueoHistorialComponent implements OnInit {
       }), 60_000);
       this.destroyRef.onDestroy(() => clearInterval(id));
     });
+  }
+
+  /**
+   * Sucursales desplegadas. `null` = nadie tocó nada todavía → vale la regla por
+   * defecto de `abiertaSuc`. Se distingue de un Set vacío (que sí significa
+   * "las cerré todas a mano") para que el auto-refresh de 60s no vuelva a abrir
+   * lo que el encargado acaba de cerrar.
+   */
+  private readonly aperturas = signal<Set<string> | null>(null);
+
+  /** Con una sola tienda a la vista, pedir un clic para verla es puro peaje. */
+  abiertaSuc(code: string): boolean {
+    const s = this.aperturas();
+    return s ? s.has(code) : this.grupos().length === 1;
+  }
+
+  alternarSuc(code: string) {
+    const previas = this.aperturas()
+      ?? new Set(this.grupos().length === 1 ? this.grupos().map((g) => g.code) : []);
+    const s = new Set(previas);
+    if (s.has(code)) s.delete(code); else s.add(code);
+    this.aperturas.set(s);
   }
 
   cambiarVentana(v: string) { this.ventana.set(v); this.load(); }
