@@ -23,6 +23,35 @@ export interface LabelModel {
   scanned_unit: string | null;         // unidad del barcode con que se resolvió (PZA/CJA/…) o null
 }
 
+/** Un eslabón de la cadena que produce el precio de etiqueta, con su edad y su veredicto. */
+export interface FreshnessInput {
+  key: string;
+  label: string;
+  at: string | null;
+  age_human: string | null;
+  stale: boolean;
+}
+
+/**
+ * [OBS.6.2] Qué tan viejo es el precio que se está por IMPRIMIR.
+ *
+ * Existe por el incidente del 2026-09-02: el carril de catálogos del ODS estuvo parado 6 días y la
+ * etiquetera siguió imprimiendo precios de hace una semana con total confianza. Uno de ellos
+ * (SKU 88222) salió a $54.00 contra un costo de $117.46 — 54% bajo costo. Nadie tenía cómo saberlo
+ * mirando la pantalla.
+ *
+ * NO bloquea la impresión (decisión de Edgar): declara y sigue. Un operador que ve "el precio tiene
+ * 3 días" puede decidir; uno que no ve nada, no.
+ */
+export interface LabelsFreshness {
+  /** El más viejo de los eslabones: hasta cuándo se puede afirmar que el precio es el vigente. */
+  data_as_of: string | null;
+  stale: boolean;
+  age_human: string | null;
+  /** Qué eslabón falla, para que el aviso diga algo accionable y no sólo "hay rezago". */
+  inputs: FreshnessInput[];
+}
+
 const n = (v: unknown): number | null => {
   if (v === null || v === undefined) return null;
   const x = Number(v);
@@ -61,6 +90,96 @@ export class CommercialLabelsService {
     return !!(r?.rows?.[0]?.ok);
   }
 
+  /**
+   * [OBS.6.2] Tolerancia de CADA eslabón, en horas. No son los umbrales de `db-health`, y la
+   * diferencia es deliberada: `db-health` responde "¿hay que despertar a alguien?", esto responde
+   * "¿puedo confiar en este número para pegarlo en el anaquel?". Son preguntas distintas, con
+   * audiencias distintas, y merecen números distintos.
+   *
+   * Los dos eslabones tienen ritmo VIVO (minutos), así que 1 h y 12 h son holgados a propósito:
+   * el objetivo es cazar un caño roto, no hacer parpadear la pantalla por un hipo de red.
+   */
+  private static readonly TOLERANCIA_H: Record<string, number> = {
+    ods_live_hot: 1,
+    recalculo: 12,
+  };
+
+  /**
+   * La cadena del precio de etiqueta tiene DOS pasos, y cada uno se muere solo:
+   *
+   *   1. `ods_live_hot` shipea `kdii`/`kdpv_prod_util` del ERP al ODS   → si muere, el ERP cambia
+   *      el precio y acá nunca llega. **Es lo que pasó el 27-ago.**
+   *   2. hop-2 recalcula `commercial.product_label_prices`              → si muere, el ODS está
+   *      fresco y la etiqueta igual queda vieja.
+   *
+   * Vigilar sólo uno deja el otro ciego, así que se miran los dos.
+   *
+   * ⚠️ NO se usa el `computed_at` de la FILA como señal de rezago. Se movería sólo cuando ESE
+   * producto cambia de precio, así que un SKU estable daría semanas de "edad" estando
+   * perfectamente al día — el mismo falso positivo que documenta `analytics.v_feed_freshness`
+   * para las tablas del ODS. Se usa el `max(computed_at)` de la tabla, que sí prueba que el paso
+   * de recálculo sigue vivo.
+   */
+  private async freshness(trx: any): Promise<LabelsFreshness> {
+    const inputs: FreshnessInput[] = [];
+    try {
+      // La vista unifica cron_runs + _sync_status, pero puede no estar aplicada todavía: se cae al
+      // origen directo. Sin este guardia la etiquetera se rompería entre el deploy y la migración.
+      const hasView = (await trx.raw(
+        `SELECT to_regclass('analytics.v_feed_freshness') IS NOT NULL AS ok`,
+      ))?.rows?.[0]?.ok;
+      const carril = hasView
+        ? (await trx.raw(
+            `SELECT dato_al FROM analytics.v_feed_freshness WHERE origen='cron' AND feed='ods_live_hot'`,
+          ))?.rows?.[0]?.dato_al
+        : (await trx.raw(
+            `SELECT COALESCE(last_finish, last_start) AS dato_al FROM analytics.cron_runs WHERE job_key='ods_live_hot'`,
+          ))?.rows?.[0]?.dato_al;
+
+      const recalc = (await trx('commercial.product_label_prices').max('computed_at as at'))?.[0]?.at;
+
+      inputs.push(this.evalInput('ods_live_hot', 'Carril del ODS (precios del ERP)', carril));
+      inputs.push(this.evalInput('recalculo', 'Recálculo de etiquetas', recalc));
+    } catch {
+      // Que no se pueda MEDIR la frescura no puede impedir imprimir. Se declara desconocida —
+      // nunca se afirma "está fresco", que es la mentira que esta función existe para evitar.
+      return { data_as_of: null, stale: false, age_human: null, inputs: [] };
+    }
+
+    const fechas = inputs.map((i) => i.at).filter(Boolean).map((a) => new Date(a as string).getTime());
+    const masViejo = fechas.length ? new Date(Math.min(...fechas)) : null;
+    return {
+      data_as_of: masViejo ? masViejo.toISOString() : null,
+      stale: inputs.some((i) => i.stale),
+      age_human: masViejo ? this.ageHuman(Date.now() - masViejo.getTime()) : null,
+      inputs,
+    };
+  }
+
+  private evalInput(key: string, label: string, at: unknown): FreshnessInput {
+    const d = at ? new Date(at as string) : null;
+    const ms = d ? Date.now() - d.getTime() : null;
+    const maxH = CommercialLabelsService.TOLERANCIA_H[key] ?? 24;
+    return {
+      key,
+      label,
+      at: d ? d.toISOString() : null,
+      age_human: ms === null ? null : this.ageHuman(ms),
+      // Sin latido NO es "ok": es la falla más grave (el carril ni siquiera reporta). El default
+      // permisivo es exactamente cómo un feed muerto se disfraza de sano.
+      stale: ms === null ? true : ms > maxH * 3_600_000,
+    };
+  }
+
+  private ageHuman(ms: number): string {
+    const min = Math.floor(ms / 60_000);
+    if (min < 1) return 'segundos';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 48) return `${h} h`;
+    return `${Math.floor(h / 24)} días`;
+  }
+
   /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */
   async search(q: string): Promise<{ product_id: string; sku: string | null; name: string; barcode: string | null }[]> {
     const term = String(q ?? '').trim();
@@ -86,7 +205,9 @@ export class CommercialLabelsService {
     });
   }
 
-  async resolveForLabels(codesRaw: string[]): Promise<{ labels: LabelModel[]; not_found: string[] }> {
+  async resolveForLabels(
+    codesRaw: string[],
+  ): Promise<{ labels: LabelModel[]; not_found: string[]; freshness: LabelsFreshness }> {
     const codes = Array.from(
       new Set((codesRaw || []).map((c) => String(c ?? '').trim()).filter(Boolean)),
     );
@@ -167,7 +288,7 @@ export class CommercialLabelsService {
           scanned_unit: unitHit?.unit ?? null,
         });
       }
-      return { labels, not_found };
+      return { labels, not_found, freshness: await this.freshness(trx) };
     });
   }
 }
