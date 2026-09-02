@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo e Inventario · MegaDulces</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --naranja: #F28C1A;
+    --amarillo: #FFD200;
+    --fondo: #f5f5f5;
+    --tarjeta: #fff;
+    --texto: #333;
+    --suave: #6b7280;
+    --borde: #e5e7eb;
+    --verde: #16a34a;
+    --rojo: #dc2626;
+    --ambar: #b45309;
+    --radio: 12px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--fondo);
+    color: var(--texto);
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .container { max-width: 1500px; margin: 0 auto; }
+
+  /* ── Encabezado ──────────────────────────────────────────────────────── */
+  .header {
+    background: linear-gradient(135deg, var(--naranja) 0%, var(--amarillo) 100%);
+    color: #fff;
+    padding: 20px 24px;
+    border-radius: var(--radio);
+    margin-bottom: 16px;
+    display: flex; flex-wrap: wrap; gap: 12px;
+    align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 22px; margin-bottom: 2px; }
+  .header p { font-size: 13px; opacity: .92; }
+
+  .frescura {
+    background: rgba(255,255,255,.22);
+    border: 1px solid rgba(255,255,255,.35);
+    padding: 8px 14px; border-radius: 999px;
+    font-size: 12px; line-height: 1.5; text-align: right;
+  }
+  .frescura strong { font-weight: 600; }
+
+  /* ── Tarjetas / secciones ────────────────────────────────────────────── */
+  .section {
+    background: var(--tarjeta); border-radius: var(--radio);
+    padding: 16px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  .section-title {
+    font-size: 15px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ── Selector de sucursal ────────────────────────────────────────────── */
+  .sucursales { display: flex; flex-wrap: wrap; gap: 8px; }
+  .suc-chip {
+    border: 2px solid var(--borde); background: #fff; color: var(--texto);
+    border-radius: 10px; padding: 9px 14px; cursor: pointer;
+    font-size: 13px; font-weight: 500; text-align: left;
+    transition: all .15s; font-family: inherit;
+  }
+  .suc-chip:hover { border-color: var(--naranja); }
+  .suc-chip.activa {
+    border-color: var(--naranja); background: #fff7ed; color: #9a3412;
+  }
+  .suc-chip .cod { font-size: 11px; color: var(--suave); display: block; }
+  .suc-chip.activa .cod { color: #c2410c; }
+
+  /* ── KPIs ────────────────────────────────────────────────────────────── */
+  .kpis {
+    display: grid; gap: 12px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  }
+  .kpi {
+    background: var(--tarjeta); border-radius: var(--radio); padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1); border-left: 4px solid var(--naranja);
+  }
+  .kpi .etq { font-size: 11px; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .val { font-size: 21px; font-weight: 700; margin-top: 4px; }
+  .kpi .sub { font-size: 11px; color: var(--suave); margin-top: 2px; }
+
+  /* ── Filtros ─────────────────────────────────────────────────────────── */
+  .filtros { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .campo { display: flex; flex-direction: column; gap: 4px; }
+  .campo label { font-size: 11px; color: var(--suave); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  input[type=text], select {
+    border: 1px solid var(--borde); border-radius: 8px; padding: 9px 10px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--texto);
+    width: 100%;
+  }
+  input[type=text]:focus, select:focus { outline: 2px solid var(--naranja); outline-offset: -1px; }
+
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  button.btn {
+    border: none; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    background: var(--naranja); color: #fff;
+  }
+  button.btn:hover { filter: brightness(.94); }
+  button.btn.sec { background: #fff; color: var(--texto); border: 1px solid var(--borde); }
+  button.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Tabla ───────────────────────────────────────────────────────────── */
+  .tabla-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--borde); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: #fafafa; text-align: left; padding: 9px 10px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--suave); border-bottom: 1px solid var(--borde);
+    white-space: nowrap; position: sticky; top: 0; z-index: 1;
+  }
+  thead th.ord { cursor: pointer; user-select: none; }
+  thead th.ord:hover { color: var(--naranja); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  tbody tr:hover { background: #fffbf5; }
+  tbody tr { cursor: pointer; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cod { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; color: var(--suave); white-space: nowrap; }
+  .prod-nom { font-weight: 500; min-width: 240px; }
+  .prod-clas { font-size: 11px; color: var(--suave); margin-top: 2px; }
+  .stock-si { color: var(--verde); font-weight: 600; }
+  .stock-no { color: var(--rojo); font-weight: 600; }
+  .suc-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+  .suc-col.cero { color: #d1d5db; }
+
+  .aviso {
+    background: #fffbeb; border: 1px solid #fde68a; color: var(--ambar);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-bottom: 12px;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+
+  .paginacion { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .paginacion span { font-size: 13px; color: var(--suave); }
+
+  .cargando { text-align: center; padding: 36px; color: var(--suave); }
+  .vacio { text-align: center; padding: 36px; color: var(--suave); }
+
+  /* ── Ficha de producto (modal) ───────────────────────────────────────── */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50;
+  }
+  .overlay.abierto { display: flex; }
+  .modal {
+    background: #fff; border-radius: var(--radio); max-width: 860px; width: 100%;
+    max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,.3);
+  }
+  .modal-head {
+    background: linear-gradient(135deg, var(--naranja) 0%, var(--amarillo) 100%);
+    color: #fff; padding: 18px 20px; border-radius: var(--radio) var(--radio) 0 0;
+    display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
+  }
+  .modal-head h2 { font-size: 17px; margin-bottom: 4px; }
+  .modal-head p { font-size: 12px; opacity: .92; }
+  .cerrar {
+    background: rgba(255,255,255,.25); border: none; color: #fff; cursor: pointer;
+    width: 30px; height: 30px; border-radius: 8px; font-size: 18px; line-height: 1; flex-shrink: 0;
+  }
+  .modal-body { padding: 18px 20px; }
+  .almacen-detalle { font-size: 11px; color: var(--suave); }
+
+  @media (max-width: 640px) {
+    .header { flex-direction: column; align-items: flex-start; }
+    .frescura { text-align: left; }
+  }
+</style>
+  <!-- Captura de errores del navegador. Va antes que cualquier otro script
+       para alcanzar a capturar los suyos. Si esto falla, no estorba: reporta
+       en silencio y nunca rompe la pagina. -->
+  <script src="/reportar-errores.js"></script>
+</head>
+<body>
+
+<!-- ── Acceso ────────────────────────────────────────────────────────────── -->
+<div id="pantalla-login" style="position:fixed;inset:0;z-index:100;background:#f5f5f5;
+     display:none;align-items:center;justify-content:center;padding:20px">
+  <form id="form-login" style="background:#fff;border-radius:12px;padding:28px;
+        width:min(400px,100%);box-shadow:0 4px 24px rgba(0,0,0,.12)">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:38px;line-height:1">🍬</div>
+      <h2 style="font-size:19px;color:#333;margin-top:6px">Catálogo e Inventario</h2>
+      <p style="font-size:13px;color:#6b7280;margin-top:4px">
+        Esta vista muestra costos y márgenes. Requiere cuenta.</p>
+    </div>
+
+    <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;
+           text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Correo</label>
+    <input type="email" id="login-email" required autocomplete="username"
+           style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:10px;
+                  font-size:14px;font-family:inherit;margin-bottom:14px">
+
+    <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;
+           text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Contraseña</label>
+    <input type="password" id="login-pass" required autocomplete="current-password"
+           style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:10px;
+                  font-size:14px;font-family:inherit;margin-bottom:16px">
+
+    <div id="login-error" style="display:none;background:#fef2f2;border:1px solid #fecaca;
+         color:#dc2626;border-radius:8px;padding:9px 11px;font-size:13px;margin-bottom:14px"></div>
+
+    <button type="submit" id="login-btn"
+            style="width:100%;background:#F28C1A;color:#fff;border:none;border-radius:8px;
+                   padding:12px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer">
+      Entrar</button>
+
+    <p style="font-size:11.5px;color:#9ca3af;margin-top:14px;text-align:center;line-height:1.5">
+      ¿Sin cuenta? Se crea en el servidor con<br><code>Crear usuario del tablero.bat</code></p>
+  </form>
+</div>
+
+<div class="container" id="contenido" style="display:none">
+
+  <div class="header">
+    <div>
+      <h1>Catálogo e Inventario</h1>
+      <p>MegaDulces de los Altos · existencias y precios por sucursal</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="frescura" id="frescura">Conectando…</div>
+      <div style="text-align:right">
+        <div id="usuario-nombre" style="font-size:12px;color:#fff;font-weight:600"></div>
+        <button id="btn-salir" style="background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);
+                color:#fff;border-radius:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;
+                font-family:inherit;margin-top:3px">Salir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sucursal -->
+  <div class="section">
+    <div class="section-title">🏪 Sucursal</div>
+    <div class="sucursales" id="sucursales"></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis" id="kpis"></div>
+
+  <!-- Filtros -->
+  <div class="section">
+    <div class="section-title">🔎 Filtros</div>
+    <div class="filtros">
+      <div class="campo">
+        <label for="f-q">Buscar</label>
+        <input type="text" id="f-q" placeholder="Código, nombre o código de barras">
+      </div>
+      <div class="campo">
+        <label for="f-familia">Familia</label>
+        <select id="f-familia"><option value="">Todas</option></select>
+      </div>
+      <div class="campo">
+        <label for="f-subfamilia">Subfamilia</label>
+        <select id="f-subfamilia"><option value="">Todas</option></select>
+      </div>
+      <div class="campo">
+        <label for="f-marca">Marca / proveedor</label>
+        <select id="f-marca"><option value="">Todas</option></select>
+      </div>
+      <div class="campo">
+        <label for="f-stock">Existencia</label>
+        <select id="f-stock">
+          <option value="todos">Todas</option>
+          <option value="con" selected>Sólo con existencia</option>
+          <option value="sin">Sólo sin existencia</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label for="f-limit">Por página</label>
+        <select id="f-limit">
+          <option>25</option><option selected>50</option><option>100</option><option>200</option>
+        </select>
+      </div>
+    </div>
+    <div class="acciones">
+      <button class="btn" id="btn-aplicar">Aplicar</button>
+      <button class="btn sec" id="btn-limpiar">Limpiar</button>
+      <button class="btn sec" id="btn-csv">⬇ Exportar CSV</button>
+    </div>
+  </div>
+
+  <!-- Resultados -->
+  <div class="section">
+    <div class="section-title">📦 Productos <span id="titulo-suc" style="font-weight:400;color:var(--suave)"></span></div>
+    <div id="avisos"></div>
+    <div id="resultados"><div class="cargando">Cargando catálogo…</div></div>
+    <div class="paginacion" id="paginacion"></div>
+  </div>
+
+</div>
+
+<!-- Ficha de producto -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <h2 id="ficha-nombre">—</h2>
+        <p id="ficha-meta"></p>
+      </div>
+      <button class="cerrar" id="btn-cerrar" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" id="ficha-body"><div class="cargando">Cargando…</div></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuración
+// ─────────────────────────────────────────────────────────────────────────────
+// Si la página se sirve desde el mismo host que la API se usa ruta relativa;
+// si se abre como archivo local, apunta al servidor de la API.
+// Se puede forzar otra API con ?api=http://host:puerto/api (útil para pruebas).
+const API = new URLSearchParams(location.search).get('api')
+  || ((location.protocol === 'file:' || location.port === '')
+        ? 'http://localhost:3000/api'
+        : location.origin + '/api');
+
+const estado = {
+  sucursal: 'TODAS',
+  q: '', familia: '', subfamilia: '', marca: '',
+  stock: 'con', orden: 'valor', dir: 'desc',
+  page: 1, limit: 50,
+  sucursales: [], ultimo: null,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilidades de formato
+// ─────────────────────────────────────────────────────────────────────────────
+const nfEnt = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
+const nfDec = new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const num   = n => nfEnt.format(Number(n) || 0);
+const money = n => '$' + nfDec.format(Number(n) || 0);
+const esc   = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function fecha(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fechaHora(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('es-MX',
+    { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function antiguedad(horas) {
+  if (horas === null || horas === undefined) return '';
+  if (horas < 1)  return 'hace menos de 1 h';
+  if (horas < 48) return `hace ${horas} h`;
+  return `hace ${Math.round(horas / 24)} días`;
+}
+
+// Millones/miles para KPIs de dinero
+function moneyCorto(n) {
+  n = Number(n) || 0;
+  if (Math.abs(n) >= 1e6) return '$' + nfDec.format(n / 1e6) + ' M';
+  if (Math.abs(n) >= 1e3) return '$' + nfEnt.format(n / 1e3) + ' k';
+  return money(n);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sesión
+//
+// El tablero muestra costos y márgenes, así que la API sólo los entrega con un
+// token válido. Sin sesión los datos ni salen del servidor: no es que se
+// oculten en pantalla.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLAVE_SESION = 'megadulces_tablero_sesion';
+
+const sesion = {
+  leer() {
+    try { return JSON.parse(localStorage.getItem(CLAVE_SESION) || 'null'); }
+    catch { return null; }
+  },
+  guardar(datos) {
+    try { localStorage.setItem(CLAVE_SESION, JSON.stringify(datos)); } catch {}
+  },
+  borrar() {
+    try { localStorage.removeItem(CLAVE_SESION); } catch {}
+  },
+  get token() { return this.leer()?.token || null; },
+};
+
+/** Vuelve a pedir credenciales, avisando por qué. */
+function cerrarSesion(motivo) {
+  sesion.borrar();
+  document.getElementById('contenido').style.display = 'none';
+  document.getElementById('pantalla-login').style.display = 'flex';
+  if (motivo) mostrarErrorLogin(motivo);
+  document.getElementById('login-email')?.focus();
+}
+
+async function getJSON(url) {
+  const cab = {};
+  const t = sesion.token;
+  if (t) cab['Authorization'] = 'Bearer ' + t;
+
+  const r = await fetch(url, { headers: cab });
+
+  // Token vencido o alterado: no tiene caso reintentar, hay que reautenticarse.
+  if (r.status === 401) {
+    cerrarSesion('Tu sesión expiró. Entra de nuevo.');
+    throw new Error('Sesión expirada');
+  }
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+function mostrarErrorLogin(msg) {
+  const e = document.getElementById('login-error');
+  e.textContent = msg;
+  e.style.display = msg ? 'block' : 'none';
+}
+
+async function entrar(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+
+  mostrarErrorLogin('');
+  btn.disabled = true;
+  btn.textContent = 'Entrando…';
+
+  try {
+    const r = await fetch(`${API}/auth/login`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, password: pass }),
+    });
+
+    if (r.status === 401) { mostrarErrorLogin('Correo o contraseña incorrectos.'); return; }
+    if (!r.ok)            { mostrarErrorLogin(`No se pudo entrar (${r.status}).`); return; }
+
+    const d = await r.json();
+    if (!d?.token) { mostrarErrorLogin('El servidor no devolvió una sesión válida.'); return; }
+
+    sesion.guardar(d);
+    document.getElementById('login-pass').value = '';
+    await abrirTablero();
+  } catch (e) {
+    mostrarErrorLogin('No hay conexión con el servidor.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+async function abrirTablero() {
+  const s = sesion.leer();
+  document.getElementById('usuario-nombre').textContent =
+    (s?.usuario?.nombre || '') + (s?.usuario?.rol ? ` · ${s.usuario.rol}` : '');
+  document.getElementById('pantalla-login').style.display = 'none';
+  document.getElementById('contenido').style.display = 'block';
+  await iniciar();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Carga inicial: sucursales y opciones de filtro
+// ─────────────────────────────────────────────────────────────────────────────
+async function iniciar() {
+  try {
+    const [sucursales, filtros] = await Promise.all([
+      getJSON(`${API}/catalogo/sucursales`),
+      getJSON(`${API}/catalogo/filtros`),
+    ]);
+    estado.sucursales = sucursales;
+    pintarSucursales();
+    llenarSelect('f-familia',    filtros.familias,    'Todas las familias');
+    llenarSelect('f-subfamilia', filtros.subfamilias, 'Todas las subfamilias');
+    llenarSelect('f-marca',      filtros.marcas,      'Todas las marcas');
+    await cargar();
+  } catch (e) {
+    document.getElementById('resultados').innerHTML =
+      `<div class="vacio">No se pudo conectar con la API en <code>${esc(API)}</code>.<br>` +
+      `<small>${esc(e.message)}</small></div>`;
+    document.getElementById('frescura').textContent = 'Sin conexión';
+  }
+}
+
+function llenarSelect(id, opciones, etiquetaTodas) {
+  const sel = document.getElementById(id);
+  const vistos = new Set();
+  sel.innerHTML = `<option value="">${etiquetaTodas}</option>` +
+    opciones.filter(o => {
+      const k = o.nombre.trim().toUpperCase();
+      if (!k || vistos.has(k)) return false;
+      vistos.add(k); return true;
+    }).map(o => `<option value="${esc(o.codigo)}">${esc(o.nombre)}</option>`).join('');
+}
+
+function pintarSucursales() {
+  const cont = document.getElementById('sucursales');
+  const chips = [{ codigo: 'TODAS', nombre: 'Todas', sub: 'consolidado' }]
+    .concat(estado.sucursales.map(s => ({
+      codigo: s.codigo,
+      nombre: s.nombre,
+      sub: `${s.codigo} · ${s.almacenes.length} ${s.almacenes.length === 1 ? 'almacén' : 'almacenes'}`,
+    })));
+
+  cont.innerHTML = chips.map(c => `
+    <button class="suc-chip ${c.codigo === estado.sucursal ? 'activa' : ''}" data-suc="${esc(c.codigo)}">
+      ${esc(c.nombre)}<span class="cod">${esc(c.sub)}</span>
+    </button>`).join('');
+
+  cont.querySelectorAll('.suc-chip').forEach(b => b.addEventListener('click', () => {
+    estado.sucursal = b.dataset.suc;
+    estado.page = 1;
+    pintarSucursales();
+    cargar();
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consulta principal
+// ─────────────────────────────────────────────────────────────────────────────
+function urlActual() {
+  const p = new URLSearchParams({
+    sucursal: estado.sucursal, stock: estado.stock,
+    orden: estado.orden, dir: estado.dir,
+    page: estado.page, limit: estado.limit,
+  });
+  if (estado.q)          p.set('q', estado.q);
+  if (estado.familia)    p.set('familia', estado.familia);
+  if (estado.subfamilia) p.set('subfamilia', estado.subfamilia);
+  if (estado.marca)      p.set('marca', estado.marca);
+  return `${API}/catalogo?${p}`;
+}
+
+async function cargar() {
+  document.getElementById('resultados').innerHTML = '<div class="cargando">Consultando KP_CONCENTRADA…</div>';
+  document.getElementById('paginacion').innerHTML = '';
+  try {
+    const d = await getJSON(urlActual());
+
+    // /api/catalogo está abierto a propósito (lo usa la tienda): con un token
+    // vencido no responde 401, sino que devuelve los datos SIN costos. Sin esta
+    // comprobación el tablero mostraría columnas vacías sin decir por qué.
+    if (d.interno === false) {
+      cerrarSesion('Tu sesión ya no es válida. Entra de nuevo para ver costos.');
+      return;
+    }
+
+    estado.ultimo = d;
+    pintarFrescura(d);
+    pintarKpis(d);
+    pintarAvisos(d);
+    pintarTabla(d);
+    pintarPaginacion(d);
+  } catch (e) {
+    document.getElementById('resultados').innerHTML =
+      `<div class="vacio">Error al consultar: ${esc(e.message)}</div>`;
+  }
+}
+
+function pintarFrescura(d) {
+  const nom = d.sucursal === 'TODAS'
+    ? 'Todas las sucursales'
+    : (estado.sucursales.find(s => s.codigo === d.sucursal)?.nombre ?? d.sucursal);
+  document.getElementById('titulo-suc').textContent = `· ${nom}`;
+  document.getElementById('frescura').innerHTML =
+    `Datos al <strong>${fechaHora(d.datos_al)}</strong><br>` +
+    `<span style="opacity:.85">${antiguedad(d.antiguedad_horas)} · última sincronización</span>`;
+}
+
+function pintarKpis(d) {
+  const r = d.resumen;
+  const cards = [
+    { etq: 'Productos', val: num(r.productos), sub: 'en catálogo (filtrado)' },
+    { etq: 'Con existencia', val: num(r.con_existencia),
+      sub: `${num(r.sin_existencia)} sin existencia` },
+    { etq: 'Unidades', val: num(r.existencia_total), sub: 'suma de existencias' },
+    { etq: 'Valor al costo', val: moneyCorto(r.valor_inventario), sub: money(r.valor_inventario) },
+    { etq: 'Valor a precio venta', val: moneyCorto(r.valor_a_precio_venta), sub: 'con impuestos' },
+  ];
+  document.getElementById('kpis').innerHTML = cards.map(c => `
+    <div class="kpi">
+      <div class="etq">${c.etq}</div>
+      <div class="val">${c.val}</div>
+      <div class="sub">${c.sub}</div>
+    </div>`).join('');
+}
+
+function pintarAvisos(d) {
+  const avisos = [];
+
+  if (d.antiguedad_horas !== null && d.antiguedad_horas >= 24) {
+    avisos.push(`<span>⏱</span><div><strong>Los datos no son del momento.</strong> ` +
+      `KP_CONCENTRADA se llena por sincronización y la última corrió ` +
+      `${antiguedad(d.antiguedad_horas)} (${fechaHora(d.datos_al)}). ` +
+      `La página consulta la base en vivo, pero la base está tan fresca como esa sincronización.</div>`);
+  }
+
+  const cedis = d.sucursal === '00' || d.sucursal === 'TODAS';
+  if (cedis) {
+    avisos.push(`<span>⚠</span><div><strong>CEDIS (00) sin fechas de movimiento.</strong> ` +
+      `Sus 4,667 registros de existencia no traen fecha de último movimiento, así que ` +
+      `sus cifras pueden estar congeladas. ` +
+      `${d.sucursal === 'TODAS' ? 'Pesa fuerte en el consolidado: conviene revisarlo aparte.' : ''}</div>`);
+  }
+
+  document.getElementById('avisos').innerHTML =
+    avisos.map(a => `<div class="aviso">${a}</div>`).join('');
+}
+
+const COLS_ORD = [
+  { key: 'codigo',     etq: 'Código' },
+  { key: 'nombre',     etq: 'Producto' },
+  { key: 'precio',     etq: 'Precio' },
+  { key: 'existencia', etq: 'Existencia' },
+  { key: 'valor',      etq: 'Valor costo' },
+];
+
+function thOrd(key, etq, clase = '') {
+  const activo = estado.orden === key;
+  const flecha = activo ? (estado.dir === 'desc' ? ' ▾' : ' ▴') : '';
+  return `<th class="ord ${clase}" data-orden="${key}">${etq}${flecha}</th>`;
+}
+
+function pintarTabla(d) {
+  if (!d.productos.length) {
+    document.getElementById('resultados').innerHTML =
+      '<div class="vacio">Ningún producto coincide con los filtros.</div>';
+    return;
+  }
+
+  const todas = d.sucursal === 'TODAS';
+  const sucs  = estado.sucursales;
+
+  const encabezado = `
+    <tr>
+      ${thOrd('codigo', 'Código')}
+      ${thOrd('nombre', 'Producto')}
+      <th class="num">Costo</th>
+      <th class="num">Margen</th>
+      <th class="num">Imp.</th>
+      ${thOrd('precio', 'Precio', 'num')}
+      ${thOrd('existencia', todas ? 'Exist. total' : 'Existencia', 'num')}
+      ${thOrd('valor', 'Valor costo', 'num')}
+      ${todas ? sucs.map(s => `<th class="num" title="${esc(s.nombre)}">${esc(s.codigo)}</th>`).join('') : '<th>Alm.</th>'}
+      <th>Últ. mov.</th>
+    </tr>`;
+
+  const filas = d.productos.map(p => {
+    const impuestos = [
+      p.iva_pct  ? `IVA ${nfEnt.format(p.iva_pct)}%`   : null,
+      p.ieps_pct ? `IEPS ${nfEnt.format(p.ieps_pct)}%` : null,
+    ].filter(Boolean).join(' + ') || '—';
+
+    const clas = [p.familia, p.subfamilia, p.marca].filter(Boolean).join(' · ');
+
+    const celdasSuc = todas
+      ? sucs.map(s => {
+          const v = p.por_sucursal?.[s.codigo]?.existencia ?? 0;
+          return `<td class="suc-col ${v > 0 ? '' : 'cero'}">${v > 0 ? num(v) : '·'}</td>`;
+        }).join('')
+      : `<td class="cod">${esc(p.almacenes || '—')}</td>`;
+
+    const precio = p.precio_varia
+      ? `${money(p.precio_min)}–${money(p.precio_max)}`
+      : money(p.precio_venta);
+
+    return `
+      <tr data-codigo="${esc(p.codigo)}">
+        <td class="cod">${esc(p.codigo)}</td>
+        <td class="prod-nom">${esc(p.nombre)}
+          ${clas ? `<div class="prod-clas">${esc(clas)}</div>` : ''}</td>
+        <td class="num">${money(p.costo)}</td>
+        <td class="num">${p.margen_pct ? nfDec.format(p.margen_pct) + '%' : '—'}</td>
+        <td class="num" style="font-size:11px;color:var(--suave)">${impuestos}</td>
+        <td class="num"><strong>${precio}</strong></td>
+        <td class="num ${p.existencia > 0 ? 'stock-si' : 'stock-no'}">
+          ${num(p.existencia)} <span style="font-weight:400;color:var(--suave);font-size:11px">${esc(p.unidad)}</span></td>
+        <td class="num">${money(p.valor_inventario)}</td>
+        ${celdasSuc}
+        <td style="font-size:11px;color:var(--suave);white-space:nowrap">${fecha(p.ultimo_mov)}</td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('resultados').innerHTML =
+    `<div class="tabla-wrap"><table><thead>${encabezado}</thead><tbody>${filas}</tbody></table></div>` +
+    (todas ? `<div style="font-size:11px;color:var(--suave);margin-top:8px">
+        Las columnas ${sucs.map(s => esc(s.codigo)).join(' / ')} son la existencia en cada sucursal:
+        ${sucs.map(s => `<strong>${esc(s.codigo)}</strong>=${esc(s.nombre)}`).join(' · ')}
+      </div>` : '');
+
+  // Ordenar al hacer clic en la cabecera
+  document.querySelectorAll('thead th.ord').forEach(th => th.addEventListener('click', () => {
+    const key = th.dataset.orden;
+    if (estado.orden === key) estado.dir = estado.dir === 'desc' ? 'asc' : 'desc';
+    else { estado.orden = key; estado.dir = (key === 'nombre' || key === 'codigo') ? 'asc' : 'desc'; }
+    estado.page = 1;
+    cargar();
+  }));
+
+  // Abrir ficha al hacer clic en la fila
+  document.querySelectorAll('tbody tr').forEach(tr =>
+    tr.addEventListener('click', () => abrirFicha(tr.dataset.codigo)));
+}
+
+function pintarPaginacion(d) {
+  const { page, paginas, total, limit } = d.paginacion;
+  const desde = total === 0 ? 0 : (page - 1) * limit + 1;
+  const hasta = Math.min(page * limit, total);
+  document.getElementById('paginacion').innerHTML = `
+    <button class="btn sec" id="pg-prev" ${page <= 1 ? 'disabled' : ''}>← Anterior</button>
+    <span>${num(desde)}–${num(hasta)} de ${num(total)} · página ${num(page)} de ${num(paginas)}</span>
+    <button class="btn sec" id="pg-next" ${page >= paginas ? 'disabled' : ''}>Siguiente →</button>`;
+
+  document.getElementById('pg-prev')?.addEventListener('click', () => { estado.page--; cargar(); });
+  document.getElementById('pg-next')?.addEventListener('click', () => { estado.page++; cargar(); });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ficha de producto: existencia y precio en las 6 sucursales
+// ─────────────────────────────────────────────────────────────────────────────
+async function abrirFicha(codigo) {
+  const ov = document.getElementById('overlay');
+  ov.classList.add('abierto');
+  document.getElementById('ficha-nombre').textContent = 'Cargando…';
+  document.getElementById('ficha-meta').textContent = codigo;
+  document.getElementById('ficha-body').innerHTML = '<div class="cargando">Consultando sucursales…</div>';
+
+  try {
+    const p = await getJSON(`${API}/catalogo/producto/${encodeURIComponent(codigo)}`);
+    if (!p.encontrado) {
+      document.getElementById('ficha-body').innerHTML = '<div class="vacio">Producto no encontrado.</div>';
+      return;
+    }
+
+    document.getElementById('ficha-nombre').textContent = p.nombre;
+    document.getElementById('ficha-meta').innerHTML =
+      `${esc(p.codigo)} · ${esc(p.unidad)}` +
+      (p.codigo_barras ? ` · código de barras ${esc(p.codigo_barras)}` : '') +
+      `<br>${esc([p.familia, p.subfamilia, p.marca].filter(Boolean).join(' · '))}` +
+      (p.pzas_bulto ? ` · ${nfEnt.format(p.pzas_bulto)} por ${esc(p.unidad_bulto || 'bulto')}` : '');
+
+    const filas = p.por_sucursal.map(s => {
+      const detalle = s.almacenes.length > 1
+        ? `<div class="almacen-detalle">${s.almacenes.map(a =>
+            `alm. ${esc(a.almacen)}: ${num(a.existencia)}`).join(' · ')}</div>`
+        : '';
+      return `
+        <tr>
+          <td><strong>${esc(s.nombre)}</strong> <span class="cod">${esc(s.sucursal)}</span>${detalle}</td>
+          <td class="num">${money(s.costo)}</td>
+          <td class="num">${s.margen_pct ? nfDec.format(s.margen_pct) + '%' : '—'}</td>
+          <td class="num"><strong>${money(s.precio_venta)}</strong></td>
+          <td class="num ${s.existencia > 0 ? 'stock-si' : 'stock-no'}">${num(s.existencia)}</td>
+          <td class="num">${money(s.valor_costo)}</td>
+          <td style="font-size:11px;color:var(--suave);white-space:nowrap">${fecha(s.ultimo_mov)}</td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('ficha-body').innerHTML = `
+      <div class="kpis" style="margin-bottom:14px">
+        <div class="kpi"><div class="etq">Existencia total</div>
+          <div class="val">${num(p.existencia_total)}</div><div class="sub">${esc(p.unidad)}</div></div>
+        <div class="kpi"><div class="etq">Sucursales con stock</div>
+          <div class="val">${p.por_sucursal.filter(s => s.existencia > 0).length} de ${p.por_sucursal.length}</div>
+          <div class="sub">tienen existencia</div></div>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr>
+          <th>Sucursal</th><th class="num">Costo</th><th class="num">Margen</th>
+          <th class="num">Precio</th><th class="num">Existencia</th>
+          <th class="num">Valor costo</th><th>Últ. mov.</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>`;
+  } catch (e) {
+    document.getElementById('ficha-body').innerHTML =
+      `<div class="vacio">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function cerrarFicha() { document.getElementById('overlay').classList.remove('abierto'); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exportar CSV de la vista actual
+// ─────────────────────────────────────────────────────────────────────────────
+function exportarCSV() {
+  const d = estado.ultimo;
+  if (!d || !d.productos.length) return;
+
+  const todas = d.sucursal === 'TODAS';
+  const cab = ['Codigo', 'Producto', 'Unidad', 'Familia', 'Subfamilia', 'Marca',
+    'Codigo_barras', 'Costo', 'Margen_%', 'IVA_%', 'IEPS_%', 'Precio_venta',
+    'Existencia', 'Valor_costo', 'Ultimo_movimiento']
+    .concat(todas ? estado.sucursales.map(s => `Exist_${s.codigo}_${s.nombre}`) : ['Almacenes']);
+
+  const celda = v => {
+    const s = String(v ?? '');
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const filas = d.productos.map(p => {
+    const base = [p.codigo, p.nombre, p.unidad, p.familia, p.subfamilia, p.marca,
+      p.codigo_barras, p.costo, p.margen_pct, p.iva_pct, p.ieps_pct, p.precio_venta,
+      p.existencia, p.valor_inventario, p.ultimo_mov ? p.ultimo_mov.slice(0, 10) : ''];
+    return base.concat(todas
+      ? estado.sucursales.map(s => p.por_sucursal?.[s.codigo]?.existencia ?? 0)
+      : [p.almacenes]).map(celda).join(',');
+  });
+
+  // BOM para que Excel respete los acentos
+  const csv = '﻿' + [cab.map(celda).join(','), ...filas].join('\r\n');
+  const suc = d.sucursal === 'TODAS' ? 'todas' : d.sucursal;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `catalogo_megadulces_${suc}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Eventos
+// ─────────────────────────────────────────────────────────────────────────────
+function aplicar() {
+  estado.q          = document.getElementById('f-q').value.trim();
+  estado.familia    = document.getElementById('f-familia').value;
+  estado.subfamilia = document.getElementById('f-subfamilia').value;
+  estado.marca      = document.getElementById('f-marca').value;
+  estado.stock      = document.getElementById('f-stock').value;
+  estado.limit      = Number(document.getElementById('f-limit').value);
+  estado.page       = 1;
+  cargar();
+}
+
+document.getElementById('btn-aplicar').addEventListener('click', aplicar);
+document.getElementById('f-q').addEventListener('keydown', e => { if (e.key === 'Enter') aplicar(); });
+['f-familia', 'f-subfamilia', 'f-marca', 'f-stock', 'f-limit']
+  .forEach(id => document.getElementById(id).addEventListener('change', aplicar));
+
+document.getElementById('btn-limpiar').addEventListener('click', () => {
+  document.getElementById('f-q').value = '';
+  ['f-familia', 'f-subfamilia', 'f-marca'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-stock').value = 'con';
+  aplicar();
+});
+
+document.getElementById('btn-csv').addEventListener('click', exportarCSV);
+document.getElementById('btn-cerrar').addEventListener('click', cerrarFicha);
+document.getElementById('overlay').addEventListener('click', e => {
+  if (e.target.id === 'overlay') cerrarFicha();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarFicha(); });
+
+document.getElementById('form-login').addEventListener('submit', entrar);
+document.getElementById('btn-salir').addEventListener('click', () => cerrarSesion(''));
+
+// Al abrir: si hay sesión guardada se entra directo. Si el token ya no vale, la
+// primera consulta devuelve 401 y getJSON regresa al login por su cuenta.
+if (sesion.token) abrirTablero();
+else cerrarSesion('');
+</script>
+</body>
+</html>
