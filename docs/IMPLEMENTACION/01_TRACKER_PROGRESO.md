@@ -1213,20 +1213,21 @@ falló fue que la alarma no salió del edificio y que el carril que de verdad al
 - [ ] ⬜ **OBS.1.2** Mismo tratamiento a `replicate-ods-fast.js` y `ods-cdc-forward.js` (siguen mudos).
 - ✅ **Verificado en vivo**: `ods_live_mirror` reportando `7/7 ramas · 118 filas · 0 tablas con error` en prod. `tsc --noEmit` del API verde.
 
-### OBS.2 — Auto-curación ⛔ ruta crítica
-- [ ] ⬜ **OBS.2.1** `ensurePubSlot` (`ods-cdc-wal.js:60-70`) valida `wal_status`/`active`, no sólo existencia. Slot `lost` → recrear + disparar backfill solo. Hoy el `note` se lo pide a un humano y nadie lo lee.
-- [ ] ⬜ **OBS.2.2** Backoff + jitter antes de salir (hoy sale inmediato → ~5,000 reinicios).
-- [ ] ⬜ **OBS.2.3** Los dos carriles permanentes: CDC para latencia, scan para reconciliación. **Revierte la premisa de CDC.6**, que los trató como sustitutos.
+### OBS.2 — Auto-curación ✅ 2026-09-02 (commit `2422bdaf`)
+- [x] ✅ **OBS.2.1** `ensurePubSlot` valida `wal_status`/`active`, no sólo existencia. Slot `lost`/`unreserved` → dropea + recrea; si otro PID lo tiene tomado no fuerza, reintenta al próximo arranque. Devuelve `recreado` y el consumidor **DECLARA el hueco** en el latido: recrear el slot no repone el WAL perdido, así que el carril no puede decir `ok` por más que el stream fluya. **Probado contra los 7 slots reales en `lost`**: ramas 06 y 05 auto-curadas (detecta → dropea → recrea → decodifica → limpia).
+- [x] ✅ **OBS.2.2** Backoff anti-bucle (`ODS_CDC_EXIT_DELAY_MS`, 30 s). El ciclo morir/reiniciar tardaba ~10 s → 4,591–5,564 reinicios por rama, CPU quemada y la box al 90% de RAM.
+- [ ] ⬜ **OBS.2.3** **Levantar los 7 consumidores CDC** en el sustrato nuevo. El código ya es seguro (se auto-cura), pero arrancarlos cambia el perfil de riesgo: un slot activo **retiene WAL** en el `:5433` (tope `max_slot_wal_keep_size` = 10 GB). Decisión pendiente de Edgar. Hoy el poll sostiene prod; sin CDC no hay propagación de **DELETE**.
 
 ### OBS.3 — Completitud, no sólo latido
-- [ ] ⬜ **OBS.3.1** Arrancar `reconcile-ods-window.js --days=3 --apply --watch=900`. Ya escrito, ya late directo a prod, ya declarado en `ecosystem.cdc.config.js:71` — **nunca se levantó**. Cero código.
+- [x] ✅ **OBS.3.1** (2026-09-02) `reconcile-ods-window` **levantado** como 3er carril del compose (`--days=3 --apply --watch=900`). Estaba escrito, declarado en `ecosystem.cdc.config.js:71` y **nunca se había levantado**. Hallazgo de la 1ª corrida: **7,587 filas ausentes** en una ventana de 3 días (rama 06 `kdm2` 13.8%, `kdij` 19.3%) — repuestas. Los ciclos siguientes siguen encontrando cientos por pasada, así que la pérdida es **continua**, no un residuo del congelamiento: `cdc_reconcile` queda en `error` gritándolo, que es exactamente su trabajo.
 - [ ] ⬜ **OBS.3.2** Sensor de **fecha-dato por (tabla, sucursal)** para catálogos. Hoy `_sync_status` de `kepler_ods` no tiene dimensión de sucursal y los sensores por rama miran `kdm1` = venta, no catálogo. Por eso 6 días de catálogo congelado no dispararon un sensor por rama.
 
-### OBS.4 — Sustrato Docker
-- [ ] ⬜ **OBS.4.1** `ops/ingest/docker-compose.yml` + `env_file` fuera del repo, `restart: unless-stopped`, un servicio por carril.
-- [ ] ⬜ **OBS.4.2** `HEALTHCHECK` que mide **entrega**, no proceso. El 02-sep `pm2 ls` dijo `online` mientras el batch no se ejecutaba.
-- [ ] ⬜ **OBS.4.3** Red: `localhost:5433` no resuelve dentro del contenedor → unirse a la red de `pgvector-md`.
-- [ ] ⬜ **OBS.4.4** Retirar los `.cmd :loop` y con ellos la **key en texto plano**.
+### OBS.4 — Sustrato Docker ✅ 2026-09-02 (commits `4d9f5aa2`, `c6c1c8d9`)
+- [x] ✅ **OBS.4.1** `ops/ingest/` con Dockerfile autocontenido (mismo criterio que `services/feeds-ingest`: copia el grafo real de requires, porque `sink.js` requiere `apply-handlers` en el tope **incluso con sink=http**), compose de 3 carriles con `restart: unless-stopped`, `tini` para que SIGTERM cierre el ciclo, y `env_file` en `C:\KeplerRunner\ingest.env`. **Ya no depende de una sesión.**
+- [x] ✅ **OBS.4.2** `health.js` mide que el **latido AVANCE en prod**, no que el PID exista. Probado en los 3 estados (sano 0 / ausente 1 / viejo 1). Si no puede **leer** el latido reporta enfermo: un healthcheck que cae a "sano" ante un error es el falso verde otra vez.
+- [x] ✅ **OBS.4.3** La fuente entra por `host.docker.internal:5433` — en la `bridge` default no hay DNS por nombre y la IP `172.17.x` de `pgvector-md` no es estable.
+- [x] ✅ **OBS.4.4** Los `.cmd :loop` del host cortados (cutover hecho). `make-env.js` arma el `env_file` desde las fuentes ya vetadas **sin imprimir secretos** y **aborta si fuente y prod coinciden**; `.gitignore` cubre `ops/ingest/ingest.env`. *(La key sigue en texto plano en los 4 `.cmd`, que quedan como rollback → INFRA.1.4.)*
+- [x] ✅ **Fix de semántica** (`c6c1c8d9`): el `status='error'` del reconciliador es alarma de **DATO**, no de proceso — reiniciarlo no repone una fila. `ODS_HB_IGNORE_ERROR=1` + `start_period` de 20 min. Sin esto Docker lo reiniciaba en bucle justo cuando más falta hacía que siguiera avisando.
 - ⚠️ **Excepción al "todo Docker"**: los carriles vivos de Wincaja leen `.mdb` con **Jet 32-bit** (no existe en Linux) → se quedan en Windows. Sustrato **mixto a propósito**.
 
 ### OBS.5 — Que la alerta salga del edificio
