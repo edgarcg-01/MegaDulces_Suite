@@ -3382,6 +3382,18 @@ export class CommercialAnalyticsService {
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
         : { id: null, nombre: 'Todas las empresas', code: null };
       if (!b) throw new BadRequestException('Marca no encontrada');
+      // FIRE-FIX (2026-09-02): para rangos PARCIALES el path live escanea `wincaja.v_sales_lines`
+      // bajo RLS (Seq Scan de maestro 1.49M + detalles 9.9M → ~67s → tumbaba prod). Si el matview
+      // enriquecido `analytics.mv_wincaja_sales_daily` (vendedor/canal/unidades ya horneados) existe
+      // y está poblado, se lee de ahí como un group-by por índice — igual que `sellOut`. Fallback al
+      // live solo en arranque en frío. Dinero == live (verificado celda×celda; by-vendor agrupa más
+      // grueso —sin almacén— así que el total se conserva).
+      const winDailyMvOk = !monthAligned
+        && !!(await trx.raw(
+          `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+              AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+        )).rows?.[0];
       // RS.9 — fast path: meses completos → rollup persistido (units/unit_kind canónicos).
       // Se mapea al MISMO shape que espera el pivote (uv_win/fac_win/qty): uv_win='KGS'|'PZA',
       // fac_win=1, qty=units canónico → el cálculo de units/cajas de abajo funciona igual.
@@ -3406,6 +3418,34 @@ export class CommercialAnalyticsService {
               trx.raw('sum(sd.units) as qty'), trx.raw('sum(sd.revenue) as monto'),
             )
             .groupByRaw('sd.vendor_code, sd.vendor_name, sd.sale_channel, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code')
+        : winDailyMvOk
+        // FIRE-FIX — matview enriquecido (vendedor/canal/unidades ya horneados): group-by por índice,
+        // sin joins, sin el scan de v_sales_lines. Mismo shape que el rollup (uv_win/fac_win=1/qty=units
+        // canónico). El matview `channel` es el mapeado (credito/ruta/preventa); lo devolvemos como el
+        // sale_channel crudo que el pivote espera (mayoreo_credito/ruta_venta/preventa_vecinal). El
+        // filtro `channel IN (credito,ruta,preventa)` == `sale_channel IN (mayoreo_credito,…)` (1:1 en
+        // wincaja). Anti-doble-conteo/promo/borrados sobre columnas del matview.
+        ? await trx('analytics.mv_wincaja_sales_daily as vl')
+            .where('vl.tenant_id', tenantId)
+            .where('vl.product_deleted', false)
+            .modify((qb) => { if (promoMode === 'solo') qb.andWhere('vl.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('vl.is_promo', false); })
+            .whereIn('vl.channel', ['credito', 'ruta', 'preventa'])
+            .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
+            .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+            .modify((qb) => { if (brandId) qb.andWhere('vl.brand_id', brandId); if (search) qb.andWhereRaw('(vl.sku ILIKE ? OR vl.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
+            .select(
+              'vl.vendor_code as vendor_code',
+              'vl.vendor_name as vendor_name',
+              trx.raw(`CASE vl.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
+              'vl.product_id as product_id',
+              trx.raw('max(vl.sku) as sku'), trx.raw('max(vl.nombre) as nombre'), trx.raw('max(vl.factor_sale) as factor_sale'),
+              'vl.brand_id as brand_id', trx.raw('max(vl.brand_nombre) as brand_nombre'), trx.raw('max(vl.brand_code) as brand_code'),
+              trx.raw('max(vl.box_size) as box_size'),
+              trx.raw(`CASE WHEN vl.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
+              trx.raw('1 as fac_win'),
+              trx.raw('sum(vl.units) as qty'), trx.raw('sum(vl.monto) as monto'),
+            )
+            .groupByRaw('vl.vendor_code, vl.vendor_name, vl.channel, vl.product_id, vl.brand_id, vl.unit_kind')
         : await trx
         .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
           .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
