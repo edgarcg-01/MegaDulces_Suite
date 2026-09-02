@@ -5,6 +5,7 @@ import { ReconciliationQueryService } from './reconciliation-query.service';
 import { ReconciliationScannerService } from './reconciliation-scanner.service';
 import { BlindCountService } from './blind-count.service';
 import { CashCutsSyncService } from './cash-cuts-sync.service';
+import { CashCountSlaService } from './cash-count-sla.service';
 import { ReconciliationActionsService } from './reconciliation-actions.service';
 import { ReconciliationController } from './reconciliation.controller';
 import { StoreArqueoController } from './store-arqueo.controller';
@@ -15,7 +16,7 @@ import { StoreArqueoController } from './store-arqueo.controller';
  */
 @Module({
   controllers: [ReconciliationController, StoreArqueoController],
-  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService, CashCutsSyncService, ReconciliationActionsService],
+  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService, CashCutsSyncService, CashCountSlaService, ReconciliationActionsService],
   exports: [MovementReconcileService, ReconciliationFindingsService],
 })
 export class ReconciliationModule {}

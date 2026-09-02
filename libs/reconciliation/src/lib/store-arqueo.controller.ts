@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
@@ -6,6 +6,7 @@ import {
 } from '@megadulces/platform-core';
 import { BlindCountService } from './blind-count.service';
 import { CashCutsSyncService } from './cash-cuts-sync.service';
+import { CashCountSlaService } from './cash-count-sla.service';
 import type { BlindCountDto } from './blind-count.service';
 
 /**
@@ -45,6 +46,7 @@ export class StoreArqueoController {
   constructor(
     private readonly blind: BlindCountService,
     private readonly sync: CashCutsSyncService,
+    private readonly sla: CashCountSlaService,
     private readonly scope: ScopeService,
   ) {}
 
@@ -282,6 +284,50 @@ export class StoreArqueoController {
       })),
       totales: { arqueos: res.totales.arqueos, sin_validar: res.totales.sin_validar },
     };
+  }
+
+  /**
+   * SM.21 — Cumplimiento del arqueo: qué % de los cortes llegó a tener conteo
+   * físico, cuánto tardó y cuánto dinero quedó sin verificar.
+   *
+   * Solo para quien supervisa. A la cajera no le sirve y además son montos: es la
+   * misma línea que separa `revela` en todo este controlador.
+   */
+  @Get('cumplimiento')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiOperation({ summary: 'Tienda — cumplimiento del arqueo por sucursal (cortes contados, demora, monto sin verificar).' })
+  async cumplimiento(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    if (!this.revela(user)) throw new ForbiddenException('El cumplimiento del arqueo es del supervisor.');
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/cumplimiento');
+    await this.sync.syncCurrentTenant();
+    const filas = await this.sla.cumplimiento({ desde: query['from'] as string | undefined, warehouseCodes: warehouse_codes });
+    const t = filas.reduce((a, f) => ({
+      cortes: a.cortes + f.cortes, arqueados: a.arqueados + f.arqueados,
+      pendientes: a.pendientes + f.pendientes, no_verificables: a.no_verificables + f.no_verificables,
+      monto_sin_verificar: a.monto_sin_verificar + Number(f.monto_sin_verificar || 0),
+    }), { cortes: 0, arqueados: 0, pendientes: 0, no_verificables: 0, monto_sin_verificar: 0 });
+    return {
+      sucursales: filas,
+      totales: { ...t, pct: t.cortes ? Math.round((t.arqueados / t.cortes) * 1000) / 10 : 0 },
+      sla_min: CashCountSlaService.SLA_MIN,
+      critico_min: CashCountSlaService.CRITICO_MIN,
+    };
+  }
+
+  /**
+   * SM.21 — Dispara el barrido de plazos a mano. El cron corre cada 15 min; esto
+   * existe para no esperarlo al operar (y para el smoke). Idempotente: el hallazgo
+   * se hace UPSERT por `dedup_key`.
+   */
+  @Post('scan-sla')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiOperation({ summary: 'Tienda — barre ahora los cortes sin conteo fuera de plazo y los manda a la bandeja.' })
+  async scanSla(@ReqUser() user: AuthUser) {
+    if (!this.revela(user)) throw new ForbiddenException('El barrido de plazos es del supervisor.');
+    await this.sync.syncCurrentTenant();
+    return this.sla.scanCurrentTenant();
   }
 
   /**
