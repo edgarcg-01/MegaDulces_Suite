@@ -350,6 +350,37 @@ El histórico trae **sucursales que hoy no existen** — `20 COMISIONISTAS`, `70
 `extraKeys` para prefijar columnas de partición a la identidad, y aceptar un tipo Postgres ya
 resuelto (`c.pg`) además del tipo Jet crudo (`c.jet`).
 
+### 13.6bis Resultado de la corrida y verificación (✅ 2026-09-02)
+
+**206/206 unidades · 0 errores · 144,782,596 filas leídas / 144,763,347 escritas.** 30 schemas
+(`h00`…`h505`, más `h20` Comisionistas, `h51` Canindo RD, `h70` Telemarketing, `hcedis_b` — las que
+ya no existen). La desambiguación separó sola 6 archivos duplicados del mismo corte
+(`2025-2025_dic`, `2021-32_morelia_madero_dic`, `2019-70_telemarketing_error`, …).
+
+**Integridad (ledger vs espejo): 14,425 particiones sanas, 0 con problema** — cero casos donde el
+espejo tenga MÁS filas que las leídas (que sería duplicación).
+
+**El tamaño costó más de lo proyectado: 36 GB, no 15–20.** Es el precio de la decisión de identidad:
+forzar el surrogate `(_dataset, _row_hash)` en **todas** las tablas (no sólo en las sin PK) para no
+discutirle a Access sus PKs rotas son ~4.6 GB de texto de hash más su índice en cada una de las 14
+mil particiones. Compra deliberada de robustez; ahí está la palanca si el disco apretara.
+
+⚠️ **Y el colapso por `_row_hash` SÍ cuesta dinero — poco, pero no cero.** Medido contra el origen en
+la unidad de mayor colapso (`2018` × `h40` 8 Esquinas, `DetallesMovAlmacen`):
+
+| | filas | Σ ValorVenta |
+|---|---|---|
+| origen (`.mdb` vía mdbtools) | 1,379,299 | **41,684,109.44** |
+| espejo (`h40`, corte 2018) | 1,377,863 | **41,683,947.68** |
+| Δ | −1,436 (el colapso exacto) | **−$161.76** (0.0004%) |
+
+O sea: las filas que colapsan **no son todas de valor $0**. Son renglones byte-idénticos en TODAS
+sus columnas — el mismo SKU, misma cantidad, mismo precio, dos veces en el mismo ticket — y son
+ventas reales distintas que se funden en una. La única llave que las separaría es un ordinal de
+renglón, y Jet no garantiza el orden de lectura como para inventarlo de forma estable. **Se declara
+la pérdida en vez de dibujarla como cero**: 0.0004% del importe, concentrada en `DetallesMovAlmacen`.
+Corolario: para cifras de dinero exactas por renglón, la fuente es el `.mdb`, no el espejo.
+
 ### 13.7 Pendiente
 
 - Terminar la corrida (206 unidades, ~14 h estimadas) y correr `wincaja-hist-verify.js`.
