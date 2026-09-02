@@ -259,6 +259,13 @@ export class PurchaseBookService {
    * En modo `libro` devuelve TODOS los CFDIs del mes. En modo `complemento` devuelve solo
    * los **no asociados** — el universo del sub-módulo. Los que ya aparecen en la póliza
    * vienen marcados y excluidos por default, para no postearlos dos veces.
+   *
+   * ⚠️ Nada de signos de interrogación DENTRO del SQL de abajo, ni siquiera en un comentario
+   * `--`: knex cuenta los placeholders con un escaneo de texto plano, sin distinguir
+   * comentarios ni literales, así que un `¿...?` en español agrega bindings fantasma y tira
+   * `Expected N bindings, saw N+1` en runtime. El build NO lo atrapa y una validación
+   * DB-direct con `$1` tampoco, porque no pasa por el formateador de knex. Vivido acá el
+   * 2026-09-02: la pantalla dio 500 en prod por un `-- ¿...?` de tres palabras.
    */
   async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[] }> {
     this.mesValido(anioMes);
@@ -280,8 +287,8 @@ export class PurchaseBookService {
                 a.cuenta_compra_exenta, a.cuenta_compra_iva,
                 coalesce(a.proveedor_existe, false) AS cuenta_existe,
                 f.aso_contabilidad,
-                -- ¿Su importe ya está abonado al proveedor en la póliza de compras del mes?
-                -- Es la única defensa contra el doble registro mientras el TXT no lleve UUID.
+                -- Su importe ya abonado al proveedor en la póliza de compras del mes: es la
+                -- única defensa contra el doble registro mientras el TXT no lleve UUID.
                 EXISTS (
                   SELECT 1 FROM analytics.gl_poliza_lines l
                    WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
