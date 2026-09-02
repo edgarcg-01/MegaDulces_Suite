@@ -1,5 +1,5 @@
 /**
- * Fase WMS-REC — captura de caducidad en 4 o 6 dígitos.
+ * Fase WMS-REC — captura de caducidad en 4, 6 u 8 dígitos.
  *
  * El operario está en la rampa, con guantes, mirando la fecha impresa en la
  * caja. Un `<input type="date">` le pide diez caracteres en formato `mm/dd/yyyy`
@@ -10,6 +10,8 @@
  *                            interpretación conservadora: se asume que dura todo
  *                            el mes impreso)
  *   `150327` → 15/03/2027   (DDMMAA)
+ *   `15032027` → 15/03/2027 (DDMMAAAA — el año completo, que es lo que teclea
+ *                            quien ve la máscara DD/MM/AA y la completa igual)
  *
  * Función **pura y exportada a propósito**, separada del componente: es la
  * pieza testeable y la que decide qué se guarda. El componente sólo la llama.
@@ -33,7 +35,7 @@ function iso(year: number, month: number, day: number): string {
 }
 
 /**
- * `MMAA` (4 dígitos) o `DDMMAA` (6 dígitos) → ISO `YYYY-MM-DD`.
+ * `MMAA` (4), `DDMMAA` (6) o `DDMMAAAA` (8 dígitos) → ISO `YYYY-MM-DD`.
  *
  * Tolera separadores y espacios en la entrada (`03/27`, `15 03 27`): se filtran
  * los no-dígitos antes de decidir. Cualquier otro largo, mes fuera de 1-12 o día
@@ -42,7 +44,7 @@ function iso(year: number, month: number, day: number): string {
 export function parseExpiryShort(raw: string | null | undefined): string | null {
   if (raw == null) return null;
   const d = String(raw).replace(/\D/g, '');
-  if (d.length !== 4 && d.length !== 6) return null;
+  if (d.length !== 4 && d.length !== 6 && d.length !== 8) return null;
 
   if (d.length === 4) {
     const month = Number(d.slice(0, 2));
@@ -54,7 +56,11 @@ export function parseExpiryShort(raw: string | null | undefined): string | null 
 
   const day = Number(d.slice(0, 2));
   const month = Number(d.slice(2, 4));
-  const year = SIGLO + Number(d.slice(4, 6));
+  // 6 dígitos traen el año en 2 (27 → 2027); 8 lo traen completo. El año completo
+  // se acota al mismo siglo que asume SIGLO: si no, un dedazo tipo 2820 pasa como
+  // válido y el semáforo lo celebra con "292000 días de vida".
+  const year = d.length === 6 ? SIGLO + Number(d.slice(4, 6)) : Number(d.slice(4, 8));
+  if (year < SIGLO || year > SIGLO + 99) return null;
   if (month < 1 || month > 12) return null;
   // El día se valida CONTRA EL MES: 3102 (31 de febrero) no existe y no puede
   // pasar como 03/03. Un desbordamiento silencioso acá es una caducidad falsa.
