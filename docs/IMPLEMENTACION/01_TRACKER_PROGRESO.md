@@ -1160,6 +1160,18 @@ Edgar: *"tenemos dos problemas claros que necesitan un análisis: 1. no estamos 
 
 ---
 
+## Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md)
+
+Migración física de `megadulces-api-ready` (NestJS 10 standalone, en producción real en `.163`) a `apps/catalogo-kp` en este monorepo. ADR-052.
+
+- [x] **[CV.0]** 🔨 **Scaffold + módulo `kp` portado** (2026-09-01) — `apps/catalogo-kp` (NestJS 11, Nx). Provider Knex plano `KNEX_KP_CONCENTRADA` **fail-fast** (no null-safe como `kepler-consolidado`: esta conexión es el núcleo del app). Módulo `kp` completo portado literal (`kp.service.ts`, `kp-excel.service.ts`, `kp.controller.ts`) — mismas queries SQL crudas (`pool.query()` → `knex.raw()`), mismas rutas `/api/kp/*`. Endpoints que exigían sesión en origen responden **503** vía `PendingAuthGuard` (no quedan abiertos sin `auth`, que llega en CV.1). `public/img/productos/` (112 fotos) y `catalogo.html` versionados; los `verificador-NN.html` (regenerados a diario) van a `.gitignore`. `sql/001-006` portados literal + `sql/007_rol_dedicado.sql` nuevo.
+  - 🔍 **Hallazgo durante la investigación:** `KP_CONCENTRADA` ya era un activo documentado de esta Suite (`docs/IMPLEMENTACION/RUNBOOKS/KP_CONCENTRADA.md`), y el proyecto a migrar comparte, sin que el equipo lo supiera, el **rol `app_runtime` del cluster `.245`** con `postgres_platform` (`docs/GOTCHAS.md` §24 ya lo nombraba). Sospecha fundada de que esto causó la caída de 6h del 27/08/2026 en el sistema origen (síntoma `28P01` idéntico). Se resuelve con un rol dedicado, `catalogo_kp_runtime` — aditivo, listo en `sql/007_rol_dedicado.sql`, pendiente de aplicación contra el cluster real (confirma 0Sistemas/quien administre `.245`).
+  - Docs actualizados: `docs/GOTCHAS.md` §24 (nuevo consumidor), `docs/IMPLEMENTACION/RUNBOOKS/KP_CONCENTRADA.md` (sección "Consumidores"), `CLAUDE.md` (roadmap + ADR-052), `.env.example` (`DATABASE_URL_KP_CONCENTRADA`), `.gitignore`.
+  - ⚠️ **Pendiente de verificar:** `nx build catalogo-kp` + `nx serve` contra la base real, y la comparación byte a byte de `/api/kp/precio` y `/api/kp/precios-todos` contra `.163:3000` (requiere LAN on-prem a `.245`, no disponible desde esta sesión). Ver sección "Verificación end-to-end" de `FASE_CV`.
+  - **Pendiente:** aplicar `sql/007_rol_dedicado.sql` en `KP_CONCENTRADA` real + actualizar `DATABASE_URL_KP_CONCENTRADA` de producción al nuevo rol + CV.1 (`auth`+`admin`).
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

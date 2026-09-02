@@ -133,3 +133,7 @@ database/importers/checadores/.scan-*.json
 /s2.txt
 /chunks.txt
 /sizes.txt
+
+# Fase CV — catalogo-kp: verificadores de mostrador autocontenidos (~2.2MB c/u,
+# se regeneran a diario con datos frescos de Kepler — no versionar el contenido).
+apps/catalogo-kp/public/verificador*.html
