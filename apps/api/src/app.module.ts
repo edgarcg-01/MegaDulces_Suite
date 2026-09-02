@@ -133,6 +133,7 @@ import { BankCaptureBindingModule } from './composition/bank-capture.binding.mod
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 import { MailerBindingModule } from './composition/mailer.binding.module';
+import { HealthNotifierBindingModule } from './composition/health-notifier.binding.module';
 import { ReconNotifierBindingModule } from './composition/recon-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
 import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
@@ -210,6 +211,10 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       // DBH.3 — correo saliente. @Global(): va ANTES de quien lo inyecta (db-health), igual que el
       // resto de los bindings. Sin SMTP_* configurado queda apagado y no rompe el arranque.
       MailerBindingModule,
+      // OBS.5.2 — el mismo aviso por un canal que VIBRA. El correo se lee cuando se abre el correo;
+      // el incidente del 27-ago tardó 6 días en descubrirse y la meta de la fase es < 15 min.
+      // Sin DB_HEALTH_ALERT_PHONES/DB_HEALTH_WA_TEMPLATE queda apagado, igual que el correo.
+      HealthNotifierBindingModule,
       FinanceMaatModule,
       FinanceExpenseProofsModule,
       FinanceExpenseComprobacionesModule,

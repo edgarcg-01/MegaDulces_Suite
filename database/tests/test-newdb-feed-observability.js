@@ -240,6 +240,42 @@ const leer = (rel) => {
       'salir inmediato dio 4,591–5,564 reinicios por rama');
   }
 
+  // ── 5b. La alerta sale del edificio por DOS canales independientes ───────────────────────
+  // El correo (DBH.3) sacó la alerta de la pestaña pero no la hace llegar rápido: el incidente
+  // tardó 6 días en descubrirse y la meta de la fase es < 15 min. Un correo se lee cuando se abre
+  // el correo; un WhatsApp vibra.
+  const port = leer('libs/contracts/src/ports/health-notifier.port.ts');
+  check('HEALTH_NOTIFIER_PORT declarado en contracts', !!port && port.includes('HEALTH_NOTIFIER_PORT'));
+  check('el port exige isConfigured (sin credenciales: no-op, nunca crash)', !!port && /isConfigured\(\)/.test(port));
+
+  const bind = leer('apps/api/src/composition/health-notifier.binding.module.ts');
+  check('el adapter de WhatsApp existe', !!bind);
+  if (bind) {
+    // ⭐ sendTemplate y NO sendText: fuera de la ventana de 24 h Meta sólo deja iniciar
+    // conversación con plantilla aprobada. Una alerta de madrugada cae SIEMPRE fuera — con texto
+    // plano fallaría en silencio justo cuando más importa.
+    check('usa sendTemplate, no sendText (fuera de la ventana 24h el texto no llega)',
+      /sendTemplate/.test(bind) && !/sendText/.test(bind));
+    check('un solo mensaje por cascada, no uno por fuente',
+      /\+\$\{items\.length - 1\} más|items\.length - 1/.test(bind),
+      'el 01-sep fueron 3 réplicas + el CDC a la vez: eso es un aviso, no cuatro vibraciones');
+  }
+
+  const scan = leer('apps/api/src/modules/db-health/db-health-scanner.service.ts');
+  check('db-health-scanner.service.ts se puede leer', !!scan);
+  if (scan) {
+    check('el scanner inyecta el notificador como @Optional', /@Optional\(\)[\s\S]{0,80}HEALTH_NOTIFIER_PORT/.test(scan));
+    // Los dos canales son independientes a propósito: que el aviso dependa de uno solo es lo que
+    // dejó la alarma sonando en una habitación vacía.
+    check('WhatsApp NO depende de que el correo haya salido',
+      scan.includes('avisarPorCorreo(porCorreo, recuperadas).catch(')
+      && scan.includes('avisarPorWhatsapp(porCorreo).catch('),
+      'dos await separados, cada uno con su propio catch');
+    check('WhatsApp avisa SÓLO de críticas (no de recuperaciones)',
+      /avisarPorWhatsapp\(porCorreo\)/.test(scan),
+      'un aviso que vibra tiene que ser raro para significar algo');
+  }
+
   // ── 6. El dato declara su rezago, y "sin señal" NO es ok ─────────────────────────────────
   const fr = leer('libs/commercial/src/lib/shared/freshness.ts');
   check('libs/commercial/.../shared/freshness.ts existe', !!fr);

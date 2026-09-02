@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { AlertsService } from '@megadulces/commercial';
-import { MAILER_PORT, MailerPort } from '@megadulces/contracts';
+import { HEALTH_NOTIFIER_PORT, HealthNotifierPort, MAILER_PORT, MailerPort } from '@megadulces/contracts';
 import { DbHealthService, SourceHealth } from './db-health.service';
 
 /**
@@ -45,6 +45,9 @@ export class DbHealthScannerService {
     // @Optional: sin binding de correo (o sin SMTP configurado) el scan corre igual. Mismo criterio
     // que usan MaatScannerService con FINANCE_NOTIFIER_PORT y BlindCountService con RECON_NOTIFIER_PORT.
     @Optional() @Inject(MAILER_PORT) private readonly mailer?: MailerPort,
+    // OBS.5.2 — segundo canal, al bolsillo. Mismo criterio @Optional: sin binding (o sin plantilla
+    // aprobada en Meta) el scan corre igual y sólo no vibra.
+    @Optional() @Inject(HEALTH_NOTIFIER_PORT) private readonly notifier?: HealthNotifierPort,
   ) {}
 
   @Cron('0 */5 * * * *')
@@ -161,6 +164,9 @@ export class DbHealthScannerService {
       }
       await this.avisarPorCorreo(porCorreo, recuperadas).catch((e) =>
         this.logger.warn(`db-health correo: ${(e as Error).message}`));
+      // Canal independiente: un fallo del correo no puede llevarse también al WhatsApp.
+      await this.avisarPorWhatsapp(porCorreo).catch((e) =>
+        this.logger.warn(`db-health whatsapp: ${(e as Error).message}`));
       // Heartbeat propio (grupo Crons de Salud BD): prueba que este scanner corre.
       await this.recordCron('db_health_scan', 'Scanner Salud BD', 'ok', failing.length).catch(() => undefined);
       return { tenants: tenants.length, opened, escalated, resolved, failing: failing.length };
@@ -214,6 +220,36 @@ export class DbHealthScannerService {
     if (!r.ok || !fallas.length || !this.knex) return;
     await this.knex('analytics.db_health_alerts')
       .whereIn('id', fallas.map((f) => f.id))
+      .update({ last_notified_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
+  }
+
+  /**
+   * OBS.5.2 — el mismo aviso, por un canal que VIBRA.
+   *
+   * El correo sacó la alerta de la pestaña; esto la hace llegar rápido. El incidente del 2026-08-27
+   * tardó **seis días** en descubrirse y el objetivo de la fase es **< 15 min**.
+   *
+   * Sólo `fallas` (crítico). Las recuperaciones NO van por acá: un aviso que vibra tiene que ser
+   * raro para que signifique algo, y "ya se arregló" puede esperar al correo.
+   *
+   * ⚠️ Va DESPUÉS del correo y es independiente: si el correo falla, esto igual sale. Que el aviso
+   * dependa de un solo canal es justamente lo que dejó la alarma sonando en una habitación vacía.
+   */
+  private async avisarPorWhatsapp(
+    fallas: Array<{ id: string; motivo: string; s: SourceHealth; desde: string | null }>,
+  ): Promise<void> {
+    if (!fallas.length) return;
+    if (!this.notifier?.isConfigured()) return;
+    const r = await this.notifier.notifyCritical(fallas.map((f) => ({
+      key: f.s.key, label: f.s.label, motivo: f.motivo,
+      age_human: this.ageHuman(f.s.age_seconds) || null,
+    })));
+    if (!r.ok || !this.knex) return;
+    // Marca notificado también cuando SÓLO salió el WhatsApp: si el correo no está configurado,
+    // no marcar dejaría el recordatorio de 24 h disparando en cada ciclo de 5 minutos.
+    await this.knex('analytics.db_health_alerts')
+      .whereIn('id', fallas.map((f) => f.id))
+      .whereNull('last_notified_at')
       .update({ last_notified_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
   }
 
