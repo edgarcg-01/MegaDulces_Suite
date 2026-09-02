@@ -149,6 +149,9 @@ const TESTS = [
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
+  // OBS — la ingesta no se cae en silencio (ADR-053). Candados sobre los cuatro "verdes falsos"
+  // que dejaron el ODS congelado 6 días sin que nadie lo supiera.
+  { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
