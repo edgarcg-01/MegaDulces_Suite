@@ -3,7 +3,11 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
 import { AlertsGateway } from './alerts.gateway';
 import { AlertsScannerService } from './alerts-scanner.service';
-import { TenantContextService } from '@megadulces/platform-core';
+import {
+  Permission,
+  RequirePermissions,
+  TenantContextService,
+} from '@megadulces/platform-core';
 
 @ApiTags('commercial-alerts')
 @Controller('commercial/alerts')
@@ -15,7 +19,11 @@ export class AlertsController {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  // `[AUTHZ.5]` — Las dos eran sólo-auth. `scan-now` ya decía en su propio resumen "admin only —
+  // escanea TODOS los tenants", pero nada lo hacía cumplir: la restricción estaba documentada y no
+  // enforceada. `USUARIOS_GESTIONAR` es el permiso que el proyecto usa para lo de sistema.
   @Post('test')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
   @ApiOperation({ summary: 'Emite una alerta de prueba al tenant del JWT (smoke testing)' })
   test(@Body() body?: { message?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -24,6 +32,7 @@ export class AlertsController {
   }
 
   @Post('scan-now')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
   @ApiOperation({
     summary:
       'Dispara el scanner cron manualmente (admin only — escanea TODOS los tenants)',
