@@ -2,6 +2,10 @@ import { Injectable, BadRequestException, ForbiddenException, Logger } from '@ne
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch, ScopeService } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
+// `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
+// `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
+// tenerlas pegadas es lo que hace visible cambiar una sin la otra.
+import { parecidoNombre, rfcComparable, rfcBienFormado, CUADRE_SQL, CUADRE_MOTIVO_SQL } from './receipt-match';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -127,6 +131,7 @@ const GEMELA_NULLS = [
 ];
 const ORIGEN_SELECT = `(CASE WHEN c.sucursal = '00' THEN 'oficinas' ELSE 'sucursal' END) AS origen`;
 
+
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   // Por-archivo (RE.5.2): hash del contenido (anti-hoja-duplicada) + OCR propio (cada hoja se lee).
@@ -155,6 +160,14 @@ export interface ListReceiptsQuery {
   warehouse_codes?: string[] | null;
   /** Antigüedad mínima en días (worklist del capturista: "mostrame lo atrasado"). */
   dias_min?: number;
+  /**
+   * `[RE.25]` — **el cuadre del documento**, eje distinto del `estado`.
+   *   `cuadra`        → importe Y proveedor concuerdan: no necesita ojo humano.
+   *   `revisar`       → algo no concuerda, y `cuadre_motivo` dice qué.
+   *   `sin_datos`     → el OCR no leyó nada comparable: se re-escanea, no se revisa.
+   *   `sin_evidencia` → todavía no hay remisión adjunta.
+   */
+  cuadre?: 'cuadra' | 'revisar' | 'sin_datos' | 'sin_evidencia' | string;
   /** `rezago` = lo anterior a `reception_start` · `al_dia` (default) = de la fecha de arranque en adelante. */
   carril?: 'al_dia' | 'rezago' | 'todo';
   /**
@@ -468,6 +481,9 @@ export class GoodsReceiptProofsService {
     return this.tk.run(async (trx) => {
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
+      // `[RE.25]` Sin la migración aplicada la lista sigue viva: el cuadre queda en `sin_datos`
+      // (que es la verdad — nadie lo evaluó) en vez de tronar con «column does not exist».
+      const conMatchCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'prov_score');
       const hayPares = await this.hayPares(trx);
       const hayDesc = await this.hayDescartes(trx);
       // RE.20.1 — el lente del dinero. El join de ajustes es caro (agrupa toda la tabla de
@@ -506,6 +522,19 @@ export class GoodsReceiptProofsService {
           ? `(array_agg(motivo_codigo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo_codigo`
           : `NULL::text AS last_motivo_codigo`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
+        // `[RE.25]` Las señales del proveedor viajan con EL MISMO `PROOF_ORDER` que el resto:
+        // si se ordenaran por su cuenta, la fila podría mostrar el importe de un comprobante y
+        // el proveedor de otro. `bool_or` sería peor todavía — bastaría un intento viejo con el
+        // RFC bien leído para declarar corroborado al proveedor de un comprobante que no lo está.
+        .select(trx.raw(conMatchCols
+          ? `(array_agg(prov_score ORDER BY ${PROOF_ORDER}))[1] AS prov_score`
+          : `NULL::numeric AS prov_score`))
+        .select(trx.raw(conMatchCols
+          ? `(array_agg(prov_rfc_match ORDER BY ${PROOF_ORDER}))[1] AS prov_rfc_match`
+          : `NULL::boolean AS prov_rfc_match`))
+        .select(trx.raw(conMatchCols
+          ? `(array_agg(paquete_ok ORDER BY ${PROOF_ORDER}))[1] AS paquete_ok`
+          : `NULL::boolean AS paquete_ok`))
         .groupBy('sucursal', 'folio')
         .as('d');
 
@@ -559,6 +588,10 @@ export class GoodsReceiptProofsService {
         else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
         else if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
         else if (q.estado === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
+        // `[RE.25]` El cuadre es un eje APARTE del estado del comprobante: `validado` habla del
+        // trámite (alguien decidió), `cuadra` habla del documento (los números concuerdan). Una
+        // entrada puede estar validada a mano y no cuadrar, y ése es justo el caso a mirar.
+        if (q.cuadre) b.whereRaw(`${CUADRE_SQL} = ?`, [String(q.cuadre)]);
         // Antigüedad acotada a hoy: una entrada con fecha futura no tiene días negativos.
         if (Number(q.dias_min) > 0) {
           b.whereRaw('(current_date - LEAST(c.receipt_date, current_date)) >= ?', [Number(q.dias_min)]);
@@ -601,6 +634,13 @@ export class GoodsReceiptProofsService {
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
           trx.raw('d.last_disc::numeric AS discrepancy_amount'),
           trx.raw('d.last_by AS deposit_by'),
+          // `[RE.25]` El cuadre del documento y su porqué. La evidencia viaja con la etiqueta
+          // para que la fila pueda mostrar en qué se apoya y no sólo el veredicto.
+          trx.raw(`${CUADRE_SQL} AS cuadre`),
+          trx.raw(`${CUADRE_MOTIVO_SQL} AS cuadre_motivo`),
+          trx.raw('d.prov_score::numeric AS prov_score'),
+          trx.raw('d.prov_rfc_match AS prov_rfc_match'),
+          trx.raw('d.paquete_ok AS paquete_ok'),
           trx.raw('d.last_motivo AS motivo_rechazo'),
           trx.raw('d.last_motivo_codigo AS motivo_codigo'),
           trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
@@ -737,6 +777,17 @@ export class GoodsReceiptProofsService {
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='recibido')::int AS por_validar`),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='rechazado')::int AS rechazados`),
+        // `[RE.25]` El reparto del cuadre. `cuadran` es lo que NO necesita ojo humano, y por eso
+        // es el número que dice si el motor está sirviendo de algo.
+        trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'cuadra')::int AS cuadran`),
+        trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'revisar')::int AS por_revisar`),
+        // Se cuenta aparte de `por_revisar` a propósito: no es un descuadre, es una hoja que no
+        // se pudo leer. Se arregla re-escaneando, no revisando — y mezclarlos esconde un
+        // problema de captura detrás de uno de conciliación.
+        trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'sin_datos')::int AS sin_datos`),
+        // Cuántos paquetes NO traen nuestra hoja interna, de los que se pudo saber. Informativo:
+        // no entra al cuadre (ver `receipt-match.ts`), pero es lo que empuja a mejorar la captura.
+        trx.raw(`COUNT(*) FILTER (WHERE d.paquete_ok IS FALSE)::int AS sin_hoja_interna`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
         trx.raw(
           `COUNT(*) FILTER (WHERE d.n IS NULL AND (current_date - LEAST(c.receipt_date, current_date)) > ?)::int AS atrasadas`,
@@ -757,6 +808,9 @@ export class GoodsReceiptProofsService {
           validados: Number(k.validados), por_validar: Number(k.por_validar),
           rechazados: Number(k.rechazados), monto_pendiente: Number(k.monto_pendiente),
           atrasadas: Number(k.atrasadas), por_validar_atrasadas: Number(k.por_validar_atrasadas),
+          // `[RE.25]` El reparto del cuadre del documento.
+          cuadran: Number(k.cuadran), por_revisar: Number(k.por_revisar),
+          sin_datos: Number(k.sin_datos), sin_hoja_interna: Number(k.sin_hoja_interna),
         },
         // El alcance viaja al front para que la vista sepa si mostrar el selector de
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
@@ -1361,6 +1415,29 @@ export class GoodsReceiptProofsService {
         ? { kind: 'gemela', amount: Math.min(...[ocrTotal, ocrSubtotal].filter((v): v is number => v != null).map((v) => Math.abs(v - receiptMonto))) }
         : this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
 
+      /**
+       * `[RE.25]` — **quién** emitió el papel, no sólo por cuánto.
+       *
+       * El importe ya se evaluaba arriba (y sigue igual: alimenta `discrepancy_kind`, que
+       * necesita distinguir "cuadró con la gemela" de "cuadró con la canónica"). Lo que faltaba
+       * era el proveedor: `ocr_proveedor`/`ocr_rfc` se guardaban desde el inicio y **nunca se
+       * comparaban contra nada**, así que una factura del proveedor equivocado con el importe
+       * correcto pasaba como cuadrada.
+       *
+       * Se usan las primitivas puras y no `evaluarCuadre()` completo justamente para no tener
+       * dos lógicas del importe: acá se persisten las SEÑALES, y el bucket se deriva al leer.
+       * El criterio de cada una está medido y documentado en `receipt-match.ts`.
+       */
+      const conMatchCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'prov_score');
+      const provScore = parecidoNombre(o.proveedor, entrada.proveedor_nombre);
+      const rfcPapel = rfcBienFormado(o.rfc) ? rfcComparable(o.rfc) : null;
+      const rfcKepler = rfcBienFormado(entrada.proveedor_rfc) ? rfcComparable(entrada.proveedor_rfc) : null;
+      const provRfcMatch = rfcPapel && rfcKepler ? rfcPapel === rfcKepler : null;
+      // `documents_present` puede venir vacío (el OCR no reconoció ninguna hoja): eso es
+      // `null` = "no se sabe", no `false` = "falta nuestra hoja".
+      const tiposEnPaquete = (o.documents_present || []).map((d) => d?.type).filter(Boolean);
+      const paqueteOk = tiposEnPaquete.length ? tiposEnPaquete.includes('aplica_orden_entrada') : null;
+
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -1383,6 +1460,10 @@ export class GoodsReceiptProofsService {
           monto_match: montoMatch,
           discrepancy_kind: disc.kind,
           discrepancy_amount: disc.amount,
+          // `[RE.25]` Señales del proveedor y del paquete. Condicionadas a que la migración
+          // esté aplicada, para que un ambiente sin ella siga pudiendo adjuntar: la evidencia
+          // del capturista no se frena por una columna de análisis que falta.
+          ...(conMatchCols ? { prov_score: provScore, prov_rfc_match: provRfcMatch, paquete_ok: paqueteOk } : {}),
           comentarios: (dto.comentarios || '').trim() || null,
           created_by: actor || null,
         })

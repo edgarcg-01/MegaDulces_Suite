@@ -243,3 +243,58 @@ export function evaluarCuadre(e: SenalesEntrada): SenalesCuadre {
   // Queda: no hay importe leído pero sí algo del proveedor. Cuadrar sin importe es imposible.
   return { ...base, cuadre: 'revisar', motivo: 'El OCR no leyó el importe del papel: el total no se puede confirmar.' };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// El espejo SQL de la misma regla.
+//
+// Son DOS implementaciones de un solo criterio y eso es deliberado, no un descuido: la de TS
+// decide al **escribir** (una remisión a la vez, con el objeto del OCR en la mano); la de SQL
+// **filtra y cuenta** al leer, sobre 15,000 entradas, y eso no se puede hacer en TS sin traerse
+// la tabla entera. Viven pegadas acá para que cambiar una sin la otra se vea, y el smoke
+// `test-newdb-receipt-match` **compara las dos sobre las 72 combinaciones posibles** en vez de
+// confiar en que sigan de acuerdo.
+//
+// `d.*` son los agregados del subquery de comprobantes de `list()`; `d.n` es cuántos hay.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * El bucket. Nótese el caso extra que la versión de TS no tiene: **`sin_evidencia`**. La lista
+ * recorre ÓRDENES DE ENTRADA, y la mayoría todavía no tiene remisión adjunta; `evaluarCuadre()`
+ * en cambio siempre parte de un comprobante que existe. Llamarlas `sin_datos` mezclaría *"no
+ * subieron el papel"* con *"el papel no se pudo leer"*, que son dos trabajos distintos.
+ */
+export const CUADRE_SQL = `(CASE
+  WHEN d.n IS NULL OR d.n = 0 THEN 'sin_evidencia'
+  WHEN d.any_match IS NULL AND d.prov_score IS NULL AND d.prov_rfc_match IS NULL THEN 'sin_datos'
+  WHEN d.any_match IS TRUE AND (d.prov_score >= ${UMBRAL_NOMBRE} OR d.prov_rfc_match IS TRUE) THEN 'cuadra'
+  ELSE 'revisar' END)`;
+
+/** Por qué cayó en ese bucket, en llano. Es el texto que la fila muestra. */
+export const CUADRE_MOTIVO_SQL = `(CASE
+  WHEN d.n IS NULL OR d.n = 0 THEN 'Todavía no se adjuntó la remisión del proveedor.'
+  WHEN d.any_match IS NULL AND d.prov_score IS NULL AND d.prov_rfc_match IS NULL
+    THEN 'El OCR no pudo leer ni el importe ni el proveedor — hay que volver a escanear la hoja.'
+  WHEN d.any_match IS TRUE AND d.prov_rfc_match IS TRUE THEN 'El importe coincide y el proveedor también (por RFC).'
+  WHEN d.any_match IS TRUE AND d.prov_score >= ${UMBRAL_NOMBRE} THEN 'El importe coincide y el proveedor también (por nombre).'
+  WHEN d.any_match IS TRUE AND d.prov_score IS NULL AND d.prov_rfc_match IS NULL
+    THEN 'El importe coincide, pero el OCR no leyó al proveedor: nadie confirmó de quién es la factura.'
+  WHEN d.any_match IS TRUE
+    THEN 'El importe coincide pero el proveedor del papel NO es el de la entrada — puede ser la factura de otra recepción.'
+  WHEN d.any_match IS FALSE AND (d.prov_score >= ${UMBRAL_NOMBRE} OR d.prov_rfc_match IS TRUE)
+    THEN 'El proveedor es el correcto pero el importe no coincide con Kepler.'
+  WHEN d.any_match IS FALSE THEN 'No coinciden ni el importe ni el proveedor.'
+  ELSE 'El OCR no leyó el importe del papel: el total no se puede confirmar.' END)`;
+
+/**
+ * El bucket a partir de las señales ya calculadas — la MISMA regla que `CUADRE_SQL`, en TS.
+ * Existe para que el smoke pueda comparar las dos sin reconstruir un `SenalesEntrada` completo
+ * (las señales de la DB ya vienen resueltas: no hay nombres que comparar, sólo un score).
+ */
+export function bucketDeSenales(s: {
+  n?: number | null; any_match?: boolean | null; prov_score?: number | null; prov_rfc_match?: boolean | null;
+}): Cuadre | 'sin_evidencia' {
+  if (s.n == null || s.n === 0) return 'sin_evidencia';
+  if (s.any_match == null && s.prov_score == null && s.prov_rfc_match == null) return 'sin_datos';
+  if (s.any_match === true && ((s.prov_score != null && s.prov_score >= UMBRAL_NOMBRE) || s.prov_rfc_match === true)) return 'cuadra';
+  return 'revisar';
+}

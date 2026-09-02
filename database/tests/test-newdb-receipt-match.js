@@ -31,6 +31,7 @@ require('ts-node').register({
 });
 const {
   evaluarCuadre, parecidoNombre, rfcComparable, rfcBienFormado, UMBRAL_NOMBRE,
+  bucketDeSenales, CUADRE_SQL, CUADRE_MOTIVO_SQL,
 } = require(path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/receipt-match.ts'));
 
 const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV', keplerRfc: 'ACO1011124I1' };
@@ -102,9 +103,59 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
     ok(evaluarCuadre({ ...base, ocrTotal: 1000, ocrProveedor: base.keplerProveedor, documentosEnPaquete: [] }).paquete_ok === null,
       'sin lectura de documentos → null (no se afirma que falte)');
 
-    // ── 5. El motor sobre la data REAL ──────────────────────────────────────
-    console.log('\n═══ 5. Sobre los comprobantes que hay en la DB ═══');
+    // ── 5. TS vs SQL: las dos implementaciones de la MISMA regla ────────────
+    //
+    // El bucket se decide en TS al escribir y en SQL al leer (filtrar 15,000 entradas no se
+    // puede hacer en memoria). Dos implementaciones de una regla de dinero se desincronizan
+    // solas, así que acá se comparan sobre **todas** las combinaciones posibles de señales —
+    // no sobre una muestra, que dejaría los casos raros sin cubrir.
+    console.log('\n═══ 5. El espejo SQL coincide con el TS, en las 72 combinaciones ═══');
     const DST = process.env.DATABASE_URL_NEW;
+    if (!DST) { console.log('  ⚠️  sin DATABASE_URL_NEW — el espejo SQL queda SIN VERIFICAR'); }
+    else {
+      const knex = require('knex')({
+        client: 'pg',
+        connection: /localhost|127\.0\.0\.1|192\.168/.test(DST) ? DST : { connectionString: DST, ssl: { rejectUnauthorized: false } },
+        pool: { min: 0, max: 3 },
+      });
+      try {
+        const casos = [];
+        for (const n of [0, 1]) {
+          for (const any_match of [true, false, null]) {
+            for (const prov_score of [null, 0.2, 0.5, 1]) {
+              for (const prov_rfc_match of [true, false, null]) {
+                casos.push({ n, any_match, prov_score, prov_rfc_match });
+              }
+            }
+          }
+        }
+        // Se evalúa la expresión REAL contra una tabla derivada llamada `d`, que es el mismo
+        // alias que usa `list()`. No hace falta la tabla ni la migración: se prueba la REGLA.
+        const values = casos.map((c, i) =>
+          `(${i}, ${c.n}, ${c.any_match === null ? 'NULL' : c.any_match}::boolean, ` +
+          `${c.prov_score === null ? 'NULL' : c.prov_score}::numeric, ` +
+          `${c.prov_rfc_match === null ? 'NULL' : c.prov_rfc_match}::boolean)`).join(',');
+        const { rows: sqlRows } = await knex.raw(
+          `SELECT d.i, ${CUADRE_SQL} AS cuadre, ${CUADRE_MOTIVO_SQL} AS motivo
+             FROM (VALUES ${values}) AS d(i, n, any_match, prov_score, prov_rfc_match)
+            ORDER BY d.i`);
+        let discrepan = 0, motivoVacio = 0;
+        for (const r of sqlRows) {
+          const esperado = bucketDeSenales(casos[r.i]);
+          if (r.cuadre !== esperado) {
+            discrepan++;
+            if (discrepan <= 3) console.error(`     SQL="${r.cuadre}" vs TS="${esperado}" en ${JSON.stringify(casos[r.i])}`);
+          }
+          if (!r.motivo) motivoVacio++;
+        }
+        ok(sqlRows.length === casos.length, `se evaluaron las ${casos.length} combinaciones`);
+        ok(discrepan === 0, `SQL y TS deciden IGUAL en las ${casos.length} (discrepan: ${discrepan})`);
+        ok(motivoVacio === 0, 'toda combinación cae en alguna rama del motivo (ningún CASE sin ELSE)');
+      } finally { await knex.destroy(); }
+    }
+
+    // ── 6. El motor sobre la data REAL ──────────────────────────────────────
+    console.log('\n═══ 6. Sobre los comprobantes que hay en la DB ═══');
     if (!DST) { console.log('  ⚠️  sin DATABASE_URL_NEW — el bloque contra DB queda SIN VERIFICAR'); }
     else {
       const knex = require('knex')({
