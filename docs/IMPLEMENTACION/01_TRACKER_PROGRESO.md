@@ -1177,6 +1177,66 @@ Edgar: *"tenemos dos problemas claros que necesitan un análisis: 1. no estamos 
 
 ---
 
+## Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md)
+
+**Incidente que la origina (2026-09-02):** el carril de catálogos del ODS estuvo **parado 6 días**
+(27-ago → 02-sep) con **~23,200 filas sin shipear, 10,248 de costo**, mientras la app publicaba
+precio, costo, margen y reorden con toda confianza. Lo encontró un humano al corregir un precio a
+mano en Kepler (SKU `88222`, $54.00 → $165.28 — un precio **54% bajo el costo**) y ver que no llegaba.
+**La detección funcionó** (los 7 `cdc_wal_*` en `error`, el sensor `kepler_ods` en crítico); lo que
+falló fue que la alarma no salió del edificio y que el carril que de verdad alimentaba prod era mudo.
+
+### OBS.0 — Parar la sangría
+- [x] ✅ **OBS.0.1** (2026-09-02) `~/.pm2/dump.pm2` limpio: borradas 8 apps muertas (`ods-cdc` + 7 `cdc-wal-*`) y 2 rotas (`ods-live`/`ods-mirror`, PM2 no ejecuta `.cmd`). La tarea `PM2 Resurrect ODS` las habría revivido en crash-loop al próximo logon. Quedan sólo `wincaja-inc`/`wincaja-hash`, sanos.
+- [ ] ⬜ **OBS.0.2** `SMTP_*` + `DB_HEALTH_ALERT_EMAILS` + `APP_PUBLIC_URL` en Railway. `DbHealthScannerService` **ya manda correo**; sin `SMTP_*` es un no-op silencioso. Mejor valor/esfuerzo de la fase.
+
+### OBS.1 — Que el carril mudo hable ✅ 2026-09-02 (commit `3375d0d7`)
+- [x] ✅ Latido por carril en `replicate-ods-live.js` (`ods_live_hot` / `ods_live_mirror`) **directo a prod**, con var propia `ODS_HB_URL`: en ese script `DATABASE_URL_NEW` apunta al contenedor de replicas `:5433`, y un latido ahí es invisible para el tablero (GOTCHAS §17/§18).
+- [x] ✅ Preflight fail-fast en watch + rechazo de un `ODS_HB_URL` que apunte a la FUENTE.
+- [x] ✅ `cycleAll` agrega las **fallas por rama** al `error` del latido. Antes un replica caído era un `continue` mudo: la pasada podía shipear **cero** e imprimir `APPLY hecho.` igual.
+- [x] ✅ `CRON_JOBS`: 2 carriles nuevos + **5 huérfanos** que ya latían pero sin umbral registrado caían en `cfg ? classify : 'ok'` = **verde incondicional** (`wincaja_replica_inc/hash`, `contpaqi_add_cfdis`, `analytics_refresh_wincaja`, `feed_guardian`).
+- [ ] 🔵 **Descartado por Edgar**: endurecer el default de `checkCronRuns()` para huérfanos. El próximo job que late sin registrarse puede volver a ser invisible.
+- [ ] ⬜ **OBS.1.2** Mismo tratamiento a `replicate-ods-fast.js` y `ods-cdc-forward.js` (siguen mudos).
+- ✅ **Verificado en vivo**: `ods_live_mirror` reportando `7/7 ramas · 118 filas · 0 tablas con error` en prod. `tsc --noEmit` del API verde.
+
+### OBS.2 — Auto-curación ⛔ ruta crítica
+- [ ] ⬜ **OBS.2.1** `ensurePubSlot` (`ods-cdc-wal.js:60-70`) valida `wal_status`/`active`, no sólo existencia. Slot `lost` → recrear + disparar backfill solo. Hoy el `note` se lo pide a un humano y nadie lo lee.
+- [ ] ⬜ **OBS.2.2** Backoff + jitter antes de salir (hoy sale inmediato → ~5,000 reinicios).
+- [ ] ⬜ **OBS.2.3** Los dos carriles permanentes: CDC para latencia, scan para reconciliación. **Revierte la premisa de CDC.6**, que los trató como sustitutos.
+
+### OBS.3 — Completitud, no sólo latido
+- [ ] ⬜ **OBS.3.1** Arrancar `reconcile-ods-window.js --days=3 --apply --watch=900`. Ya escrito, ya late directo a prod, ya declarado en `ecosystem.cdc.config.js:71` — **nunca se levantó**. Cero código.
+- [ ] ⬜ **OBS.3.2** Sensor de **fecha-dato por (tabla, sucursal)** para catálogos. Hoy `_sync_status` de `kepler_ods` no tiene dimensión de sucursal y los sensores por rama miran `kdm1` = venta, no catálogo. Por eso 6 días de catálogo congelado no dispararon un sensor por rama.
+
+### OBS.4 — Sustrato Docker
+- [ ] ⬜ **OBS.4.1** `ops/ingest/docker-compose.yml` + `env_file` fuera del repo, `restart: unless-stopped`, un servicio por carril.
+- [ ] ⬜ **OBS.4.2** `HEALTHCHECK` que mide **entrega**, no proceso. El 02-sep `pm2 ls` dijo `online` mientras el batch no se ejecutaba.
+- [ ] ⬜ **OBS.4.3** Red: `localhost:5433` no resuelve dentro del contenedor → unirse a la red de `pgvector-md`.
+- [ ] ⬜ **OBS.4.4** Retirar los `.cmd :loop` y con ellos la **key en texto plano**.
+- ⚠️ **Excepción al "todo Docker"**: los carriles vivos de Wincaja leen `.mdb` con **Jet 32-bit** (no existe en Linux) → se quedan en Windows. Sustrato **mixto a propósito**.
+
+### OBS.5 — Que la alerta salga del edificio
+- [ ] ⬜ **OBS.5.1** Correo (sólo env, OBS.0.2). **No hace falta Grafana.**
+- [ ] ⬜ **OBS.5.2** WhatsApp: `AlertsNotifierAdapter` → `WHATSAPP_PORT.sendTemplate()`. ⚠️ BLOCKED por la plantilla de utilidad de Meta (feed/estado/antigüedad). Se prueba con `WHATSAPP_PROVIDER=simulator`.
+- [x] ✅ **OBS.5.3** App: ya funciona (`emitDbHealth` → toast + campana). Sin trabajo.
+- [ ] ⬜ **OBS.5.4** `health-watchdog.js` (vigila al vigilante) — falta webhook + entrar al sustrato.
+- [ ] ⬜ **OBS.5.5** `run-feed-guardian.ps1` no cubre nada supervisado por PM2/Docker.
+
+### OBS.6 — El dato declara su rezago
+- [ ] ⬜ **OBS.6.1** `analytics.v_feed_freshness`.
+- [ ] ⬜ **OBS.6.2** `stale` + `age_human` sobre el `data_as_of` que ya devuelven rentabilidad y compras.
+- [ ] ⬜ **OBS.6.3** La etiquetera dice *"precio con N h de rezago"*. **No bloquea** (decisión de Edgar).
+
+### OBS.7 — Regresión
+- [ ] ⬜ `test-newdb-feed-observability.js` en `run-all-tests.js`.
+
+**Deuda operacional abierta:** el shipper corre por `Start-Process` → **no sobrevive un reboot** ·
+`FEEDS_INGEST_KEY` en texto plano en 4 launchers + horneada en `dump.pm2` (→ INFRA.1.4) · **el CDC
+sigue muerto**, así que no hay propagación de DELETE: la rama 04 tiene **9,532 filas en el ODS contra
+9,525 en el replica**.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
