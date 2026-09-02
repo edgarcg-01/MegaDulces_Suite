@@ -19,6 +19,8 @@ import {
   PermissionsCacheService,
   Permission,
   buildAbility,
+  branchKeySql,
+  branchKeyFilterSql,
 } from '@megadulces/platform-core';
 
 interface RequesterContext {
@@ -753,9 +755,18 @@ export class UsersService {
       })
       .where({ 'w.tenant_id': this.tenantId })
       .whereNull('w.deleted_at')
-      .whereRaw(`w.code ~ '^[0-9]{2}$'`)
-      .orderBy('w.code')
-      .select('w.code', 'w.name', 'w.zone_id', 'z.name as zone_name');
+      // `[RE.23]` La sucursal se identifica por su código de 2 dígitos, que en
+      // Morelia NO vive en `code` (`MD-30`) sino en `wincaja_source_branch`.
+      // Filtrar por `code` dejaba a Morelia fuera del alta: no había forma de
+      // asignarle esas sucursales a nadie. Ver `branchKeySql` en platform-core.
+      .whereRaw(branchKeyFilterSql('w'))
+      .orderByRaw('1')
+      .select(
+        this.knex.raw(`${branchKeySql('w')} AS code`),
+        'w.name',
+        'w.zone_id',
+        'z.name as zone_name',
+      );
   }
 
   async getDepartments() {

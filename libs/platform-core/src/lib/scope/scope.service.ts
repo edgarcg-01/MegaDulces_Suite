@@ -12,6 +12,9 @@ import {
   ScopeMode,
   ScopeRuleRow,
   SCOPE_DIMENSIONS,
+  branchKeySql,
+  branchKeyFilterSql,
+  esCodigoSucursal,
 } from './scope.types';
 
 /**
@@ -69,16 +72,21 @@ const COLUMNA_PROPIA: Partial<Record<ScopeDimension, string>> = {
  * (el picker del front, el panel de "Acceso efectivo"). En la ruta caliente de
  * queries `all` no enumera nada: simplemente no filtra.
  *
- * `warehouse` filtra por **código de 2 dígitos**, no por `kind='central'`:
- * `commercial.warehouses` mezcla las 7 sucursales con almacenes de Morelia sin
- * código Kepler (`MD-30`/`MD-32`), almacenes-ruta (`RUTA-*`) y basura de tests.
- * El código de 2 dígitos es exactamente lo que `users.warehouse_code` puede
- * contener (el DTO valida `^[0-9]{2}$`) y lo que Kepler usa como sucursal.
+ * `warehouse` se identifica por **código de 2 dígitos**, no por `kind='central'`:
+ * `commercial.warehouses` mezcla las sucursales con almacenes-ruta (`RUTA-*`) y
+ * basura de tests. El código de 2 dígitos es exactamente lo que
+ * `users.warehouse_code` puede contener (el DTO valida `^[0-9]{2}$`) y lo que
+ * los feeds usan como sucursal.
+ *
+ * `[RE.23]` Ese código sale de `branchKeySql()`, **no** de `code` a secas: las
+ * sucursales de Morelia lo guardan prefijado (`MD-30`) y filtrar por `code`
+ * las dejaba fuera del modelo de alcance por completo. Ver `scope.types.ts`.
  */
 const UNIVERSO_SQL: Record<ScopeDimension, { sql: string; label: string }> = {
   warehouse: {
-    sql: `SELECT code AS v, name AS label FROM commercial.warehouses
-           WHERE tenant_id = ? AND deleted_at IS NULL AND code ~ '^[0-9]{2}$' ORDER BY code`,
+    sql: `SELECT ${branchKeySql('w')} AS v, w.name AS label FROM commercial.warehouses w
+           WHERE w.tenant_id = ? AND w.deleted_at IS NULL AND ${branchKeyFilterSql('w')}
+           ORDER BY 1`,
     label: 'Sucursal',
   },
   zone: {
@@ -110,14 +118,31 @@ const UNIVERSO_SQL: Record<ScopeDimension, { sql: string; label: string }> = {
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Tabla y columna legible de cada dimensión, para traducir uuid/etiqueta → llave canónica. */
-const TRADUCCION: Record<ScopeDimension, { tabla: string; etiqueta: string }> = {
-  warehouse: { tabla: 'commercial.warehouses', etiqueta: 'code' },
-  zone: { tabla: 'trade.zones', etiqueta: 'name' },
-  route: { tabla: 'trade.catalogs', etiqueta: 'value' },
-  brand: { tabla: 'catalog.brands', etiqueta: 'nombre' },
-  expense_area: { tabla: 'finance.expense_areas', etiqueta: 'name' },
-  customer: { tabla: 'commercial.customers', etiqueta: 'name' },
+/**
+ * Cómo llevar un valor cualquiera (uuid o etiqueta legible) a la **llave
+ * canónica** de la dimensión. `esCanonico` es el que decide qué NO hay que
+ * traducir.
+ *
+ * `[RE.23]` En `warehouse` la llave canónica NO es `code`: es el código de 2
+ * dígitos de `branchKeySql()`. Antes el test era "no es un uuid", así que
+ * `MD-30` se colaba como si ya fuera canónico y terminaba en un
+ * `IN ('MD-30')` que no matchea ninguna fila de los feeds (que emiten `'30'`).
+ */
+const TRADUCCION: Record<
+  ScopeDimension,
+  { tabla: string; etiqueta: string; canon: string; esCanonico: (v: string) => boolean }
+> = {
+  warehouse: {
+    tabla: 'commercial.warehouses t',
+    etiqueta: 't.code',
+    canon: branchKeySql('t'),
+    esCanonico: esCodigoSucursal,
+  },
+  zone: { tabla: 'trade.zones t', etiqueta: 't.name', canon: 't.id::text', esCanonico: (v) => UUID_RX.test(v) },
+  route: { tabla: 'trade.catalogs t', etiqueta: 't.value', canon: 't.id::text', esCanonico: (v) => UUID_RX.test(v) },
+  brand: { tabla: 'catalog.brands t', etiqueta: 't.nombre', canon: 't.id::text', esCanonico: (v) => UUID_RX.test(v) },
+  expense_area: { tabla: 'finance.expense_areas t', etiqueta: 't.name', canon: 't.id::text', esCanonico: (v) => UUID_RX.test(v) },
+  customer: { tabla: 'commercial.customers t', etiqueta: 't.name', canon: 't.id::text', esCanonico: (v) => UUID_RX.test(v) },
 };
 
 @Injectable()
@@ -357,25 +382,25 @@ export class ScopeService {
    * "sin resultados" en vez de "escribiste mal el parámetro".
    */
   private async aLlaveCanonica(dim: ScopeDimension, values: string[]): Promise<string[]> {
-    const esUuid = (v: string) => UUID_RX.test(v);
-    const refKey = dim === 'warehouse' ? 'code' : 'id';
+    const { tabla, etiqueta, canon, esCanonico } = TRADUCCION[dim];
 
     // Ya vienen en la llave buena → nada que hacer.
-    const canonicos = values.filter((v) => (refKey === 'id' ? esUuid(v) : !esUuid(v)));
-    const aTraducir = values.filter((v) => !canonicos.includes(v));
+    const canonicos = values.filter((v) => esCanonico(v));
+    const aTraducir = values.filter((v) => !esCanonico(v));
     if (!aTraducir.length) return canonicos;
 
     const tenantId = this.tenantCtx.requireTenantId();
-    const { tabla, etiqueta } = TRADUCCION[dim];
     // Dos caminos: uuid → llave canónica, o etiqueta legible → llave canónica.
     const { rows } = await this.knex.raw(
-      `SELECT ${refKey}::text AS canon, id::text AS id, ${etiqueta}::text AS label
+      `SELECT (${canon})::text AS canon, t.id::text AS id, ${etiqueta}::text AS label
          FROM ${tabla}
-        WHERE tenant_id = ? AND (id::text = ANY(?) OR ${etiqueta}::text = ANY(?))`,
+        WHERE t.tenant_id = ? AND (t.id::text = ANY(?) OR ${etiqueta}::text = ANY(?))`,
       [tenantId, aTraducir, aTraducir],
     );
 
-    const traducidos = rows.map((r: any) => r.canon);
+    // `canon` puede venir NULL: un `RUTA-*` es una fila de `warehouses` pero no
+    // es una sucursal, así que no tiene llave y se descarta como "perdido".
+    const traducidos = rows.map((r: any) => r.canon).filter(Boolean);
     const perdidos = aTraducir.filter(
       (v) => !rows.some((r: any) => r.id === v || r.label === v || r.canon === v),
     );

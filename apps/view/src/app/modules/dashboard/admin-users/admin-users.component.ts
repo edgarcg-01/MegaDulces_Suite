@@ -57,7 +57,7 @@ import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { AreaMeta } from '../../../core/constants/role-presets';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 
@@ -376,12 +376,15 @@ export class AdminUsersComponent implements OnInit {
   financeAreas = signal<FinanceAreaOption[]>([]);
   /**
    * `[ID.23]` Sucursales CON su zona, desde el API. Antes esta lista venía de
-   * `STORE_BRANCHES` (constante del front): además de no traer la zona, se
-   * desincroniza de la DB sin que nadie se entere. La constante queda como
-   * fallback para que el diálogo siga usable si el endpoint falla.
+   * una constante del front: además de no traer la zona, se desincroniza de la
+   * DB sin que nadie se entere. La constante queda como fallback para que el
+   * diálogo siga usable si el endpoint falla.
+   *
+   * `[RE.23]` El fallback es `NETWORK_BRANCHES` (9): con las 7 Kepler no había
+   * forma de asignarle Morelia a nadie, y ése era justo el caso que hacía falta.
    */
   readonly branches = signal<BranchOption[]>(
-    STORE_BRANCHES.map((b) => ({ code: b.code, name: b.name, zone_id: null, zone_name: null })),
+    NETWORK_BRANCHES.map((b) => ({ code: b.code, name: b.name, zone_id: null, zone_name: null })),
   );
   readonly branchOptions = computed(() =>
     this.branches().map((b) => ({
@@ -783,7 +786,7 @@ export class AdminUsersComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => { if (data?.length) this.branches.set(data); },
-        error: () => { /* se queda el fallback de STORE_BRANCHES */ },
+        error: () => { /* se queda el fallback de NETWORK_BRANCHES */ },
       });
   }
 

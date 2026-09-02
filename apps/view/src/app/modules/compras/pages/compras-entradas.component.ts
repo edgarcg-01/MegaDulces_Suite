@@ -33,7 +33,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
@@ -1910,8 +1910,15 @@ export class ComprasEntradasComponent {
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * `[RE.23]` El fallback es `NETWORK_BRANCHES` (9), no `STORE_BRANCHES` (7): con
+   * alcance `all` el server no manda lista y el desplegable se armaba con las
+   * sucursales Kepler nada más, así que Morelia —que sí entra en la lista, 331
+   * recepciones en el carril al día— no se podía aislar. Quien es de Morelia
+   * abría 1,493 renglones de la red entera y sus 410 quedaban enterrados.
+   */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? STORE_BRANCHES.map((b) => b.code);
+    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
     return a.map((c) => ({ label: branchName(c) || c, value: c }));
   });
   suc(code: string): string { return branchName(code) || code; }
