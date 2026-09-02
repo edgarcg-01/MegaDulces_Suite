@@ -68,6 +68,9 @@ export interface ArqueoResult {
   folio?: string;
   esperado?: number | null;
   diff_real?: number | null; // + faltante / − sobrante
+  kepler_contado?: number | null; kepler_diff?: number | null; kepler_enmascaro?: boolean;
+  /** SM.18 — el desglose grueso de Kepler, para imprimir el ticket completo al vuelo. */
+  kepler_billetes?: number | null; kepler_monedas?: number | null; kepler_retirado?: number | null;
 }
 
 export interface ArqueoRow {

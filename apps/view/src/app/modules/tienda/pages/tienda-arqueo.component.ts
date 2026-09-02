@@ -18,6 +18,7 @@ import { ArqueoService, ArqueoResult, ArqueoRow, Turno } from '../arqueo.service
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
+import { imprimirTicket } from '../ticket-arqueo';
 
 /**
  * Proyecto Tienda — Arqueo ciego de caja para CAJERAS (/tienda/arqueo).
@@ -240,6 +241,15 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                   <div><span class="arq-ev-k">{{ diffLabel(r.diff_real) }}</span><span class="arq-ev-v strong" [class.bad]="(r.diff_real||0)>0" [class.ok]="(r.diff_real||0)<0">{{ signed(r.diff_real || 0) }}</span></div>
                 </div>
               }
+              @if (r.tipo !== 'relevo') {
+                <!-- El respaldo se imprime ACÁ, con el cajón todavía abierto y las
+                     dos personas presentes. Mandarlas al historial a buscarlo es
+                     pedirles que firmen un papel media hora después del conteo. -->
+                <button pButton type="button" class="p-button-sm p-button-text arq-print" (click)="imprimir(r)">
+                  <span class="p-button-icon p-button-icon-left pi pi-print" aria-hidden="true"></span>
+                  <span class="p-button-label">Imprimir ticket</span>
+                </button>
+              }
             </div>
           }
         </div>
@@ -361,6 +371,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-sel { font-size: .82rem; padding: .35rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
     .arq-block .arq-sel { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
+    :host ::ng-deep .arq-print { margin-top: .35rem; }
     :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .4rem; }
     :host ::ng-deep .arq-denoms-tbl .p-datatable-tbody > tr > td { padding: .2rem .5rem; }
     .arq-denom-lbl { font-variant-numeric: tabular-nums; }
@@ -525,6 +536,41 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   }
 
   elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
+
+  /**
+   * Ticket del arqueo recién capturado. Las denominaciones salen del formulario,
+   * no del servidor: es lo que la persona acaba de contar y el papel tiene que
+   * decir exactamente eso.
+   *
+   * `revela` decide si lleva el bloque contra Kepler. En manos de la cajera
+   * imprime su conteo y las firmas, sin esperado ni diferencia — el papel no puede
+   * filtrar lo que la pantalla le oculta.
+   */
+  imprimir(r: ArqueoResult) {
+    const t = this.turnoSel();
+    const denominaciones = this.denoms
+      .map((d) => ({ denominacion: d, cantidad: Number(this.denomCount[d]) || 0, subtotal: (Number(this.denomCount[d]) || 0) * d }))
+      .filter((x) => x.cantidad > 0);
+    const ok = imprimirTicket({
+      sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc),
+      caja: t?.caja ?? this.aCaja,
+      fecha: t?.business_date ?? this.fmtDate(this.aDate),
+      folio: t?.folio ?? null,
+      cajera: this.aCajero || '',
+      hora_apertura: t?.hora_apertura ?? null,
+      hora_cierre: t?.hora_cierre ?? null,
+      denominaciones,
+      total_contado: r.total_contado,
+      esperado: r.esperado, diff_real: r.diff_real,
+      kepler_contado: r.kepler_contado, kepler_billetes: r.kepler_billetes,
+      kepler_monedas: r.kepler_monedas, kepler_retirado: r.kepler_retirado,
+      capturado_por: this.auth.user()?.username || null,
+      validado_por: null, validado_at: null,
+    }, { revela: this.revela });
+    if (!ok) {
+      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });
+    }
+  }
 
   branchLabel(code?: string | null): string {
     if (!code) return '';
