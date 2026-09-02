@@ -12,6 +12,13 @@
  *
  * Env: ODS_HB_URL (destino del latido = prod) · ODS_HB_KEY (clave del carril)
  *      ODS_HB_MAX_MIN (tope de antigüedad en minutos; default 20)
+ *      ODS_HB_IGNORE_ERROR=1 → juzga SÓLO la antigüedad, no `status='error'`
+ *
+ * Sobre `ODS_HB_IGNORE_ERROR`: hay carriles cuyo `status='error'` es una alarma de **DATO**, no de
+ * vivencia. El reconciliador marca `error` cuando encuentra huecos por encima del umbral: eso dice
+ * "el pipeline está perdiendo filas", no "este contenedor está roto" — y reiniciarlo no repone una
+ * sola fila. Sin este flag, Docker reiniciaría en bucle un proceso perfectamente sano cada vez que
+ * el dato viene mal, que es precisamente cuando más falta hace que siga corriendo y avisando.
  *
  * Sale 0 = sano · 1 = latido viejo/ausente/en error · 0 con aviso = no configurado (no se castiga
  * un contenedor por falta de config; eso lo grita el preflight del propio shipper).
@@ -21,6 +28,7 @@ const { Client } = require('pg');
 const URL_ = process.env.ODS_HB_URL;
 const KEY = process.env.ODS_HB_KEY;
 const MAX_MIN = Math.max(1, Number(process.env.ODS_HB_MAX_MIN) || 20);
+const IGNORE_ERROR = /^(1|true|yes)$/i.test(String(process.env.ODS_HB_IGNORE_ERROR || ''));
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
 (async () => {
@@ -46,9 +54,14 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
       console.error(`health: ${KEY} lleva ${age.toFixed(1)} min sin avanzar (tope ${MAX_MIN}, status=${r.status})`);
       process.exit(1);
     }
-    if (r.status === 'error') {
+    if (r.status === 'error' && !IGNORE_ERROR) {
       console.error(`health: ${KEY} en error (hace ${age.toFixed(1)} min)`);
       process.exit(1);
+    }
+    if (r.status === 'error' && IGNORE_ERROR) {
+      // Late y a tiempo: el proceso ENTREGA. El `error` es del dato y lo grita db-health, no Docker.
+      console.log(`health: ${KEY} vivo y al día (${age.toFixed(1)} min) — status=error es alarma de dato, no de proceso`);
+      process.exit(0);
     }
     console.log(`health: ${KEY} ok (${age.toFixed(1)} min, status=${r.status})`);
     process.exit(0);
