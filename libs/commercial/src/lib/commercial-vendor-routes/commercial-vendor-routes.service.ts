@@ -189,19 +189,42 @@ export class CommercialVendorRoutesService {
   async myStockSources() {
     const me = this.tenantCtx.get()?.userId || null;
     return this.tk.run(async (trx) => {
+      // route_id vive en identity.users (la vista public.users no lo expone).
       const user = me
-        ? await trx('public.users').where({ id: me }).select('warehouse_code').first()
+        ? await trx('identity.users').where({ id: me }).select('route_id', 'warehouse_code').first()
         : null;
 
       type Wh = { id: string; code: string; name: string };
       let sucursal: Wh | undefined;
-      if (user?.warehouse_code) {
+      // 1. La verdad operativa: usuario → su ruta → sucursal de la ruta.
+      //    En try/catch: la tabla route_warehouses es nueva; si el código despliega
+      //    antes que su migración, NO rompemos la resolución (cae a warehouse_code /
+      //    default). Lección del incidente client_uuid: código y migración pueden
+      //    llegar desfasados.
+      if (user?.route_id) {
+        try {
+          sucursal = await trx('commercial.route_warehouses as rw')
+            .join('commercial.warehouses as w', function () {
+              this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
+            })
+            .where('rw.route_id', user.route_id)
+            .where('w.active', true)
+            .whereNull('w.deleted_at')
+            .select('w.id', 'w.code', 'w.name')
+            .first<Wh>();
+        } catch {
+          /* route_warehouses aún no migrada → seguimos con los fallbacks */
+        }
+      }
+      // 2. Fallback: warehouse_code directo del usuario (scoping Tienda).
+      if (!sucursal && user?.warehouse_code) {
         sucursal = await trx('commercial.warehouses')
           .where({ kepler_code: user.warehouse_code, kind: 'central', active: true })
           .whereNull('deleted_at')
           .select('id', 'code', 'name')
           .first<Wh>();
       }
+      // 3. Fallback: el almacén default del tenant (para no quedar sin stock).
       if (!sucursal) {
         sucursal = await trx('commercial.warehouses')
           .where({ is_default: true, active: true })
@@ -226,6 +249,104 @@ export class CommercialVendorRoutesService {
           ? { id: camioneta.id, code: camioneta.code, name: camioneta.name }
           : null,
       };
+    });
+  }
+
+  /**
+   * Admin: las rutas del catálogo (`trade.catalogs` cat 'rutas') con su zona, la sucursal
+   * de surtido ya asignada (si hay) y una SUGERENCIA por zona/nombre para pre-llenar la UI
+   * (el admin confirma/corrige — no se inventa el vínculo, se propone). Devuelve además los
+   * almacenes central asignables.
+   */
+  async listRoutesWithWarehouse() {
+    return this.tk.run(async (trx) => {
+      const whs = await trx('commercial.warehouses')
+        .where({ kind: 'central', active: true })
+        .whereNull('deleted_at')
+        .select('id', 'code', 'name', 'kepler_code')
+        .orderBy('code');
+      const byKepler = new Map(whs.filter((w: any) => w.kepler_code).map((w: any) => [w.kepler_code, w]));
+      const byCode = new Map(whs.map((w: any) => [w.code, w]));
+
+      const routes = await trx('trade.catalogs as r')
+        .leftJoin('public.zones as z', 'z.id', 'r.parent_id')
+        .leftJoin('commercial.route_warehouses as rw', function () {
+          this.on('rw.route_id', '=', 'r.id').andOn('rw.tenant_id', '=', 'r.tenant_id');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
+        })
+        .where('r.catalog_id', 'rutas')
+        .whereNull('r.deleted_at')
+        .select(
+          'r.id as route_id',
+          'r.value as route',
+          'z.name as zone',
+          'rw.warehouse_id as assigned_id',
+          'w.name as assigned_name',
+        )
+        .orderBy(['z.name', 'r.value']);
+
+      // Sugerencia por zona/nombre (heurística; el admin la confirma). RVLPA = La Piedad
+      // Abastos (02); el resto de La Piedad = Padre Hidalgo (01); Zamora=05; Canindo=06;
+      // Morelia Madero = MD-32.
+      const suggest = (zone: string | null, route: string | null) => {
+        const zn = (zone || '').toUpperCase();
+        const rv = (route || '').toUpperCase();
+        if (rv.startsWith('RVLPA')) return byKepler.get('02');
+        if (zn.includes('LA PIEDAD')) return byKepler.get('01');
+        if (zn.includes('ZAMORA')) return byKepler.get('05');
+        if (zn.includes('CANINDO')) return byKepler.get('06');
+        if (zn.includes('MORELIA')) return byCode.get('MD-32') || byCode.get('MD-30');
+        return undefined;
+      };
+
+      return {
+        warehouses: whs.map((w: any) => ({ id: w.id, code: w.code, name: w.name })),
+        routes: routes.map((r: any) => {
+          const s = r.assigned_id ? null : suggest(r.zone, r.route);
+          return {
+            route_id: r.route_id,
+            route: r.route,
+            zone: r.zone,
+            warehouse_id: r.assigned_id || null,
+            warehouse_name: r.assigned_name || null,
+            suggested_id: s?.id || null,
+            suggested_name: s?.name || null,
+          };
+        }),
+      };
+    });
+  }
+
+  /** Admin: asigna (o cambia) la sucursal de surtido de una ruta. Idempotente (UPSERT). */
+  async setRouteWarehouse(routeId: string, warehouseId: string) {
+    if (!UUID_REGEX.test(routeId)) throw new BadRequestException('route_id inválido');
+    if (!UUID_REGEX.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    const me = this.tenantCtx.get()?.userId || null;
+    return this.tk.run(async (trx) => {
+      const route = await trx('trade.catalogs')
+        .where({ id: routeId, catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .select('id', 'tenant_id')
+        .first();
+      if (!route) throw new NotFoundException('Ruta no encontrada');
+      const wh = await trx('commercial.warehouses')
+        .where({ id: warehouseId, kind: 'central' })
+        .whereNull('deleted_at')
+        .first();
+      if (!wh) throw new BadRequestException('Almacén inválido (debe ser una sucursal central)');
+      await trx('commercial.route_warehouses')
+        .insert({
+          tenant_id: route.tenant_id,
+          route_id: routeId,
+          warehouse_id: warehouseId,
+          created_by: me,
+          updated_by: me,
+        })
+        .onConflict(['tenant_id', 'route_id'])
+        .merge({ warehouse_id: warehouseId, updated_by: me, updated_at: trx.fn.now() });
+      return { route_id: routeId, warehouse_id: warehouseId };
     });
   }
 
