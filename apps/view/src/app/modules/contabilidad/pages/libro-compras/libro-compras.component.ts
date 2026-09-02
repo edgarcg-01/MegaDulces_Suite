@@ -107,7 +107,7 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
             <div class="lc-acciones">
               @if (puedeGestionar()) {
                 <button pButton type="button" label="Generar TXT" icon="pi pi-file-export"
-                        [disabled]="!!d.avisos.length || !d.resumen.incluidas || generando()"
+                        [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
                         [loading]="generando()" (click)="generar()"></button>
                 @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
                   <button pButton type="button" label="Descargar" icon="pi pi-download"
@@ -127,9 +127,14 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
 
           <app-metric-strip [items]="kpis()" ariaLabel="Totales del mes" />
 
+          @if (d.bloqueantes.length) {
+            <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
+              @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
+            </ul>
+          }
           @if (d.avisos.length) {
-            <ul class="lc-avisos" aria-label="Cosas que impiden generar">
-              @for (a of d.avisos; track a) { <li><i class="pi pi-exclamation-triangle"></i>{{ a }}</li> }
+            <ul class="lc-avisos lc-info" aria-label="Cosas que vale la pena revisar">
+              @for (a of d.avisos; track a) { <li><i class="pi pi-info-circle"></i>{{ a }}</li> }
             </ul>
           }
 
@@ -290,7 +295,7 @@ export class LibroComprasComponent implements OnInit {
       return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Aplicado en ContPAQi',
         detalle: 'El trámite del mes está cerrado.' };
     }
-    if (d.avisos.length) {
+    if (d.bloqueantes.length) {
       return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'No se puede generar todavía',
         detalle: 'Hay facturas que ContPAQi rechazaría. Resuélvelas o exclúyelas.' };
     }
