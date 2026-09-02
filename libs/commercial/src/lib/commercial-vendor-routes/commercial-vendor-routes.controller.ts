@@ -21,6 +21,7 @@ import {
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
@@ -65,6 +66,15 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
   myRoutes() {
     return this.service.myRoutes();
+  }
+
+  @Get('my-stock-sources')
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_VER, Permission.VENDOR_APP_ACCESS)
+  @ApiOperation({
+    summary: 'Fuentes de existencia del vendedor: su sucursal de surtido + su camioneta (para el toggle ver sucursal/camioneta)',
+  })
+  myStockSources() {
+    return this.service.myStockSources();
   }
 
   @Get('coverage')

@@ -175,6 +175,60 @@ export class CommercialVendorRoutesService {
     });
   }
 
+  /**
+   * Fuentes de existencia del vendedor logueado, para el toggle "ver sucursal / ver
+   * camioneta" del take-order:
+   *   - `sucursal`: el almacén central que lo surte (por `users.warehouse_code` →
+   *     `warehouses.kepler_code`). Si no tiene sucursal asignada, cae al almacén
+   *     default del tenant (para que el catálogo nunca quede sin stock).
+   *   - `camioneta`: el almacén `kind='truck'` cuyo `owner_user_id` es el vendedor
+   *     (null si no tiene camión asignado → el app no muestra ese toggle).
+   * El app pasa el `id` elegido como `warehouse_id` al catálogo → stock_available de
+   * ESA fuente. Todo lectura, scope de tenant (RLS via tk.run).
+   */
+  async myStockSources() {
+    const me = this.tenantCtx.get()?.userId || null;
+    return this.tk.run(async (trx) => {
+      const user = me
+        ? await trx('public.users').where({ id: me }).select('warehouse_code').first()
+        : null;
+
+      type Wh = { id: string; code: string; name: string };
+      let sucursal: Wh | undefined;
+      if (user?.warehouse_code) {
+        sucursal = await trx('commercial.warehouses')
+          .where({ kepler_code: user.warehouse_code, kind: 'central', active: true })
+          .whereNull('deleted_at')
+          .select('id', 'code', 'name')
+          .first<Wh>();
+      }
+      if (!sucursal) {
+        sucursal = await trx('commercial.warehouses')
+          .where({ is_default: true, active: true })
+          .whereNull('deleted_at')
+          .select('id', 'code', 'name')
+          .first<Wh>();
+      }
+
+      const camioneta: Wh | undefined = me
+        ? await trx('commercial.warehouses')
+            .where({ kind: 'truck', owner_user_id: me, active: true })
+            .whereNull('deleted_at')
+            .select('id', 'code', 'name')
+            .first<Wh>()
+        : undefined;
+
+      return {
+        sucursal: sucursal
+          ? { id: sucursal.id, code: sucursal.code, name: sucursal.name }
+          : null,
+        camioneta: camioneta
+          ? { id: camioneta.id, code: camioneta.code, name: camioneta.name }
+          : null,
+      };
+    });
+  }
+
   /** Vendedores asignables (usuarios de campo activos). */
   async listVendors() {
     return this.tk.run(async (trx) =>
