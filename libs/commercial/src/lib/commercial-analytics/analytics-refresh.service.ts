@@ -148,8 +148,14 @@ export class AnalyticsRefreshService {
     this.isRefreshing = true;
     const results: Array<{ mv: string; ok: boolean; ms?: number; error?: string; skipped?: boolean }> = [];
     const now = Date.now();
+    // El MV de wincaja NO va en el cron de 15 min (MVS) pero SÍ en el refresh MANUAL, para que el botón
+    // "Refresh" lo pueble on-demand — p.ej. la 1ª vez tras aplicar la migración (nace WITH NO DATA) sin
+    // esperar al cron nocturno de 06:20. El loop ya maneja WITH NO DATA (REFRESH inicial no-CONCURRENTLY).
+    const list = source === 'manual'
+      ? [...MVS, { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean }]
+      : MVS;
     try {
-      for (const entry of MVS) {
+      for (const entry of list) {
         const mv = entry.name;
 
         // FDW health gate: si una corrida previa marcó el FDW como caído,
