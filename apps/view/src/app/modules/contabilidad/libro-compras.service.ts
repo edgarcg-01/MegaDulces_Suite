@@ -60,6 +60,9 @@ export interface MesDetalle {
     total: number; subtotal_exento: number; subtotal_gravado: number;
     iva: number; ieps: number; total_todas: number;
   };
+  /** Renglones que ContPAQi rechazaría: apagan el botón de generar. */
+  bloqueantes: string[];
+  /** Cosas que merecen una mirada pero se postean sin problema. */
   avisos: string[];
 }
 

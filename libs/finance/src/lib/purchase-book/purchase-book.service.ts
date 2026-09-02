@@ -144,7 +144,7 @@ export class PurchaseBookService {
   }
 
   // ── El mes: sus facturas y su cuadre ──────────────────────────────────────────────────
-  async getMes(anioMes: string): Promise<{ mes: string; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; avisos: string[] }> {
+  async getMes(anioMes: string): Promise<{ mes: string; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[] }> {
     this.mesValido(anioMes);
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
@@ -223,20 +223,24 @@ export class PurchaseBookService {
         total_todas: r2(facturas.reduce((a, f) => a + f.total, 0)),
       };
 
-      // Lo que impide generar, dicho antes de apretar el botón.
+      // Dos listas distintas, y la diferencia importa: los BLOQUEANTES son renglones que
+      // ContPAQi rechazaría, así que apagan el botón de generar. Los AVISOS son cosas que
+      // merecen una mirada pero se postean sin problema. Mezclarlos deja el mes trabado
+      // por una nota informativa, que es justo lo que pasó con "IEPS por cuota" en julio.
+      const bloqueantes: string[] = [];
       const avisos: string[] = [];
       const sinMapa = dentro.filter((f) => !f.account_suffix);
       const ctaMala = dentro.filter((f) => f.account_suffix && !f.cuenta_existe);
       const sinCta502 = dentro.filter((f) => f.subtotal16 > 0.004 && !f.cuenta_compra_iva);
       const negativas = dentro.filter((f) => f.base_exenta < -0.004);
       const cuota = dentro.filter((f) => f.ieps_por_cuota);
-      if (sinMapa.length) avisos.push(`${sinMapa.length} factura(s) de un RFC que no está en el mapa de cuentas`);
-      if (ctaMala.length) avisos.push(`${ctaMala.length} factura(s) con una cuenta que no existe en ContPAQi`);
-      if (sinCta502.length) avisos.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA`);
-      if (negativas.length) avisos.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
+      if (sinMapa.length) bloqueantes.push(`${sinMapa.length} factura(s) de un RFC que no está en el mapa de cuentas`);
+      if (ctaMala.length) bloqueantes.push(`${ctaMala.length} factura(s) con una cuenta que no existe en ContPAQi`);
+      if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA`);
+      if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
       if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
 
-      return { mes: anioMes, run: run ?? null, facturas, resumen, avisos };
+      return { mes: anioMes, run: run ?? null, facturas, resumen, bloqueantes, avisos };
     });
   }
 
@@ -346,16 +350,16 @@ export class PurchaseBookService {
     this.mesValido(anioMes);
     const modo: ImpuestosModo = opts.impuestos === 'por-cuenta' ? 'por-cuenta' : 'global';
     const conUuid = opts.uuid !== false;
-    const { facturas, resumen, avisos } = await this.getMes(anioMes);
+    const { facturas, resumen, bloqueantes } = await this.getMes(anioMes);
     const dentro = facturas.filter((f) => f.incluida);
     if (!dentro.length) throw new BadRequestException('el mes no tiene facturas incluidas');
 
     // Frenos duros: mejor no entregar archivo que entregar uno que ContPAQi va a rechazar.
-    const bloqueantes = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
+    const rechazables = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
       || (f.subtotal16 > 0.004 && !f.cuenta_compra_iva) || f.base_exenta < -0.004);
-    if (bloqueantes.length) {
+    if (rechazables.length) {
       throw new BadRequestException(
-        `${bloqueantes.length} factura(s) no se pueden postear: ${avisos.join(' · ')}. Resuélvelo o exclúyelas.`,
+        `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,
       );
     }
 

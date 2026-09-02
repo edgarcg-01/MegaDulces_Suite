@@ -57,10 +57,16 @@ export const LIBRO_COMPRAS_STYLES = `
 .lc-acciones { display: flex; gap: .4rem; flex-wrap: wrap; }
 
 .lc-avisos { list-style: none; margin: 0; padding: .55rem .7rem; display: flex; flex-direction: column; gap: .3rem;
-  border: 1px solid var(--border-color); border-left: 3px solid var(--bad-fg); border-radius: var(--radius-md);
+  border: 1px solid var(--border-color); border-left: 3px solid var(--border-color); border-radius: var(--radius-md);
   background: var(--card-bg); font-size: var(--fs-sm); }
 .lc-avisos li { display: flex; align-items: center; gap: .45rem; }
-.lc-avisos i { color: var(--bad-fg); font-size: .8rem; }
+.lc-avisos i { font-size: .8rem; }
+/* Lo que traba el trámite. */
+.lc-bloq { border-left-color: var(--bad-fg); }
+.lc-bloq i { color: var(--bad-fg); }
+/* Lo que solo hay que mirar: se postea igual. */
+.lc-info { border-left-color: var(--warn-fg); }
+.lc-info i { color: var(--warn-fg); }
 
 .lc-opciones { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; font-size: var(--fs-sm); }
 .lc-opciones > label { display: flex; align-items: center; gap: .45rem; }
