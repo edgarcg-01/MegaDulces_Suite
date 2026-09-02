@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
+import { classifyReceivingOrigin } from './receiving-origin';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -310,12 +311,20 @@ export class ReceivingSessionService {
                        AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
         );
 
-      return rows.map((r: any) => ({
-        ...r,
-        monto: Number(r.monto) || 0,
-        // Traspaso interno = "proveedor" con prefijo TI (sucursal propia).
-        tipo: /^TI/i.test(r.proveedor_code || '') ? 'traspaso' : 'compra',
-      }));
+      return rows.map((r: any) => {
+        // Una sola definición de "de dónde viene" (receiving-origin.ts), acá y en
+        // el detalle del vale. Antes vivía inline sólo en esta búsqueda, así que
+        // al ABRIR el vale la pantalla ya no sabía si era traspaso o compra —
+        // justo cuando el operario lo necesita para saber a quién reclamar.
+        const origin = classifyReceivingOrigin(r.proveedor_code, r.proveedor_nombre);
+        return {
+          ...r,
+          monto: Number(r.monto) || 0,
+          origin,
+          // `tipo` se conserva por compatibilidad con lo que ya lo consume.
+          tipo: origin.kind === 'transfer' ? 'traspaso' : 'compra',
+        };
+      });
     });
   }
 
@@ -856,7 +865,16 @@ export class ReceivingSessionService {
         }
       }
 
-      return { ...session, lines, progress, erp };
+      // De dónde viene la mercancía. En el andén son dos cosas distintas aunque
+      // lleguen por la misma puerta: un faltante de PROVEEDOR se le reclama a él
+      // y le pega en su scorecard; uno de TRASPASO se le reclama a la sucursal
+      // que embarcó, y es de la casa.
+      const origin = classifyReceivingOrigin(
+        session.supplier_code,
+        (erp as any)?.proveedor_nombre ?? null,
+      );
+
+      return { ...session, lines, progress, erp, origin };
     }
   }
 }

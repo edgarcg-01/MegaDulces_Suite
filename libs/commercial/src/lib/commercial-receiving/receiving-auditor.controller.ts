@@ -37,6 +37,16 @@ export class ReceivingAuditorController {
     return this.service.ocrLabel(body?.photo_data_uri);
   }
 
+  @Get('resolve')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Resolver un código escaneado → producto FECHABLE (con product_id real). Distinto del resolve de conteo, que devuelve product_id null.',
+  })
+  resolveForDating(@Query('code') code: string) {
+    return this.service.resolveForDating(code);
+  }
+
   @Post('evaluate')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({
