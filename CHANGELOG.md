@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed/Documented — hallazgo de credencial rota en producción + modelo operativo de catalogo-kp (CV.6, 2026-09-01)
+- Al intentar la verificación end-to-end de CV.5 se descubrió que la sesión de Claude Code corría físicamente en `192.168.0.163` — la máquina de producción del proyecto origen. Investigación en solo lectura, sin tocar nada: el Windows Service original sigue vivo (`:3000` responde) y las 3 tareas programadas de `Vigilar_API.ps1`/sincronización/verificador siguen activas.
+- **Hallazgo de producción, ajeno a esta migración, ya en conocimiento de 0Sistemas**: la contraseña de `app_runtime` guardada en el `.env` real no autentica contra el `KP_CONCENTRADA` real (`28P01`, confirmado con `psql` directo) — mismo síntoma que `docs/GOTCHAS.md` §24. La API en `.163` sigue respondiendo porque sus conexiones ya estaban abiertas; **cualquier reinicio repetiría la caída del 27/08/2026**. Documentado en `GOTCHAS.md` y en `FASE_CV` para que nadie más lo redescubra a ciegas.
+- Recomendación de corte de `catalogo-kp` hacia el Service/tareas programadas reales, documentada pero **no ejecutada** (requiere resolver la credencial primero, luego `007_rol_dedicado.sql`, luego verificación real).
+- Con esto, el roadmap CV.0–CV.6 de la Fase CV queda completo (CV.4 diferido).
+
 ### Added — `catalogo-kp` gana la tienda mayorista completa (CV.5, 2026-09-01)
 - **`tienda` completo portado**: catálogo de mayoreo, carrito (tokens HMAC firmados, revalidación de precio/existencia), checkout (folio, datos fiscales, aviso de privacidad, dos flujos de pago tarjeta/efectivo), el motor de la cola de trabajos (`FOR UPDATE SKIP LOCKED`, backoff exponencial, reclamo de huérfanos — portado línea por línea, sin cambiar comportamiento), avisos por correo, configuración de Mercado Pago, y la pantalla de confirmación en lote. Las rutas `pedidos/pagos/cola` vuelven al `AdminController` de CV.1.
 - **Transacciones migradas a Knex**: el original pasaba un `PoolClient` de `pg.Pool.connect()` entre servicios para enlazar operaciones en la misma transacción (p. ej. registrar el pedido y programar su aviso atómicamente); ahora es `this.db.transaction(async trx => ...)`, mismo patrón de paso explícito entre servicios, commit/rollback automático.
