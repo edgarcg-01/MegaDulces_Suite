@@ -223,7 +223,6 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
-          { id: 'libro-compras', label: 'Libro de Compras', route: '/finanzas/libro-de-compras', view: [Permission.FINANCE_PURCHASE_BOOK_VER], manage: [Permission.FINANCE_PURCHASE_BOOK_GESTIONAR] },
           { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'solicitudes', label: 'Solicitudes de gasto (evidencia)', route: '/finanzas/solicitudes', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
@@ -240,6 +239,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'listas-sat', label: 'Listas SAT (EFOS 69-B / Art. 69)', route: '/contabilidad/listas-sat', view: [Permission.FISCAL_LISTAS_VER], manage: [Permission.FISCAL_LISTAS_GESTIONAR] },
           { id: 'cfdi', label: 'CFDI', route: '/contabilidad/cfdi', view: [Permission.FISCAL_CFDI_VER], manage: [] },
+          { id: 'libro-compras', label: 'Libro de Compras (póliza a ContPAQi)', route: '/contabilidad/libro-de-compras', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
