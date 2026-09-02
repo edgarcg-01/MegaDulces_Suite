@@ -587,7 +587,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
         { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        { label: 'Revisión de facturas', icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
+        // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
+        // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
+        // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
         { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },

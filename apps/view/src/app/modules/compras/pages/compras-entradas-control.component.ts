@@ -237,8 +237,13 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                         <a class="ec-link" [routerLink]="['/compras/entradas']" [queryParams]="{ suc: c.sucursal }"
                            [pTooltip]="(c.entradas - c.con_evidencia) + ' sin factura'" tooltipPosition="left">subir</a>
                       }
+                      <!-- RE.24 — "revisar" ya no va a la cabina (fuera de uso): lleva a la lista
+                           de órdenes con la cola del revisor YA filtrada. El estado viaja en la
+                           URL para que el link cumpla lo que promete; sin él caía en las
+                           primeras 300 de la sucursal y había que filtrar a mano. -->
                       @if (canValidate() && c.por_validar > 0) {
-                        <a class="ec-link" [routerLink]="['/compras/entradas/revision']" [queryParams]="{ suc: c.sucursal }"
+                        <a class="ec-link" [routerLink]="['/compras/entradas/control/ordenes']"
+                           [queryParams]="{ suc: c.sucursal, estado: 'por_validar' }"
                            [pTooltip]="c.por_validar + ' esperando decisión'" tooltipPosition="left">revisar</a>
                       }
                       <a class="ec-link is-quiet" [routerLink]="['/compras/entradas/control/ordenes']" [queryParams]="{ suc: c.sucursal }">ver todo</a>

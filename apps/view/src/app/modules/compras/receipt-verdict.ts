@@ -2,11 +2,11 @@ import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from
 import { money } from '../../shared/util';
 
 /**
- * `[RE.13.2]` — El veredicto de una recepción, en llano. **Función pura y compartida**:
- * la usan la vista completa (`/compras/entradas/control/ordenes`) y la bandeja de revisión
- * (`/compras/entradas/revision`), que es exactamente la pantalla donde este texto ES el
- * trabajo. Vivía dentro del componente de 1,826 líneas; copiarlo habría garantizado que
- * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
+ * `[RE.13.2]` — El veredicto de una recepción, en llano. **Función pura y compartida**: la usa
+ * la vista completa (`/compras/entradas/control/ordenes`), que desde `[RE.24]` es **la** pantalla
+ * donde este texto ES el trabajo (la cabina de revisión quedó fuera de uso, pero la sigue
+ * importando y por eso esto no se movió). Vivía dentro del componente de 1,826 líneas; copiarlo
+ * habría garantizado que las pantallas terminaran diciendo cosas distintas del mismo expediente.
  *
  * La idea: las tres cifras comparables —lo que Kepler registró, la suma de los renglones y
  * lo que dice el papel del proveedor— no se leen solas. Un descuadre que resulta ser

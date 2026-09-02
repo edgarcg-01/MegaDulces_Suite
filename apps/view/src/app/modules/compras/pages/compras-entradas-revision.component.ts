@@ -33,6 +33,22 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 
 /**
+ * ⛔ `[RE.24]` **FUERA DE USO desde 2026-09-02** (decisión de Edgar). No está en el sidebar y
+ * `/compras/entradas/revision` **redirige** a la lista de órdenes; el componente sigue acá y no
+ * se borró, para poder volver sin reescribirlo. **No agregar features acá** — van a la lista.
+ *
+ * Qué se llevó la lista al retirarla: validar y rechazar ya los tenía, y se le portó el
+ * **motivo tipificado de rechazo** (sin eso `motivo_codigo` quedaba NULL para siempre) más el
+ * segmento **"Por validar"**, que es esta cola. Lo único que NO se portó es la **validación en
+ * lote**: medido en prod, se usó **una vez, para 4 documentos** de 161.
+ *
+ * Los dos controles que esta pantalla exhibía **siguen vivos**: los impone el server, no la UI
+ * — la segregación de funciones en `validate()` (403 si `created_by` es el actor) y la colisión
+ * en el `WHERE status IN (...)` del UPDATE ("otra persona ya decidió"). Lo que se pierde es sólo
+ * el **aviso previo**: acá se veía venir; en la lista aparece como error después de intentar.
+ * Cerrar eso es mostrar quién subió en la fila — el server ya lo devuelve (`last_by`) y la lista
+ * ni lo tipa.
+ *
  * `[RE.13.2]` — **Bandeja de revisión**: la cola del revisor.
  *
  * Es una **cola con veredicto**, no un CRUD. El revisor no busca: decide lo que le toca, en

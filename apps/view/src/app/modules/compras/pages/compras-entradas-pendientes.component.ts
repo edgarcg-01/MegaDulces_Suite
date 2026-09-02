@@ -85,8 +85,9 @@ interface Hoja {
  * Vocabulario único de la fase: **Sin factura → Por revisar → Validada**, con **Devuelta** como
  * el único camino de regreso. Antes cada pantalla les daba un nombre distinto.
  *
- * Lo que NO vive acá: la auditoría por línea, los ajustes del proveedor y la validación. Son el
- * trabajo del revisor (`/compras/entradas/revision`) y del Centro de control.
+ * Lo que NO vive acá: la auditoría por línea, los ajustes del proveedor y la validación. Desde
+ * `[RE.24]` todo eso es la **lista de órdenes** (`/compras/entradas/control/ordenes`) y el Centro
+ * de control; la cabina de revisión quedó fuera de uso.
  */
 @Component({
   selector: 'app-compras-entradas-pendientes',

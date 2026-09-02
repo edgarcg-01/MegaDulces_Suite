@@ -521,14 +521,6 @@ export const routes: Routes = [
         canDeactivate: [unsavedChangesGuard]
       },
       {
-        // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
-        // alcance). Permiso propio: VALIDAR no lo tiene el capturista.
-        path: 'entradas/revision',
-        loadComponent: () => import('./modules/compras/pages/compras-entradas-revision.component').then(m => m.ComprasEntradasRevisionComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
-      },
-
-      {
         // RE.3 — el calendario de pago. Permiso de LECTURA de entradas: es una vista derivada
         // del vencimiento que ya trae la orden, no una operación sobre dinero.
         path: 'vencimientos',
@@ -599,6 +591,13 @@ export const routes: Routes = [
       { path: 'entradas/lote', redirectTo: 'entradas', pathMatch: 'full' },
       { path: 'entradas/todas', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
       { path: 'entradas/gemelas', redirectTo: 'entradas/control/gemelas', pathMatch: 'full' },
+      // `[RE.24]` La cabina de revisión sale de uso (decisión de Edgar, 2026-09-02). Validar y
+      // rechazar ya viven en la lista de órdenes, que además es la pantalla donde se llega
+      // buscando un folio. Se redirige y NO se borra: el componente queda en el repo, y una
+      // ruta muerta que tira 404 es peor que una que lleva a donde sí se trabaja (hay links
+      // guardados y el Centro de control apuntaba acá). Angular conserva los query params, así
+      // que el `?suc=30` con el que llegaba desde Cobertura sigue filtrando.
+      { path: 'entradas/revision', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
       {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',
