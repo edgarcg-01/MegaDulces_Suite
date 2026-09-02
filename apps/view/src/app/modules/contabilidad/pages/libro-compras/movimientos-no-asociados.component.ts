@@ -57,9 +57,16 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
           bajan en TXT; el archivo lo sube contabilidad, como siempre.
         </p>
       </div>
-      <button pButton type="button" icon="pi pi-refresh" [text]="true"
-              (click)="cargarMeses()" [loading]="cargandoMeses()"
-              aria-label="Recargar los meses"></button>
+      <!-- Componente p-button, NO la directiva con label/icon: en PrimeNG 22 la directiva
+           pButton ya no tiene esos inputs, sólo props de estilo (text, outlined, severity,
+           size, loading). Angular ignora los atributos sobrantes en un button nativo y el
+           botón sale VACÍO: se veía como una pastilla naranja sin texto. Con la directiva
+           habría que proyectar el contenido a mano.
+           (Y ojo: nada de acentos graves en estos comentarios, que van dentro del template
+           literal del decorador y lo cortan a la mitad.) -->
+      <p-button type="button" icon="pi pi-refresh" styleClass="p-button-text"
+                (click)="cargarMeses()" [loading]="cargandoMeses()"
+                ariaLabel="Recargar los meses" />
     </header>
 
     <div class="lc-layout">
@@ -126,20 +133,20 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             </div>
             <div class="lc-acciones">
               @if (puedeGestionar()) {
-                <button pButton type="button" label="Generar TXT" icon="pi pi-file-export"
-                        [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
-                        [loading]="generando()" (click)="generar()"></button>
+                <p-button type="button" label="Generar TXT" icon="pi pi-file-export"
+                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
+                          [loading]="generando()" (click)="generar()" />
                 @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
-                  <button pButton type="button" label="Descargar" icon="pi pi-download"
-                          severity="secondary" [outlined]="true" (click)="descargar()"></button>
+                  <p-button type="button" label="Descargar" icon="pi pi-download"
+                            styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
                 }
                 @if (estadoRun() === 'generado') {
-                  <button pButton type="button" label="Marcar entregado" icon="pi pi-send"
-                          severity="secondary" [text]="true" (click)="dlgEntrega.set(true)"></button>
+                  <p-button type="button" label="Marcar entregado" icon="pi pi-send"
+                            styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
                 }
                 @if (estadoRun() === 'entregado') {
-                  <button pButton type="button" label="Marcar aplicado" icon="pi pi-check-circle"
-                          severity="secondary" [text]="true" (click)="marcar('aplicado')"></button>
+                  <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
+                            styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
                 }
               }
             </div>
@@ -260,8 +267,8 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
         <input pInputText [(ngModel)]="entregadoA" placeholder="Nombre de quien lo sube a ContPAQi" />
       </label>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" [text]="true" (click)="dlgEntrega.set(false)"></button>
-        <button pButton type="button" label="Confirmar" (click)="marcar('entregado')"></button>
+        <p-button type="button" label="Cancelar" styleClass="p-button-text" (click)="dlgEntrega.set(false)" />
+        <p-button type="button" label="Confirmar" (click)="marcar('entregado')" />
       </ng-template>
     </p-dialog>
   `,
