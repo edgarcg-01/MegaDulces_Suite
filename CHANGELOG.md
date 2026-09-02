@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Verified — primer pedido real de la historia, creado vía UI (CV.13, 2026-09-02)
+- Completado el clic final de checkout que había quedado pendiente en CV.11/Paso 3b del runbook: catálogo → producto → carrito → checkout completo → envío real, contra producción.
+- Folio `MD-2026-00012`: verificado en `tienda.pedidos` (estado, totales), `tienda.pedido_items` (línea correcta) y `tienda.avisos` (el correo de confirmación se envió de verdad por SMTP, no sólo se encoló).
+- Confirma de punta a punta el pipeline checkout→orden→cola→correo contra la base real, con el frontend nuevo (`apps/tienda`) como único cliente.
+- Cancelado después vía la API real (mismo endpoint que usa el panel de administración) con motivo explícito, por ser un pedido de prueba.
+- Con esto, el Paso 3b del runbook de corte queda completo. Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Fixed — oculta productos "* DESC" y expone compra por unidad individual (CV.12, 2026-09-02)
+- Los productos `* DESC ...` encontrados en CV.11 resultaron ser un código de producto aparte en Kepler para un descuento por volumen (desde 3 piezas/cajas/paquetes), no mercancía normal — investigado contra la base real antes de tocar código, sin asumir el patrón.
+- Ocultos temporalmente (`FILTRO_DESCUENTO`, comentado como temporal en el código) mientras se decide cómo representar el descuento correctamente.
+- Aprovechando la investigación: `kdii.c90` (precio de la unidad base — pieza o el empaque más chico real) se leía pero nunca se exponía; ahora el catálogo y la ficha de producto dejan elegir entre unidad individual y las presentaciones de mayoreo (caja/paquete), no sólo mayoreo.
+- Verificado contra datos reales: catálogo sin productos "DESC", ficha de producto con ambas opciones de compra.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — frontend Angular real para el checkout transaccional de la tienda mayorista (CV.11, 2026-09-02)
 - Nuevo app Nx standalone `apps/tienda` (patrón `apps/portal`/`apps/vendor`, no un módulo de `apps/view`): catálogo (grid/lista, filtros, búsqueda) → ficha de producto → carrito → checkout de 4 pasos (contacto/dirección/pago/revisión) → seguimiento de pedido. Primer consumidor real de `/api/tienda/carrito` y `/api/tienda/carrito/:token/checkout` en la historia del proyecto — `tienda.html` nunca los llamaba, sólo armaba un mensaje de WhatsApp.
 - Corrección de fondo: usa `GET /api/tienda/catalogo` (PH-only, reglas de mayoreo) en vez del `/api/catalogo` multi-sucursal que `tienda.html` usa por error.

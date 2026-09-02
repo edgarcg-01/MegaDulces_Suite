@@ -5,15 +5,16 @@
 > que el anterior haya salido bien. Plan de fondo en
 > [`FASE_CV`](../FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), sección CV.6.
 
-**Estado (2026-09-02):** Pasos 0–2 completados y verificados. El bloqueante
+**Estado (2026-09-02):** Pasos 0–3 completados y verificados. El bloqueante
 de credencial (`app_runtime` rechazada, `28P01`) se resolvió fuera de esta
 migración; Paso 3a (lectura contra datos reales) verificado con paridad
-byte a byte (ver `FASE_CV`, sección "Verificación real 2026-09-02"); el rol
-`catalogo_kp_runtime` quedó creado y confirmado con los permisos exactos de
-diseño (`kp.*` sólo lectura, `tienda.*`/`monitor.*` sin DELETE, `admin.usuarios`
-sólo lectura — DELETE probado y denegado). Sigue pendiente **Paso 3b**
-(camino de escritura contra datos reales — decisión de negocio) y **Paso 4**
-(corte real del Service).
+byte a byte; el rol `catalogo_kp_runtime` quedó creado y confirmado con los
+permisos exactos de diseño; **Paso 3b completado** — canario + primer
+pedido real de la historia creado vía el frontend nuevo (`apps/tienda`,
+folio `MD-2026-00012`), cancelado después por ser explícitamente de prueba
+(ver `FASE_CV`, sección "Verificación final: primer pedido real de la
+historia"). Sigue pendiente sólo **Paso 4** (corte real del Service en
+`.163`) y apuntar el `.env` de producción al rol dedicado.
 
 ---
 
@@ -109,8 +110,9 @@ diff viejo_todos.json nuevo_todos.json
 ```
 
 **3b. Camino de escritura (carrito/checkout/cola) — decisión de riesgo, no
-sólo técnica. 🟡 Canario verificado 2026-09-02; carrito real de punta a
-punta pendiente de ventana fuera de horario.**
+sólo técnica. ✅ Completo 2026-09-02: canario verificado y carrito real de
+punta a punta ejecutado (no se esperó ventana fuera de horario — 0Sistemas
+autorizó el envío final en el momento, ver `FASE_CV`).**
 
 0Sistemas eligió el enfoque de menor riesgo: canario ahora (no toca dinero),
 carrito real después, en una ventana fuera de horario de pedidos a definir.

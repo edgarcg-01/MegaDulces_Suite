@@ -6,17 +6,24 @@ import { pgRaw } from '../kp-concentrada/pg-raw.util';
 /**
  * Catálogo de la tienda en línea. NO es el mismo que el catálogo interno.
  *
- * La tienda es de SÓLO MAYOREO y se surte desde una sola sucursal, así que
- * aplica tres reglas que el catálogo interno no tiene:
+ * La tienda se surte desde una sola sucursal, así que aplica reglas que el
+ * catálogo interno no tiene:
  *
  *   1. Una sola sucursal. Se muestra el inventario de PH (`01`) y nada más.
  *      Las existencias de las otras sucursales no se filtran al público; sólo
  *      un usuario interno autenticado puede pedir otra sucursal.
  *
- *   2. Sólo unidades de mayoreo. Ver UNIDAD_MAYOREO más abajo: es la regla que
- *      evita vender promociones internas a un centavo.
+ *   2. Unidades de mayoreo (CJA/PAQ/BTO, ver UNIDAD_MAYOREO) MÁS la unidad
+ *      BASE (c11/c90 — casi siempre PZA, la venta individual). La regla de
+ *      mayoreo evita vender promociones internas a un centavo; la unidad
+ *      base tiene su propio piso de sanidad (ver `armarUnidades`). Antes
+ *      (hasta 2026-09-02) sólo se exponían las de mayoreo — el cliente no
+ *      podía comprar por pieza aunque el dato ya existía en c90.
  *
  *   3. Sólo con existencia. Un producto sin stock en PH no aparece.
+ *
+ *   4. Sin productos "* DESC ..." — ver FILTRO_DESCUENTO. Oculto temporal
+ *      pedido por 0Sistemas 2026-09-02.
  *
  * Precios: c90/c91/c92 vienen CON impuestos incluidos. Se devuelve también el
  * precio sin impuestos porque el comprador de mayoreo factura.
@@ -39,6 +46,16 @@ const NUM = (c: string) =>
 // Pseudo-productos contables ("VENTAS AL 16 %", "COMISION BANCARIA"): no son
 // mercancía y traen existencias absurdas.
 const FILTRO_SERVICIOS = `TRIM(i.c11) <> 'SER'`;
+
+// Oculto TEMPORAL pedido por 0Sistemas el 2026-09-02: productos con "* DESC"
+// en el nombre (ej. "* DESC CHEVEMIX FRESA 1KG/ROBELIS") son un descuento por
+// volumen (aplica desde 3 piezas/cajas/paquetes) codificado como código de
+// producto aparte en Kepler, no como una regla de precio — confunden el
+// catálogo (aparecen primero al ordenar por nombre, sin explicación). Se
+// ocultan mientras se decide cómo representar el descuento correctamente
+// (¿tabla de precios por volumen sobre el producto normal?). Ver
+// docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md, CV.12.
+const FILTRO_DESCUENTO = `TRIM(i.c2) !~* '^\\*{0,3}\\s*DESC'`;
 
 /**
  * Regla de unidad de mayoreo. Una unidad se muestra sólo si cumple las tres.
@@ -176,7 +193,31 @@ export class TiendaService {
     return `${nombre} de ${factor} piezas`;
   }
 
-  /** Arma las unidades vendibles de una fila, aplicando la regla de mayoreo. */
+  /**
+   * Etiqueta de la unidad base (c11), la que Kepler vende individualmente
+   * antes del empaque de mayoreo — casi siempre PZA, a veces PAQ/BTO/KG
+   * cuando ese ES el empaque más chico que existe (ver caso ROBELIS abajo).
+   */
+  private etiquetaBase(unidad: string): string {
+    return unidad === 'PZA' ? 'Pieza individual'
+         : unidad === 'PAQ' ? 'Paquete individual'
+         : unidad === 'BTO' ? 'Bulto individual'
+         : unidad === 'KG'  ? 'Por kilo'
+         : `Por ${unidad.toLowerCase()}`;
+  }
+
+  /**
+   * Arma las unidades vendibles de una fila.
+   *
+   * Decisión 2026-09-02 (pedido explícito de 0Sistemas): además de las
+   * unidades de mayoreo (CJA/PAQ/BTO en u2/u3), se agrega la unidad BASE
+   * (c11/u1, casi siempre PZA) con su propio precio (c90) — antes esta
+   * columna se leía pero su precio nunca se exponía, así que la tienda sólo
+   * dejaba comprar por caja/paquete completo. La unidad base NO pasa por
+   * `esUnidadMayoreo` (esa regla exige factor > 1 a propósito, para
+   * mayoreo) — usa su propio piso de sanidad (precio no nulo y >= 1) para
+   * no reabrir el problema original de marcadores contables a $0.01.
+   */
   private armarUnidades(r: any): UnidadTienda[] {
     const iva  = Math.abs(Number(r.iva_raw  ?? 0)) / 100;
     const ieps = Math.abs(Number(r.ieps_raw ?? 0)) / 100;
@@ -201,6 +242,22 @@ export class TiendaService {
       });
     };
 
+    const agregarBase = (nom: any, precio: any) => {
+      const u = String(nom || '').trim().toUpperCase();
+      const p = precio != null ? Number(precio) : null;
+      if (!u || p === null || !Number.isFinite(p) || p < 1) return;
+      if (out.some(x => x.unidad === u)) return;
+      out.push({
+        unidad:          u,
+        etiqueta:        this.etiquetaBase(u),
+        piezas:          1,
+        precio:          centavos(p),
+        precio_sin_iva:  centavos(p / div),
+        precio_unitario: centavos(p),
+      });
+    };
+
+    agregarBase(r.u1, r.pv1);
     agregar(r.u2, r.pv2, r.f2);
     agregar(r.u3, r.pv3, r.f3);
 
@@ -258,7 +315,7 @@ export class TiendaService {
         HAVING SUM(c5)::numeric > 0
       )
       SELECT TRIM(i.c1) AS codigo, TRIM(i.c2) AS nombre,
-             TRIM(i.c11) AS u1,
+             TRIM(i.c11) AS u1, ${NUM('i.c90')} AS pv1,
              TRIM(i.c80) AS u2, ${NUM('i.c91')} AS pv2, ${NUM('i.c81')} AS f2,
              TRIM(i.c83) AS u3, ${NUM('i.c92')} AS pv3, ${NUM('i.c84')} AS f3,
              ${NUM('i.c18')} AS iva_raw, ${NUM('i.c19')} AS ieps_raw,
@@ -274,6 +331,7 @@ export class TiendaService {
       WHERE i.sucursal = $1
         AND i.c1 IS NOT NULL AND i.c1::text ~ '^[0-9]'
         AND ${FILTRO_SERVICIOS}
+        AND ${FILTRO_DESCUENTO}
         -- Entra si hay en PH (entrega inmediata) O en cualquier otra
         -- (bajo pedido). Lo que no tiene nadie sigue oculto.
         AND (COALESCE(ex.existencia, 0) > 0 OR COALESCE(ex_otras.existencia, 0) > 0)
@@ -358,7 +416,7 @@ export class TiendaService {
         HAVING SUM(c5)::numeric > 0
       )
       SELECT TRIM(i.c1) AS codigo, TRIM(i.c2) AS nombre,
-             TRIM(i.c11) AS u1,
+             TRIM(i.c11) AS u1, ${NUM('i.c90')} AS pv1,
              TRIM(i.c80) AS u2, ${NUM('i.c91')} AS pv2, ${NUM('i.c81')} AS f2,
              TRIM(i.c83) AS u3, ${NUM('i.c92')} AS pv3, ${NUM('i.c84')} AS f3,
              ${NUM('i.c18')} AS iva_raw, ${NUM('i.c19')} AS ieps_raw,
@@ -371,7 +429,8 @@ export class TiendaService {
       LEFT JOIN ex_otras ON ex_otras.cod = TRIM(i.c1)
       LEFT JOIN kp.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
       LEFT JOIN kp.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c6)
-      WHERE i.sucursal = $1 AND TRIM(i.c1) = $2 AND ${FILTRO_SERVICIOS}
+      WHERE i.sucursal = $1 AND TRIM(i.c1) = $2
+        AND ${FILTRO_SERVICIOS} AND ${FILTRO_DESCUENTO}
       LIMIT 1
     `, [SUC_TIENDA, cod]);
 
