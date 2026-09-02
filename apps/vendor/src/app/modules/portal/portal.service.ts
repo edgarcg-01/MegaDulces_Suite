@@ -45,6 +45,12 @@ export interface PriceRow {
    * para incitar al vendedor ("mayoreo desde N → $X") — viaja en el catálogo offline.
    */
   tiers?: { min_qty: number; price: number }[];
+  /**
+   * Medidas de venta (analytics.product_units): presentaciones que ofrece el SKU con
+   * su factor a la unidad base. `units[0]` es la unidad base (factor 1). Sirve para el
+   * selector PZA/PAQ/CJA — viaja en el catálogo offline. Vacío si el SKU no tiene medidas.
+   */
+  units?: { unit: string; factor: number }[];
 }
 
 /**

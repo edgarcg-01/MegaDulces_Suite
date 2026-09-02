@@ -241,7 +241,7 @@ const foldText = (s: string | null | undefined): string =>
                   @if (!searchTerm().trim() && reasonFor(p.product_id); as rsn) {
                     <span class="rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
                   }
-                  <span class="pr">{{ fmtMoney(p.price) }}</span>
+                  <span class="pr">{{ fmtMoney(unitPriceDisplay(p)) }}@if (selectedUnit(p); as su) {<span class="pr-u">/{{ su.unit }}</span>}</span>
                   @if (p.min_qty > 1) {
                     <span>· min {{ p.min_qty }}</span>
                   }
@@ -255,16 +255,25 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="why"><i class="pi pi-comment"></i> por qué</span>
                   }
                 </div>
-                <!-- Incitar mayoreo: el quiebre por cantidad, siempre visible si existe. -->
+                <!-- Selector de medida (PZA/PAQ/CJA): solo si el SKU ofrece más de una. -->
+                @if (hasUnitChoice(p)) {
+                  <div class="unit-sel">
+                    @for (u of p.units; track u.unit) {
+                      <button type="button" class="us-chip" [class.on]="selectedUnit(p)?.unit === u.unit"
+                        (click)="setUnit(p, u.unit); $event.stopPropagation()">{{ u.unit }}</button>
+                    }
+                  </div>
+                }
+                <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
                 @if (mayoreoHint(p); as mh) {
                   <div class="may-hint" [class.reached]="mh.reached">
                     <i class="pi pi-tag"></i>
                     @if (mh.reached) {
-                      <span>Mayoreo aplicado · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                      <span>Mayoreo aplicado · {{ fmtMoney(mh.unit) }} c/{{ mh.unitLabel }} <b>−{{ mh.pct }}%</b></span>
                     } @else if (mh.need > 0 && cartQty(p.product_id) > 0) {
-                      <span>Faltan <b>{{ mh.need }}</b> para mayoreo · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                      <span>Faltan <b>{{ mh.need }}</b> {{ mh.unitLabel }} para mayoreo · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
                     } @else {
-                      <span>Mayoreo desde <b>{{ mh.from }}</b> · {{ fmtMoney(mh.unit) }} c/u <b>−{{ mh.pct }}%</b></span>
+                      <span>Mayoreo desde <b>{{ mh.from }}</b> {{ mh.unitLabel }} · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
                     }
                   </div>
                 }
@@ -272,7 +281,7 @@ const foldText = (s: string | null | undefined): string =>
               <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
                 <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
                 <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                  [ngModel]="cartQty(p.product_id) || null"
+                  [ngModel]="dispCount(p) || null"
                   (change)="setQtyTyped(p, $any($event.target).value)"
                   (focus)="$any($event.target).select()"
                   placeholder="0" aria-label="Cantidad" />
@@ -335,7 +344,7 @@ const foldText = (s: string | null | undefined): string =>
                     </div>
                     <div class="stepper">
                       <button (click)="dec(l)" aria-label="Menos">−</button>
-                      <span class="q">{{ cartQty(l.product_id) }}</span>
+                      <span class="q">{{ dispCountById(l.product_id) }}@if (unitLabelById(l.product_id); as u) {<small class="q-u">{{ u }}</small>}</span>
                       <button (click)="inc(l)" aria-label="Más">+</button>
                     </div>
                     <button class="rm" (click)="removeLine(l)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
@@ -579,6 +588,13 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint b { color: var(--action); font-weight: 800; }
       .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* Selector de medida (PZA/PAQ/CJA) por línea. */
+      .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
+      .prod .unit-sel { display: inline-flex; gap: 0.25rem; margin-top: 0.25rem; }
+      .prod .unit-sel .us-chip { font-size: 0.72rem; font-weight: 700; line-height: 1; padding: 0.22rem 0.5rem; border-radius: var(--r-pill, 999px); border: 1px solid var(--border-color); background: var(--surface-ground); color: var(--text-muted); cursor: pointer; }
+      .prod .unit-sel .us-chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
+      /* Unidad junto a la cantidad en el carrito. */
+      .stepper .q .q-u { display: block; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
       .prod .pm .rsn i { font-size: 0.6rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -933,7 +949,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   stockLabel(p: PriceRow): string {
     const s = Number(p.stock_available ?? 0);
     if (s <= 0) return 'Sin stock';
-    if (s < (p.min_qty || 1)) return `Stock ${s}`;
+    // Existencia en la MISMA unidad que se está pidiendo (paquetes/cajas enteros
+    // disponibles). Para la unidad base se muestra el crudo.
+    const f = this.unitFactor(p);
+    if (f > 1) {
+      const u = this.selectedUnit(p)?.unit ?? '';
+      return `Stock ${Math.floor(s / f)} ${u}`;
+    }
     return `Stock ${s}`;
   }
 
@@ -1334,32 +1356,38 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/pending']);
   }
 
-  /** "+" en la fila → sube (optimista, debounced) o crea con la cantidad sugerida. */
+  /** "+" en la fila → sube UNA presentación (factor unidades base) o crea. */
   incProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, cur + 1);
+    const f = this.unitFactor(p);
+    if (cur > 0) this.bumpQty(p.product_id, cur + f);
     else this.createLine(p, this.suggestedQty(p));
   }
-  /** "−" en la fila → baja (optimista; al llegar a 0 el flush quita la línea). */
+  /** "−" en la fila → baja UNA presentación (al llegar a 0 el flush quita la línea). */
   decProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, cur - 1);
+    const f = this.unitFactor(p);
+    if (cur > 0) this.bumpQty(p.product_id, Math.max(0, cur - f));
   }
 
-  /** Cantidad inicial al tocar "+": promedio histórico si es habitual, si no min_qty. */
+  /** Cantidad inicial base al tocar "+": promedio histórico (habitual), o una
+   *  presentación completa (factor), o el mínimo de compra — lo que sea mayor. */
   private suggestedQty(p: PriceRow): number {
-    return this.avgQtyByProduct().get(p.product_id) || p.min_qty || 1;
+    const avg = this.avgQtyByProduct().get(p.product_id);
+    if (avg) return avg;
+    return Math.max(this.unitFactor(p), p.min_qty || 1);
   }
 
   /**
-   * Order pad: cantidad tecleada directo en la fila. 0 (o vacío) quita la línea,
-   * >0 la fija o la crea. Núcleo del flujo rápido — sin tap-por-unidad.
+   * Order pad: cantidad tecleada en la fila EN LA UNIDAD ACTIVA. Se convierte a
+   * base (×factor). 0/vacío quita la línea, >0 la fija o la crea.
    */
   setQtyTyped(p: PriceRow, raw: string | number): void {
-    const n = Math.max(0, Math.floor(Number(raw) || 0));
+    const count = Math.max(0, Math.floor(Number(raw) || 0));
+    const base = count * this.unitFactor(p);
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, n); // existe → ajustar (0 = quitar en flush)
-    else if (n > 0) this.createLine(p, n); // nuevo → crear inmediato
+    if (cur > 0) this.bumpQty(p.product_id, base); // existe → ajustar (0 = quitar en flush)
+    else if (base > 0) this.createLine(p, base); // nuevo → crear inmediato
   }
 
   /** Agregar desde el pitch / "+" — usa la cantidad sugerida. */
@@ -1411,10 +1439,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   inc(line: OrderLine): void {
-    this.bumpQty(line.product_id, this.cartQty(line.product_id) + 1);
+    const f = this.unitFactorById(line.product_id);
+    this.bumpQty(line.product_id, this.cartQty(line.product_id) + f);
   }
   dec(line: OrderLine): void {
-    this.bumpQty(line.product_id, this.cartQty(line.product_id) - 1);
+    const f = this.unitFactorById(line.product_id);
+    this.bumpQty(line.product_id, Math.max(0, this.cartQty(line.product_id) - f));
+  }
+  /** Conteo del carrito en la unidad activa del producto (base ÷ factor). */
+  dispCountById(productId: string): number {
+    const f = this.unitFactorById(productId);
+    const base = this.cartQty(productId);
+    return f > 1 ? Math.round(base / f) : base;
   }
 
   /** Ajuste optimista de cantidad por producto + PATCH debounced. No crea líneas
@@ -1973,24 +2009,78 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   mayoreoHint(
     p: PriceRow,
-  ): { from: number; unit: number; pct: number; need: number; reached: boolean } | null {
+  ): { from: number; unit: number; pct: number; need: number; reached: boolean; unitLabel: string } | null {
     const tiers = p.tiers;
     const base = Number(p.price);
     if (!tiers?.length || !Number.isFinite(base) || base <= 0) return null;
     const first = tiers.reduce((a, b) => (Number(b.min_qty) < Number(a.min_qty) ? b : a));
-    const from = Math.max(2, Number(first.min_qty) || 0);
-    const unit = Number(first.price);
-    if (!Number.isFinite(unit) || unit <= 0 || unit >= base * 0.999) return null;
-    const qty = this.cartQty(p.product_id) || 0;
-    const need = Math.max(0, from - qty);
+    const fromBase = Math.max(2, Number(first.min_qty) || 0);
+    const unitBase = Number(first.price);
+    if (!Number.isFinite(unitBase) || unitBase <= 0 || unitBase >= base * 0.999) return null;
+    // Todo se muestra en la unidad seleccionada (factor): el quiebre y el precio.
+    const f = this.unitFactor(p);
+    const qtyBase = this.cartQty(p.product_id) || 0;
+    const from = Math.max(1, Math.ceil(fromBase / f));
+    const needBase = Math.max(0, fromBase - qtyBase);
     return {
       from,
-      unit,
-      pct: Math.round(((base - unit) / base) * 100),
-      need,
-      reached: qty >= from,
+      unit: unitBase * f, // precio por presentación seleccionada
+      pct: Math.round(((base - unitBase) / base) * 100),
+      need: Math.ceil(needBase / f),
+      reached: qtyBase >= fromBase,
+      unitLabel: this.selectedUnit(p)?.unit ?? '',
     };
   }
+  // ───── Medidas de venta (PZA/PAQ/CJA) ─────
+  // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
+  // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
+
+  /** Unidad seleccionada por producto (label). Vacío = usar el default. */
+  readonly unitSel = signal<Record<string, string>>({});
+
+  private defaultUnit(p: PriceRow): { unit: string; factor: number } | null {
+    const us = p.units;
+    if (!us?.length) return null;
+    return us.find((u) => u.unit === 'PAQ') ?? us[0];
+  }
+  /** Presentación activa del producto (default PAQ). Null si el SKU no tiene medidas. */
+  selectedUnit(p: PriceRow): { unit: string; factor: number } | null {
+    const us = p.units;
+    if (!us?.length) return null;
+    const sel = this.unitSel()[p.product_id];
+    return (sel ? us.find((u) => u.unit === sel) : null) ?? this.defaultUnit(p);
+  }
+  /** Factor a unidad base de la presentación activa (1 si no hay medidas). */
+  unitFactor(p: PriceRow): number {
+    return Math.max(1, Number(this.selectedUnit(p)?.factor) || 1);
+  }
+  /** Factor por product_id (para el carrito, que trae OrderLine sin PriceRow). */
+  unitFactorById(productId: string): number {
+    const p = this.byIdMap().get(productId);
+    return p ? this.unitFactor(p) : 1;
+  }
+  unitLabelById(productId: string): string {
+    const p = this.byIdMap().get(productId);
+    return (p && this.selectedUnit(p)?.unit) || '';
+  }
+  /** ¿Mostrar el selector? Solo si el SKU ofrece más de una presentación. */
+  hasUnitChoice(p: PriceRow): boolean {
+    return (p.units?.length ?? 0) > 1;
+  }
+  setUnit(p: PriceRow, unit: string): void {
+    this.unitSel.update((m) => ({ ...m, [p.product_id]: unit }));
+  }
+  /** Cantidad mostrada en la fila = cantidad base / factor (en la unidad activa). */
+  dispCount(p: PriceRow): number {
+    const f = this.unitFactor(p);
+    const base = this.cartQty(p.product_id);
+    return f > 1 ? Math.round(base / f) : base;
+  }
+  /** Precio unitario mostrado en la unidad activa (base × factor). */
+  unitPriceDisplay(p: PriceRow): number {
+    return Number(p.price) * this.unitFactor(p);
+  }
+
   initials(name: string): string {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
