@@ -34,6 +34,14 @@ export interface Turno {
   abierto: boolean;
   /** Minutos desde que Kepler cerró el turno. `null` = sigue abierto. */
   cerrado_hace_min?: number | null;
+  /**
+   * SM.17 — a qué hora suele cortar ESA caja, sacado del histórico. Solo llega
+   * mientras el turno está abierto. `corte_iqr_min` es la dispersión: si es
+   * grande el pronóstico no sirve y no se muestra.
+   */
+  corte_tipico?: string | null;
+  corte_en_min?: number | null;
+  corte_iqr_min?: number | null;
 }
 
 export interface ArqueoDto {

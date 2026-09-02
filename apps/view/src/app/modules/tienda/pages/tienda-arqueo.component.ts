@@ -93,21 +93,40 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 
           @if (turnos().length && !manual()) {
             @if (turnos().length > 1) {
-              <p class="arq-lbl arq-turno-lbl">Elegí el turno que vas a arquear</p>
+              <p class="arq-lbl arq-turno-lbl">
+                Tenés <strong>{{ turnos().length }} cortes pendientes</strong>. Se cierran del más viejo al más nuevo.
+              </p>
               <div class="arq-turnos">
-                @for (t of turnos(); track t.folio + t.warehouse_code) {
+                @for (t of turnos(); track t.folio + t.warehouse_code; let i = $index) {
+                  <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
+                       El backend lo exige igual — esto solo lo hace visible. -->
                   <button type="button" class="arq-turno" [class.sel]="t.folio === turnoFolio()"
+                          [class.bloq]="i > 0" [disabled]="i > 0"
+                          [attr.title]="i > 0 ? 'Primero cerrá el corte pendiente más viejo' : null"
                           (click)="elegirTurno(t.folio)">
                     <span class="arq-turno-caja">Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
                     <span class="arq-turno-meta">{{ t.abierto ? 'Abierta desde ' + (t.hora_apertura || '—') : 'Cerró ' + (t.hora_cierre || '—') }}</span>
-                    @if (!t.abierto) { <span class="arq-pide">Te toca arquear</span> }
+                    @if (i === 0 && !t.abierto) { <span class="arq-pide">Te toca arquear</span> }
+                    @if (i > 0) { <span class="arq-bloq-txt">Después de cerrar el anterior</span> }
                   </button>
                 }
               </div>
             }
 
             @if (turnoSel(); as t) {
+              @if (t.abierto && avisoCorte(t); as a) {
+                <!-- Su caja tiene un horario propio y es predecible: se avisa antes
+                     de que Kepler cierre, para que cuente con calma en vez de a las
+                     apuradas. Solo cuando el histórico es consistente. -->
+                <div class="arq-prox" [class.ya]="a.pronto">
+                  <i class="pi pi-clock"></i>
+                  <div>
+                    <strong>{{ a.titulo }}</strong>
+                    <p class="muted">{{ a.detalle }}</p>
+                  </div>
+                </div>
+              }
               @if (!t.abierto) {
                 <!-- Kepler cerró la caja: a partir de acá el arqueo no es opcional.
                      La app lo PIDE en el mismo momento en que el ERP lo pide. -->
@@ -309,8 +328,19 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-turno:hover { background: var(--surface-hover-bg); }
     .arq-turno.sel { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
     .arq-turno-caja { font-size: .85rem; font-weight: 700; }
+    .arq-turno.bloq { opacity: .5; cursor: not-allowed; }
+    .arq-turno.bloq:hover { background: var(--card-bg); }
+    .arq-bloq-txt { display: block; margin-top: .2rem; font-size: .6rem; text-transform: uppercase;
+                    letter-spacing: .04em; color: var(--text-muted); }
     .arq-pide { display: block; margin-top: .2rem; font-size: .6rem; font-weight: 700; text-transform: uppercase;
                 letter-spacing: .04em; color: var(--action); }
+    .arq-prox { display: flex; gap: .7rem; align-items: flex-start; padding: .7rem .85rem; margin-bottom: .9rem;
+                border: 1px solid var(--border-color); background: var(--surface-hover-bg); border-radius: var(--r-md); }
+    .arq-prox i { color: var(--text-muted); margin-top: .15rem; }
+    .arq-prox p { margin: .15rem 0 0; font-size: .78rem; }
+    .arq-prox.ya { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent);
+                   background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
+    .arq-prox.ya i { color: var(--warn-fg); }
     .arq-pide-box { display: flex; gap: .7rem; align-items: flex-start; padding: .75rem .85rem; margin-bottom: .9rem;
                     border: 1px solid color-mix(in srgb, var(--action) 45%, transparent);
                     background: color-mix(in srgb, var(--action) 8%, transparent); border-radius: var(--r-md); }
@@ -470,6 +500,29 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   @HostListener('document:visibilitychange')
   onVisible() { this.tick(); }
+
+  /**
+   * SM.17 — Aviso de "se acerca tu corte".
+   *
+   * Solo si el pronóstico es confiable: hay cajas con dispersión de ±3 min y otras
+   * de ±210. Con un IQR grande la hora "típica" es un promedio de dos costumbres
+   * distintas y avisar sería ruido — peor que no avisar, porque entrena a ignorar.
+   */
+  avisoCorte(t: Turno): { titulo: string; detalle: string; pronto: boolean } | null {
+    const min = t.corte_en_min;
+    const iqr = t.corte_iqr_min;
+    if (t.corte_tipico == null || min == null || iqr == null) return null;
+    if (iqr > 60 || min < -15 || min > 240) return null;   // impredecible o muy lejos
+    const pronto = min <= 30;
+    const holgura = `Suele cortar a las ${t.corte_tipico} (±${iqr} min).`;
+    return min <= 0
+      ? { titulo: 'Ya pasó tu hora habitual de corte.', detalle: `${holgura} Kepler todavía no la cierra.`, pronto: true }
+      : {
+          titulo: pronto ? `Tu corte es en ${min} min.` : `Tu corte es a las ${t.corte_tipico}.`,
+          detalle: pronto ? `${holgura} Andá preparando el efectivo.` : `${holgura} Faltan ${min} min.`,
+          pronto,
+        };
+  }
 
   elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
 
