@@ -134,6 +134,19 @@ export interface TurnoCorte {
 }
 
 /** Una cajera con todos sus cortes del período. */
+/** SM.21 — Cumplimiento del arqueo por sucursal. Solo lo ve quien supervisa. */
+export interface CumplimientoSuc {
+  warehouse_code: string; warehouse_name: string | null;
+  cortes: number; arqueados: number; pct: number;
+  pendientes: number; no_verificables: number;
+  mediana_min: number | null; monto_sin_verificar: number;
+}
+export interface CumplimientoResp {
+  sucursales: CumplimientoSuc[];
+  totales: { cortes: number; arqueados: number; pct: number; pendientes: number; no_verificables: number; monto_sin_verificar: number };
+  sla_min: number; critico_min: number;
+}
+
 export interface CajeraCard {
   cajero_code: string; cajero_nombre: string | null;
   warehouse_code: string; warehouse_name: string | null;
@@ -175,6 +188,11 @@ export class ArqueoService {
   }
 
   /** Tarjetas por cajera: sus cortes de Kepler + el arqueo nuestro cuando existe. */
+  cumplimiento(q?: { from?: string }): Observable<CumplimientoResp> {
+    const qs = q?.from ? `?from=${encodeURIComponent(q.from)}` : '';
+    return this.http.get<CumplimientoResp>(`${this.base}/cumplimiento${qs}`);
+  }
+
   porCajera(q?: { from?: string; to?: string; cajero?: string; limit?: number }): Observable<PorCajeraResp> {
     const p = new URLSearchParams();
     if (q?.from) p.set('from', q.from);

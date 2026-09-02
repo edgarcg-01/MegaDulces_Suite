@@ -9,7 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, CajeraCard, TurnoCorte } from '../arqueo.service';
+import { ArqueoService, CajeraCard, CumplimientoResp, TurnoCorte } from '../arqueo.service';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { imprimirTicket } from '../ticket-arqueo';
@@ -56,6 +56,24 @@ import { imprimirTicket } from '../ticket-arqueo';
           </button>
         </div>
       </header>
+
+      @if (revela && cump(); as k) {
+        <!-- El número que hace que la cola sirva. Sin esto el hallazgo se acumula
+             y nadie rinde cuentas: "cuántos de los cortes de mi tienda llegaron a
+             tener un conteo físico, y cuánto dinero quedó sin verificar". -->
+        <div class="ah-cump" [class.mal]="k.totales.pct < 80">
+          <div class="ah-cump-big">
+            <span class="ah-cump-pct">{{ k.totales.pct }}%</span>
+            <span class="ah-cump-l">de los cortes con conteo físico</span>
+          </div>
+          <div class="ah-cump-d">
+            <span><strong>{{ k.totales.arqueados }}</strong> de {{ k.totales.cortes }} contados</span>
+            @if (k.totales.pendientes) { <span class="warn"><strong>{{ k.totales.pendientes }}</strong> aún a tiempo</span> }
+            @if (k.totales.no_verificables) { <span class="bad"><strong>{{ k.totales.no_verificables }}</strong> ya no se pueden contar</span> }
+            <span class="bad ah-cump-monto">{{ money(k.totales.monto_sin_verificar) }} sin verificar</span>
+          </div>
+        </div>
+      }
 
       <div class="ah-kpis">
         <div class="ah-kpi"><span class="ah-kpi-v">{{ totales().cajeras }}</span><span class="ah-kpi-l">Cajeras</span></div>
@@ -221,6 +239,18 @@ import { imprimirTicket } from '../ticket-arqueo';
     .ah-head-right { display: inline-flex; align-items: center; gap: .6rem; margin-left: auto; flex-wrap: wrap; }
     :host ::ng-deep .ah-on { color: var(--action); font-weight: 700; }
     .ah-msg { font-size: .85rem; }
+    .ah-cump { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap;
+               padding: .8rem 1rem; margin-bottom: .9rem; border-radius: var(--r-md);
+               border: 1px solid var(--border-color); background: var(--card-bg); }
+    .ah-cump.mal { border-color: var(--bad-fg); background: var(--bad-soft-bg); }
+    .ah-cump-big { display: flex; align-items: baseline; gap: .5rem; }
+    .ah-cump-pct { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .ah-cump.mal .ah-cump-pct { color: var(--bad-soft-fg); }
+    .ah-cump.mal .ah-cump-l, .ah-cump.mal .ah-cump-d { color: var(--bad-soft-fg); }
+    .ah-cump-l { font-size: .78rem; color: var(--text-muted); }
+    .ah-cump-d { display: flex; gap: .3rem 1rem; flex-wrap: wrap; font-size: .76rem; font-variant-numeric: tabular-nums; }
+    .ah-cump-monto { margin-left: auto; }
+    .warn { color: var(--warn-fg); }
     .ah-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
     .ah-kpi { padding: .8rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .ah-kpi-v { display: block; font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -315,6 +345,7 @@ export class TiendaArqueoHistorialComponent implements OnInit {
     { label: '30 días', value: '30' },
   ];
   readonly ventana = signal<string>('7');
+  readonly cump = signal<CumplimientoResp | null>(null);
 
   /** Con el filtro puesto, la tarjeta solo aparece si tiene pendientes. */
   readonly visibles = computed(() =>
@@ -391,6 +422,12 @@ export class TiendaArqueoHistorialComponent implements OnInit {
 
   load() {
     this.loading.set(true);
+    if (this.revela) {
+      // Best-effort: si el tablero falla, la lista de cajeras igual se pinta.
+      this.svc.cumplimiento({ from: this.desdeTxt() })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (r) => this.cump.set(r), error: () => this.cump.set(null) });
+    }
     this.svc.porCajera({ from: this.desdeTxt(), limit: 600 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
