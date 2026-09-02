@@ -493,6 +493,11 @@ checkout OXXO→confirmar→verificar aviso) — queda para la ventana fuera de
 horario que 0Sistemas defina. Detalle de la ejecución en
 `RUNBOOKS/CV_CORTE_CATALOGO_KP.md`, Paso 3b.
 
+**Actualización 2026-09-02 (CV.11):** el carrito/checkout de punta a punta,
+salvo el envío final, terminó ejerciéndose de todas formas — ver CV.11 abajo,
+sección "Verificación real". Sólo falta el último clic (`POST
+.../checkout`), que sigue pendiente de la decisión de ventana.
+
 ---
 
 ## Revisión visual de la interfaz — 2 archivos estáticos faltantes encontrados y corregidos (2026-09-02)
@@ -532,6 +537,94 @@ Un 404 de un `<script>` no rompe la carga de la página (por eso pasó
 desapercibido), pero si `reportar-errores.js` fuera el único mecanismo para
 detectar errores de checkout en producción, esa telemetría llevaba
 apagada desde el día uno de la migración.
+
+---
+
+## CV.11 — Frontend Angular real para el checkout transaccional (2026-09-02)
+
+0Sistemas pidió revisar toda la interfaz y, al confirmar que `tienda.html`
+sólo arma un carrito local para WhatsApp (nunca llama al backend real —
+ver "Revisión visual de la interfaz" arriba), decidió construir el primer
+frontend real del checkout transaccional en vez de replicar ese flujo.
+Plan de diseño completo (contratos de backend, árbol de rutas, estado,
+sistema de diseño) en `docs/IMPLEMENTACION/RUNBOOKS/` no aplica — el plan
+vivió en el plan-mode de la sesión; este documento resume el resultado.
+
+**Nuevo app Nx standalone: `apps/tienda`** (Angular 22, zoneless, esbuild),
+siguiendo el patrón ya establecido donde `apps/portal`/`apps/vendor` son
+apps propios, no módulos de `apps/view`. Detalle de arquitectura y comandos
+de build/deploy en [`apps/tienda/README.md`](../../../apps/tienda/README.md).
+
+**Decisión de despliegue:** on-prem, junto al backend — el build se copia a
+`apps/catalogo-kp/public/tienda/` y lo sirve el mismo proceso NestJS (mismo
+origen, cero CORS nuevo, cero exposición pública nueva). `tienda.html`
+sigue viva sin tocarse en su URL de siempre; el app nuevo vive en `/tienda/`
+(con barra, para no confundirse con el archivo `.html`) — aditivo, no
+destructivo, hasta que 0Sistemas decida promoverlo.
+
+**Alcance:** catálogo (grid/lista, filtros, búsqueda) → ficha de producto →
+carrito → checkout de 4 pasos (contacto/dirección/pago/revisión) →
+seguimiento de pedido. Llama de verdad a `/api/tienda/carrito` y
+`/api/tienda/carrito/:token/checkout` — es el primer consumidor real de ese
+backend en la historia del proyecto.
+
+**Corrección de fondo respecto a `tienda.html`:** el catálogo del app nuevo
+usa `GET /api/tienda/catalogo` (PH-only, reglas de mayoreo) — NO
+`/api/catalogo` (multi-sucursal, el que `tienda.html` usa por error desde
+siempre). El carrito real sólo entiende productos de esa sucursal fija
+(`SUC_TIENDA` en `carrito.service.ts`), así que navegar y comprar ahora
+usan la misma fuente de verdad.
+
+**Estado (`CarritoStateService`):** el token del carrito vive en
+`localStorage`; el total/subtotal/avisos SIEMPRE vienen del servidor
+(`GET /tienda/carrito/:token` revalida precio/existencia en vivo) — nunca
+se computan en el cliente, siguiendo el criterio que el propio backend
+documenta (`carrito.controller.ts`). Validadores del formulario de
+checkout **espejan exactamente** las reglas server-side: `ESTADOS_MX` (32
+estados, lista cerrada) y el regex de RFC (`RE_RFC`) copiados literal de
+`checkout.service.ts`.
+
+**Bug encontrado y corregido durante la propia verificación:** el
+`<base href="/tienda/">` del `index.html` compilado no coincidía con el
+nombre de carpeta usado en el primer intento (`tienda-app/`) → los assets
+(CSS/JS) daban 404 aunque el `index.html` sí cargaba. Corregido renombrando
+la carpeta a `public/tienda/` (coincide con la base href) — documentado en
+`apps/tienda/README.md` para que un futuro rename no repita el error.
+
+**Verificación real (2026-09-02), con Playwright contra `KP_CONCENTRADA`
+real, rol `catalogo_kp_runtime`:**
+
+| Paso | Resultado |
+|---|---|
+| `/tienda/` catálogo | 4,562 productos reales, búsqueda "mazapan" → 31 resultados correctos |
+| Ficha de producto | Precio/presentación/máximo calculado correctos |
+| Agregar al carrito | Carrito real creado en `tienda.pedidos` (estado `CARRITO`) |
+| `/tienda/carrito` tras recarga completa | Recuperado desde `localStorage`, revalidado, envío gratis calculado bien ($1,361 > $999) |
+| Checkout paso 1 (contacto) | `POST /tienda/carrito/:token/cliente` real, avanza |
+| Checkout paso 2 (dirección) | Validación de estado/CP ok, avanza |
+| Checkout paso 3 (pago) | `metodos_pago` renderizado desde el servidor — **sólo OXXO y SPEI, TARJETA ausente** (Mercado Pago sin configurar, tal cual predicho) |
+| Checkout paso 4 (revisión) | Refresca el carrito antes de mostrar, resumen correcto |
+| Envío final (`POST .../checkout`) | **NO ejecutado a propósito** — crearía el primer pedido real de la historia; se canceló el carrito de prueba (`DELETE /tienda/carrito/:token`) para no dejar basura |
+
+**Hallazgo de datos, no de código, para 0Sistemas:** el orden por defecto
+(`orden=nombre`) del catálogo de la tienda muestra primero productos con
+nombres como `* DESC BOL ROLLO...` o `DESC CHEVEMIX...` — parecen ajustes/
+descuentos contables, no mercancía real, y pasan el filtro de "unidad de
+mayoreo" de `tienda.service.ts` (que sólo excluye `unidad='SER'`). No se
+tocó esa lógica — es una decisión de negocio (qué patrón de nombre excluir),
+no un bug de esta migración. Sólo afecta la vista sin buscar/filtrar; una
+búsqueda por nombre real (ej. "mazapan") no los muestra.
+
+**Pendiente:**
+- Decisión de negocio: ejecutar el envío final del checkout ahora (crea el
+  primer pedido real vía UI) o esperar la ventana fuera de horario ya
+  acordada para el Paso 3b del runbook.
+- Filtrar (o no) los productos tipo "DESC..." del catálogo de la tienda —
+  decisión de negocio, no de código.
+- Panel interno (reemplazo de `catalogo.html`) — explícitamente fuera de
+  alcance de este corte.
+- Promover `/tienda/` a la URL principal (retirar `tienda.html`) — decisión
+  de 0Sistemas, no automática.
 
 ---
 

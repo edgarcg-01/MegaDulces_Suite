@@ -140,3 +140,10 @@ database/importers/checadores/.scan-*.json
 # Fase CV — catalogo-kp: verificadores de mostrador autocontenidos (~2.2MB c/u,
 # se regeneran a diario con datos frescos de Kepler — no versionar el contenido).
 apps/catalogo-kp/public/verificador*.html
+
+# Fase CV — build de apps/tienda copiado a mano a catalogo-kp/public/tienda/
+# antes de compilar catalogo-kp (ver apps/tienda/README o el runbook de corte).
+# Es un artefacto de build (hashes cambian cada vez), no código fuente. No
+# confundir con la carpeta de imágenes en apps/catalogo-kp/public/img/ (sí
+# versionada) ni con el tienda.html viejo (archivo suelto, sí versionado).
+apps/catalogo-kp/public/tienda/

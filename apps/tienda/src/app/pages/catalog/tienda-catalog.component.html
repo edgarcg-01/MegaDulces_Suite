@@ -1,0 +1,130 @@
+<div class="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6">
+
+  <header class="mb-6">
+    <h1 class="font-display text-2xl font-bold text-content-main sm:text-3xl">
+      Tienda mayorista
+    </h1>
+    <p class="mt-1 text-sm text-content-muted">
+      Mega Dulces de los Altos — precios con IVA incluido, para tu negocio.
+    </p>
+  </header>
+
+  <!-- Filtros -->
+  <div class="mb-5 flex flex-wrap items-center gap-3">
+    <input
+      type="search"
+      [(ngModel)]="q"
+      (keyup.enter)="buscar()"
+      placeholder="Buscar dulces, botanas, abarrotes…"
+      class="min-w-[220px] flex-1 rounded-full border border-divider bg-surface-card px-4 py-2 text-sm
+             text-content-main placeholder:text-content-faint focus:border-action focus:outline-none" />
+
+    <select [(ngModel)]="familia" (change)="buscar()"
+      class="rounded-full border border-divider bg-surface-card px-3 py-2 text-sm text-content-main">
+      <option value="">Todas las familias</option>
+      @for (f of filtros()?.familias ?? []; track f.codigo) {
+        <option [value]="f.codigo">{{ f.nombre }}</option>
+      }
+    </select>
+
+    <select [(ngModel)]="marca" (change)="buscar()"
+      class="rounded-full border border-divider bg-surface-card px-3 py-2 text-sm text-content-main">
+      <option value="">Todas las marcas</option>
+      @for (m of filtros()?.marcas ?? []; track m.codigo) {
+        <option [value]="m.codigo">{{ m.nombre }}</option>
+      }
+    </select>
+
+    <button (click)="buscar()"
+      class="rounded-full bg-action px-4 py-2 text-sm font-semibold text-white hover:bg-action-hover">
+      Buscar
+    </button>
+
+    <div class="ml-auto flex overflow-hidden rounded-full border border-divider">
+      <button (click)="cambiarVista('grid')"
+        class="px-3 py-2 text-sm"
+        [class.bg-action]="vista() === 'grid'"
+        [class.text-white]="vista() === 'grid'"
+        [class.text-content-muted]="vista() !== 'grid'">Grid</button>
+      <button (click)="cambiarVista('lista')"
+        class="px-3 py-2 text-sm"
+        [class.bg-action]="vista() === 'lista'"
+        [class.text-white]="vista() === 'lista'"
+        [class.text-content-muted]="vista() !== 'lista'">Lista</button>
+    </div>
+  </div>
+
+  @if (error()) {
+    <p class="mb-4 rounded-lg bg-bad-soft-bg px-4 py-3 text-sm text-bad-fg">{{ error() }}</p>
+  }
+
+  <p class="mb-4 text-xs text-content-faint">{{ total() | number }} productos</p>
+
+  <!-- Grid -->
+  @if (vista() === 'grid') {
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      @for (p of productos(); track p.codigo) {
+        <a [routerLink]="['/producto', p.codigo]"
+           class="group flex flex-col overflow-hidden rounded-xl border border-divider bg-surface-card
+                  transition hover:shadow-md">
+          <div class="flex aspect-square items-center justify-center text-white"
+               [style.background]="placeholder(p.codigo)">
+            <span class="font-display text-lg font-bold opacity-70">{{ p.codigo }}</span>
+          </div>
+          <div class="flex flex-1 flex-col gap-1 p-3">
+            @if (p.marca) {
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-content-faint">{{ p.marca }}</span>
+            }
+            <span class="line-clamp-2 text-sm font-medium text-content-main">{{ p.nombre }}</span>
+            @if (p.bajo_pedido) {
+              <span class="mt-1 inline-flex w-fit items-center rounded-full bg-warn-soft-bg px-2 py-0.5 text-[10px] font-semibold text-warn-soft-fg">
+                Bajo pedido
+              </span>
+            }
+            <span class="mt-auto pt-2 font-mono text-base font-bold tabular-nums text-content-main">
+              {{ p.desde | number: '1.2-2' }}
+              <span class="text-xs font-normal text-content-faint">desde</span>
+            </span>
+          </div>
+        </a>
+      }
+    </div>
+  } @else {
+    <!-- Lista -->
+    <div class="flex flex-col divide-y divide-divider rounded-xl border border-divider bg-surface-card">
+      @for (p of productos(); track p.codigo) {
+        <a [routerLink]="['/producto', p.codigo]"
+           class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover">
+          <div class="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+               [style.background]="placeholder(p.codigo)">
+            {{ p.codigo.slice(-3) }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-medium text-content-main">{{ p.nombre }}</div>
+            <div class="truncate text-xs text-content-faint">
+              {{ p.codigo }} · {{ p.marca || 'Sin marca' }}
+              @if (p.bajo_pedido) { · <span class="text-warn-fg">bajo pedido</span> }
+            </div>
+          </div>
+          <span class="font-mono text-sm font-semibold tabular-nums text-content-main">
+            {{ p.desde | number: '1.2-2' }}
+          </span>
+        </a>
+      }
+    </div>
+  }
+
+  @if (!cargando() && productos().length === 0) {
+    <p class="py-16 text-center text-sm text-content-faint">No encontramos productos con esos filtros.</p>
+  }
+
+  @if (hayMas()) {
+    <div class="mt-6 flex justify-center">
+      <button (click)="cargarMas()" [disabled]="cargando()"
+        class="rounded-full border border-divider bg-surface-card px-5 py-2 text-sm font-medium text-content-main
+               hover:bg-surface-hover disabled:opacity-50">
+        {{ cargando() ? 'Cargando…' : 'Ver más productos' }}
+      </button>
+    </div>
+  }
+</div>

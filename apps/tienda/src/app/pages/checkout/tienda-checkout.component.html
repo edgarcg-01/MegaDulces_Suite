@@ -1,0 +1,210 @@
+<div class="mx-auto max-w-xl px-4 pb-24 pt-6 sm:px-6">
+
+  @if (paso() !== 'listo') {
+    <h1 class="mb-1 font-display text-2xl font-bold text-content-main">Finalizar pedido</h1>
+    <p class="mb-6 text-xs text-content-faint">
+      Paso
+      {{ paso() === 'contacto' ? '1' : paso() === 'direccion' ? '2' : paso() === 'pago' ? '3' : '4' }}
+      de 4
+    </p>
+  }
+
+  @if (error()) {
+    <p class="mb-4 rounded-lg bg-bad-soft-bg px-4 py-3 text-sm text-bad-fg">{{ error() }}</p>
+  }
+
+  @switch (paso()) {
+
+    @case ('contacto') {
+      <form [formGroup]="contactoForm" (ngSubmit)="siguienteDesdeContacto()" class="flex flex-col gap-3">
+        <label class="text-sm font-medium text-content-main">
+          Nombre de quien compra
+          <input formControlName="nombre" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <label class="text-sm font-medium text-content-main">
+          Correo (te enviamos ahí la confirmación)
+          <input formControlName="email" type="email" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <label class="text-sm font-medium text-content-main">
+          Teléfono
+          <input formControlName="tel" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <button type="submit" [disabled]="enviando()"
+          class="mt-2 rounded-full bg-action px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">
+          {{ enviando() ? 'Guardando…' : 'Continuar' }}
+        </button>
+      </form>
+    }
+
+    @case ('direccion') {
+      <form [formGroup]="direccionForm" (ngSubmit)="siguienteDesdeDireccion()" class="flex flex-col gap-3">
+        <label class="text-sm font-medium text-content-main">
+          Calle
+          <input formControlName="calle" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <div class="flex gap-3">
+          <label class="flex-1 text-sm font-medium text-content-main">
+            Número
+            <input formControlName="numero" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+          </label>
+          <label class="flex-1 text-sm font-medium text-content-main">
+            Código postal
+            <input formControlName="cp" maxlength="5" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+          </label>
+        </div>
+        <label class="text-sm font-medium text-content-main">
+          Colonia
+          <input formControlName="colonia" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <label class="text-sm font-medium text-content-main">
+          Ciudad
+          <input formControlName="ciudad" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+        </label>
+        <label class="text-sm font-medium text-content-main">
+          Estado
+          <select formControlName="estado" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm">
+            <option value="" disabled>Selecciona un estado</option>
+            @for (e of estados; track e) { <option [value]="e">{{ e }}</option> }
+          </select>
+        </label>
+        <div class="mt-2 flex gap-3">
+          <button type="button" (click)="paso.set('contacto')"
+            class="flex-1 rounded-full border border-divider px-5 py-3 text-sm font-medium text-content-main">
+            Atrás
+          </button>
+          <button type="submit" class="flex-1 rounded-full bg-action px-5 py-3 text-sm font-semibold text-white">
+            Continuar
+          </button>
+        </div>
+      </form>
+    }
+
+    @case ('pago') {
+      <form [formGroup]="pagoForm" (ngSubmit)="siguienteDesdePago()" class="flex flex-col gap-4">
+        @if (sinMetodosPago()) {
+          <p class="rounded-lg bg-warn-soft-bg px-4 py-3 text-sm text-warn-soft-fg">
+            Por el momento no hay métodos de pago disponibles para pedidos en línea.
+            Contáctanos directamente para completar tu compra.
+          </p>
+        } @else {
+          <div class="flex flex-col gap-2">
+            <span class="text-sm font-medium text-content-main">Método de pago</span>
+            @for (m of opciones()?.metodos_pago ?? []; track m.clave) {
+              <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-divider px-3 py-2">
+                <input type="radio" formControlName="metodo_pago" [value]="m.clave" class="mt-1" />
+                <span>
+                  <span class="block text-sm font-medium text-content-main">{{ m.nombre }}</span>
+                  <span class="block text-xs text-content-faint">{{ m.nota }}</span>
+                </span>
+              </label>
+            }
+          </div>
+
+          <label class="flex items-center gap-2 text-sm text-content-main">
+            <input type="checkbox" formControlName="requiere_factura" />
+            Necesito factura
+          </label>
+
+          @if (pagoForm.value.requiere_factura) {
+            <div class="flex flex-col gap-3 rounded-lg border border-divider p-3">
+              <label class="text-sm font-medium text-content-main">
+                RFC
+                <input formControlName="rfc" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm uppercase" />
+              </label>
+              <label class="text-sm font-medium text-content-main">
+                Razón social
+                <input formControlName="razon_social" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+              </label>
+              <div class="flex gap-3">
+                <label class="flex-1 text-sm font-medium text-content-main">
+                  Régimen fiscal
+                  <input formControlName="regimen" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+                </label>
+                <label class="flex-1 text-sm font-medium text-content-main">
+                  Uso de CFDI
+                  <input formControlName="uso_cfdi" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+                </label>
+              </div>
+              <label class="text-sm font-medium text-content-main">
+                Código postal fiscal
+                <input formControlName="cp_fiscal" maxlength="5" class="mt-1 w-full rounded-lg border border-divider px-3 py-2 text-sm" />
+              </label>
+            </div>
+          }
+
+          <label class="flex items-start gap-2 text-sm text-content-main">
+            <input type="checkbox" formControlName="acepta_privacidad" class="mt-1" />
+            Acepto el aviso de privacidad
+            @if (opciones(); as o) {
+              <span class="text-xs text-content-faint">(versión {{ o.privacidad.version }})</span>
+            }
+          </label>
+        }
+
+        <div class="mt-2 flex gap-3">
+          <button type="button" (click)="paso.set('direccion')"
+            class="flex-1 rounded-full border border-divider px-5 py-3 text-sm font-medium text-content-main">
+            Atrás
+          </button>
+          <button type="submit" [disabled]="sinMetodosPago() || enviando()"
+            class="flex-1 rounded-full bg-action px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">
+            {{ enviando() ? 'Verificando…' : 'Revisar pedido' }}
+          </button>
+        </div>
+      </form>
+    }
+
+    @case ('revision') {
+      @if (carrito(); as c) {
+        <div class="flex flex-col gap-4">
+          <div class="rounded-xl border border-divider bg-surface-card p-4 text-sm">
+            <h2 class="mb-2 font-semibold text-content-main">Resumen</h2>
+            @for (item of c.items; track item.id) {
+              <div class="flex justify-between py-1 text-content-muted">
+                <span>{{ item.cantidad }}× {{ item.nombre }} ({{ item.etiqueta }})</span>
+                <span class="font-mono tabular-nums">{{ item.importe | number: '1.2-2' }}</span>
+              </div>
+            }
+            <div class="mt-2 flex justify-between border-t border-divider pt-2 font-bold text-content-main">
+              <span>Total</span>
+              <span class="font-mono tabular-nums">{{ c.total | number: '1.2-2' }}</span>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-divider bg-surface-card p-4 text-sm text-content-muted">
+            <p><strong class="text-content-main">Envío a:</strong>
+              {{ direccionForm.value.calle }} {{ direccionForm.value.numero }}, {{ direccionForm.value.colonia }},
+              {{ direccionForm.value.ciudad }}, {{ direccionForm.value.estado }}, CP {{ direccionForm.value.cp }}</p>
+            <p class="mt-1"><strong class="text-content-main">Pago:</strong> {{ pagoForm.value.metodo_pago }}</p>
+          </div>
+
+          <div class="flex gap-3">
+            <button type="button" (click)="paso.set('pago')"
+              class="flex-1 rounded-full border border-divider px-5 py-3 text-sm font-medium text-content-main">
+              Atrás
+            </button>
+            <button (click)="confirmar()" [disabled]="enviando()"
+              class="flex-1 rounded-full bg-action px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">
+              {{ enviando() ? 'Enviando…' : 'Confirmar pedido' }}
+            </button>
+          </div>
+        </div>
+      }
+    }
+
+    @case ('listo') {
+      @if (resultado(); as r) {
+        <div class="flex flex-col items-center gap-3 py-10 text-center">
+          <span class="text-4xl">✓</span>
+          <h1 class="font-display text-2xl font-bold text-content-main">¡Pedido recibido!</h1>
+          <p class="text-sm text-content-muted">{{ r.mensaje }}</p>
+          <p class="font-mono text-lg font-bold tabular-nums text-content-main">{{ r.folio }}</p>
+          <a [routerLink]="['/pedido', r.seguimiento]"
+             class="mt-3 rounded-full bg-action px-5 py-3 text-sm font-semibold text-white">
+            Ver el estado de mi pedido
+          </a>
+        </div>
+      }
+    }
+  }
+</div>
