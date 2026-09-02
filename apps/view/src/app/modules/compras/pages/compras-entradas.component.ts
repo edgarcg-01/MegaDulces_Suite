@@ -13,6 +13,10 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+// `[RE.24]` Entró con el motivo tipificado de rechazo, que se portó desde la cabina de revisión
+// al retirarla. `p-radiobutton` y no un radio crudo: en tema oscuro el del sistema operativo se
+// ve fuera del diseño (ya corregido una vez en la cabina).
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -25,7 +29,7 @@ import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, ty
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
-import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel } from '../receipt-verdict';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
@@ -67,7 +71,7 @@ interface AttachFile {
   selector: 'app-compras-entradas',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, SegmentedComponent, MetricStripComponent,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -636,16 +640,34 @@ interface AttachFile {
       </ng-template>
     </p-dialog>
 
-    <!-- Diálogo: rechazo -->
-    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar remisión">
+    <!--
+      Diálogo: rechazo.
+
+      RE.24 — el motivo pasó de TEXTO LIBRE a tipificado, portado de la cabina de revisión al
+      retirarla. El catálogo existe para poder medir: su propio docstring dice "sin esto el
+      motivo es texto libre y no se puede medir", y esta pantalla era la que lo mandaba suelto
+      — o sea que retirar la cabina sin traerlo dejaba motivo_codigo en NULL para siempre.
+      El detalle sigue siendo libre, y obligatorio sólo en "Otro".
+    -->
+    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '28rem' }" [draggable]="false" header="Rechazar remisión">
       <div class="cb-form">
         <p class="muted">Entrada <strong>{{ rejectTarget()?.folio }}</strong> · {{ rejectTarget()?.proveedor_nombre }}</p>
-        <label class="cb-f"><span>Motivo del rechazo *</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. remisión ilegible, total no cuadra, no corresponde…"></textarea></label>
+        <div class="cb-rej-motivos" role="radiogroup" aria-label="Motivo del rechazo">
+          @for (m of MOTIVOS_RECHAZO; track m.code) {
+            <label class="cb-rej-m" [class.is-sel]="rejectCodigo() === m.code" [attr.for]="'rej-' + m.code">
+              <p-radiobutton name="motivoRechazo" [value]="m.code" [ngModel]="rejectCodigo()"
+                             (ngModelChange)="rejectCodigo.set($event)" [inputId]="'rej-' + m.code" />
+              <span>{{ m.label }}</span>
+            </label>
+          }
+        </div>
+        <label class="cb-f"><span>Detalle {{ rejectCodigo() === 'otro' ? '*' : '(opcional)' }}</span>
+          <textarea pInputText [(ngModel)]="rejectMotivo" rows="2" placeholder="Ej. la hoja 2 salió cortada"></textarea></label>
+        @if (rejectError()) { <p class="cb-err">{{ rejectError() }}</p> }
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="closeReject()"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+        <button pButton type="button" severity="danger" [loading]="saving()" [disabled]="!rejectCodigo()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
 
@@ -1047,6 +1069,19 @@ interface AttachFile {
     .cb-desc-m span { display: grid; gap: 1px; min-width: 0; }
     .cb-desc-m b { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
     .cb-desc-m em { font-style: normal; font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.4; }
+    /* RE.24 — motivos de RECHAZO: mismo lenguaje visual que los de descarte, pero de una línea
+       (el catálogo de rechazo no trae pista, la explicación va en el detalle libre de abajo).
+       Van en dos columnas porque son seis y en una sola el diálogo pedía scroll. */
+    .cb-rej-motivos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); }
+    @media (max-width: 30rem) { .cb-rej-motivos { grid-template-columns: 1fr; } }
+    .cb-rej-m {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-main); cursor: pointer;
+      min-height: var(--tap-min);
+    }
+    .cb-rej-m:hover { background: var(--surface-ground); }
+    .cb-rej-m.is-sel { border-color: var(--action); background: var(--surface-ground); }
     /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
        para que no se lea como continuación del rango "1–100". */
     /* ── RE.20.1: lente del dinero ─────────────────────────────────────────
@@ -1496,7 +1531,17 @@ export class ComprasEntradasComponent {
   // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
   // Está para TODOS los que ven (no sólo `_VALIDAR`) porque el descarte resta del denominador
   // de cobertura y quien mira el número tiene que poder ver qué se le restó.
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
+  /**
+   * `[RE.24]` **"Por validar" es nuevo acá** y entró al retirar la cabina de revisión: el
+   * backend siempre supo filtrar esa cola (`d.last_status='recibido'`) pero la lista no la
+   * ofrecía, así que al mandar el "revisar" del Centro de control a esta pantalla el
+   * `?estado=por_validar` lo habría **descartado el guard de la línea de abajo, en silencio**
+   * — el link prometía la cola del revisor y entregaba las primeras 300 sin filtrar.
+   *
+   * No es lo mismo que "Con remisión": ésa trae todo lo que tiene papel (validado, rechazado
+   * y esperando); "Por validar" es sólo lo que espera decisión, que es el trabajo del revisor.
+   */
+  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Por validar', value: 'por_validar' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
 
   // ── RE.20.3: descartar / reactivar ────────────────────────────────────────
   readonly verDescartadas = computed(() => this.estadoSel() === 'descartada');
@@ -1506,6 +1551,8 @@ export class ComprasEntradasComponent {
   readonly descarteMotivo = signal<MotivoDescarte>('traspaso');
   readonly descarteNota = signal('');
   readonly MOTIVOS_DESCARTE = MOTIVOS_DESCARTE;
+  /** `[RE.24]` Portado de la cabina: el rechazo también se tipifica, o no se puede medir. */
+  readonly MOTIVOS_RECHAZO = MOTIVOS_RECHAZO;
   motivoDescarteLabel = motivoDescarteLabel;
 
   clave(c: EntradaRow): string { return `${c.sucursal}/${c.folio}`; }
@@ -1695,6 +1742,9 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+  /** `[RE.24]` El código del catálogo. Sin él el botón queda deshabilitado. */
+  readonly rejectCodigo = signal<string | null>(null);
+  readonly rejectError = signal('');
 
   // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
   /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
@@ -1974,7 +2024,7 @@ export class ComprasEntradasComponent {
   /** Hay trabajo real que se perdería: hojas subidas, OCR corrido, tipos asignados a mano. */
   readonly attachDirty = computed(() => this.attachFiles().length > 0);
   /** Motivo tecleado que se perdería. */
-  private rejectDirty(): boolean { return !!this.rejectMotivo.trim(); }
+  private rejectDirty(): boolean { return !!this.rejectMotivo.trim() || !!this.rejectCodigo(); }
 
   private askDiscard(detail: string, onDiscard: () => void) {
     this.confirm.confirm({
@@ -2322,13 +2372,24 @@ export class ComprasEntradasComponent {
       });
   }
 
-  openReject(c: EntradaRow) { this.rejectTarget.set(c); this.rejectMotivo = ''; this.showReject.set(true); }
+  openReject(c: EntradaRow) {
+    this.rejectTarget.set(c); this.rejectMotivo = '';
+    this.rejectCodigo.set(null); this.rejectError.set('');
+    this.showReject.set(true);
+  }
   doReject() {
     const c = this.rejectTarget();
     if (!c?.deposit_id) return;
+    // `[RE.24]` Mismas dos reglas que tenía la cabina: el código es obligatorio (el botón ya
+    // está deshabilitado sin él) y "Otro" no vale sin explicación — si no, el catálogo se
+    // vuelve un `otro` universal y volvemos al texto libre por la puerta de atrás.
+    const code = this.rejectCodigo();
+    if (!code) { this.rejectError.set('Elegí un motivo.'); return; }
+    if (code === 'otro' && !this.rejectMotivo.trim()) { this.rejectError.set('Con "Otro" hace falta explicar.'); return; }
+    this.rejectError.set('');
     this.saving.set(true);
-    this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+    this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   openDetail(c: EntradaRow) {
