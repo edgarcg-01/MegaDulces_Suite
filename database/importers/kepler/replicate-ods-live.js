@@ -26,6 +26,9 @@
  *        SALTA con "no conecta — skip" (inofensivo). Al crear la subscription, se activa sola.)
  *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY · CRON_TENANT_ID
  *      ODS_READ_BATCH (5000) · ODS_SHIP_BATCH (5000)
+ *      ODS_HASH_RESYNC_SEC (3600) · ODS_HASH_RESYNC_TABLES (kdil,kdik) — red de seguridad del
+ *        carril hash: cada N s esa tabla ignora el shadow una pasada y re-shipea todo, para
+ *        recuperar filas que el shadow dio por enviadas y el destino nunca aplicó.
  * Flags: --apply (default dry-run) · --tables=kdii,kdil · --branch=03 · --full (ignora watermark ctid)
  *        --watch[=segundos] (loop continuo; default 10s; implica apply)
  *
@@ -124,6 +127,25 @@ const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 
 // red de seguridad, expuestas al skip silencioso del ctid (líneas de venta faltantes).
 const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
 const _lastSafety = new Map();
+
+// RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
+// enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
+// porque el upsert del ODS filtra las idénticas (medido: 2804 enviadas → 897 escritas es lo NORMAL).
+// Si un ship se pierde parcialmente, esas filas quedan con el shadow ADELANTADO y NUNCA se
+// reintentan: sólo se corrigen si el dato vuelve a cambiar por sí solo. Por eso el daño se concentra
+// en las sucursales de baja rotación — medido en prod: `04` Yurécuaro tenía 897 filas de `kdil`
+// stale (existencia derivada del ODS acertaba 85.2% vs POS, contra 100% de las demás), y el
+// resync `--full` la puso en 100%. Fix additivo: cada RESYNC_SEC ignorar el shadow una pasada
+// (equivalente a `--full` de esa tabla×sucursal) → auto-sanante, sin intervención manual.
+// Acotado por whitelist para NO pagar egress de re-shipear catálogos grandes (kdii 37MB, kdc2*):
+// por default sólo las tablas de EXISTENCIA, que son chicas y son las que mueven dinero (el pedido).
+// OJO: el estado del throttle va EN LA DB del replica (ods.hash_resync), no en memoria. El runner
+// (run-ods-live-loop.cmd) lanza un PROCESO NUEVO cada ODS_LOOP_SECONDS, así que un Map en memoria
+// arranca vacío en cada pasada y el resync se dispararía SIEMPRE (cada 15 s), justo el egress que
+// esto evita. Con la tabla, el intervalo se respeta entre procesos.
+const HASH_RESYNC_SEC = Number(process.env.ODS_HASH_RESYNC_SEC || 3600);
+const HASH_RESYNC_TABLES = new Set(
+  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik').split(',').map((s) => s.trim()).filter(Boolean));
 
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -229,6 +251,10 @@ async function ensureLocalCtl(p) {
       pk_text    text NOT NULL,
       h          text NOT NULL,
       PRIMARY KEY (table_name, pk_text))`);
+  // Throttle PERSISTENTE de la red de seguridad del carril hash (ver ODS_HASH_RESYNC_SEC).
+  await p.query(`CREATE TABLE IF NOT EXISTS ods.hash_resync (
+      table_name text PRIMARY KEY,
+      last_at    timestamptz NOT NULL DEFAULT now())`);
 }
 
 /** Columnas + PK de md.<table> en este replica. */
@@ -323,8 +349,22 @@ async function syncHash(p, code, table, meta, { apply, full }) {
   const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
   const shipMeta = shipMetaOf(table, meta);
   const pkx = pkExpr(meta.pk);
+  // Red de seguridad periódica: cada HASH_RESYNC_SEC esta tabla se comporta como `--full` (ignora
+  // el shadow) para recuperar filas cuyo ship se perdió y el shadow dio por enviadas. El claim es
+  // ATÓMICO y persistente (`ods.hash_resync` en este replica): el UPDATE condicional sólo devuelve
+  // fila si de verdad tocaba, así que dos procesos concurrentes no resincronizan lo mismo dos veces.
+  // Sólo con --apply: en dry-run no se consume el intervalo.
+  let dueResync = false;
+  if (apply && HASH_RESYNC_TABLES.has(table)) {
+    dueResync = (await p.query(
+      `INSERT INTO ods.hash_resync (table_name, last_at) VALUES ($1, now())
+       ON CONFLICT (table_name) DO UPDATE SET last_at = now()
+         WHERE ods.hash_resync.last_at < now() - ($2 || ' seconds')::interval
+       RETURNING table_name`, [table, String(HASH_RESYNC_SEC)])).rowCount > 0;
+  }
+  const ignoreShadow = full || dueResync;
   // full = ignora shadow (re-shipea todo y reconstruye shadow); útil primera pasada / resync.
-  const joinCond = full
+  const joinCond = ignoreShadow
     ? `FALSE`
     : `s.table_name='${table.replace(/'/g, "''")}' AND s.pk_text = ${pkx}`;
   const deltaSql = `
@@ -365,8 +405,10 @@ async function syncHash(p, code, table, meta, { apply, full }) {
       `INSERT INTO ods.shadow (table_name, pk_text, h) VALUES ${tuples}
        ON CONFLICT (table_name, pk_text) DO UPDATE SET h=EXCLUDED.h`, params);
   }
-  console.log(`  ✓ ${code}/${table} [hash]: ${rows.length} delta · ${changed} escritas`);
-  return { suc: code, tabla: table, carril: 'hash', leidas: rows.length, escritas: changed };
+  // `escritas` < `delta` es NORMAL: el upsert del destino filtra las filas ya idénticas. Lo que
+  // importa del resync es justamente lo que escribe — eso es lo que el shadow había perdido.
+  console.log(`  ${dueResync ? '⛑' : '✓'} ${code}/${table} [hash${dueResync ? ' resync' : ''}]: ${rows.length} delta · ${changed} escritas`);
+  return { suc: code, tabla: table, carril: 'hash', resync: dueResync || undefined, leidas: rows.length, escritas: changed };
 }
 
 /** PRIME: fija el watermark ctid de las tablas del carril ctid al MÁXIMO actual, sin shipear.
