@@ -88,6 +88,63 @@ const leer = (rel) => {
       'los umbrales viven SÓLO en CRON_JOBS/EXT_SOURCES de db-health.service.ts');
   }
 
+  // ── 1b. La marca por sucursal: "se REVISÓ" ≠ "se le empujó algo" ─────────────────────────
+  // `_sync_status` no servía para esto: sólo se escribe cuando llega un lote, y el carril hash no
+  // empuja nada si no hay cambios. Esta tabla la escribe el shipper al cerrar la pasada de cada
+  // rama, haya o no filas — por eso acá "viejo" tiene un solo significado: nadie miró esa rama.
+  const t = (await c.query(`SELECT to_regclass('analytics.ods_branch_checks') IS NOT NULL AS ok`)).rows[0];
+  check('analytics.ods_branch_checks existe', !!t?.ok);
+
+  if (t?.ok) {
+    // last_check_at DEBE admitir NULL: una rama que nunca se pudo revisar no tiene fecha que poner,
+    // y rellenarla con now() sería registrar como hecho algo que falló.
+    const nulable = (await c.query(`
+      SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema='analytics' AND table_name='ods_branch_checks' AND column_name='last_check_at'`)).rows[0];
+    check('last_check_at admite NULL (= nunca se pudo revisar)', nulable?.is_nullable === 'YES');
+
+    // ⭐ El candado de fondo, ejercitado contra la DB real con un carril sintético.
+    const TEN = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+    const LANE = '__test_obs32';
+    const upsert = `
+      INSERT INTO analytics.ods_branch_checks
+             (tenant_id, lane, sucursal, last_check_at, tables_checked, rows_shipped, last_error)
+      VALUES ($1,$2,$3, CASE WHEN $7::text IS NULL THEN now() ELSE NULL END, $4, $5, $6)
+      ON CONFLICT (tenant_id, lane, sucursal) DO UPDATE SET
+        last_check_at  = CASE WHEN $7::text IS NULL THEN now()
+                              ELSE analytics.ods_branch_checks.last_check_at END,
+        tables_checked = EXCLUDED.tables_checked,
+        rows_shipped   = EXCLUDED.rows_shipped,
+        last_error     = EXCLUDED.last_error`;
+    try {
+      await c.query(`DELETE FROM analytics.ods_branch_checks WHERE lane=$1`, [LANE]);
+
+      // (a) Primera vez CON error → la rama nunca se revisó: sin fecha.
+      await c.query(upsert, [TEN, LANE, '99', 0, 0, 'no conecta', 'no conecta']);
+      const a = (await c.query(`SELECT last_check_at FROM analytics.ods_branch_checks WHERE lane=$1 AND sucursal='99'`, [LANE])).rows[0];
+      check('rama que falla desde el arranque queda SIN fecha (no se inventa una revisión)', a?.last_check_at === null);
+
+      // (b) Pasada limpia → la marca avanza.
+      await c.query(upsert, [TEN, LANE, '99', 19, 5, null, null]);
+      const b = (await c.query(`SELECT last_check_at, tables_checked FROM analytics.ods_branch_checks WHERE lane=$1 AND sucursal='99'`, [LANE])).rows[0];
+      check('una pasada limpia SÍ mueve la marca', !!b?.last_check_at);
+      check('tables_checked queda registrado (caza la config recortada)', Number(b?.tables_checked) === 19);
+
+      // (c) ⭐ Después falla → la marca NO avanza. Si avanzara, una rama caída se vería revisada
+      //     para siempre y el sensor jamás la alcanzaría: el verde falso de nuevo.
+      const antes = b.last_check_at;
+      await new Promise((r) => setTimeout(r, 60));
+      await c.query(upsert, [TEN, LANE, '99', 0, 0, 'se cayó', 'se cayó']);
+      const d = (await c.query(`SELECT last_check_at, last_error FROM analytics.ods_branch_checks WHERE lane=$1 AND sucursal='99'`, [LANE])).rows[0];
+      check('una pasada CON ERROR no mueve la marca (la rama no se revisó)',
+        new Date(d.last_check_at).getTime() === new Date(antes).getTime(),
+        `antes=${antes} después=${d.last_check_at}`);
+      check('pero sí deja el error registrado', /se cayó/.test(d?.last_error || ''));
+    } finally {
+      await c.query(`DELETE FROM analytics.ods_branch_checks WHERE lane=$1`, [LANE]).catch(() => {});
+    }
+  }
+
   // ── 2. Los carriles que alimentan prod están REGISTRADOS con umbral ──────────────────────
   // El bug de fondo del incidente: `checkCronRuns` clasifica con `cfg ? classify(...) : 'ok'`, así
   // que un job SIN entrada en CRON_JOBS sale VERDE INCONDICIONAL por más viejo que esté. Cinco
@@ -122,6 +179,12 @@ const leer = (rel) => {
     check('las fallas por rama se AGREGAN al latido (no `continue` mudo)',
       /fallas/.test(ship),
       'antes una pasada podía shipear cero e imprimir "APPLY hecho."');
+    // [OBS.3.2] El shipper deja la marca por rama. Sin esto el latido agregado seguiría verde con
+    // "1/1 ramas" si alguien deja el contenedor corriendo con --branch=03.
+    check('el shipper marca cada sucursal como revisada', /marcarRamas/.test(ship));
+    check('la marca NO avanza cuando la rama falló',
+      ship.includes('ELSE analytics.ods_branch_checks.last_check_at END'),
+      'bumpearla con error dejaría a una rama caída viéndose revisada para siempre');
   }
 
   // ── 4. El healthcheck mide ENTREGA, no que el PID exista ─────────────────────────────────
