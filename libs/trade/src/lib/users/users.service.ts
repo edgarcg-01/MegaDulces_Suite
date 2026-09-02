@@ -18,7 +18,6 @@ import {
   TenantContextService,
   PermissionsCacheService,
   Permission,
-  buildAbility,
   branchKeySql,
   branchKeyFilterSql,
 } from '@megadulces/platform-core';
@@ -1141,8 +1140,8 @@ export class UsersService {
         const detalle = await this.permissions(userId);
         return Object.fromEntries(detalle.efectivos.map((k: string) => [k, true]));
       })());
-    const ability = buildAbility(permisos, { roleName });
-    return { user_id: userId, role_name: roleName ?? null, permissions: permisos, rules: ability.rules };
+    // Ya no se devuelven reglas de CASL: el front gatea por clave exacta contra `permissions`.
+    return { user_id: userId, role_name: roleName ?? null, permissions: permisos };
   }
 
   /**

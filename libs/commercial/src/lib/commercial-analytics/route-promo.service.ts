@@ -36,11 +36,13 @@ export interface PromoRouteRow {
   warehouse_name: string;
   route_no: string;
   label: string;
-  clientes: number; // clientes distintos que califican (≥ min_qty)
-  piezas: number;   // piezas vendidas del SKU
-  importe: number;  // dinero de esas ventas
-  base: number;     // clientes / piezas / tickets / monto según la métrica
-  payout: number;   // rate × base
+  clientes: number;                // clientes distintos que califican (≥ min_qty, en unidad base)
+  clientes_indeterminados: number; // no califican por lo resuelto, pero tienen línea sin peldaño
+  unidades: number;                // cantidad en la unidad BASE del SKU (ver PromoResult.unit_base)
+  unidades_sin_resolver: number;   // cantidad cuyo peldaño el precio no pudo identificar
+  importe: number;                 // dinero de esas ventas (no depende de la unidad)
+  base: number;                    // clientes / unidades / tickets / monto según la métrica
+  payout: number;                  // rate × base
 }
 
 /** Detalle de un cliente que participó (para "cuáles fueron"). */
@@ -50,8 +52,28 @@ export interface PromoClientRow {
   route_label: string;
   cliente: string;
   nombre: string;
-  piezas: number;
+  unidades: number;
   importe: number;
+}
+
+/**
+ * Cómo quedó la unidad de medida del cálculo. Se DECLARA siempre: la mecánica se paga
+ * por cantidad, y la cantidad no significa nada sin su unidad.
+ */
+export interface PromoUnitInfo {
+  /** Rótulo base real del ERP (`kdii.c11`): PZA / PAQ / CJA… null si el ERP no lo declara. */
+  unit_base: string | null;
+  /** Producto de peso (granel): la cuenta por unidades no aplica. */
+  is_weight: boolean;
+  /** El SKU no está en `kepler_ods.kdii` → no hay escalera con qué resolver nada. */
+  sin_escalera: boolean;
+  lineas_sin_resolver: number;
+  unidades_sin_resolver: number;
+  importe_sin_resolver: number;
+  /** true = hay evidencia suficiente para pagar por cantidad sin inventar nada. */
+  confiable: boolean;
+  /** Explicación en una línea para la pantalla y el PDF. */
+  nota: string;
 }
 
 export interface PromoResult {
@@ -62,12 +84,14 @@ export interface PromoResult {
   period: { from: string; to: string; label: string };
   metric_label: string;
   base_label: string;
+  unit: PromoUnitInfo;
   rows: PromoRouteRow[];
   clientes_detalle: PromoClientRow[];
   total_base: number;
   total_payout: number;
   total_clientes: number;
-  total_piezas: number;
+  total_clientes_indeterminados: number;
+  total_unidades: number;
   total_importe: number;
   note: string;
   generated_at: string;
@@ -84,12 +108,50 @@ export interface PromoQuery {
 
 const METRIC_LABEL: Record<PromoMetric, string> = {
   clientes_distintos: 'Clientes distintos',
-  piezas: 'Piezas',
+  // 'piezas' es la clave HISTÓRICA de la métrica (viaja en la regla del LLM y en payloads
+  // guardados); el rótulo dice "Unidades" porque la cantidad está en la unidad BASE del SKU,
+  // que para la mayoría del catálogo es el PAQUETE, no la pieza. Ver LADDER_CTE.
+  piezas: 'Unidades',
   tickets: 'Tickets',
   monto: 'Monto vendido',
 };
 const PROMO_MODEL = process.env.PROMO_MODEL || 'claude-haiku-4-5-20251001';
 const DRX = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * ── NORMALIZACIÓN DE UNIDAD (RR-PROMO.1) ────────────────────────────────────────────────
+ * La venta de ruta registra cada línea en el peldaño en que se vendió (pieza / paquete /
+ * caja) y el RÓTULO no es confiable: medido en prod (ago-2026) el mismo rótulo 'PZA' de un
+ * SKU trae 361 líneas a $6.12 (pieza) y 45 líneas a $90.96 (paquete de 16). Sumar `qty` a
+ * ciegas **subcuenta 9.1% global, y >5% en 140 SKUs que son el 19% de la venta de ruta**
+ * (hasta 43% en 97245). Es la cantidad con la que se le paga a la gente.
+ *
+ * El peldaño se identifica por el PRECIO REALMENTE COBRADO contra la escalera del ERP
+ * (`analytics.v_product_unit_ladder`, vista derive-no-copy sobre `kepler_ods.kdii`).
+ * Funciona porque los peldaños distan entre sí ≥ el factor (≥2×), mucho más que cualquier
+ * descuento. La banda 0.5×–2× es la que `docs/UNIDADES_DE_MEDIDA.md` §6 usa para declarar
+ * "misma unidad que la base".
+ *
+ * Fuera de la banda NO se adivina: la línea queda `f IS NULL` y se DECLARA como
+ * no resuelta (medido: 0.17% de las líneas / 0.11% del importe).
+ *
+ * `qty * f` deja la cantidad en la unidad BASE del SKU (`kdii.c11`) — que puede ser PZA
+ * **o PAQ**: para 97192 la base es el paquete, así que `c84=24` son paquetes por caja.
+ * Por eso el resultado se llama `unidades` y viaja con su rótulo, nunca "piezas".
+ */
+const LADDER_CTE = `lad AS (SELECT * FROM analytics.v_product_unit_ladder WHERE sku = ?)`;
+
+/** LATERAL que elige el peldaño de la línea por su precio. Requiere `lad` en el WITH. */
+const TIER_LATERAL = `
+      LEFT JOIN lad ON true
+      LEFT JOIN LATERAL (
+        SELECT t.f
+        FROM (VALUES (1::numeric, lad.p1), (COALESCE(lad.f2, 1), lad.p2), (COALESCE(lad.f3, 1), lad.p3)) AS t(f, p)
+        WHERE t.p > 0 AND sl.qty <> 0 AND (sl.importe / sl.qty) > 0
+          AND abs(ln((sl.importe / sl.qty) / t.p)) < ln(2)
+        ORDER BY abs(ln((sl.importe / sl.qty) / t.p))
+        LIMIT 1
+      ) tier ON true`;
 
 @Injectable()
 export class RoutePromoService {
@@ -195,6 +257,7 @@ export class RoutePromoService {
     return { from, to, label: this.monthLabel(first) };
   }
   private iso(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  private money(v: number) { return `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
   private nextDay(iso: string) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return this.iso(d); }
   private monthLabel(d: Date) {
     const M = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -257,25 +320,34 @@ export class RoutePromoService {
       }
 
       let rows: any[];
+      let unitBase: string | null = null;
       if (routeUniverse) {
-        // Idéntico al motor validado de /ventas-por-ruta (v_route_sales_lines), por ruta.
+        // Idéntico al motor validado de /ventas-por-ruta (v_route_sales_lines), por ruta, y con
+        // la MISMA normalización de unidad que evaluate() (LADDER_CTE/TIER_LATERAL): si las dos
+        // rutas de código dieran cantidades distintas para la misma promo, no serviría ninguna.
         rows = (await trx.raw(
-          `WITH base AS (
+          `WITH ${LADDER_CTE},
+           base AS (
              SELECT b.source_branch AS dim0, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
-                    SUM(sl.qty) AS qty, SUM(sl.importe) AS importe, COUNT(DISTINCT sl.consecutivo) AS tickets
+                    SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL) AS qty_base,
+                    SUM(sl.importe) AS importe, COUNT(DISTINCT sl.consecutivo) AS tickets
              FROM analytics.v_route_sales_lines sl
              JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
              JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
              LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+             ${TIER_LATERAL}
              WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta' AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
              GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
            )
            SELECT (wname||' · Ruta '||dim0) AS dim,
-             COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND qty >= ?) AS clientes,
-             COALESCE(SUM(qty),0) AS piezas, COALESCE(SUM(tickets),0) AS tickets, COALESCE(SUM(importe),0) AS monto
+             COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND COALESCE(qty_base,0) >= ?) AS clientes,
+             COALESCE(SUM(qty_base),0) AS piezas, COALESCE(SUM(tickets),0) AS tickets, COALESCE(SUM(importe),0) AS monto
            FROM base GROUP BY wname, dim0 ORDER BY dim`,
-          [tenantId, period.from, period.to, product.sku, minQty],
+          [product.sku, tenantId, period.from, period.to, product.sku, minQty],
         )).rows;
+        unitBase = (await trx.raw(
+          `SELECT unit_base FROM analytics.v_product_unit_ladder WHERE sku = ?`, [product.sku],
+        )).rows[0]?.unit_base ?? null;
       } else {
         // Otros canales (mostrador/mayoreo/preventa): wincaja.v_sales_lines, dimensión libre.
         const CHAN = `CASE vl.sale_channel WHEN 'ruta_venta' THEN 'Ruta' WHEN 'mayoreo_credito' THEN 'Mayoreo' WHEN 'preventa_vecinal' THEN 'Preventa' ELSE 'Mostrador' END`;
@@ -316,6 +388,9 @@ export class RoutePromoService {
         metrica: METRIC_LABEL[metric],
         base_label: metric === 'clientes_distintos' ? `clientes (≥${minQty} pza)` : METRIC_LABEL[metric].toLowerCase(),
         rate, dimension, canal,
+        // El rótulo de la unidad viaja con la cifra: sin él, "3,971 unidades" no dice nada.
+        unidad: routeUniverse ? (unitBase || 'unidad base del ERP (no declarada)') : 'cantidad cruda de la fuente',
+        unidad_normalizada: routeUniverse,
         fuente: routeUniverse ? 'rutas (RD)' : 'wincaja (mostrador/mayoreo/preventa)',
         filas: out,
         total_base: round(out.reduce((s, r) => s + r.base, 0), 2),
@@ -375,8 +450,13 @@ export class RoutePromoService {
         return {
           enunciado, rule, product: null, candidates,
           period, metric_label: METRIC_LABEL[rule.metric], base_label: METRIC_LABEL[rule.metric],
+          unit: {
+            unit_base: null, is_weight: false, sin_escalera: true,
+            lineas_sin_resolver: 0, unidades_sin_resolver: 0, importe_sin_resolver: 0,
+            confiable: false, nota: 'Sin producto resuelto no hay unidad que declarar.',
+          },
           rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
-          total_clientes: 0, total_piezas: 0, total_importe: 0,
+          total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
           note: candidates?.length
             ? 'El producto es ambiguo — elegí el SKU correcto y recalculá.'
             : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
@@ -385,39 +465,61 @@ export class RoutePromoService {
       }
 
       // 2) Motor determinista: base por (ruta, cliente) → agregado por ruta según la métrica.
+      //    `qty` se normaliza a la unidad BASE del SKU resolviendo el peldaño por precio
+      //    (ver LADDER_CTE / TIER_LATERAL). Lo que no resuelve NO se suma: se declara.
       const rows: any[] = (await trx.raw(
-        `WITH base AS (
+        `WITH ${LADDER_CTE},
+         base AS (
            SELECT b.source_branch AS route_no,
                   w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
                   sl.cliente,
-                  SUM(sl.qty) AS qty, SUM(sl.importe) AS importe,
+                  SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL)      AS qty_base,
+                  SUM(sl.qty)          FILTER (WHERE tier.f IS NULL)          AS qty_unres,
+                  COUNT(*)             FILTER (WHERE tier.f IS NULL)          AS lineas_unres,
+                  SUM(sl.importe)      FILTER (WHERE tier.f IS NULL)          AS importe_unres,
+                  SUM(sl.importe) AS importe,
                   COUNT(DISTINCT sl.consecutivo) AS tickets
            FROM analytics.v_route_sales_lines sl
            JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
            JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
            LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
                 AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+           ${TIER_LATERAL}
            WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
              AND sl.sku=?
            GROUP BY b.source_branch, w.code, w.name, pb.branch_name, sl.cliente
          )
          SELECT route_no, wcode, wname,
-           COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001' AND qty >= ?) AS clientes,
-           COALESCE(SUM(qty),0) AS piezas,
-           COALESCE(SUM(tickets),0) AS tickets,
-           COALESCE(SUM(importe),0) AS monto
+           -- Califica por lo RESUELTO. Un cliente al que no se le pudo determinar el peldaño
+           -- no se cuenta como que compró ni como que no: se reporta aparte.
+           COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001'
+                              AND COALESCE(qty_base,0) >= ?) AS clientes,
+           COUNT(*) FILTER (WHERE cliente IS NOT NULL AND btrim(cliente)<>'' AND cliente<>'0001'
+                              AND COALESCE(qty_base,0) < ? AND COALESCE(qty_unres,0) > 0) AS clientes_indet,
+           COALESCE(SUM(qty_base),0)     AS unidades,
+           COALESCE(SUM(qty_unres),0)    AS unidades_unres,
+           COALESCE(SUM(lineas_unres),0) AS lineas_unres,
+           COALESCE(SUM(importe_unres),0) AS importe_unres,
+           COALESCE(SUM(tickets),0)      AS tickets,
+           COALESCE(SUM(importe),0)      AS monto
          FROM base
          GROUP BY route_no, wcode, wname
          ORDER BY wname, route_no`,
-        [tenantId, period.from, period.to, product.sku, rule.min_qty],
+        [product.sku, tenantId, period.from, period.to, product.sku, rule.min_qty, rule.min_qty],
       )).rows;
+
+      // Rótulo y salud de la unidad (una fila, o ninguna si el SKU no está en el maestro del ERP).
+      const lad: any = (await trx.raw(
+        `SELECT unit_base, is_weight FROM analytics.v_product_unit_ladder WHERE sku = ?`,
+        [product.sku],
+      )).rows[0];
 
       const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
       const baseOf = (r: any): number => {
         switch (rule.metric) {
           case 'clientes_distintos': return Number(r.clientes) || 0;
-          case 'piezas': return round(Number(r.piezas) || 0, 2);
+          case 'piezas': return round(Number(r.unidades) || 0, 2);
           case 'tickets': return Number(r.tickets) || 0;
           case 'monto': return round(Number(r.monto) || 0, 2);
         }
@@ -429,60 +531,100 @@ export class RoutePromoService {
             warehouse_code: r.wcode, warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
             label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
             clientes: Number(r.clientes) || 0,
-            piezas: round(Number(r.piezas) || 0, 2),
+            clientes_indeterminados: Number(r.clientes_indet) || 0,
+            unidades: round(Number(r.unidades) || 0, 2),
+            unidades_sin_resolver: round(Number(r.unidades_unres) || 0, 2),
             importe: round(Number(r.monto) || 0, 2),
             base, payout: round(base * rule.rate, 2),
           };
         })
         // Toda ruta con venta del producto (aunque el pago sea $0 por ser todo a público):
-        // así se ven las piezas e importe reales; el pago refleja solo los clientes que califican.
-        .filter((r) => r.piezas > 0 || r.base > 0)
+        // así se ven las unidades e importe reales; el pago refleja solo los clientes que califican.
+        .filter((r) => r.unidades > 0 || r.unidades_sin_resolver > 0 || r.base > 0)
         .sort((a, b) => b.payout - a.payout || b.importe - a.importe);
+
+      // Salud de la unidad, agregada. Se declara SIEMPRE, aunque salga limpia.
+      const linUnres = rows.reduce((s, r) => s + (Number(r.lineas_unres) || 0), 0);
+      const uniUnres = round(rows.reduce((s, r) => s + (Number(r.unidades_unres) || 0), 0), 2);
+      const impUnres = round(rows.reduce((s, r) => s + (Number(r.importe_unres) || 0), 0), 2);
+      const impTotal = round(rows.reduce((s, r) => s + (Number(r.monto) || 0), 0), 2);
+      const sinEscalera = !lad;
+      const isWeight = !!lad?.is_weight;
+      // Sólo la cuenta por CANTIDAD depende de la unidad. Clientes/tickets/monto no.
+      const dependeDeUnidad = rule.metric === 'piezas' || rule.min_qty > 1;
+      const pctUnres = impTotal > 0 ? (impUnres / impTotal) * 100 : 0;
+      const unit: PromoUnitInfo = {
+        unit_base: lad?.unit_base ?? null,
+        is_weight: isWeight,
+        sin_escalera: sinEscalera,
+        lineas_sin_resolver: linUnres,
+        unidades_sin_resolver: uniUnres,
+        importe_sin_resolver: impUnres,
+        confiable: !dependeDeUnidad || (!sinEscalera && !isWeight && pctUnres < 1),
+        nota: sinEscalera
+          ? `El SKU ${product.sku} no está en el maestro del ERP: no hay escalera de unidades con qué normalizar la cantidad.`
+          : isWeight
+            ? `${product.nombre} se vende a GRANEL (${lad.unit_base || 'peso'}): la cuenta por unidades no aplica; usá clientes, tickets o monto.`
+            : linUnres > 0
+              ? `${linUnres} línea(s) por ${this.money(impUnres)} (${pctUnres.toFixed(2)}% del importe) no se pudieron ubicar en ningún peldaño de precio del ERP: no se sumaron a las unidades.`
+              : `Cantidad normalizada a ${lad.unit_base || 'la unidad base del ERP'}: todas las líneas se ubicaron en un peldaño de precio del ERP.`,
+      };
 
       // 3) Detalle: QUÉ clientes participaron (los que califican ≥ min_qty), con piezas + importe.
       //    Nombre resuelto best-effort desde wincaja.clientes (los códigos de ruta no siempre resuelven → código).
       const det: any[] = (await trx.raw(
-        `WITH base AS (
+        `WITH ${LADDER_CTE},
+         base AS (
            SELECT b.source_branch AS route_no, COALESCE(w.name, initcap(pb.branch_name)) AS wname, sl.cliente,
-                  SUM(sl.qty) AS qty, SUM(sl.importe) AS importe
+                  SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL) AS qty_base,
+                  SUM(sl.importe) AS importe
            FROM analytics.v_route_sales_lines sl
            JOIN wincaja.branches b  ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
            JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
            LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+           ${TIER_LATERAL}
            WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE AND sl.sku=?
            GROUP BY b.source_branch, w.name, pb.branch_name, sl.cliente
          )
-         SELECT base.route_no, base.wname, base.cliente, base.qty, base.importe, cn.nombre
+         SELECT base.route_no, base.wname, base.cliente, base.qty_base, base.importe, cn.nombre
          FROM base
          LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn
            ON cn.cliente = base.cliente
-         WHERE base.cliente IS NOT NULL AND btrim(base.cliente)<>'' AND base.cliente<>'0001' AND base.qty >= ?
+         WHERE base.cliente IS NOT NULL AND btrim(base.cliente)<>'' AND base.cliente<>'0001'
+           AND COALESCE(base.qty_base,0) >= ?
          ORDER BY base.wname, base.route_no, base.importe DESC
          LIMIT 5000`,
-        [tenantId, period.from, period.to, product.sku, tenantId, rule.min_qty],
+        [product.sku, tenantId, period.from, period.to, product.sku, tenantId, rule.min_qty],
       )).rows;
       const clientes_detalle: PromoClientRow[] = det.map((r) => ({
         warehouse_name: r.wname, route_no: String(r.route_no ?? '—'),
         route_label: `${r.wname} · Ruta ${r.route_no ?? ''}`.trim(),
         cliente: String(r.cliente), nombre: r.nombre || String(r.cliente),
-        piezas: round(Number(r.qty) || 0, 2), importe: round(Number(r.importe) || 0, 2),
+        unidades: round(Number(r.qty_base) || 0, 2), importe: round(Number(r.importe) || 0, 2),
       }));
 
       const total_base = round(out.reduce((s, r) => s + r.base, 0), 2);
       const total_payout = round(out.reduce((s, r) => s + r.payout, 0), 2);
       const total_clientes = out.reduce((s, r) => s + r.clientes, 0);
-      const total_piezas = round(out.reduce((s, r) => s + r.piezas, 0), 2);
+      const total_clientes_indeterminados = out.reduce((s, r) => s + r.clientes_indeterminados, 0);
+      const total_unidades = round(out.reduce((s, r) => s + r.unidades, 0), 2);
       const total_importe = round(out.reduce((s, r) => s + r.importe, 0), 2);
 
+      // La unidad se nombra en la etiqueta: "≥3 PAQ" dice algo, "≥3 pza" mentía.
+      const uLbl = unit.unit_base || 'u';
       return {
         enunciado, rule, product, period,
-        metric_label: METRIC_LABEL[rule.metric],
-        base_label: rule.metric === 'clientes_distintos' ? `Clientes (≥${rule.min_qty} pza)` : METRIC_LABEL[rule.metric],
+        metric_label: rule.metric === 'piezas' ? `Unidades (${uLbl})` : METRIC_LABEL[rule.metric],
+        base_label: rule.metric === 'clientes_distintos'
+          ? `Clientes (≥${rule.min_qty} ${uLbl})`
+          : rule.metric === 'piezas' ? `Unidades (${uLbl})` : METRIC_LABEL[rule.metric],
+        unit,
         rows: out, clientes_detalle,
-        total_base, total_payout, total_clientes, total_piezas, total_importe,
+        total_base, total_payout, total_clientes, total_clientes_indeterminados,
+        total_unidades, total_importe,
         note: out.length
-          ? `${out.length} ruta(s) con actividad · $${rule.rate.toFixed(2)} × ${METRIC_LABEL[rule.metric].toLowerCase()}.`
+          ? `${out.length} ruta(s) con actividad · $${rule.rate.toFixed(2)} × ${(rule.metric === 'piezas' ? `unidades (${uLbl})` : METRIC_LABEL[rule.metric].toLowerCase())}.`
           : 'Sin ventas del producto en ruta para el periodo.',
         generated_at: new Date().toISOString(),
       };

@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
-import { buildAbility } from '@megadulces/platform-core';
 
 /**
  * Auth multi-tenant para la nueva DB.
@@ -51,7 +50,6 @@ export interface JwtPayloadMt {
    * legacy (ver allí comentario detallado).
    */
   permissions?: Record<string, boolean>;
-  rules?: any[];
 }
 
 @Injectable()
@@ -204,7 +202,7 @@ export class AuthMtService {
         console.warn(`[auth-mt] No se pudo actualizar last_login para ${user.id}: ${err?.message}`);
       });
 
-    // 4. Construir permissions + rules para gating de UI.
+    // 4. Construir permissions para gating de UI.
     // `[ID.13]` Unión perfil base + complementos. `true` gana: un complemento
     // sólo puede sumar, nunca quitar lo que el perfil base concede.
     const permissions: Record<string, boolean> = { ...(rolePermissions?.permissions || {}) };
@@ -220,7 +218,6 @@ export class AuthMtService {
     for (const [k, allow] of Object.entries(overrides)) {
       permissions[k] = allow;
     }
-    const ability = buildAbility(permissions, { roleName: user.role_name });
 
     // 5. Generar JWT con tenant_id + snapshot de permisos.
     const payload: JwtPayloadMt = {
@@ -232,7 +229,6 @@ export class AuthMtService {
       zona: zonaName || undefined,
       warehouse_code: user.warehouse_code || undefined,
       permissions,
-      rules: ability.rules,
     };
 
     return {
@@ -250,7 +246,6 @@ export class AuthMtService {
         warehouse_code: user.warehouse_code ?? null,
         meta_puntos: user.meta_puntos,
         permissions,
-        rules: ability.rules,
       },
     };
   }

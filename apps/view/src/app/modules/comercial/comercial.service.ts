@@ -1747,8 +1747,19 @@ export interface PromoRule {
   date_to?: string | null;
   periodo_texto?: string | null;
 }
-export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; piezas: number; importe: number; base: number; payout: number; }
-export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; piezas: number; importe: number; }
+export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
+export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; unidades: number; importe: number; }
+/** Estado de la unidad de medida del cálculo — se muestra siempre, salga limpia o no. */
+export interface PromoUnitInfo {
+  unit_base: string | null;
+  is_weight: boolean;
+  sin_escalera: boolean;
+  lineas_sin_resolver: number;
+  unidades_sin_resolver: number;
+  importe_sin_resolver: number;
+  confiable: boolean;
+  nota: string;
+}
 export interface RoutePromoResult {
   enunciado: string;
   rule: PromoRule;
@@ -1757,12 +1768,14 @@ export interface RoutePromoResult {
   period: { from: string; to: string; label: string };
   metric_label: string;
   base_label: string;
+  unit: PromoUnitInfo;
   rows: PromoRouteRow[];
   clientes_detalle: PromoClientRow[];
   total_base: number;
   total_payout: number;
   total_clientes: number;
-  total_piezas: number;
+  total_clientes_indeterminados: number;
+  total_unidades: number;
   total_importe: number;
   note: string;
   generated_at: string;

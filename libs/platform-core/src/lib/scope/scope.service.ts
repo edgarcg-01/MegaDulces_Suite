@@ -2,7 +2,7 @@ import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
 import { TenantContextService } from '../tenant/tenant-context.service';
-import { isPlatformAdminRole } from '../ability/ability.factory';
+import { isPlatformAdminRole } from '../ability/platform-admin';
 import { parseScopeParam } from './scope-params';
 import {
   ResolvedDimension,

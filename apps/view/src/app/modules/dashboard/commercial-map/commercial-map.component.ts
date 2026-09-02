@@ -80,11 +80,7 @@ export class CommercialMapComponent implements OnInit, OnDestroy {
   /** Capa "Personal en vivo": superpone vendedores en tiempo real sobre las tiendas. */
   readonly showLive = signal(false);
   private liveStarted = false;
-  readonly canSeeLive = computed(
-    () =>
-      this.perms.can('read', 'routes_analytics' as any) ||
-      this.auth.user()?.permissions?.[Permission.RUTAS_VER] === true,
-  );
+  readonly canSeeLive = computed(() => this.perms.has(Permission.RUTAS_VER));
   /** Capa "Tiendas de oportunidad": PdV reales (DENUE) que aún no son clientes. */
   readonly showProspects = signal(false);
   private prospectsLoaded = false;
@@ -93,15 +89,16 @@ export class CommercialMapComponent implements OnInit, OnDestroy {
   readonly ingesting = signal(false);
   readonly selectedProspect = signal<Prospect | null>(null);
   readonly showProspectDialog = signal(false);
-  readonly canSeeProspects = computed(
-    () =>
-      this.perms.can('read', 'commercial_map_prospects' as any) ||
-      this.auth.user()?.permissions?.[Permission.COMMERCIAL_MAP_PROSPECTS_VER] === true,
+  // GESTIONAR implica ver: concedia ['read',...] sobre el mismo subject, asi que el gate viejo lo
+  // dejaba pasar y el fallback por clave exacta no. Se conserva con hasAny.
+  readonly canSeeProspects = computed(() =>
+    this.perms.hasAny(
+      Permission.COMMERCIAL_MAP_PROSPECTS_VER,
+      Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR,
+    ),
   );
-  readonly canManageProspects = computed(
-    () =>
-      this.perms.can('create', 'commercial_map_prospects' as any) ||
-      this.auth.user()?.permissions?.[Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR] === true,
+  readonly canManageProspects = computed(() =>
+    this.perms.has(Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR),
   );
 
   readonly mapToolsLegend = computed<LegendLayer[]>(() => {

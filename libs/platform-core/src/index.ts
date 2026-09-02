@@ -27,8 +27,7 @@ export * from './lib/cache/tenant-cache.module';
 
 // ── ability / permisos ──
 export * from './lib/ability/ability.module';
-export * from './lib/ability/ability.factory';
-export * from './lib/ability/ability.types';
+export * from './lib/ability/platform-admin';
 export * from './lib/ability/data-scope';
 export * from './lib/ability/permissions-cache.service';
 

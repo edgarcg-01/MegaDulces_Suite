@@ -126,16 +126,11 @@ export class HomeComponent implements OnInit {
     { label: 'Gestionar Tiendas', icon: 'pi pi-building', route: '/dashboard/stores', permission: Permission.TIENDAS_VER },
   ];
 
-  private permToSubject: Record<string, string> = {
-    [Permission.VISITAS_REGISTRAR]: 'visits',
-    [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-    [Permission.TIENDAS_VER]: 'stores',
-  };
-
+  // Gate por CLAVE EXACTA. Antes esto pasaba por un `subject` de CASL, y como VISITAS_REGISTRAR y
+  // VISITAS_VER comparten el subject `visits`, la accion rapida de REGISTRAR visita se le mostraba
+  // a quien solo tenia permiso de VER.
   readonly quickActions = computed(() =>
-    this.rawQuickActions.filter((a) =>
-      this.perms.can('read', this.permToSubject[a.permission] as any),
-    ),
+    this.rawQuickActions.filter((a) => this.perms.has(a.permission)),
   );
 
   // Loading global (si cualquier sección sigue cargando)

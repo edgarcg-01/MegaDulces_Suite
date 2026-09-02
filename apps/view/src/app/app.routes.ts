@@ -336,6 +336,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
+        // Documentos cancelados de Kepler (c43='C') — lo que los cuadres excluyen, aquí se audita.
+        path: 'cancelados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cancelados.component').then(m => m.FinanzasCanceladosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]

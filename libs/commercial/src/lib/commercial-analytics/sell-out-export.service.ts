@@ -311,23 +311,27 @@ export class SellOutExportService {
     ws.mergeCells(2, 1, 2, 5);
     ws.getCell(2, 1).value = `${r.rule.descripcion || r.metric_label} · ${r.period.label} · $${r.rule.rate.toFixed(2)} por ${r.base_label.toLowerCase()}`;
     ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF52525B' } };
-    ws.addRow([]);
-    head(ws.addRow(['Ruta', 'Clientes', 'Piezas', 'Importe', 'Pago']));
+    // La unidad se imprime en el documento: es el papel con el que se le paga a la gente.
+    ws.mergeCells(3, 1, 3, 5);
+    ws.getCell(3, 1).value = r.unit.nota;
+    ws.getCell(3, 1).font = { size: 9, color: { argb: r.unit.confiable ? 'FF52525B' : 'FFB45309' } };
+    const uCol = `Cantidad (${r.unit.unit_base || 'u'})`;
+    head(ws.addRow(['Ruta', 'Clientes', uCol, 'Importe', 'Pago']));
     for (const row of r.rows) {
-      const a = ws.addRow([row.label, row.clientes, row.piezas, row.importe, row.payout]);
+      const a = ws.addRow([row.label, row.clientes, row.unidades, row.importe, row.payout]);
       a.getCell(3).numFmt = NUM; a.getCell(4).numFmt = MONEY; a.getCell(5).numFmt = MONEY; a.getCell(5).font = { bold: true };
       a.eachCell((c) => (c.border = this.thin()));
     }
-    const tot = ws.addRow(['TOTAL', r.total_clientes, r.total_piezas, r.total_importe, r.total_payout]);
+    const tot = ws.addRow(['TOTAL', r.total_clientes, r.total_unidades, r.total_importe, r.total_payout]);
     tot.getCell(3).numFmt = NUM; tot.getCell(4).numFmt = MONEY; tot.getCell(5).numFmt = MONEY;
     tot.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } }; c.border = this.thin(); });
     ws.getColumn(1).width = 34; ws.getColumn(2).width = 11; ws.getColumn(3).width = 11; ws.getColumn(4).width = 15; ws.getColumn(5).width = 13;
 
     // Hoja 2 — Clientes que participaron
     const wc = wb.addWorksheet('Clientes', { views: [{ state: 'frozen', ySplit: 1 }] });
-    head(wc.addRow(['Ruta', 'Cliente', 'Nombre', 'Piezas', 'Importe']));
+    head(wc.addRow(['Ruta', 'Cliente', 'Nombre', uCol, 'Importe']));
     for (const c of r.clientes_detalle) {
-      const a = wc.addRow([c.route_label, c.cliente, c.nombre, c.piezas, c.importe]);
+      const a = wc.addRow([c.route_label, c.cliente, c.nombre, c.unidades, c.importe]);
       a.getCell(4).numFmt = NUM; a.getCell(5).numFmt = MONEY;
       a.eachCell((cc) => (cc.border = this.thin()));
     }
@@ -342,8 +346,9 @@ export class SellOutExportService {
     const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
     const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
     const num = (n: number) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
-    const sumRows = r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${x.clientes}</td><td class="n">${num(x.piezas)}</td><td class="n">${money(x.importe)}</td><td class="n b">${money(x.payout)}</td></tr>`).join('');
-    const cliRows = r.clientes_detalle.map((c) => `<tr><td>${esc(c.route_label)}</td><td>${esc(c.cliente)}</td><td class="d">${esc(c.nombre)}</td><td class="n">${num(c.piezas)}</td><td class="n">${money(c.importe)}</td></tr>`).join('');
+    const uCol = `Cantidad (${esc(r.unit.unit_base || 'u')})`;
+    const sumRows = r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${x.clientes}</td><td class="n">${num(x.unidades)}</td><td class="n">${money(x.importe)}</td><td class="n b">${money(x.payout)}</td></tr>`).join('');
+    const cliRows = r.clientes_detalle.map((c) => `<tr><td>${esc(c.route_label)}</td><td>${esc(c.cliente)}</td><td class="d">${esc(c.nombre)}</td><td class="n">${num(c.unidades)}</td><td class="n">${money(c.importe)}</td></tr>`).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       *{box-sizing:border-box} body{font-family:Helvetica,Arial,sans-serif;color:#09090b;margin:0;padding:22px 18px}
       h1{font-size:15px;margin:0 0 2px} .sub{font-size:10px;color:#52525b;margin:0 0 14px}
@@ -352,14 +357,17 @@ export class SellOutExportService {
       th,td{border:.5px solid #e4e4e7;padding:3px 5px;text-align:left} th{background:#f4f4f5;font-weight:700}
       td.n{text-align:right;font-variant-numeric:tabular-nums} td.b,tr.tot td{font-weight:700} tr.tot td{background:#f4f4f5}
       td.d{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .u{font-size:8px;margin:0 0 12px;padding:5px 7px;border-radius:3px;background:#f4f4f5;color:#52525b}
+      .u.warn{background:#fef3c7;color:#92400e}
     </style></head><body>
       <h1>Incentivo — ${esc(r.product?.nombre || '')}${r.product?.sku ? ' · ' + esc(r.product.sku) : ''}</h1>
       <p class="sub">${esc(r.rule.descripcion || r.metric_label)} · ${esc(r.period.label)} · $${r.rule.rate.toFixed(2)} por ${esc(r.base_label.toLowerCase())}</p>
+      <p class="u${r.unit.confiable ? '' : ' warn'}">${esc(r.unit.nota)}</p>
       <h2>Resumen por ruta</h2>
-      <table><thead><tr><th>Ruta</th><th>Clientes</th><th>Piezas</th><th>Importe</th><th>Pago</th></tr></thead>
-      <tbody>${sumRows}<tr class="tot"><td>TOTAL</td><td class="n">${r.total_clientes}</td><td class="n">${num(r.total_piezas)}</td><td class="n">${money(r.total_importe)}</td><td class="n">${money(r.total_payout)}</td></tr></tbody></table>
+      <table><thead><tr><th>Ruta</th><th>Clientes</th><th>${uCol}</th><th>Importe</th><th>Pago</th></tr></thead>
+      <tbody>${sumRows}<tr class="tot"><td>TOTAL</td><td class="n">${r.total_clientes}</td><td class="n">${num(r.total_unidades)}</td><td class="n">${money(r.total_importe)}</td><td class="n">${money(r.total_payout)}</td></tr></tbody></table>
       <h2>Clientes que participaron (${r.clientes_detalle.length})</h2>
-      <table><thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th>Piezas</th><th>Importe</th></tr></thead><tbody>${cliRows}</tbody></table>
+      <table><thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th>${uCol}</th><th>Importe</th></tr></thead><tbody>${cliRows}</tbody></table>
     </body></html>`;
     const browser = await puppeteer.launch({
       headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],

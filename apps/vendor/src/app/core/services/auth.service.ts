@@ -13,7 +13,6 @@ export interface JwtPayload {
   role_name?: string;
   zona?: string;
   permissions?: Record<string, boolean>;
-  rules?: any[];
   exp: number;
   iat: number;
 }
@@ -43,7 +42,7 @@ export class AuthService {
   }
 
   private restoreSession() {
-    // El JWT con `rules` CASL embebidas supera los 4 KB que un cookie soporta
+    // El JWT supera los 4 KB que un cookie soporta
     // en la mayoría de navegadores (Chrome/Edge silently drop >4096 bytes).
     // Usamos localStorage que permite hasta 5 MB y no se trunca silenciosamente.
     let stored: string | null = null;
@@ -123,17 +122,14 @@ export class AuthService {
   private setSession(token: string, persist: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];
-      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean>; rules?: any[] };
+      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean> };
 
       payload.role_name = payload.rol || payload.role_name;
 
       this.token.set(token);
       this.user.set(payload);
 
-      if (payload.rules) {
-        this.perms.load(payload.permissions, payload.role_name);
-        this.perms.loadRules(payload.rules);
-      }
+      this.perms.load(payload.permissions, payload.role_name);
 
       if (persist) {
         try { localStorage.setItem(STORAGE_KEY, token); } catch { /* quota / privacy mode */ }

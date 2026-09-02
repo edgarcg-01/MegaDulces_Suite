@@ -35,5 +35,7 @@ export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
 export * from './lib/caja/finance-caja-general.module';
 export * from './lib/caja/caja-general.service';
+export * from './lib/cancelled-docs/finance-cancelled-docs.module';
+export * from './lib/cancelled-docs/cancelled-docs.service';
 export * from './lib/feed-notify/finance-feed-notify.module';
 export * from './lib/feed-notify/finance-feed-scanner.service';
