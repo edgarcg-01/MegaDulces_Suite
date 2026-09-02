@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🔨 **CV.3 en código** (2026-09-01).
+> Estado: 🧪 **CV.5 en código, roadmap principal cerrado** (2026-09-01). Sólo queda CV.6 (modelo operativo, no bloqueante) y CV.4 diferido.
 
 ---
 
@@ -47,9 +47,9 @@ registra como "nadie sabe quién cambió la contraseña en `.245`".
 CV.0  Scaffold + conexión DB + rol dedicado + módulo kp completo   ✅
 CV.1  auth (JWT+bcryptjs) + admin (usuarios/roles)                 ✅
 CV.2  catalogo (tablero interno, gating costo/margen) + dashboard  ✅
-CV.3  monitor (captura de errores del navegador)                   ← esta entrega
-CV.4  salidas (reporte genérico)
-CV.5  tienda completo: carrito, checkout, cola.service.ts, avisos, pagos   ← dinero real
+CV.3  monitor (captura de errores del navegador)                   ✅
+CV.4  salidas (reporte genérico)                                   ⏸️ diferido — sin uso real hoy (confirmado por 0Sistemas, 2026-09-01)
+CV.5  tienda completo: carrito, checkout, cola.service.ts, avisos, pagos   ✅ — dinero real
 CV.6  (aparte, no bloqueante) modelo operativo: watchdogs/alertas/secret-wizards de herramientas/
 ```
 
@@ -212,20 +212,82 @@ errores). Arranque real: las 4 rutas mapeadas
 Módulo parametrizable por env (`SALIDAS_TABLA`/`SALIDAS_*`) apuntando a
 `public.salidas`. Confirmar con 0Sistemas si sigue en uso antes de portarlo.
 
-## CV.5 — `tienda` completo — ⬜ TODO — dinero real
+## CV.5 — `tienda` completo — 🧪 código+build+boot verificados (2026-09-01) — dinero real
 
-El módulo más grande y de mayor riesgo: `carrito.service.ts` (tokens HMAC),
-`checkout.service.ts` (folio, datos fiscales, aviso de privacidad),
-`pedidos.service.ts` (confirmación en lote, `FOR UPDATE`),
-`cola.service.ts` (motor `SKIP LOCKED` + backoff exponencial + reclamo de
-huérfanos — **portar sin cambiar ni un detalle de comportamiento**, es el
-componente que garantiza "ningún pedido se pierde si la API muere a medio
-proceso"), `avisos.service.ts` (SMTP, ya wireado), `pagos.service.ts`
-(Mercado Pago, credenciales aún no cargadas). Incluye agregar las rutas
-`pedidos/pagos/cola` al `AdminController` de CV.1 (recortadas ahí por
-depender de estos servicios — ver CV.1). Migraciones `002`-`005` ya copiadas
-en CV.0 (sql/), pendiente de aplicar en el `KP_CONCENTRADA` real si no lo
-están ya.
+**Qué entrega:** los 9 archivos de dominio de `tienda` completos —
+`tienda.service.ts`/`.controller.ts` (catálogo de mayoreo, reglas de unidad y
+envío), `carrito.service.ts`/`.controller.ts` (tokens HMAC, revalidación de
+precio/existencia), `checkout.service.ts`/`.controller.ts` (folio, datos
+fiscales, aviso de privacidad, dos flujos de pago), `cola.service.ts` (el
+motor `SKIP LOCKED` + backoff exponencial + reclamo de huérfanos),
+`avisos.service.ts` (SMTP), `pagos.service.ts` (config de Mercado Pago, sin
+tocar DB), `pedidos.service.ts` (pantalla de confirmación en lote), y
+`horario.ts` (copiado literal, sin cambios — es lógica pura). Las rutas
+`pedidos/pagos/cola` vuelven al `AdminController` de CV.1, que ahora importa
+`TiendaModule`.
+
+**Decisión de arquitectura — transacciones con Knex, no `pg.Pool.connect()`:**
+el original abría una conexión dedicada por servicio (`this.pool.connect()` +
+`BEGIN`/`COMMIT`/`ROLLBACK` manual) y pasaba ese `PoolClient` entre servicios
+para enlazar operaciones en la misma transacción (p. ej. `checkout()` inserta
+el pedido y programa su aviso en la MISMA transacción). Se porta con
+`this.db.transaction(async (trx) => {...})` — commit automático si resuelve,
+rollback automático si lanza — y el `PoolClient` se reemplaza por el objeto
+`trx` (tipo `Knex`), que se pasa exactamente igual entre `checkout.service` →
+`avisos.programar(..., trx)`, o `pedidos.service` → `avisar(trx, ...)` →
+`avisos.programar(..., trx)`. Mismo comportamiento transaccional, sin BEGIN/
+COMMIT/ROLLBACK manual. Simplificación adicional en `carrito.service.ts`:
+`quitar()`/`cancelar()` tomaban una conexión sólo para anotar un evento sin
+ninguna transacción real de por medio (ni BEGIN ni COMMIT en el original) —
+se llama `this.anotar(this.db, ...)` directo, comportamiento idéntico.
+
+**`ColaService` ya no abre su propia conexión dedicada** (`max:4` en el
+original) — usa la `KNEX_KP_CONCENTRADA` compartida de todo el app (`max:10`),
+mismo criterio que el resto de los servicios desde CV.0. Por eso
+`onModuleDestroy` ya no cierra el pool: no es dueño de esa conexión. El resto
+del motor —`FOR UPDATE SKIP LOCKED`, `intentos` sumados al tomar no al fallar,
+`GRACIA_ARRANQUE_MIN=2` no-cero, `devolverEnVuelo()` al apagar— se portó
+línea por línea sin cambiar ninguna constante ni ninguna consulta.
+
+**P7 aplicado dos veces más:** `carrito.service.ts` y `checkout.service.ts`
+firman sus tokens (HMAC del carrito, token de seguimiento del pedido) con
+`CATALOGO_KP_JWT_SECRET`, no `JWT_SECRET` — mismo criterio que CV.1 aplicado
+a la firma de tokens, no sólo a las sesiones JWT.
+
+**Verificado en sesión (sin LAN a `.245`):** `nx build`/`nx lint` limpios (0
+errores; 195 warnings `no-explicit-any` heredados). Un error de tipos
+(`const resultados = []` inferido como `never[]` por este toolchain, no por
+el original) se corrigió con una anotación explícita. Arranque real con DB
+simulada inalcanzable:
+- Las 3 comprobaciones de migración (`carrito`/`checkout`/`cola`) fallan
+  gracioso con el mismo mensaje que el original ("falta la migración...").
+- `TiendaModule.onModuleInit()` — el punto más delicado de inyección cruzada
+  (`PagosService`+`ColaService`+`AvisosService` en el constructor del módulo,
+  más el registro del manejador `aviso_cliente`) — funcionó: log
+  `Manejador registrado para 'aviso_cliente'`.
+- `GET /api/tienda/config` y `GET /api/tienda/checkout/opciones` responden
+  correcto (el segundo ya excluye TARJETA de los métodos porque Mercado Pago
+  no está configurado — `pagos.metodosDisponibles()` real, no simulado).
+- `POST /api/tienda/carrito` con DB inalcanzable → mensaje de migración
+  faltante, no un 500 crudo.
+- `GET /api/admin/cola` y `GET /api/admin/pagos` sin token → 401.
+- Las 26 rutas de `tienda`/`carrito`/`checkout` y las 12 de
+  `admin/pedidos`+`admin/cola`+`admin/pagos` quedaron mapeadas sin colisión.
+- `nx build api` sigue verde con las 2 dependencias nuevas (`nodemailer`,
+  `jsonwebtoken` ya venía de CV.1).
+
+**Pendiente (requiere LAN on-prem a `.245`), y es lo único que falta para dar
+por cerrada la fase principal:**
+- Ejercer el motor de la cola contra Postgres real: `FOR UPDATE SKIP LOCKED`,
+  reintentos, reclamo de huérfanos — el original tiene sus propios bancos de
+  prueba (`herramientas/probar_cola.js`, `probar_cola_avanzado.js`) que valen
+  la pena portar o al menos correr manualmente antes de confiar en esto con
+  dinero real.
+- Un checkout de punta a punta: crear carrito → agregar → checkout → aparece
+  en `/admin/pedidos/por-confirmar` → confirmar → aviso encolado y enviado
+  (requiere SMTP real).
+- Aplicar `sql/007_rol_dedicado.sql` + comparación de precios contra
+  `.163:3000` (pendiente desde CV.0).
 
 ## CV.6 — Modelo operativo (aparte, no bloqueante) — ⬜ TODO
 
