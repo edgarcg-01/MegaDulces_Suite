@@ -255,14 +255,18 @@ interface AttachFile {
                     <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
                   </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
                 <!--
-                  RE.26 — el FOLIO INTERNO leído de nuestra hoja dentro del paquete. Va pegado al
-                  folio de la entrada porque la pregunta es "el papel adjunto es de ESTA orden?".
-                  Sólo se dibuja cuando NO coincide: cuando casa, decirlo sería ruido en 46 de
-                  63 renglones. Cuando difiere es evidencia pegada a otra entrada — medido, pasa.
+                  RE.26.1 — los DOS folios: arriba el de la entrada en Kepler, abajo el que trae
+                  impreso nuestra hoja dentro del paquete. Se muestran siempre que se haya leído,
+                  coincidan o no: quien audita necesita ver contra qué se comparó, no sólo el
+                  veredicto. Cuando difieren es evidencia pegada a otra entrada — medido, pasa.
                 -->
-                @if (c.folio_interno_ok === false) {
-                  <em class="cb-folint" [title]="'La hoja interna del paquete dice ' + c.folio_interno + ', no ' + c.folio + ' — puede ser evidencia de otra orden'">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> hoja: {{ c.folio_interno }}
+                @if (c.folio_interno) {
+                  <em class="cb-folint" [attr.data-ok]="c.folio_interno_ok"
+                      [title]="c.folio_interno_ok === false
+                        ? 'La hoja interna del paquete dice ' + c.folio_interno + ', no ' + c.folio + ' — puede ser evidencia de otra orden'
+                        : 'La hoja interna del paquete trae el mismo folio que la entrada'">
+                    <i class="pi" [ngClass]="c.folio_interno_ok === false ? 'pi-exclamation-triangle' : 'pi-check'" aria-hidden="true"></i>
+                    hoja: {{ c.folio_interno }}
                   </em>
                 }
                 <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
@@ -1209,12 +1213,14 @@ interface AttachFile {
     .cb-valida-hecho { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-micro); font-weight: 600; }
     .cb-valida[data-estado="validado"] .cb-valida-hecho { color: var(--ok-fg); }
     .cb-valida[data-estado="rechazado"] .cb-valida-hecho { color: var(--bad-fg); }
-    /* RE.26 — el folio de la hoja interna sólo aparece cuando NO casa, y por eso es una alerta:
-       si se dibujara siempre sería ruido en 46 de cada 63 renglones. */
+    /* RE.26.1 — el folio de la hoja interna se muestra siempre que se haya leído. Cuando casa va
+       en gris (es contexto: contra qué se comparó); cuando NO casa sube a ámbar y cambia de ícono,
+       porque el color no puede ser el único portador del aviso. */
     .cb-folint {
       display: block; font-style: normal; font-size: var(--fs-micro);
-      color: var(--warn-fg); white-space: nowrap;
+      color: var(--text-muted); white-space: nowrap;
     }
+    .cb-folint[data-ok="false"] { color: var(--warn-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
