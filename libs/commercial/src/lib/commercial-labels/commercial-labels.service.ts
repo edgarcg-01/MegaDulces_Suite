@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import {
+  FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt,
+} from '../shared/freshness';
 
 export interface LabelModel {
   code: string;                       // el código con el que se pidió (sku o barcode)
@@ -23,15 +26,6 @@ export interface LabelModel {
   scanned_unit: string | null;         // unidad del barcode con que se resolvió (PZA/CJA/…) o null
 }
 
-/** Un eslabón de la cadena que produce el precio de etiqueta, con su edad y su veredicto. */
-export interface FreshnessInput {
-  key: string;
-  label: string;
-  at: string | null;
-  age_human: string | null;
-  stale: boolean;
-}
-
 /**
  * [OBS.6.2] Qué tan viejo es el precio que se está por IMPRIMIR.
  *
@@ -43,14 +37,7 @@ export interface FreshnessInput {
  * NO bloquea la impresión (decisión de Edgar): declara y sigue. Un operador que ve "el precio tiene
  * 3 días" puede decidir; uno que no ve nada, no.
  */
-export interface LabelsFreshness {
-  /** El más viejo de los eslabones: hasta cuándo se puede afirmar que el precio es el vigente. */
-  data_as_of: string | null;
-  stale: boolean;
-  age_human: string | null;
-  /** Qué eslabón falla, para que el aviso diga algo accionable y no sólo "hay rezago". */
-  inputs: FreshnessInput[];
-}
+export type LabelsFreshness = Freshness;
 
 const n = (v: unknown): number | null => {
   if (v === null || v === undefined) return null;
@@ -121,63 +108,20 @@ export class CommercialLabelsService {
    * de recálculo sigue vivo.
    */
   private async freshness(trx: any): Promise<LabelsFreshness> {
-    const inputs: FreshnessInput[] = [];
     try {
-      // La vista unifica cron_runs + _sync_status, pero puede no estar aplicada todavía: se cae al
-      // origen directo. Sin este guardia la etiquetera se rompería entre el deploy y la migración.
-      const hasView = (await trx.raw(
-        `SELECT to_regclass('analytics.v_feed_freshness') IS NOT NULL AS ok`,
-      ))?.rows?.[0]?.ok;
-      const carril = hasView
-        ? (await trx.raw(
-            `SELECT dato_al FROM analytics.v_feed_freshness WHERE origen='cron' AND feed='ods_live_hot'`,
-          ))?.rows?.[0]?.dato_al
-        : (await trx.raw(
-            `SELECT COALESCE(last_finish, last_start) AS dato_al FROM analytics.cron_runs WHERE job_key='ods_live_hot'`,
-          ))?.rows?.[0]?.dato_al;
-
+      const carril = await laneAt(trx, 'ods_live_hot');
       const recalc = (await trx('commercial.product_label_prices').max('computed_at as at'))?.[0]?.at;
-
-      inputs.push(this.evalInput('ods_live_hot', 'Carril del ODS (precios del ERP)', carril));
-      inputs.push(this.evalInput('recalculo', 'Recálculo de etiquetas', recalc));
+      return composeFreshness([
+        evalInput('ods_live_hot', 'Carril del ODS (precios del ERP)', carril,
+          CommercialLabelsService.TOLERANCIA_H['ods_live_hot']),
+        evalInput('recalculo', 'Recálculo de etiquetas', recalc,
+          CommercialLabelsService.TOLERANCIA_H['recalculo']),
+      ]);
     } catch {
       // Que no se pueda MEDIR la frescura no puede impedir imprimir. Se declara desconocida —
       // nunca se afirma "está fresco", que es la mentira que esta función existe para evitar.
-      return { data_as_of: null, stale: false, age_human: null, inputs: [] };
+      return FRESHNESS_UNKNOWN;
     }
-
-    const fechas = inputs.map((i) => i.at).filter(Boolean).map((a) => new Date(a as string).getTime());
-    const masViejo = fechas.length ? new Date(Math.min(...fechas)) : null;
-    return {
-      data_as_of: masViejo ? masViejo.toISOString() : null,
-      stale: inputs.some((i) => i.stale),
-      age_human: masViejo ? this.ageHuman(Date.now() - masViejo.getTime()) : null,
-      inputs,
-    };
-  }
-
-  private evalInput(key: string, label: string, at: unknown): FreshnessInput {
-    const d = at ? new Date(at as string) : null;
-    const ms = d ? Date.now() - d.getTime() : null;
-    const maxH = CommercialLabelsService.TOLERANCIA_H[key] ?? 24;
-    return {
-      key,
-      label,
-      at: d ? d.toISOString() : null,
-      age_human: ms === null ? null : this.ageHuman(ms),
-      // Sin latido NO es "ok": es la falla más grave (el carril ni siquiera reporta). El default
-      // permisivo es exactamente cómo un feed muerto se disfraza de sano.
-      stale: ms === null ? true : ms > maxH * 3_600_000,
-    };
-  }
-
-  private ageHuman(ms: number): string {
-    const min = Math.floor(ms / 60_000);
-    if (min < 1) return 'segundos';
-    if (min < 60) return `${min} min`;
-    const h = Math.floor(min / 60);
-    if (h < 48) return `${h} h`;
-    return `${Math.floor(h / 24)} días`;
   }
 
   /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */
