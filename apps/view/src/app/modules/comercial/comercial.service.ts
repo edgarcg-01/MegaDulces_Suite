@@ -1734,8 +1734,16 @@ export interface SalesByRouteReport {
 // ── RR-PROMO — Evaluador de mecánicas de incentivo por enunciado (agente AI) ──
 export type PromoMetric = 'clientes_distintos' | 'piezas' | 'tickets' | 'monto';
 export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; }
+export type PromoCanal = 'ruta' | 'vecinal' | 'mayoreo' | 'mostrador';
 export interface PromoRule {
   canal: 'ruta' | 'todos';
+  /** Alcance de la mercancía: un SKU o toda una marca/proveedor. */
+  alcance?: 'sku' | 'marca';
+  marca_texto?: string | null;
+  /** Canales cuyos vendedores participan. */
+  canales?: PromoCanal[];
+  /** Umbral en pesos por cliente ("al que se le venda $500"). 0 = sin umbral de dinero. */
+  min_importe?: number;
   sku: string | null;
   producto_texto: string | null;
   metric: PromoMetric;
@@ -1747,7 +1755,7 @@ export interface PromoRule {
   date_to?: string | null;
   periodo_texto?: string | null;
 }
-export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
+export interface PromoRouteRow { canal: PromoCanal; vendedor: string; warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
 export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; unidades: number; importe: number; }
 /** Estado de la unidad de medida del cálculo — se muestra siempre, salga limpia o no. */
 export interface PromoUnitInfo {
