@@ -63,6 +63,15 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
               </div>
               @if (r.rule.supuestos) { <p class="rp-note"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ r.rule.supuestos }}</p> }
 
+              <!-- La unidad se declara SIEMPRE. La cantidad se normaliza al peldaño real del ERP
+                   (pieza/paquete/caja) por el precio cobrado; lo que no resuelve no se suma. -->
+              @if (r.product) {
+                <p class="rp-unit" [class.rp-unit-warn]="!r.unit.confiable">
+                  <i class="pi" [class.pi-check-circle]="r.unit.confiable" [class.pi-exclamation-triangle]="!r.unit.confiable" aria-hidden="true"></i>
+                  {{ r.unit.nota }}
+                </p>
+              }
+
               @if (r.candidates?.length) {
                 <div class="rp-amb">
                   <span>Producto ambiguo — elegí el SKU:</span>
@@ -77,8 +86,10 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
               <div class="rp-topbar">
                 <div class="rp-totals">
                   <div class="rp-kpi"><span class="k-lbl">Pago total</span><span class="k-val">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
-                  <div class="rp-kpi"><span class="k-lbl">Clientes</span><span class="k-val">{{ r.total_clientes | number }}</span></div>
-                  <div class="rp-kpi"><span class="k-lbl">Piezas</span><span class="k-val">{{ r.total_piezas | number:'1.0-2' }}</span></div>
+                  <div class="rp-kpi"><span class="k-lbl">Clientes</span><span class="k-val">{{ r.total_clientes | number }}</span>
+                    @if (r.total_clientes_indeterminados) { <em class="k-aux">+{{ r.total_clientes_indeterminados }} sin determinar</em> }
+                  </div>
+                  <div class="rp-kpi"><span class="k-lbl">Cantidad <b>{{ unitLbl(r) }}</b></span><span class="k-val">{{ r.total_unidades | number:'1.0-2' }}</span></div>
                   <div class="rp-kpi"><span class="k-lbl">Importe</span><span class="k-val">{{ r.total_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
                   <div class="rp-kpi"><span class="k-lbl">Rutas</span><span class="k-val">{{ r.rows.length }}</span></div>
                 </div>
@@ -89,13 +100,19 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
               </div>
 
               <table class="rp-tbl">
-                <thead><tr><th>Ruta</th><th class="n">Clientes</th><th class="n">Piezas</th><th class="n">Importe</th><th class="n">Pago</th></tr></thead>
+                <thead><tr><th>Ruta</th><th class="n">Clientes</th><th class="n">Cantidad {{ unitLbl(r) }}</th><th class="n">Importe</th><th class="n">Pago</th></tr></thead>
                 <tbody>
                   @for (row of r.rows; track row.label) {
-                    <tr><td>{{ row.label }}</td><td class="n">{{ row.clientes | number }}</td><td class="n">{{ row.piezas | number:'1.0-2' }}</td><td class="n">{{ row.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td><td class="n b">{{ row.payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                    <tr>
+                      <td>{{ row.label }}</td>
+                      <td class="n">{{ row.clientes | number }}@if (row.clientes_indeterminados) { <span class="rp-indet" [title]="row.clientes_indeterminados + ' cliente(s) con línea sin peldaño identificable'">+{{ row.clientes_indeterminados }}?</span> }</td>
+                      <td class="n">{{ row.unidades | number:'1.0-2' }}@if (row.unidades_sin_resolver) { <span class="rp-indet" [title]="row.unidades_sin_resolver + ' sin resolver — no sumadas'">+{{ row.unidades_sin_resolver | number:'1.0-2' }}?</span> }</td>
+                      <td class="n">{{ row.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                      <td class="n b">{{ row.payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    </tr>
                   }
                 </tbody>
-                <tfoot><tr><td>TOTAL</td><td class="n">{{ r.total_clientes | number }}</td><td class="n">{{ r.total_piezas | number:'1.0-2' }}</td><td class="n">{{ r.total_importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td><td class="n b">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr></tfoot>
+                <tfoot><tr><td>TOTAL</td><td class="n">{{ r.total_clientes | number }}</td><td class="n">{{ r.total_unidades | number:'1.0-2' }}</td><td class="n">{{ r.total_importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td><td class="n b">{{ r.total_payout | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr></tfoot>
               </table>
 
               @if (r.clientes_detalle.length) {
@@ -105,10 +122,10 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
                 </button>
                 @if (showDetail()) {
                   <table class="rp-tbl rp-det">
-                    <thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th class="n">Piezas</th><th class="n">Importe</th></tr></thead>
+                    <thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th class="n">Cantidad {{ unitLbl(r) }}</th><th class="n">Importe</th></tr></thead>
                     <tbody>
                       @for (c of r.clientes_detalle; track $index) {
-                        <tr><td>{{ c.route_label }}</td><td class="mono">{{ c.cliente }}</td><td>{{ c.nombre }}</td><td class="n">{{ c.piezas | number:'1.0-2' }}</td><td class="n">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td></tr>
+                        <tr><td>{{ c.route_label }}</td><td class="mono">{{ c.cliente }}</td><td>{{ c.nombre }}</td><td class="n">{{ c.unidades | number:'1.0-2' }}</td><td class="n">{{ c.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td></tr>
                       }
                     </tbody>
                   </table>
@@ -153,6 +170,14 @@ import { ComercialService, RoutePromoResult, RoutePromoBody } from '../comercial
       border:1px solid var(--border-color); color:var(--text-main); }
     .rp-chip-mut { color:var(--text-muted); }
     .rp-note { font-size:.76rem; color:var(--text-muted); display:flex; gap:.4rem; align-items:baseline; margin:0; }
+    /* Declaración de unidad: discreta cuando está limpia, ámbar cuando el pago no es confiable. */
+    .rp-unit { font-size:.76rem; color:var(--text-muted); display:flex; gap:.4rem; align-items:baseline; margin:0;
+      padding:.4rem .6rem; border-radius:var(--r-sm); background:var(--layout-bg); border:1px solid var(--border-color); }
+    .rp-unit .pi-check-circle { color:var(--good-fg, var(--text-faint)); }
+    .rp-unit-warn { background:var(--warn-bg, var(--layout-bg)); border-color:var(--warn-fg, var(--border-color)); color:var(--warn-fg, var(--text-main)); }
+    .rp-unit-warn .pi-exclamation-triangle { color:var(--warn-fg, var(--text-main)); }
+    .rp-indet { margin-left:.25rem; font-size:.7rem; color:var(--text-faint); font-weight:600; cursor:help; }
+    .rp-kpi .k-aux { font-size:.66rem; color:var(--text-faint); font-style:normal; }
     .rp-amb { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; font-size:.82rem; padding:.6rem .7rem;
       background:var(--layout-bg); border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .rp-amb p-select { min-width:16rem; }
@@ -195,6 +220,12 @@ export class RoutePromoComponent {
   monthDate: Date = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
 
   private iso(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+
+  /**
+   * Rótulo de la unidad para las cabeceras. La cantidad viene normalizada a la unidad BASE
+   * del SKU en el ERP (PZA / PAQ / CJA…), que NO siempre es la pieza: nombrarla es el punto.
+   */
+  unitLbl(r: RoutePromoResult): string { return r.unit?.unit_base ? `(${r.unit.unit_base})` : ''; }
 
   run(sku?: string | null): void {
     const enunciado = this.enunciado.trim();

@@ -15,7 +15,6 @@ export interface JwtPayload {
   /** Sucursal Kepler asignada ('00'..'05'). Seteada = scopeado a esa sucursal (monitor Tienda). */
   warehouse_code?: string;
   permissions?: Record<string, boolean>;
-  rules?: any[];
   exp: number;
   iat: number;
 }
@@ -45,7 +44,7 @@ export class AuthService {
   }
 
   private restoreSession() {
-    // El JWT con `rules` CASL embebidas supera los 4 KB que un cookie soporta
+    // El JWT supera los 4 KB que un cookie soporta
     // en la mayoría de navegadores (Chrome/Edge silently drop >4096 bytes).
     // Usamos localStorage que permite hasta 5 MB y no se trunca silenciosamente.
     let stored: string | null = null;
@@ -79,14 +78,14 @@ export class AuthService {
    * persona volvía a entrar. Con permisos por usuario eso se vuelve la queja
    * principal — "le di el permiso y no le aparece". Con esto basta recargar.
    *
-   * No toca el token: sólo el mapa en memoria y las reglas CASL. Si falla, se
+   * No toca el token: sólo el mapa de permisos en memoria. Si falla, se
    * queda lo que traía el JWT (fail-open al comportamiento anterior, nunca a
    * cero permisos).
    */
   refreshAccess(): void {
     if (!this.token()) return;
     this.http
-      .get<{ permissions: Record<string, boolean>; rules: any[] }>(`${this.apiUrl}/users/me/access`)
+      .get<{ permissions: Record<string, boolean> }>(`${this.apiUrl}/users/me/access`)
       .subscribe({
         next: (res) => {
           // Un mapa VACÍO no se aplica nunca. Si el backend contesta `{}` por
@@ -96,12 +95,9 @@ export class AuthService {
           if (!res?.permissions || Object.keys(res.permissions).length === 0) return;
           const actual = this.user();
           if (actual) {
-            this.user.set({ ...actual, permissions: res.permissions, rules: res.rules });
+            this.user.set({ ...actual, permissions: res.permissions });
           }
-          // `permissions` es la fuente vigente del gating; `rules` sólo alimenta la API `can()`
-          // en retiro y se irá cuando no queden llamadas.
           this.perms.load(res.permissions, actual?.role_name ?? null);
-          if (res.rules?.length) this.perms.loadRules(res.rules);
         },
         error: () => { /* se queda el snapshot del JWT */ },
       });
@@ -153,7 +149,7 @@ export class AuthService {
   private setSession(token: string, persist: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];
-      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean>; rules?: any[] };
+      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean> };
 
       payload.role_name = payload.rol || payload.role_name;
 
@@ -161,9 +157,6 @@ export class AuthService {
       this.user.set(payload);
 
       this.perms.load(payload.permissions, payload.role_name);
-      if (payload.rules) {
-        this.perms.loadRules(payload.rules);
-      }
 
       if (persist) {
         try { localStorage.setItem(STORAGE_KEY, token); } catch { /* quota / privacy mode */ }

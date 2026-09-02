@@ -254,6 +254,17 @@ interface AttachFile {
                           [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
                     <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
                   </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
+                <!--
+                  RE.26 — el FOLIO INTERNO leído de nuestra hoja dentro del paquete. Va pegado al
+                  folio de la entrada porque la pregunta es "el papel adjunto es de ESTA orden?".
+                  Sólo se dibuja cuando NO coincide: cuando casa, decirlo sería ruido en 46 de
+                  63 renglones. Cuando difiere es evidencia pegada a otra entrada — medido, pasa.
+                -->
+                @if (c.folio_interno_ok === false) {
+                  <em class="cb-folint" [title]="'La hoja interna del paquete dice ' + c.folio_interno + ', no ' + c.folio + ' — puede ser evidencia de otra orden'">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> hoja: {{ c.folio_interno }}
+                  </em>
+                }
                 <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
                      porque esta pantalla es donde alguien llega con "tengo este número": el par
                      tiene que ser visible sin abrir el detalle. -->
@@ -326,9 +337,39 @@ interface AttachFile {
                   }
                 } @else {
                   <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
+                  <!--
+                    RE.26 — el apartado de VALIDACIÓN. Antes eran dos íconos sueltos entre los
+                    demás botones y la palomita ejecutaba SIN preguntar (sólo el rechazo abría
+                    diálogo), aunque las dos decisiones pesan lo mismo: una da por bueno un
+                    documento de dinero. Ahora van juntas, separadas del resto, y las dos
+                    confirman.
+
+                    Y el estado se DICE, no se deduce de qué botón falta: "Validada" / "Devuelta"
+                    con su ícono. Antes, que la palomita no estuviera era la única señal de que
+                    ya estaba validada — una ausencia no es un mensaje.
+                  -->
                   @if (c.deposit_id && canValidate()) {
-                    @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
-                    @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                    <span class="cb-valida" [attr.data-estado]="c.deposit_status">
+                      @if (c.deposit_status === 'validado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-check-circle" aria-hidden="true"></i> Validada</span>
+                      } @else if (c.deposit_status === 'rechazado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-times-circle" aria-hidden="true"></i> Devuelta</span>
+                      }
+                      @if (c.deposit_status !== 'validado') {
+                        <button pButton type="button" size="small" text severity="success"
+                                [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()"
+                                (click)="confirmarValidar(c)"
+                                [attr.aria-label]="'Dar por buena la remisión de la entrada ' + c.folio" title="Dar por buena">
+                          <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
+                        </button>
+                      }
+                      @if (c.deposit_status !== 'rechazado') {
+                        <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)"
+                                [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio" title="Devolver">
+                          <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
+                        </button>
+                      }
+                    </span>
                   }
                   <!-- RE.20.3 — sólo sin evidencia: si la factura ya está subida la respuesta es
                        validarla o devolverla. El server lo vuelve a comprobar. -->
@@ -1162,6 +1203,18 @@ interface AttachFile {
        pudo leer. Pintarla de ámbar la mete en la misma cola que los descuadres reales, y son
        cosas que se arreglan distinto — una se re-escanea, la otra se audita. */
     .cb-cuadre[data-cuadre="sin_datos"] { color: var(--text-muted); }
+    /* RE.26 — el apartado de validación: los dos botones que deciden van juntos y separados
+       del resto de las acciones, con el estado dicho en palabras al lado. */
+    .cb-valida { display: inline-flex; align-items: center; gap: .15rem; }
+    .cb-valida-hecho { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-micro); font-weight: 600; }
+    .cb-valida[data-estado="validado"] .cb-valida-hecho { color: var(--ok-fg); }
+    .cb-valida[data-estado="rechazado"] .cb-valida-hecho { color: var(--bad-fg); }
+    /* RE.26 — el folio de la hoja interna sólo aparece cuando NO casa, y por eso es una alerta:
+       si se dibujara siempre sería ruido en 46 de cada 63 renglones. */
+    .cb-folint {
+      display: block; font-style: normal; font-size: var(--fs-micro);
+      color: var(--warn-fg); white-space: nowrap;
+    }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -2426,6 +2479,36 @@ export class ComprasEntradasComponent {
           });
       },
       error: () => { this.saving.set(false); this.attachError.set('No se pudieron subir algunas fotos. Reintentá.'); },
+    });
+  }
+
+  /**
+   * `[RE.26]` — Validar **pregunta antes**, igual que rechazar.
+   *
+   * Antes la palomita ejecutaba de una. Es una decisión sobre dinero —da por buena una factura
+   * y la saca de la cola de revisión— y no tiene deshacer en la pantalla; el rechazo, que pesa
+   * lo mismo, ya abría diálogo. La asimetría no estaba justificada.
+   *
+   * El texto dice **lo que la fila sabe**: si el cuadre no está limpio, la pregunta lo trae. Un
+   * "¿estás seguro?" pelado no aporta nada — quien va a confirmar necesita ver contra qué.
+   */
+  confirmarValidar(c: EntradaRow) {
+    if (!c.deposit_id || this.actingId()) return;
+    const aviso = c.cuadre === 'cuadra'
+      ? 'El importe y el proveedor concuerdan.'
+      : (c.cuadre_motivo || 'Este documento no cuadró automáticamente.');
+    const folio = c.folio_interno_ok === false
+      ? ` Ojo: la hoja interna del paquete dice ${c.folio_interno}, no ${c.folio}.`
+      : '';
+    this.confirm.confirm({
+      header: 'Dar por buena la remisión',
+      message: `Entrada ${c.folio} · ${c.proveedor_nombre || c.proveedor_code || 'sin proveedor'} · ${this.money(c.monto)}.\n\n${aviso}${folio}`,
+      icon: 'pi pi-check-circle',
+      acceptLabel: 'Sí, darla por buena',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-success',
+      rejectButtonStyleClass: 'p-button-text',
+      accept: () => this.doValidate(c),
     });
   }
 

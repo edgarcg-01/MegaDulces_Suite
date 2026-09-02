@@ -5,7 +5,10 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
 // `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
-import { parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, CUADRE_SQL, CUADRE_MOTIVO_SQL } from './receipt-match';
+import {
+  parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
+  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
+} from './receipt-match';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -535,6 +538,12 @@ export class GoodsReceiptProofsService {
         .select(trx.raw(conMatchCols
           ? `(array_agg(paquete_ok ORDER BY ${PROOF_ORDER}))[1] AS paquete_ok`
           : `NULL::boolean AS paquete_ok`))
+        .select(trx.raw(conMatchCols
+          ? `(array_agg(folio_interno ORDER BY ${PROOF_ORDER}))[1] AS folio_interno`
+          : `NULL::text AS folio_interno`))
+        .select(trx.raw(conMatchCols
+          ? `(array_agg(folio_interno_ok ORDER BY ${PROOF_ORDER}))[1] AS folio_interno_ok`
+          : `NULL::boolean AS folio_interno_ok`))
         .groupBy('sucursal', 'folio')
         .as('d');
 
@@ -641,6 +650,8 @@ export class GoodsReceiptProofsService {
           trx.raw('d.prov_score::numeric AS prov_score'),
           trx.raw('d.prov_rfc_match AS prov_rfc_match'),
           trx.raw('d.paquete_ok AS paquete_ok'),
+          trx.raw('d.folio_interno AS folio_interno'),
+          trx.raw('d.folio_interno_ok AS folio_interno_ok'),
           trx.raw('d.last_motivo AS motivo_rechazo'),
           trx.raw('d.last_motivo_codigo AS motivo_codigo'),
           trx.raw('(c.receipt_date > current_date) AS fecha_futura'),
@@ -1441,6 +1452,10 @@ export class GoodsReceiptProofsService {
         files.map((f) => f.role),
         (o.documents_present || []).map((d) => d?.type),
       );
+      // `[RE.26]` El folio impreso en NUESTRA hoja: detecta la evidencia pegada a la orden
+      // equivocada. Se toma el primero que traiga folio entre las hojas internas del paquete.
+      const folioInterno = files.find((f) => HOJAS_INTERNAS.has(String(f.role)) && f.ocr_folio)?.ocr_folio ?? null;
+      const folioInternoOk = evaluarFolioInterno(folioInterno, folio);
 
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({
@@ -1467,7 +1482,10 @@ export class GoodsReceiptProofsService {
           // `[RE.25]` Señales del proveedor y del paquete. Condicionadas a que la migración
           // esté aplicada, para que un ambiente sin ella siga pudiendo adjuntar: la evidencia
           // del capturista no se frena por una columna de análisis que falta.
-          ...(conMatchCols ? { prov_score: provScore, prov_rfc_match: provRfcMatch, paquete_ok: paqueteOk } : {}),
+          ...(conMatchCols ? {
+            prov_score: provScore, prov_rfc_match: provRfcMatch, paquete_ok: paqueteOk,
+            folio_interno: folioInterno, folio_interno_ok: folioInternoOk,
+          } : {}),
           comentarios: (dto.comentarios || '').trim() || null,
           created_by: actor || null,
         })

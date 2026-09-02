@@ -31,7 +31,8 @@ require('ts-node').register({
 });
 const {
   evaluarCuadre, parecidoNombre, rfcComparable, rfcBienFormado, UMBRAL_NOMBRE,
-  bucketDeSenales, evaluarPaquete, CUADRE_SQL, CUADRE_MOTIVO_SQL,
+  bucketDeSenales, evaluarPaquete, folioNumero, evaluarFolioInterno, HOJAS_INTERNAS,
+  CUADRE_SQL, CUADRE_MOTIVO_SQL,
 } = require(path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/receipt-match.ts'));
 
 const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV', keplerRfc: 'ACO1011124I1' };
@@ -115,6 +116,24 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
     ok(sinRol.cuadre === conRol.cuadre,
       'el bucket NO cambia por la hoja: "no concuerda el documento" y "falta una hoja" son dos problemas distintos');
 
+    // ── 4-bis. El folio de NUESTRA hoja contra el de la entrada ─────────────
+    //
+    // Este bloque existe por un error concreto: la primera medición usó "quitá todo lo que no
+    // sea dígito" y `XA2001-0000353` se volvió `20010000353`, que no es `353`. Daba 4 de 63
+    // coincidencias. Quitando bien el prefijo del doctype da **46 de 63 (73%)** — o sea que el
+    // normalizador flojo habría gritado "el folio no coincide" en 42 expedientes correctos.
+    console.log('\n═══ 4-bis. El folio interno (el prefijo del doctype NO es parte del número) ═══');
+    ok(folioNumero('XA2001-0000353') === '353', '`XA2001-0000353` es el folio 353, no 20010000353');
+    ok(folioNumero('0000353') === '353', 'el folio pelado con ceros a la izquierda es el mismo');
+    ok(folioNumero('No. 0006668') === '6668', '"No. 0006668" también (así lo imprimen algunas sucursales)');
+    ok(evaluarFolioInterno('XA2001-0000353', '0000353') === true, 'la hoja del paquete casa con la entrada');
+    ok(evaluarFolioInterno('XA2001-0001120', '0000863') === false,
+      'un folio DISTINTO se marca: es evidencia pegada a otra orden (caso real medido)');
+    ok(evaluarFolioInterno(null, '0000353') === null && evaluarFolioInterno('XA2001-0000353', null) === null,
+      'sin uno de los dos lados → null = "no se pudo comparar", no `false`');
+    ok(evaluarFolioInterno('Sin número de folio asignado', '0000353') === null,
+      'una hoja sin folio impreso no acusa de nada (caso real medido)');
+
     // ── 5. TS vs SQL: las dos implementaciones de la MISMA regla ────────────
     //
     // El bucket se decide en TS al escribir y en SQL al leer (filtrar 15,000 entradas no se
@@ -178,7 +197,7 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
       try {
         const T = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
         const { rows } = await knex.raw(`
-          SELECT p.ocr_proveedor, p.ocr_rfc, p.ocr_subtotal, p.ocr_monto, p.ocr_raw, p.files,
+          SELECT p.folio, p.ocr_proveedor, p.ocr_rfc, p.ocr_subtotal, p.ocr_monto, p.ocr_raw, p.files,
                  g.proveedor_nombre, g.proveedor_rfc, g.monto AS kepler
             FROM finance.goods_receipt_proofs p
             JOIN analytics.erp_goods_receipts g
@@ -188,7 +207,7 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
           console.log('  ⚠️  no hay comprobantes en este ambiente — bloque SIN VERIFICAR');
         } else {
           const cuenta = { cuadra: 0, revisar: 0, sin_datos: 0 };
-          let cuadraSinImporte = 0, sinMotivo = 0, hojaPorRol = 0, hojaPorOcr = 0;
+          let cuadraSinImporte = 0, sinMotivo = 0, hojaPorRol = 0, hojaPorOcr = 0, folioCasa = 0, folioNoCasa = 0;
           for (const r of rows) {
             let raw = r.ocr_raw;
             if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = null; } }
@@ -209,6 +228,18 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
             if (!v.motivo) sinMotivo++;
             if (evaluarPaquete(roles, null) === true) hojaPorRol++;
             if (evaluarPaquete(null, docsOcr) === true) hojaPorOcr++;
+            // RE.26 — el folio de nuestra hoja contra el de la entrada.
+            const fi = (Array.isArray(files) ? files : [])
+              .find((x) => x && HOJAS_INTERNAS.has(String(x.role)) && x.ocr_folio);
+            const v2 = evaluarFolioInterno(fi && fi.ocr_folio, r.folio);
+            if (v2 === true) folioCasa++; else if (v2 === false) folioNoCasa++;
+          }
+          // El invariante contra el normalizador flojo: la MAYORÍA de los folios legibles casan.
+          // Si alguien vuelve a comparar sin quitar el prefijo del doctype, esto cae a ~6%.
+          if (folioCasa + folioNoCasa > 0) {
+            const pct = folioCasa / (folioCasa + folioNoCasa);
+            ok(pct >= 0.5,
+              `el folio de la hoja interna casa en la mayoría (${folioCasa}/${folioCasa + folioNoCasa} = ${(pct * 100).toFixed(0)}%)`);
           }
           // El invariante que protege la corrección: lo declarado tiene que encontrar la hoja
           // interna MÁS veces que lo adivinado. Si alguien vuelve a preferir el OCR, esto cae.

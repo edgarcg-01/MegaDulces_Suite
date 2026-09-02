@@ -1,5 +1,5 @@
 import { Permission } from '../constants/permissions';
-import { isPlatformAdminRole } from './ability.factory';
+import { isPlatformAdminRole } from './platform-admin';
 
 /**
  * Alcance de datos del requester: `own` (sólo lo suyo) · `team` (su equipo) · `all` (la red).

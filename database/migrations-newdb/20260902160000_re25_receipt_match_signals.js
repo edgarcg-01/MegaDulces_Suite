@@ -50,6 +50,20 @@ exports.up = async function up(knex) {
       tb.boolean('paquete_ok').nullable();
     });
   }
+  // `[RE.26]` El folio impreso en NUESTRA hoja interna, y si es el de esta entrada. Es el
+  // control que detecta la evidencia pegada a la orden equivocada — medido, hay casos reales
+  // (`0000863` con un `XA2001-0001120` adentro). Se guarda el folio LEÍDO además del veredicto
+  // para que la pantalla pueda mostrar contra qué se comparó, y no sólo que no coincide.
+  if (!(await has('folio_interno'))) {
+    await knex.schema.withSchema('finance').alterTable(t, (tb) => {
+      tb.text('folio_interno').nullable();
+    });
+  }
+  if (!(await has('folio_interno_ok'))) {
+    await knex.schema.withSchema('finance').alterTable(t, (tb) => {
+      tb.boolean('folio_interno_ok').nullable();
+    });
+  }
 
   await knex.raw(`
     COMMENT ON COLUMN finance.goods_receipt_proofs.prov_score IS
@@ -57,7 +71,11 @@ exports.up = async function up(knex) {
     COMMENT ON COLUMN finance.goods_receipt_proofs.prov_rfc_match IS
       'RE.25 — el RFC del papel coincide con el de Kepler, normalizado. Señal DÉBIL (49% medido): CORROBORA, nunca decide. NULL cuando alguno está malformado — en Kepler pasa seguido.';
     COMMENT ON COLUMN finance.goods_receipt_proofs.paquete_ok IS
-      'RE.25 — el paquete incluye NUESTRA hoja interna (documents_present contiene aplica_orden_entrada). Informativo: NO entra al bucket del cuadre porque hoy sólo 7 de 161 la traen.';
+      'RE.25 — el paquete incluye NUESTRA hoja interna. Sale del ROL que declara el capturista (files[].role), no de lo que adivina el OCR: medido, 93 de 161 vs 7. Informativo, NO entra al bucket.';
+    COMMENT ON COLUMN finance.goods_receipt_proofs.folio_interno IS
+      'RE.26 — folio impreso en nuestra hoja interna, tal cual lo leyó el OCR (ej. "XA2001-0000353"). Se guarda crudo para poder mostrar contra qué se comparó.';
+    COMMENT ON COLUMN finance.goods_receipt_proofs.folio_interno_ok IS
+      'RE.26 — ese folio es el de ESTA entrada (comparado sin el prefijo del doctype). Detecta evidencia pegada a la orden equivocada. NULL = no se pudo comparar.';
   `);
 };
 
@@ -67,7 +85,7 @@ exports.up = async function up(knex) {
  */
 exports.down = async function down(knex) {
   const t = 'goods_receipt_proofs';
-  for (const col of ['prov_score', 'prov_rfc_match', 'paquete_ok']) {
+  for (const col of ['prov_score', 'prov_rfc_match', 'paquete_ok', 'folio_interno', 'folio_interno_ok']) {
     if (await knex.schema.withSchema('finance').hasColumn(t, col)) {
       await knex.schema.withSchema('finance').alterTable(t, (tb) => tb.dropColumn(col));
     }
