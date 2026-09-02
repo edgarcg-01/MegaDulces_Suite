@@ -59,15 +59,41 @@ export interface PromoRouteRow {
   payout: number;                  // rate × base
 }
 
-/** Detalle de un cliente que participó (para "cuáles fueron"). */
+/** Qué se le vendió a un cliente, por producto, con su unidad declarada. */
+export interface PromoClientItem {
+  sku: string;
+  nombre: string;
+  /** Cantidad en la unidad BASE del SKU (peldaño resuelto por precio). */
+  unidades: number;
+  /** Rótulo real de esa unidad (PZA/PAQ/CJA…). null si el ERP no la declara. */
+  unidad: string | null;
+  /** Cantidad cuyo peldaño no se pudo identificar: se muestra aparte, no se suma. */
+  unidades_sin_resolver: number;
+  importe: number;
+}
+
+/** Detalle de un cliente que participó (para "cuáles fueron y qué se les vendió"). */
 export interface PromoClientRow {
+  canal: PromoCanal;
+  vendedor: string;
   warehouse_name: string;
   route_no: string;
   route_label: string;
   cliente: string;
   nombre: string;
+  /**
+   * El código de cliente se repite entre sucursales (la PK de `wincaja.clientes` es
+   * (tenant, sucursal, dataset, cliente)). Cuando el mismo código existe en más de una,
+   * el nombre mostrado puede ser el de OTRO cliente: se marca en vez de afirmarlo.
+   */
+  nombre_ambiguo: boolean;
   unidades: number;
   importe: number;
+  tickets: number;
+  /** Si llegó al umbral (cantidad y/o dinero) y por lo tanto genera bono. */
+  califica: boolean;
+  /** Qué se le vendió. Vacío si no se pidió el desglose. */
+  items: PromoClientItem[];
 }
 
 /**
@@ -510,6 +536,9 @@ export class RoutePromoService {
 
     return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
+      // Una promo de marca × 3 canales × 3 meses es cara (medido en prod: ~8 s el desglose
+      // con 185 clientes). Con tope explícito falla claro en vez de dejar la pantalla colgada.
+      await trx.raw(`SET LOCAL statement_timeout = '60s'`);
 
       // 1) Resolver el ALCANCE → conjunto de SKUs que cuentan.
       //    Puede ser un producto suelto o toda una marca/proveedor ("Proveedor: vidis").
@@ -721,41 +750,104 @@ export class RoutePromoService {
 
       // 3) Detalle: QUÉ clientes participaron (los que califican ≥ min_qty), con piezas + importe.
       //    Nombre resuelto best-effort desde wincaja.clientes (los códigos de ruta no siempre resuelven → código).
+      //    El desglose baja UN nivel más: (vendedor, cliente, SKU) con la unidad de cada
+      //    producto. Se trae a TODOS los clientes con venta —no sólo a los que califican—
+      //    porque un desglose que sólo muestra a los que cobran no deja auditar por qué el
+      //    resto no; los que no llegaron vienen marcados `califica=false`.
+      //
+      //    El NOMBRE se resuelve con las dos fuentes: `wincaja.clientes` cubre el POS y
+      //    `analytics.erp_customers` cubre a los clientes de las rutas del push, que no
+      //    existen en Wincaja (medido: resuelve 400 de los 2,812 códigos de ruta, justo los
+      //    que salían en blanco). Y se marca `nombre_ambiguo` cuando el código vive en más
+      //    de una sucursal, porque ahí el nombre puede ser el de otro cliente.
       const det: any[] = (await trx.raw(
-        `WITH base AS (
-           SELECT sl.canal, sl.vendedor, sl.cliente,
-                  SUM(sl.qty * tier.f) FILTER (WHERE tier.f IS NOT NULL) AS qty_base,
-                  SUM(sl.importe) AS importe
+        `WITH lines AS (
+           SELECT sl.canal, sl.vendedor, sl.cliente, sl.sku, sl.consecutivo,
+                  sl.qty * tier.f AS qty_base,
+                  CASE WHEN tier.f IS NULL THEN sl.qty END AS qty_unres,
+                  sl.importe
            FROM analytics.v_seller_sales_lines sl
            ${TIER_JOIN}
            WHERE sl.tenant_id=?
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
              AND sl.sku = ANY(?) AND sl.canal = ANY(?)
-           GROUP BY sl.canal, sl.vendedor, sl.cliente
+             AND sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001'
+         ),
+         por_cliente AS (
+           SELECT canal, vendedor, cliente,
+                  COALESCE(SUM(qty_base),0) AS qty_base, SUM(importe) AS importe,
+                  COUNT(DISTINCT consecutivo) AS tickets
+           FROM lines GROUP BY 1,2,3
+         ),
+         por_item AS (
+           SELECT canal, vendedor, cliente, sku,
+                  COALESCE(SUM(qty_base),0) AS qty_base,
+                  COALESCE(SUM(qty_unres),0) AS qty_unres,
+                  SUM(importe) AS importe
+           FROM lines GROUP BY 1,2,3,4
+         ),
+         nombres AS (
+           SELECT btrim(cliente) AS cliente,
+                  MIN(nombre) AS nombre,
+                  COUNT(DISTINCT source_branch) > 1 AS ambiguo
+           FROM wincaja.clientes WHERE tenant_id=? AND nombre IS NOT NULL
+           GROUP BY 1
+         ),
+         -- Los items se agregan UNA vez y se pegan por JOIN. Como subconsulta correlacionada
+         -- re-escaneaba por_item por cada cliente y la query tardaba 37 s (medido; ahora 8 s).
+         -- (sin backticks: este comentario vive dentro de un template literal de JS)
+         items AS (
+           SELECT pi.canal, pi.vendedor, pi.cliente,
+                  json_agg(json_build_object(
+                    'sku', pi.sku, 'nombre', COALESCE(p.nombre, pi.sku),
+                    'unidades', round(pi.qty_base, 2),
+                    'unidad', lad.unit_base,
+                    'unidades_sin_resolver', round(pi.qty_unres, 2),
+                    'importe', round(pi.importe, 2))
+                  ORDER BY pi.importe DESC) AS items
+           FROM por_item pi
+           LEFT JOIN catalog.products p ON p.tenant_id=? AND btrim(p.sku)=btrim(pi.sku) AND p.deleted_at IS NULL
+           LEFT JOIN analytics.v_product_unit_ladder lad ON lad.sku = pi.sku
+           GROUP BY 1,2,3
          )
-         SELECT base.canal, base.vendedor, base.cliente, base.qty_base, base.importe, cn.nombre,
-                COALESCE(w.name, initcap(pb.branch_name)) AS wname
-         FROM base
-         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn
-           ON cn.cliente = base.cliente
-         LEFT JOIN wincaja.branches b  ON base.canal='ruta' AND b.tenant_id=?
-              AND b.source_branch=base.vendedor AND b.is_route=true
+         SELECT pc.canal, pc.vendedor, pc.cliente, pc.qty_base, pc.importe, pc.tickets,
+                COALESCE(nm.nombre, ec.name) AS nombre,
+                COALESCE(nm.ambiguo, false) AS nombre_ambiguo,
+                COALESCE(w.name, initcap(pb.branch_name)) AS wname,
+                (COALESCE(pc.qty_base,0) >= ? AND COALESCE(pc.importe,0) >= ?) AS califica,
+                COALESCE(it.items, '[]'::json) AS items
+         FROM por_cliente pc
+         LEFT JOIN items it ON it.canal=pc.canal AND it.vendedor=pc.vendedor AND it.cliente=pc.cliente
+         LEFT JOIN nombres nm ON nm.cliente = btrim(pc.cliente)
+         LEFT JOIN analytics.erp_customers ec ON ec.tenant_id=? AND btrim(ec.erp_code)=btrim(pc.cliente)
+         LEFT JOIN wincaja.branches b  ON pc.canal='ruta' AND b.tenant_id=?
+              AND b.source_branch=pc.vendedor AND b.is_route=true
          LEFT JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
          LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
               AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
-         WHERE base.cliente IS NOT NULL AND btrim(base.cliente)<>'' AND base.cliente<>'0001'
-           AND COALESCE(base.qty_base,0) >= ? AND COALESCE(base.importe,0) >= ?
-         ORDER BY base.canal, wname NULLS LAST, base.vendedor, base.importe DESC
+         ORDER BY califica DESC, pc.importe DESC
          LIMIT 5000`,
-        [tenantId, period.from, period.to, skus, canales, tenantId, tenantId, rule.min_qty, minImporte],
+        [tenantId, period.from, period.to, skus, canales, tenantId, tenantId,
+          rule.min_qty, minImporte, tenantId, tenantId],
       )).rows;
       const clientes_detalle: PromoClientRow[] = det.map((r) => ({
+        canal: r.canal, vendedor: String(r.vendedor ?? '—'),
         warehouse_name: r.wname, route_no: String(r.vendedor ?? '—'),
         route_label: r.canal === 'ruta'
           ? `${r.wname ? r.wname + ' · ' : ''}Ruta ${r.vendedor}`
           : `${CANAL_LABEL[r.canal as PromoCanal] || r.canal} · Vendedor ${r.vendedor}`,
         cliente: String(r.cliente), nombre: r.nombre || String(r.cliente),
+        nombre_ambiguo: !!r.nombre_ambiguo && !!r.nombre,
         unidades: round(Number(r.qty_base) || 0, 2), importe: round(Number(r.importe) || 0, 2),
+        tickets: Number(r.tickets) || 0,
+        califica: !!r.califica,
+        items: (r.items || []).map((i: any) => ({
+          sku: String(i.sku), nombre: String(i.nombre),
+          unidades: Number(i.unidades) || 0,
+          unidad: i.unidad ?? null,
+          unidades_sin_resolver: Number(i.unidades_sin_resolver) || 0,
+          importe: Number(i.importe) || 0,
+        })),
       }));
 
       const total_base = round(out.reduce((s, r) => s + r.base, 0), 2);

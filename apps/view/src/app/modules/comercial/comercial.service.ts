@@ -1756,7 +1756,18 @@ export interface PromoRule {
   periodo_texto?: string | null;
 }
 export interface PromoRouteRow { canal: PromoCanal; vendedor: string; warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
-export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; unidades: number; importe: number; }
+/** Qué se le vendió a un cliente, por producto, con su unidad declarada. */
+export interface PromoClientItem { sku: string; nombre: string; unidades: number; unidad: string | null; unidades_sin_resolver: number; importe: number; }
+export interface PromoClientRow {
+  canal: PromoCanal; vendedor: string;
+  warehouse_name: string; route_no: string; route_label: string;
+  cliente: string; nombre: string;
+  /** El código se repite entre sucursales: el nombre puede ser de otro cliente. */
+  nombre_ambiguo: boolean;
+  unidades: number; importe: number; tickets: number;
+  califica: boolean;
+  items: PromoClientItem[];
+}
 /** Estado de la unidad de medida del cálculo — se muestra siempre, salga limpia o no. */
 export interface PromoUnitInfo {
   unit_base: string | null;
