@@ -181,8 +181,12 @@ const APP_SOURCES: SourceCfg[] = [
     warnH: 48, critH: 120, cadence: 'continuo (réplica lógica md_00 → CDC WAL)',
   },
   // (AUDIT 2026-08-21) Cobertura de FINANZAS de oficinas '00' en el ODS. El ship a prod usa un whitelist
-  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), import-kepler-bank-movements hace SKIP MUDO
-  //   y la columna Kepler de /finanzas/bancos + Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), la columna Kepler de /finanzas/bancos +
+  //   Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   El mecanismo cambió y el sensor importa MÁS, no menos: antes el que hacía SKIP MUDO era
+  //   `import-kepler-bank-movements` (retirado 2026-09-03); ahora `analytics.kepler_bank_movements`
+  //   es una VISTA sobre kdm1⋈kdb1, así que sin kdb1 no hay "skip" — simplemente devuelve vacío al
+  //   instante y en cada lectura. Este sensor es el único aviso.
   //   Este sensor lo hace RUIDOSO: kdb1 suc-00 en 0 → crítico. Es el canario de toda la capa finanzas-00
   //   (kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* viajan en el mismo whitelist).
   {

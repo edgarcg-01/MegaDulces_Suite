@@ -1249,7 +1249,12 @@ export class FinanceBankService {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Faltan las pólizas del 102 de Kepler (no se puede conciliar aún)',
         detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin conciliar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
-        accion: 'Carga el feed de pólizas 102 del periodo (import-bank-postings) y luego presiona «Conciliar» en la pestaña Conciliación. Recién entonces la evidencia mostrará el folio exacto de Kepler de cada pago.' });
+        // Ya NO se "carga un feed": `analytics.bank_postings` es una MATERIALIZED VIEW derivada
+        // del ODS (mig 20260903130000) que refresca `AnalyticsRefreshService` cada 15 min. Decirle
+        // a alguien que corra `import-bank-postings` era mandarlo a un script que ya no existe.
+        // Si está vacío para el periodo hay dos causas reales, y conviene nombrarlas: el refresh
+        // aún no corrió, o el periodo cae fuera de la ventana rodante de 12 meses de la vista.
+        accion: 'Las pólizas del 102 se derivan del ODS y se refrescan solas cada ~15 min: si el periodo es reciente, espera ese ciclo o pide un refresh manual de analytics. Si es un periodo de más de 12 meses atrás, queda fuera de la ventana rodante de la vista y no habrá con qué cruzar. Cuando aparezcan, presiona «Conciliar» en la pestaña Conciliación.' });
     } else if (!conciliacionCorrida && !!recon?.accounts?.length) {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Corre «Conciliar» primero',
