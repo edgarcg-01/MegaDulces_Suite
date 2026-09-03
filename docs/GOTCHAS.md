@@ -66,6 +66,22 @@ dbWork con SAVEPOINT.
 - Si prod ya crasheó por un registro huérfano: `DELETE FROM knex_migrations WHERE name='<archivo>.js'`
   (borra el registro, **no** la tabla ni el archivo).
 - **3 devs = timestamps que chocan.** Coordiná el nombre/timestamp de migraciones nuevas; no reordenar.
+- ⛔ **Nunca AGREGARLE columnas a una migración ya aplicada.** Es la trampa hermana de la primera, y
+  duele más porque **no avisa**: Knex no vuelve a ejecutar lo que tiene registrado, así que lo que le
+  agregues después **no llega nunca** a las DBs donde ya corrió. Ser idempotente no salva — el problema
+  no es que corra dos veces, es que **no corre**. Y el diff se ve perfecto: local y `platform_test`
+  (donde el archivo corrió completo) quedan con las columnas, prod no, y nadie lo nota hasta que la
+  pantalla truena.
+  - **Vivido 2026-09-03 (`[RE.26.2]`):** `20260902160000` corrió en prod (batch 251) con 3 columnas; le
+    agregué `folio_interno` + `folio_interno_ok` el mismo día. Toda la lista de `/compras/costo-por-compra`
+    devolvió **500 · `42703 column "folio_interno" does not exist`**. Lo que se agrega después va en
+    **archivo nuevo, siempre** (acá: `20260903120000`).
+  - **La otra mitad, en el código:** un solo `existeCol('prov_score')` gateaba los 5. Si un grupo de
+    columnas **puede llegar en otro despliegue, se prueba solo** — un probe compartido convierte un
+    "falta una columna" en una pantalla caída. El guard existía justo para eso y no sirvió porque
+    preguntaba por la columna equivocada.
+  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro:
+    `SELECT column_name FROM information_schema.columns WHERE table_schema=… AND table_name=…`.
 
 ---
 

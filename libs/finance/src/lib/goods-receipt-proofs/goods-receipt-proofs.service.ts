@@ -487,6 +487,12 @@ export class GoodsReceiptProofsService {
       // `[RE.25]` Sin la migración aplicada la lista sigue viva: el cuadre queda en `sin_datos`
       // (que es la verdad — nadie lo evaluó) en vez de tronar con «column does not exist».
       const conMatchCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'prov_score');
+      // `[RE.26.2]` El folio interno se pregunta APARTE, aunque llegó en la misma migración.
+      // Prod aplicó esa migración cuando traía 3 columnas; después le agregué estas 2, y Knex ya
+      // la tenía registrada, así que nunca corrieron. Un solo `existeCol` para los dos grupos dio
+      // por presentes columnas que no estaban → 500 en toda la lista. Cada grupo que puede llegar
+      // en un despliegue distinto se prueba solo.
+      const conFolioCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'folio_interno');
       const hayPares = await this.hayPares(trx);
       const hayDesc = await this.hayDescartes(trx);
       // RE.20.1 — el lente del dinero. El join de ajustes es caro (agrupa toda la tabla de
@@ -538,10 +544,10 @@ export class GoodsReceiptProofsService {
         .select(trx.raw(conMatchCols
           ? `(array_agg(paquete_ok ORDER BY ${PROOF_ORDER}))[1] AS paquete_ok`
           : `NULL::boolean AS paquete_ok`))
-        .select(trx.raw(conMatchCols
+        .select(trx.raw(conFolioCols
           ? `(array_agg(folio_interno ORDER BY ${PROOF_ORDER}))[1] AS folio_interno`
           : `NULL::text AS folio_interno`))
-        .select(trx.raw(conMatchCols
+        .select(trx.raw(conFolioCols
           ? `(array_agg(folio_interno_ok ORDER BY ${PROOF_ORDER}))[1] AS folio_interno_ok`
           : `NULL::boolean AS folio_interno_ok`))
         .groupBy('sucursal', 'folio')
@@ -1440,6 +1446,10 @@ export class GoodsReceiptProofsService {
        * El criterio de cada una está medido y documentado en `receipt-match.ts`.
        */
       const conMatchCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'prov_score');
+      // `[RE.26.2]` Aparte del anterior: llegaron en la misma migración pero en despliegues
+      // distintos (ver la nota en `list()`). Colgar los dos grupos del mismo probe rompía el
+      // INSERT — o sea, la sucursal no habría podido adjuntar su evidencia.
+      const conFolioCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'folio_interno');
       const provScore = parecidoNombre(o.proveedor, entrada.proveedor_nombre);
       const rfcPapel = rfcBienFormado(o.rfc) ? rfcComparable(o.rfc) : null;
       const rfcKepler = rfcBienFormado(entrada.proveedor_rfc) ? rfcComparable(entrada.proveedor_rfc) : null;
@@ -1484,6 +1494,8 @@ export class GoodsReceiptProofsService {
           // del capturista no se frena por una columna de análisis que falta.
           ...(conMatchCols ? {
             prov_score: provScore, prov_rfc_match: provRfcMatch, paquete_ok: paqueteOk,
+          } : {}),
+          ...(conFolioCols ? {
             folio_interno: folioInterno, folio_interno_ok: folioInternoOk,
           } : {}),
           comentarios: (dto.comentarios || '').trim() || null,
