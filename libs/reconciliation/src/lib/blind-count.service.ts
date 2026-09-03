@@ -22,8 +22,24 @@ const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cob
 /** Umbrales del descuadre autolineado (espejan la regla `arqueo_ciego_divergente`). */
 const ARQ_UMBRAL = 50;
 const ARQ_CRITICO = 1000;
-/** Ventana de turnos por arquear. 2 días cubre el cierre de ayer capturado hoy temprano. */
-const TURNOS_DIAS = 2;
+/**
+ * Ventana de turnos por arquear.
+ *
+ * Para la **cajera es HOY y nada más** (`0`). El arqueo es un acto físico sobre el
+ * cajón que tiene enfrente: un corte de anteayer ya no se puede contar —ese
+ * efectivo se depositó o se fue en sangrías— así que ofrecérselo no le da trabajo,
+ * le da una tarea imposible. Peor: con la regla de orden (SM.16) el corte viejo le
+ * bloqueaba el de hoy, y la dejaba sin poder arquear nada.
+ *
+ * El corte viejo sin contar NO se pierde: vive en la bandeja del supervisor como
+ * `arqueo_no_realizado` y en el tablero de cumplimiento. Es un problema de
+ * supervisión, no una tarea de mostrador.
+ *
+ * El **supervisor** sí ve la ventana ancha (`2`): captura por otros, en relevo y
+ * en contingencia, y necesita alcanzar el cierre de ayer capturado hoy temprano.
+ */
+const TURNOS_DIAS_CAJERA = 0;
+const TURNOS_DIAS_SUPERVISOR = 2;
 
 /** Un turno de caja abierto/cerrado por Kepler — lo que toca arquear. Sin montos. */
 export interface TurnoPendiente {
@@ -109,12 +125,17 @@ export class BlindCountService {
    *
    * **No devuelve montos.** Es la lista de qué contar, no de cuánto debería haber.
    */
-  async turnosPendientes(q: { cajeroCode?: string; warehouseCodes?: string[] | null; dias?: number }) {
+  async turnosPendientes(q: { cajeroCode?: string; warehouseCodes?: string[] | null; dias?: number; revela?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const cajero = (q.cajeroCode || '').trim().toUpperCase();
     if (!cajero) return [];
     if (q.warehouseCodes && !q.warehouseCodes.length) return []; // alcance vacío → nada
-    const dias = Math.min(30, Math.max(0, Number(q.dias) || TURNOS_DIAS));
+    const porDefecto = q.revela ? TURNOS_DIAS_SUPERVISOR : TURNOS_DIAS_CAJERA;
+    // `?? porDefecto` y no `|| porDefecto`: un `dias=0` explícito ("solo hoy") es
+    // una respuesta válida y `||` lo tomaría como ausente.
+    const pedidos = q.dias == null ? porDefecto : Number(q.dias);
+    const tope = q.revela ? 30 : TURNOS_DIAS_CAJERA;   // la cajera no amplía su ventana
+    const dias = Math.min(tope, Math.max(0, Number.isFinite(pedidos) ? pedidos : porDefecto));
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
         `SELECT k.sucursal                          AS warehouse_code,

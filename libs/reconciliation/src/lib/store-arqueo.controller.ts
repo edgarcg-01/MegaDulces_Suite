@@ -125,13 +125,18 @@ export class StoreArqueoController {
   @Get('turnos')
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
   @ApiOperation({ summary: 'Tienda — turnos de caja que Kepler abrió a tu nombre y todavía no arqueaste. Es lo que habilita la captura (sin turno no hay arqueo).' })
-  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás (default 2, máx 30).' })
+  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás. La cajera ve SOLO hoy y no la puede ampliar; el supervisor, hasta 30.' })
   async turnos(@ReqUser() user: AuthUser, @Query('dias') dias?: string) {
     const scope = (await this.scope.current()).dims.warehouse;
+    // A la cajera se le pide el arqueo del día: Kepler cierra su caja y ella cuenta
+    // lo que tiene enfrente. Los cortes viejos sin contar son de la bandeja del
+    // supervisor, no de su mostrador — y el tope va en el SERVICIO, no acá, para
+    // que mandar `?dias=30` a mano tampoco los destape.
     return this.blind.turnosPendientes({
       cajeroCode: user?.username,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
       dias: dias ? Number(dias) : undefined,
+      revela: this.revela(user),
     });
   }
 
@@ -199,9 +204,13 @@ export class StoreArqueoController {
     // que leerlo del body dejaría el chequeo en un no-op silencioso.
     if (await this.blind.yaArqueado(warehouseCode, folio)) return;
     const scope = (await this.scope.current()).dims.warehouse;
+    // MISMA ventana que la pantalla: si a la cajera no se le ofrece el corte de
+    // anteayer, tampoco puede bloquearla. Con la ventana ancha quedaba trabada en
+    // un corte que ya no se puede contar y no llegaba nunca al de hoy.
     const pendientes = await this.blind.turnosPendientes({
       cajeroCode: cajero_code,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
+      revela: false,
     });
     const primero = pendientes[0];               // viene ordenada del más viejo
     if (!primero || primero.folio === folio) return;
