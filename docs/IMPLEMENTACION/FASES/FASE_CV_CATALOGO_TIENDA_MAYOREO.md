@@ -1152,6 +1152,35 @@ existentes de `getProductos()` cambió de comportamiento.
 
 ---
 
+## CV.20 — "Agregar variantes donde falten" (2026-09-03)
+
+0Sistemas probó CV.19 con el catálogo real de Wix y compartió un ejemplo:
+un archivo grande donde muchos productos **ya traían** su menú
+Pieza/Paquete/Caja (armado en corridas anteriores o a mano) y otros
+**no tenían ninguno**. Pidió un botón nuevo, al lado de "Procesar
+catálogo", para completar sólo lo que falta — sin tocar lo que ya estaba.
+
+Se agregó `procesarAgregarVariantes()`: recorre el catálogo igual que
+"Con presentaciones", pero si un producto **ya tiene** al menos una fila
+`Variant`, lo copia tal cual (no se toca ni el precio ni las variantes
+existentes — puede haberse armado con un criterio distinto al nuestro).
+Sólo arma el menú nuevo en los productos que llegan como una sola fila sin
+variantes, con el mismo motor (`unidadesDe`, `existenciaBase`, "Forzar
+Pieza" opcional). KPIs propios: productos con menú nuevo, variantes
+agregadas, ya tenían menú (sin tocar), sin match, una sola unidad.
+
+**Verificado con Playwright contra `KP_CONCENTRADA` real**, tres casos en
+un mismo archivo: producto con variantes de prueba → intacto; código
+inventado → sin tocar (sin match); código real con una sola unidad en
+Kepler (`15157`, sólo PZA) → sin tocar; código real sin menú y con dos
+unidades (`40621`, Paquete $12.23 + Caja $395.82) → generó el menú con
+esos valores exactos, tomados en vivo de Kepler.
+
+**Qué NO cambió:** `procesarPresentaciones()` sigue igual (regenera todo,
+para cuando sí se quiere recalcular en bloque); cero cambios de backend.
+
+---
+
 ## Preguntas abiertas para 0Sistemas
 
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.

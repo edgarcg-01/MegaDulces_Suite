@@ -391,8 +391,9 @@
         <label for="chk-forzar">Forzar Pieza cuando no exista en Kepler (deduce el precio del nombre — <strong>no es un precio real del POS</strong>)</label>
       </div>
 
-      <div style="margin-top:14px">
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn" id="btn-proc" onclick="procesarWix()" disabled>⚙️ Procesar catálogo</button>
+        <button class="btn sec" id="btn-agregar-var" onclick="procesarAgregarVariantesUI()" disabled>➕ Agregar variantes donde falten</button>
       </div>
       <div class="wix-msg" id="wix-msg"></div>
     </div>
@@ -410,6 +411,13 @@
         <div class="wix-kpi amber"><div class="v" id="p-nm">—</div><div class="l">Sin match en Kepler</div></div>
         <div class="wix-kpi"><div class="v" id="p-una">—</div><div class="l">Con una sola presentación</div></div>
         <div class="wix-kpi blue"><div class="v" id="p-desc">—</div><div class="l">Descuentos fijos quitados</div></div>
+      </div>
+      <div class="wix-kpis" id="wix-kpis-agregar" style="display:none">
+        <div class="wix-kpi"><div class="v" id="a-agregados">—</div><div class="l">Productos con menú nuevo</div></div>
+        <div class="wix-kpi purple"><div class="v" id="a-variantes">—</div><div class="l">Variantes agregadas</div></div>
+        <div class="wix-kpi" style="border-top-color:#94a3b8"><div class="v" id="a-yatenia" style="color:#64748b">—</div><div class="l">Ya tenían menú (sin tocar)</div></div>
+        <div class="wix-kpi amber"><div class="v" id="a-nm">—</div><div class="l">Sin match en Kepler</div></div>
+        <div class="wix-kpi" style="border-top-color:#94a3b8"><div class="v" id="a-una" style="color:#64748b">—</div><div class="l">Una sola unidad (nada que agregar)</div></div>
       </div>
       <div id="wix-lista-extra"></div>
       <button class="btn btn-dl" onclick="descargarWix()">⬇ Descargar catálogo actualizado (.csv)</button>
@@ -1279,6 +1287,108 @@ function procesarPresentaciones(cat, forzar){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Agregar variantes SOLO donde falten. A diferencia de procesarPresentaciones
+// (que regenera el menú de TODOS los productos elegibles, pisando lo que ya
+// tuvieran), esto deja intacto cualquier producto que ya traiga una fila
+// Variant — sólo le arma el menú Pieza/Paquete/Caja al que no tiene ninguna.
+// Para no pisar un menú armado a mano en Wix con criterios distintos a los
+// nuestros.
+// ─────────────────────────────────────────────────────────────────────────────
+function procesarAgregarVariantes(cat, forzar){
+  var headers=cat.headers.slice();
+  var salida=[];
+  var est={agregados:0, variantes:0, ya_tenia:0, sin_match:0, sin_variantes:0, pieza_deducida:0};
+
+  var i=0;
+  while(i<cat.rows.length){
+    var f=cat.rows[i].slice();
+    var ft=cat.fieldTypeIdx>=0?String(f[cat.fieldTypeIdx]||'').trim().toLowerCase():'';
+
+    if(ft!=='product'){
+      salida.push(f);
+      i++;
+      continue;
+    }
+
+    var j=i+1;
+    var teniaVariantes=false;
+    while(j<cat.rows.length){
+      var ftSig=cat.fieldTypeIdx>=0?String(cat.rows[j][cat.fieldTypeIdx]||'').trim().toLowerCase():'';
+      if(ftSig!=='variant')break;
+      teniaVariantes=true;
+      j++;
+    }
+
+    // Ya tiene menú propio: se copia tal cual, Product y sus Variant, sin tocar nada.
+    if(teniaVariantes){
+      for(var k=i;k<j;k++)salida.push(cat.rows[k].slice());
+      est.ya_tenia++;
+      i=j;
+      continue;
+    }
+
+    var sku=String(f[cat.skuIdx]||'').trim();
+    var pad=sku;while(pad.length<5)pad='0'+pad;
+    var kp=KP.hasOwnProperty(pad)?KP[pad]:(KP.hasOwnProperty(sku)?KP[sku]:null);
+    if(sku&&/^\d+$/.test(sku))f[cat.skuIdx]=pad;
+
+    if(!kp){
+      salida.push(f);
+      est.sin_match++;
+      i=j;
+      continue;
+    }
+
+    var us=unidadesDe(kp);
+
+    if(forzar){
+      var tienePieza=us.some(function(u){return u[0]==='Pieza';});
+      if(!tienePieza&&us.length){
+        var n=piezasDelNombre(kp.nombre);
+        if(n){
+          us.unshift(['Pieza', Math.round((us[0][1]/n)*100)/100, 1/n]);
+          est.pieza_deducida++;
+        }
+      }
+    }
+
+    if(us.length<2){
+      salida.push(f);
+      est.sin_variantes++;
+      i=j;
+      continue;
+    }
+
+    var basePrecio=us[0][1];
+    var exist=existenciaBase(kp);
+
+    f[cat.priceIdx]=basePrecio.toFixed(2);
+    if(cat.opNameIdx>=0)f[cat.opNameIdx]='Presentación';
+    if(cat.opTypeIdx>=0)f[cat.opTypeIdx]='DROP_DOWN';
+    if(cat.opDescIdx>=0)f[cat.opDescIdx]=us.map(function(u){return u[0];}).join(';');
+    salida.push(f);
+
+    us.forEach(function(u){
+      var etq=u[0], precio=u[1], factor=u[2];
+      var v=new Array(headers.length).fill('');
+      if(cat.handleIdIdx>=0)v[cat.handleIdIdx]=f[cat.handleIdIdx];
+      if(cat.fieldTypeIdx>=0)v[cat.fieldTypeIdx]='Variant';
+      if(cat.surchargeIdx>=0)v[cat.surchargeIdx]=(Math.round((precio-basePrecio)*100)/100).toFixed(2);
+      if(cat.visibleIdx>=0)v[cat.visibleIdx]='true';
+      if(cat.inventoryIdx>=0)v[cat.inventoryIdx]=factor?String(Math.floor(exist/factor)):'0';
+      if(cat.opDescIdx>=0)v[cat.opDescIdx]=etq;
+      salida.push(v);
+      est.variantes++;
+    });
+
+    est.agregados++;
+    i=j;
+  }
+
+  return {headers:headers, rows:salida, kpis:est};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Orquestación de UI
 // ─────────────────────────────────────────────────────────────────────────────
 var CAT_TEXT=null, RESULT_CSV=null, MODO='precio';
@@ -1297,7 +1407,9 @@ function readFile(input,cb){
   r.readAsText(f,'utf-8');
 }
 function checkReadyWix(){
-  document.getElementById('btn-proc').disabled = !(CAT_TEXT && Object.keys(KP).length);
+  var noListo = !(CAT_TEXT && Object.keys(KP).length);
+  document.getElementById('btn-proc').disabled = noListo;
+  document.getElementById('btn-agregar-var').disabled = noListo;
 }
 function onCat(i){readFile(i,function(t,n){CAT_TEXT=t;document.getElementById('fn-cat').textContent='✔ '+n;checkReadyWix();});}
 
@@ -1344,9 +1456,46 @@ function procesarWix(){
   }
 }
 
+function procesarAgregarVariantesUI(){
+  var msg=document.getElementById('wix-msg');
+  msg.className='wix-msg';msg.style.display='none';
+  document.getElementById('wix-results').style.display='none';
+  try{
+    var cat=parseCat(CAT_TEXT);
+    if(!cat)throw new Error('El catálogo Wix no es válido (faltan columnas "sku" o "price").');
+
+    var forzar=document.getElementById('chk-forzar').checked;
+    var resultado=procesarAgregarVariantes(cat, forzar);
+    MODO='agregar';
+    document.getElementById('wix-kpis-precio').style.display='none';
+    document.getElementById('wix-kpis-pres').style.display='none';
+    document.getElementById('wix-kpis-agregar').style.display='flex';
+    document.getElementById('a-agregados').textContent=resultado.kpis.agregados.toLocaleString('es-MX');
+    document.getElementById('a-variantes').textContent=resultado.kpis.variantes.toLocaleString('es-MX');
+    document.getElementById('a-yatenia').textContent=resultado.kpis.ya_tenia.toLocaleString('es-MX');
+    document.getElementById('a-nm').textContent=resultado.kpis.sin_match.toLocaleString('es-MX');
+    document.getElementById('a-una').textContent=resultado.kpis.sin_variantes.toLocaleString('es-MX');
+
+    var extraHTML='';
+    if(forzar&&resultado.kpis.pieza_deducida){
+      extraHTML='<div class="aviso" style="margin-top:0;margin-bottom:12px"><span>⚠️</span><span>'+
+        resultado.kpis.pieza_deducida+' producto(s) con precio de Pieza DEDUCIDO del nombre — no existen en el POS.</span></div>';
+    }
+    document.getElementById('wix-lista-extra').innerHTML=extraHTML;
+
+    RESULT_CSV=toCSV(resultado.headers, resultado.rows);
+    document.getElementById('wix-results').style.display='block';
+    document.getElementById('wix-dl-info').textContent='';
+    msg.className='wix-msg ok';
+    msg.textContent='✔ Listo — '+resultado.kpis.agregados.toLocaleString('es-MX')+' producto(s) recibieron menú nuevo. Los que ya tenían variantes no se tocaron.';
+  }catch(e){
+    msg.className='wix-msg err';msg.textContent='Error: '+(e&&e.message?e.message:e);
+  }
+}
+
 function descargarWix(){
   if(!RESULT_CSV)return;
-  var sufijo = MODO==='presentaciones' ? '_presentaciones' : '_actualizado';
+  var sufijo = MODO==='presentaciones' ? '_presentaciones' : (MODO==='agregar' ? '_variantes_agregadas' : '_actualizado');
   var blob=new Blob(['﻿'+RESULT_CSV],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
