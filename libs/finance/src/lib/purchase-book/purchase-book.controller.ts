@@ -60,6 +60,16 @@ export class PurchaseBookController {
     return this.svc.setInclusion(mes, body?.uuids ?? [], body?.incluida !== false, body?.motivo, 'complemento');
   }
 
+  @Post('no-asociados/:mes/caratula')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Cambia con qué folio y concepto entra la póliza (para los meses que no tienen libro).' })
+  setCaratulaNoAsociados(
+    @Param('mes') mes: string,
+    @Body() body: { folio_poliza?: number; concepto?: string },
+  ) {
+    return this.svc.setCaratula(mes, body ?? {}, 'complemento');
+  }
+
   @Post('no-asociados/:mes/generar')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })

@@ -178,6 +178,19 @@ export class LibroComprasService {
       `${this.noAso}/${mes}/inclusion`, { uuids, incluida, motivo });
   }
 
+  /**
+   * Con qué folio y concepto entra la póliza. Es para los meses que NO tienen libro:
+   * ago-2026 no tiene póliza de compras, así que su complemento ES el mes y entra como
+   * folio 1 "REGISTRO DE COMPRAS DEL MES", no como folio 2 "COMPLEMENTO".
+   *
+   * El server rechaza el folio si ContPAQi ya lo tiene ocupado en el Diario de ese mes.
+   */
+  setCaratulaNoAsociados(mes: string, datos: { folio_poliza?: number; concepto?: string }) {
+    return this.http.post<{ ok: boolean; folio_poliza: number; concepto: string }>(
+      `${this.noAso}/${mes}/caratula`, datos,
+    );
+  }
+
   generarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<GenerarResultado> {
     return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, { impuestos, uuid });
   }
