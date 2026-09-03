@@ -93,12 +93,14 @@ export class AnalyticsRefreshService {
       this.logger.debug('Skip refreshWincajaDaily: KNEX_NEW_DB_ADMIN no disponible');
       return;
     }
-    // Ambos rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga
-    // Access→PG ~05:00) y kepler (mv_kepler_sales_daily desde kepler_ods, live CDC). Nightly basta:
-    // el sell-out no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
+    // Rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga Access→PG
+    // ~05:00) + kepler (mv_kepler desde kepler_ods, live CDC) + el BLEND consolidado (mv_sales_blended,
+    // deriva de los dos anteriores → va AL FINAL para tomarlos ya frescos). Nightly basta: el sell-out
+    // no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
     for (const [mv, jobKey, label] of [
       ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)'],
       ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)'],
+      ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)'],
     ] as const) {
       const start = Date.now();
       let ok = false;
@@ -161,7 +163,8 @@ export class AnalyticsRefreshService {
     const list = source === 'manual'
       ? [...MVS,
          { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
-         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean }]
+         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_sales_blended' } as { name: string; requires_fdw?: boolean }]
       : MVS;
     try {
       for (const entry of list) {
