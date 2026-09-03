@@ -1328,6 +1328,42 @@ Disparador: Edgar, *"¿nuestra gestión de permisos y usuarios ya es correcta?"*
 
 ---
 
+## ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén
+
+> Cierra el defecto de unidad de `/compras/pedido`. Detalle en **ADR-055** de
+> [`02_DECISIONES_ARQUITECTURA`](02_DECISIONES_ARQUITECTURA.md) y en
+> [`UNIDADES_DE_MEDIDA`](../UNIDADES_DE_MEDIDA.md) §8ter.
+>
+> ⚠️ **Ojo con el número:** esta línea de trabajo se escribió citando **ADR-052**, que ya estaba
+> tomado por *Contratos de tipos del boundary REST* y que además usan la **Fase LC** y el **BFF del
+> Command Center**. Se renumeró a **ADR-055** sólo en los archivos de esta línea. **LC y Command
+> Center siguen colisionando y falta decidirles número.**
+
+- [x] ✅ **U.1 El resolvedor por almacén.** `analytics.v_warehouse_box_factor` (vista, `derive-no-copy`, mig `20260902220000`, **batch 260 en Railway**): una fila por (tenant, almacén, producto) con `box_factor` = **unidades NATIVAS de ese almacén por caja**, más `box_label`/`base_label`/`is_weight`/`factor_source` para que nadie tenga que adivinar la unidad. Kepler resuelve por `v_product_box_factor`; Wincaja por **`wincaja.articulos.factor_venta`** — el ERP dueño de ese almacén. Perf: 140 ms el cross-product completo (100k filas) manejando el join desde los 3 almacenes y no desde `articulos`, que trae ~275k filas con `factor_venta>1` repartidas entre decenas de `source_branch` y costaba 545 ms.
+- [x] ✅ **U.2 El fact lleva el divisor.** `analytics.replenishment_plan.display_bf`, poblado por `import-replenishment-plan.js` **leyendo la vista** (la regla vive en un solo lugar). Corrido en prod: 53,321 filas, **0 nulos**, y en los almacenes Kepler `display_bf == bf` exacto.
+- [x] ✅ **U.3 La existencia se muestra en cajas con el divisor correcto.** `workbook` (existencia/pedido/reorden/máximo/valuado), `purchaseSuggestion`, `workbookDetail` y el panel de **stock muerto** (que además expone el costo por caja para que el renglón multiplique en pantalla). El workbook convierte **por almacén antes de sumar**: agregar unidades crudas de varios almacenes y dividir después mezclaba las unidades de los dos ERPs.
+- [x] ✅ **U.4 `transferPlan` y `overstockList` calculan EN CAJAS.** Restaban demanda-en-base menos existencia-en-nativa, y `transferPlan` además comparaba el déficit del destino contra el stock del **CEDIS origen**, que puede tener otra unidad nativa. La caja es la única unidad que los dos ERPs declaran.
+- [x] ✅ **U.5 Se retira el gate hardcodeado.** `cajaFactor()` decía `w.code IN ('MD-30','MD-32')` y dejaba fuera el **CEDIS `00`**, que también es Wincaja; y leía `analytics.wincaja_product_box_factor`, tabla alimentada por importer. Ahora los dos endpoints (`criticalStock`, `summary`) leen la vista. ⚠️ `06 Canindo` trae `wincaja_source_branch='50'` **residual** y es **KEPLER**: el gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`.
+- [x] ✅ **U.6 Candado.** `test-newdb-warehouse-box-factor.js` (**29/29** contra prod, en la regresión). Incluye candados contra los **dos errores previos de esta misma línea**: convertir el dato base (mig `20260902200000`, revertida) y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia, razón 2.000).
+
+**Medido en prod** (368 filas por almacén de ~9,800; **las 6 sucursales Kepler no se mueven ni un peso**):
+
+| superficie | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan | $2,256,065 | $2,237,132 |
+
+**Pendiente prod:** **redeploy api + view**. Migración ya aplicada (batch 260) e importer ya corrido. **Sin permisos nuevos → sin re-login.**
+
+⚠️ **Lo que hay que mirar en el redeploy:** MD-30, MD-32 y el CEDIS `00` son el caso de prueba. La existencia de los ~355 SKUs multipack sube ~10× en pantalla (es la cifra correcta) y su pedido baja. Las columnas de las sucursales `01`–`06` deben quedar **idénticas**; si se mueven, el bug es del divisor y no del dato.
+
+⚠️ **Commit mezclado:** un commit concurrente de otro dev barrió el índice y estos archivos viajaron dentro de `0f7ab814 feat([sell-out]): identidad de vendedor Kepler…`. El código está completo; el mensaje no le corresponde.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

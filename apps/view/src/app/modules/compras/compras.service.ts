@@ -236,8 +236,14 @@ export interface DeadStockRow {
   warehouse_code: string;
   sku: string;
   nombre: string;
-  on_hand: number;           // 0 = descontinuado / nunca surtido en este almacén
-  unit_cost: number;
+  on_hand: number;           // unidad NATIVA del almacén. 0 = descontinuado / nunca surtido acá
+  // ADR-055 — la misma existencia en CAJAS (la unidad más grande) + el divisor y el rótulo de la
+  // unidad suelta, para que la pantalla no tenga que adivinar en qué unidad está `on_hand`.
+  on_hand_cajas: number;
+  box_factor: number;        // unidades nativas por caja (1 = el producto no viene en caja)
+  base_label: string;        // rótulo de la unidad suelta, tal como lo declara el ERP del almacén
+  unit_cost: number;         // costo de la unidad NATIVA
+  caja_cost: number;         // = unit_cost × box_factor → cuadra con on_hand_cajas
   dead_value: number;        // existencia × costo = capital inmovilizado (0 si sin stock)
   last_activity: string | null; // última venta/movimiento en el almacén; null = nunca
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")

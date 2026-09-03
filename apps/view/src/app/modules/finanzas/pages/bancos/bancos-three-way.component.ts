@@ -407,7 +407,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }
@@ -415,7 +415,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }

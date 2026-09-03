@@ -1,6 +1,6 @@
 /**
  * `analytics.v_erp_stock_on_hand` — la EXISTENCIA del ERP, derivada y NORMALIZADA a la unidad base.
- * Derivar-no-copiar sobre las tablas primarias, sin importer ni tabla espejo (ADR-052 en curso).
+ * Derivar-no-copiar sobre las tablas primarias, sin importer ni tabla espejo (ADR-055 en curso).
  *
  * ⚠️ LA COLUMNA SE LLAMA `qty_base_units`, NO `qty_pieces`, Y ES A PROPÓSITO. La unidad base la
  * declara Kepler (`kdii.c11`, expuesto en `analytics.v_supplier_cost_ladder.u1_label`), no nosotros:

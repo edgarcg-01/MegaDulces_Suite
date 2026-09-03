@@ -1,5 +1,5 @@
 /**
- * ADR-052 — endurece el gate de unidad de `analytics.v_erp_stock_on_hand`: sólo se normaliza
+ * ADR-055 — endurece el gate de unidad de `analytics.v_erp_stock_on_hand`: sólo se normaliza
  * cuando el catálogo de Wincaja DECLARA una conversión real (`factor_venta > 1`).
  *
  * QUÉ ESTABA MAL. La versión de la migración 20260902170000 aplicaba el factor `bf / factor_venta`
