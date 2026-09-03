@@ -179,6 +179,11 @@
 - Verificado en producción real que el precio cambia de verdad al cambiar la sucursal seleccionada, para un producto con precio distinto conocido entre dos plazas.
 - El enlace anterior sigue funcionando (redirige a la pestaña nueva). Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
 
+### Added — botón "Agregar variantes donde falten" en Actualizar Wix (CV.20, 2026-09-03)
+- Nuevo botón, al lado del de "Procesar catálogo", pensado para el catálogo real de Wix: mezcla de productos que ya tienen su menú de presentaciones armado (a mano o en corridas anteriores) con otros que todavía no tienen ninguno.
+- Completa el menú sólo donde falta — un producto que ya trae variantes queda intacto, sin recalcular su precio ni pisar lo que ya tenía.
+- Verificado con datos reales de Kepler: un código con una sola presentación se deja igual, uno sin match se deja igual, y uno sin menú con dos presentaciones recibe el menú correcto con los precios reales.
+
 ### Fixed — incidente real: el rol dedicado no tenía permiso para el login, producción caída unos minutos (CV.17, 2026-09-03)
 - El primer login real contra el rol dedicado `catalogo_kp_runtime` desde el corte de CV.15 (todas las verificaciones previas usaban tokens de prueba) chocó con el `UPDATE` que registra el último inicio de sesión — el rol sólo tenía permiso de lectura ahí. El proceso dejó de responder poco después.
 - `GRANT UPDATE` aplicado de inmediato al cluster real y corregido en el script de rol versionado. Agregada además una defensa en profundidad: esa actualización de auditoría ya no puede volver a impedir un login si el permiso vuelve a fallar por cualquier motivo.
