@@ -179,7 +179,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
             @if (printGuard() === 'ok') {
               <span class="etqp-diag ok" title="Este equipo tiene cargada la protección de impresión aislada.">· impresión aislada ✓</span>
             } @else {
-              <span class="etqp-diag bad" title="Este equipo está corriendo una versión vieja de la app: al imprimir va a salir toda la pantalla. Cerrá el navegador por completo y volvé a abrir.">· versión vieja — al imprimir sale toda la pantalla ✗</span>
+              <span class="etqp-diag bad" title="Este equipo está corriendo una versión vieja de la app: al imprimir va a salir toda la pantalla. Cierra el navegador por completo y vuelve a abrir.">· versión vieja — al imprimir sale toda la pantalla ✗</span>
             }
           </p>
         </div>
