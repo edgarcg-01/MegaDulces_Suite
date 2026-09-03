@@ -198,6 +198,21 @@ export class BlindCountService {
     });
   }
 
+  /**
+   * ¿Este turno YA tiene conteo de cierre? Sirve para distinguir un arqueo nuevo
+   * de una **corrección** del que ya se hizo — que no es lo mismo y no se puede
+   * tratar igual (ver `exigirElMasViejo` en el controlador).
+   */
+  async yaArqueado(warehouseCode: string, folio: string): Promise<boolean> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const row = await trx('reconciliation.blind_counts')
+        .where({ tenant_id: tenantId, warehouse_code: warehouseCode, tipo: 'cierre', cash_cut_folio: String(folio) })
+        .first('id');
+      return !!row;
+    });
+  }
+
   /** Un turno concreto de Kepler, para validar que existe y es de quien dice ser. */
   async buscarTurno(warehouseCode: string, folio: string, cajero?: string): Promise<TurnoPendiente | null> {
     return this.tk.run(async (trx) => {
