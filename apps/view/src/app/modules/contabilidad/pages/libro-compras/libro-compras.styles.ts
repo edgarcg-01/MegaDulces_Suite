@@ -183,6 +183,43 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
    está resuelta. Verde tenue = cerrado. */
 .lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--ok-fg); }
 
+/* ── Filtros de la tabla (LC.16.2) ─────────────────────────────────────────
+   En ago-2026 la tabla trae 725 renglones y 214 no se pueden tocar. Sin esto había que
+   scrollear a mano para encontrar un proveedor. Los chips son un desglose además de un
+   filtro: los cuatro grupos son excluyentes y suman el total. */
+.na-filtros { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.na-chips { display: flex; gap: .3rem; flex-wrap: wrap; }
+.na-chip {
+  display: inline-flex; align-items: baseline; gap: .4rem; cursor: pointer;
+  font: inherit; font-size: var(--fs-xs); color: var(--text-muted);
+  padding: .28rem .6rem; border-radius: 999px;
+  border: 1px solid var(--border-color); background: var(--card-bg);
+  transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+}
+.na-chip:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-color); }
+.na-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+/* El seleccionado se marca con TINTA, no con color: el naranja es de la acción primaria
+   (Generar TXT) y un chip naranja le competiría. */
+.na-chip.on { border-color: var(--text-color); color: var(--text-color); background: var(--surface-hover); }
+.na-chip.on .na-chip-n { color: var(--text-color); }
+.na-chip-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); }
+/* En cero se apaga y no se puede tocar: el conteo sigue informando ("no hay canceladas")
+   pero no te mete a una lista vacía. */
+.na-chip.vacio { opacity: .45; }
+.na-chip:disabled { cursor: default; }
+
+.na-buscar { position: relative; display: inline-flex; align-items: center; margin-left: auto; }
+.na-buscar > i { position: absolute; left: .55rem; font-size: .8rem; color: var(--text-muted); pointer-events: none; }
+.na-buscar input { padding-left: 1.85rem; padding-right: 1.7rem; font-size: var(--fs-xs); min-width: 15rem; }
+.na-buscar-x { position: absolute; right: .35rem; display: inline-flex; padding: .2rem; cursor: pointer;
+  border: 0; background: none; color: var(--text-muted); border-radius: var(--radius-xs); }
+.na-buscar-x:hover { color: var(--text-color); }
+.na-buscar-x i { font-size: .7rem; }
+
+/* El link del vacío-por-filtro: lleva a "Todas" sin que haya que buscar el chip. */
+.na-link { font: inherit; color: var(--action); background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
 .na-dlg-nota { margin: 0 0 .9rem; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
 .na-dlg-nota strong { display: block; margin-top: .4rem; color: var(--warn-fg); font-weight: var(--fw-semibold); }
 .na-dlg-aviso { margin: .9rem 0 0; font-size: var(--fs-micro); color: var(--text-muted); }
