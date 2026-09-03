@@ -22,6 +22,17 @@ import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
+ * Los cuatro grupos en que cae una factura del mes. Son excluyentes y cubren el total, así
+ * que los chips se leen como un desglose y no como filtros sueltos. (El conteo del chip
+ * "Entran al TXT" es el de las marcadas, no el del grupo — ver `chips`.)
+ *
+ * Coinciden por construcción con el `entran` del rail y con `resumen.incluidas`: los tres
+ * salen de `con cuenta AND NOT ya en póliza AND NOT cancelada`. Si alguna vez divergen, es
+ * que el backend cambió una de las dos definiciones y no la otra.
+ */
+type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
+
+/**
  * Fase LC (ADR-052) — Movimientos no asociados.
  *
  * Es el propósito del módulo: sacar en TXT **lo que ContPAQi no tiene atado a ninguna
@@ -238,9 +249,34 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             </span>
           </div>
 
+          <!-- El trabajo de la contadora no es toda la tabla: en ago-2026 son 725 renglones
+               y 214 de ellos no puede tocarlos. Sin chips ni buscador tenia que scrollear
+               a mano para encontrar un proveedor. Arranca en "Entran al TXT" — lo
+               accionable — y el resto lo pide si lo quiere ver. -->
+          <div class="na-filtros">
+            <div class="na-chips" role="group" aria-label="Filtrar la tabla">
+              @for (c of chips(); track c.key) {
+                <button type="button" class="na-chip" [class.on]="filtro() === c.key"
+                        [class.vacio]="!c.n" [disabled]="!c.n && c.key !== 'todas'"
+                        [attr.aria-pressed]="filtro() === c.key" (click)="filtro.set(c.key)">
+                  {{ c.label }}<span class="na-chip-n">{{ c.n }}</span>
+                </button>
+              }
+            </div>
+            <span class="na-buscar">
+              <i class="pi pi-search" aria-hidden="true"></i>
+              <input pInputText [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+                     placeholder="Proveedor, RFC o folio" aria-label="Buscar en la tabla" />
+              @if (busqueda()) {
+                <button type="button" class="na-buscar-x" (click)="busqueda.set('')"
+                        aria-label="Limpiar la busqueda"><i class="pi pi-times"></i></button>
+              }
+            </span>
+          </div>
+
           <div class="lc-tablewrap">
-            <p-table [value]="d.facturas" styleClass="p-datatable-sm" [rowHover]="true"
-                     [scrollable]="true" scrollHeight="52vh" [paginator]="d.facturas.length > 100"
+            <p-table [value]="filtradas()" styleClass="p-datatable-sm" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="52vh" [paginator]="filtradas().length > 100"
                      [rows]="100" dataKey="uuid">
               <ng-template #header>
                 <tr>
@@ -321,9 +357,21 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
               <ng-template #emptymessage>
                 <tr><td colspan="10">
                   <div class="lc-empty">
-                    <i class="pi pi-check-circle"></i>
-                    <p>{{ nombreMes(mesSel()!) }} no tiene movimientos sin asociar.</p>
-                    <small class="muted">Todas sus facturas ya están ligadas a una póliza.</small>
+                    <!-- Vacío por el filtro y vacío de verdad NO son lo mismo: decir "no
+                         tiene movimientos sin asociar" con un filtro puesto es mentira. -->
+                    @if (busqueda() || filtro() !== 'todas') {
+                      <i class="pi pi-filter-slash"></i>
+                      <p>Nada coincide con el filtro.</p>
+                      <small class="muted">
+                        El mes tiene {{ d.facturas.length }} facturas sin asociar — toca
+                        <button type="button" class="na-link" (click)="verTodas()">Todas</button>
+                        para verlas.
+                      </small>
+                    } @else {
+                      <i class="pi pi-check-circle"></i>
+                      <p>{{ nombreMes(mesSel()!) }} no tiene movimientos sin asociar.</p>
+                      <small class="muted">Todas sus facturas ya están ligadas a una póliza.</small>
+                    }
                   </div>
                 </td></tr>
               </ng-template>
@@ -386,6 +434,8 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   meses = signal<MesNoAsociado[]>([]);
   detalle = signal<MesDetalle | null>(null);
   mesSel = signal<string | null>(null);
+  filtro = signal<Grupo | 'todas'>('entran');
+  busqueda = signal('');
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
   generando = signal(false);
@@ -446,6 +496,72 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       { label: 'IVA acreditable', value: r.iva, format: 'currency' },
     ];
   });
+
+  /**
+   * En qué grupo cae la factura, para los chips y el filtro.
+   *
+   * Por ELEGIBILIDAD, no por el checkbox: si el grupo dependiera de `incluida`, destildar
+   * una fila la haría desaparecer de la lista que estás mirando y habría que cambiar de
+   * filtro para volver a marcarla. El checkbox dice si entra; el grupo dice qué clase de
+   * renglón es.
+   *
+   * El orden importa: "ya está en el libro" gana sobre "no tiene cuenta", porque si ya
+   * está posteada su cuenta da igual — no es un bloqueante.
+   */
+  private grupo(f: FacturaMes): Grupo {
+    if (f.prueba_certeza === 'exacta') return 'ya_libro';
+    if (f.estatus_sat === 'cancelado' || f.prueba_certeza === 'por_importe') return 'revisar';
+    if (!f.account_suffix || !f.cuenta_existe) return 'sin_cuenta';
+    return 'entran';
+  }
+
+  /** Sin acentos y en minúsculas: en el catálogo conviven "PEÑA" y "PENA". Con
+   *  \p{Diacritic} y no con un rango de combinantes literales, que en el editor son
+   *  caracteres invisibles y cualquiera los borra sin darse cuenta. */
+  private norm(s: string) {
+    return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+  }
+
+  filtradas = computed<FacturaMes[]>(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    const g = this.filtro();
+    const q = this.norm(this.busqueda().trim());
+    return d.facturas.filter((f) => {
+      if (g !== 'todas' && this.grupo(f) !== g) return false;
+      if (!q) return true;
+      return this.norm(`${f.emisor_nombre} ${f.emisor_rfc} ${f.serie ?? ''} ${f.folio ?? ''}`).includes(q);
+    });
+  });
+
+  /** Los chips SIEMPRE se muestran, aunque vayan en cero: un cero dice "no hay canceladas",
+   *  y un chip que aparece y desaparece hace saltar la fila de filtros. En cero va apagado
+   *  y no se puede tocar, para no meterte a una lista vacía.
+   *
+   *  El conteo de "Entran al TXT" cuenta las MARCADAS, no las elegibles. Los otros tres
+   *  cuentan su grupo entero. Es a propósito y es la única asimetría: el número rotulado
+   *  "entran al TXT" tiene que ser el que entra al archivo — si excluís tres a mano, tiene
+   *  que bajar a 479. Las tres siguen visibles en la lista, destildadas. */
+  chips = computed(() => {
+    const d = this.detalle();
+    const n: Record<Grupo, number> = { entran: 0, sin_cuenta: 0, revisar: 0, ya_libro: 0 };
+    for (const f of d?.facturas ?? []) {
+      const g = this.grupo(f);
+      if (g !== 'entran' || f.incluida) n[g]++;
+    }
+    return [
+      { key: 'entran' as const, label: 'Entran al TXT', n: n.entran },
+      { key: 'sin_cuenta' as const, label: 'Sin cuenta', n: n.sin_cuenta },
+      { key: 'revisar' as const, label: 'Revisar', n: n.revisar },
+      { key: 'ya_libro' as const, label: 'Ya en el libro', n: n.ya_libro },
+      { key: 'todas' as const, label: 'Todas', n: d?.facturas.length ?? 0 },
+    ];
+  });
+
+  verTodas() {
+    this.filtro.set('todas');
+    this.busqueda.set('');
+  }
 
   /** Lo que queda FUERA del TXT, con su razón. Es control, no acción. */
   contexto = computed(() => {
@@ -545,6 +661,10 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   abrirMes(mes: string) {
     this.mesSel.set(mes);
     this.cargandoMes.set(true);
+    // El filtro y la búsqueda se reinician al cambiar de mes: arrastrar "Sin cuenta" de
+    // agosto a septiembre haría que el mes nuevo se vea vacío sin razón visible.
+    this.filtro.set('entran');
+    this.busqueda.set('');
     // El mes queda en la URL para poder compartir la vista (DESIGN §10).
     this.router.navigate([], { relativeTo: this.route, queryParams: { mes }, replaceUrl: true });
     this.svc.getNoAsociados(mes).subscribe({
