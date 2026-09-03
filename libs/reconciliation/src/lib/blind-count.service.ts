@@ -44,6 +44,12 @@ export interface TurnoPendiente {
    * caja, el arqueo se vuelve exigible y la pantalla lo pide sola.
    */
   cerrado_hace_min?: number | null;
+  /** SM.17 — hora a la que ESA caja suele cortar (mediana histórica). */
+  corte_tipico?: string | null;
+  /** Minutos que faltan para esa hora. Negativo = ya se pasó. */
+  corte_en_min?: number | null;
+  /** Dispersión (IQR) de esa hora en minutos: si es grande, el pronóstico no sirve. */
+  corte_iqr_min?: number | null;
 }
 const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -126,8 +132,49 @@ export class BlindCountService {
                     (now() AT TIME ZONE 'America/Mexico_City')
                     - (k.c10::date + COALESCE(NULLIF(btrim(k.c11), ''), '00:00:00')::time)
                   )) / 60))::int
-                END                                  AS cerrado_hace_min
+                END                                  AS cerrado_hace_min,
+                -- SM.17 — a qué hora suele cortar ESTA caja (solo si sigue abierta).
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN to_char(p.prox, 'HH24:MI') END AS corte_tipico,
+                CASE WHEN k.c10::date = DATE '1800-01-01' AND p.prox IS NOT NULL
+                     THEN round(EXTRACT(EPOCH FROM (p.prox - (now() AT TIME ZONE 'America/Mexico_City')::time)) / 60)::int
+                END                                  AS corte_en_min,
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN p.iqr END AS corte_iqr_min
            FROM kepler_ods.kdpv_folio_caja k
+           /**
+            * El horario del corte NO es global: cada caja tiene el suyo y cada
+            * sucursal cierra a una hora distinta (04 ~19:57 · 05 ~18:52 · 02/03
+            * ~20:35). Y una misma caja hace DOS cortes al día — mediodía y cierre —
+            * así que una sola mediana cae en el hueco entre los dos y no sirve.
+            * Por eso se calculan por separado y se elige el próximo que aún no pasó.
+            */
+           LEFT JOIN LATERAL (
+             SELECT (ARRAY_REMOVE(ARRAY[med_dia, med_cierre], NULL))[1] AS prox,
+                    CASE WHEN med_dia IS NOT NULL THEN iqr_dia ELSE iqr_cierre END AS iqr
+               FROM (
+                 SELECT
+                   (percentile_cont(0.5) WITHIN GROUP (ORDER BY h.cierre)
+                      FILTER (WHERE h.cierre < TIME '17:30' AND h.cierre > (now() AT TIME ZONE 'America/Mexico_City')::time)) AS med_dia,
+                   (percentile_cont(0.5) WITHIN GROUP (ORDER BY h.cierre)
+                      FILTER (WHERE h.cierre >= TIME '17:30' AND h.cierre > (now() AT TIME ZONE 'America/Mexico_City')::time)) AS med_cierre,
+                   round(EXTRACT(EPOCH FROM (
+                     (percentile_cont(0.75) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre < TIME '17:30'))
+                   - (percentile_cont(0.25) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre < TIME '17:30'))
+                   )) / 60)::int AS iqr_dia,
+                   round(EXTRACT(EPOCH FROM (
+                     (percentile_cont(0.75) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre >= TIME '17:30'))
+                   - (percentile_cont(0.25) WITHIN GROUP (ORDER BY h.cierre) FILTER (WHERE h.cierre >= TIME '17:30'))
+                   )) / 60)::int AS iqr_cierre
+                 FROM (
+                   SELECT (btrim(g.c11))::time AS cierre
+                     FROM kepler_ods.kdpv_folio_caja g
+                    WHERE g.sucursal = k.sucursal AND g.c2 = k.c2
+                      AND g.c10::date <> DATE '1800-01-01'
+                      AND btrim(COALESCE(g.c11, '')) ~ '^[0-9]{1,2}:'
+                      AND g.c5::date < current_date        -- historia, no el turno de hoy
+                    LIMIT 400
+                 ) h
+               ) m
+           ) p ON true
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL
           WHERE upper(btrim(k.c8)) = ?
@@ -139,11 +186,30 @@ export class BlindCountService {
                      AND b.warehouse_code = k.sucursal
                      AND b.tipo = 'cierre'
                      AND b.cash_cut_folio = k.c3::bigint::text)
-          ORDER BY k.c5 DESC, k.c2
+          -- Del MÁS VIEJO al más nuevo: el primero de la lista es el que toca.
+          -- Al revés (que es como estaba) la pantalla preseleccionaba el turno de
+          -- hoy y dejaba saltarse el corte pendiente de ayer — justo el que hay
+          -- que mirar, porque un turno sin arquear es donde se esconde el hueco.
+          ORDER BY k.c5 ASC, k.c2
           LIMIT 50`,
         [tenantId, cajero, dias, q.warehouseCodes ?? null, q.warehouseCodes ?? null, tenantId],
       );
       return rows as TurnoPendiente[];
+    });
+  }
+
+  /**
+   * ¿Este turno YA tiene conteo de cierre? Sirve para distinguir un arqueo nuevo
+   * de una **corrección** del que ya se hizo — que no es lo mismo y no se puede
+   * tratar igual (ver `exigirElMasViejo` en el controlador).
+   */
+  async yaArqueado(warehouseCode: string, folio: string): Promise<boolean> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const row = await trx('reconciliation.blind_counts')
+        .where({ tenant_id: tenantId, warehouse_code: warehouseCode, tipo: 'cierre', cash_cut_folio: String(folio) })
+        .first('id');
+      return !!row;
     });
   }
 
@@ -296,7 +362,16 @@ export class BlindCountService {
     const diffReal = Math.round((esperado - total) * 100) / 100;
     // Kepler dijo "cuadrado" (|diff|<50) pero el arqueo ciego revela ≥$50 → enmascaró.
     const keplerEnmascaro = Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50;
-    return { matched: true, ambiguous: false, folio: cut.folio, esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal, kepler_enmascaro: keplerEnmascaro };
+    // El desglose de Kepler viaja con la comparación para que el ticket se pueda
+    // imprimir COMPLETO en el momento del conteo, sin ir a buscarlo al historial.
+    return {
+      matched: true, ambiguous: false, folio: cut.folio,
+      esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff,
+      diff_real: diffReal, kepler_enmascaro: keplerEnmascaro,
+      kepler_billetes: cut.arqueo_billetes == null ? null : Number(cut.arqueo_billetes),
+      kepler_monedas: cut.arqueo_monedas == null ? null : Number(cut.arqueo_monedas),
+      kepler_retirado: cut.efectivo_retirado == null ? null : Number(cut.efectivo_retirado),
+    };
   }
 
   /**
@@ -330,6 +405,136 @@ export class BlindCountService {
    * `sin_validar` sale acá para que la encargada vea de un vistazo qué le falta
    * firmar, sin recorrer el detalle.
    */
+  /**
+   * SM.19 — El historial visto por PERSONA: una tarjeta por cajera con todos sus
+   * cortes.
+   *
+   * Cambia la fuente respecto de `historial()`: aquélla parte de NUESTROS conteos,
+   * así que un turno que nadie arqueó simplemente no existía en la pantalla. Ésta
+   * parte de los **cortes de Kepler** (`analytics.cash_cuts`) y le cuelga nuestro
+   * arqueo cuando lo hay — de modo que **el turno sin contar también se ve**, que
+   * es justo el que hay que perseguir.
+   *
+   * Trae el horario (apertura, cierre y duración) porque la pregunta operativa no
+   * es solo cuánto, sino cuándo: los turnos largos duplican la tasa de descuadre
+   * (12% vs 6%, medido en SM.7b).
+   */
+  async porCajera(q: {
+    from?: string; to?: string; warehouse_codes?: string[] | null;
+    cajero_code?: string; limit?: number;
+  }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limite = Math.min(1000, Math.max(1, Number(q.limit) || 400));
+    if (q.warehouse_codes && !q.warehouse_codes.length) return { cajeras: [], totales: { cajeras: 0, cortes: 0, sin_arqueo: 0 } };
+
+    const filas = await this.tk.run(async (trx) => {
+      const b = trx('analytics.cash_cuts as cc')
+        .where('cc.tenant_id', tenantId)
+        .whereNotNull('cc.cajero_cierre')
+        .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+          this.on('pc.tenant_id', '=', 'cc.tenant_id')
+            .andOn('pc.warehouse_code', '=', 'cc.warehouse_code')
+            .andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
+        })
+        // Nuestro conteo del mismo turno, si existe. Por folio: es la liga exacta.
+        .leftJoin('reconciliation.blind_counts as bc', function (this: any) {
+          this.on('bc.tenant_id', '=', 'cc.tenant_id')
+            .andOn('bc.warehouse_code', '=', 'cc.warehouse_code')
+            .andOn('bc.cash_cut_folio', '=', 'cc.folio')
+            .andOn(trx.raw("bc.tipo = 'cierre'"));
+        })
+        .select(
+          'cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio',
+          trx.raw('cc.business_date::text AS business_date'),
+          trx.raw('cc.cajero_cierre AS cajero_code'),
+          trx.raw('pc.nombre AS cajero_nombre'),
+          'cc.hora_apertura', 'cc.hora_cierre', 'cc.duracion_horas', 'cc.handoff',
+          trx.raw('cc.efectivo_esperado::numeric AS esperado'),
+          trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
+          trx.raw('cc.arqueo_billetes::numeric AS kepler_billetes'),
+          trx.raw('cc.arqueo_monedas::numeric AS kepler_monedas'),
+          trx.raw('cc.efectivo_retirado::numeric AS kepler_retirado'),
+          trx.raw('cc.venta_total::numeric AS venta'),
+          trx.raw('bc.id AS arqueo_id'),
+          trx.raw('bc.total_contado::numeric AS nuestro_contado'),
+          'bc.denominations', 'bc.validado_por', 'bc.validado_at', 'bc.captured_by', 'bc.captured_at',
+        )
+        .orderBy('cc.business_date', 'desc').orderBy('cc.hora_cierre', 'desc')
+        .limit(limite);
+      if (q.warehouse_codes) b.whereIn('cc.warehouse_code', q.warehouse_codes);
+      if (q.cajero_code) b.whereRaw('upper(cc.cajero_cierre) = ?', [q.cajero_code.toUpperCase()]);
+      if (q.from) b.where('cc.business_date', '>=', q.from);
+      if (q.to) b.where('cc.business_date', '<=', q.to);
+      return b;
+    });
+
+    const acc = new Map<string, any>();
+    for (const r of filas as any[]) {
+      const key = String(r.cajero_code).toUpperCase();
+      let g = acc.get(key);
+      if (!g) {
+        g = {
+          cajero_code: r.cajero_code, cajero_nombre: r.cajero_nombre || null,
+          warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name || null,
+          cortes: 0, dias: new Set<string>(), sin_arqueo: 0, sin_validar: 0,
+          faltante_total: 0, sobrante_total: 0, venta_total: 0,
+          ultimo: null as string | null, turnos: [] as any[],
+        };
+        acc.set(key, g);
+      }
+      const esperado = r.esperado != null ? Number(r.esperado) : null;
+      const nuestro = r.nuestro_contado != null ? Number(r.nuestro_contado) : null;
+      const diff = esperado != null && nuestro != null ? Math.round((esperado - nuestro) * 100) / 100 : null;
+      const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
+      const denominaciones = DENOMS
+        .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
+        .filter((x) => x.cantidad > 0)
+        .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
+
+      g.cortes++;
+      g.dias.add(String(r.business_date).slice(0, 10));
+      g.venta_total = Math.round((g.venta_total + Number(r.venta || 0)) * 100) / 100;
+      if (nuestro == null) g.sin_arqueo++;
+      else if (!r.validado_at) g.sin_validar++;
+      if (diff != null && Math.abs(diff) >= ARQ_UMBRAL) {
+        if (diff > 0) g.faltante_total = Math.round((g.faltante_total + diff) * 100) / 100;
+        else g.sobrante_total = Math.round((g.sobrante_total - diff) * 100) / 100;
+      }
+      const f = String(r.business_date).slice(0, 10);
+      if (!g.ultimo || f > g.ultimo) g.ultimo = f;
+
+      g.turnos.push({
+        arqueo_id: r.arqueo_id || null,
+        business_date: f, caja: r.caja, folio: r.folio,
+        hora_apertura: r.hora_apertura, hora_cierre: r.hora_cierre,
+        duracion_horas: r.duracion_horas != null ? Number(r.duracion_horas) : null,
+        handoff: r.handoff === true,
+        esperado, kepler_contado: r.kepler_contado != null ? Number(r.kepler_contado) : null,
+        kepler_billetes: r.kepler_billetes != null ? Number(r.kepler_billetes) : null,
+        kepler_monedas: r.kepler_monedas != null ? Number(r.kepler_monedas) : null,
+        kepler_retirado: r.kepler_retirado != null ? Number(r.kepler_retirado) : null,
+        venta: r.venta != null ? Number(r.venta) : null,
+        nuestro_contado: nuestro, diff_real: diff, denominaciones,
+        capturado_por: r.captured_by || null, capturado_at: r.captured_at || null,
+        validado_por: r.validado_por || null, validado_at: r.validado_at || null,
+      });
+    }
+
+    const cajeras = Array.from(acc.values())
+      .map((g) => ({ ...g, dias: g.dias.size }))
+      .sort((a, b) => (b.faltante_total + b.sobrante_total) - (a.faltante_total + a.sobrante_total) || b.cortes - a.cortes);
+
+    return {
+      cajeras,
+      totales: {
+        cajeras: cajeras.length,
+        cortes: cajeras.reduce((s, g) => s + g.cortes, 0),
+        sin_arqueo: cajeras.reduce((s, g) => s + g.sin_arqueo, 0),
+        faltante_total: Math.round(cajeras.reduce((s, g) => s + g.faltante_total, 0) * 100) / 100,
+      },
+    };
+  }
+
   async historial(q: {
     from?: string; to?: string; warehouse_codes?: string[] | null;
     cajero_code?: string; solo_sin_validar?: boolean; limit?: number;
@@ -409,13 +614,21 @@ export class BlindCountService {
           this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
         })
         .select('bc.id', 'bc.tipo', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
+          // Se necesita el JSONB crudo para partir NUESTRO conteo en billetes y
+          // monedas y poder compararlo contra el desglose de Kepler.
+          'bc.denominations',
           'bc.cash_cut_folio', 'bc.caja_kepler', 'bc.turno_abierto_at',
           'bc.validado_por', 'bc.validado_at', 'bc.validado_nota',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
           'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo',
           trx.raw('cc.efectivo_esperado::numeric AS esperado'),
           trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
-          trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
+          trx.raw('cc.efectivo_diff::numeric AS kepler_diff'),
+          // SM.18 — el desglose que Kepler sí manda. No es por denominación (eso
+          // no existe en el ERP), pero sí separa billetes de monedas.
+          trx.raw('cc.arqueo_billetes::numeric AS kepler_billetes'),
+          trx.raw('cc.arqueo_monedas::numeric AS kepler_monedas'),
+          trx.raw('cc.efectivo_retirado::numeric AS kepler_retirado'))
         .orderBy('bc.captured_at', 'desc').limit(limit);
       if (q.warehouse_code) b.where('bc.warehouse_code', q.warehouse_code);
       if (q.warehouse_codes) {
@@ -438,6 +651,39 @@ export class BlindCountService {
         // comparación que valida la encargada: los dos dicen contar el mismo
         // cajón y casi nunca coinciden.
         const keplerContado = r.tipo === 'relevo' ? null : (r.kepler_contado != null ? Number(r.kepler_contado) : null);
+        // Nuestro conteo partido igual que el de Kepler, para poder compararlos:
+        // en MXN el billete arranca en $20 y de ahí para abajo es moneda.
+        const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
+        let nuestroBilletes = 0, nuestroMonedas = 0;
+        for (const [d, q] of Object.entries(den)) {
+          const v = Math.round(Number(d) * Number(q) * 100) / 100;
+          if (!Number.isFinite(v)) continue;
+          if (Number(d) >= 20) nuestroBilletes += v; else nuestroMonedas += v;
+        }
+        nuestroBilletes = Math.round(nuestroBilletes * 100) / 100;
+        nuestroMonedas = Math.round(nuestroMonedas * 100) / 100;
+        /**
+         * El conteo pieza por pieza — `1000 × 2 = 2000`. Kepler NO tiene esto
+         * (verificado sobre las 307 tablas del catálogo: solo guarda el total de
+         * billetes y el de monedas), así que este desglose existe únicamente
+         * porque nuestra cajera lo captura. Es la evidencia de cómo se llegó al
+         * total: sin él, "conté $17,190.50" es una afirmación sin respaldo.
+         */
+        const denominaciones = DENOMS
+          .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
+          .filter((x) => x.cantidad > 0)
+          .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
+        const keplerBilletes = r.tipo === 'relevo' ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
+        const keplerMonedas = r.tipo === 'relevo' ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
+        const keplerRetirado = r.tipo === 'relevo' ? null : (r.kepler_retirado != null ? Number(r.kepler_retirado) : null);
+        /**
+         * Chequeo de coherencia del corte de Kepler: billetes + monedas + retirado
+         * debe dar el contado. Cuando no cierra, el hueco suele ser un número
+         * redondo — un retiro que nadie registró.
+         */
+        const sumaKepler = (keplerBilletes ?? 0) + (keplerMonedas ?? 0) + (keplerRetirado ?? 0);
+        const keplerDesgloseCuadra = keplerContado != null && keplerBilletes != null
+          ? Math.abs(sumaKepler - keplerContado) < 1 : null;
         return {
           id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
           cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
@@ -445,6 +691,11 @@ export class BlindCountService {
           validado_por: r.validado_por || null, validado_at: r.validado_at || null, validado_nota: r.validado_nota || null,
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
           esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,
+          kepler_billetes: keplerBilletes, kepler_monedas: keplerMonedas, kepler_retirado: keplerRetirado,
+          kepler_desglose_cuadra: keplerDesgloseCuadra,
+          kepler_desglose_faltante: keplerDesgloseCuadra === false
+            ? Math.round((keplerContado! - sumaKepler) * 100) / 100 : null,
+          nuestro_billetes: nuestroBilletes, nuestro_monedas: nuestroMonedas, denominaciones,
           kepler_enmascaro: keplerDiff != null && diffReal != null && Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50,
         };
       });
