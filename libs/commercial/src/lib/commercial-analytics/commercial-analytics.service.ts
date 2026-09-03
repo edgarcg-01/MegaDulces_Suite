@@ -1146,10 +1146,10 @@ export class CommercialAnalyticsService {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
     const tenantId = this.tenantCtx.requireTenantId();
-    // KV.1: venta real desde analytics.sales_daily ⋈ catálogo. subfamilia = marca
-    // (en Kepler subfamilia == brand). revenue/units exactos.
+    // PARIDAD/ODS: venta real consolidada del blend (recupera telemarketing Kepler) ⋈ catálogo.
+    // subfamilia = marca (en Kepler subfamilia == brand). revenue/units exactos.
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.sales_daily AS s')
+      const rows = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', 'p.id', 's.product_id')
         .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
@@ -1233,9 +1233,9 @@ export class CommercialAnalyticsService {
   async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
-    // KV.4: margen por categoría desde analytics.sales_daily (cost = revenue/(1+markup),
-    // markup del ERP). Antes leía el FDW ventas_legacy (muerto en Railway). cost/margin
-    // sólo de productos con markup; categorías sin costo dan margin_pct NULL.
+    // KV.4 / PARIDAD-ODS: margen por categoría desde el blend consolidado (mv_sales_blended, recupera
+    // telemarketing Kepler). cost = revenue/(1+markup) (cero regresión de margen; costo real por peldaño
+    // = MR/ADR-051). cost/margin sólo de productos con markup; categorías sin costo dan margin_pct NULL.
     return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
       const rows = await trx.raw(
@@ -1252,7 +1252,7 @@ export class CommercialAnalyticsService {
           CASE WHEN SUM(s.cost) IS NOT NULL AND SUM(s.revenue) > 0
             THEN ROUND(((SUM(s.revenue) - SUM(s.cost)) / SUM(s.revenue)) * 100, 2)
             ELSE NULL END                             AS margin_pct
-        FROM analytics.sales_daily s
+        FROM analytics.mv_sales_blended s
         JOIN catalog.products p ON p.id = s.product_id
         LEFT JOIN catalog.categories cat ON cat.id = p.category_id AND cat.tenant_id = ?
         WHERE s.tenant_id = ?
