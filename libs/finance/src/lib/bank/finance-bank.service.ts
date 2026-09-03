@@ -994,6 +994,10 @@ export class FinanceBankService {
       const kepler = hasTes
         ? await trx('analytics.kepler_bank_movements as k')
             .where('k.tenant_id', tenantId).where('k.signo', '<', 0).whereNotNull('k.account_label')
+            // Excluir caja (kind='cash', CG): es lista de pagos de BANCO sin casar; una salida de
+            // caja jamás casa contra un movimiento bancario → saldría siempre como "sin conciliar".
+            .whereNotIn('k.account_label', trx('finance.bank_accounts')
+              .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
             .andWhere('k.fecha_valor', '>=', tIni).andWhere('k.fecha_valor', '<', tFin)
             .whereNotExists(function () {
               this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
@@ -1859,6 +1863,10 @@ export class FinanceBankService {
       const kFin = km >= 12 ? `${ky + 1}-01-01` : `${ky}-${String(km + 1).padStart(2, '0')}-01`;
       const tesRow: any = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
+        // Excluir caja (kind='cash', CG): consistente con bankIn/bankOut de arriba (banco-only,
+        // la caja va como memo no-fiscal) y con el Cuadre (threeWay). Banco-vs-banco.
+        .whereNotIn('account_label', trx('finance.bank_accounts')
+          .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
         .andWhere('fecha_valor', '>=', kIni).andWhere('fecha_valor', '<', kFin)
         .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS cargos`),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS abonos`)).first();
@@ -2066,6 +2074,12 @@ export class FinanceBankService {
     const kepRows = await this.tk.run(async (trx) =>
       trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
+        // Excluir cuentas de CAJA (kind='cash', p.ej. CG): el cuadre es contra un estado de
+        // cuenta BANCARIO y el universo Workbook/ContPAQi es kind='bank'. Mezclar caja
+        // inflaba/enmascaraba el total Kepler (ene-2026: CG metía $6.18M dep / $10.24M ret
+        // de caja como si fueran banco). Debe ser banco-vs-banco.
+        .whereNotIn('account_label', trx('finance.bank_accounts')
+          .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
         .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
         .groupBy('account_label')
         .select('account_label',
