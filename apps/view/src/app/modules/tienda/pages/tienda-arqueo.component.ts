@@ -14,7 +14,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, Turno } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -479,12 +479,16 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   readonly tipoOptions = [
     { label: 'Cierre de día', value: 'cierre' as const },
+    // La sangría que Kepler pide al llegar al límite de la caja. Va primero
+    // después del cierre porque es la MÁS frecuente: una caja hace un cierre al
+    // día y tres o cuatro retiros.
+    { label: 'Retiro (sangría)', value: 'retiro' as const },
     { label: 'Relevo (cambio de turno)', value: 'relevo' as const },
   ];
 
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
-  readonly aTipo = signal<'cierre' | 'relevo'>('cierre');
+  readonly aTipo = signal<ArqueoTipo>('cierre');
   aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   readonly saving = signal(false);
@@ -494,8 +498,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly result = signal<ArqueoResult | null>(null);
   readonly rows = signal<ArqueoRow[]>([]);
 
-  readonly submitLabel = computed(() =>
-    this.aTipo() === 'relevo' ? 'Sellar relevo' : (this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo'));
+  readonly submitLabel = computed(() => {
+    const t = this.aTipo();
+    if (t === 'relevo') return 'Sellar relevo';
+    // El retiro NO revela diferencia ni al supervisor: el corte todavía no existe,
+    // así que no hay contra qué comparar. Se cuadra al cerrar el turno.
+    if (t === 'retiro') return 'Guardar retiro';
+    return this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo';
+  });
   readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */

@@ -9,6 +9,7 @@ import { PwaInstallService } from './core/services/pwa-install.service';
 import { StatusBarService } from './core/services/status-bar.service';
 import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
 import { AuthService } from './core/services/auth.service';
+import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
 
 @Component({
   selector: 'app-root',
@@ -28,6 +29,8 @@ export class AppComponent implements OnInit {
   // Side-effect: StatusBarService se suscribe al ThemeService al instanciarse.
   // Inyectarlo acá garantiza que el effect arranque al boot de la app.
   private statusBar = inject(StatusBarService);
+  /** SM.23 — el aviso "haz tu arqueo" vive en la raíz: tiene que llegar esté en la pantalla que esté. */
+  readonly arqueoDue = inject(ArqueoDueService);
   private auth = inject(AuthService);
 
   private updatePending = false;
@@ -51,9 +54,18 @@ export class AppComponent implements OnInit {
       .catch(() => { this.updatePending = true; this.updateReady.set(true); });
   }
 
+  /** Lleva a contar el corte que toca y saca ese de la barra; si quedan otros, siguen. */
+  irAlArqueo(): void {
+    const folio = this.arqueoDue.pendiente()?.folio;
+    this.router.navigate(['/tienda/arqueo']);
+    this.arqueoDue.descartar(folio);
+  }
+
   ngOnInit() {
     // Primero la grabadora: si algo se cuelga al arrancar, queremos tenerlo registrado.
     this.diag.start();
+    // SM.23 — abre el canal del aviso "haz tu arqueo" (no-op si el usuario no captura).
+    this.arqueoDue.iniciar();
     // `[ID.21]` Permisos frescos al arrancar: los del JWT pueden tener horas y
     // ahora se editan por persona. Sin esto, quitarle un permiso a alguien no se
     // ve en el menú hasta que vuelva a entrar. Best-effort — si falla, queda el
