@@ -414,15 +414,16 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                  styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
           <ng-template #header>
-            <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th><th class="pr-r">Existencia</th>
+            <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
+              <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
               <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
           <ng-template #body let-r>
             <tr>
               <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
-              <td class="pr-r pr-muted">{{ r.on_hand | number:'1.0-0' }}</td>
-              <td class="pr-r pr-muted">{{ money(r.unit_cost) }}</td>
+              <td class="pr-r pr-muted" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
+              <td class="pr-r pr-muted" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
               <td class="pr-r pr-val pr-strong">{{ money(r.dead_value) }}</td>
               <td class="pr-muted">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
               <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
@@ -671,6 +672,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   unidadTitle(r: WorkbookRow): string {
     const u = (r.unidad_base || '').trim();
     return u ? `${r.uxc} ${u} por caja (unidad declarada en Kepler)` : `${r.uxc} unidades por caja — Kepler no declara la unidad`;
+  }
+  /**
+   * ADR-055 — la existencia se muestra en CAJAS (la unidad más grande), y el tooltip declara la
+   * cantidad suelta con el rótulo que da el ERP dueño del almacén: la unidad base de Kepler en las
+   * sucursales, la unidad de venta de Wincaja en MD-30/MD-32/00 (que es el PAQUETE en los
+   * multipack). Sin factor de caja la celda ya viene igual a la cantidad suelta.
+   */
+  deadUnitsTitle(r: { on_hand: number; box_factor?: number; base_label?: string }): string {
+    const bf = Number(r.box_factor) || 1;
+    const u = (r.base_label || '').trim() || 'u';
+    const n = Math.round(Number(r.on_hand) || 0).toLocaleString('es-MX');
+    return bf > 1 ? `${n} ${u} sueltas · ${bf} ${u} por caja` : `${n} ${u} — sin factor de caja`;
   }
   /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
   unitFactor(pid: string): number {
@@ -1144,8 +1157,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
     const lines: PedidoExportLine[] = rows.map((r) => ({
       warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
-      sku: r.sku, nombre: r.nombre, on_hand: Math.round(Number(r.on_hand) || 0),
-      unit_cost: Number(r.unit_cost) || 0, line_cost: Number(r.dead_value) || 0,
+      // ADR-055 — en CAJAS, igual que la pantalla; el costo va por caja para que cuadre.
+      sku: r.sku, nombre: r.nombre, on_hand: Number(r.on_hand_cajas) || 0,
+      unit_cost: Number(r.caja_cost) || 0, line_cost: Number(r.dead_value) || 0,
     }));
     this.dl.set(true);
     this.api.exportPedidoXlsx({

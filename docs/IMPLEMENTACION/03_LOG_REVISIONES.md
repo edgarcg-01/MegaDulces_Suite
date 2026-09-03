@@ -6,6 +6,83 @@
 
 ---
 
+## 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén
+
+**Disparador:** Edgar, después de dos días de trabajo sobre `/compras/pedido`: *"a diferencia de
+Kepler, usemos la unidad más grande de medida para mostrar las cantidades de venta y existencia;
+usar la tabla de existencias de Kepler para las que ya lo tienen, y la de Wincaja la tabla de
+Wincaja."* No era una preferencia visual: era el nombre correcto del defecto.
+
+**El defecto.** Los dos ERPs guardan la existencia en unidades distintas — Kepler en su unidad
+base, Wincaja en su unidad de venta (el **paquete** en los multipack). La pantalla dividía la de
+**todos** los almacenes por un solo factor por producto (`v_product_box_factor.box_factor` =
+unidades base por caja), así que en Wincaja dividía entre 140 lo que iba entre 14.
+
+Y no era cosmético. La capa **cruda** es auto-consistente, pero la **derivada** no:
+
+| columna | unidad en MD-30 / MD-32 / 00 |
+|---|---|
+| `wincaja.v_sales_daily.qty` · `analytics.sales_daily.units` | paquetes |
+| `inventory_health` · `commercial.reorder_policy` | paquetes |
+| `v_erp_stock_on_hand.qty_stock_units` | paquetes (crudo, a propósito) |
+| **`analytics.product_demand.daily_pieces`** | ⚠️ **unidad BASE** — normaliza |
+| **`replenishment_plan.stock_pz`** | paquetes (**el nombre miente**) |
+
+El motor restaba *piezas de demanda menos paquetes de existencia*. Medido: **159 de 166** multipack
+de MD-30 con venta traen la demanda convertida (razón ≈ `f2`, $1.79M de venta 30 d).
+
+| medido en prod | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan | $2,256,065 | $2,237,132 |
+| **6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+**Lo que se construyó.** `analytics.v_warehouse_box_factor` (vista, mig `20260902220000`, batch 260
+en Railway): una fila por (tenant, almacén, producto) con el divisor **en unidades nativas de ese
+almacén**. Kepler resuelve por el resolvedor canónico, Wincaja por `wincaja.articulos.factor_venta`
+— el ERP dueño del almacén, tal como lo pidió Edgar. Materializado en `replenishment_plan.display_bf`
+(la regla vive en la vista; el importer la lee). `transferPlan` y `overstockList` pasaron a calcular
+**en cajas**: restaban unidades de universos distintos, y `transferPlan` además comparaba el déficit
+del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa.
+
+Se retiró el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS
+`00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer.
+
+**Lecciones — dos son sobre cómo trabajé, no sobre el código:**
+
+1. **La unidad de una columna no se hereda de su fuente.** Verifiqué la consistencia en la capa
+   cruda (`sales_daily` vs el POS: 1:1, 182/182) y concluí que todo estaba bien. Pero el motor no
+   lee `sales_daily`: lee `product_demand`, que normaliza una columna y no la otra. Hay que probar
+   la unidad **en la tabla que el consumidor lee de verdad**.
+2. **Una retractación es una afirmación, y necesita la misma evidencia.** El 2026-09-02 reporté este
+   sobre-pedido, después me retracté con un test que medía la capa equivocada, y dejé la retractación
+   escrita en la memoria del proyecto como hecho. El hallazgo original era correcto.
+3. **El testigo que no miente es el precio realizado** contra la escalera del ODS
+   (`v_product_unit_ladder.p1/p2/p3`). `42029`: crudo Wincaja $115.54 ≈ `p2` (paquete) ·
+   `product_demand` $12.52 ≈ `p1` (base). El nombre del campo, el rótulo y `unit_kind` no discriminan.
+4. **Dos fuentes que coinciden donde deben y difieren donde debe** es lo que autoriza a usar una.
+   `factor_venta` vs `box_factor`: Δ < 0.1% en 5,475 filas, y divergen sólo en los 348 multipack.
+5. **Los backticks dentro de un template literal de SQL rompen el archivo** — trampa ya documentada en el
+   repo, y caí en ella dos veces más en esta sesión.
+
+**Numeración:** este trabajo se escribió citando **ADR-052**, número ya tomado por *Contratos de
+tipos del boundary REST* y usado además por la **Fase LC** y el **BFF del Command Center**. Se
+renumeró a **ADR-055** en los archivos de esta línea. **LC y Command Center siguen colisionando con
+ADR-052 y falta decidir su número.**
+
+**Estado:** mig `20260902220000` aplicada a Railway (batch 260) + importer corrido (`display_bf`
+poblado, 0 nulos). Builds `api` y `view` verdes. Smoke `test-newdb-warehouse-box-factor` **29/29**
+contra prod, en la regresión. **Falta: redeploy api+view.** Sin permisos nuevos → sin re-login.
+
+⚠️ El commit quedó mezclado: un commit concurrente de otro dev barrió el índice y estos archivos
+viajaron dentro de `0f7ab814 feat([sell-out]): identidad de vendedor Kepler…`. El código está, el
+mensaje no le corresponde.
+
+---
+
 ## 2026-09-02 — Fase AUTHZ: CASL se retira (y el retiro deja un cabo en el módulo de usuarios)
 
 **Disparador:** una revisión a fondo de `/admin/users` encontró que los botones de alta/edición/baja

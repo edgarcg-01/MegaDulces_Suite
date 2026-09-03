@@ -3,9 +3,9 @@
  * `commercial.stock`, la tabla operativa que consumen RA/inventario/reorder.
  *
  * Snapshot absoluto, ON CONFLICT DO UPDATE quantity, SET LOCAL app.tenant_id (RLS forzada).
- * (El patrón venía de `import-kepler-stock`, retirado en ADR-052.)
+ * (El patrón venía de `import-kepler-stock`, retirado en ADR-055.)
  *
- * ⚠️ ADR-052 — ESTE IMPORTER TIENE FECHA DE CADUCIDAD. La existencia ya se DERIVA del ODS y de
+ * ⚠️ ADR-055 — ESTE IMPORTER TIENE FECHA DE CADUCIDAD. La existencia ya se DERIVA del ODS y de
  * Wincaja en `analytics.v_erp_stock_on_hand`, que además NORMALIZA la unidad (acá la existencia
  * se copia CRUDA, en unidad de venta: el PAQUETE en multipack). Sigue vivo sólo porque
  * `commercial.stock` todavía tiene lectores sin migrar (criticalStock/summary/worklist +

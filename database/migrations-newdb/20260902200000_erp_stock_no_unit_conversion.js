@@ -1,5 +1,5 @@
 /**
- * ADR-052 — REVIERTE la normalización de unidad de `analytics.v_erp_stock_on_hand`.
+ * ADR-055 — REVIERTE la normalización de unidad de `analytics.v_erp_stock_on_hand`.
  * La vista vuelve a servir la existencia **tal como la guarda cada fuente**, y el factor de caja
  * pasa a ser una columna INFORMATIVA para el display (`display_box_factor`), que es lo que
  * siempre debió ser.
@@ -33,7 +33,7 @@
  * cuando la unidad guardada es el paquete. Eso se arregla en la PRESENTACIÓN dividiendo por el
  * factor correcto — `display_box_factor` — no alterando el dato del que dependen los cálculos.
  *
- * ═══ LO QUE SIGUE SIENDO VÁLIDO DE ADR-052 ═══
+ * ═══ LO QUE SIGUE SIENDO VÁLIDO DE ADR-055 ═══
  *
  * Derivar del ODS en vez de copiar a `commercial.stock` se sostiene y es la razón de ser de esta
  * vista: contra el POS en vivo la vista acierta 100.0% y la copia 91.0% (15,324 unidades de

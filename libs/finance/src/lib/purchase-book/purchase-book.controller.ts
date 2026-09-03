@@ -60,6 +60,16 @@ export class PurchaseBookController {
     return this.svc.setInclusion(mes, body?.uuids ?? [], body?.incluida !== false, body?.motivo, 'complemento');
   }
 
+  @Post('no-asociados/:mes/caratula')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Cambia con qué folio y concepto entra la póliza (para los meses que no tienen libro).' })
+  setCaratulaNoAsociados(
+    @Param('mes') mes: string,
+    @Body() body: { folio_poliza?: number; concepto?: string },
+  ) {
+    return this.svc.setCaratula(mes, body ?? {}, 'complemento');
+  }
+
   @Post('no-asociados/:mes/generar')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })
@@ -79,6 +89,13 @@ export class PurchaseBookController {
     // Sin `impuestos`/`uuid`: esas opciones cambian el archivo, y el archivo ya se decidió
     // al generarlo. Aceptarlas acá servía uno distinto del que quedó firmado por su hash.
     await this.enviarTxt(res, mes, 'complemento');
+  }
+
+  @Get('no-asociados/:mes/respaldo')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'El respaldo del archivo entregado: sus movimientos y las facturas que lo componen.' })
+  respaldoNoAsociados(@Param('mes') mes: string) {
+    return this.svc.respaldo(mes, 'complemento');
   }
 
   @Post('no-asociados/:mes/estado')

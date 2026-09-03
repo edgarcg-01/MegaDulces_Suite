@@ -184,18 +184,52 @@ export function folioNumero(s?: string | null): string | null {
 }
 
 /**
+ * `[RE.26.3]` — ¿lo que el OCR leyó tiene **la forma de un folio nuestro**?
+ *
+ * Kepler imprime el nuestro de tres maneras y ninguna trae letras sueltas ni guiones internos:
+ * `XA2001-0000353`, `No. 0006668`, o `0000353` con ceros a la izquierda. Un `F 97340`, un
+ * `C9500254285` o un `10-3344` son **el folio del proveedor** — el OCR los levantó de la misma
+ * hoja, que suele traer los dos números.
+ *
+ * Medido sobre los 63 folios leídos en prod, la forma predice el resultado sin excepción:
+ *
+ * | forma de lo leído          | casa | NO casa |
+ * |----------------------------|-----:|--------:|
+ * | `XA2001-…`                 |   42 |       2 |
+ * | `No. NNNN`                 |    2 |       1 |
+ * | ceros a la izquierda       |    2 |       2 |
+ * | ajena (letras/guiones)     |  **0** |    10 |
+ * | dígitos pelados            |  **0** |     2 |
+ *
+ * Las dos últimas filas **nunca** aciertan: son ruido. Exigir la forma nuestra no pierde ni uno
+ * de los 46 aciertos y quita **12 acusaciones falsas** de 17 — la precisión del aviso pasa de
+ * 5/17 a 5/5. Un control que grita 12 veces de 17 sin razón se deja de leer, y entonces también
+ * se pierden los 5 reales.
+ */
+function esFolioNuestro(s?: string | null): boolean {
+  const t = String(s || '').toUpperCase().trim();
+  if (!t) return false;
+  return /^XA\d{4}\s*[-–]\s*\d+$/.test(t) // XA2001-0000353
+    || /^(NO\.?|NUM\.?|FOLIO)\s*\d+$/.test(t) // "No. 0006668"
+    || /^0\d+$/.test(t); // 0000353 — el cero inicial es la firma del formato de Kepler
+}
+
+/**
  * ¿El folio impreso en nuestra hoja interna es el de ESTA entrada?
  *
- * Es el control que faltaba: detecta la evidencia pegada a la orden equivocada. Medido, de los
- * 17 que no casan hay al menos dos genuinos —`0000863` contra un `XA2001-0001120`— que son
- * exactamente eso.
+ * Es el control que faltaba: detecta la evidencia pegada a la orden equivocada. Medido, hay
+ * casos genuinos —`0000863` contra un `XA2001-0001120`, `0003756` contra un `XA2001-0008744`.
  *
- * `null` = no se pudo comparar (la hoja no vino, o el OCR no le leyó folio). No es `false`.
+ * `null` = **no se pudo comparar**: la hoja no vino, el OCR no le leyó folio, o lo que leyó no
+ * tiene forma de folio nuestro (ver `esFolioNuestro`). No es `false`, que significa "no es el de
+ * esta entrada" — y acusar a un expediente correcto por un número que ni siquiera es nuestro es
+ * peor que callarse.
  */
 export function evaluarFolioInterno(
   folioLeido?: string | null,
   folioEntrada?: string | null,
 ): boolean | null {
+  if (!esFolioNuestro(folioLeido)) return null;
   const a = folioNumero(folioLeido);
   const b = folioNumero(folioEntrada);
   if (!a || !b) return null;

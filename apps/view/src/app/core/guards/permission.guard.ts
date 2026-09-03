@@ -84,7 +84,7 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
 export const landingRedirectGuard = (
   candidates: { perm: Permission; url: string }[],
   fallbackUrl: string,
-): CanActivateFn => () => {
+): CanActivateFn => (_route, state) => {
   const authService = inject(AuthService);
   const perms = inject(PermissionsService);
   const router = inject(Router);
@@ -96,7 +96,21 @@ export const landingRedirectGuard = (
   for (const c of candidates) {
     if (god || p[c.perm] === true) return router.parseUrl(c.url);
   }
-  return router.parseUrl(fallbackUrl);
+
+  /**
+   * `[AUTHZ.6]` Sin candidato: el fallback es una página FIJA que a su vez exige un permiso, así
+   * que mandar ahí a quien no empató produce un segundo rebote y termina en un lugar que no
+   * explica nada. Le pasó al `almacenista`: `/almacen` → fallback `/almacen/inventory` →
+   * `permissionGuard(COMMERCIAL_INVENTORY_VER)` → fuera.
+   *
+   * El fallback se reserva para quien SÍ puede abrirlo (god-mode ya salió arriba por el primer
+   * candidato; esto cubre el caso de un proyecto cuyos candidatos todavía no están declarados).
+   * Al resto se le dice qué le falta, nombrando el primer candidato — que es la puerta principal
+   * del proyecto y la respuesta accionable a "¿por qué no puedo entrar?".
+   */
+  const puedeElFallback = candidates.length === 0;
+  if (puedeElFallback) return router.parseUrl(fallbackUrl);
+  return denied(router, state.url, candidates[0].perm);
 };
 
 /** Landing de `/comercial`. */
@@ -127,6 +141,15 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
     { perm: Permission.COMMERCIAL_INVHEALTH_VER, url: '/almacen/inventory-health' },
     // Rol de prevención (solo RECONCILIATION_VER): su landing es el Cuadre.
     { perm: Permission.RECONCILIATION_VER, url: '/almacen/cuadre' },
+    // `[AUTHZ.6]` El piso de almacén. Ninguno de estos era candidato, así que el `almacenista`
+    // caía al fallback `/almacen/inventory` — que exige `_INVENTORY_VER`, el permiso que NO tiene
+    // — y de ahí a `/sin-acceso`. Su landing es el trabajo del día: los vales por recibir.
+    { perm: Permission.COMMERCIAL_INVENTORY_RECIBIR, url: '/almacen/inventory/recepcion-sesiones' },
+    { perm: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, url: '/almacen/inventory/sessions' },
+    { perm: Permission.COMMERCIAL_INVENTORY_CONTAR, url: '/almacen/inventory/sessions' },
+    { perm: Permission.COMMERCIAL_EXPIRY_VER, url: '/almacen/inventory/caducidades' },
+    { perm: Permission.COMMERCIAL_MOVEMENTS_VER, url: '/almacen/movimientos' },
+    { perm: Permission.COMMERCIAL_PREVENTION_VER, url: '/almacen/prevencion' },
   ],
   '/almacen/inventory',
 );

@@ -35,6 +35,9 @@ const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
   // PERF (mig 20260831160000): ventas del mes en curso pre-agregadas para el path diario
   // de sellOut (mes en curso nunca es month-aligned → escaneaba 111k filas + sort-a-disco).
   { name: 'analytics.mv_sales_current_month' },
+  // Regla ⭐ (mig 20260903130000): postings del 102 = matview derive-no-copy sobre kepler_ods.kdc2YYMM
+  // (reemplazó import-bank-postings.js). Fan-out mensual = ~1.1 s en REFRESH; lectura indexada = 15 ms.
+  { name: 'analytics.bank_postings' },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
@@ -93,12 +96,14 @@ export class AnalyticsRefreshService {
       this.logger.debug('Skip refreshWincajaDaily: KNEX_NEW_DB_ADMIN no disponible');
       return;
     }
-    // Ambos rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga
-    // Access→PG ~05:00) y kepler (mv_kepler_sales_daily desde kepler_ods, live CDC). Nightly basta:
-    // el sell-out no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
+    // Rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga Access→PG
+    // ~05:00) + kepler (mv_kepler desde kepler_ods, live CDC) + el BLEND consolidado (mv_sales_blended,
+    // deriva de los dos anteriores → va AL FINAL para tomarlos ya frescos). Nightly basta: el sell-out
+    // no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
     for (const [mv, jobKey, label] of [
       ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)'],
       ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)'],
+      ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)'],
     ] as const) {
       const start = Date.now();
       let ok = false;
@@ -161,7 +166,8 @@ export class AnalyticsRefreshService {
     const list = source === 'manual'
       ? [...MVS,
          { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
-         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean }]
+         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_sales_blended' } as { name: string; requires_fdw?: boolean }]
       : MVS;
     try {
       for (const entry of list) {

@@ -112,6 +112,36 @@ export interface CuadreContpaqi {
   existe_en_contpaqi: boolean;
 }
 
+/** Un renglón del TXT entregado, tal como quedó en el archivo. */
+export interface MovimientoRespaldo {
+  cuenta: string; referencia: string; abono: boolean; importe: number; concepto: string;
+}
+
+export interface FacturaRespaldo {
+  uuid: string; emisor_rfc: string; emisor_nombre: string;
+  serie: string | null; folio: string | null; fecha: string;
+  base_exenta: number; subtotal16: number; ieps: number; iva: number; total: number;
+  supplier_name: string | null;
+  cuenta_proveedor: string | null; cuenta_compra_exenta: string | null; cuenta_compra_iva: string | null;
+}
+
+/**
+ * El respaldo del archivo entregado. Todo sale del TXT, no de los datos de hoy: si entre
+ * generar y bajar el respaldo entró un CFDI nuevo, tomar las facturas del mes haría que las
+ * dos hojas describan cosas distintas y el respaldo dejaría de cuadrar contra el archivo.
+ */
+export interface Respaldo {
+  anio_mes: string; tipo: 'libro' | 'complemento';
+  folio_poliza: number; concepto: string; estado: EstadoRun;
+  archivo_nombre: string | null; archivo_hash: string | null;
+  generado_at: string | null; entregado_at: string | null; entregado_a: string | null;
+  total_cargos: number; total_abonos: number;
+  movimientos: MovimientoRespaldo[];
+  facturas: FacturaRespaldo[];
+  /** `archivo` = las facturas salen de los UUID del propio TXT · `decision` = del registro. */
+  facturas_origen: 'archivo' | 'decision';
+}
+
 export interface GenerarResultado {
   anio_mes: string; tipo: 'libro' | 'complemento'; nombre: string; hash: string;
   folio: number; facturas: number; renglones: number; cargos: number; abonos: number;
@@ -178,12 +208,29 @@ export class LibroComprasService {
       `${this.noAso}/${mes}/inclusion`, { uuids, incluida, motivo });
   }
 
+  /**
+   * Con qué folio y concepto entra la póliza. Es para los meses que NO tienen libro:
+   * ago-2026 no tiene póliza de compras, así que su complemento ES el mes y entra como
+   * folio 1 "REGISTRO DE COMPRAS DEL MES", no como folio 2 "COMPLEMENTO".
+   *
+   * El server rechaza el folio si ContPAQi ya lo tiene ocupado en el Diario de ese mes.
+   */
+  setCaratulaNoAsociados(mes: string, datos: { folio_poliza?: number; concepto?: string }) {
+    return this.http.post<{ ok: boolean; folio_poliza: number; concepto: string }>(
+      `${this.noAso}/${mes}/caratula`, datos,
+    );
+  }
+
   generarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<GenerarResultado> {
     return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, { impuestos, uuid });
   }
 
   marcarNoAsociados(mes: string, estado: 'entregado' | 'aplicado' | 'cancelado', datos: { entregado_a?: string; notas?: string } = {}) {
     return this.http.post<{ ok: boolean }>(`${this.noAso}/${mes}/estado`, { estado, ...datos });
+  }
+
+  respaldoNoAsociados(mes: string): Observable<Respaldo> {
+    return this.http.get<Respaldo>(`${this.noAso}/${mes}/respaldo`);
   }
 
   descargarNoAsociados(mes: string): Observable<Blob> {

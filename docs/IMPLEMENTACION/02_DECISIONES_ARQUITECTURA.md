@@ -1543,3 +1543,66 @@ El backend **ya había abandonado ese modelo** meses antes: `RolesGuard` chequea
 - **Arreglar CASL** (mapear las 51 claves faltantes, fijar la convención `*_GESTIONAR → 'manage'`, sacar `rules` del JWT) — deja dos mapas de 164 entradas que hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave. Se descartó por eso, no por el esfuerzo.
 - **Conservar CASL sólo para el alcance por fila** (su caso de uso real, con `conditions`) — sería reemplazar `ScopeService`, que ya está en prod y expresa `mode_write` (_"ve las 3 de su zona, captura sólo en la suya"_), algo que las conditions de CASL no modelan sin reescribir el motor.
 - **Mantener `manage` como alias de escritura** con un resolver de aliases de CASL — arregla los 4 gates y deja intactos los otros cinco problemas.
+
+---
+
+## ADR-055
+
+**La cantidad se muestra en la unidad MÁS GRANDE, y el divisor es el del ERP que manda en ese almacén** (Fase RA / `/compras/pedido`) · *aceptado 2026-09-03*
+
+> ⚠️ **Colisión de numeración:** este trabajo se escribió durante dos días citando **ADR-052**, número que ya estaba tomado por *Contratos de tipos del boundary REST* y que además usan la **Fase LC** y el **BFF del Command Center**. Se renumeró a **ADR-055** en los archivos de esta línea (las 5 migraciones `2026090217/19/20/21/22*`, los importers de existencia, `commercial-replenishment.service.ts`, el módulo de compras del front y `docs/UNIDADES_DE_MEDIDA.md`). **LC y el Command Center siguen citando ADR-052 y hay que decidir qué número les toca** — no se tocaron acá.
+
+### Contexto
+
+Mega Dulces corre **dos ERPs** y cada uno eligió otra unidad base de inventario:
+
+- **Kepler** (sucursales `01`–`06`) guarda la existencia en su **unidad base**.
+- **Wincaja** (`MD-30`, `MD-32`, CEDIS `00`) la guarda en **su unidad de venta**, que en los multipack es el **PAQUETE**.
+
+`/compras/pedido` dividía la existencia de **todos** los almacenes por un solo factor por producto — `analytics.v_product_box_factor.box_factor`, que cuenta **unidades base por caja**. En los almacenes de Wincaja eso dividía entre 140 lo que había que dividir entre 14: la existencia se veía **~10× más chica**.
+
+Y no era cosmético. La capa cruda **sí** es auto-consistente (existencia y venta de Wincaja vienen las dos en paquetes), **pero la derivada no**: `analytics.product_demand.daily_pieces` normaliza la demanda a la unidad base — medido, **159 de 166** multipack de MD-30 con venta, razón ≈ `f2` contra `analytics.sales_daily`, $1.79M de venta 30 d — mientras `replenishment_plan.stock_pz` se queda en paquetes (**el nombre miente**). El motor restaba *piezas de demanda menos paquetes de existencia*.
+
+| medido en prod (368 filas por almacén, de ~9,800) | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion · $pedido | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan · $traspaso | $2,256,065 | $2,237,132 |
+| **las 6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+Son **~355 SKUs** (sucursal 30) los multipack de verdad, no el catálogo entero.
+
+### Decisión
+
+1. **La unidad de presentación es la CAJA** — el peldaño más grande que declara el ERP. Es la única unidad que los dos ERPs saben expresar, así que es la que hace comparables sus cifras.
+2. **El divisor es por (almacén, producto), no por producto**, y sale de un resolvedor canónico único: **`analytics.v_warehouse_box_factor`** (vista, `derive-no-copy`, mig `20260902220000`). Kepler resuelve por `v_product_box_factor`; Wincaja por **`wincaja.articulos.factor_venta`** — el ERP dueño de ese almacén. Expone además `box_label` / `base_label` / `is_weight` / `factor_source` para que nadie tenga que adivinar en qué unidad está un número.
+3. **El dato base NO se convierte.** La conversión es de presentación. Materializado en `analytics.replenishment_plan.display_bf` sólo por costo del camino de lectura; la regla vive en la vista y el importer la **lee**.
+4. **Los cálculos que cruzan almacenes se hacen EN CAJAS.** `transferPlan` y `overstockList` restaban demanda-en-base menos existencia-en-nativa, y `transferPlan` además comparaba el déficit del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa. El workbook convierte reorden/máximo/valuado **por almacén antes de sumar**.
+
+### Por qué se le puede creer a `factor_venta` — tres testigos
+
+`wincaja.articulos.factor_venta` está definido como *"cuántas de MIS unidades de venta hacen una caja"*, así que sirve venda piezas o paquetes, sin clasificar el SKU.
+
+1. **Dinero crudo** (no derivado): en la sucursal 30, precio realmente cobrado (`wincaja.v_sales_daily`) × `factor_venta` cae a **±11%** del precio de caja del ODS (`p3`): `42029` $115.54×14 = $1,617 vs $1,701 · `08057` $119.20×28 = $3,338 vs $3,521.
+2. **La escalera del ODS**: `fv = f3/f2` en **355** SKUs (venden paquete) y `fv = f3` en **1,818** (venden la base). Las dos formas son coherentes con la definición.
+3. **Concordancia donde NO debe haber diferencia**: en las **5,475** filas de los casos "sin escalera" y "misma unidad", `factor_venta` y `box_factor` dan el mismo valuado con **Δ < 0.1%** ($9,573 y −$140). Divergen sólo en los **348** multipack (+$2.63M), que es exactamente el defecto. *Dos fuentes independientes que coinciden donde deben y difieren donde debe: eso es lo que autoriza a usar una.*
+
+### Consecuencias
+
+- Se retira el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS `00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer — alineado con la regla principal del proyecto.
+- ⚠️ **`06 Canindo` trae `wincaja_source_branch='50'` residual y es KEPLER** (su POS migró). El gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`.
+- Al agregar un almacén de un ERP nuevo, el único lugar a tocar es la vista.
+- **Regla que sale de acá (va a `UNIDADES_DE_MEDIDA.md` §8ter):** *la unidad de una columna no se hereda de su fuente.* Cada tabla derivada puede normalizar una columna y no la otra, y el nombre no avisa. Hay que probar la unidad **en la tabla que el consumidor lee**, con el precio realizado contra `v_product_unit_ladder.p1/p2/p3`.
+
+### Alternativas rechazadas
+
+- **Normalizar la existencia cruda a la unidad base** — se intentó y llegó a prod (mig `20260902200000`, revertida el mismo día): `inventory_health` y `reorder_policy` se derivan de `sales_daily`, que está en la unidad nativa, así que convertir sólo la existencia la dejó `f2` veces más grande que sus propios umbrales → cobertura de 534–900 días y **el motor dejó de pedir** (~$785k de sub-pedido en Morelia).
+- **Normalizar todo el pipeline a la unidad base de Kepler** — toca `sales_daily`, márgenes, reportes y sell-out. Radio de impacto enorme para un defecto de ~355 SKUs, y deja igual el problema de fondo (los dos ERPs seguirían sin unidad común declarada).
+- **Un toggle "en cajas / en piezas"** en la pantalla — no arregla el cálculo, sólo cambia lo que se ve; el sobre-pedido seguiría.
+- **Dejarlo como deuda declarada** — es el camino del dinero: el comprador firma órdenes con esos números.
+
+Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión), con candados explícitos contra los dos errores previos: convertir el dato base, y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia — razón 2.000).
+
+Ver [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8ter · hereda **ADR-051** (la unidad se declara, no se dibuja).
