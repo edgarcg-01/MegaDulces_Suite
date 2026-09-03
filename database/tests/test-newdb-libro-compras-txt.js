@@ -196,6 +196,26 @@ const MOVS = [
       ok(malos === 0, `${runs.length === 1 ? 'la corrida con archivo vuelve' : `las ${runs.length} corridas con archivo vuelven`} a parsear sin inválidos`);
       ok(descuadres === 0, 'el archivo guardado reproduce los totales de su corrida y cuadra cargos = abonos');
 
+      // LC.11: el respaldo resuelve las facturas desde los UUID que lleva el propio TXT.
+      // Si esos UUID no casan con fiscal.cfdis, la hoja de facturas sale coja y el respaldo
+      // deja de cuadrar contra el archivo — que es justo lo que tiene que evitar.
+      for (const run of runs) {
+        const rp = parsearTxt(run.archivo_contenido);
+        if (rp.invalidos.length) continue;
+        const uuids = [...new Set(rp.movimientos.map((m) => m.concepto).filter((c) => /^[0-9A-Fa-f-]{36}$/.test(c)))]
+          .map((u) => u.toUpperCase());
+        if (!uuids.length) { console.log(`  ⚠ ${run.anio_mes}/${run.tipo}: el archivo no lleva UUID — el respaldo cae a la decisión registrada`); continue; }
+        const { rows: hallados } = await knex.raw(
+          `SELECT count(DISTINCT upper(uuid))::int n FROM fiscal.cfdis
+            WHERE tenant_id = ? AND upper(uuid) = ANY (?)`, [T, uuids]);
+        ok(Number(hallados[0].n) === uuids.length,
+          `${run.anio_mes}/${run.tipo}: los ${uuids.length} UUID del archivo resuelven a un CFDI (${hallados[0].n} hallados)`);
+        // `upper()` no es paranoia gratuita: los 167k UUID están hoy en mayúsculas, pero el
+        // join no debe depender de que un feed futuro respete esa convención.
+        ok(rp.movimientos.filter((m) => m.concepto).length >= uuids.length,
+          `${run.anio_mes}/${run.tipo}: cada factura aporta al menos un renglón con su UUID (el listado para el Asociador de CFDI)`);
+      }
+
       // El cuadre contra ContPAQi, que es lo que LC.7 va a automatizar.
       for (const run of runs.filter((x) => x.estado === 'entregado' || x.estado === 'aplicado')) {
         const rp = parsearTxt(run.archivo_contenido);

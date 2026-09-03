@@ -16,7 +16,8 @@ import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-
 import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo } from '../../libro-compras.service';
+import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo } from '../../libro-compras.service';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
@@ -136,9 +137,15 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                 <p-button type="button" label="Generar TXT" icon="pi pi-file-export"
                           [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
                           [loading]="generando()" (click)="generar()" />
-                @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
-                  <p-button type="button" label="Descargar" icon="pi pi-download"
+                @if (estadoRun() === 'generado' || estadoRun() === 'entregado' || estadoRun() === 'aplicado') {
+                  <p-button type="button" label="Descargar TXT" icon="pi pi-download"
                             styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
+                  <!-- A ContPAQi va el TXT Y su respaldo: nadie sube millones a la
+                       contabilidad de la empresa desde un archivo de longitud fija que no
+                       puede leer. Esta hoja es la que reemplaza al Excel manual. -->
+                  <p-button type="button" label="Respaldo en Excel" icon="pi pi-file-excel"
+                            styleClass="p-button-outlined p-button-secondary"
+                            [loading]="bajandoRespaldo()" (click)="exportarRespaldo()" />
                 }
                 @if (estadoRun() === 'generado') {
                   <p-button type="button" label="Marcar entregado" icon="pi pi-send"
@@ -329,6 +336,7 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   dlgEntrega = signal(false);
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
+  bajandoRespaldo = signal(false);
   impuestosModo: ImpuestosModo = 'global';
   incluirUuid = true;
   entregadoA = '';
@@ -564,6 +572,70 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         this.abrirMes(mes); this.cargarMeses();
       },
       error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
+    });
+  }
+
+  /**
+   * El respaldo humano-legible del archivo entregado. Dos hojas, y las dos describen el
+   * **TXT**, no los datos de hoy: la de movimientos sale de los renglones del archivo, y la
+   * de facturas de los UUID que esos renglones llevan. Así el respaldo siempre cuadra
+   * contra lo que se entregó, aunque después hayan entrado CFDIs nuevos al mes.
+   *
+   * La hoja de movimientos es, además, el listado movimiento-a-UUID que necesita el
+   * Asociador de CFDI de ContPAQi.
+   */
+  exportarRespaldo() {
+    const mes = this.mesSel(); if (!mes) return;
+    this.bajandoRespaldo.set(true);
+    this.svc.respaldoNoAsociados(mes).subscribe({
+      next: async (r) => {
+        const cargos = r.movimientos.filter((m) => !m.abono).reduce((a, m) => a + m.importe, 0);
+        const pie = `Póliza ${r.folio_poliza} del Diario · ${r.concepto} · ${r.movimientos.length} renglones · `
+          + `${this.money(cargos)} · archivo ${r.archivo_nombre ?? ''} (sha256 ${String(r.archivo_hash ?? '').slice(0, 12)})`;
+        await exportXlsx(`respaldo-compras-${mes}`, [
+          {
+            name: 'Facturas',
+            title: `Facturas del complemento ${mes}`,
+            subtitle: r.facturas_origen === 'archivo'
+              ? `${pie} · las facturas salen de los UUID del propio archivo`
+              : `${pie} · el archivo no lleva UUID: las facturas salen de la decisión registrada`,
+            rows: r.facturas,
+            cols: [
+              { header: 'Proveedor', get: (f: FacturaRespaldo) => f.emisor_nombre, width: 38 },
+              { header: 'RFC', get: (f: FacturaRespaldo) => f.emisor_rfc, width: 15 },
+              { header: 'Serie', get: (f: FacturaRespaldo) => f.serie ?? '', width: 8 },
+              { header: 'Folio', get: (f: FacturaRespaldo) => f.folio ?? '', width: 12 },
+              { header: 'Fecha', get: (f: FacturaRespaldo) => f.fecha, type: 'date' as const, width: 12 },
+              { header: 'Cta. proveedor', get: (f: FacturaRespaldo) => f.cuenta_proveedor ?? '', width: 15 },
+              { header: 'Cta. compras 0%', get: (f: FacturaRespaldo) => f.cuenta_compra_exenta ?? '', width: 15 },
+              { header: 'Cta. compras IVA', get: (f: FacturaRespaldo) => f.cuenta_compra_iva ?? '', width: 15 },
+              { header: 'Base 0%', get: (f: FacturaRespaldo) => f.base_exenta, type: 'money' as const, total: true },
+              { header: 'Base 16%', get: (f: FacturaRespaldo) => f.subtotal16, type: 'money' as const, total: true },
+              { header: 'IEPS', get: (f: FacturaRespaldo) => f.ieps, type: 'money' as const, total: true },
+              { header: 'IVA', get: (f: FacturaRespaldo) => f.iva, type: 'money' as const, total: true },
+              { header: 'Total', get: (f: FacturaRespaldo) => f.total, type: 'money' as const, total: true },
+              { header: 'UUID', get: (f: FacturaRespaldo) => f.uuid, width: 38 },
+            ],
+          },
+          {
+            name: 'Movimientos',
+            title: `Renglones del TXT ${mes}`,
+            subtitle: `${pie} · es el listado movimiento ↔ UUID para el Asociador de CFDI`,
+            rows: r.movimientos.map((m, i) => ({ ...m, n: i + 1 })),
+            cols: [
+              { header: '#', get: (m: MovimientoRespaldo & { n: number }) => m.n, type: 'int' as const, width: 7 },
+              { header: 'Cuenta', get: (m: MovimientoRespaldo & { n: number }) => m.cuenta, width: 16 },
+              { header: 'Referencia', get: (m: MovimientoRespaldo & { n: number }) => m.referencia, width: 13 },
+              { header: 'Tipo', get: (m: MovimientoRespaldo & { n: number }) => (m.abono ? 'Abono' : 'Cargo'), width: 9 },
+              { header: 'Cargo', get: (m: MovimientoRespaldo & { n: number }) => (m.abono ? null : m.importe), type: 'money' as const, total: true },
+              { header: 'Abono', get: (m: MovimientoRespaldo & { n: number }) => (m.abono ? m.importe : null), type: 'money' as const, total: true },
+              { header: 'UUID del CFDI', get: (m: MovimientoRespaldo & { n: number }) => m.concepto, width: 38 },
+            ],
+          },
+        ]);
+        this.bajandoRespaldo.set(false);
+      },
+      error: (e) => { this.bajandoRespaldo.set(false); this.error('No se pudo armar el respaldo', e); },
     });
   }
 

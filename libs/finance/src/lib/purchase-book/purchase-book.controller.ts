@@ -91,6 +91,13 @@ export class PurchaseBookController {
     await this.enviarTxt(res, mes, 'complemento');
   }
 
+  @Get('no-asociados/:mes/respaldo')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'El respaldo del archivo entregado: sus movimientos y las facturas que lo componen.' })
+  respaldoNoAsociados(@Param('mes') mes: string) {
+    return this.svc.respaldo(mes, 'complemento');
+  }
+
   @Post('no-asociados/:mes/estado')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Mueve el trámite del complemento: entregado | aplicado | cancelado.' })
