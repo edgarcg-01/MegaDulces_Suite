@@ -88,7 +88,12 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                     [attr.aria-current]="mesSel() === m.anio_mes" (click)="abrirMes(m.anio_mes)">
               <div class="lc-mes-top">
                 <span class="lc-mes-nombre">{{ nombreMes(m.anio_mes) }}</span>
-                <p-tag [value]="etiquetaEstado(m)" [severity]="severidadEstado(m)" />
+                <!-- Punto + texto, NO pastilla llena: son 105 meses en el rail y 105
+                     pastillas de color le compiten a la única acción naranja de la pantalla.
+                     El estado del mes es orientación, no alarma. -->
+                <span class="na-estado" [class]="'e-' + severidadEstado(m)">
+                  <i class="na-dot" aria-hidden="true"></i>{{ etiquetaEstado(m) }}
+                </span>
               </div>
               <!-- La tarjeta muestra lo ACCIONABLE (lo que entra al TXT), el mismo número
                    que el encabezado del detalle. Mostrar aquí el total sin asociar y allá
@@ -252,7 +257,13 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                 </tr>
               </ng-template>
               <ng-template #body let-f>
-                <tr [class.excluida]="!f.incluida" [class.dup]="f.ya_en_poliza"
+                <!-- La clase dup es SÓLO la sospecha por importe (ámbar = hay que juzgarla).
+                     La certeza exacta lleva su propia clase, neutra: antes las dos caían en
+                     dup y encima exacta le pintaba el filo en rojo.
+                     (Nada de acentos graves en estos comentarios: van dentro del template
+                     literal del decorador y lo cortan a la mitad. Ya pasó tres veces.) -->
+                <tr [class.excluida]="!f.incluida"
+                    [class.dup]="f.prueba_certeza === 'por_importe'"
                     [class.exacta]="f.prueba_certeza === 'exacta'">
                   <td class="c-chk">
                     <!-- Con prueba EXACTA el checkbox se apaga: es el mismo folio fiscal, no
@@ -281,11 +292,20 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <td class="c-num mono">{{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <!-- El ROJO dice una sola cosa: esto impide generar el TXT.
+                       Medido en prod antes de cambiarlo: en jul-2026 el 58% de la tabla
+                       estaba en rojo y el 62% de esos rojos eran "Ya en el libro", o sea
+                       "listo, no lo toques". Si más de la mitad grita, nada grita. -->
                   <td class="c-cta">
                     @if (f.estatus_sat === 'cancelado') {
                       <p-tag value="Cancelada en el SAT" severity="danger" />
                     } @else if (f.prueba_certeza === 'exacta') {
-                      <p-tag value="Ya en el libro" severity="danger" [pTooltip]="f.prueba_detalle ?? ''" />
+                      <!-- Camino feliz: mismo folio fiscal, asunto cerrado. Se apaga, no se
+                           marca. Sigue visible porque esconderlo haría creer que el mes
+                           tiene menos de lo que tiene. -->
+                      <span class="na-listo" [pTooltip]="f.prueba_detalle ?? ''">
+                        <i class="pi pi-check" aria-hidden="true"></i>Ya en el libro
+                      </span>
                     } @else if (f.prueba_certeza === 'por_importe') {
                       <p-tag value="Importe ya posteado" severity="warn" [pTooltip]="f.prueba_detalle ?? ''" />
                     } @else if (!f.account_suffix) {
@@ -419,8 +439,10 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         sub: `${r.incluidas} facturas entran al TXT` },
       { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
       { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
-      { label: 'IEPS acreditable', value: r.ieps, format: 'currency',
-        tone: r.ieps > 0 ? 'ok' : 'default' },
+      // Sin `tone`: estaba en verde con `ieps > 0 ? 'ok' : 'default'`, o sea verde por ser
+      // distinto de cero. Que haya IEPS no es bueno ni malo, es un hecho — y el color que
+      // no significa nada le resta al que sí.
+      { label: 'IEPS acreditable', value: r.ieps, format: 'currency' },
       { label: 'IVA acreditable', value: r.iva, format: 'currency' },
     ];
   });
