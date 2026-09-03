@@ -57,6 +57,9 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           <span class="an-prov">{{ s.proveedor() }}</span>
         </div>
         <div class="an-pills">
+          @if (s.origen(); as o) {
+            <span class="an-pill an-org" [class.an-tr]="o.kind === 'transfer'">{{ o.label }}</span>
+          }
           <span class="an-pill" [class.an-on]="s.acceso()">{{ s.estado() }}</span>
           @if (s.guardado()) { <span class="an-save">Guardado ✓</span> }
         </div>
@@ -149,10 +152,20 @@ import { Buscable, coincide, normalizar } from './filtro.util';
                 (valorChange)="consulta.set($event)" (enter)="enter()"
                 (sinCamara)="avisarCamara($event)" />
               @if (sinCoincidencias(visFechar())) {
-                <p class="an-vacio">
-                  Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté fechado
-                  o que sea de otro vale.
-                </p>
+                <!-- Salida accionable: que un producto no esté en el vale no
+                     significa que no haya llegado. Se resuelve el código contra
+                     el catálogo y se fecha igual, sin renglón: la captura suelta
+                     ya es válida en el backend. -->
+                <div class="an-vacio">
+                  <p class="an-vacio-t">
+                    Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté
+                    fechado, o que haya llegado sin venir en el vale.
+                  </p>
+                  <button pButton type="button" [outlined]="true" [loading]="resolviendo()"
+                    (click)="fecharSuelto()">
+                    Buscar «{{ consulta() }}» en el catálogo y fecharlo
+                  </button>
+                </div>
               }
               <ul class="an-lista">
                 @for (l of visFechar(); track l.id) {
@@ -242,6 +255,11 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       border: 1px solid var(--border-color);
     }
     .an-on { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-color: transparent; }
+    /* El origen NO usa el verde de "listo" ni el naranja de acción: no es un
+       estado ni una acción, es una clasificación. Traspaso lleva el ámbar de
+       "ojo con esto" porque el reclamo es interno; proveedor queda neutro. */
+    .an-org { font-weight: var(--fw-bold); }
+    .an-tr { background: var(--warn-soft-bg); color: var(--warn-fg); border-color: transparent; }
     .an-save { font-size: var(--fs-micro); color: var(--text-faint); }
     .an-bd { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
     .an-nota {
@@ -260,6 +278,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45;
     }
     .an-vacio b { color: var(--text-main); }
+    .an-vacio-t { margin: 0 0 var(--sp-2); }
     .an-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
     .an-row {
       display: grid; grid-template-columns: 1fr auto; gap: 2px var(--sp-3); align-items: center;
@@ -300,6 +319,8 @@ export class AndenComponent implements OnInit {
   readonly consulta = signal('');
   /** Se incrementa para devolverle el foco a la barra tras guardar o cerrar panel. */
   readonly refoco = signal(0);
+  /** Resolviendo un código que no está en el vale contra el catálogo. */
+  readonly resolviendo = signal(false);
 
   private readonly fechar = viewChild<AndenCaducidadComponent>('fechar');
   private readonly ubicar = viewChild<AndenUbicacionComponent>('ubicar');
@@ -394,6 +415,59 @@ export class AndenComponent implements OnInit {
         break;
       }
     }
+  }
+
+  /**
+   * **Fechar algo que no viene en el vale.**
+   *
+   * Pasa seguido: llegó mercancía que el vale de Kepler no trae, o el renglón ya
+   * se fechó y quedó otra tarima del mismo SKU. Antes no había salida — la lista
+   * solo muestra renglones del vale, así que el operario se quedaba con la caja
+   * en la mano.
+   *
+   * El código se resuelve contra el catálogo (necesita `product_id` real; el
+   * resolvedor de Conteo devuelve null y no sirve acá) y se abre el mismo panel
+   * de lote/caducidad/foto. Se guarda **sin renglón**: `receiving_line_id` es
+   * nullable a propósito desde WMS-REC.4, la captura suelta siempre fue válida.
+   *
+   * El almacén sale del vale abierto, que es lo que evita volver a preguntarlo.
+   */
+  fecharSuelto(): void {
+    const codigo = this.consulta().trim();
+    if (!codigo || this.resolviendo()) return;
+    this.resolviendo.set(true);
+    this.auditor.resolveForDating(codigo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        this.resolviendo.set(false);
+        // Se arma una línea sintética: el panel de fechado pide una `AndenLinea`,
+        // y sin `id` real el guardado sabe que va sin renglón.
+        const suelta = {
+          id: '',
+          product_id: p.product_id,
+          sku: p.sku,
+          product_name: p.product_name,
+          expected_qty: 0,
+          faltaFechar: 0,
+          suelto: true,
+        } as unknown as AndenLinea;
+        this.s.actual.set(suelta);
+        this.limpiarBarra();
+        this.cargarContexto(suelta);
+        this.toast.add({
+          severity: 'info',
+          summary: 'Fuera del vale',
+          detail: `${p.product_name || p.sku} se va a fechar sin renglón. Quedará como captura suelta.`,
+        });
+      },
+      error: (e) => {
+        this.resolviendo.set(false);
+        this.toast.add({
+          severity: 'warn',
+          summary: 'No se encontró',
+          detail: e?.error?.message || `Ningún producto del catálogo tiene el código ${codigo}.`,
+        });
+      },
+    });
   }
 
   /** La cámara no abrió: se dice por qué, no se deja un botón mudo. */
@@ -593,7 +667,10 @@ export class AndenComponent implements OnInit {
       product_id: f.linea.product_id,
       supplier_code: v.supplier_code || undefined,
       source_ref: v.folio,
-      receiving_line_id: f.linea.id,
+      // Sin `id` es una captura SUELTA (el producto no venía en el vale). El
+      // backend acepta `receiving_line_id` nulo desde WMS-REC.4; mandarlo vacío
+      // lo haría fallar la validación de UUID.
+      receiving_line_id: f.linea.id || undefined,
       quantity: f.cantidad,
       confirmed_lot: f.lote,
       confirmed_expiry: f.caducidadIso,
@@ -610,7 +687,10 @@ export class AndenComponent implements OnInit {
         this.cargarDetalle(v.id, () => {
           this.s.actual.set(null);
           this.volverALaBarra();
-          this.siguienteFechar();
+          // Una captura suelta no destraba ningún renglón del vale: encadenar al
+          // "siguiente pendiente" mandaría al operario a otro producto sin que lo
+          // pidiera. Sólo se encadena cuando lo que se fechó era del vale.
+          if (f.linea.id) this.siguienteFechar();
         });
       },
       error: (e) => {
