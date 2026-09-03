@@ -348,10 +348,11 @@ export class CajaGeneralService {
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(500)
-        .select('folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+        .select('sucursal', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
       return {
+        // id compuesto por sucursal+folio: con el concentrador el folio se repite entre sucursales.
         movimientos: (rows as any[]).map((r) => ({
-          id: r.folio, fecha: r.fecha, concepto: r.concepto, sucursal: r.beneficiario, codigo: r.doc_tipo,
+          id: `${r.sucursal}-${r.folio}`, fecha: r.fecha, concepto: r.concepto, sucursal: r.beneficiario, codigo: r.doc_tipo,
           ingreso: n(r.signo) > 0 ? n(r.importe) : 0, gasto: n(r.signo) < 0 ? n(r.importe) : 0,
         })),
       };
