@@ -43,6 +43,22 @@ export class AdminService {
     return { ok: true };
   }
 
+  /**
+   * Borra la fila de verdad. A propósito exige que la cuenta ya esté
+   * desactivada: eliminar de un paso una cuenta todavía activa es el tipo de
+   * error que no se puede deshacer, así que primero hay que pasar por
+   * "Eliminar acceso" (reversible) y sólo después por esto (irreversible).
+   */
+  async eliminarUsuario(id: number) {
+    const rows = await this.query<any>('SELECT activo FROM admin.usuarios WHERE id = $1', [id]);
+    if (!rows.length) return { ok: false, msg: 'La cuenta ya no existe.' };
+    if (rows[0].activo) {
+      return { ok: false, msg: 'Primero desactívala ("Eliminar acceso"); sólo se puede borrar una cuenta ya desactivada.' };
+    }
+    await this.query('DELETE FROM admin.usuarios WHERE id = $1', [id]);
+    return { ok: true };
+  }
+
   async resetPassword(id: number, nueva: string) {
     const hash = await bcrypt.hash(nueva, 10);
     await this.query('UPDATE admin.usuarios SET password = $1 WHERE id = $2', [hash, id]);

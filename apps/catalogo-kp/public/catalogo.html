@@ -175,6 +175,47 @@
     .header { flex-direction: column; align-items: flex-start; }
     .frescura { text-align: left; }
   }
+
+  /* ── Pestañas de vista (Catálogo / Actualizar Wix) ──────────────────────── */
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab-btn {
+    border: 2px solid var(--borde); background: #fff; color: var(--texto);
+    border-radius: 10px; padding: 10px 18px; cursor: pointer;
+    font-size: 13.5px; font-weight: 600; font-family: inherit; transition: all .15s;
+  }
+  .tab-btn:hover { border-color: var(--naranja); }
+  .tab-btn.activa { border-color: var(--naranja); background: #fff7ed; color: #9a3412; }
+
+  /* ── Actualizar Wix (embebido) ───────────────────────────────────────────── */
+  .wix-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .wix-step { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
+  .wix-step .n { background: var(--verde); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; margin-right: 6px; }
+  .wix-step b { font-size: 13px; }
+  .wix-step p { font-size: 12px; color: var(--suave); margin-top: 5px; line-height: 1.5; }
+  .file-box { background: #eff6ff; border: 2px solid #93c5fd; border-radius: 12px; padding: 16px; max-width: 480px; }
+  .file-box .t { font-size: 14px; font-weight: 700; color: #1e3a8a; margin-bottom: 4px; }
+  .file-box .d { font-size: 12px; color: var(--suave); margin-bottom: 10px; line-height: 1.5; }
+  input[type=file] { font-size: 13px; padding: 8px; background: #fff; border: 1px solid #93c5fd; border-radius: 8px; width: 100%; cursor: pointer; }
+  .fname { font-size: 12px; color: var(--verde); margin-top: 6px; min-height: 16px; font-weight: 600; word-break: break-all; }
+  .wix-modos { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
+  .wix-modo { flex: 1; min-width: 220px; border: 2px solid var(--borde); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: border-color .15s; }
+  .wix-modo.activo { border-color: var(--naranja); background: #fff7ed; }
+  .wix-modo b { font-size: 13px; display: block; }
+  .wix-modo span { font-size: 12px; color: var(--suave); display: block; margin-top: 3px; line-height: 1.4; }
+  .forzar-row { display: none; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
+  .forzar-row.visible { display: flex; }
+  .btn-dl { background: #1d4ed8; }
+  .btn-dl:hover { background: #1e40af; }
+  .wix-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .wix-kpi { background: #fff; border: 1px solid var(--borde); border-radius: 10px; padding: 10px 16px; min-width: 120px; border-top: 3px solid var(--verde); }
+  .wix-kpi .v { font-size: 22px; font-weight: 800; }
+  .wix-kpi .l { font-size: 11px; color: var(--suave); margin-top: 2px; }
+  .wix-kpi.blue { border-top-color: #1d4ed8; } .wix-kpi.blue .v { color: #1d4ed8; }
+  .wix-kpi.purple { border-top-color: #7c3aed; } .wix-kpi.purple .v { color: #7c3aed; }
+  .wix-kpi.amber { border-top-color: #d97706; } .wix-kpi.amber .v { color: #d97706; }
+  .wix-msg { padding: 12px 16px; border-radius: 10px; font-size: 13px; margin-top: 12px; display: none; }
+  .wix-msg.ok { background: #f0fdf4; border: 1px solid #86efac; color: #14532d; display: block; }
+  .wix-msg.err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; display: block; }
 </style>
   <!-- Captura de errores del navegador. Va antes que cualquier otro script
        para alcanzar a capturar los suyos. Si esto falla, no estorba: reporta
@@ -238,65 +279,148 @@
     </div>
   </div>
 
-  <!-- Sucursal -->
-  <div class="section">
-    <div class="section-title">🏪 Sucursal</div>
-    <div class="sucursales" id="sucursales"></div>
+  <!-- Pestañas -->
+  <div class="tabs">
+    <button class="tab-btn activa" id="tab-catalogo" onclick="mostrarVista('catalogo')">📦 Catálogo</button>
+    <button class="tab-btn" id="tab-wix" onclick="mostrarVista('wix')">🛒 Actualizar Wix</button>
+    <a class="btn sec" href="/usuarios.html" target="_blank" rel="noopener"
+       style="text-decoration:none;display:inline-flex;align-items:center;margin-left:auto">👤 Usuarios</a>
   </div>
 
-  <!-- KPIs -->
-  <div class="kpis" id="kpis"></div>
+  <!-- ══════════════════════════ Vista: Catálogo ══════════════════════════ -->
+  <div id="vista-catalogo">
 
-  <!-- Filtros -->
-  <div class="section">
-    <div class="section-title">🔎 Filtros</div>
-    <div class="filtros">
-      <div class="campo">
-        <label for="f-q">Buscar</label>
-        <input type="text" id="f-q" placeholder="Código, nombre o código de barras">
+    <!-- Sucursal -->
+    <div class="section">
+      <div class="section-title">🏪 Sucursal</div>
+      <div class="sucursales" id="sucursales"></div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpis" id="kpis"></div>
+
+    <!-- Filtros -->
+    <div class="section">
+      <div class="section-title">🔎 Filtros</div>
+      <div class="filtros">
+        <div class="campo">
+          <label for="f-q">Buscar</label>
+          <input type="text" id="f-q" placeholder="Código, nombre o código de barras">
+        </div>
+        <div class="campo">
+          <label for="f-familia">Familia</label>
+          <select id="f-familia"><option value="">Todas</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-subfamilia">Subfamilia</label>
+          <select id="f-subfamilia"><option value="">Todas</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-marca">Marca / proveedor</label>
+          <select id="f-marca"><option value="">Todas</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-stock">Existencia</label>
+          <select id="f-stock">
+            <option value="todos">Todas</option>
+            <option value="con" selected>Sólo con existencia</option>
+            <option value="sin">Sólo sin existencia</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="f-limit">Por página</label>
+          <select id="f-limit">
+            <option>25</option><option selected>50</option><option>100</option><option>200</option>
+          </select>
+        </div>
       </div>
-      <div class="campo">
-        <label for="f-familia">Familia</label>
-        <select id="f-familia"><option value="">Todas</option></select>
-      </div>
-      <div class="campo">
-        <label for="f-subfamilia">Subfamilia</label>
-        <select id="f-subfamilia"><option value="">Todas</option></select>
-      </div>
-      <div class="campo">
-        <label for="f-marca">Marca / proveedor</label>
-        <select id="f-marca"><option value="">Todas</option></select>
-      </div>
-      <div class="campo">
-        <label for="f-stock">Existencia</label>
-        <select id="f-stock">
-          <option value="todos">Todas</option>
-          <option value="con" selected>Sólo con existencia</option>
-          <option value="sin">Sólo sin existencia</option>
-        </select>
-      </div>
-      <div class="campo">
-        <label for="f-limit">Por página</label>
-        <select id="f-limit">
-          <option>25</option><option selected>50</option><option>100</option><option>200</option>
-        </select>
+      <div class="acciones">
+        <button class="btn" id="btn-aplicar">Aplicar</button>
+        <button class="btn sec" id="btn-limpiar">Limpiar</button>
+        <button class="btn sec" id="btn-csv">⬇ Exportar CSV</button>
       </div>
     </div>
-    <div class="acciones">
-      <button class="btn" id="btn-aplicar">Aplicar</button>
-      <button class="btn sec" id="btn-limpiar">Limpiar</button>
-      <button class="btn sec" id="btn-csv">⬇ Exportar CSV</button>
-      <a class="btn sec" href="/actualizar-wix.html" target="_blank" rel="noopener"
-         style="text-decoration:none;display:inline-flex;align-items:center">🛒 Actualizar Wix</a>
+
+    <!-- Resultados -->
+    <div class="section">
+      <div class="section-title">📦 Productos <span id="titulo-suc" style="font-weight:400;color:var(--suave)"></span></div>
+      <div id="avisos"></div>
+      <div id="resultados"><div class="cargando">Cargando catálogo…</div></div>
+      <div class="paginacion" id="paginacion"></div>
     </div>
+
   </div>
 
-  <!-- Resultados -->
-  <div class="section">
-    <div class="section-title">📦 Productos <span id="titulo-suc" style="font-weight:400;color:var(--suave)"></span></div>
-    <div id="avisos"></div>
-    <div id="resultados"><div class="cargando">Cargando catálogo…</div></div>
-    <div class="paginacion" id="paginacion"></div>
+  <!-- ══════════════════════════ Vista: Actualizar Wix ═══════════════════════ -->
+  <div id="vista-wix" style="display:none">
+
+    <div class="wix-steps">
+      <div class="wix-step"><div><span class="n">1</span><b>Elige la sucursal</b></div><p>El precio puede variar entre plazas. Por default se usa <b>PH</b>, la que surte la tienda en línea.</p></div>
+      <div class="wix-step"><div><span class="n">2</span><b>Sube el catálogo de Wix</b></div><p>Expórtalo desde Wix (<code>catalog_products.csv</code>) y elige el modo.</p></div>
+      <div class="wix-step"><div><span class="n">3</span><b>Descarga y sube a Wix</b></div><p>Baja el CSV resultante y súbelo a Wix.</p></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">🏪 Sucursal de precio</div>
+      <div class="sucursales" id="wix-sucursales"></div>
+    </div>
+
+    <div class="section">
+      <div id="kp-estado" style="font-size:12px;color:var(--suave);margin-bottom:12px">Consultando Kepler…</div>
+
+      <div class="file-box">
+        <div class="t">🛒 Catálogo Wix</div>
+        <div class="d">Exportado de Wix (<code>catalog_products.csv</code>), con columnas <code>sku</code> y <code>price</code>.</div>
+        <input type="file" id="f-cat" accept=".csv" onchange="onCat(this)">
+        <div class="fname" id="fn-cat"></div>
+      </div>
+
+      <div class="wix-modos">
+        <div class="wix-modo activo" id="modo-precio" onclick="elegirModo('precio')">
+          <b>💲 Precio + existencia</b>
+          <span>El uso diario. Actualiza precio y existencia PH de lo que ya está en Wix, sin tocar variantes.</span>
+        </div>
+        <div class="wix-modo" id="modo-presentaciones" onclick="elegirModo('presentaciones')">
+          <b>📦 Con presentaciones</b>
+          <span>Agrega el menú Pieza/Paquete/Caja como variantes, con su precio y existencia reales.</span>
+        </div>
+      </div>
+
+      <div class="forzar-row" id="forzar-row">
+        <input type="checkbox" id="chk-forzar">
+        <label for="chk-forzar">Forzar Pieza cuando no exista en Kepler (deduce el precio del nombre — <strong>no es un precio real del POS</strong>)</label>
+      </div>
+
+      <div style="margin-top:14px">
+        <button class="btn" id="btn-proc" onclick="procesarWix()" disabled>⚙️ Procesar catálogo</button>
+      </div>
+      <div class="wix-msg" id="wix-msg"></div>
+    </div>
+
+    <div class="section" id="wix-results" style="display:none">
+      <div class="wix-kpis" id="wix-kpis-precio" style="display:none">
+        <div class="wix-kpi"><div class="v" id="k-precios">—</div><div class="l">Precios actualizados</div></div>
+        <div class="wix-kpi purple"><div class="v" id="k-inv">—</div><div class="l">Existencias escritas</div></div>
+        <div class="wix-kpi amber"><div class="v" id="k-nm">—</div><div class="l">Sin match en Kepler</div></div>
+        <div class="wix-kpi blue"><div class="v" id="k-filas">—</div><div class="l">Filas del catálogo</div></div>
+      </div>
+      <div class="wix-kpis" id="wix-kpis-pres" style="display:none">
+        <div class="wix-kpi"><div class="v" id="p-conmenu">—</div><div class="l">Productos con menú</div></div>
+        <div class="wix-kpi purple"><div class="v" id="p-variantes">—</div><div class="l">Variantes generadas</div></div>
+        <div class="wix-kpi amber"><div class="v" id="p-nm">—</div><div class="l">Sin match en Kepler</div></div>
+        <div class="wix-kpi"><div class="v" id="p-una">—</div><div class="l">Con una sola presentación</div></div>
+        <div class="wix-kpi blue"><div class="v" id="p-desc">—</div><div class="l">Descuentos fijos quitados</div></div>
+      </div>
+      <div id="wix-lista-extra"></div>
+      <button class="btn btn-dl" onclick="descargarWix()">⬇ Descargar catálogo actualizado (.csv)</button>
+      <span id="wix-dl-info" style="font-size:12px;color:var(--suave);margin-left:10px"></span>
+    </div>
+
+    <div class="aviso">
+      <span>ℹ️</span>
+      <span>El precio es el que Kepler ya trae calculado para la sucursal elegida (idéntico al verificador de mostrador). La existencia se escribe sólo cuando es positiva — nunca borra inventario. En modo presentaciones, Wix no admite descuentos de monto fijo junto con variantes: se ponen en 0 automáticamente.</span>
+    </div>
+
   </div>
 
 </div>
@@ -481,10 +605,12 @@ async function iniciar() {
     ]);
     estado.sucursales = sucursales;
     pintarSucursales();
+    pintarSucursalesWix();
     llenarSelect('f-familia',    filtros.familias,    'Todas las familias');
     llenarSelect('f-subfamilia', filtros.subfamilias, 'Todas las subfamilias');
     llenarSelect('f-marca',      filtros.marcas,      'Todas las marcas');
     await cargar();
+    if (new URLSearchParams(location.search).get('tab') === 'wix') mostrarVista('wix');
   } catch (e) {
     document.getElementById('resultados').innerHTML =
       `<div class="vacio">No se pudo conectar con la API en <code>${esc(API)}</code>.<br>` +
@@ -860,6 +986,368 @@ document.getElementById('overlay').addEventListener('click', e => {
   if (e.target.id === 'overlay') cerrarFicha();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarFicha(); });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actualizar Wix (embebido) — antes era una página aparte (actualizar-wix.html,
+// ahora sólo un redirect aquí). Vive en esta misma pantalla para compartir la
+// sesión y el filtro de sucursal con el catálogo, en vez de pedir login e
+// inventar su propia lista de sucursales por separado.
+// ─────────────────────────────────────────────────────────────────────────────
+function mostrarVista(v) {
+  const esCatalogo = v === 'catalogo';
+  document.getElementById('vista-catalogo').style.display = esCatalogo ? 'block' : 'none';
+  document.getElementById('vista-wix').style.display = esCatalogo ? 'none' : 'block';
+  document.getElementById('tab-catalogo').classList.toggle('activa', esCatalogo);
+  document.getElementById('tab-wix').classList.toggle('activa', !esCatalogo);
+  if (!esCatalogo && !KP_CARGADO) cargarKepler();
+}
+
+let wixSucursal = '01';   // Sucursal PH: la que surte la tienda en línea, por default.
+let KP = {};              // código (5 dígitos) -> datos de Kepler de esa sucursal
+let KP_GENERADO = null;
+let KP_CARGADO = false;   // evita pedir Kepler antes de que haga falta
+
+function pintarSucursalesWix() {
+  const cont = document.getElementById('wix-sucursales');
+  // Sin "Todas": el precio de Wix necesita UNA sucursal concreta de dónde
+  // salir — kp.kdii trae una fila por sucursal y los precios SÍ pueden
+  // diferir entre plazas (para eso existe el reporte de precios discrepantes).
+  const chips = estado.sucursales.filter(s => s.codigo !== '00'); // CEDIS no vende al público
+  cont.innerHTML = chips.map(s => `
+    <button class="suc-chip ${s.codigo === wixSucursal ? 'activa' : ''}" data-suc="${esc(s.codigo)}">
+      ${esc(s.nombre)}<span class="cod">${esc(s.codigo)}</span>
+    </button>`).join('');
+  cont.querySelectorAll('.suc-chip').forEach(b => b.addEventListener('click', () => {
+    wixSucursal = b.dataset.suc;
+    pintarSucursalesWix();
+    cargarKepler();
+  }));
+}
+
+async function cargarKepler() {
+  const estadoEl = document.getElementById('kp-estado');
+  estadoEl.textContent = 'Consultando Kepler…';
+  try {
+    const d = await getJSON(`${API}/kp/productos?sucursal=${wixSucursal}`);
+    KP = {};
+    (d.productos || []).forEach(p => { KP[p.codigo] = p; });
+    KP_GENERADO = d.generado;
+    KP_CARGADO = true;
+    const nombreSuc = estado.sucursales.find(s => s.codigo === wixSucursal)?.nombre || wixSucursal;
+    estadoEl.textContent = `✔ ${Object.keys(KP).length.toLocaleString('es-MX')} productos de Kepler — ${nombreSuc} (sucursal ${wixSucursal}), en vivo ` +
+      `(consultado ${new Date(d.generado).toLocaleString('es-MX')})`;
+    checkReadyWix();
+  } catch (e) {
+    estadoEl.textContent = `⚠ No se pudo consultar Kepler: ${e.message}`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parser/serializador CSV — portados literal de Actualizar_Wix_MegaDulces.html
+// (manejan comillas, comas y saltos de línea embebidos que trae el export de Wix).
+// ─────────────────────────────────────────────────────────────────────────────
+function parseFullCsvRows(text){
+  var rows=[],row=[],cur='',inQ=false;
+  for(var i=0;i<text.length;i++){
+    var ch=text[i];
+    if(inQ){
+      if(ch==='"'){
+        if(i+1<text.length&&text[i+1]==='"'){cur+='"';i++;}
+        else{var next=i+1<text.length?text[i+1]:'';
+          if(next===','||next==='\r'||next==='\n'||next===''){inQ=false;}else{cur+=ch;}}
+      }else{cur+=ch;}
+    }else{
+      if(ch==='"'&&cur.length===0){inQ=true;}
+      else if(ch==='"'){cur+=ch;}
+      else if(ch===','){row.push(cur);cur='';}
+      else if(ch==='\r'){if(i+1<text.length&&text[i+1]==='\n')i++;row.push(cur);cur='';if(row.some(function(c){return c.trim();}))rows.push(row);row=[];}
+      else if(ch==='\n'){row.push(cur);cur='';if(row.some(function(c){return c.trim();}))rows.push(row);row=[];}
+      else{cur+=ch;}
+    }
+  }
+  if(cur.length||row.length){row.push(cur);if(row.some(function(c){return c.trim();}))rows.push(row);}
+  return rows;
+}
+
+function toCSV(headers,rows){
+  function esc2(v){v=(v===undefined||v===null)?'':String(v);
+    return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+  var out=[headers.map(esc2).join(',')];
+  rows.forEach(function(r){out.push(r.map(esc2).join(','));});
+  return out.join('\r\n');
+}
+
+function parseCat(text){
+  var rows=parseFullCsvRows(text);
+  if(rows.length<2)return null;
+  var headers=rows[0];
+  var low=headers.map(function(h){return h.replace(/^﻿/,'').trim().toLowerCase();});
+  var idx=function(nombre){return low.indexOf(nombre);};
+  var skuIdx=idx('sku'), priceIdx=idx('price');
+  if(skuIdx<0||priceIdx<0)return null;
+  return {
+    headers:headers, rows:rows.slice(1),
+    skuIdx:skuIdx, priceIdx:priceIdx,
+    fieldTypeIdx:idx('fieldtype'), inventoryIdx:idx('inventory'),
+    handleIdIdx:idx('handleid'), surchargeIdx:idx('surcharge'), visibleIdx:idx('visible'),
+    opNameIdx:idx('productoptionname1'), opTypeIdx:idx('productoptiontype1'), opDescIdx:idx('productoptiondescription1'),
+    discountModeIdx:idx('discountmode'), discountValueIdx:idx('discountvalue'),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modo 1 — Precio + existencia (uso diario, pasos 1-3 del checkpoint).
+// El precio SIEMPRE es kp.precio_con_iva de la sucursal elegida arriba.
+// ─────────────────────────────────────────────────────────────────────────────
+function procesarPrecioExistencia(cat){
+  var actualizados=0,sinMatch=0,invAct=0;
+  var headers=cat.headers.slice().concat(['margen_utilidad','costo_base','tipo_impuesto','existencia_ph','precio_kepler_c90']);
+  var lastPrice='';
+
+  var outRows=cat.rows.map(function(row){
+    var sku=String(row[cat.skuIdx]||'').trim();
+    var ft=cat.fieldTypeIdx>=0?String(row[cat.fieldTypeIdx]||'').trim().toLowerCase():'';
+    var newRow=row.slice();
+    var pad=sku;while(pad.length<5)pad='0'+pad;
+    var kp=KP.hasOwnProperty(pad)?KP[pad]:(KP.hasOwnProperty(sku)?KP[sku]:null);
+    if(sku&&/^\d+$/.test(sku))newRow[cat.skuIdx]=pad;
+
+    if(ft==='product'){
+      if(kp){newRow[cat.priceIdx]=Number(kp.precio_con_iva).toFixed(2);lastPrice=newRow[cat.priceIdx];actualizados++;}
+      else{lastPrice='';sinMatch++;}
+    }else if(ft==='variant'){
+      if(kp){newRow[cat.priceIdx]=Number(kp.precio_con_iva).toFixed(2);actualizados++;}
+      else if(lastPrice){newRow[cat.priceIdx]=lastPrice;actualizados++;}
+      else{sinMatch++;}
+    }else{
+      if(kp){newRow[cat.priceIdx]=Number(kp.precio_con_iva).toFixed(2);actualizados++;}
+      else{sinMatch++;}
+    }
+
+    if(cat.inventoryIdx>=0&&kp&&kp.existencia_ph!=null&&(ft==='product'||ft==='variant')){
+      var iv=Math.round(Number(kp.existencia_ph)||0);
+      if(iv>0){newRow[cat.inventoryIdx]=String(iv);invAct++;}
+    }
+
+    var mg=kp&&kp.margen!=null?String(kp.margen):'';
+    var cb=kp?Number(kp.costo).toFixed(2):'';
+    var tipo=kp?((kp.iva>0&&kp.ieps>0)?'IVA+IEPS':kp.iva>0?('IVA '+Math.round(kp.iva*100)+'%'):kp.ieps>0?('IEPS '+Math.round(kp.ieps*100)+'%'):'Exento'):'';
+    var exph=(kp&&kp.existencia_ph!=null)?String(kp.existencia_ph):'';
+    var pvk=(kp&&kp.precio_venta!=null&&Number(kp.precio_venta)>0)?Number(kp.precio_venta).toFixed(2):'';
+    newRow.push(mg,cb,tipo,exph,pvk);
+    return newRow;
+  });
+
+  return {headers:headers, rows:outRows, kpis:{actualizados:actualizados,invAct:invAct,sinMatch:sinMatch,filas:cat.rows.length}};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modo 2 — Presentaciones/variantes. Puerto de generar_variantes_wix.py.
+// Formato (idéntico al script): fila Product = presentación más barata +
+// menú DROP_DOWN; filas Variant = surcharge (precio_unidad - precio_base) +
+// inventory (existencia / factor).
+// ─────────────────────────────────────────────────────────────────────────────
+const ETIQUETA_UNIDAD = {PZA:'Pieza', PAQ:'Paquete', CJA:'Caja', KG:'Kilo', BTO:'Bulto', SER:'Serie'};
+
+function piezasDelNombre(nombre){
+  var n=String(nombre||'').toUpperCase();
+  var patrones=[/\/\s*(\d{1,3})\s*P?Z?S?\b/, /\bC\s*\/\s*(\d{1,3})\b/, /\b(\d{1,3})\s*P\b/];
+  for(var i=0;i<patrones.length;i++){
+    var m=n.match(patrones[i]);
+    if(m){var v=parseInt(m[1],10); if(v>=2&&v<=500) return v;}
+  }
+  return null;
+}
+
+function unidadesDe(kp){
+  var crudas=[[kp.u_base,kp.p_u1,1],[kp.u2_nom,kp.p_u2,kp.u2_factor],[kp.u3_nom,kp.p_u3,kp.u3_factor]];
+  var out=[],vistas={};
+  crudas.forEach(function(t){
+    var nom=String(t[0]||'').toUpperCase().trim(), precio=t[1], factor=t[2];
+    if(!nom||precio===null||precio===undefined||precio<=0||vistas[nom])return;
+    vistas[nom]=true;
+    factor=Number(factor)||1;
+    out.push([ETIQUETA_UNIDAD[nom]||(nom.charAt(0)+nom.slice(1).toLowerCase()), Number(precio), factor]);
+  });
+  out.sort(function(a,b){return a[1]-b[1];});
+  return out;
+}
+
+function existenciaBase(kp){
+  var v=kp.existencia_ph;
+  return v===null||v===undefined ? 0 : Math.max(0, Number(v)||0);
+}
+
+function procesarPresentaciones(cat, forzar){
+  var headers=cat.headers.slice();
+  var salida=[];
+  var est={con_variantes:0, variantes:0, sin_match:0, sin_variantes:0, descuento_quitado:0, pieza_deducida:0};
+
+  var i=0;
+  while(i<cat.rows.length){
+    var f=cat.rows[i].slice();
+    var ft=cat.fieldTypeIdx>=0?String(f[cat.fieldTypeIdx]||'').trim().toLowerCase():'';
+
+    if(ft!=='product'){
+      salida.push(f);
+      i++;
+      continue;
+    }
+
+    var j=i+1;
+    while(j<cat.rows.length){
+      var ftSig=cat.fieldTypeIdx>=0?String(cat.rows[j][cat.fieldTypeIdx]||'').trim().toLowerCase():'';
+      if(ftSig!=='variant')break;
+      j++;
+    }
+
+    var sku=String(f[cat.skuIdx]||'').trim();
+    var pad=sku;while(pad.length<5)pad='0'+pad;
+    var kp=KP.hasOwnProperty(pad)?KP[pad]:(KP.hasOwnProperty(sku)?KP[sku]:null);
+    if(sku&&/^\d+$/.test(sku))f[cat.skuIdx]=pad;
+
+    if(!kp){
+      salida.push(f);
+      est.sin_match++;
+      i=j;
+      continue;
+    }
+
+    var us=unidadesDe(kp);
+
+    if(forzar){
+      var tienePieza=us.some(function(u){return u[0]==='Pieza';});
+      if(!tienePieza&&us.length){
+        var n=piezasDelNombre(kp.nombre);
+        if(n){
+          us.unshift(['Pieza', Math.round((us[0][1]/n)*100)/100, 1/n]);
+          est.pieza_deducida++;
+        }
+      }
+    }
+
+    if(us.length<2){
+      salida.push(f);
+      est.sin_variantes++;
+      i=j;
+      continue;
+    }
+
+    var basePrecio=us[0][1];
+    var exist=existenciaBase(kp);
+
+    if(cat.discountModeIdx>=0&&cat.discountValueIdx>=0){
+      var modo=String(f[cat.discountModeIdx]||'').trim().toUpperCase();
+      var val=parseFloat(f[cat.discountValueIdx])||0;
+      if(modo==='AMOUNT'&&val){
+        f[cat.discountValueIdx]='0';
+        est.descuento_quitado++;
+      }
+    }
+
+    f[cat.priceIdx]=basePrecio.toFixed(2);
+    if(cat.opNameIdx>=0)f[cat.opNameIdx]='Presentación';
+    if(cat.opTypeIdx>=0)f[cat.opTypeIdx]='DROP_DOWN';
+    if(cat.opDescIdx>=0)f[cat.opDescIdx]=us.map(function(u){return u[0];}).join(';');
+    salida.push(f);
+
+    us.forEach(function(u){
+      var etq=u[0], precio=u[1], factor=u[2];
+      var v=new Array(headers.length).fill('');
+      if(cat.handleIdIdx>=0)v[cat.handleIdIdx]=f[cat.handleIdIdx];
+      if(cat.fieldTypeIdx>=0)v[cat.fieldTypeIdx]='Variant';
+      if(cat.surchargeIdx>=0)v[cat.surchargeIdx]=(Math.round((precio-basePrecio)*100)/100).toFixed(2);
+      if(cat.visibleIdx>=0)v[cat.visibleIdx]='true';
+      if(cat.inventoryIdx>=0)v[cat.inventoryIdx]=factor?String(Math.floor(exist/factor)):'0';
+      if(cat.opDescIdx>=0)v[cat.opDescIdx]=etq;
+      salida.push(v);
+      est.variantes++;
+    });
+
+    est.con_variantes++;
+    i=j;
+  }
+
+  return {headers:headers, rows:salida, kpis:est};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orquestación de UI
+// ─────────────────────────────────────────────────────────────────────────────
+var CAT_TEXT=null, RESULT_CSV=null, MODO='precio';
+
+function elegirModo(m){
+  MODO=m;
+  document.getElementById('modo-precio').classList.toggle('activo', m==='precio');
+  document.getElementById('modo-presentaciones').classList.toggle('activo', m==='presentaciones');
+  document.getElementById('forzar-row').classList.toggle('visible', m==='presentaciones');
+}
+
+function readFile(input,cb){
+  var f=input.files&&input.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(e){cb(e.target.result,f.name);};
+  r.readAsText(f,'utf-8');
+}
+function checkReadyWix(){
+  document.getElementById('btn-proc').disabled = !(CAT_TEXT && Object.keys(KP).length);
+}
+function onCat(i){readFile(i,function(t,n){CAT_TEXT=t;document.getElementById('fn-cat').textContent='✔ '+n;checkReadyWix();});}
+
+function procesarWix(){
+  var msg=document.getElementById('wix-msg');
+  msg.className='wix-msg';msg.style.display='none';
+  document.getElementById('wix-results').style.display='none';
+  try{
+    var cat=parseCat(CAT_TEXT);
+    if(!cat)throw new Error('El catálogo Wix no es válido (faltan columnas "sku" o "price").');
+
+    var resultado, extraHTML='';
+    if(MODO==='precio'){
+      resultado=procesarPrecioExistencia(cat);
+      document.getElementById('wix-kpis-precio').style.display='flex';
+      document.getElementById('wix-kpis-pres').style.display='none';
+      document.getElementById('k-precios').textContent=resultado.kpis.actualizados.toLocaleString('es-MX');
+      document.getElementById('k-inv').textContent=resultado.kpis.invAct.toLocaleString('es-MX');
+      document.getElementById('k-nm').textContent=resultado.kpis.sinMatch.toLocaleString('es-MX');
+      document.getElementById('k-filas').textContent=resultado.kpis.filas.toLocaleString('es-MX');
+    }else{
+      var forzar=document.getElementById('chk-forzar').checked;
+      resultado=procesarPresentaciones(cat, forzar);
+      document.getElementById('wix-kpis-precio').style.display='none';
+      document.getElementById('wix-kpis-pres').style.display='flex';
+      document.getElementById('p-conmenu').textContent=resultado.kpis.con_variantes.toLocaleString('es-MX');
+      document.getElementById('p-variantes').textContent=resultado.kpis.variantes.toLocaleString('es-MX');
+      document.getElementById('p-nm').textContent=resultado.kpis.sin_match.toLocaleString('es-MX');
+      document.getElementById('p-una').textContent=resultado.kpis.sin_variantes.toLocaleString('es-MX');
+      document.getElementById('p-desc').textContent=resultado.kpis.descuento_quitado.toLocaleString('es-MX');
+      if(forzar&&resultado.kpis.pieza_deducida){
+        extraHTML='<div class="aviso" style="margin-top:0;margin-bottom:12px"><span>⚠️</span><span>'+
+          resultado.kpis.pieza_deducida+' producto(s) con precio de Pieza DEDUCIDO del nombre — no existen en el POS.</span></div>';
+      }
+    }
+    document.getElementById('wix-lista-extra').innerHTML=extraHTML;
+
+    RESULT_CSV=toCSV(resultado.headers, resultado.rows);
+    document.getElementById('wix-results').style.display='block';
+    document.getElementById('wix-dl-info').textContent='';
+    msg.className='wix-msg ok';msg.textContent='✔ Proceso completado. Revisa los indicadores y descarga el catálogo.';
+  }catch(e){
+    msg.className='wix-msg err';msg.textContent='Error: '+(e&&e.message?e.message:e);
+  }
+}
+
+function descargarWix(){
+  if(!RESULT_CSV)return;
+  var sufijo = MODO==='presentaciones' ? '_presentaciones' : '_actualizado';
+  var blob=new Blob(['﻿'+RESULT_CSV],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='catalog_products'+sufijo+'_suc'+wixSucursal+'.csv';
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},300);
+  document.getElementById('wix-dl-info').textContent='Descargado. Súbelo a Wix.';
+}
 
 document.getElementById('form-login').addEventListener('submit', entrar);
 document.getElementById('btn-salir').addEventListener('click', () => cerrarSesion(''));

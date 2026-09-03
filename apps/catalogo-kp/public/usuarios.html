@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuarios del tablero · MegaDulces</title>
+<style>
+  :root{--naranja:#F28C1A;--verde:#16a34a;--verde-d:#15803d;--rojo:#dc2626;--gris:#6b7280;--borde:#e5e7eb;--dark:#1e293b;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f5f6f8;color:#1d2433;font-size:14px}
+  header{background:linear-gradient(135deg,#1a1a1a,#2d1a05);color:#fff;padding:16px 24px;border-bottom:4px solid var(--naranja)}
+  header h1{font-size:19px;font-weight:800}
+  header p{font-size:12px;color:#F5C500;margin-top:2px}
+  .wrap{max-width:1100px;margin:0 auto;padding:22px 18px 60px}
+  .card{background:#fff;border:1px solid var(--borde);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:16px}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+  .toolbar h2{font-size:16px}
+  .btn{padding:10px 18px;background:var(--verde);color:#fff;border:none;border-radius:9px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s}
+  .btn:hover:not(:disabled){background:var(--verde-d)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-sec{background:#fff;color:var(--dark);border:1px solid var(--borde)}
+  .btn-sec:hover{background:#f4f4f5}
+  .btn-danger{background:#fff;color:var(--rojo);border:1px solid #fecaca}
+  .btn-danger:hover{background:#fef2f2}
+  .btn-xs{padding:6px 10px;font-size:12px;border-radius:7px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--gris);padding:8px 10px;border-bottom:2px solid var(--borde)}
+  td{padding:10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+  tr:hover td{background:#fafafa}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+  .badge.admin{background:#fef3c7;color:#92400e}
+  .badge.viewer{background:#e0e7ff;color:#3730a3}
+  .badge.on{background:#dcfce7;color:#166534}
+  .badge.off{background:#fee2e2;color:#991b1b}
+  .suc-chip{display:inline-block;background:#f1f5f9;color:#334155;padding:1px 7px;border-radius:6px;font-size:11px;margin:1px}
+  .suc-chip.todas{background:#fff7ed;color:#9a3412}
+  .acciones{display:flex;gap:6px;flex-wrap:wrap}
+  .msg{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:14px;display:none}
+  .msg.ok{background:#f0fdf4;border:1px solid #86efac;color:#14532d;display:block}
+  .msg.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;display:block}
+  .nota{font-size:12px;color:var(--gris);background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-top:14px;line-height:1.6}
+  .vacio{padding:30px;text-align:center;color:var(--gris)}
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:200;padding:16px}
+  .overlay.abierto{display:flex}
+  .modal{background:#fff;border-radius:14px;padding:24px;width:min(460px,100%);box-shadow:0 10px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto}
+  .modal h3{font-size:16px;margin-bottom:16px}
+  .campo{margin-bottom:14px}
+  .campo label{display:block;font-size:12px;font-weight:600;color:var(--gris);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px}
+  .campo input[type=text],.campo input[type=email],.campo input[type=password],.campo select{
+    width:100%;border:1px solid var(--borde);border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit}
+  .suc-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .suc-opt{display:flex;align-items:center;gap:5px;background:#f8fafc;border:1px solid var(--borde);border-radius:7px;padding:5px 9px;font-size:12.5px;cursor:pointer}
+  .suc-opt input{margin:0}
+  .check-row{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-top:4px}
+  .modal-acciones{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+  .modal-err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:9px 11px;font-size:13px;margin-bottom:12px;display:none}
+  code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:12px}
+  .no-permiso{max-width:480px;margin:60px auto;text-align:center;background:#fff;border:1px solid var(--borde);border-radius:14px;padding:36px 28px}
+  .no-permiso .e{font-size:40px}
+</style>
+  <!-- Captura de errores del navegador. Mismo mecanismo que catalogo.html/tienda.html. -->
+  <script src="/reportar-errores.js"></script>
+</head>
+<body>
+
+<!-- ── Acceso — MISMA sesión que catalogo.html/actualizar-wix.html ── -->
+<div id="pantalla-login" style="position:fixed;inset:0;z-index:100;background:#f5f5f5;
+     display:none;align-items:center;justify-content:center;padding:20px">
+  <form id="form-login" style="background:#fff;border-radius:12px;padding:28px;
+        width:min(400px,100%);box-shadow:0 4px 24px rgba(0,0,0,.12)">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:38px;line-height:1">👤</div>
+      <h2 style="font-size:19px;color:#333;margin-top:6px">Usuarios del tablero</h2>
+      <p style="font-size:13px;color:#6b7280;margin-top:4px">
+        Alta, permisos y baja de cuentas. Requiere rol de administrador.</p>
+    </div>
+
+    <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;
+           text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Correo</label>
+    <input type="email" id="login-email" required autocomplete="username"
+           style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:10px;
+                  font-size:14px;font-family:inherit;margin-bottom:14px">
+
+    <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;
+           text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Contraseña</label>
+    <input type="password" id="login-pass" required autocomplete="current-password"
+           style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:10px;
+                  font-size:14px;font-family:inherit;margin-bottom:16px">
+
+    <div id="login-error" style="display:none;background:#fef2f2;border:1px solid #fecaca;
+         color:#dc2626;border-radius:8px;padding:9px 11px;font-size:13px;margin-bottom:14px"></div>
+
+    <button type="submit" id="login-btn"
+            style="width:100%;background:#F28C1A;color:#fff;border:none;border-radius:8px;
+                   padding:12px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer">
+      Entrar</button>
+
+    <p style="font-size:11.5px;color:#9ca3af;margin-top:14px;text-align:center;line-height:1.5">
+      Misma cuenta que el Catálogo e Inventario.</p>
+  </form>
+</div>
+
+<div id="contenido" style="display:none">
+<header>
+  <h1>👤 Usuarios del tablero</h1>
+  <p>MegaDulces · Cuentas, permisos y acceso a Inventario / Actualizar Wix / Verificador</p>
+</header>
+
+<div class="wrap">
+
+  <!-- Se muestra si la sesión no es de administrador -->
+  <div id="no-permiso" class="no-permiso" style="display:none">
+    <div class="e">🔒</div>
+    <h3 style="margin-top:10px;font-size:16px">Sólo administradores</h3>
+    <p style="color:var(--gris);font-size:13.5px;margin-top:8px;line-height:1.6">
+      Tu cuenta no tiene rol de administrador, así que no puede ver ni cambiar usuarios.
+      Pídele a alguien con ese rol que te dé acceso, o que haga el cambio por ti.</p>
+  </div>
+
+  <div id="panel">
+    <div class="msg" id="msg"></div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2>Cuentas <span id="conteo" style="color:var(--gris);font-weight:400;font-size:13px"></span></h2>
+        <button class="btn" onclick="abrirCrear()">➕ Nueva cuenta</button>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table id="tabla">
+          <thead>
+            <tr>
+              <th>Nombre</th><th>Correo</th><th>Rol</th><th>Sucursales</th>
+              <th>Estado</th><th>Último acceso</th><th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="7" class="vacio">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="nota">
+      <b>Notas:</b> el rol <code>admin</code> puede entrar aquí, cambiar precios de Mercado Pago y
+      confirmar/cancelar pedidos de la tienda. El rol <code>viewer</code> sólo ve Inventario y el
+      verificador. "Eliminar acceso" <b>no borra</b> la cuenta ni su historial — la desactiva
+      (deja de poder iniciar sesión); se puede reactivar cuando se quiera. Sólo una cuenta ya
+      desactivada se puede "Borrar definitivamente" — eso sí es permanente, sin deshacer, y pide
+      escribir el correo exacto para confirmar. Nadie puede desactivarse, borrarse ni quitarse el
+      rol de administrador a sí mismo, para que siempre quede al menos alguien que pueda revertir
+      un error.
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── Modal: crear / editar ── -->
+<div class="overlay" id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-titulo">Nueva cuenta</h3>
+    <div class="modal-err" id="modal-err"></div>
+    <form id="form-modal">
+      <input type="hidden" id="f-id">
+      <div class="campo">
+        <label>Nombre</label>
+        <input type="text" id="f-nombre" required>
+      </div>
+      <div class="campo" id="campo-email">
+        <label>Correo</label>
+        <input type="email" id="f-email" required autocomplete="off">
+      </div>
+      <div class="campo" id="campo-password">
+        <label>Contraseña</label>
+        <input type="password" id="f-password" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+      </div>
+      <div class="campo">
+        <label>Rol</label>
+        <select id="f-rol">
+          <option value="viewer">Viewer — sólo consulta</option>
+          <option value="admin">Admin — acceso total</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label>Sucursales <span style="text-transform:none;font-weight:400">(vacío = sin restricción)</span></label>
+        <div class="suc-grid" id="f-sucursales"></div>
+      </div>
+      <div class="campo" id="campo-activo" style="display:none">
+        <div class="check-row">
+          <input type="checkbox" id="f-activo">
+          <label for="f-activo" style="text-transform:none;font-weight:400;font-size:13.5px">Cuenta activa (puede iniciar sesión)</label>
+        </div>
+      </div>
+      <div class="modal-acciones">
+        <button type="button" class="btn btn-sec" onclick="cerrarModal()">Cancelar</button>
+        <button type="submit" class="btn" id="btn-guardar">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: restablecer contraseña ── -->
+<div class="overlay" id="modal-pass-overlay">
+  <div class="modal" style="width:min(380px,100%)">
+    <h3>Restablecer contraseña</h3>
+    <p style="font-size:13px;color:var(--gris);margin-bottom:14px" id="pass-quien"></p>
+    <div class="modal-err" id="pass-err"></div>
+    <form id="form-pass">
+      <div class="campo">
+        <label>Contraseña nueva</label>
+        <input type="password" id="pass-nueva" required autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+      </div>
+      <div class="modal-acciones">
+        <button type="button" class="btn btn-sec" onclick="cerrarModalPass()">Cancelar</button>
+        <button type="submit" class="btn">Restablecer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const API = new URLSearchParams(location.search).get('api')
+  || ((location.protocol === 'file:' || location.port === '')
+        ? 'http://localhost:3000/api'
+        : location.origin + '/api');
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sesión — MISMA clave que catalogo.html/actualizar-wix.html.
+// ─────────────────────────────────────────────────────────────────────────
+const CLAVE_SESION = 'megadulces_tablero_sesion';
+const sesion = {
+  leer() { try { return JSON.parse(localStorage.getItem(CLAVE_SESION) || 'null'); } catch { return null; } },
+  guardar(datos) { try { localStorage.setItem(CLAVE_SESION, JSON.stringify(datos)); } catch {} },
+  borrar() { try { localStorage.removeItem(CLAVE_SESION); } catch {} },
+  get token() { return this.leer()?.token || null; },
+  get usuario() { return this.leer()?.usuario || null; },
+};
+
+function cerrarSesion(motivo) {
+  sesion.borrar();
+  document.getElementById('contenido').style.display = 'none';
+  document.getElementById('pantalla-login').style.display = 'flex';
+  if (motivo) mostrarErrorLogin(motivo);
+  document.getElementById('login-email')?.focus();
+}
+
+function mostrarErrorLogin(msg) {
+  const e = document.getElementById('login-error');
+  e.textContent = msg;
+  e.style.display = msg ? 'block' : 'none';
+}
+
+async function api(method, path, body) {
+  const cab = { 'Content-Type': 'application/json' };
+  const t = sesion.token;
+  if (t) cab['Authorization'] = 'Bearer ' + t;
+  const r = await fetch(`${API}${path}`, {
+    method, headers: cab, body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) { cerrarSesion('Tu sesión expiró. Entra de nuevo.'); throw new Error('Sesión expirada'); }
+  let data = null;
+  try { data = await r.json(); } catch {}
+  if (!r.ok) throw new Error(data?.message || `${r.status} ${r.statusText}`);
+  return data;
+}
+const getJSON = (path) => api('GET', path);
+
+async function entrar(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+  mostrarErrorLogin('');
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  try {
+    const r = await fetch(`${API}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.status === 401) { mostrarErrorLogin('Correo o contraseña incorrectos.'); return; }
+    if (!r.ok)            { mostrarErrorLogin(`No se pudo entrar (${r.status}).`); return; }
+    const d = await r.json();
+    if (!d?.token) { mostrarErrorLogin('El servidor no devolvió una sesión válida.'); return; }
+    sesion.guardar(d);
+    document.getElementById('login-pass').value = '';
+    await abrirPagina();
+  } catch (e) {
+    mostrarErrorLogin('No hay conexión con el servidor.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+}
+
+async function abrirPagina() {
+  document.getElementById('pantalla-login').style.display = 'none';
+  document.getElementById('contenido').style.display = 'block';
+  await Promise.all([cargarSucursales(), cargarUsuarios()]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sucursales — para las casillas del formulario. Se piden en vivo (no hay
+// lista fija en el código): si Kepler ya trae una sucursal nueva, aparece
+// sola la próxima vez que se abre esta página.
+// ─────────────────────────────────────────────────────────────────────────
+let SUCURSALES = [];
+async function cargarSucursales() {
+  try {
+    SUCURSALES = await getJSON('/catalogo/sucursales');
+  } catch (e) {
+    SUCURSALES = [];
+  }
+  const cont = document.getElementById('f-sucursales');
+  cont.innerHTML = SUCURSALES.map(s => `
+    <label class="suc-opt">
+      <input type="checkbox" value="${esc(s.codigo)}">
+      ${esc(s.codigo)} · ${esc(s.nombre)}
+    </label>`).join('') || '<span style="font-size:12px;color:var(--gris)">No se pudieron cargar las sucursales.</span>';
+}
+
+function nombreSucursal(codigo) {
+  return SUCURSALES.find(s => s.codigo === codigo)?.nombre || codigo;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Listado de usuarios
+// ─────────────────────────────────────────────────────────────────────────
+let USUARIOS = [];
+let YO = null;
+
+function mostrarMsg(tipo, texto) {
+  const m = document.getElementById('msg');
+  m.className = 'msg ' + tipo;
+  m.textContent = texto;
+  if (tipo === 'ok') setTimeout(() => { m.style.display = 'none'; }, 4000);
+}
+
+async function cargarUsuarios() {
+  YO = sesion.usuario;
+  try {
+    USUARIOS = await getJSON('/admin/usuarios');
+    document.getElementById('panel').style.display = 'block';
+    document.getElementById('no-permiso').style.display = 'none';
+    pintarTabla();
+  } catch (e) {
+    // El backend exige rol admin (RolesGuard); un 403 aquí es justo eso.
+    document.getElementById('panel').style.display = 'none';
+    document.getElementById('no-permiso').style.display = 'block';
+  }
+}
+
+function fmtFecha(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return iso; }
+}
+
+function pintarTabla() {
+  const tbody = document.getElementById('tbody');
+  document.getElementById('conteo').textContent = `(${USUARIOS.length})`;
+  if (!USUARIOS.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="vacio">Sin cuentas todavía.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = USUARIOS.map(u => {
+    const esYo = YO && Number(YO.id) === Number(u.id);
+    const sucChips = (u.sucursales && u.sucursales.length)
+      ? u.sucursales.map(c => `<span class="suc-chip">${esc(c)} · ${esc(nombreSucursal(c))}</span>`).join(' ')
+      : '<span class="suc-chip todas">Todas</span>';
+    return `
+    <tr>
+      <td>${esc(u.nombre)}${esYo ? ' <span style="color:var(--gris);font-size:11px">(tú)</span>' : ''}</td>
+      <td>${esc(u.email)}</td>
+      <td><span class="badge ${u.rol === 'admin' ? 'admin' : 'viewer'}">${esc(u.rol)}</span></td>
+      <td>${sucChips}</td>
+      <td><span class="badge ${u.activo ? 'on' : 'off'}">${u.activo ? 'Activa' : 'Desactivada'}</span></td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--gris)">${fmtFecha(u.ultimo_login)}</td>
+      <td>
+        <div class="acciones">
+          <button class="btn btn-sec btn-xs" onclick="abrirEditar(${u.id})">✏️ Editar</button>
+          <button class="btn btn-sec btn-xs" onclick="abrirPass(${u.id})">🔑 Contraseña</button>
+          ${u.activo
+            ? `<button class="btn btn-danger btn-xs" ${esYo ? 'disabled title="No puedes desactivarte a ti mismo"' : ''} onclick="desactivar(${u.id})">🗑️ Eliminar acceso</button>`
+            : `<button class="btn btn-sec btn-xs" onclick="reactivar(${u.id})">↩️ Reactivar</button>
+               <button class="btn btn-danger btn-xs" ${esYo ? 'disabled' : ''} onclick="eliminarDefinitivo(${u.id})">⚠️ Borrar definitivamente</button>`}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Modal crear / editar
+// ─────────────────────────────────────────────────────────────────────────
+let MODO_MODAL = 'crear';
+
+function marcarSucursales(codigos) {
+  const set = new Set(codigos || []);
+  document.querySelectorAll('#f-sucursales input[type=checkbox]').forEach(c => { c.checked = set.has(c.value); });
+}
+function leerSucursales() {
+  return Array.from(document.querySelectorAll('#f-sucursales input[type=checkbox]:checked')).map(c => c.value);
+}
+
+function abrirCrear() {
+  MODO_MODAL = 'crear';
+  document.getElementById('modal-titulo').textContent = 'Nueva cuenta';
+  document.getElementById('f-id').value = '';
+  document.getElementById('f-nombre').value = '';
+  document.getElementById('f-email').value = '';
+  document.getElementById('f-email').disabled = false;
+  document.getElementById('f-password').value = '';
+  document.getElementById('f-password').placeholder = 'Mínimo 6 caracteres';
+  document.getElementById('f-password').required = true;
+  document.getElementById('f-rol').value = 'viewer';
+  marcarSucursales([]);
+  document.getElementById('campo-email').style.display = 'block';
+  document.getElementById('campo-password').style.display = 'block';
+  document.getElementById('campo-activo').style.display = 'none';
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('abierto');
+  document.getElementById('f-nombre').focus();
+}
+
+function abrirEditar(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!u) return;
+  MODO_MODAL = 'editar';
+  document.getElementById('modal-titulo').textContent = `Editar — ${u.nombre}`;
+  document.getElementById('f-id').value = u.id;
+  document.getElementById('f-nombre').value = u.nombre;
+  document.getElementById('f-email').value = u.email;
+  document.getElementById('f-email').disabled = true; // el correo es la identidad del login; no se edita aquí
+  document.getElementById('f-password').value = '';
+  document.getElementById('f-password').required = false;
+  document.getElementById('f-rol').value = u.rol;
+  marcarSucursales(u.sucursales);
+  document.getElementById('f-activo').checked = !!u.activo;
+  document.getElementById('campo-email').style.display = 'block';
+  document.getElementById('campo-password').style.display = 'none';
+  document.getElementById('campo-activo').style.display = (YO && Number(YO.id) === id) ? 'none' : 'block';
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('abierto');
+  document.getElementById('f-nombre').focus();
+}
+
+function cerrarModal() {
+  document.getElementById('modal-overlay').classList.remove('abierto');
+}
+
+async function guardarModal(ev) {
+  ev.preventDefault();
+  const err = document.getElementById('modal-err');
+  err.style.display = 'none';
+  const btn = document.getElementById('btn-guardar');
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const rol = document.getElementById('f-rol').value;
+  const sucursales = leerSucursales();
+
+  btn.disabled = true;
+  try {
+    if (MODO_MODAL === 'crear') {
+      const email = document.getElementById('f-email').value.trim().toLowerCase();
+      const password = document.getElementById('f-password').value;
+      if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
+      await api('POST', '/admin/usuarios', { email, nombre, password, rol, sucursales });
+      mostrarMsg('ok', `Cuenta creada para ${nombre}.`);
+    } else {
+      const id = Number(document.getElementById('f-id').value);
+      const body = { nombre, rol, sucursales };
+      if (Number(YO?.id) !== id) body.activo = document.getElementById('f-activo').checked;
+      await api('PUT', `/admin/usuarios/${id}`, body);
+      mostrarMsg('ok', `Cambios guardados para ${nombre}.`);
+    }
+    cerrarModal();
+    await cargarUsuarios();
+  } catch (e) {
+    err.textContent = e.message || 'No se pudo guardar.';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Desactivar / reactivar — el backend NUNCA borra la fila (columna `activo`),
+// así que "Eliminar acceso" y "Reactivar" son la misma acción en reversa.
+// ─────────────────────────────────────────────────────────────────────────
+async function desactivar(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!u) return;
+  if (!confirm(`¿Quitarle el acceso a ${u.nombre} (${u.email})?\n\nNo se borra nada: se puede reactivar cuando se quiera.`)) return;
+  try {
+    await api('DELETE', `/admin/usuarios/${id}`);
+    mostrarMsg('ok', `Acceso de ${u.nombre} desactivado.`);
+    await cargarUsuarios();
+  } catch (e) {
+    mostrarMsg('err', e.message || 'No se pudo desactivar.');
+  }
+}
+
+async function reactivar(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!u) return;
+  try {
+    await api('PUT', `/admin/usuarios/${id}`, { activo: true });
+    mostrarMsg('ok', `Acceso de ${u.nombre} reactivado.`);
+    await cargarUsuarios();
+  } catch (e) {
+    mostrarMsg('err', e.message || 'No se pudo reactivar.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Borrado real — sólo disponible sobre una cuenta ya desactivada (el
+// backend también lo exige). A diferencia de "Eliminar acceso", esto NO
+// se puede deshacer: pide teclear el correo exacto para confirmar.
+// ─────────────────────────────────────────────────────────────────────────
+async function eliminarDefinitivo(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!u) return;
+  const escrito = prompt(
+    `Esto borra la cuenta de ${u.nombre} PARA SIEMPRE — no hay "deshacer".\n\n` +
+    `Para confirmar, escribe exactamente su correo:\n${u.email}`
+  );
+  if (escrito === null) return;
+  if (escrito.trim().toLowerCase() !== u.email.toLowerCase()) {
+    mostrarMsg('err', 'El correo no coincidió — no se borró nada.');
+    return;
+  }
+  try {
+    const r = await api('DELETE', `/admin/usuarios/${id}/definitivo`);
+    if (r?.ok === false) { mostrarMsg('err', r.msg || 'No se pudo borrar.'); return; }
+    mostrarMsg('ok', `Cuenta de ${u.nombre} borrada definitivamente.`);
+    await cargarUsuarios();
+  } catch (e) {
+    mostrarMsg('err', e.message || 'No se pudo borrar.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Modal de contraseña
+// ─────────────────────────────────────────────────────────────────────────
+let ID_PASS = null;
+
+function abrirPass(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!u) return;
+  ID_PASS = id;
+  document.getElementById('pass-quien').textContent = `Para ${u.nombre} (${u.email})`;
+  document.getElementById('pass-nueva').value = '';
+  document.getElementById('pass-err').style.display = 'none';
+  document.getElementById('modal-pass-overlay').classList.add('abierto');
+  document.getElementById('pass-nueva').focus();
+}
+function cerrarModalPass() {
+  document.getElementById('modal-pass-overlay').classList.remove('abierto');
+  ID_PASS = null;
+}
+async function guardarPass(ev) {
+  ev.preventDefault();
+  const err = document.getElementById('pass-err');
+  err.style.display = 'none';
+  const nueva = document.getElementById('pass-nueva').value;
+  if (nueva.length < 6) { err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; err.style.display = 'block'; return; }
+  try {
+    await api('POST', `/admin/usuarios/${ID_PASS}/reset-password`, { nueva });
+    mostrarMsg('ok', 'Contraseña restablecida.');
+    cerrarModalPass();
+  } catch (e) {
+    err.textContent = e.message || 'No se pudo restablecer.';
+    err.style.display = 'block';
+  }
+}
+
+document.getElementById('form-login').addEventListener('submit', entrar);
+document.getElementById('form-modal').addEventListener('submit', guardarModal);
+document.getElementById('form-pass').addEventListener('submit', guardarPass);
+document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') cerrarModal(); });
+document.getElementById('modal-pass-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-pass-overlay') cerrarModalPass(); });
+
+if (sesion.token) abrirPagina();
+else cerrarSesion('');
+</script>
+</body>
+</html>
