@@ -69,7 +69,7 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
       </header>
 
-      <div class="arq-2col" [class.arq-1col]="!canCapture()">
+      <div class="arq-2col" [class.arq-1col]="!canCapture() || (!revela && !rows().length)">
         <!-- Captura -->
         @if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
@@ -98,14 +98,14 @@ import { imprimirTicket } from '../ticket-arqueo';
                 Tenés <strong>{{ turnos().length }} cortes pendientes</strong>. Se cierran del más viejo al más nuevo.
               </p>
               <div class="arq-turnos">
-                @for (t of turnos(); track t.folio + t.warehouse_code; let i = $index) {
+                @for (t of turnosOrdenados(); track t.folio + t.warehouse_code; let i = $index) {
                   <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
                        El backend lo exige igual — esto solo lo hace visible. -->
                   <button type="button" class="arq-turno" [class.sel]="t.folio === turnoFolio()"
                           [class.bloq]="i > 0" [disabled]="i > 0"
                           [attr.title]="i > 0 ? 'Primero cerrá el corte pendiente más viejo' : null"
                           (click)="elegirTurno(t.folio)">
-                    <span class="arq-turno-caja">Caja {{ t.caja }}</span>
+                    <span class="arq-turno-caja"><span class="arq-turno-n">{{ i + 1 }}º</span> Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
                     <span class="arq-turno-meta">{{ t.abierto ? 'Abierta desde ' + (t.hora_apertura || '—') : 'Cerró ' + (t.hora_cierre || '—') }}</span>
                     @if (i === 0 && !t.abierto) { <span class="arq-pide">Te toca arquear</span> }
@@ -135,7 +135,7 @@ import { imprimirTicket } from '../ticket-arqueo';
                   <i class="pi pi-bell"></i>
                   <div>
                     <strong>Kepler cerró tu caja{{ t.hora_cierre ? ' a las ' + t.hora_cierre : '' }}. Te toca arquear.</strong>
-                    @if (t.cerrado_hace_min != null) { <p class="muted">Hace {{ t.cerrado_hace_min }} min.</p> }
+                    @if (t.cerrado_hace_min != null) { <p class="muted">Hace {{ hace(t.cerrado_hace_min) }}.</p> }
                   </div>
                 </div>
               }
@@ -216,8 +216,18 @@ import { imprimirTicket } from '../ticket-arqueo';
               </label>
             }
             <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
-            <p-button type="button" [label]="submitLabel()" icon="pi pi-lock" styleClass="p-button-sm"
-                    [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
+
+            <!-- Barra pegada al fondo: contando billetes se scrollea todo el rato, y
+                 tanto el total como el botón quedaban fuera de vista. Son las dos
+                 únicas cosas que la cajera necesita a mano todo el tiempo. -->
+            <div class="arq-bar">
+              <div class="arq-bar-total">
+                <span class="arq-bar-l">Total contado</span>
+                <span class="arq-bar-v">{{ money(arqTotal()) }}</span>
+              </div>
+              <p-button type="button" [label]="submitLabel()" icon="pi pi-lock"
+                      [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
+            </div>
           }
 
           @if (result(); as r) {
@@ -255,7 +265,10 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
         }
 
-        <!-- Historial -->
+        <!-- Historial. A la cajera sin arqueos no se le muestra una tabla vacía:
+             ocupaba media pantalla para decir "nada todavía" en el momento en que
+             está contando billetes de pie frente a la caja. -->
+        @if (revela || rows().length) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Arqueos recientes</h3>
           <p-table [value]="rows()" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
@@ -316,6 +329,7 @@ import { imprimirTicket } from '../ticket-arqueo';
             <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">Sin arqueos aún.</td></tr></ng-template>
           </p-table>
         </div>
+        }
       </div>
     </div>
   `,
@@ -326,6 +340,17 @@ import { imprimirTicket } from '../ticket-arqueo';
     .arq-2col.arq-1col { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .arq-2col { grid-template-columns: 1fr; } }
     .arq-panel { padding: 1rem; }
+    .arq-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 1rem;
+               margin: .8rem -1rem -1rem; padding: .7rem 1rem;
+               background: var(--card-bg); border-top: 1px solid var(--border-color);
+               border-radius: 0 0 var(--r-md) var(--r-md); }
+    .arq-bar-total { display: flex; flex-direction: column; line-height: 1.1; }
+    .arq-bar-l { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-bar-v { font-size: 1.5rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .arq-bar :host ::ng-deep .p-button, .arq-bar ::ng-deep .p-button { margin-left: auto; }
+    .arq-turno-n { display: inline-block; margin-right: .3rem; padding: 0 .3rem; border-radius: var(--r-sm);
+                   background: var(--action); color: #fff; font-size: .62rem; font-weight: 700; vertical-align: middle; }
+    .arq-turno.bloq .arq-turno-n { background: var(--text-muted); }
     .arq-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
     .arq-msg { font-size: .82rem; margin: .4rem 0; }
     .arq-vacio { display: flex; gap: .8rem; align-items: flex-start; padding: .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md); }
@@ -426,6 +451,20 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly hoyTxt = computed(() => new Date().toLocaleDateString('es-MX', {
     timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
   }));
+  /**
+   * Turnos del más viejo al más nuevo. El backend ya ordena por fecha, pero dos
+   * cortes del MISMO día se desempataban por número de caja, no por hora — y el
+   * `i > 0` del template convertía esa posición en "quién puede arquear". O sea:
+   * el orden visual mandaba sobre la regla. Acá se ordena por el instante real de
+   * cierre (fecha + hora) para que "el más viejo" sea el más viejo de verdad.
+   */
+  readonly turnosOrdenados = computed(() => [...this.turnos()].sort((a, b) => {
+    const ka = `${a.business_date} ${(a.hora_cierre || a.hora_apertura || '00:00')}`;
+    const kb = `${b.business_date} ${(b.hora_cierre || b.hora_apertura || '00:00')}`;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  }));
+  /** El único accionable: los cortes se cierran en orden y el backend lo exige igual. */
+  readonly turnoQueToca = computed(() => this.turnosOrdenados()[0] ?? null);
   readonly turnoSel = computed(() => this.turnos().find((t) => t.folio === this.turnoFolio()) ?? null);
   /** Captura a mano (solo supervisor): relevo, contingencia, caja sin Kepler. */
   readonly manual = signal(false);
@@ -496,7 +535,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         this.turnos.set(t);
         this.turnosAl.set(new Date().toISOString());
         // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
-        if (t.length && !this.turnoSel()) this.turnoFolio.set(t[0].folio);
+        // Se preselecciona el que TOCA (el más viejo), no el primero que llegó.
+        if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
         this.cargandoTurnos.set(false);
       },
       error: () => this.cargandoTurnos.set(false),
@@ -533,6 +573,19 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
           detalle: pronto ? `${holgura} Andá preparando el efectivo.` : `${holgura} Faltan ${min} min.`,
           pronto,
         };
+  }
+
+  /**
+   * "Hace 689 min" obliga a dividir mentalmente. Arriba de una hora se dice en
+   * horas, y arriba de un día en días: la cajera necesita saber si es de recién
+   * o de anteayer, no el número exacto.
+   */
+  hace(min: number): string {
+    if (min < 60) return `${min} min`;
+    const h = Math.round(min / 60);
+    if (h < 24) return h === 1 ? '1 hora' : `${h} horas`;
+    const d = Math.round(h / 24);
+    return d === 1 ? '1 día' : `${d} días`;
   }
 
   elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
