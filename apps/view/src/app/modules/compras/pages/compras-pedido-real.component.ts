@@ -135,6 +135,27 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorkbook()"></p-button></div>
           </div>
         } @else {
+          <!-- U.2 — el inventario valuado declara su hueco. Sin este banner el total baja en
+               silencio al dejar de sumar lo no verificado, y eso se lee como "hay menos
+               inventario" — otra mentira distinta de la que estamos quitando. -->
+          @if (rungGap(); as g) {
+            <div class="pr-rung-banner">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <p>
+                <strong>{{ g.skus | number }} {{ g.skus === 1 ? 'producto' : 'productos' }}</strong>
+                ({{ g.celdas | number }} {{ g.celdas === 1 ? 'almacén' : 'almacenes' }})
+                quedan <strong>sin valuar</strong>: su divisor de cajas no cuadra con lo que se pagó
+                por unidad de stock, así que la existencia no se convierte a cajas ni se multiplica
+                por el costo de caja. <strong>No valen cero — no se están midiendo.</strong>
+                @if (g.arbitrado > 0) {
+                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong>, cifra de
+                  referencia para revisar y no para publicar.
+                }
+                En esos renglones la celda muestra la cantidad en la unidad que el ERP realmente
+                guarda (kg, paquete, cubeta), que sí es verdad.
+              </p>
+            </div>
+          }
           <div class="pr-wb-scroll">
             <p-table [value]="wbRows()" [loading]="loading()"
                      styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
@@ -196,14 +217,36 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
-                    <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
+                    <!-- U.2 — si el peldaño de este almacén no está verificado, la conversión a
+                         cajas no es confiable: se muestra la cantidad SUELTA con su rótulo (que sí
+                         es verdad) en vez de una cifra de cajas inventada. -->
+                    @if (rungOf(r, t.code); as rung) {
+                      <td class="pr-r">
+                        <span class="pr-rung" [title]="rungTitle(r, t.code)">
+                          {{ natOf(r, t.code) | number:'1.0-0' }} {{ natUnitOf(r, t.code) }}
+                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        </span>
+                      </td>
+                    } @else {
+                      <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
+                    }
                     <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
                   }
                   <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
                   <td class="pr-r pr-muted-h">{{ (r.suma_pedido_cajas * r.uxc) | number:'1.0-0' }}</td>
                   <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="r.suma_pedido_cajas > 0">{{ money(r.pedido_valor) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
-                  <td class="pr-r pr-muted">{{ money(r.valor_exis) }}</td>
+                  <!-- U.2 — el valuado no se dibuja si algún almacén tiene el peldaño sin verificar:
+                       un cero o un parcial silencioso se lee como "hay poco inventario", que es otra
+                       mentira. Se declara con el conteo de almacenes y el motivo en el tooltip. -->
+                  <td class="pr-r pr-muted" [title]="valorExisTitle(r)">
+                    @if (r.almacenes_sin_valuar) {
+                      <span class="pr-rung">
+                        @if (r.valor_exis) { {{ money(r.valor_exis) }} } @else { sin valuar }
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      </span>
+                    } @else { {{ money(r.valor_exis) }} }
+                  </td>
                 </tr>
                 @if (isOpen(r)) {
                   <tr class="pr-wb-exp">
@@ -479,6 +522,21 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
       border-left: 2px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
       background: var(--surface-2, transparent); color: var(--text-muted); }
     .pr-tran-gap i { color: var(--warn-fg); margin-top: .12rem; }
+    /* U.2 — el hueco del valuado, declarado. Mismo lenguaje visual que .pr-tran-gap (hairline +
+       filete ámbar): es una advertencia de dato, no un error de la pantalla. */
+    .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem;
+      line-height: 1.5; margin: 0 0 1rem; padding: .6rem .75rem;
+      border: 1px solid var(--border-color); border-left: 2px solid var(--warn-fg);
+      border-radius: var(--r-sm, 8px); background: var(--surface-2, transparent);
+      color: var(--text-muted); }
+    .pr-rung-banner i { color: var(--warn-fg); margin-top: .18rem; flex: none; }
+    .pr-rung-banner p { margin: 0; max-width: 78ch; }
+    .pr-rung-banner strong { color: var(--text-main); font-weight: 600; }
+    /* La celda que no se puede convertir a cajas: muestra la cantidad SUELTA con su rótulo. */
+    .pr-rung { display: inline-flex; align-items: baseline; gap: .25rem;
+      font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums;
+      color: var(--warn-fg); cursor: help; }
+    .pr-rung i { font-size: .68rem; }
     .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
     .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
     .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
@@ -625,6 +683,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbRows = signal<WorkbookRow[]>([]);
   wbTerritories = signal<WorkbookTerritory[]>([]);   // puntos de compra (columnas dinámicas)
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
+  // U.2 — el hueco del valuado. null cuando no hay nada sin verificar (el banner no se pinta).
+  private readonly wbRung = signal<{ skus: number; celdas: number; arbitrado: number } | null>(null);
+  rungGap(): { skus: number; celdas: number; arbitrado: number } | null {
+    const g = this.wbRung();
+    return g && g.skus > 0 ? g : null;
+  }
   wbTotal = signal(0);
   // RA-PRO.36.2 — paginación SERVER-SIDE (20/página): la matriz pedía 1000 filas + 3 motores en
   // paralelo → saturaba Railway. Ahora trae solo la página; los filtros (pedido/IAD/sobrestock) van
@@ -642,6 +706,41 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbColCount = computed(() => 9 + this.wbTerritories().length * 3 + 5);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
+
+  // ── U.2 — DECLARAR el peldaño sin verificar en vez de dibujar una cifra de cajas inventada ──
+  // El backend marca la celda cuando el divisor de ESE almacén no cuadra con lo que se pagó
+  // (`analytics.v_unit_rung_audit`: `display_bf == caja_cost / pagado`). En esos casos la
+  // conversión a cajas no es confiable —ni la cantidad ni su valuado— pero la cantidad SUELTA sí
+  // es verdad, y el comprador la necesita: hay 2,679 KG ahí, no un blanco.
+  /** `'x1_inflada' | 'x2_deflactada' | null`. null = el peldaño de esa celda está verificado. */
+  rungOf(r: WorkbookRow, code: string): string | null { return r.cells?.[code]?.rung ?? null; }
+  /** Cantidad en la unidad NATIVA del almacén (la que el ERP realmente guarda). */
+  natOf(r: WorkbookRow, code: string): number { return r.cells?.[code]?.nat ?? 0; }
+  /** Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén. Sin dato → "u". */
+  natUnitOf(r: WorkbookRow, code: string): string {
+    return (r.cells?.[code]?.natu || '').trim().toLowerCase() || 'u';
+  }
+  rungTitle(r: WorkbookRow, code: string): string {
+    const v = this.rungOf(r, code);
+    const n = this.natOf(r, code).toLocaleString('es-MX');
+    const u = this.natUnitOf(r, code);
+    const dir = v === 'x1_inflada'
+      ? 'el divisor de cajas es más chico de lo que el costo justifica (la valuación saldría inflada)'
+      : 'el divisor de cajas es más grande de lo que el costo justifica (la valuación saldría corta)';
+    return `No se puede convertir a cajas: ${dir}. Lo que sí es verdad: hay ${n} ${u} en este almacén. `
+      + 'Se compara el divisor contra lo que se pagó por unidad de stock; el detalle está en la '
+      + 'bandeja de hallazgos.';
+  }
+  valorExisTitle(r: WorkbookRow): string {
+    if (!r.almacenes_sin_valuar) return 'Dinero inmovilizado en existencia: existencia × costo de caja.';
+    const n = r.almacenes_sin_valuar;
+    const arb = r.valor_exis_arbitrado
+      ? ` Contra lo pagado rondarían ${this.money(r.valor_exis_arbitrado)}, pero es una referencia `
+        + 'para revisar, no una cifra publicable.'
+      : '';
+    return `${n} ${n === 1 ? 'almacén' : 'almacenes'} con el peldaño de unidad sin verificar: su `
+      + `existencia NO se valúa acá para no publicar un número que el costo contradice.${arb}`;
+  }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
   private readonly abcMap = computed(() => {
     const m = new Map<string, string>();
@@ -996,6 +1095,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.loading.set(false);
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.wbRung.set(r.unit_rung ?? null);
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
           this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {

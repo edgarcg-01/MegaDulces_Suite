@@ -21,6 +21,22 @@
 - **Dónde está el dinero** (919 cortes): el cajón se queda bajo el límite en el **89%** de los casos mientras el contado promedia $27,564 → **el 63-81% del efectivo sale en sangrías** y contar solo al cierre verifica un tercio. `blind_counts.tipo` acepta `retiro` (mig 20260903170000; el rollback falla a propósito si ya hay retiros capturados). Detección **stateless**: compara `c48` contra lo contado, sin guardar "último visto".
 - **16 códigos de Kepler sin usuario**: **114 cortes por $3,035,115** cuyos turnos no le llegan a nadie porque el código del ERP no existe como usuario. Documentados con nombre, sucursal y monto en la fase. Se resuelve dando de alta usuarios, no con código.
 
+### Fixed — Libro de Compras: **el TXT que se le entrega a ContPAQi era rechazable** (LC.9–LC.15, 2026-09-03)
+- **La pregunta que lo destapó:** *"¿ya está listo el .txt de las cuentas no asociadas?"*. Estaba escrito, pero con tres formas de fallar en silencio.
+- **El freno de existencia de cuenta se había perdido** al pasar de script a servicio: `getMes` sólo traía `proveedor_existe` y el freno preguntaba por `cuenta_compra_iva`, que es un string **precalculado** y nunca falta. Los **14 proveedores sin cuenta `502`** pasaban derecho al archivo, y `padR(null, 30)` mete 30 espacios — el renglón se ve bien en pantalla y ContPAQi **rechaza el archivo entero**. El script viejo sí frenaba.
+- **El cuadre comparaba los datos de hoy, no lo entregado:** re-derivaba con `getMes()` en vez de parsear `archivo_contenido` (la columna que existe justo para eso), y no filtraba por tipo de corrida. Un CFDI que llegara después de entregar producía un descuadre que no existía.
+- **`setInclusion` dejaba servible el TXT viejo:** limpiaba el hash pero no el contenido, así que `/archivo` seguía entregando el anterior con la firma vacía.
+- **Abrir agosto tardaba 11,795 ms** — `to_char(fecha)` anulaba el índice (seq scan de 167k CFDIs) más dos `EXISTS` correlacionados. Ahora **372 ms**, con los conteos idénticos.
+
+### Added — Libro de Compras: anti-duplicado exacto por UUID, respaldo y cierre del lazo (LC.9–LC.15, 2026-09-03)
+- **`parsearTxt()`**, inverso exacto del generador. El layout sale a `poliza-txt.ts` sin dependencias de Nest, así que el smoke lo carga y prueba de verdad; y los anchos quedan una sola vez, leídos por escritor y lector.
+- **Carátula editable** (folio + concepto) con guarda de folio ocupado en ContPAQi. **Es lo que desbloquea ago-2026**, que no tiene póliza de compras y necesita entrar como folio 1. El anti-duplicado pasa a correr en los dos modos; el modo `libro` deja de generar.
+- **Tercera y cuarta puertas del anti-duplicado, exactas:** el histórico del workbook por UUID (hasta jul-2026) y el UUID que nosotros mismos ponemos en el `Concepto` del movimiento, que hasta hoy **no se podía leer de vuelta** porque el importer traía el concepto de la póliza y no el del movimiento. La certeza bloquea sin override; la sospecha por importe lo admite con motivo, que se guarda.
+- **Respaldo en Excel** derivado del archivo entregado (a ContPAQi va el TXT **y su respaldo**), y **CSV para su Asociador de CFDI**.
+- **La cobertura del anti-duplicado exacto va siempre en pantalla**: sin histórico sembrado la puerta es un no-op, y un no-op se lee igual que "no hay duplicados".
+- **Tres hallazgos del sembrado, dos contra lo que decía el doc:** los 149 UUID ausentes **no** son anteriores al ADD (arranca en 2018-01) — **148 son de abr-2023**, donde el workbook tiene el UUID corrido un carácter (136 se recuperan por prefijo único, quedan 13); los duplicados del libro son **1**, no ~297 ($133,073.28 registrados dos veces); y hay 10 UUID malformados.
+- ⚠️ **Sigue sin probarse el separador del TXT.** Los 19 campos se validaron contra las tablas de ContPAQi, pero eso prueba qué significa cada campo, no cómo se serializa. El smoke skipea limpio y se pone verde solo en cuanto haya un TXT que ContPAQi ya haya aceptado en `database/tests/fixtures/`.
+- **Pendiente prod:** 3 migraciones + correr el sembrador desde la LAN + redeploy api/view.
 
 ### Fixed — Almacén: **el almacenista entraba y la app lo mandaba a capturar visitas** (AUTHZ.6, 2026-09-03)
 - **Reporte:** *"hay problemas con el usuario luis_piceno en prod, lo arroja a la pantalla por default, él teniendo otros permisos"*. (La cuenta fue renombrada a `luis_espino` durante la investigación — mismo id.)

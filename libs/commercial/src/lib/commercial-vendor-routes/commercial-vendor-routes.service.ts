@@ -196,22 +196,51 @@ export class CommercialVendorRoutesService {
 
       type Wh = { id: string; code: string; name: string };
       let sucursal: Wh | undefined;
+      // De DÓNDE salió la sucursal: una asignación REAL (route/warehouse_code) o el
+      // DEFAULT del tenant (fallback). Normalización del error "veo la sucursal
+      // equivocada": el default no se dibuja como si fuera la sucursal del vendedor;
+      // el app lo muestra como "sin asignar" para que se corrija, no que engañe.
+      let sucursalSource: 'route' | 'warehouse_code' | 'default' | null = null;
+
+      // La ruta operativa del vendedor sale de `daily_assignments` — lo que ESCRIBE el
+      // panel de supervisor y LEE la cartera ("Mi ruta") + createCustomer. Se prefiere
+      // la ruta de HOY (ISODOW MX); si no hay, cualquiera asignada. Fallback: el legacy
+      // `users.route_id`. Así una asignación desde el panel maneja también el stock, sin
+      // tener que setear route_id aparte (era la causa de "veo otra sucursal").
+      let routeId: string | null = user?.route_id || null;
+      if (me) {
+        try {
+          const da = await trx('public.daily_assignments')
+            .where({ user_id: me })
+            .whereNull('deleted_at')
+            .select('route_id')
+            .orderByRaw(
+              `(day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int) DESC`,
+            )
+            .first();
+          if (da?.route_id) routeId = da.route_id;
+        } catch {
+          /* sin daily_assignments → usamos users.route_id */
+        }
+      }
+
       // 1. La verdad operativa: usuario → su ruta → sucursal de la ruta.
       //    En try/catch: la tabla route_warehouses es nueva; si el código despliega
       //    antes que su migración, NO rompemos la resolución (cae a warehouse_code /
       //    default). Lección del incidente client_uuid: código y migración pueden
       //    llegar desfasados.
-      if (user?.route_id) {
+      if (routeId) {
         try {
           sucursal = await trx('commercial.route_warehouses as rw')
             .join('commercial.warehouses as w', function () {
               this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
             })
-            .where('rw.route_id', user.route_id)
+            .where('rw.route_id', routeId)
             .where('w.active', true)
             .whereNull('w.deleted_at')
             .select('w.id', 'w.code', 'w.name')
             .first<Wh>();
+          if (sucursal) sucursalSource = 'route';
         } catch {
           /* route_warehouses aún no migrada → seguimos con los fallbacks */
         }
@@ -223,14 +252,17 @@ export class CommercialVendorRoutesService {
           .whereNull('deleted_at')
           .select('id', 'code', 'name')
           .first<Wh>();
+        if (sucursal) sucursalSource = 'warehouse_code';
       }
-      // 3. Fallback: el almacén default del tenant (para no quedar sin stock).
+      // 3. Fallback: el almacén default del tenant (para no quedar sin stock). NO es
+      //    una asignación real → se marca 'default' para que el app lo declare.
       if (!sucursal) {
         sucursal = await trx('commercial.warehouses')
           .where({ is_default: true, active: true })
           .whereNull('deleted_at')
           .select('id', 'code', 'name')
           .first<Wh>();
+        if (sucursal) sucursalSource = 'default';
       }
 
       const camioneta: Wh | undefined = me
@@ -243,7 +275,15 @@ export class CommercialVendorRoutesService {
 
       return {
         sucursal: sucursal
-          ? { id: sucursal.id, code: sucursal.code, name: sucursal.name }
+          ? {
+              id: sucursal.id,
+              code: sucursal.code,
+              name: sucursal.name,
+              // assigned=false → es el default del tenant, NO la sucursal del vendedor:
+              // el app lo declara "sin asignar" en vez de mostrarlo como su surtido real.
+              assigned: sucursalSource === 'route' || sucursalSource === 'warehouse_code',
+              source: sucursalSource,
+            }
           : null,
         camioneta: camioneta
           ? { id: camioneta.id, code: camioneta.code, name: camioneta.name }
@@ -350,14 +390,35 @@ export class CommercialVendorRoutesService {
     });
   }
 
-  /** Vendedores asignables (usuarios de campo activos). */
+  /** Vendedores asignables (usuarios de campo activos). Los roles reales de campo son
+   *  `vendedor_ruta`/`promotor_ruta` (no `vendedor` a secas, que no existe) — el filtro
+   *  viejo devolvía [] y dejaba vacíos los dropdowns de asignación. */
   async listVendors() {
     return this.tk.run(async (trx) =>
       trx('public.users')
-        .whereIn('role_name', ['vendedor', 'colaborador', 'ejecutivo'])
+        .whereIn('role_name', [
+          'vendedor_ruta',
+          'promotor_ruta',
+          'vendedor',
+          'colaborador',
+          'ejecutivo',
+        ])
         .where('activo', true)
         .select('id', 'username', 'role_name')
         .orderBy('username'),
+    );
+  }
+
+  /** Catálogo de rutas (trade.catalogs 'rutas') con su zona — para el picker del panel
+   *  de supervisores que asigna rutas a vendedores. */
+  async listRouteCatalog() {
+    return this.tk.run(async (trx) =>
+      trx('trade.catalogs as r')
+        .leftJoin('public.zones as z', 'z.id', 'r.parent_id')
+        .where('r.catalog_id', 'rutas')
+        .whereNull('r.deleted_at')
+        .select('r.id as route_id', 'r.value as route', 'z.name as zone')
+        .orderBy(['z.name', 'r.value']),
     );
   }
 

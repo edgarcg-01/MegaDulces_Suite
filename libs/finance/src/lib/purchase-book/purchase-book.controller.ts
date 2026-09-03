@@ -43,6 +43,13 @@ export class PurchaseBookController {
     return this.svc.listNoAsociados(limit ? Number(limit) : undefined);
   }
 
+  @Get('no-asociados/cobertura')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Hasta dónde llega el anti-duplicado exacto por UUID (y desde dónde vuelve a ser por importe).' })
+  cobertura() {
+    return this.svc.coberturaUuid();
+  }
+
   @Get('no-asociados/:mes')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Los movimientos no asociados del mes, con los que ya están posteados marcados aparte.' })
@@ -75,7 +82,7 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })
   async generarNoAsociados(
     @Param('mes') mes: string,
-    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean },
+    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean; forzar_importe?: boolean; motivo?: string },
   ) {
     const r = await this.svc.generar(mes, { ...(body ?? {}), tipo: 'complemento' });
     const { txt, ...resumen } = r;
@@ -91,11 +98,38 @@ export class PurchaseBookController {
     await this.enviarTxt(res, mes, 'complemento');
   }
 
+  @Get('no-asociados/:mes/cuadre')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Compara el TXT entregado contra la póliza que quedó en ContPAQi. Sólo lee.' })
+  cuadreNoAsociados(@Param('mes') mes: string) {
+    return this.svc.cuadrarContraContpaqi(mes, 'complemento');
+  }
+
+  @Post('no-asociados/:mes/cuadre/sync-findings')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Empuja el descuadre a la bandeja de hallazgos de Maat.' })
+  sincronizarHallazgosNoAsociados(@Param('mes') mes: string) {
+    // Va en POST y no dentro del GET a propósito: un GET que escribe se dispara dos veces
+    // con cualquier refresh de la pantalla.
+    return this.svc.sincronizarHallazgos(mes, 'complemento');
+  }
+
   @Get('no-asociados/:mes/respaldo')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'El respaldo del archivo entregado: sus movimientos y las facturas que lo componen.' })
   respaldoNoAsociados(@Param('mes') mes: string) {
     return this.svc.respaldo(mes, 'complemento');
+  }
+
+  @Get('no-asociados/:mes/asociador.csv')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'CSV movimiento ↔ UUID para el Asociador de CFDI de ContPAQi.' })
+  async asociadorNoAsociados(@Param('mes') mes: string, @Res() res: Response) {
+    const r = await this.svc.asociadorCsv(mes, 'complemento');
+    // latin1 y `;`, igual que el TXT: el Excel es-MX de esta máquina vive en Windows-1252.
+    res.setHeader('Content-Type', 'text/csv; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+    res.send(Buffer.from(r.csv, 'latin1'));
   }
 
   @Post('no-asociados/:mes/estado')
@@ -117,9 +151,9 @@ export class PurchaseBookController {
 
   @Get(':mes/cuadre')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
-  @ApiOperation({ summary: 'Compara lo entregado contra la póliza que quedó en ContPAQi.' })
+  @ApiOperation({ summary: 'Compara la corrida del libro contra la póliza que quedó en ContPAQi.' })
   cuadre(@Param('mes') mes: string) {
-    return this.svc.cuadrarContraContpaqi(mes);
+    return this.svc.cuadrarContraContpaqi(mes, 'libro');
   }
 
   @Post(':mes/inclusion')

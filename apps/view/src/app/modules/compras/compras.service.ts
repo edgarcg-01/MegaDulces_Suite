@@ -137,7 +137,15 @@ export interface OverstockQuery {
 // RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
 // dinámico: la raíz de abasto resuelta por topología, sin hardcodear códigos de almacén).
 export interface WorkbookTerritory { code: string; name: string; }
-export interface WorkbookCell { vta: number; exis: number; ped: number; tran?: number; }
+export interface WorkbookCell {
+  vta: number; exis: number; ped: number; tran?: number;
+  // U.2 — sólo viaja cuando el peldaño de unidad de ESE almacén NO está verificado
+  // (`analytics.v_unit_rung_audit`). Con `rung` presente, `exis` no es confiable y la celda debe
+  // mostrar `nat` + `natu` (la cantidad y el rótulo de la unidad que el ERP realmente guarda).
+  rung?: 'x1_inflada' | 'x2_deflactada';
+  nat?: number;    // existencia en la unidad NATIVA del almacén
+  natu?: string;   // rótulo de esa unidad, declarado por el ERP dueño (KG, PAQ, CUB…)
+}
 // RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
 export interface InTransitOc {
   folio: string; sucursal: string;
@@ -184,7 +192,13 @@ export interface WorkbookRow {
   max_cajas: number | null;        // máximo de red, en cajas
   transito_cajas: number | null;   // RA-PRO.44 — OC abierta (lo que ya se pidió y no ha llegado)
   suma_pedido_cajas: number; pedido_valor: number;
-  valor_venta: number; valor_exis: number;
+  valor_venta: number;
+  // U.2 — `valor_exis` es Σ de los almacenes con el peldaño VERIFICADO. Puede venir null si NINGUNO
+  // lo está. Los que quedaron fuera se declaran acá abajo; nunca se dibujan como cero.
+  valor_exis: number | null;
+  almacenes_sin_valuar: number;          // cuántas celdas quedaron sin valuar
+  valor_exis_arbitrado: number | null;   // lo que el árbitro (la compra real) sí puede afirmar
+  rung_peor: 'x1_inflada' | 'x2_deflactada' | null;
   // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)
   iad: number | null;
   iad_band: string | null;         // accel_extra|accel|accel_leve|estable|desacel_leve|desacel|desacel_extra
@@ -201,6 +215,9 @@ export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;
   territories: WorkbookTerritory[];       // puntos de compra presentes → columnas dinámicas
   totals: { pedido: number; venta: number; exis: number };
+  // U.2 — el hueco del inventario valuado, declarado. `exis` de arriba es sólo lo verificado, así
+  // que sin esto el total bajaría en silencio y se leería como "hay menos inventario".
+  unit_rung?: { skus: number; celdas: number; arbitrado: number };
   rows: WorkbookRow[];
 }
 export interface WorkbookQuery {

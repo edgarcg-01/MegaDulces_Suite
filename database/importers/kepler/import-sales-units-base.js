@@ -1,5 +1,16 @@
 /* eslint-disable no-console */
 /**
+ * ⛔ CÓDIGO MUERTO — NO CORRER. `analytics.sales_daily.units_base` está 100% en NULL en prod
+ * (defecto #6 de docs/UNIDADES_DE_MEDIDA.md §8, abierto) y el experimento quedó retirado
+ * (FASE_MR_COSTO_Y_UNIDAD §"units_base"). Se conserva por trazabilidad del método, no por uso.
+ *
+ * Y su premisa central era falsa: el `√factor_sale` de abajo era el punto medio geométrico entre
+ * "costo por pieza" y "costo por caja" **porque no se sabía en qué peldaño estaba `cost_with_tax`**.
+ * U.0 (2026-09-03) lo midió: `cost_with_tax = u1_cost × (1 + impuesto)` — está en el peldaño
+ * BASE/SUELTO, con las razones agrupadas en 1.0000 / 1.0800 / 1.1600 / 1.2400 exactas a 4 decimales
+ * sobre 6,626 SKUs. Ya no hay ambigüedad que promediar: el ancla es `cost_with_tax` a secas.
+ * Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+ *
  * RA-PRO.14 — Normaliza analytics.sales_daily.units → units_base en CAJAS (unidad canónica).
  *
  * `sales_daily.units` mezcla unidades por canal (ver reference_box_factor_factor_sale):
