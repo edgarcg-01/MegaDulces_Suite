@@ -2,11 +2,30 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import * as dotenv from 'dotenv';
-import { AppModule } from './app.module';
 
 dotenv.config();
 
+// AppModule se trae con require() DENTRO de bootstrap(), no con `import`
+// estático arriba.
+//
+// Bug real encontrado en el despliegue de CV.15: con `import { AppModule }`
+// estático, ese require se ejecuta ANTES que `dotenv.config()` de abajo —
+// aunque textualmente dotenv.config() apareciera primero, ambos son
+// statements top-level y en el bundle compilado el require de AppModule
+// (que arrastra AuthModule, con su `if (!process.env.CATALOGO_KP_JWT_SECRET)
+// throw` a nivel de módulo) corría antes que la llamada a dotenv.config().
+// Nunca se notó en esta sesión porque cada prueba exportaba las variables a
+// mano antes de lanzar node — un despliegue real que dependa sólo del
+// `.env` habría entrado en crash-loop infinito desde el primer arranque.
+//
+// `require()` en vez de `await import()`: un `import()` dinámico hace que
+// webpack lo separe en un chunk aparte (`1.js`), y el despliegue de este app
+// copia sólo `main.js` a `.163` — `require()` synchrono, en cambio, webpack
+// lo empaqueta inline en el mismo bundle, y de todas formas no se ejecuta
+// hasta que el control de ejecución llega a esta línea (ya dentro de
+// bootstrap(), después de dotenv.config()).
 async function bootstrap() {
+  const { AppModule } = require('./app.module');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Origen abierto a propósito: los verificadores de mostrador y los kioscos
