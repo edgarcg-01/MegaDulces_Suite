@@ -53,6 +53,12 @@ export interface FacturaMes {
   aso_contabilidad: boolean | null;
   /** Su importe ya está abonado al proveedor en la póliza del mes: re-meterla la duplica. */
   ya_en_poliza: boolean;
+  /**
+   * `vigente | cancelado | desconocido`. Casi todo es `desconocido` (167,053 de 167,135):
+   * el ADD trae el estatus vacío y nadie valida contra el SAT. "No cancelado" acá significa
+   * "no nos consta", no "vigente" — por eso el aviso del mes lo declara con su monto.
+   */
+  estatus_sat: string;
 }
 
 /** Un renglón del tablero de movimientos no asociados. */
