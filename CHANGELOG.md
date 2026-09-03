@@ -139,7 +139,7 @@
 ### Added — migración del catálogo/verificador/tienda mayorista externo (CV.0, 2026-09-01)
 - **Nuevo app `apps/catalogo-kp`**: primer paso de la migración física de `megadulces-api-ready` (NestJS 10 standalone, en producción real en `.163`, catálogo público + verificador de precios de mostrador + tienda mayorista) a este monorepo. Módulo `kp` completo portado a NestJS 11 sobre una conexión Knex propia a `KP_CONCENTRADA` — mismas queries SQL, mismas rutas `/api/kp/*`.
 - **Hallazgo de seguridad durante la migración:** el proyecto origen reusaba el rol `app_runtime`, que resultó ser **el mismo rol de cluster** que usa `postgres_platform` en `.245` (`docs/GOTCHAS.md` §24 ya advertía sobre esto) — sospechoso de una caída de producción de 6h ajena a esta Suite. Se preparó un rol dedicado (`catalogo_kp_runtime`, `apps/catalogo-kp/sql/007_rol_dedicado.sql`), aditivo, pendiente de aplicar contra el cluster real.
-- Deployment on-prem (no Railway), consistente con el principio ya aceptado para `kepler-consolidado`/Fase KV. Roadmap completo en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), ADR-052.
+- Deployment on-prem (no Railway), consistente con el principio ya aceptado para `kepler-consolidado`/Fase KV. Roadmap completo en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), ADR-056.
 
 ### Fixed — Almacén: **el almacenista entraba y la app lo mandaba a capturar visitas** (AUTHZ.6, 2026-09-03)
 - **Reporte:** *"hay problemas con el usuario luis_piceno en prod, lo arroja a la pantalla por default, él teniendo otros permisos"*. (La cuenta fue renombrada a `luis_espino` durante la investigación — mismo id.)
