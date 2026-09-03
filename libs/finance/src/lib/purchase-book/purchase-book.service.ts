@@ -803,6 +803,109 @@ export class PurchaseBookService {
     });
   }
 
+  /**
+   * El respaldo del archivo entregado: sus movimientos y las facturas que lo componen.
+   *
+   * A ContPAQi va el TXT **y su respaldo** — nadie sube $48.2M a la contabilidad de la
+   * empresa desde un archivo de longitud fija que no puede leer. Esta es la hoja que
+   * reemplaza al Excel que se armaba a mano.
+   *
+   * Todo sale del **archivo entregado**, no de los datos de hoy. Importa: si entre generar
+   * y descargar el respaldo entró un CFDI nuevo, tomar las facturas de `getMes()` haría que
+   * las dos hojas describan cosas distintas y el respaldo dejaría de cuadrar contra el TXT.
+   * Cuando el archivo lleva UUID (el default) las facturas se resuelven desde los conceptos
+   * de sus propios renglones; si no, se cae a la decisión registrada y se declara.
+   */
+  async respaldo(anioMes: string, tipo: TipoCorrida = 'complemento') {
+    this.mesValido(anioMes);
+    return this.tk.run(async (knex) => {
+      const run = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run || run.estado === 'borrador' || !run.archivo_contenido) {
+        throw new NotFoundException(`${anioMes} no tiene archivo generado todavía. Genéralo primero.`);
+      }
+      const { movimientos, invalidos, header } = parsearTxt(run.archivo_contenido as string);
+      if (invalidos.length) {
+        throw new BadRequestException(
+          `el archivo guardado de ${anioMes} no cumple el layout (${invalidos[0].motivo}); no se puede armar el respaldo.`,
+        );
+      }
+
+      const uuids = [...new Set(movimientos.map((m) => m.concepto).filter((c) => /^[0-9A-Fa-f-]{36}$/.test(c)))]
+        .map((u) => u.toUpperCase());
+      const desdeArchivo = uuids.length > 0;
+
+      const { rows: facturas } = desdeArchivo
+        ? await knex.raw(
+          `SELECT DISTINCT ON (upper(f.uuid))
+                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio, f.fecha,
+                  f.total,
+                  coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
+                  coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
+                  coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
+                  a.account_suffix, a.supplier_name,
+                  a.cuenta_proveedor, a.cuenta_compra_exenta, a.cuenta_compra_iva
+             FROM fiscal.cfdis f
+             LEFT JOIN finance.gl_supplier_accounts a
+               ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
+            WHERE f.tenant_id = current_tenant_id() AND upper(f.uuid) = ANY (?)
+            ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
+          [uuids],
+        )
+        : await knex.raw(
+          `SELECT DISTINCT ON (upper(f.uuid))
+                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio, f.fecha,
+                  f.total,
+                  coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
+                  coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
+                  coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
+                  a.account_suffix, a.supplier_name,
+                  a.cuenta_proveedor, a.cuenta_compra_exenta, a.cuenta_compra_iva
+             FROM finance.purchase_book_run_items i
+             JOIN fiscal.cfdis f
+               ON f.tenant_id = i.tenant_id AND upper(f.uuid) = i.cfdi_uuid
+             LEFT JOIN finance.gl_supplier_accounts a
+               ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
+            WHERE i.tenant_id = current_tenant_id() AND i.run_id = ? AND i.incluida
+            ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
+          [run.id],
+        );
+
+      return {
+        anio_mes: anioMes,
+        tipo,
+        folio_poliza: header?.folio ?? run.folio_poliza,
+        concepto: header?.concepto ?? run.concepto,
+        estado: run.estado,
+        archivo_nombre: run.archivo_nombre,
+        archivo_hash: run.archivo_hash,
+        generado_at: run.generado_at,
+        entregado_at: run.entregado_at,
+        entregado_a: run.entregado_a,
+        total_cargos: Number(run.total_cargos ?? 0),
+        total_abonos: Number(run.total_abonos ?? 0),
+        movimientos,
+        facturas: facturas.map((f: Record<string, unknown>) => {
+          const total = r2(f['total']), iva = r2(f['iva']), ieps = r2(f['ieps']);
+          const subtotal16 = r2(f['subtotal16']);
+          return {
+            uuid: String(f['uuid']), emisor_rfc: String(f['emisor_rfc'] ?? ''),
+            emisor_nombre: String(f['emisor_nombre'] ?? ''),
+            serie: (f['serie'] as string) ?? null, folio: (f['folio'] as string) ?? null,
+            fecha: String(f['fecha']).slice(0, 10),
+            base_exenta: r2(total - iva - ieps - subtotal16), subtotal16, ieps, iva, total,
+            supplier_name: (f['supplier_name'] as string) ?? null,
+            cuenta_proveedor: (f['cuenta_proveedor'] as string) ?? null,
+            cuenta_compra_exenta: (f['cuenta_compra_exenta'] as string) ?? null,
+            cuenta_compra_iva: (f['cuenta_compra_iva'] as string) ?? null,
+          };
+        }),
+        /** `archivo` = las facturas salen de los UUID del propio TXT. `decision` = del registro. */
+        facturas_origen: desdeArchivo ? 'archivo' : 'decision',
+      };
+    });
+  }
+
   /** Mueve el trámite. `entregado` = se le pasó a quien lo sube; `aplicado` = ya está en ContPAQi. */
   async marcar(anioMes: string, estado: Extract<EstadoRun, 'entregado' | 'aplicado' | 'cancelado'>, datos: { entregado_a?: string; notas?: string; tipo?: TipoCorrida } = {}) {
     this.mesValido(anioMes);
