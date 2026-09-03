@@ -14,7 +14,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, Turno } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -58,7 +58,7 @@ import { imprimirTicket } from '../ticket-arqueo';
         <div class="surf-page-head-text">
           <h1>Arqueo de caja</h1>
           <p class="surf-page-sub">
-            Contá el efectivo físico de <strong>hoy</strong> por denominación y guardalo.
+            Cuenta el efectivo físico de <strong>hoy</strong> por denominación y guárdalo.
             @if (revela) { Al guardar, el sistema te muestra la diferencia real. }
             @else { El cuadre lo revisa tu encargada. }
           </p>
@@ -82,8 +82,8 @@ import { imprimirTicket } from '../ticket-arqueo';
             <div class="arq-vacio">
               <i class="pi pi-clock"></i>
               <div>
-                <strong>Hoy no tenés cortes por arquear.</strong>
-                <p class="muted">El arqueo aparece acá cuando Kepler cierra tu caja. Si ya cortaste en el punto de venta y no lo ves, avisale a tu encargada.</p>
+                <strong>Hoy no tienes cortes por arquear.</strong>
+                <p class="muted">El arqueo aparece aquí cuando Kepler cierra tu caja. Si ya cortaste en el punto de venta y no lo ves, avísale a tu encargada.</p>
                 @if (revela) {
                   <p-button type="button" label="Capturar sin turno" icon="pi pi-pencil" styleClass="p-button-sm p-button-text"
                             (click)="manual.set(true)"></p-button>
@@ -96,14 +96,14 @@ import { imprimirTicket } from '../ticket-arqueo';
             @if (turnos().length > 1) {
               <!-- En una sola línea: partido en tres, el navegador colapsaba los saltos
                    y dejaba el punto huérfano al principio del renglón siguiente. -->
-              <p class="arq-lbl arq-turno-lbl">Tenés <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo.</p>
+              <p class="arq-lbl arq-turno-lbl">Tienes <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo.</p>
               <div class="arq-turnos">
                 @for (t of turnosOrdenados(); track t.folio + t.warehouse_code; let i = $index) {
                   <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
                        El backend lo exige igual — esto solo lo hace visible. -->
                   <button type="button" class="arq-turno" [class.sel]="t.folio === turnoFolio()"
                           [class.bloq]="i > 0" [disabled]="i > 0"
-                          [attr.title]="i > 0 ? 'Primero cerrá el corte pendiente más viejo' : null"
+                          [attr.title]="i > 0 ? 'Primero cierra el corte pendiente más viejo' : null"
                           (click)="elegirTurno(t.folio)">
                     <span class="arq-turno-caja"><span class="arq-turno-n">{{ i + 1 }}º</span> Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
@@ -201,7 +201,7 @@ import { imprimirTicket } from '../ticket-arqueo';
                 <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
               </ng-template>
             </p-table>
-            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usá <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
+            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usa <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
 
             @if (aTipo() === 'cierre') {
               <label class="arq-lbl arq-block">Incidencia <span class="muted">(opcional — si hubo un motivo)</span>
@@ -241,7 +241,7 @@ import { imprimirTicket } from '../ticket-arqueo';
                 </div>
                 <p class="muted arq-mt">Quedó sellado con la hora. Falta que tu encargada lo valide en tu lugar.</p>
               } @else if (r.ambiguous) {
-                <p class="muted">Guardado ({{ money(r.total_contado) }}). Hay <strong>varios cortes</strong> en esta caja hoy — capturá desde el turno para comparar contra el correcto.</p>
+                <p class="muted">Guardado ({{ money(r.total_contado) }}). Hay <strong>varios cortes</strong> en esta caja hoy — captura desde el turno para comparar contra el correcto.</p>
               } @else if (!r.matched) {
                 <p class="muted">Guardado. El turno todavía no cerró en Kepler — la diferencia aparece cuando se procese el corte.</p>
               } @else {
@@ -479,12 +479,16 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   readonly tipoOptions = [
     { label: 'Cierre de día', value: 'cierre' as const },
+    // La sangría que Kepler pide al llegar al límite de la caja. Va primero
+    // después del cierre porque es la MÁS frecuente: una caja hace un cierre al
+    // día y tres o cuatro retiros.
+    { label: 'Retiro (sangría)', value: 'retiro' as const },
     { label: 'Relevo (cambio de turno)', value: 'relevo' as const },
   ];
 
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
-  readonly aTipo = signal<'cierre' | 'relevo'>('cierre');
+  readonly aTipo = signal<ArqueoTipo>('cierre');
   aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   readonly saving = signal(false);
@@ -494,8 +498,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly result = signal<ArqueoResult | null>(null);
   readonly rows = signal<ArqueoRow[]>([]);
 
-  readonly submitLabel = computed(() =>
-    this.aTipo() === 'relevo' ? 'Sellar relevo' : (this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo'));
+  readonly submitLabel = computed(() => {
+    const t = this.aTipo();
+    if (t === 'relevo') return 'Sellar relevo';
+    // El retiro NO revela diferencia ni al supervisor: el corte todavía no existe,
+    // así que no hay contra qué comparar. Se cuadra al cerrar el turno.
+    if (t === 'retiro') return 'Guardar retiro';
+    return this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo';
+  });
   readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */
@@ -570,7 +580,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       ? { titulo: 'Ya pasó tu hora habitual de corte.', detalle: `${holgura} Kepler todavía no la cierra.`, pronto: true }
       : {
           titulo: pronto ? `Tu corte es en ${min} min.` : `Tu corte es a las ${t.corte_tipico}.`,
-          detalle: pronto ? `${holgura} Andá preparando el efectivo.` : `${holgura} Faltan ${min} min.`,
+          detalle: pronto ? `${holgura} Ve preparando el efectivo.` : `${holgura} Faltan ${min} min.`,
           pronto,
         };
   }
@@ -626,7 +636,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       validado_por: null, validado_at: null,
     }, { revela: this.revela });
     if (!ok) {
-      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });
+      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permite las ventanas emergentes de este sitio para imprimir.' });
     }
   }
 
@@ -706,7 +716,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         this.saving.set(false); this.result.set(r); this.dirty.set(false);
         const detail = r.tipo === 'relevo' ? `Relevo sellado (${this.money(r.total_contado)}).`
           : !r.reveal ? `Total contado ${this.money(r.total_contado)}. Falta que tu encargada lo valide.`
-          : r.ambiguous ? 'Guardado. Varios cortes hoy: capturá desde el turno para comparar.'
+          : r.ambiguous ? 'Guardado. Varios cortes hoy: captura desde el turno para comparar.'
           : (r.matched ? `${this.diffLabel(r.diff_real)}: ${this.signed(r.diff_real || 0)}` : 'Guardado (el turno aún no cerró en Kepler).');
         this.toast.add({
           severity: this.revela && (r.diff_real || 0) > 0 ? 'warn' : 'success',
