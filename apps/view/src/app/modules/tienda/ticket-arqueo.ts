@@ -139,9 +139,17 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   } else {
     L.push('CONTEO POR DENOMINACION');
     L.push(linea());
+    // Formato `1000 x 17 = $17,000.00`: la denominación y la cantidad alineadas a
+    // la derecha en ancho fijo, para que las columnas caigan una debajo de otra sin
+    // importar si son 3 piezas o 1,250. Es como se lee un arqueo en papel — de
+    // arriba a abajo comparando cantidades, no montos sueltos.
+    //
+    // Sin `×` ni acentos a propósito: muchas térmicas de 203 dpi no traen esos
+    // glifos en su tabla de caracteres y los imprimen como basura.
     for (const d of a.denominaciones) {
-      const et = d.denominacion >= 1 ? `$${d.denominacion}` : `${d.denominacion * 100}c`;
-      L.push(fila(`${et.padEnd(7)}x ${String(d.cantidad).padStart(3)}`, money(d.subtotal)));
+      const et = d.denominacion >= 1 ? String(d.denominacion) : `${d.denominacion * 100}c`;
+      const izq = `${et.padStart(5)} x ${String(d.cantidad).padStart(4)} =`;
+      L.push(fila(izq, money(d.subtotal)));
     }
     L.push(linea());
     // Billetes y monedas por separado: es la única forma de comparar nuestro
