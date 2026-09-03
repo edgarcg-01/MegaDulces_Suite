@@ -2742,9 +2742,99 @@ export class CommercialAnalyticsService {
 
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
-      // RS.6 — la parte KEPLER sale de sales_daily/boxes (sin vendedor); la parte WINCAJA
-      // se abre POR VENDEDOR desde v_sales_lines (abajo) y se une al mismo pivote.
-      const keplerRows: any[] = monthAligned
+      // RS.6 / PARIDAD Kepler↔Wincaja — la pierna KEPLER se lee HÍBRIDA:
+      //   (a) SUCURSALES desde analytics.mv_kepler_sales_daily (matview del ODS, all-history) → recupera
+      //       el vendedor kdm1.c12 (Sergio/Cinthia en Mayoreo) + los ~$8M/mes que la copia sub-cuenta
+      //       (telemarketing suc 01 + Canindo 06). Dedup = COMPLEMENTO EXACTO del blend wincaja (mismo
+      //       predicado que sellOutByVendor) → no doble-cuenta con la pierna wincaja de abajo.
+      //   (b) RUTAS NUMERADAS (RUTA-NN) que AÚN NO están en kepler_ods (venta-push de un puller externo)
+      //       → se leen de analytics.sales_daily SOLO para almacenes RUTA-% y post-cutover (>=2026-07-01;
+      //       pre-julio esas rutas viven en la pierna wincaja source_branch 21-28, el >= elimina el
+      //       solape de junio que el sellOut previo doble-contaba). Cuando entren al ODS, se retira (b).
+      // Fallback (matview aún sin poblar, arranque en frío): la fuente previa (sales_daily/boxes).
+      const keplerMvOk = !!(await trx.raw(
+        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+      )).rows?.[0];
+      // channel del matview kepler → vocabulario del pivote: 'mayoreo' (telemarketing) entra al bucket
+      // Mayoreo (canal 'credito'), igual que el mayoreo_credito de wincaja. Resto passthrough.
+      const keplerChanExpr = `CASE k.channel WHEN 'mayoreo' THEN 'credito' ELSE k.channel END`;
+      const keplerRows: any[] = keplerMvOk
+        ? [
+            // (a) SUCURSALES desde el matview del ODS (con vendedor horneado para el desglose de Mayoreo)
+            ...(await trx('analytics.mv_kepler_sales_daily as k')
+              .where('k.tenant_id', tenantId)
+              .where('k.product_deleted', false)
+              .modify((qb) => { if (promoMode === 'solo') qb.andWhere('k.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('k.is_promo', false); })
+              .andWhereRaw(this.KEPLER_SELLOUT_DEDUP)
+              .andWhere('k.business_date', '>=', from).andWhere('k.business_date', '<=', to)
+              .modify((qb) => {
+                if (brandId) qb.andWhere('k.brand_id', brandId);
+                if (search) qb.andWhereRaw('(k.sku ILIKE ? OR k.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+                if (warehouseFilter) qb.whereIn('k.warehouse_code', warehouseFilter);
+              })
+              .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(k.business_date, 'YYYY-MM') as sale_month`)); })
+              .select(
+                'k.warehouse_code as branch_code',
+                trx.raw('max(k.branch_name) as branch_name'),
+                'k.product_id as product_id',
+                trx.raw('max(k.sku) as sku'),
+                trx.raw('max(k.nombre) as nombre'),
+                trx.raw('max(k.factor_sale) as factor_sale'),
+                'k.brand_id as brand_id',
+                trx.raw('max(k.brand_nombre) as brand_nombre'),
+                trx.raw('max(k.brand_code) as brand_code'),
+                trx.raw(`${keplerChanExpr} as channel`),
+                trx.raw(`'kepler'::text as source`),
+                'k.vendor_code as vendor_code',
+                'k.vendor_name as vendor_name',
+                'k.unit_kind as unit_kind',
+                trx.raw('max(k.box_size) as box_size'),
+                trx.raw('SUM(k.units) as units'),
+                trx.raw('SUM(k.monto) as monto'),
+              )
+              .groupByRaw(
+                `k.warehouse_code, k.product_id, k.brand_id, ${keplerChanExpr}, k.vendor_code, k.vendor_name, k.unit_kind` +
+                (needMonth ? `, to_char(k.business_date, 'YYYY-MM')` : ''),
+              )),
+            // (b) RUTAS NUMERADAS (aún fuera del ODS) — sales_daily, sólo almacenes RUTA-% y >= cutover
+            ...(await trx('analytics.sales_daily as sd')
+              .join('catalog.products as p', 'p.id', 'sd.product_id')
+              .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+              .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+              .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
+              .where('sd.tenant_id', tenantId)
+              .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
+              .andWhereRaw(`w.code LIKE 'RUTA-%'`)
+              .andWhere('sd.sale_date', '>=', '2026-07-01')
+              .modify((qb) => this.promoFilter(qb, promoMode))
+              .modify((qb) => {
+                if (brandId) qb.andWhere('p.brand_id', brandId);
+                if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+                if (warehouseFilter) qb.whereIn('w.code', warehouseFilter);
+              })
+              .andWhere('sd.sale_date', '>=', from).andWhere('sd.sale_date', '<=', to)
+              .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`)
+              .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
+              .select(
+                'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
+                'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
+                'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
+                trx.raw(`${canalExpr} as channel`),
+                trx.raw(`'kepler'::text as source`),
+                trx.raw('NULL::text as vendor_code'), trx.raw('NULL::text as vendor_name'),
+                trx.raw('max(sd.unit_kind) as unit_kind'),
+                trx.raw('max(lp.box_size) as box_size'),
+              )
+              .sum({ units: 'sd.units' })
+              .sum({ monto: 'sd.revenue' })
+              .groupByRaw(
+                `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${canalExpr}` +
+                (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
+              )),
+          ]
+        : monthAligned
         ? await trx('analytics.sales_boxes_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
@@ -2761,20 +2851,15 @@ export class CommercialAnalyticsService {
             .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
             .modify((qb) => { if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`)); })
             .select(
-              'w.code as branch_code',
-              'w.name as branch_name',
-              'sd.product_id as product_id',
-              'p.sku as sku',
-              'p.nombre as nombre',
-              trx.raw('max(sd.uxc) as factor_sale'),   // divisor ya baked (factor_sale o box_size)
-              'p.brand_id as brand_id',
-              'b.nombre as brand_nombre',
-              'b.code as brand_code',
+              'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
+              'p.sku as sku', 'p.nombre as nombre',
+              trx.raw('max(sd.uxc) as factor_sale'),
+              'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
               trx.raw(`${canalExpr} as channel`),
               trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
               trx.raw('NULL::numeric as box_size'),
-              trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'), // canónico (piezas o kg)
+              trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'),
             )
             .sum({ monto: 'sd.revenue' })
             .groupByRaw(
@@ -2785,8 +2870,6 @@ export class CommercialAnalyticsService {
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            // RS.3 — box_size del catálogo de etiquetas: divisor de respaldo cuando factor_sale
-            // viene en 1 (ej. 60101, factor_sale=1 pero caja de 20). unit_kind decide si se divide.
             .leftJoin('commercial.product_label_prices as lp', function () {
               this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
             })
@@ -2798,26 +2881,18 @@ export class CommercialAnalyticsService {
               if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
             })
             .modify((qb) => {
-              // El matview mv_sales_current_month ya está acotado a [inicio de mes .. hoy] y no
-              // tiene columna sale_date; los filtros de fecha solo aplican al escanear sales_daily.
               if (!curMonthMv) {
                 qb.andWhere('sd.sale_date', '>=', from)
                   .andWhere('sd.sale_date', '<=', to)
-                  .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`); // nunca fechas futuras (montos)
+                  .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`);
               }
             })
             .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
             .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
             .select(
-              'w.code as branch_code',
-              'w.name as branch_name',
-              'sd.product_id as product_id',
-              'p.sku as sku',
-              'p.nombre as nombre',
-              'p.factor_sale as factor_sale',
-              'p.brand_id as brand_id',
-              'b.nombre as brand_nombre',
-              'b.code as brand_code',
+              'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
+              'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
+              'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
               trx.raw(`${canalExpr} as channel`),
               trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
@@ -3133,16 +3208,17 @@ export class CommercialAnalyticsService {
       }
 
       if (channelFilter && !channelFilter.has(channel)) continue;
-      // RS.10 — Mayoreo (credito) se desglosa y filtra POR VENDEDOR, no por sucursal (solo en la
-      // vista por canal). Wincaja trae el vendedor; el crédito Kepler (sin vendedor) queda en una
-      // hoja/columna aparte "Sin vendedor (Kepler)" — separado, sin mezclar ni perderse.
+      // RS.10 / PARIDAD — Mayoreo (credito) se desglosa POR VENDEDOR. Wincaja SIEMPRE trae vendedor;
+      // Kepler AHORA también (kdm1.c12 horneado en mv_kepler) → el telemarketing Kepler (Sergio/Cinthia)
+      // se abre por persona, simétrico a Wincaja, y el mismo humano colapsa a UNA columna a través del
+      // cutover vía la identidad canónica. Sólo las filas sin vendedor caen en un bucket 'Sin vendedor'.
       const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
-      // RS.11 — identidad canónica del vendedor (une fragmentos + nombre limpio Kepler).
-      const mayId = isMayoreo && r.source === 'wincaja' ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
+      // RS.11 — identidad canónica del vendedor (une fragmentos Wincaja+Kepler + nombre limpio).
+      const mayId = isMayoreo && r.vendor_code ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
       // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
-      if (isMayoreo && r.source === 'wincaja' && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
+      if (isMayoreo && r.vendor_code && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
       const mayoreoLeaf = isMayoreo
-        ? (r.source === 'wincaja' ? mayId!.key : 'k-sin-vendedor')
+        ? (mayId ? mayId.key : (r.source === 'wincaja' ? 'w-sin-vendedor' : 'k-sin-vendedor'))
         : null;
       // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
       if (cellFilter) {
@@ -3178,8 +3254,10 @@ export class CommercialAnalyticsService {
       const vendorCode = src === 'wincaja' ? String(r.vendor_code ?? '·') : null;
       const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
       const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
-      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente.
-      const mayVendorName = src === 'wincaja' ? (mayId?.name ?? String(r.vendor_name ?? vendorCode ?? 'Wincaja')) : 'Sin vendedor (Kepler)';
+      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente. Ambas fuentes.
+      const mayVendorName = mayId
+        ? mayId.name
+        : (src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)');
       const colKey = monthCols
         ? r.sale_month
         : isMayoreo ? `credito|${mayoreoLeaf}`
