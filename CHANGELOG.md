@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — corte real del Service en `.163`: catalogo-kp corre en producción desde este monorepo (CV.15, 2026-09-03)
+- Autorizado explícitamente por 0Sistemas. Es el paso de mayor riesgo de toda la Fase CV: reemplazar el proceso que sirve producción real (`megadulces-api-ready` standalone) por el build de `apps/catalogo-kp`.
+- Tres hallazgos reales resueltos antes de tocar el proceso en vivo: (1) un módulo `salud` (`GET /api/salud`) que el vigilante necesita y nunca se había portado; (2) un bug crítico de orden en `main.ts` — `dotenv.config()` corría después de que ya hiciera falta, lo que habría causado un crash-loop infinito en cualquier arranque real dependiendo sólo del `.env`; (3) el bundle externaliza sus dependencias (knex, pg, bcryptjs, NestJS), resuelto apuntando `NODE_PATH` al `node_modules` de la Suite.
+- El código nuevo se copió a la raíz del proyecto viejo (no a `dist/`) para que siga sirviendo el mismo `public/` real de siempre, sin tocar el script que regenera los verificadores de mostrador a diario. Sólo se ajustó una asunción de ruta en el vigilante existente.
+- Verificado con 0 fallos en 11 pruebas tras el corte real, downtime de unos segundos.
+- Con esto, el runbook de corte de la Fase CV queda 100% completo — `.163` corre en producción real desde este monorepo.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Changed — el `.env` de producción de `catalogo-kp` ya usa el rol dedicado (CV.14, 2026-09-02)
 - Autorizado explícitamente por 0Sistemas. `PG_USER`/`PG_PASSWORD` del `.env` real de `megadulces-api-ready` en `.163` actualizados de `app_runtime` a `catalogo_kp_runtime`, con respaldo previo del `.env` anterior.
 - Verificado antes de aplicar: el único `DELETE` en el código (limpieza de retención de `monitor.errores_detalle`) ya tenía manejo gracioso porque `app_runtime` tampoco tenía ese permiso — no es una regresión.
