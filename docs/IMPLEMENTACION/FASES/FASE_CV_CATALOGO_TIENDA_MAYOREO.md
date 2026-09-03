@@ -991,6 +991,36 @@ completo); decidir cuándo retirar las herramientas viejas.
 
 ---
 
+## CV.17 — Incidente real: el rol dedicado no tenía permiso de login (2026-09-03)
+
+Con el reporte de CV.16 ya en producción, alguien inició sesión de verdad
+en `catalogo.html`/`actualizar-wix.html` — y ese fue el primer login REAL
+contra `catalogo_kp_runtime` desde el corte de CV.15 (todas las
+verificaciones anteriores usaban JWTs auto-firmados, nunca el endpoint
+`/api/auth/login` de punta a punta). El login sí escribe
+(`UPDATE admin.usuarios SET ultimo_login = NOW()`), y el rol dedicado sólo
+tenía `SELECT` ahí — "permiso denegado a la tabla usuarios" en
+`api3000.log`, y poco después el proceso dejó de responder.
+
+**Detectado y resuelto de inmediato** (producción estuvo abajo unos
+minutos hasta el reinicio):
+1. `GRANT UPDATE ON admin.usuarios TO catalogo_kp_runtime` aplicado al
+   cluster real + corregido en `apps/catalogo-kp/sql/007_rol_dedicado.sql`.
+2. Verificado con un `UPDATE ... SET ultimo_login = ultimo_login` (no-op,
+   no altera datos reales) conectado como el rol — ya no da error.
+3. Defensa en profundidad en `auth.service.ts`: el `UPDATE` de
+   `ultimo_login` ahora va en `try/catch` no fatal (mismo criterio que el
+   `DELETE` de `monitor/errores.service.ts`) — una falla de auditoría no
+   debe volver a impedir un login.
+4. Reconstruido y redesplegado en `.163` con el mismo mecanismo de CV.15
+   (detener, copiar `main.js`, relanzar vía el vigilante). Verificado con
+   la misma batería de páginas/endpoints — todo en 200.
+
+**Detalle completo, incluida la lección de diseño, en `docs/GOTCHAS.md`
+§33.**
+
+---
+
 ## Preguntas abiertas para 0Sistemas
 
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.

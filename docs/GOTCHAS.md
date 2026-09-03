@@ -1205,3 +1205,48 @@ comentarios. En prosa poné el identificador en negritas o sin adornos. En los *
 Pisada dos veces en la misma sesión (2026-09-01): una en un comentario CSS de
 `almacen-area-shell.component.ts`, otra en un comentario HTML de `anden-caducidad.component.ts`.
 Si el build tira `1010` y el diff toca un componente, buscá el backtick antes de buscar el CSS.
+## 33. Un rol dedicado "sólo lectura" tumbó producción porque el login SÍ escribe
+
+**Contexto:** Fase CV (`catalogo-kp`). El rol `catalogo_kp_runtime`
+(`apps/catalogo-kp/sql/007_rol_dedicado.sql`, CV.8) se diseñó copiando los
+mismos permisos de `app_runtime`, con el criterio "`admin.usuarios` es
+sólo lectura — de ahí sale el login del tablero". Ese criterio estaba mal:
+`auth.service.ts::login()` SÍ escribe, hace
+`UPDATE admin.usuarios SET ultimo_login = NOW()` en cada inicio de sesión
+exitoso.
+
+**Qué pasó (2026-09-03, ya con el corte real del Service — CV.15 — en
+producción):** alguien inició sesión de verdad (probando `catalogo.html` o
+el reporte nuevo de MKT, CV.16) y ese `UPDATE` chocó con "permiso denegado
+a la tabla usuarios". El error se vio en `api3000.log`
+(`[ExceptionsHandler] ... permiso denegado`), y poco después el proceso
+dejó de responder — no hay una prueba definitiva de que ESE error haya sido
+la causa exacta de la caída (no dejó un stack de crash, sólo se cortó el
+log), pero coincide en tiempo y de todas formas era un bug real: **todo
+login real** (no las consultas de datos, que sí se habían probado) iba a
+fallar con 500 hasta corregirlo.
+
+**Por qué no se detectó en las verificaciones de CV.8–CV.15:** todas las
+pruebas de ese rol usaron JWTs auto-firmados para probar endpoints
+protegidos (`/api/kp/productos`, `/api/admin/*`) — nunca se ejercitó el
+propio `POST /api/auth/login` de punta a punta contra el rol nuevo, que es
+la ÚNICA ruta que escribe en `admin.usuarios` fuera de la gestión de
+usuarios. Un `SELECT` que funciona no prueba que un `UPDATE` funcione.
+
+**Arreglado:**
+1. `GRANT UPDATE ON admin.usuarios TO catalogo_kp_runtime` aplicado al
+   cluster real (aditivo, sin `DELETE`) y corregido en
+   `007_rol_dedicado.sql` para que una futura recreación del rol ya lo
+   traiga bien.
+2. Defensa en profundidad en `auth.service.ts`: el `UPDATE` de
+   `ultimo_login` ahora va en un `try/catch` que sólo loguea — es una
+   comodidad de auditoría, no una condición del login. Mismo criterio ya
+   usado en `monitor/errores.service.ts` para el `DELETE` que
+   `app_runtime` tampoco tenía.
+
+**Lección:** al diseñar un rol dedicado, "de dónde sale el login" no es lo
+mismo que "qué hace el login" — hay que leer el código de la operación
+completa (login real, no sólo lectura de credenciales), no inferir el
+permiso necesario por el nombre de la funcionalidad. Y una verificación de
+permisos que sólo prueba `SELECT` en una tabla no dice nada sobre si el
+`UPDATE`/`INSERT` de esa misma tabla también funciona.

@@ -42,9 +42,15 @@ GRANT SELECT ON ALL TABLES IN SCHEMA kp TO catalogo_kp_runtime;
 -- sin esto, una tabla nueva no heredaría el permiso hasta correr este GRANT de nuevo.
 ALTER DEFAULT PRIVILEGES IN SCHEMA kp GRANT SELECT ON TABLES TO catalogo_kp_runtime;
 
--- ── admin.* — sólo lectura de admin.usuarios (login del tablero) ───────────
+-- ── admin.* — lectura + UPDATE puntual de admin.usuarios (login del tablero) ──
+-- CORREGIDO 2026-09-03 (incidente real en .163): el login SÍ escribe, no sólo
+-- lee — auth.service.ts hace `UPDATE admin.usuarios SET ultimo_login = NOW()`
+-- en cada inicio de sesión exitoso. Con sólo SELECT, cualquier login real
+-- (no sólo consultas de datos) tiraba "permiso denegado a la tabla usuarios"
+-- sin capturar, y tumbó el proceso en producción. Sin DELETE: nunca se borran
+-- usuarios desde este rol.
 GRANT USAGE ON SCHEMA admin TO catalogo_kp_runtime;
-GRANT SELECT ON admin.usuarios TO catalogo_kp_runtime;
+GRANT SELECT, UPDATE ON admin.usuarios TO catalogo_kp_runtime;
 
 -- ── tienda.* — lectura + escritura, SIN DELETE (mismo criterio que app_runtime:
 --    los pedidos se cancelan, no se borran) ──────────────────────────────────

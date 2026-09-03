@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
@@ -15,6 +15,8 @@ export interface Usuario {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex,
     private jwt: JwtService,
@@ -32,8 +34,16 @@ export class AuthService {
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) throw new UnauthorizedException('Credenciales inválidas');
 
-    // Actualizar último login
-    await this.query('UPDATE admin.usuarios SET ultimo_login = NOW() WHERE id = $1', [user.id]);
+    // Actualizar último login. NO fatal: es una comodidad de auditoría, no
+    // una condición del login — un permiso mal configurado en el rol de la
+    // base (ya pasó una vez, 2026-09-03: catalogo_kp_runtime sólo tenía
+    // SELECT en admin.usuarios) no debe tumbar el inicio de sesión de nadie,
+    // ni menos el proceso entero.
+    try {
+      await this.query('UPDATE admin.usuarios SET ultimo_login = NOW() WHERE id = $1', [user.id]);
+    } catch (e: any) {
+      this.logger.warn(`No se pudo registrar ultimo_login del usuario ${user.id}: ${e.message}`);
+    }
 
     const payload = { sub: user.id, email: user.email, rol: user.rol, nombre: user.nombre };
     return {
