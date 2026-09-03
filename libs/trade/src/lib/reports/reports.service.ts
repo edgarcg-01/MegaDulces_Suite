@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
-import { getDataScope } from '@megadulces/platform-core';
+import { getDataScope, Permission, requireTenantOf } from '@megadulces/platform-core';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
 import { MapMatchingService } from './map-matching.service';
@@ -143,12 +143,29 @@ export class ReportsService {
         seen.set(key, true);
 
         try {
+          // El alcance se declara en `permissions`, NO en `rules`.
+          //
+          // ⚠️ Esto era una regresión viva: al retirarse CASL (ADR-054)
+          // `getDataScope` pasó a leer el MAPA de permisos y a ignorar `rules`.
+          // Estos usuarios sintéticos seguían declarando el alcance en `rules`
+          // con `permissions: {}`, así que los TRES ramos colapsaban a `own` —
+          // un admin conectado con scope global recibía por WS métricas de sólo
+          // sus propias capturas. El type-check no lo veía porque `rules` era
+          // una prop extra sobre un objeto literal.
           const user =
             sc.type === 'all'
-              ? { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [{ action: 'manage', subject: 'all' }] }
+              ? {
+                  sub: sc.userId,
+                  tenant_id: sc.tenantId,
+                  permissions: { [Permission.REPORTES_VER_GLOBAL]: true },
+                }
               : sc.type === 'team'
-                ? { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
-                : { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [] };
+                ? {
+                    sub: sc.userId,
+                    tenant_id: sc.tenantId,
+                    permissions: { [Permission.REPORTES_VER_EQUIPO]: true },
+                  }
+                : { sub: sc.userId, tenant_id: sc.tenantId, permissions: {} };
 
           const [s, ds] = await Promise.all([
             this.getSummary(filters, user),
@@ -207,10 +224,8 @@ export class ReportsService {
     const { query: dcQuery } = await this.buildBaseQuery(user, filters);
     // Mismo motivo que buildBaseQuery: el count de tiendas debe filtrar tenant
     // explícito (RLS bypasseado por el connection postgres).
-    const sTenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    const sQuery = this.knex('stores');
-    if (sTenantId) sQuery.where('tenant_id', sTenantId);
+    const sTenantId = requireTenantOf(user, this.tenantContext);
+    const sQuery = this.knex('stores').where('tenant_id', sTenantId);
 
     // Filtrar por fecha actual para cierres de hoy. `today` debe ser el día
     // calendario en MX — con UTC, después de las 18:00 MX el "today" del
@@ -346,10 +361,8 @@ export class ReportsService {
     }
 
     const { query: dcQuery } = await this.buildBaseQuery(user, filters);
-    const sTenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    const sQuery = this.knex('stores');
-    if (sTenantId) sQuery.where('tenant_id', sTenantId);
+    const sTenantId = requireTenantOf(user, this.tenantContext);
+    const sQuery = this.knex('stores').where('tenant_id', sTenantId);
 
     const [totalDaily] = await dcQuery.clone().count('id as count');
     const [totalTiendas] = await sQuery.count('id as count');
@@ -444,8 +457,7 @@ export class ReportsService {
     // Tenant filter explícito (defense in depth — además del RLS que ya
     // aplica vía TenantKnexService). El user del JWT trae `tenant_id` desde
     // auth-mt; si no viene (JWT legacy) caemos al context CLS.
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     // Las capturas de vendor no traen store_id (se anclan a customer_id y el
     // backend deriva el store de customer.store_id; si el cliente no tiene
@@ -460,7 +472,7 @@ export class ReportsService {
       query
         .leftJoin('commercial.customers as c', function () {
           this.on('c.id', '=', 'dc.customer_id');
-          if (tenantId) this.andOn('c.tenant_id', '=', query.client.raw('?', [tenantId]));
+          this.andOn('c.tenant_id', '=', query.client.raw('?', [tenantId]));
         })
         .select(
           'dc.*',
@@ -475,9 +487,7 @@ export class ReportsService {
       );
     }
 
-    if (tenantId) {
-      query.where('dc.tenant_id', tenantId);
-    }
+    query.where('dc.tenant_id', tenantId);
 
     const scope = getDataScope(user);
     if (scope.type === 'own') {
@@ -555,7 +565,7 @@ export class ReportsService {
         .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username', 'dc.skip_scoring');
     }
     this.logger.debug(
-      `getFilteredData total=${totalNum} pageReturned=${rows.length} aggRows=${aggRows.length} page=${safePage} pageSize=${safePageSize} tenant=${tenantId ?? 'none'}`,
+      `getFilteredData total=${totalNum} pageReturned=${rows.length} aggRows=${aggRows.length} page=${safePage} pageSize=${safePageSize} tenant=${tenantId}`,
     );
 
     // Get conceptos catalog for mapping IDs to names contextually faster
@@ -1149,8 +1159,7 @@ export class ReportsService {
       v && v !== 'null' && v !== 'undefined' && v.length > 5 ? v : undefined;
 
     const scope = getDataScope(user || { sub: '' });
-    const tenantId =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId || null;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     const q = this.knex('daily_captures as dc')
       .leftJoin('stores as s', 's.id', 'dc.store_id')
@@ -1232,8 +1241,7 @@ export class ReportsService {
     let visionOk = false;
     let findingsOk = false;
     if (captureIds.length > 0) {
-      const withTenant = (qb: Knex.QueryBuilder) =>
-        tenantId ? qb.where('tenant_id', tenantId) : qb;
+      const withTenant = (qb: Knex.QueryBuilder) => qb.where('tenant_id', tenantId);
 
       try {
         const vis = await this.knex('commercial.capture_vision')
@@ -1298,7 +1306,7 @@ export class ReportsService {
         .where('activo', true)
         .whereIn('role_name', FIELD_ROLES)
         .modify((qb) => {
-          if (tenantId) qb.where('tenant_id', tenantId);
+          qb.where('tenant_id', tenantId);
         })
         .select('id', 'username', 'nombre', 'zona');
 
@@ -1463,8 +1471,7 @@ export class ReportsService {
    */
   async getVisitDetail(captureId: string, user: any) {
     const scope = getDataScope(user || { sub: '' });
-    const tenantId =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId || null;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     const cap = await this.knex('daily_captures as dc')
       .leftJoin('stores as s', 's.id', 'dc.store_id')
@@ -1513,7 +1520,7 @@ export class ReportsService {
       vision = await this.knex('commercial.capture_vision')
         .where('capture_id', captureId)
         .modify((qb) => {
-          if (tenantId) qb.where('tenant_id', tenantId);
+          qb.where('tenant_id', tenantId);
         })
         .select(
           'photo_key',
@@ -1797,11 +1804,8 @@ export class ReportsService {
     // filtrar explícito. getFilteredData ya lo hacía; getSummary/
     // getDailyScoresPerUser (que usan este base) no, dejando un leak latente
     // apenas exista un 2do tenant. tenant_id sale del JWT o del CLS context.
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (tenantId) {
-      query = query.where('tenant_id', tenantId);
-    }
+    const tenantId = requireTenantOf(user, this.tenantContext);
+    query = query.where('tenant_id', tenantId);
 
     // 1. Scope
     if (scope.type === 'own') {
@@ -2063,8 +2067,7 @@ export class ReportsService {
   ) {
     if (!ReportsService.UUID_RE.test(routeId || '')) return [];
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     // Las capturas de vendedor no tienen store_id (se anclan a customer_id) pero
     // sí traen route_id (ruta self-service). Para que aparezcan en el análisis de
@@ -2122,7 +2125,7 @@ export class ReportsService {
       )
       .orderBy('dc.hora_inicio', 'asc');
 
-    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    q = q.where('dc.tenant_id', tenantId);
     if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
     else if (
       scope.type === 'team' &&
@@ -2177,8 +2180,7 @@ export class ReportsService {
   ) {
     if (!ReportsService.UUID_RE.test(routeId || '')) return [];
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let sQ = this.knex('stores as s')
       .leftJoin('zones as z', 'z.id', 's.zona_id')
@@ -2193,7 +2195,7 @@ export class ReportsService {
         'z.name as zona_name',
       )
       .orderBy('s.nombre', 'asc');
-    if (tenantId) sQ = sQ.where('s.tenant_id', tenantId);
+    sQ = sQ.where('s.tenant_id', tenantId);
     const stores = await sQ;
 
     // store_ids visitados en el rango (mismo scope que las visitas).
@@ -2202,7 +2204,7 @@ export class ReportsService {
       .where('s2.ruta_id', routeId)
       .whereNotNull('dc.store_id')
       .distinct('dc.store_id');
-    if (tenantId) vQ = vQ.where('dc.tenant_id', tenantId);
+    vQ = vQ.where('dc.tenant_id', tenantId);
     if (scope.type === 'own') vQ = vQ.where('dc.user_id', scope.userId);
     else if (
       scope.type === 'team' &&
@@ -2390,8 +2392,7 @@ export class ReportsService {
     const empty = { segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 };
     if (!ReportsService.UUID_RE.test(routeId || '')) return empty;
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let q = this.knex('daily_captures as dc')
       .join('stores as s', 's.id', 'dc.store_id')
@@ -2412,7 +2413,7 @@ export class ReportsService {
       .orderBy('dc.user_id', 'asc')
       .orderBy('dc.hora_inicio', 'asc');
 
-    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    q = q.where('dc.tenant_id', tenantId);
     if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
     else if (
       scope.type === 'team' &&
@@ -2474,7 +2475,7 @@ export class ReportsService {
   private async fetchPingsByUser(
     userIds: string[],
     filters: { startDate?: string; endDate?: string },
-    tenantId?: string,
+    tenantId: string,
   ): Promise<Map<string, any[]>> {
     const byUser = new Map<string, any[]>();
     if (userIds.length === 0) return byUser;
@@ -2482,8 +2483,8 @@ export class ReportsService {
       .whereIn('user_id', userIds)
       .select('user_id', 'captured_at', 'lat', 'lng')
       .orderBy('user_id', 'asc')
-      .orderBy('captured_at', 'asc');
-    if (tenantId) pq = pq.where('tenant_id', tenantId);
+      .orderBy('captured_at', 'asc')
+      .where('tenant_id', tenantId);
     if (filters.startDate)
       pq.whereRaw("DATE(captured_at AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
     if (filters.endDate)
@@ -2510,8 +2511,7 @@ export class ReportsService {
   ): Promise<{ tracks: any[] }> {
     if (!ReportsService.UUID_RE.test(routeId || '')) return { tracks: [] };
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let q = this.knex('public.route_location_pings as p')
       .leftJoin('users as u', 'u.id', 'p.user_id')
@@ -2519,7 +2519,7 @@ export class ReportsService {
       .select('p.user_id', 'u.username', 'p.lat', 'p.lng', 'p.captured_at', 'p.speed_mps')
       .orderBy('p.user_id', 'asc')
       .orderBy('p.captured_at', 'asc');
-    if (tenantId) q = q.where('p.tenant_id', tenantId);
+    q = q.where('p.tenant_id', tenantId);
     if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
     else if (
       scope.type === 'team' &&
@@ -2574,9 +2574,7 @@ export class ReportsService {
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
     if (!ReportsService.UUID_RE.test(routeId || '')) return { tracks: [], date: day };
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (!tenantId) return { tracks: [], date: day };
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let q = this.knex('public.route_location_pings as p')
       .leftJoin('users as u', 'u.id', 'p.user_id')
@@ -2614,9 +2612,7 @@ export class ReportsService {
    * Solo coords del master `stores`. Gate RUTAS_VER. Liviano (sin agregación).
    */
   async getStoresGeo(user: any): Promise<{ stores: any[] }> {
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (!tenantId) return { stores: [] };
+    const tenantId = requireTenantOf(user, this.tenantContext);
     const rows = await this.knex('stores')
       .where('tenant_id', tenantId)
       .whereNull('deleted_at')
@@ -2642,9 +2638,7 @@ export class ReportsService {
   ): Promise<{ users: any[]; date: string }> {
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (!tenantId) return { users: [], date: day };
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let q = this.knex('public.route_location_pings as p')
       .leftJoin('users as u', 'u.id', 'p.user_id')
@@ -2690,9 +2684,7 @@ export class ReportsService {
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
     if (!ReportsService.UUID_RE.test(userId || '')) return null;
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (!tenantId) return null;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     // Enforce de scope.
     if (scope.type === 'own' && userId !== scope.userId) return null;
@@ -2778,9 +2770,7 @@ export class ReportsService {
     user: any,
   ): Promise<{ rows: any[]; date: string }> {
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (!tenantId) return { rows: [], date: day };
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     const fieldUsers = (await this.getFieldUsers(day, user)).users;
     if (fieldUsers.length === 0) return { rows: [], date: day };
@@ -2917,8 +2907,7 @@ export class ReportsService {
     user: any,
   ) {
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
 
     let q = this.knex('daily_captures as dc')
       .join('stores as s', 's.id', 'dc.store_id')
@@ -2937,7 +2926,7 @@ export class ReportsService {
       .orderBy('dc.user_id', 'asc')
       .orderBy('dc.hora_inicio', 'asc');
 
-    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    q = q.where('dc.tenant_id', tenantId);
     if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
     else if (
       scope.type === 'team' &&
@@ -3008,8 +2997,7 @@ export class ReportsService {
     batch: { pings: any[] },
     user: any,
   ): Promise<{ inserted: number; high_freq_sec: number }> {
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
     const userId: string | undefined = user?.sub || user?.id || user?.userId;
     if (!tenantId || !userId) return { inserted: 0, high_freq_sec: 0 };
 
@@ -3077,8 +3065,7 @@ export class ReportsService {
     opts?: { sinceMin?: number },
   ): Promise<{ positions: any[]; server_now: string }> {
     const scope = getDataScope(user);
-    const tenantId: string | undefined =
-      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
     const sinceMin = Math.min(Math.max(Number(opts?.sinceMin) || 30, 1), 240);
 
     let q = this.knex('public.route_location_pings as p')
@@ -3097,7 +3084,7 @@ export class ReportsService {
       .whereRaw("p.captured_at >= now() - (? || ' minutes')::interval", [sinceMin])
       .orderBy('p.user_id', 'asc')
       .orderBy('p.captured_at', 'desc');
-    if (tenantId) q = q.where('p.tenant_id', tenantId);
+    q = q.where('p.tenant_id', tenantId);
     if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
     else if (
       scope.type === 'team' &&

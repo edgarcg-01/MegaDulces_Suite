@@ -2,7 +2,12 @@ import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs
 import { Knex } from 'knex';
 import * as fs from 'fs';
 import * as path from 'path';
-import { KNEX_CONNECTION, TenantContextService, toMxDateKey } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  toMxDateKey,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 import { PdfService } from './pdf.service';
 import { ReportsService } from './reports.service';
 import { BrandPresenceFilterDto } from './dto/reports-filter.dto';
@@ -103,7 +108,7 @@ export class BrandPresenceReportService {
   }
 
   private async buildReportData(filters: BrandPresenceFilterDto, user: any): Promise<BrandPresenceReportData> {
-    const tenantId: string | undefined = user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const tenantId = requireTenantOf(user, this.tenantContext);
     const tenant = await this.loadTenant(tenantId);
     const brandName = filters.brand;
 
@@ -310,12 +315,13 @@ export class BrandPresenceReportService {
     return data;
   }
 
-  private async countBrandSkus(brandName: string, tenantId?: string): Promise<number> {
+  private async countBrandSkus(brandName: string, tenantId: string): Promise<number> {
     const q = this.knex('products as p')
       .innerJoin('brands as b', 'b.id', 'p.brand_id')
       .where('b.nombre', brandName)
-      .count<{ count: string }[]>('p.id as count');
-    if (tenantId) q.where('p.tenant_id', tenantId).andWhere('b.tenant_id', tenantId);
+      .count<{ count: string }[]>('p.id as count')
+      .where('p.tenant_id', tenantId)
+      .andWhere('b.tenant_id', tenantId);
     const [row] = await q;
     return Number(row?.count || 0);
   }

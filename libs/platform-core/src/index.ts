@@ -20,6 +20,7 @@ export * from './lib/tenant/tenant.module';
 export * from './lib/tenant/tenant-context.service';
 export * from './lib/tenant/tenant-context.interceptor';
 export * from './lib/tenant/legacy-tx.als';
+export * from './lib/tenant/require-tenant';
 
 // ── cache (tenant-aware) ──
 export * from './lib/cache/tenant-cache.service';
