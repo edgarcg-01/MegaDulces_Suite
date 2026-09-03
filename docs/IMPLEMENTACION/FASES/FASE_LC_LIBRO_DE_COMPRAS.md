@@ -643,6 +643,41 @@ molestia en trabajo perdido (271 CFDIs / $32.6M en limbo).
 no-op, y un no-op se lee igual que "no hay duplicados" — es lo que dejó
 `analytics.customer_receivables` vacía en producción durante meses.
 
+### Aplicado a producción (2026-09-03)
+
+Las 3 migraciones + el sembrado, verificados con los smokes **37/37 y 66/66 contra prod**.
+
+**Cómo se aplicaron, y por qué así:** una por una con `migrate.up()` y `lock_timeout = 15s`,
+**no** con `migrate.latest()`. Knex mete todo el batch en una sola transacción, y había 6
+migraciones de otras sesiones intercaladas — varias construyen matviews. El índice sobre
+`analytics.gl_poliza_lines` (**480,863 filas / 291 MB**) toma `ACCESS EXCLUSIVE`, así que en
+un solo batch ese lock quedaba tomado mientras se construían las matviews de después,
+bloqueando el feed de pólizas que escribe **cada minuto**. Una por una, el lock dura lo que
+dura su propia migración (4.5 s). Las 6 ajenas se leyeron antes: todas aditivas, cero
+`DROP TABLE` / `DROP COLUMN` / `DELETE`.
+
+**Lo que la puerta exacta agregó, medido con datos reales** (2×2 por mes, UUID × importe):
+
+| mes | ambas | **solo UUID** | solo importe | ninguna |
+|---|---:|---:|---:|---:|
+| 2026-03 | 28 | 0 | 3 | 83 |
+| 2026-06 | 31 | 0 | 5 | 139 |
+| **2026-07** | 149 | **4 ($109,782)** | 22 | 265 |
+| 2026-08 | 0 | 0 | 34 | 688 |
+
+Las **4 de julio** son facturas que el cruce por importe **no atrapaba**: se habrían
+re-entregado y duplicado. Y `solo_importe` aparece en todos los meses, o sea **las puertas
+suman y ninguna es superconjunto** — como predecía el análisis. Agosto sale 0 por UUID
+porque el histórico llega hasta jul-2026; ese mes queda cubierto sólo por importe, que es
+exactamente lo que el renglón de cobertura declara en pantalla.
+
+⚠️ **`concepto` llena hacia adelante, no retroactivo.** El importer sólo reescribe el delta
+por `RowVersion`, así que las 480k patas existentes se quedan en `NULL`. No hace falta
+backfill: las patas de compras históricas tienen el concepto **vacío en el 100%**, que es la
+razón por la que esta columna existe.
+
+**Falta:** redeploy de api + view, y que los roles de contabilidad vuelvan a entrar.
+
 ### Lo que sigue sin estar probado
 
 ⚠️ **El separador del TXT.** Los 19 campos se validaron uno a uno contra `Polizas` /
