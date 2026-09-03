@@ -350,14 +350,35 @@ export class CommercialVendorRoutesService {
     });
   }
 
-  /** Vendedores asignables (usuarios de campo activos). */
+  /** Vendedores asignables (usuarios de campo activos). Los roles reales de campo son
+   *  `vendedor_ruta`/`promotor_ruta` (no `vendedor` a secas, que no existe) — el filtro
+   *  viejo devolvía [] y dejaba vacíos los dropdowns de asignación. */
   async listVendors() {
     return this.tk.run(async (trx) =>
       trx('public.users')
-        .whereIn('role_name', ['vendedor', 'colaborador', 'ejecutivo'])
+        .whereIn('role_name', [
+          'vendedor_ruta',
+          'promotor_ruta',
+          'vendedor',
+          'colaborador',
+          'ejecutivo',
+        ])
         .where('activo', true)
         .select('id', 'username', 'role_name')
         .orderBy('username'),
+    );
+  }
+
+  /** Catálogo de rutas (trade.catalogs 'rutas') con su zona — para el picker del panel
+   *  de supervisores que asigna rutas a vendedores. */
+  async listRouteCatalog() {
+    return this.tk.run(async (trx) =>
+      trx('trade.catalogs as r')
+        .leftJoin('public.zones as z', 'z.id', 'r.parent_id')
+        .where('r.catalog_id', 'rutas')
+        .whereNull('r.deleted_at')
+        .select('r.id as route_id', 'r.value as route', 'z.name as zone')
+        .orderBy(['z.name', 'r.value']),
     );
   }
 
