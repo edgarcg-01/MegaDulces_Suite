@@ -76,7 +76,7 @@ export interface BlindCountDto {
   turno?: string;
   cajero_code?: string;           // cierre: cajero que cierra · relevo: cajero SALIENTE
   cajero_entrante?: string;       // solo relevo: quién recibe la caja
-  tipo?: 'cierre' | 'relevo';     // default 'cierre'
+  tipo?: 'cierre' | 'relevo' | 'retiro';   // default 'cierre'
   denominations: Record<string, number>;  // {"1000":2,"0.5":10,…}
   nota?: string;
   photo_url?: string;
@@ -260,7 +260,10 @@ export class BlindCountService {
     }
     const tenantId = this.tenantCtx.requireTenantId();
     const total = this.computeTotal(dto.denominations || {});
-    const tipo = dto.tipo === 'relevo' ? 'relevo' : 'cierre';
+    // `retiro` = la sangría que Kepler pide al llegar al límite de la caja (c46,
+    // típicamente $15,000). Es donde va el 63-81% del efectivo, así que sin este
+    // tipo el conteo del cierre solo verificaba un tercio del dinero.
+    const tipo = dto.tipo === 'relevo' ? 'relevo' : dto.tipo === 'retiro' ? 'retiro' : 'cierre';
     const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
     if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
 
@@ -290,8 +293,10 @@ export class BlindCountService {
           validado_por: null, validado_at: null, validado_nota: null,
           captured_at: trx.fn.now(),
         });
-      // El relevo no se compara contra el corte del día (es intra-turno): solo sella el traspaso.
-      if (tipo === 'relevo') {
+      // Ni el relevo ni el retiro se comparan contra el corte del día: son
+      // intra-turno y el corte todavía no existe. El retiro se cuadra al cerrar,
+      // cuando la identidad `Σ retiros + cajón = contado` ya se puede evaluar.
+      if (tipo === 'relevo' || tipo === 'retiro') {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
         return { result: { tipo, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
