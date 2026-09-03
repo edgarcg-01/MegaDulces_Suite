@@ -482,7 +482,16 @@ export class PurchaseBookService {
          SELECT DISTINCT ON (upper(f.uuid))
                 pu.source AS prueba_source, pu.referencia AS prueba_ref, pu.anio_mes AS prueba_mes,
                 upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
-                f.fecha, f.total,
+                -- ⚠️ SIN BACKTICKS ACÁ: este comentario va dentro de un template literal de JS
+                -- (rompía el build de api con "Expected ',', got 'ident'").
+                -- to_char y no la columna cruda: pg devuelve date como Date de JS, y el
+                -- String(...).slice(0,10) de abajo lo convertía en "Tue Sep 01" — el
+                -- weekday en INGLÉS, no la fecha. Salía en la tabla, en el respaldo XLSX
+                -- (columna declarada date recibiendo texto), en el CSV del asociador, y
+                -- ordenaba los renglones del TXT alfabéticamente por día de la semana
+                -- (Fri < Mon < Sat < Tue < Wed). Acá to_char es gratis: envolver la columna
+                -- sólo anula el índice en el WHERE, no en la lista de selección.
+                to_char(f.fecha, 'YYYY-MM-DD') AS fecha, f.total,
                 coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
                 coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
                 coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
@@ -1074,8 +1083,8 @@ export class PurchaseBookService {
       const { rows: facturas } = desdeArchivo
         ? await knex.raw(
           `SELECT DISTINCT ON (upper(f.uuid))
-                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio, f.fecha,
-                  f.total,
+                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
+                  to_char(f.fecha, 'YYYY-MM-DD') AS fecha, f.total,
                   coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
                   coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
                   coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
@@ -1090,8 +1099,8 @@ export class PurchaseBookService {
         )
         : await knex.raw(
           `SELECT DISTINCT ON (upper(f.uuid))
-                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio, f.fecha,
-                  f.total,
+                  upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
+                  to_char(f.fecha, 'YYYY-MM-DD') AS fecha, f.total,
                   coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
                   coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
                   coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
