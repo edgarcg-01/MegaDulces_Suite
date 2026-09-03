@@ -390,8 +390,8 @@ export class RoutePromoComponent {
     return r.rule.canal === 'ruta' ? 'RD / reparto' : 'Todos los canales';
   }
 
-  /** Segundos típicos de una corrida (medido en prod: ~3 s el AI + ~6 s el agregado). */
-  readonly ESTIMADO = 12;
+  /** Segundos típicos (medido en prod tras RR-PROMO.6: ~3 s el AI + ~3.7 s el agregado). */
+  readonly ESTIMADO = 8;
 
   /** Arranca el cronómetro y la narración de etapas mientras corre la petición. */
   private startProgress(): void {

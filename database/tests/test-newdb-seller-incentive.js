@@ -131,6 +131,29 @@ const money = (n) => `$${Math.round(Number(n) || 0).toLocaleString('es-MX')}`;
           < Number(d.universo_ruta) + Number(d.vecinal_wincaja),
         'la suma de canales excede a las fuentes → hay doble conteo');
 
+      // RR-PROMO.6: el canal `ruta` se arma de las fuentes base (wincaja ruta + push) en vez
+      // de leer el contrato enriquecido `v_route_sales_lines`, porque el enriquecimiento por
+      // ticket (forma de pago/unidad/hora) costaba el 70% del tiempo y este consumidor no lo
+      // usa. Es el MISMO universo — y este candado es lo único que impide que dejen de serlo.
+      console.log('\n2bis) el atajo de rendimiento no cambió el universo');
+      const eq = (await c.query(
+        `SELECT (SELECT count(*) FROM analytics.v_route_sales_lines
+                  WHERE tenant_id=$1 AND sale_channel='ruta_venta' AND source_branch<>'VEC-PH-H'
+                    AND business_date>=$2 AND business_date<=$3) AS a_filas,
+                (SELECT COALESCE(sum(importe),0) FROM analytics.v_route_sales_lines
+                  WHERE tenant_id=$1 AND sale_channel='ruta_venta' AND source_branch<>'VEC-PH-H'
+                    AND business_date>=$2 AND business_date<=$3) AS a_imp,
+                (SELECT count(*) FROM analytics.v_seller_sales_lines
+                  WHERE tenant_id=$1 AND canal='ruta'
+                    AND business_date>=$2 AND business_date<=$3) AS b_filas,
+                (SELECT COALESCE(sum(importe),0) FROM analytics.v_seller_sales_lines
+                  WHERE tenant_id=$1 AND canal='ruta'
+                    AND business_date>=$2 AND business_date<=$3) AS b_imp`, [T, vLo, vHi])).rows[0];
+      check('canal ruta = v_route_sales_lines sin VEC-PH-H, fila por fila',
+        Number(eq.a_filas) === Number(eq.b_filas), `${eq.a_filas} vs ${eq.b_filas}`);
+      check('…y al centavo',
+        Math.abs(Number(eq.a_imp) - Number(eq.b_imp)) < 0.01, `${money(eq.a_imp)} vs ${money(eq.b_imp)}`);
+
       console.log('\n3) el push no se pierde (en RD la ruta ES el vendedor)');
       const p = (await c.query(
         `SELECT COALESCE(sum(importe) FILTER (WHERE source='push'),0) push,
