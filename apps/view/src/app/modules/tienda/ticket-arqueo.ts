@@ -73,6 +73,21 @@ const linea = (ch = '-') => ch.repeat(ANCHO);
 
 const corta = (t: string, n: number) => (t || '').length > n ? (t || '').slice(0, n) : (t || '');
 
+/**
+ * `Etiqueta                valor`, y si el valor no cabe en la misma línea baja
+ * completo a la siguiente.
+ *
+ * Cortarlo era peor que bajarlo: con el nombre real de una cajera salía
+ * "Rosa María Tinoco Ve", que en un papel que se firma se lee como un error del
+ * sistema. A 32 columnas caben los nombres completos si tienen su propio renglón.
+ */
+function etiquetado(etiqueta: string, valor: string | null | undefined): string[] {
+  const v = String(valor ?? '').trim();
+  if (!v) return [fila(etiqueta, '-')];
+  if (etiqueta.length + 1 + v.length <= ANCHO) return [fila(etiqueta, v)];
+  return [esc(etiqueta + ':'), ...envolver(v).map((l) => '  ' + l)];
+}
+
 /** Texto libre en varias líneas: en 32 columnas una nota se corta sola si no. */
 function envolver(texto: string): string[] {
   const out: string[] = [];
@@ -103,8 +118,8 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   L.push(fila('Fecha', a.fecha));
   if (a.folio) L.push(fila('Turno Kepler', '#' + a.folio));
   if (a.turno) L.push(fila('Turno', a.turno));
-  L.push(fila('Cajera', corta(a.cajera, 20)));
-  if (relevo && a.cajero_entrante) L.push(fila('Entrega a', corta(a.cajero_entrante, 20)));
+  L.push(...etiquetado('Cajera', a.cajera));
+  if (relevo && a.cajero_entrante) L.push(...etiquetado('Entrega a', a.cajero_entrante));
   if (a.hora_apertura || a.hora_cierre) {
     const dur = a.duracion_horas != null ? ` (${a.duracion_horas}h)` : '';
     L.push(fila('Horario', `${(a.hora_apertura || '--').slice(0, 5)}-${(a.hora_cierre || '--').slice(0, 5)}${dur}`));
@@ -139,9 +154,17 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   } else {
     L.push('CONTEO POR DENOMINACION');
     L.push(linea());
+    // Formato `1000 x 17 = $17,000.00`: la denominación y la cantidad alineadas a
+    // la derecha en ancho fijo, para que las columnas caigan una debajo de otra sin
+    // importar si son 3 piezas o 1,250. Es como se lee un arqueo en papel — de
+    // arriba a abajo comparando cantidades, no montos sueltos.
+    //
+    // Sin `×` ni acentos a propósito: muchas térmicas de 203 dpi no traen esos
+    // glifos en su tabla de caracteres y los imprimen como basura.
     for (const d of a.denominaciones) {
-      const et = d.denominacion >= 1 ? `$${d.denominacion}` : `${d.denominacion * 100}c`;
-      L.push(fila(`${et.padEnd(7)}x ${String(d.cantidad).padStart(3)}`, money(d.subtotal)));
+      const et = d.denominacion >= 1 ? String(d.denominacion) : `${d.denominacion * 100}c`;
+      const izq = `${et.padStart(5)} x ${String(d.cantidad).padStart(4)} =`;
+      L.push(fila(izq, money(d.subtotal)));
     }
     L.push(linea());
     // Billetes y monedas por separado: es la única forma de comparar nuestro
@@ -194,9 +217,9 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
 
   L.push('');
   L.push(linea());
-  L.push(fila('Capturo', corta(a.capturado_por || (a.denominaciones.length ? '-' : 'KEPLER'), 18)));
+  L.push(...etiquetado('Capturo', a.capturado_por || (a.denominaciones.length ? '-' : 'KEPLER')));
   if (a.capturado_at) L.push(fila('', fechaHora(a.capturado_at)));
-  L.push(fila('Valido', corta(a.validado_por || 'PENDIENTE', 18)));
+  L.push(...etiquetado('Valido', a.validado_por || 'PENDIENTE'));
   if (a.validado_at) L.push(fila('', fechaHora(a.validado_at)));
   if (a.validado_nota) L.push(...envolver('  ' + a.validado_nota));
   // El id hace rastreable el papel: sin él, un ticket suelto no se puede casar

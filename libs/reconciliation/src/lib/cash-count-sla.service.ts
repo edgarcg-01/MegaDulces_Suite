@@ -41,6 +41,17 @@ export class CashCountSlaService {
 
   static readonly SLA_MIN = 45;
   static readonly CRITICO_MIN = 720;
+  /**
+   * A la cajera se le avisa **antes** que al supervisor: a los 5 min de que Kepler
+   * cerró, cuando todavía está parada frente al cajón. El plazo de 45 min es para
+   * escalar, no para pedir — pedir a los 45 ya llega tarde, el efectivo se guardó
+   * y ella se fue a otra cosa.
+   *
+   * El aviso se repite en cada barrido (cada 15 min) mientras el corte siga sin
+   * contar: no es spam, es la única forma de que llegue si no estaba conectada la
+   * primera vez. Deja de sonar en cuanto cuenta.
+   */
+  private static readonly AVISO_CAJERA_MIN = 5;
   /** Ventana de barrido. Más atrás no sirve: el hallazgo ya existe y es idempotente. */
   private static readonly DIAS = 7;
 
@@ -52,46 +63,57 @@ export class CashCountSlaService {
     @Optional() @Inject(RECON_NOTIFIER_PORT) private readonly notifier?: ReconNotifierPort,
   ) {}
 
-  /** Cada 15 min. El plazo se mide en decenas de minutos; afinar más solo hace ruido. */
-  @Cron('0 */15 * * * *', { timeZone: 'America/Mexico_City' })
+  /**
+   * Cada 5 min. Antes era 15, que alcanzaba para escalar al supervisor pero llegaba
+   * tarde para lo otro: el aviso "haz tu arqueo" tiene que caerle a la cajera
+   * mientras sigue parada frente al cajón, no veinte minutos después. La consulta
+   * es un índice sobre 3 días de cortes: correrla más seguido no cuesta nada.
+   */
+  @Cron('0 */5 * * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (this.running) { this.logger.warn('Skip: barrido previo aún corriendo'); return; }
     await this.scanAllTenants('cron');
   }
 
-  async scanAllTenants(source = 'cron'): Promise<{ tenants: number; vencidos: number; nuevos: number }> {
+  async scanAllTenants(source = 'cron'): Promise<{ tenants: number; vencidos: number; nuevos: number; avisados: number }> {
     this.running = true;
-    let vencidos = 0, nuevos = 0;
+    let vencidos = 0, nuevos = 0, avisados = 0;
     try {
       const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
       for (const t of tenants) {
         try {
           const r = await this.scanTenant(t.id);
-          vencidos += r.vencidos; nuevos += r.nuevos;
+          vencidos += r.vencidos; nuevos += r.nuevos; avisados += r.avisados;
         } catch (e: any) {
           this.logger.warn(`barrido tenant ${t.id} falló: ${e?.message || e}`);
         }
       }
-      if (vencidos) this.logger.log(`SLA ${source}: ${vencidos} cortes sin contar fuera de plazo (${nuevos} nuevos).`);
-      return { tenants: tenants.length, vencidos, nuevos };
+      if (vencidos || avisados) this.logger.log(`SLA ${source}: ${vencidos} fuera de plazo (${nuevos} nuevos) · ${avisados} avisos "haz tu arqueo".`);
+      return { tenants: tenants.length, vencidos, nuevos, avisados };
     } finally {
       this.running = false;
     }
   }
 
   /** Barrido del tenant de la request. El controlador no necesita saber su UUID. */
-  async scanCurrentTenant(): Promise<{ vencidos: number; nuevos: number }> {
+  async scanCurrentTenant(): Promise<{ vencidos: number; nuevos: number; avisados: number }> {
     return this.scanTenant(this.tenantCtx.requireTenantId());
   }
 
-  async scanTenant(tenantId: string): Promise<{ vencidos: number; nuevos: number }> {
-    const filas = await this.tk.run(tenantId, async (trx) => {
+  async scanTenant(tenantId: string): Promise<{ vencidos: number; nuevos: number; avisados: number }> {
+    // Dos consultas con el mismo SQL y distinto plazo: la de la cajera (5 min) es
+    // un superconjunto de la del supervisor (45), así que se pide una sola vez con
+    // el plazo corto y se parte acá.
+    const todos = await this.tk.run(tenantId, async (trx) => {
       const { rows } = await trx.raw(VENCIDOS, {
-        tenant: tenantId, dias: CashCountSlaService.DIAS, sla: CashCountSlaService.SLA_MIN,
+        tenant: tenantId, dias: CashCountSlaService.DIAS, sla: CashCountSlaService.AVISO_CAJERA_MIN,
       });
       return rows as VencidoRow[];
     });
-    if (!filas.length) return { vencidos: 0, nuevos: 0 };
+    const avisados = await this.avisarCajeras(tenantId, todos)
+      + await this.avisarRetiros(tenantId);
+    const filas = todos.filter((f) => Number(f.sin_contar_min) >= CashCountSlaService.SLA_MIN);
+    if (!filas.length) return { vencidos: 0, nuevos: 0, avisados };
 
     let nuevos = 0;
     const criticosNuevos: any[] = [];
@@ -144,7 +166,72 @@ export class CashCountSlaService {
           .catch((e) => this.logger.warn(`notifyBadCut falló: ${e?.message || e}`));
       }
     }
-    return { vencidos: filas.length, nuevos };
+    return { vencidos: filas.length, nuevos, avisados };
+  }
+
+  /**
+   * "Haz tu arqueo", a cada cajera que tiene un corte cerrado sin contar.
+   *
+   * Es lo que faltaba para que el flujo se cierre solo: hoy el turno la espera en
+   * la pantalla, pero si no la abre no se entera de nada — y eso explica buena
+   * parte del 1% de cumplimiento. No es que la gente se niegue a contar: nada se
+   * lo pide en el momento.
+   *
+   * Sin `cajero_cierre` no hay a quién avisarle. Esos son los 16 códigos de Kepler
+   * que no tienen usuario en el sistema: se cuentan aparte para que el hueco se
+   * vea en el log en vez de desaparecer en un `continue`.
+   */
+  private async avisarCajeras(tenantId: string, filas: VencidoRow[]): Promise<number> {
+    if (!this.notifier?.notifyArqueoDue || !filas.length) return 0;
+    let avisados = 0, sinCajera = 0;
+    for (const f of filas) {
+      const cajero = (f.cajero_cierre || '').trim();
+      if (!cajero) { sinCajera++; continue; }
+      const min = Number(f.sin_contar_min);
+      await this.notifier.notifyArqueoDue(tenantId, {
+        cajero_code: cajero,
+        warehouse_code: f.warehouse_code, caja: f.caja,
+        business_date: f.business_date, folio: f.folio,
+        hora_cierre: f.hora_cierre, cerrado_hace_min: min,
+        vencido: min >= CashCountSlaService.SLA_MIN,
+      }).then(() => { avisados++; })
+        .catch((e: any) => this.logger.warn(`aviso a ${cajero} falló: ${e?.message || e}`));
+    }
+    if (sinCajera) this.logger.warn(`${sinCajera} cortes sin contar no tienen a quién avisarle (código de Kepler sin usuario).`);
+    return avisados;
+  }
+
+  /**
+   * "Cuenta lo que estás sacando", cuando Kepler pidió el retiro.
+   *
+   * Esto es lo que faltaba para cubrir el dinero completo: contar solo al cierre
+   * verifica ~$9,000 de $27,000 cobrados, porque el resto ya salió en sangrías.
+   * El aviso llega en el momento en que el efectivo sale del cajón, que es la
+   * única ventana en que todavía se puede contar.
+   */
+  private async avisarRetiros(tenantId: string): Promise<number> {
+    if (!this.notifier?.notifyArqueoDue) return 0;
+    const filas = await this.tk.run(tenantId, async (trx) => {
+      const r: any = await trx.raw(RETIROS_PENDIENTES, { tenant: tenantId });
+      return r.rows as RetiroPendienteRow[];
+    }).catch((e: any) => { this.logger.warn(`retiros pendientes falló: ${e?.message || e}`); return [] as RetiroPendienteRow[]; });
+
+    let n = 0;
+    for (const f of filas) {
+      const cajero = (f.cajero_cierre || '').trim();
+      if (!cajero) continue;
+      await this.notifier.notifyArqueoDue(tenantId, {
+        cajero_code: cajero,
+        warehouse_code: f.warehouse_code, caja: f.caja,
+        business_date: f.business_date, folio: f.folio,
+        hora_cierre: null,                       // el turno sigue abierto: no hay hora de cierre
+        cerrado_hace_min: Number(f.sin_contar_min),
+        vencido: false,
+        motivo: 'retiro',
+      } as any).then(() => { n++; })
+        .catch((e: any) => this.logger.warn(`aviso de retiro a ${cajero} falló: ${e?.message || e}`));
+    }
+    return n;
   }
 
   /**
@@ -176,6 +263,12 @@ interface VencidoRow {
   efectivo_esperado: string | null; efectivo_contado: string | null;
   arqueo_billetes: string | null; arqueo_monedas: string | null; efectivo_retirado: string | null;
   sin_contar_min: string;
+}
+
+interface RetiroPendienteRow {
+  warehouse_code: string; caja: string; folio: string; business_date: string;
+  cajero_cierre: string | null;
+  retirado_kepler: string; contado_nuestro: string; sin_contar: string; sin_contar_min: string;
 }
 
 export interface CumplimientoRow {
@@ -223,6 +316,54 @@ const VENCIDOS = `
          )) / 60)) >= CAST(:sla AS int)
    ORDER BY cc.efectivo_contado DESC NULLS LAST
    LIMIT 500
+`;
+
+/**
+ * Retiros que Kepler ya pidió y todavía nadie contó.
+ *
+ * El disparador NO lo inventamos: cuando la caja junta su límite (`c46`, típicamente
+ * $15,000) Kepler le pide a la cajera sacar el dinero, y al hacerlo **sube `c48`**
+ * en el turno ABIERTO. Verificado en vivo: suc 01 caja 1 con `c48 = 15,000.00`
+ * contra `c46 = 15,000.00`, turno sin cerrar.
+ *
+ * Kepler guarda el ACUMULADO, no cada sangría. Así que la señal es la diferencia:
+ * lo que el ERP dice que salió menos lo que nosotros ya contamos. Mientras esa
+ * brecha sea de más de un peso, hay efectivo que salió del cajón sin registro de
+ * qué billetes era — y eso es lo que se le pide contar.
+ *
+ * Es **stateless a propósito**: no guarda "último visto" en memoria ni en tabla.
+ * Al reiniciar la API no se pierde ni se duplica nada, porque la pregunta se
+ * responde entera contra la base cada vez.
+ */
+const RETIROS_PENDIENTES = `
+  SELECT k.sucursal            AS warehouse_code,
+         k.c2                  AS caja,
+         k.c3::bigint::text    AS folio,
+         k.c5::date::text      AS business_date,
+         NULLIF(btrim(k.c8), '') AS cajero_cierre,
+         NULLIF(btrim(k.c6), '') AS hora_cierre,
+         round(k.c48, 2)       AS retirado_kepler,
+         COALESCE(b.contado, 0) AS contado_nuestro,
+         round(k.c48 - COALESCE(b.contado, 0), 2) AS sin_contar,
+         GREATEST(0, floor(EXTRACT(EPOCH FROM (
+           (now() AT TIME ZONE 'America/Mexico_City')
+           - (k.c5::date + COALESCE(NULLIF(btrim(k.c6), ''), '00:00:00')::time)
+         )) / 60))::int AS sin_contar_min
+    FROM kepler_ods.kdpv_folio_caja k
+    LEFT JOIN LATERAL (
+      SELECT sum(bc.total_contado) AS contado
+        FROM reconciliation.blind_counts bc
+       WHERE bc.tenant_id = CAST(:tenant AS uuid)
+         AND bc.tipo = 'retiro'
+         AND bc.warehouse_code = k.sucursal
+         AND bc.cash_cut_folio = k.c3::bigint::text
+    ) b ON true
+   WHERE k.c10::date = DATE '1800-01-01'            -- turno ABIERTO: la caja sigue cobrando
+     AND k.c5::date >= current_date - 1
+     AND COALESCE(k.c48, 0) > 0                     -- Kepler ya pidió al menos un retiro
+     AND (k.c48 - COALESCE(b.contado, 0)) > 1       -- y falta contar parte de eso
+   ORDER BY (k.c48 - COALESCE(b.contado, 0)) DESC
+   LIMIT 200
 `;
 
 const CUMPLIMIENTO = `
