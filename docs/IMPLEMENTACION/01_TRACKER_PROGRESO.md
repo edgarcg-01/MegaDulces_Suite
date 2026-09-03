@@ -1326,6 +1326,22 @@ Disparador: Edgar, *"¿nuestra gestión de permisos y usuarios ya es correcta?"*
 
 ⚠️ **Lo que hay que mirar en el redeploy:** los 2 `repartidor` y los 9 de `/reparto` son el caso de prueba. Si algo se cierra de más, el síntoma es un **403** en una pantalla que antes funcionaba — y el arreglo es el permiso que falta, no quitar el guard.
 
+### AUTHZ.6 — El almacenista entraba y la app lo mandaba a capturar visitas ✅ 2026-09-03
+
+Reporte de Edgar: *"hay problemas con el usuario luis_piceno en prod, lo arroja a la pantalla por default, él teniendo otros permisos"*. (Ojo: durante la investigación la cuenta fue **renombrada a `luis_espino`** — mismo `id`, misma persona.)
+
+- [x] ✅ **AUTHZ.6.1 El diagnóstico.** El rol `almacenista` da exactamente **2 permisos**: `COMMERCIAL_INVENTORY_RECIBIR` y `COMMERCIAL_INVENTORY_SUPERVISAR`. La cadena, verificada eslabón por eslabón: login → `/projects` → la tarjeta **Almacén** exigía `anyOf: [INVENTORY_VER, WAREHOUSES_VER, DEADSTOCK_VER, INVHEALTH_VER, RECONCILIATION_VER]` — **ninguno de los suyos** → cero tarjetas visibles → [`projects.component.ts:223`](../../apps/view/src/app/modules/projects/projects/projects.component.ts) hace `navigate(['/dashboard/captures'])`. **Ésa es "la pantalla por default"**: la captura de trade, que no es su trabajo.
+- [x] ✅ **AUTHZ.6.2 Y un segundo rebote detrás.** Escribiendo `/almacen` a mano tampoco entraba: `almacenHomeGuard` no tenía sus permisos entre los candidatos → caía al fallback fijo `/almacen/inventory`, que exige `COMMERCIAL_INVENTORY_VER` → fuera otra vez. **Sus pantallas existían y estaban bien gateadas** (`/almacen/inventory/recepcion-sesiones` = Vales, `/almacen/anden`, `/almacen/inventory/sessions` = Folios), y sus tabs en `almacen-tabs.ts` ya usaban **sus** permisos. Lo único roto era la puerta de entrada.
+- [x] ✅ **AUTHZ.6.3 El arreglo.** La tarjeta Almacén suma los permisos **operativos** del piso (5 → 13) y `almacenHomeGuard` suma 7 candidatos, cada uno apuntando a una ruta cuyo `permissionGuard` es ese mismo permiso (verificado ruta por ruta contra `app.routes.ts`). Además `landingRedirectGuard` deja de mandar al fallback fijo cuando no hubo candidato: eso producía el segundo rebote mudo. Ahora **dice qué permiso falta** (`/sin-acceso` con contexto), que es la respuesta accionable.
+- [x] ✅ **AUTHZ.6.4 Medido contra prod.** Antes: **3 usuarios** (`luis_espino` ex-piceno, `brian_zavala`, `luis_navarro`) caían al default. Después: **cero** — el único usuario interno activo sin ninguna tarjeta es `hacker`, que tiene **0 permisos**, o sea que no ver nada es lo correcto.
+- ⚠️ **Lo que NO toqué, y es pregunta para Edgar:** el mapa del rol `almacenista` tiene **164 claves con 2 en `true` y 162 en `false` explícito**, escrito el **2026-09-02 15:45 por `superoot`**. Esa forma —el enum completo materializado— es la firma de *"se guardó el mapa entero desde `/admin/roles`"*, el mismo residuo que documenta `[LC.6.2]`. **Si el rol antes tenía más permisos, se perdieron ahí**, pero no hay bitácora de cambios de rol (`identity.user_events` es por usuario, y tiene 1 fila en todo prod) así que **no se puede saber desde la DB y no lo adiviné**. Si el almacenista debe poder hacer más que recibir y supervisar conteos, hay que volver a marcárselo en `/admin/roles`.
+
+**Pendiente prod:** redeploy `view` (sin backend, sin migración, sin re-login).
+
+**Queda abierto — la clase, no el caso:** hay **35 permisos** que gatean pantallas y no abren ningún proyecto. Hoy no rompen a nadie (medido), pero el patrón se repite en cuanto nazca un rol acotado a permisos operativos. El arreglo de fondo es **derivar** el `anyOf` de las tarjetas y los candidatos de landing de `AUTHZ_TREE` —que ya declara qué permiso pertenece a qué app— en vez de mantener tres listas a mano. Con eso el candado sería estructural en vez de una lista más que actualizar.
+
+📌 **Nota de método:** el primer conteo de impacto salió mal tres veces por parsear TypeScript con regex (el `]` de un comentario truncaba el array; varios permisos en una línea; el `anyOf` de una sola línea). Los números de arriba son los del parser corregido, contrastado contra una lectura directa del archivo. Si esto se vuelve un smoke, la lista de tarjetas tiene que salir a un `.ts` de constantes e importarse con `ts-node` —como ya hacen `test-newdb-user-dto` y `test-newdb-scope-params`— no parsearse.
+
 ---
 
 ## ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén
