@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — reporte "Actualizar Wix" para MKT dentro del catálogo interno (CV.16, 2026-09-03)
+- Reemplaza el flujo manual que MKT usaba para refrescar el catálogo de la tienda Wix: una laptop conectada a la red de Kepler + un script de Python con login JWT propio + un artefacto Claude/Cowork aparte para el precio/existencia + otro script de Python aparte para las presentaciones (Pieza/Paquete/Caja).
+- Hallazgo antes de escribir código: el endpoint `GET /api/kp/productos`, ya migrado y en producción, ya devuelve todo lo que las tres herramientas viejas necesitaban — cero cambios de backend, sólo una página nueva.
+- Nueva página `apps/catalogo-kp/public/actualizar-wix.html`, con la misma sesión que el catálogo interno: MKT sube únicamente el catálogo exportado de Wix y elige entre actualizar precio+existencia o generar el menú de presentaciones como variantes — la data de Kepler llega en vivo, sin archivos intermedios.
+- Verificado con Playwright contra la base real: ambos modos coinciden byte a byte con los valores calculados a mano para varios SKUs reales.
+- Las herramientas viejas no se retiraron — quedan de respaldo hasta que MKT confirme el reemplazo con su export real de Wix.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — corte real del Service en `.163`: catalogo-kp corre en producción desde este monorepo (CV.15, 2026-09-03)
 - Autorizado explícitamente por 0Sistemas. Es el paso de mayor riesgo de toda la Fase CV: reemplazar el proceso que sirve producción real (`megadulces-api-ready` standalone) por el build de `apps/catalogo-kp`.
 - Tres hallazgos reales resueltos antes de tocar el proceso en vivo: (1) un módulo `salud` (`GET /api/salud`) que el vigilante necesita y nunca se había portado; (2) un bug crítico de orden en `main.ts` — `dotenv.config()` corría después de que ya hiciera falta, lo que habría causado un crash-loop infinito en cualquier arranque real dependiendo sólo del `.env`; (3) el bundle externaliza sus dependencias (knex, pg, bcryptjs, NestJS), resuelto apuntando `NODE_PATH` al `node_modules` de la Suite.

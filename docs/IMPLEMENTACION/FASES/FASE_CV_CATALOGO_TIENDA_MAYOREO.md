@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🟢 **CV.0–CV.15 completos — migración cerrada** (2026-09-03, CV.4 diferido). `.163` corre en producción real desde este monorepo: rol dedicado, lectura/escritura verificadas de punta a punta (incluido el primer pedido real de la historia, folio `MD-2026-00012`), frontend Angular nuevo (`apps/tienda`) para el checkout transaccional, y el corte real del Service (Paso 4 del runbook) completado y verificado con 0 fallos. Pendiente, no bloqueante: panel interno (fuera de alcance de esta fase) y vigilar de cerca las próximas horas.
+> Estado: 🟢 **CV.0–CV.16 completos — migración cerrada** (2026-09-03, CV.4 diferido). `.163` corre en producción real desde este monorepo: rol dedicado, lectura/escritura verificadas de punta a punta (incluido el primer pedido real de la historia, folio `MD-2026-00012`), frontend Angular nuevo (`apps/tienda`) para el checkout transaccional, el corte real del Service (Paso 4 del runbook) completado y verificado con 0 fallos, y un reporte nuevo para MKT (`actualizar-wix.html`) que reemplaza el flujo manual Python+laptop+artefacto de sincronización con Wix. Pendiente, no bloqueante: panel interno (fuera de alcance de esta fase) y vigilar de cerca las próximas horas.
 
 ---
 
@@ -906,6 +906,88 @@ y que el vigilante levantara el nuevo).
   si algún día reaparece un chunk separado en `dist/apps/catalogo-kp/`,
   significa que algo volvió a usar `import()` dinámico y hay que copiarlo
   también o volver a `require()`.
+
+---
+
+## CV.16 — Reporte "Actualizar Wix" para MKT (2026-09-03)
+
+0Sistemas compartió un checkpoint
+(`checkpoint_actualizar_wix_2026-09-03.json`, carpeta
+`DataCenter\DataBases Sucursales\MES GLOBAL\`) del proceso manual que MKT
+usa para refrescar el catálogo de la tienda Wix: una laptop conectada a la
+red de Kepler levanta una copia LOCAL de la API vieja, un script de Python
+(`kepler_export_productos.py`) hace login por JWT y exporta
+`kp_costos.csv`/`kepler_explorador.json`, y un artefacto Claude/Cowork
+(`Actualizar_Wix_MegaDulces.html`) procesa esos archivos + el catálogo
+exportado de Wix para producir el CSV final. Un tercer script
+(`generar_variantes_wix.py`) agrega aparte el menú de presentaciones
+(Pieza/Paquete/Caja) como variantes.
+
+**Hallazgo (leyendo el código antes de tocar nada):**
+`apps/catalogo-kp/src/kp/kp.service.ts::getProductos()`
+(`GET /api/kp/productos`, ya migrado y en producción) **ya devuelve todo lo
+que las 3 herramientas necesitaban**: `precio_con_iva` (el precio final ya
+resuelto — `c90` si existe, si no la fórmula de respaldo
+costo×margen×IVA×IEPS), `costo`, `margen`, `iva`/`ieps` (fracción decimal),
+`existencia_ph`, y las 3 unidades con sus precios/factores
+(`u_base/p_u1`, `u2_nom/p_u2/u2_factor`, `u3_nom/p_u3/u3_factor` — literalmente
+los mismos nombres que ya usaba `generar_variantes_wix.py`). **Cero cambios
+de backend** — sólo hacía falta una página nueva que consumiera este
+endpoint ya vivo y ya autenticado.
+
+**Nuevo:** `apps/catalogo-kp/public/actualizar-wix.html` — reemplaza el
+flujo completo. Reutiliza la misma sesión que `catalogo.html`
+(`localStorage` `megadulces_tablero_sesion`, mismo login) — si MKT ya
+inició sesión ahí, entra directo. Al cargar pide `GET /api/kp/productos`
+en vivo (reemplaza laptop + Python + login JWT aparte); MKT sólo sube **un**
+archivo (el catálogo exportado de Wix, ya no `kp_costos.csv` ni
+`kepler_explorador.json`) y elige modo:
+
+- **Precio + existencia** (uso diario): puerto de
+  `Actualizar_Wix_MegaDulces.html::procesar()`, simplificado porque el
+  endpoint ya resuelve qué precio gana (`precio_con_iva` directo, sin
+  reimplementar la fórmula de respaldo en JS). Reglas preservadas: la
+  existencia sólo se escribe si es positiva (nunca borra inventario), una
+  fila `Variant` sin match hereda el precio del `Product` anterior, columnas
+  de auditoría al final (`margen_utilidad, costo_base, tipo_impuesto,
+  existencia_ph, precio_kepler_c90`).
+- **Con presentaciones**: puerto de `generar_variantes_wix.py` a JS —
+  `unidades_de()` (unidades reales, sin duplicar, de más barata a más
+  cara), `surcharge` = precio_unidad − precio_base, `inventory` =
+  existencia_ph / factor (redondeado hacia abajo), `discountMode=AMOUNT`
+  forzado a 0 en productos con variantes (Wix no lo admite), checkbox
+  "forzar Pieza" opcional que deduce el precio del nombre cuando Kepler no
+  trae unidad de pieza (dejando claro que ese precio no es real del POS).
+
+Enlace de entrada agregado en `catalogo.html` ("🛒 Actualizar Wix", junto a
+"⬇ Exportar CSV").
+
+**Verificado con Playwright contra `KP_CONCENTRADA` real** (sesión
+inyectada con un JWT de prueba propio, sin usar credenciales reales de
+ningún usuario): con un CSV de 3 SKUs reales conocidos (`07303`, `17083`,
+y `99999` — este último resultó ser real también, "APOYO PUBLICITARIO",
+un marcador administrativo), **ambos modos coinciden byte a byte** con los
+valores calculados a mano desde `GET /api/kp/productos`:
+
+| Modo | Verificado |
+|---|---|
+| Precio + existencia | Precio, existencia e impuesto correctos en los 3 SKUs; `discountMode/Value` sin tocar (correcto para este modo) |
+| Con presentaciones | 2 productos con menú (2 unidades c/u, 4 variantes), 1 con una sola presentación (sin tocar), `surcharge`/`inventory` exactos por unidad, descuento `AMOUNT` forzado a 0 en el producto con variantes |
+
+Desplegado en `.163` (`megadulces-api-ready/public/actualizar-wix.html` +
+`catalogo.html` actualizado con el enlace), copiado igual que
+`tienda.html`/`reportar-errores.js` en su momento.
+
+**Qué NO cambió:** cero cambios de backend, cero cambios de base de datos.
+Subir el CSV final a Wix sigue siendo manual (Wix no expone una API de
+importación masiva accesible para esto). Las herramientas viejas
+(`kepler_export_productos.py`, el `.html` externo, `generar_variantes_wix.py`,
+el instructivo de la laptop) **no se borraron** — quedan de respaldo hasta
+que MKT confirme que el reporte nuevo cubre su flujo real.
+
+**Pendiente:** validación con MKT usando su export real de Wix (esta
+sesión probó con un CSV mínimo armado a mano, no el catálogo real
+completo); decidir cuándo retirar las herramientas viejas.
 
 ---
 
