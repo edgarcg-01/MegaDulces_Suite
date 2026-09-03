@@ -335,6 +335,50 @@ mira la puerta 501/502 de las pólizas de pago, que la hoja no registra.
 > importe con un `IN` por UUID para todo el histórico, y dejaría el heurístico sólo para los
 > meses que la hoja no cubre. Sería el cierre definitivo del riesgo de doble registro.
 
+### Aceptación contra el archivo de trabajo de la contadora (2026-09-03)
+
+`01-09-2026.xlsx` es el armado manual de **JUL26**, y sirve como verdad hecha a mano para
+validar el módulo de punta a punta. Cuatro hojas, que son las etapas del trámite:
+
+| Hoja | Qué es |
+|---|---|
+| `Hoja1` | la captura cruda, formato de hoja mensual (891 filas) |
+| `Hoja2` | **las 279 facturas del asiento**, ya con cuentas `212`/`501`/`502` resueltas |
+| `Hoja3` | armado intermedio: 839 movimientos (279 × 3 patas, antes de podar las de cero) |
+| `Hoja4` | **la póliza final: 597 movimientos** |
+
+**`Hoja4` ES la póliza que está en ContPAQi.** Prod, `tipo_pol=3 folio=1 anio_mes=2026-07`:
+597 renglones, cargos $33,804,766.23, abonos $33,804,766.23. La hoja: 597 movimientos,
+abonos `212` $33,804,766.23. Idéntico.
+
+Y la cadena cierra al centavo hasta la balanza: el IVA de `Hoja2` es **$614,102.17** y los
+cargos de julio a `1470040000 IVA POR ACREDITAR` en `contpaqi_ledger_monthly` son
+**$614,102.17**; el IEPS de `Hoja2` es **$2,035,353.01** y la pata `1470110000` de la póliza
+es **$2,035,353.01**. Hoja de trabajo → póliza → balanza, sin fuga.
+
+**Desglose de su julio:** 0% $27,317,172.96 · 16% $3,838,138.09 · IEPS $2,035,353.01 ·
+IVA $614,102.17 · total $33,804,766.23, en 279 facturas.
+
+**El dato de LC.2, ahora medido:** el libro toma **279 de los 1,316** CFDIs de ingreso
+recibidos en julio — el **21%**. Confirma que el libro es un subconjunto chico y que la
+pregunta "¿qué entra?" nunca iba a salir del comprobante.
+
+**La prueba que importa — cero doble registro:**
+
+| | |
+|---|---:|
+| CFDIs de julio que el módulo considera (sin asociar + con cuenta) | 347 |
+| Los que el filtro deja pasar al TXT | **179** |
+| De esos 179, cuántos están en la `Hoja2` (o sea, ya en la póliza) | **0** |
+
+Ninguna de las 179 está en el asiento de la contadora. El filtro anti-duplicado queda
+validado contra una fuente humana e independiente, no contra su propio heurístico. (Del
+lado contrario: de las 347 que se consideran, 148 por $17,690,482.66 sí están en `Hoja2` —
+y el filtro las atrapa todas.)
+
+Las 279 facturas de `Hoja2` están **todas** en `fiscal.cfdis` de julio (0 sin CFDI), así que
+el feed del ADD cubre el universo del libro.
+
 ### Lo que falta, medido en prod (2026-09-02)
 
 | Mes | Sin asociar | Ya posteadas (no van) | **Falta de verdad** | Monto |
