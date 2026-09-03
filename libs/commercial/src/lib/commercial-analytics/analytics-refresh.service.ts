@@ -35,6 +35,9 @@ const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
   // PERF (mig 20260831160000): ventas del mes en curso pre-agregadas para el path diario
   // de sellOut (mes en curso nunca es month-aligned → escaneaba 111k filas + sort-a-disco).
   { name: 'analytics.mv_sales_current_month' },
+  // Regla ⭐ (mig 20260903130000): postings del 102 = matview derive-no-copy sobre kepler_ods.kdc2YYMM
+  // (reemplazó import-bank-postings.js). Fan-out mensual = ~1.1 s en REFRESH; lectura indexada = 15 ms.
+  { name: 'analytics.bank_postings' },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min

@@ -91,7 +91,8 @@ const STEPS = {
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
-    path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
+    // RETIRADO 2026-09-03: import-kepler-bank-movements.js → analytics.kepler_bank_movements ahora es
+    // VISTA derive-no-copy sobre kepler_ods.kdm1⋈kdb1 (mig 20260903120000). Cero importer, siempre fresca.
     // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no
     // viven en Kepler), así que el importer del .mdb es la fuente válida. Sube a INTRADAY (no solo
     // nightly) para que refresque seguido junto al ritmo del libro. Requiere Z: (.245) montado.
@@ -158,7 +159,9 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
-    path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
+    // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
+    // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
     path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
     path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
@@ -225,7 +228,7 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
     path.join(K, 'import-sales-by-channel.js'),
     path.join(K, 'import-cash-cuts.js'),
-    path.join(K, 'import-bank-postings.js'),
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
     path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 vivo + Base Movimientos. Requiere Z: (.245) montado.
   ],
 };
