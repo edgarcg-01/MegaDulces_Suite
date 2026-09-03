@@ -3350,6 +3350,45 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * PARIDAD Kepler↔Wincaja — dedup de la pierna Kepler del sell-out = COMPLEMENTO EXACTO del blend
+   * Wincaja (PH ≥jul / La Piedad ≥oct / Canindo ≥ago15; 03/04/05 Kepler-native). Mismo predicado que
+   * sellOutByVendor L3504. Centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
+   * literales de cutover. (`k` = alias de analytics.mv_kepler_sales_daily.)
+   */
+  private readonly KEPLER_SELLOUT_DEDUP = `((k.source_branch='01' AND k.business_date >= DATE '2026-07-01')
+      OR (k.source_branch='02' AND k.business_date >= DATE '2025-10-01')
+      OR (k.source_branch='06' AND k.business_date >= DATE '2026-08-15')
+      OR k.source_branch IN ('03','04','05'))`;
+
+  /** ¿mv_kepler_sales_daily existe, poblado y enriquecido (columna branch_name)? — mismo guard que sellOut. */
+  private async keplerMvReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+          AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+    )).rows?.[0];
+  }
+
+  /**
+   * PARIDAD — vendedores KEPLER del mayoreo (canal mayoreo/credito del matview del ODS) para los
+   * árboles/filtros del sell-out, simétrico a los vendedores Wincaja de sales_by_vendor_monthly. Cada
+   * fila sale por canonVendor/isNoiseVendor en el consumidor (la identidad Kepler ya está sembrada en
+   * analytics.vendor_identity: excludes + merges cross-cutover). Rutas vecinales (canal 'ruta') quedan
+   * fuera hasta decidir RD vs RV. Devuelve [] si el matview aún no está poblado.
+   */
+  private async keplerVendorLeaves(trx: any, tenantId: string): Promise<Array<{ code: string; name: string }>> {
+    if (!(await this.keplerMvReady(trx))) return [];
+    return trx('analytics.mv_kepler_sales_daily as k')
+      .where('k.tenant_id', tenantId)
+      .where('k.product_deleted', false)
+      .whereIn('k.channel', ['mayoreo', 'credito'])
+      .andWhereRaw(this.KEPLER_SELLOUT_DEDUP)
+      .select(trx.raw('k.vendor_code as code'), trx.raw('k.vendor_name as name'))
+      .groupByRaw('k.vendor_code, k.vendor_name')
+      .havingRaw('sum(k.monto) > 0');
+  }
+
+  /**
    * RS.4 — Sell-Out POR VENDEDOR (solo Wincaja: la dimensión vendedor solo existe ahí;
    * Kepler mart.ventas no la trae). Matriz Producto × Vendedor, agrupada MAYOREO
    * (mayoreo_credito) / RD (ruta_venta) / RV (preventa_vecinal). On-demand desde
@@ -3589,7 +3628,7 @@ export class CommercialAnalyticsService {
         ELSE 'otro' END`;
     // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
     const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
-    const { rows, vendors, keplerCredito, identMap } = await this.tk.run(async (trx) => {
+    const { rows, vendors, keplerLeaves, identMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
       // PERF (2026-09-02): el árbol de canales sale del rollup mensual `sales_boxes_monthly` (634k
       // filas) en vez de `sales_daily` (4.4M) → mismo set canal×almacén (verificado IDÉNTICO) en ~230 ms
@@ -3609,12 +3648,10 @@ export class CommercialAnalyticsService {
         .sum({ rev: 'sd.revenue' })
         .groupByRaw('sd.vendor_code, sd.vendor_name')
         .havingRaw('sum(sd.revenue) > 0');
-      // Crédito Kepler (canal 'credito' NO wincaja): sin vendedor → una sola hoja aparte.
-      // Mismo rollup mensual (perf): la decisión es solo sum(revenue)>0 por canal.
-      const kc = await trx('analytics.sales_boxes_monthly as sd')
-        .where('sd.tenant_id', tenantId).andWhere('sd.channel', 'credito')
-        .sum({ rev: 'sd.revenue' }).first();
-      return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0, identMap };
+      // PARIDAD Kepler↔Wincaja — el crédito/mayoreo Kepler ahora se abre POR VENDEDOR (Sergio/Cinthia/…)
+      // desde el matview del ODS, simétrico a Wincaja, en vez del bucket único 'Sin vendedor (Kepler)'.
+      const keplerLeaves = await this.keplerVendorLeaves(trx, tenantId);
+      return { rows, vendors, keplerLeaves, identMap };
     });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
@@ -3631,16 +3668,16 @@ export class CommercialAnalyticsService {
     }
     // Grupo Mayoreo = vendedores (token 'credito|<canonical_key>') + Kepler sin vendedor (separado).
     // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a UNA hoja, nombre limpio.
-    if (vendors.length || keplerCredito > 0) {
+    if (vendors.length || keplerLeaves.length) {
       const seen = new Map<string, { channel: string; code: string; name: string }>();
-      for (const v of vendors as any[]) {
+      // Wincaja + Kepler por el MISMO canonVendor/isNoiseVendor → fragmentos del mismo vendedor (y su
+      // yo Wincaja/Kepler a través del cutover) colapsan a UNA hoja; los pseudo-vendedores caen por exclude.
+      for (const v of [...vendors, ...keplerLeaves] as any[]) {
         const id = this.canonVendor(identMap, v.code, v.name);
         if (id.exclude || this.isNoiseVendor(v.code)) continue; // RS.11b — fuera no-vendedores
         if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
       }
-      const leaves = Array.from(seen.values());
-      if (keplerCredito > 0) leaves.push({ channel: 'credito', code: 'k-sin-vendedor', name: 'Sin vendedor (Kepler)' });
-      map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves });
+      map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves: Array.from(seen.values()) });
     }
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => a.name.localeCompare(b.name, 'es')) }));
@@ -3656,7 +3693,7 @@ export class CommercialAnalyticsService {
     };
     // RS.9 — desde el rollup persistido (venta por vendedor, todo el histórico). El feed ya
     // aplicó el mismo blend/mapeo → mismos vendedores que la view, pero en ~ms (era 504).
-    const { rows, identMap } = await this.tk.run(async (trx) => ({
+    const { rows, keplerLeaves, identMap } = await this.tk.run(async (trx) => ({
       rows: await trx('analytics.sales_by_vendor_monthly as sd')
         .select('sd.sale_channel as sale_channel', trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
         .sum({ rev: 'sd.revenue' })
@@ -3664,18 +3701,29 @@ export class CommercialAnalyticsService {
         .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
         .groupByRaw('sd.sale_channel, sd.vendor_code, sd.vendor_name')
         .havingRaw('sum(sd.revenue) > 0'),
+      // PARIDAD — vendedores Kepler del mayoreo (Sergio/Cinthia/…) para que el slicer no sea wincaja-only.
+      keplerLeaves: await this.keplerVendorLeaves(trx, tenantId),
       identMap: await this.loadVendorIdentity(trx, tenantId),
     }));
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    const addLeaf = (g: string, label: string, ord: number, id: { key: string; name: string }) => {
+      if (!map.has(g)) map.set(g, { group: g, group_label: label, ord, leaves: [] });
+      const bucket = map.get(g)!;
+      if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
+    };
     for (const r of rows as any[]) {
       const meta = GROUP[r.sale_channel]; if (!meta) continue;
       // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a una hoja.
       const id = this.canonVendor(identMap, r.code, r.name);
       // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
       if (id.exclude || this.isNoiseVendor(r.code)) continue;
-      if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
-      const bucket = map.get(meta.g)!;
-      if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
+      addLeaf(meta.g, meta.label, meta.ord, id);
+    }
+    // PARIDAD — pierna Kepler (mayoreo/credito → grupo Mayoreo), misma identidad/ruido que Wincaja.
+    for (const r of keplerLeaves as any[]) {
+      const id = this.canonVendor(identMap, r.code, r.name);
+      if (id.exclude || this.isNoiseVendor(r.code)) continue;
+      addLeaf('mayoreo', 'Mayoreo', 0, id);
     }
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
@@ -3718,13 +3766,28 @@ export class CommercialAnalyticsService {
       // (gap del consolidado on-prem mart.ventas_enriched), aunque product_sales SÍ la tiene.
       // El union NO enmascara el gap: Sell-Out sigue mostrando 0 para Canindo hasta arreglar el
       // consolidado; pero al menos el reporte Salidas (que lee product_sales) ya lo lista.
+      // PARIDAD Kepler↔Wincaja — presencia de venta en CUALQUIER fact del sell-out, incluidos los DOS
+      // matviews simétricos del ODS → un almacén cuya venta sólo vive ahí (Canindo 06) aparece en el filtro.
+      // Los EXISTS sobre matview sólo se agregan si está POBLADO (un matview WITH NO DATA no es consultable).
+      const exists = [
+        `EXISTS (SELECT 1 FROM analytics.sales_daily sd WHERE sd.tenant_id = w.tenant_id AND sd.warehouse_id = w.id)`,
+        `EXISTS (SELECT 1 FROM analytics.product_sales_monthly ps WHERE ps.tenant_id = w.tenant_id AND ps.warehouse_id = w.id)`,
+      ];
+      if (await this.keplerMvReady(trx)) {
+        exists.push(`EXISTS (SELECT 1 FROM analytics.mv_kepler_sales_daily mk WHERE mk.tenant_id = w.tenant_id AND mk.warehouse_code = w.code)`);
+      }
+      const winReady = !!(await trx.raw(
+        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+      )).rows?.[0];
+      if (winReady) {
+        exists.push(`EXISTS (SELECT 1 FROM analytics.mv_wincaja_sales_daily mw WHERE mw.tenant_id = w.tenant_id AND mw.warehouse_code = w.code)`);
+      }
       const rows = await trx('commercial.warehouses as w')
         .where('w.tenant_id', tenantId)
         .whereNull('w.deleted_at')
-        .whereRaw(
-          `(EXISTS (SELECT 1 FROM analytics.sales_daily sd WHERE sd.tenant_id = w.tenant_id AND sd.warehouse_id = w.id)
-         OR EXISTS (SELECT 1 FROM analytics.product_sales_monthly ps WHERE ps.tenant_id = w.tenant_id AND ps.warehouse_id = w.id))`,
-        )
+        .whereRaw(`(${exists.join(' OR ')})`)
         .distinct('w.code as code', 'w.name as name')
         .orderBy('w.code');
       return rows as SellOutWarehouseRow[];
