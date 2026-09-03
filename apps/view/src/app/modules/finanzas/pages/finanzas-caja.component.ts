@@ -38,7 +38,7 @@ interface CajaWb {
 }
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
 type MovSource = 'control' | 'workbook' | 'kepler';
-interface OrphanMov { id: string; source: MovSource; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null }
+interface OrphanMov { id: string; source: MovSource; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null; dir?: 'in' | 'out' }
 interface ReconSide { caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number; caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number }
 /** Una fila del detalle del día: un movimiento del Control con lo que casó en cada fuente. */
 interface DiaRow {
@@ -580,7 +580,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <h4><i class="pi pi-file-excel"></i> En Workbook, sin Control ({{ orp.manual.length }})</h4>
                   <table class="tw-tbl"><tbody>
                     @for (m of orp.manual; track m.id) {
-                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Workbook)"><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
+                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Workbook)"><td class="ta-c"><i [class]="m.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="m.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
                     }
                   </tbody></table>
                 </div>
@@ -590,7 +590,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <h4><i class="pi pi-database"></i> En Kepler, sin Control ({{ orp.kepler.length }})</h4>
                   <table class="tw-tbl"><tbody>
                     @for (m of orp.kepler; track m.id) {
-                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Kepler)"><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
+                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Kepler)"><td class="ta-c"><i [class]="m.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="m.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td></tr>
                     }
                   </tbody></table>
                 </div>
@@ -965,8 +965,11 @@ export class FinanzasCajaComponent implements OnInit {
    * dirección porque el casado corre por dirección; para leerlos da igual de qué lado vinieron.
    */
   dayOrphans(cd: ConcDia): { manual: OrphanMov[]; kepler: OrphanMov[] } {
+    // Etiquetamos la dirección (ingreso/gasto) al juntar: el backend los parte por lado, y así el
+    // panel muestra si cada huérfano es ingreso o egreso (antes sólo se veía monto+concepto).
     const join = (v: { ingresos: ReconSide; gastos: ReconSide }) =>
-      [...v.ingresos.other_only, ...v.gastos.other_only].sort((a, b) => b.importe - a.importe);
+      [...v.ingresos.other_only.map((o) => ({ ...o, dir: 'in' as const })),
+       ...v.gastos.other_only.map((o) => ({ ...o, dir: 'out' as const }))].sort((a, b) => b.importe - a.importe);
     return { manual: join(cd.vs_manual), kepler: join(cd.vs_kepler) };
   }
 

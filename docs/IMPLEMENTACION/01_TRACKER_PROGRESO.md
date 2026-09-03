@@ -1109,6 +1109,16 @@ RE.13/RE.16 partieron el proceso por **trabajo** y eso quedó bien; faltó cerra
   - ⚠️ **El decode que casi sale mal.** La hoja imprime `XA2001-0000353`; Kepler guarda `0000353`. **`XA2001` es el DOCTYPE, no parte del número.** Con la normalización ingenua —quitar todo lo que no sea dígito— el `2001` se pega al número y el cruce daba **4 de 63**. Quitando bien el prefijo: **46 de 63 (73%)**. O sea que un normalizador flojo habría gritado *"el folio no coincide"* en **42 expedientes correctos**. El smoke fija el invariante (≥50%).
   - **[RE.26.1] Se muestran los DOS folios** (Edgar: *"hay que mostrar los dos folios"*). Yo lo había dibujado sólo cuando NO casaba, por no meter ruido — pero eso deja al que audita viendo el veredicto sin ver **contra qué se comparó**, y le pide fe en vez de darle la evidencia. Ahora el de la hoja va pegado al de la entrada siempre que se haya leído: en gris cuando casa (es contexto), en ámbar **y con otro ícono** cuando no (el color no puede ser el único portador del aviso).
   - ✅ Smoke **38/38 contra prod** · `tsc` api+view · `check:templates` 283 · mig down/up/idempotente re-verificada. Mig `20260902160000` extendida con `folio_interno` + `folio_interno_ok` — **sigue sin aplicarse a prod**.
+  - 🔴 **[RE.26.2] Tiró prod, y fue mi error de proceso** (2026-09-03) — `GET /finance/goods-receipts` devolvió **500 · `42703 column "folio_interno" does not exist`**: la lista entera de `/compras/costo-por-compra`, caída.
+    - **Causa:** `20260902160000` ya había corrido en prod (batch 251, 2026-09-02 19:35) **con 3 columnas**, y yo le agregué las 2 del folio después. **Knex no vuelve a ejecutar lo que tiene registrado**, así que nunca llegaron. Local y `platform_test` sí las tenían — el archivo ahí corrió completo — y por eso el `tsc` y los smokes estaban verdes mientras prod no podía abrir la pantalla. **Ser idempotente no ayuda: el problema no es que corra dos veces, es que no corre.**
+    - **La segunda mitad fue código:** un solo `existeCol('prov_score')` gateaba las 5 columnas. El guard estaba puesto precisamente para que un ambiente sin la migración degradara a `sin_datos` en vez de tronar, y no sirvió porque **preguntaba por la columna equivocada**. Peor: el mismo probe gateaba el INSERT de `attach()`, o sea que la sucursal tampoco habría podido subir su evidencia. Ahora cada grupo que puede llegar en un despliegue distinto **se prueba solo**.
+    - **Fix:** mig nueva `20260903120000_re26_receipt_folio_interno.js` (sólo las 2 columnas, idempotente → no-op donde ya están) + `conFolioCols` propio en lectura y escritura + `20260902160000` devuelta a las 3 columnas que realmente aplicó, con la advertencia en el encabezado. Guard en `backfill-receipt-match.js` para las dos migraciones.
+    - ✅ **Verificado contra el esquema real de prod**: el 500 se reprodujo (`42703`) y la rama `NULL::` corre y deriva el cuadre. Mig 7/7 en `platform_test` simulando el estado de prod (down→up→up→down→up). Smoke **40/40 contra prod** con 2 aserciones nuevas que fijan la regresión: cada grupo pregunta por su columna. Lección a [`GOTCHAS.md` §3](../GOTCHAS.md).
+    - ✅ **Aplicada a prod 2026-09-03** (Edgar autorizó). Sólo `up()` de esa migración, sin `migrate:latest` —que arrastraría lo pendiente de otros devs— y **sin registrar la fila** (receta de GOTCHAS §3: el deploy la corre y el guard idempotente la vuelve no-op). La consulta que tronaba ya corre. Backfill corrido: **160 de 161** comprobantes evaluados; el que falta (`01/0000433`) no tiene entrada viva en el ERP, así que el JOIN no lo alcanza — correcto, no hay contra qué comparar. Falta el redeploy del guard, que es para que la próxima vez degrade en vez de caerse.
+  - **[RE.26.3] Los 17 avisos de folio eran 12 acusaciones falsas** (2026-09-03) — al mirar los datos ya escritos en prod: `F 97340`, `C9500254285`, `10-3344`. **Es el folio DEL PROVEEDOR**, que el OCR levantó de la misma hoja (suele traer los dos números). El control acusaba a expedientes correctos de traer evidencia ajena.
+    - Medido sobre los 63 folios leídos, la forma de lo leído predice el resultado sin excepción: `XA2001-…` 42/2 · `No. NNNN` 2/1 · ceros a la izquierda 2/2 · **forma ajena 0/10** · **dígitos pelados 0/2**. Las dos últimas **nunca** aciertan.
+    - Por eso `evaluarFolioInterno` ahora exige la forma nuestra y devuelve `null` si no la tiene. **No pierde ninguno de los 46 aciertos** y los avisos bajan de 17 a 5: la precisión pasa de 5/17 a 5/5. Un control que grita 12 veces de 17 sin razón se deja de leer, y ahí se pierden también los 5 reales.
+    - ✅ Backfill re-corrido en prod (46 casa / 5 no casa) · smoke **43/43** con 3 aserciones nuevas sobre los casos reales · el invariante de mayoría subió a **46/51 = 90%**. El bucket no se movió (45/72/43): el folio siempre estuvo fuera del cuadre.
   - 📌 **Nota de repo:** este trabajo quedó barrido dentro del commit ajeno `1555e817` (*refactor authz/CASL*) por el auto-commit del entorno. El código está completo en `main`; sólo la atribución quedó mal, y no se reescribió historia por eso.
 
 - [x] **[RE.25]** 🧪 **El cuadre del DOCUMENTO** (2026-09-02) — Edgar: *"el lineado se verifica antes de subir a Kepler… validar folio interno, proveedor, totales, y ver cuáles cuadramos con AI y cuáles necesitan revisión manual"*. La auditoría renglón-por-renglón sale de alcance; lo que nadie verificaba es **quién** emitió el papel y **por cuánto**.
@@ -1315,6 +1325,58 @@ Disparador: Edgar, *"¿nuestra gestión de permisos y usuarios ya es correcta?"*
 **Pendiente prod:** redeploy api + view · **`PLATFORM_ADMIN_KEY` NO se setea** salvo que haya que dar de alta un tenant (vacío = las 4 rutas cerradas, que es el default correcto) · **no requiere re-login ni migración** — los permisos ya estaban repartidos, lo que faltaba era exigirlos.
 
 ⚠️ **Lo que hay que mirar en el redeploy:** los 2 `repartidor` y los 9 de `/reparto` son el caso de prueba. Si algo se cierra de más, el síntoma es un **403** en una pantalla que antes funcionaba — y el arreglo es el permiso que falta, no quitar el guard.
+
+### AUTHZ.6 — El almacenista entraba y la app lo mandaba a capturar visitas ✅ 2026-09-03
+
+Reporte de Edgar: *"hay problemas con el usuario luis_piceno en prod, lo arroja a la pantalla por default, él teniendo otros permisos"*. (Ojo: durante la investigación la cuenta fue **renombrada a `luis_espino`** — mismo `id`, misma persona.)
+
+- [x] ✅ **AUTHZ.6.1 El diagnóstico.** El rol `almacenista` da exactamente **2 permisos**: `COMMERCIAL_INVENTORY_RECIBIR` y `COMMERCIAL_INVENTORY_SUPERVISAR`. La cadena, verificada eslabón por eslabón: login → `/projects` → la tarjeta **Almacén** exigía `anyOf: [INVENTORY_VER, WAREHOUSES_VER, DEADSTOCK_VER, INVHEALTH_VER, RECONCILIATION_VER]` — **ninguno de los suyos** → cero tarjetas visibles → [`projects.component.ts:223`](../../apps/view/src/app/modules/projects/projects/projects.component.ts) hace `navigate(['/dashboard/captures'])`. **Ésa es "la pantalla por default"**: la captura de trade, que no es su trabajo.
+- [x] ✅ **AUTHZ.6.2 Y un segundo rebote detrás.** Escribiendo `/almacen` a mano tampoco entraba: `almacenHomeGuard` no tenía sus permisos entre los candidatos → caía al fallback fijo `/almacen/inventory`, que exige `COMMERCIAL_INVENTORY_VER` → fuera otra vez. **Sus pantallas existían y estaban bien gateadas** (`/almacen/inventory/recepcion-sesiones` = Vales, `/almacen/anden`, `/almacen/inventory/sessions` = Folios), y sus tabs en `almacen-tabs.ts` ya usaban **sus** permisos. Lo único roto era la puerta de entrada.
+- [x] ✅ **AUTHZ.6.3 El arreglo.** La tarjeta Almacén suma los permisos **operativos** del piso (5 → 13) y `almacenHomeGuard` suma 7 candidatos, cada uno apuntando a una ruta cuyo `permissionGuard` es ese mismo permiso (verificado ruta por ruta contra `app.routes.ts`). Además `landingRedirectGuard` deja de mandar al fallback fijo cuando no hubo candidato: eso producía el segundo rebote mudo. Ahora **dice qué permiso falta** (`/sin-acceso` con contexto), que es la respuesta accionable.
+- [x] ✅ **AUTHZ.6.4 Medido contra prod.** Antes: **3 usuarios** (`luis_espino` ex-piceno, `brian_zavala`, `luis_navarro`) caían al default. Después: **cero** — el único usuario interno activo sin ninguna tarjeta es `hacker`, que tiene **0 permisos**, o sea que no ver nada es lo correcto.
+- ⚠️ **Lo que NO toqué, y es pregunta para Edgar:** el mapa del rol `almacenista` tiene **164 claves con 2 en `true` y 162 en `false` explícito**, escrito el **2026-09-02 15:45 por `superoot`**. Esa forma —el enum completo materializado— es la firma de *"se guardó el mapa entero desde `/admin/roles`"*, el mismo residuo que documenta `[LC.6.2]`. **Si el rol antes tenía más permisos, se perdieron ahí**, pero no hay bitácora de cambios de rol (`identity.user_events` es por usuario, y tiene 1 fila en todo prod) así que **no se puede saber desde la DB y no lo adiviné**. Si el almacenista debe poder hacer más que recibir y supervisar conteos, hay que volver a marcárselo en `/admin/roles`.
+
+**Pendiente prod:** redeploy `view` (sin backend, sin migración, sin re-login).
+
+**Queda abierto — la clase, no el caso:** hay **35 permisos** que gatean pantallas y no abren ningún proyecto. Hoy no rompen a nadie (medido), pero el patrón se repite en cuanto nazca un rol acotado a permisos operativos. El arreglo de fondo es **derivar** el `anyOf` de las tarjetas y los candidatos de landing de `AUTHZ_TREE` —que ya declara qué permiso pertenece a qué app— en vez de mantener tres listas a mano. Con eso el candado sería estructural en vez de una lista más que actualizar.
+
+📌 **Nota de método:** el primer conteo de impacto salió mal tres veces por parsear TypeScript con regex (el `]` de un comentario truncaba el array; varios permisos en una línea; el `anyOf` de una sola línea). Los números de arriba son los del parser corregido, contrastado contra una lectura directa del archivo. Si esto se vuelve un smoke, la lista de tarjetas tiene que salir a un `.ts` de constantes e importarse con `ts-node` —como ya hacen `test-newdb-user-dto` y `test-newdb-scope-params`— no parsearse.
+
+---
+
+## ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén
+
+> Cierra el defecto de unidad de `/compras/pedido`. Detalle en **ADR-055** de
+> [`02_DECISIONES_ARQUITECTURA`](02_DECISIONES_ARQUITECTURA.md) y en
+> [`UNIDADES_DE_MEDIDA`](../UNIDADES_DE_MEDIDA.md) §8ter.
+>
+> ⚠️ **Ojo con el número:** esta línea de trabajo se escribió citando **ADR-052**, que ya estaba
+> tomado por *Contratos de tipos del boundary REST* y que además usan la **Fase LC** y el **BFF del
+> Command Center**. Se renumeró a **ADR-055** sólo en los archivos de esta línea. **LC y Command
+> Center siguen colisionando y falta decidirles número.**
+
+- [x] ✅ **U.1 El resolvedor por almacén.** `analytics.v_warehouse_box_factor` (vista, `derive-no-copy`, mig `20260902220000`, **batch 260 en Railway**): una fila por (tenant, almacén, producto) con `box_factor` = **unidades NATIVAS de ese almacén por caja**, más `box_label`/`base_label`/`is_weight`/`factor_source` para que nadie tenga que adivinar la unidad. Kepler resuelve por `v_product_box_factor`; Wincaja por **`wincaja.articulos.factor_venta`** — el ERP dueño de ese almacén. Perf: 140 ms el cross-product completo (100k filas) manejando el join desde los 3 almacenes y no desde `articulos`, que trae ~275k filas con `factor_venta>1` repartidas entre decenas de `source_branch` y costaba 545 ms.
+- [x] ✅ **U.2 El fact lleva el divisor.** `analytics.replenishment_plan.display_bf`, poblado por `import-replenishment-plan.js` **leyendo la vista** (la regla vive en un solo lugar). Corrido en prod: 53,321 filas, **0 nulos**, y en los almacenes Kepler `display_bf == bf` exacto.
+- [x] ✅ **U.3 La existencia se muestra en cajas con el divisor correcto.** `workbook` (existencia/pedido/reorden/máximo/valuado), `purchaseSuggestion`, `workbookDetail` y el panel de **stock muerto** (que además expone el costo por caja para que el renglón multiplique en pantalla). El workbook convierte **por almacén antes de sumar**: agregar unidades crudas de varios almacenes y dividir después mezclaba las unidades de los dos ERPs.
+- [x] ✅ **U.4 `transferPlan` y `overstockList` calculan EN CAJAS.** Restaban demanda-en-base menos existencia-en-nativa, y `transferPlan` además comparaba el déficit del destino contra el stock del **CEDIS origen**, que puede tener otra unidad nativa. La caja es la única unidad que los dos ERPs declaran.
+- [x] ✅ **U.5 Se retira el gate hardcodeado.** `cajaFactor()` decía `w.code IN ('MD-30','MD-32')` y dejaba fuera el **CEDIS `00`**, que también es Wincaja; y leía `analytics.wincaja_product_box_factor`, tabla alimentada por importer. Ahora los dos endpoints (`criticalStock`, `summary`) leen la vista. ⚠️ `06 Canindo` trae `wincaja_source_branch='50'` **residual** y es **KEPLER**: el gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`.
+- [x] ✅ **U.6 Candado.** `test-newdb-warehouse-box-factor.js` (**29/29** contra prod, en la regresión). Incluye candados contra los **dos errores previos de esta misma línea**: convertir el dato base (mig `20260902200000`, revertida) y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia, razón 2.000).
+
+**Medido en prod** (368 filas por almacén de ~9,800; **las 6 sucursales Kepler no se mueven ni un peso**):
+
+| superficie | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan | $2,256,065 | $2,237,132 |
+
+**Pendiente prod:** **redeploy api + view**. Migración ya aplicada (batch 260) e importer ya corrido. **Sin permisos nuevos → sin re-login.**
+
+⚠️ **Lo que hay que mirar en el redeploy:** MD-30, MD-32 y el CEDIS `00` son el caso de prueba. La existencia de los ~355 SKUs multipack sube ~10× en pantalla (es la cifra correcta) y su pedido baja. Las columnas de las sucursales `01`–`06` deben quedar **idénticas**; si se mueven, el bug es del divisor y no del dato.
+
+⚠️ **Commit mezclado:** un commit concurrente de otro dev barrió el índice y estos archivos viajaron dentro de `0f7ab814 feat([sell-out]): identidad de vendedor Kepler…`. El código está completo; el mensaje no le corresponde.
 
 ---
 

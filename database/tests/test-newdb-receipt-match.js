@@ -133,6 +133,33 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
       'sin uno de los dos lados → null = "no se pudo comparar", no `false`');
     ok(evaluarFolioInterno('Sin número de folio asignado', '0000353') === null,
       'una hoja sin folio impreso no acusa de nada (caso real medido)');
+    // `[RE.26.3]` — el OCR levanta el folio DEL PROVEEDOR de la misma hoja. Medido en prod: de
+    // los 17 avisos, 12 eran esto. Esas formas nunca casan (0 de 12), así que exigir la forma
+    // nuestra no pierde aciertos y sube la precisión del aviso de 5/17 a 5/5.
+    ok(evaluarFolioInterno('F 97340', '0008740') === null
+      && evaluarFolioInterno('C9500254285', '0009053') === null
+      && evaluarFolioInterno('10-3344', '0000358') === null,
+      'un folio del PROVEEDOR no acusa a la entrada: null, no `false` (los 3 son casos reales)');
+    ok(evaluarFolioInterno('21974', '0001119') === null,
+      'dígitos pelados sin ceros no son forma nuestra → null (0 de 2 casaban)');
+    ok(evaluarFolioInterno('XA2001-0008744', '0003756') === false
+      && evaluarFolioInterno('No. 0006668', '0008668') === false,
+      'con forma nuestra y número distinto SÍ acusa: es el caso que el control existe para ver');
+
+    // ── 4-ter. El guard de cada grupo de columnas ───────────────────────────
+    //
+    // Esto no prueba lógica de negocio, prueba una regresión que **ya tiró prod**: las columnas
+    // del folio se colgaban del mismo `existeCol('prov_score')` que las del proveedor. Como
+    // llegaron en despliegues distintos (la migración de RE.25 ya estaba aplicada cuando les
+    // agregué estas dos), el probe dio por presentes columnas que no estaban y la lista completa
+    // devolvió 500 con `42703 column "folio_interno" does not exist`.
+    console.log('\n═══ 4-ter. Cada grupo de columnas se prueba solo (regresión que tiró prod) ═══');
+    const fuente = require('fs').readFileSync(
+      path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/goods-receipt-proofs.service.ts'), 'utf8');
+    ok((fuente.match(/existeCol\([^)]*'folio_interno'\)/g) || []).length >= 2,
+      'lectura y escritura preguntan cada una por `folio_interno` (no lo asumen de `prov_score`)');
+    ok(!/conMatchCols[\s\S]{0,80}folio_interno/.test(fuente),
+      'ninguna columna del folio queda gateada por el probe del proveedor');
 
     // ── 5. TS vs SQL: las dos implementaciones de la MISMA regla ────────────
     //

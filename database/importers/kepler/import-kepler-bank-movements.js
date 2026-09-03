@@ -18,7 +18,9 @@ const { Client } = require('pg');
 
 const M = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const ODS_SUC = process.env.KEPLER_BANK_SUC || '00'; // CEDIS — bancos/CAJA GENERAL de Kepler viven en suc '00'
+// Concentrador: por default lee TODAS las sucursales (00-06) con anti-réplica c1=sucursal.
+// KEPLER_BANK_SUC fuerza una sola (back-compat / debug).
+const ODS_SUC = process.env.KEPLER_BANK_SUC || null;
 const APPLY = process.argv.includes('--apply');
 const DAYS = Math.max(0, Number(process.env.KEPLER_BANK_DAYS) || 0);
 const BATCH = 800;
@@ -35,7 +37,7 @@ const dstr = (d) => { if (!d) return null; const s = d instanceof Date ? d.toISO
 const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
 
 (async () => {
-  console.log(`\n=== Bancos Kepler (kepler_ods suc ${ODS_SUC}, kdm1⋈kdb1) → analytics.kepler_bank_movements (${APPLY ? 'APPLY' : 'DRY-RUN'})${DAYS ? ` · ventana ${DAYS}d` : ''} ===\n`);
+  console.log(`\n=== Bancos Kepler (kepler_ods ${ODS_SUC ? `suc ${ODS_SUC}` : 'CONCENTRADOR todas las sucursales'}, kdm1⋈kdb1) → analytics.kepler_bank_movements (${APPLY ? 'APPLY' : 'DRY-RUN'})${DAYS ? ` · ventana ${DAYS}d` : ''} ===\n`);
   const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false, connectionTimeoutMillis: 10000, statement_timeout: 180000 });
   await db.connect();
 
@@ -43,8 +45,12 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
   // Guard: si la réplica ODS aún no trae kdb1 (o no hay filas para la suc) → SKIP sin escribir.
   const hasKdb1 = (await db.query(`SELECT to_regclass('kepler_ods.kdb1') AS t`)).rows[0].t;
   if (!hasKdb1) { console.error(`\n[SKIP] kepler_ods.kdb1 no existe todavía — falta que la réplica ODS lo incluya (carril hash). No se escribe nada.`); await db.end(); return; }
-  const kdb1 = (await db.query(`SELECT btrim(c1) clave, btrim(c2) nombre, btrim(c5) cta, btrim(c9) rfc FROM kepler_ods.kdb1 WHERE sucursal=$1 AND btrim(coalesce(c1,''))<>''`, [ODS_SUC])).rows;
-  if (!kdb1.length) { console.error(`\n[SKIP] kepler_ods.kdb1 sin cuentas para suc ${ODS_SUC} — ¿ya corrió la réplica ODS con kdb1? No se escribe nada.`); await db.end(); return; }
+  // Claves consistentes entre sucursales (2169=SANTANDER en las 7) → dedupe por clave, suc 00 gana.
+  const kdb1 = (await db.query(
+    `SELECT DISTINCT ON (btrim(c1)) btrim(c1) clave, btrim(c2) nombre, btrim(c5) cta, btrim(c9) rfc
+       FROM kepler_ods.kdb1 WHERE btrim(coalesce(c1,''))<>'' ${ODS_SUC ? 'AND sucursal=$1' : ''}
+      ORDER BY btrim(c1), sucursal`, ODS_SUC ? [ODS_SUC] : [])).rows;
+  if (!kdb1.length) { console.error(`\n[SKIP] kepler_ods.kdb1 sin cuentas${ODS_SUC ? ` para suc ${ODS_SUC}` : ''} — ¿ya corrió la réplica ODS con kdb1? No se escribe nada.`); await db.end(); return; }
   const bank = new Map();
   for (const r of kdb1) {
     const tipo = !/^102/.test(r.cta || '') ? 'puente' : (CAJAS.has(r.clave) ? 'caja' : 'banco');
@@ -52,11 +58,13 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
   }
   console.log(`  kdb1: ${bank.size} cuentas (${[...bank.values()].filter((b) => b.tipo === 'banco').length} banco · ${[...bank.values()].filter((b) => b.tipo === 'caja').length} caja · ${[...bank.values()].filter((b) => b.tipo === 'puente').length} puente)`);
 
-  // Documentos de tesorería que tocan banco (c45 ∈ kdb1), NO cancelados, de la suc CEDIS.
-  // Ventana rodante por c68 (captura). Todo de kepler_ods (no ramas).
+  // Documentos de tesorería que tocan banco (c45 ∈ kdb1), NO cancelados, de TODAS las sucursales
+  // (concentrador). Anti-réplica c1=sucursal: cada doc una vez, por su dueño (kdm1 arrastra réplicas
+  // cross-branch). Ventana rodante por c68. Todo de kepler_ods (no ramas).
   const claves = [...bank.keys()];
-  const where = [`sucursal = $1`, `btrim(c45::text) = ANY($2)`, `btrim(coalesce(c43::text,'')) <> 'C'`];
-  const params = [ODS_SUC, claves];
+  const where = [`btrim(c1::text) = sucursal::text`, `btrim(c45::text) = ANY($1)`, `btrim(coalesce(c43::text,'')) <> 'C'`];
+  const params = [claves];
+  if (ODS_SUC) { params.push(ODS_SUC); where.push(`sucursal = $${params.length}`); }
   if (DAYS) { where.push(`c68::date >= (CURRENT_DATE - ${DAYS})`); }
   const docs = (await db.query(
     `SELECT btrim(c1::text) suc, btrim(c2::text)||'-'||btrim(c3::text)||'-'||btrim(c4::text) dt, btrim(c6::text) folio,
@@ -116,6 +124,25 @@ const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s || 
       chunk.flat());
     changed += r.rowCount;
   }
+  // Reconcile de CANCELADOS (fantasmas): el SELECT de arriba ya excluye `c43='C'`, así que
+  // ningún cancelado ENTRA nuevo. Pero el UPSERT no borra: un doc que se importó vivo (con su
+  // monto real) y LUEGO se canceló queda de fila fantasma con ese monto → infla el cuadre en
+  // pesos (Kepler pone c16 en 0 AL cancelar, pero la fila vieja conserva el importe previo).
+  // Barremos por (sucursal, doc_tipo, folio) contra el ODS — cubre ambas piernas del traspaso
+  // (comparten doctype+folio). Idempotente: si no hay fantasmas, borra 0.
+  const del = await db.query(
+    `DELETE FROM analytics.kepler_bank_movements k
+      WHERE k.tenant_id = $1
+        AND EXISTS (
+          SELECT 1 FROM kepler_ods.kdm1 d
+           WHERE btrim(coalesce(d.c43::text,'')) = 'C'
+             AND btrim(d.c1::text) = d.sucursal::text
+             AND btrim(d.c1::text) = k.sucursal
+             AND btrim(d.c2::text)||'-'||btrim(d.c3::text)||'-'||btrim(d.c4::text) = k.doc_tipo
+             AND btrim(d.c6::text) = k.folio
+        )`, [M]);
+  if (del.rowCount) console.log(`  reconcile cancelados: ${del.rowCount} fantasmas borrados (docs c43='C' en el ODS).`);
+
   // Backfill del crosswalk clave_banco → account_label (idempotente, churn-free).
   //   1) exacto (label = número de cuenta) · 2) caja '0011'→'CG' · 3) sufijo (Kepler 5854→854, 6506→506)
   const bf = await db.query(`

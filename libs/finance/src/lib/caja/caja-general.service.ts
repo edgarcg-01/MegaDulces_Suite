@@ -248,7 +248,10 @@ export class CajaGeneralService {
       // que su Δ vs .mdb es informativo (gap de granularidad), no error de captura como el
       // workbook. signo>0=ingreso, signo<0=gasto; importe es magnitud positiva.
       const kp = await trx('analytics.kepler_bank_movements')
-        .where('tenant_id', tenantId).andWhere('account_label', 'CG').andWhere('sucursal', '00')
+        // CONCENTRADOR: la CAJA GENERAL del ERP (clave 0011) se registra por sucursal (00-06);
+        // kepler_bank_movements ya trae anti-réplica (cada doc una vez, por su dueño) → sin filtro
+        // de sucursal para no perder los movimientos de las sucursales (antes solo veía suc 00).
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .select(trx.raw('fecha_valor AS fecha'),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo>0),0)::numeric AS ingreso`),
@@ -338,7 +341,10 @@ export class CajaGeneralService {
     const n = (x: any) => Number(x) || 0;
     return this.tk.run(async (trx) => {
       const rows = await trx('analytics.kepler_bank_movements')
-        .where('tenant_id', tenantId).andWhere('account_label', 'CG').andWhere('sucursal', '00')
+        // CONCENTRADOR: la CAJA GENERAL del ERP (clave 0011) se registra por sucursal (00-06);
+        // kepler_bank_movements ya trae anti-réplica (cada doc una vez, por su dueño) → sin filtro
+        // de sucursal para no perder los movimientos de las sucursales (antes solo veía suc 00).
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(500)
@@ -416,7 +422,10 @@ export class CajaGeneralService {
         .whereBetween('bm.movement_date', [from, to])
         .select('bm.id', 'bm.movement_date as fecha', 'bm.concept as concepto', 'bm.sucursal', 'bm.raw_code', 'bm.amount_in', 'bm.amount_out');
       const kep = await trx('analytics.kepler_bank_movements')
-        .where('tenant_id', tenantId).andWhere('account_label', 'CG').andWhere('sucursal', '00')
+        // CONCENTRADOR: la CAJA GENERAL del ERP (clave 0011) se registra por sucursal (00-06);
+        // kepler_bank_movements ya trae anti-réplica (cada doc una vez, por su dueño) → sin filtro
+        // de sucursal para no perder los movimientos de las sucursales (antes solo veía suc 00).
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
 

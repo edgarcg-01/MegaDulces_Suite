@@ -385,7 +385,7 @@ const cte = (hist, tr, lead) => `
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=pd.tenant_id AND al.alias_product_id=pd.product_id AND al.deleted_at IS NULL
             LEFT JOIN rmap rm ON rm.route_wh = pd.warehouse_id
            WHERE pd.tenant_id=$1 AND pd.window_days=30 GROUP BY 1,2),
-  -- ADR-052 — la existencia se DERIVA del ODS, ya no se lee la copia \`commercial.stock\`.
+  -- ADR-055 — la existencia se DERIVA del ODS, ya no se lee la copia \`commercial.stock\`.
   -- Medido contra el POS en vivo (2026-09-02): la vista acierta 100.0% y la copia 91.0% (15,324
   -- unidades de error), porque el importer de la copia es delta contra un snapshot en disco que se
   -- desincroniza y deja valores fantasma para siempre.
@@ -451,7 +451,18 @@ const cte = (hist, tr, lead) => `
     SELECT warehouse_id, product_id FROM dem
     UNION SELECT warehouse_id, product_id FROM stk
     UNION SELECT warehouse_id, product_id FROM tr_eff
-  )`;
+  ),
+  -- ADR-055 — DIVISOR DE PRESENTACIÓN POR ALMACÉN (unidades nativas de ESE almacén por caja).
+  -- OJO: sin backticks en estos comentarios — van dentro de un template literal de JS.
+  -- bf (de analytics.v_product_box_factor) cuenta unidades BASE de Kepler por caja, y eso vale
+  -- para las sucursales 01-06. Pero en los almacenes de Wincaja la existencia está en la unidad
+  -- de venta de Wincaja (el PAQUETE en los multipack), así que dividir por bf mostraba la
+  -- existencia ~10 veces más chica. La regla vive en la vista canónica
+  -- analytics.v_warehouse_box_factor (mig 20260902220000) — acá sólo SE LEE.
+  -- Medido: cambia 388 filas por almacén; saca $866,756 de sobre-pedido y hace visibles $2.68M
+  -- de inventario en MD-30/MD-32/00. Las sucursales Kepler no se mueven ni un peso.
+  dbf AS (SELECT product_id, warehouse_id, box_factor
+            FROM analytics.v_warehouse_box_factor WHERE tenant_id=$1)`;
 
 const PROJECT = `
     SELECT $1::uuid AS tenant_id, b.warehouse_id, b.product_id, e.sku, e.nombre, e.supplier_id, e.category_id,
@@ -470,6 +481,9 @@ const PROJECT = `
            -- motor descuenta de la necesidad.
            round(COALESCE(t.te, 0)::numeric, 2) AS transit_eff_cajas,
            e.suf, e.bf,
+           -- Unidades nativas de ESTE almacén por caja. Es el divisor con el que la pantalla
+           -- muestra existencia/reorden/máximo; el dato base NO se convierte (ver CTE dbf).
+           GREATEST(COALESCE(db.box_factor, e.bf, 1), 1) AS display_bf,
            -- RA-PRO.46: se LEE de Kepler; bf sólo si el SKU no tiene escalera (ver econ).
            COALESCE(e.lad_box_cost, e.real_cost * e.bf) AS caja_cost,
            -- Se DECLARA de dónde salió: kepler = lo dijo el ERP; bf = reconstruido (puede mezclar
@@ -489,6 +503,7 @@ const PROJECT = `
       FROM base b
       JOIN econ e ON e.product_id = b.product_id
       LEFT JOIN whs w      ON w.id = b.warehouse_id
+      LEFT JOIN dbf db     ON db.warehouse_id = b.warehouse_id AND db.product_id = b.product_id
       LEFT JOIN dem d      ON d.warehouse_id = b.warehouse_id AND d.product_id = b.product_id
       LEFT JOIN stk s      ON s.warehouse_id = b.warehouse_id AND s.product_id = b.product_id
       LEFT JOIN tr_eff t   ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
@@ -502,7 +517,7 @@ const PROJECT = `
 const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'supplier_id', 'category_id',
   'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
   'transit_eff_cajas',
-  'suf', 'bf', 'caja_cost', 'cost_source', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
+  'suf', 'bf', 'display_bf', 'caja_cost', 'cost_source', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
   'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days', 'computed_at'];
 const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
 const DATA = COLS.filter((c) => !KEY.includes(c) && c !== 'computed_at');
