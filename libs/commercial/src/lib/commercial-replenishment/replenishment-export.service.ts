@@ -73,7 +73,13 @@ export interface WorkbookExportRow {
   xyz_class?: string | null;       // clase XYZ de red (peor-caso entre sucursales)
   reorder_cajas?: number | null;   // punto de reorden de red, en cajas
   max_cajas?: number | null;       // máximo de red, en cajas
-  cells?: Record<string, { vta?: number; exis?: number; ped?: number }> | null;
+  // U.2 — `rung`/`nat`/`natu` sólo vienen cuando el peldaño de unidad de ese almacén NO está
+  // verificado; entonces `exis` no es confiable y se exporta `nat` + `natu` (la cantidad y el
+  // rótulo de la unidad que el ERP realmente guarda). Ver analytics.v_unit_rung_audit.
+  cells?: Record<string, {
+    vta?: number; exis?: number; ped?: number;
+    rung?: string; nat?: number; natu?: string;
+  }> | null;
   suma_pedido_cajas?: number | null;
   pedido_valor?: number | null;
   valor_venta?: number | null;
@@ -627,10 +633,19 @@ export class ReplenishmentExportService {
         r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
       for (const t of terrs) {
         const cel = (r.cells && r.cells[t.code]) || {};
-        vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
+        // U.2 — si el peldaño de ese almacén no está verificado, la existencia en cajas no es
+        // confiable: va la cantidad SUELTA con su rótulo, no una cifra de cajas inventada.
+        const exisCel: string | number = cel.rung
+          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${(cel.natu || 'u').toLowerCase()} (sin convertir)`
+          : (Number(cel.exis) || 0);
+        vals.push(Number(cel.vta) || 0, exisCel, Number(cel.ped) || 0);
       }
+      // ⚠️ U.2 — `valor_exis` puede venir NULL (ningún almacén verificado). Va CADENA VACÍA, no 0:
+      // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que
+      // estamos quitando. Ver UNIDADES_DE_MEDIDA 8quater y GOTCHAS "fuente vacía ≠ cero".
       vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
-        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
+        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0,
+        r.valor_exis == null ? 'sin valuar' : Number(r.valor_exis));
       const added = ws.addRow(vals);
       added.eachCell((cell, col) => {
         cell.border = this.thin();
@@ -836,10 +851,19 @@ export class ReplenishmentExportService {
         r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
       for (const t of terrs) {
         const cel = (r.cells && r.cells[t.code]) || {};
-        vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
+        // U.2 — si el peldaño de ese almacén no está verificado, la existencia en cajas no es
+        // confiable: va la cantidad SUELTA con su rótulo, no una cifra de cajas inventada.
+        const exisCel: string | number = cel.rung
+          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${(cel.natu || 'u').toLowerCase()} (sin convertir)`
+          : (Number(cel.exis) || 0);
+        vals.push(Number(cel.vta) || 0, exisCel, Number(cel.ped) || 0);
       }
+      // ⚠️ U.2 — `valor_exis` puede venir NULL (ningún almacén verificado). Va CADENA VACÍA, no 0:
+      // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que
+      // estamos quitando. Ver UNIDADES_DE_MEDIDA 8quater y GOTCHAS "fuente vacía ≠ cero".
       vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
-        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
+        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0,
+        r.valor_exis == null ? 'sin valuar' : Number(r.valor_exis));
       const added = ws.addRow(vals);
       added.height = 16;
       added.eachCell((cell, col) => {
