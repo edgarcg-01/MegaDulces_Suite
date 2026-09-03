@@ -68,11 +68,7 @@ export class FieldMapComponent implements OnInit {
   protected view = signal<FieldView>('live');
 
   /** Todas las pestañas requieren RUTAS_VER (tracking de personas). */
-  protected canTracking = computed(
-    () =>
-      this.perms.can('read', 'routes_analytics' as any) ||
-      this.auth.user()?.permissions?.[Permission.RUTAS_VER] === true,
-  );
+  protected canTracking = computed(() => this.perms.has(Permission.RUTAS_VER));
 
   ngOnInit(): void {
     const v = this.route.snapshot.queryParamMap.get('view') as FieldView | null;

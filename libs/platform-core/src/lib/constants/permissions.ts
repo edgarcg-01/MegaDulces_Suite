@@ -285,6 +285,12 @@ export enum Permission {
   FISCAL_CONTAB_VER = 'FISCAL_CONTAB_VER',
   // FE.11 = gestión del mapeo cuenta mayor → código agrupador SAT.
   FISCAL_CONTAB_GESTIONAR = 'FISCAL_CONTAB_GESTIONAR',
+  // LC (ADR-052) = Libro de Compras: el trámite mensual de la póliza que se le
+  // entrega a ContPAQi. Permiso PROPIO — no se hereda de contabilidad electrónica
+  // ni de Pólizas: quien arma el libro no es necesariamente quien emite los XML
+  // del SAT, y el árbol de authz exige que cada permiso viva en un solo módulo.
+  FISCAL_PURCHASE_BOOK_VER = 'FISCAL_PURCHASE_BOOK_VER',
+  FISCAL_PURCHASE_BOOK_GESTIONAR = 'FISCAL_PURCHASE_BOOK_GESTIONAR',
   // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',

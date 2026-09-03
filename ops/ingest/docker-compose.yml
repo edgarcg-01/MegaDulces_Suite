@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OBS.4 (ADR-053) — carriles de ingesta del ODS bajo Docker.
+#
+#   docker compose -f ops/ingest/docker-compose.yml up -d --build
+#   docker compose -f ops/ingest/docker-compose.yml ps        # STATUS trae (healthy)/(unhealthy)
+#   docker compose -f ops/ingest/docker-compose.yml logs -f ods-live-hot
+#
+# El `env_file` vive FUERA del repo (`C:\KeplerRunner\ingest.env`) porque lleva
+# FEEDS_INGEST_KEY. Plantilla en ops/ingest/ingest.env.example.
+#
+# RED: los replicas corren en el contenedor `pgvector-md`, que publica 5432 → :5433 del HOST y está
+# en la red `bridge` por defecto (sin DNS por nombre). Por eso la fuente se alcanza por
+# `host.docker.internal:5433` y no por nombre de servicio: es estable y no depende de la IP
+# 172.17.x del contenedor, que cambia al recrearlo.
+#
+# ⚠️ EL REPARTO DE VARIABLES (GOTCHAS §17 — "DATABASE_URL_NEW significa tres cosas"):
+#   ODS_SOURCE_BASE   = la FUENTE (replicas :5433). `replicate-ods-live` la prefiere sobre
+#                       DATABASE_URL_NEW, y el reconciliador SÓLO lee esta para la fuente.
+#   DATABASE_URL_NEW  = PROD. La lee el reconciliador como destino, por contrato de ese script.
+#   ODS_HB_URL        = PROD. Destino del latido, var propia para que jamás caiga en la fuente.
+# Con este reparto los tres servicios comparten un env_file sin ambigüedad. Si alguna vez se pone
+# DATABASE_URL_NEW apuntando a la fuente, el latido y el reconciliador quedan ciegos: fue el modo
+# de falla exacto que dejó el ODS congelado 6 días.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  # Carril CALIENTE — venta, movimientos y catálogos. Pasadas cortas, @15 s.
+  ods-live-hot:
+    build:
+      context: ../..
+      dockerfile: ops/ingest/Dockerfile
+    image: trade-ingest:latest
+    container_name: ods-live-hot
+    restart: unless-stopped
+    env_file: [C:/KeplerRunner/ingest.env]
+    environment:
+      ODS_HB_KEY: ods_live_hot
+      ODS_HB_MAX_MIN: "20"
+      KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+      ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+  # ESPEJO COMPLETO — todo md.* MENOS el set del hot (para no pelear ods.ctl/ods.shadow). @300 s.
+  ods-live-mirror:
+    image: trade-ingest:latest
+    depends_on: [ods-live-hot]
+    container_name: ods-live-mirror
+    restart: unless-stopped
+    env_file: [C:/KeplerRunner/ingest.env]
+    environment:
+      ODS_HB_KEY: ods_live_mirror
+      ODS_HB_MAX_MIN: "45"
+      KP_ODS_TABLES: "*"
+      ODS_EXCLUDE_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*,kdpv_bitacora_precios
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+  # RECONCILIADOR (OBS.3.1) — la ÚNICA alarma de COMPLETITUD. Late `cdc_reconcile` DIRECTO a prod.
+  # Estaba escrito y declarado en ecosystem.cdc.config.js, y nunca se había levantado: la primera
+  # corrida encontró 7,587 filas ausentes en una ventana de 3 días.
+  # Su destino se llama DATABASE_URL_NEW por contrato del script, y acá ES prod (≠ los otros dos
+  # carriles, donde esa var apunta a la fuente). Ver GOTCHAS §17.
+  ods-reconcile:
+    image: trade-ingest:latest
+    depends_on: [ods-live-hot]
+    container_name: ods-reconcile
+    restart: unless-stopped
+    env_file: [C:/KeplerRunner/ingest.env]
+    environment:
+      ODS_HB_KEY: cdc_reconcile
+      ODS_HB_MAX_MIN: "45"
+      ODS_RECONCILE_ALERT: "50"
+      # Su `status='error'` significa "el pipeline pierde filas" (alarma de DATO), no "el contenedor
+      # está roto". Reiniciarlo no repone ni una fila, y justo cuando el dato viene mal es cuando más
+      # falta hace que siga corriendo y avisando. El healthcheck juzga sólo la antigüedad del latido.
+      ODS_HB_IGNORE_ERROR: "1"
+    command: ["node", "database/importers/kepler/reconcile-ods-window.js", "--days=3", "--apply", "--watch=900"]
+    # Su primer latido llega recién al cerrar la primera pasada (~3 min de comparación de llaves) y
+    # el ciclo es de 15 min: el start_period de la imagen (180 s) lo declaraba enfermo antes de nacer.
+    healthcheck:
+      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      interval: 120s
+      timeout: 30s
+      start_period: 20m
+      retries: 3
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }

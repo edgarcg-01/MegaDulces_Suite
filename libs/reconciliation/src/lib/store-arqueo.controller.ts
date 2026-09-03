@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
   ScopeService, CANONICAL_PARAM, isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import { BlindCountService } from './blind-count.service';
+import { CashCutsSyncService } from './cash-cuts-sync.service';
+import { CashCountSlaService } from './cash-count-sla.service';
 import type { BlindCountDto } from './blind-count.service';
 
 /**
@@ -43,6 +45,8 @@ const WH = CANONICAL_PARAM.warehouse; // 'warehouse_codes'
 export class StoreArqueoController {
   constructor(
     private readonly blind: BlindCountService,
+    private readonly sync: CashCutsSyncService,
+    private readonly sla: CashCountSlaService,
     private readonly scope: ScopeService,
   ) {}
 
@@ -66,9 +70,14 @@ export class StoreArqueoController {
    * mismo cajón y casi nunca coinciden.
    */
   private proyectar<T extends Record<string, any>>(r: T, revela: boolean) {
-    const { kepler_enmascaro, kepler_contado, kepler_diff, esperado, diff_real, ...ciego } = r;
+    // El desglose de Kepler se recorta con el resto: sus billetes y monedas suman
+    // el contado declarado, así que publicarlos es publicar el esperado en dos
+    // partes. Van en la MISMA lista que `esperado` a propósito.
+    const { kepler_enmascaro, kepler_contado, kepler_diff, esperado, diff_real,
+            kepler_billetes, kepler_monedas, kepler_retirado, ...ciego } = r;
     return revela
-      ? { ...ciego, esperado, diff_real, kepler_contado, kepler_diff, kepler_enmascaro }
+      ? { ...ciego, esperado, diff_real, kepler_contado, kepler_diff, kepler_enmascaro,
+          kepler_billetes, kepler_monedas, kepler_retirado }
       : ciego;
   }
 
@@ -116,13 +125,18 @@ export class StoreArqueoController {
   @Get('turnos')
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
   @ApiOperation({ summary: 'Tienda — turnos de caja que Kepler abrió a tu nombre y todavía no arqueaste. Es lo que habilita la captura (sin turno no hay arqueo).' })
-  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás (default 2, máx 30).' })
+  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás. La cajera ve SOLO hoy y no la puede ampliar; el supervisor, hasta 30.' })
   async turnos(@ReqUser() user: AuthUser, @Query('dias') dias?: string) {
     const scope = (await this.scope.current()).dims.warehouse;
+    // A la cajera se le pide el arqueo del día: Kepler cierra su caja y ella cuenta
+    // lo que tiene enfrente. Los cortes viejos sin contar son de la bandeja del
+    // supervisor, no de su mostrador — y el tope va en el SERVICIO, no acá, para
+    // que mandar `?dias=30` a mano tampoco los destape.
     return this.blind.turnosPendientes({
       cajeroCode: user?.username,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
       dias: dias ? Number(dias) : undefined,
+      revela: this.revela(user),
     });
   }
 
@@ -151,6 +165,7 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
+    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -159,6 +174,52 @@ export class StoreArqueoController {
       turno: turno.turno || undefined,
       turno_abierto_at: turno.abierto_at || null,
     };
+  }
+
+  /**
+   * SM.16 — Los cortes se cierran EN ORDEN. Con un turno pendiente de ayer no se
+   * puede arquear el de hoy.
+   *
+   * El turno sin arquear es donde se esconde el hueco: si se puede elegir cuál
+   * contar, se cuenta el que conviene y el otro se deja envejecer hasta que a
+   * nadie le importe. Además el conteo se vuelve inauditable — el efectivo de dos
+   * turnos se mezcla en el mismo cajón y ya no se sabe de cuál falta.
+   *
+   * Va en el BACKEND y no solo en la pantalla: la lista es una ayuda, la regla es
+   * esto. Mandar el folio de hoy a mano no la salta.
+   *
+   * Solo aplica al **cierre**. El relevo es intra-turno y urgente (la cajera está
+   * entregando la caja ahora); bloquearlo porque quedó un cierre viejo pendiente
+   * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
+   * Y el supervisor queda exento: captura por otros y en contingencia.
+   */
+  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string) {
+    if (revela) return;
+    if ((body?.tipo ?? 'cierre') !== 'cierre') return;
+    // Corregir un conteo YA hecho no es saltarse la fila: el turno viejo sigue
+    // igual de pendiente después de la corrección, así que bloquearla no protege
+    // nada — y sí deja congelada una cifra que la cajera sabe equivocada, que es
+    // justo lo contrario de lo que esta regla busca.
+    // La sucursal RESUELTA, no `body.warehouse_code`: la cajera no lo manda, así
+    // que leerlo del body dejaría el chequeo en un no-op silencioso.
+    if (await this.blind.yaArqueado(warehouseCode, folio)) return;
+    const scope = (await this.scope.current()).dims.warehouse;
+    // MISMA ventana que la pantalla: si a la cajera no se le ofrece el corte de
+    // anteayer, tampoco puede bloquearla. Con la ventana ancha quedaba trabada en
+    // un corte que ya no se puede contar y no llegaba nunca al de hoy.
+    const pendientes = await this.blind.turnosPendientes({
+      cajeroCode: cajero_code,
+      warehouseCodes: scope.mode === 'all' ? null : scope.values,
+      revela: false,
+    });
+    const primero = pendientes[0];               // viene ordenada del más viejo
+    if (!primero || primero.folio === folio) return;
+    const cuando = new Date(`${primero.business_date}T12:00:00`)
+      .toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' });
+    throw new BadRequestException(
+      `Tenés un corte pendiente antes que ese: caja ${primero.caja} del ${cuando}. ` +
+      'Cerrá ese primero — los arqueos se hacen en orden.',
+    );
   }
 
   @Post()
@@ -243,6 +304,103 @@ export class StoreArqueoController {
         sin_validar: g.sin_validar, ultima_fecha: g.ultima_fecha,
       })),
       totales: { arqueos: res.totales.arqueos, sin_validar: res.totales.sin_validar },
+    };
+  }
+
+  /**
+   * SM.21 — Cumplimiento del arqueo: qué % de los cortes llegó a tener conteo
+   * físico, cuánto tardó y cuánto dinero quedó sin verificar.
+   *
+   * Solo para quien supervisa. A la cajera no le sirve y además son montos: es la
+   * misma línea que separa `revela` en todo este controlador.
+   */
+  @Get('cumplimiento')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiOperation({ summary: 'Tienda — cumplimiento del arqueo por sucursal (cortes contados, demora, monto sin verificar).' })
+  async cumplimiento(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    if (!this.revela(user)) throw new ForbiddenException('El cumplimiento del arqueo es del supervisor.');
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/cumplimiento');
+    await this.sync.syncCurrentTenant();
+    const filas = await this.sla.cumplimiento({ desde: query['from'] as string | undefined, warehouseCodes: warehouse_codes });
+    const t = filas.reduce((a, f) => ({
+      cortes: a.cortes + f.cortes, arqueados: a.arqueados + f.arqueados,
+      pendientes: a.pendientes + f.pendientes, no_verificables: a.no_verificables + f.no_verificables,
+      monto_sin_verificar: a.monto_sin_verificar + Number(f.monto_sin_verificar || 0),
+    }), { cortes: 0, arqueados: 0, pendientes: 0, no_verificables: 0, monto_sin_verificar: 0 });
+    return {
+      sucursales: filas,
+      totales: { ...t, pct: t.cortes ? Math.round((t.arqueados / t.cortes) * 1000) / 10 : 0 },
+      sla_min: CashCountSlaService.SLA_MIN,
+      critico_min: CashCountSlaService.CRITICO_MIN,
+    };
+  }
+
+  /**
+   * SM.21 — Dispara el barrido de plazos a mano. El cron corre cada 15 min; esto
+   * existe para no esperarlo al operar (y para el smoke). Idempotente: el hallazgo
+   * se hace UPSERT por `dedup_key`.
+   */
+  @Post('scan-sla')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiOperation({ summary: 'Tienda — barre ahora los cortes sin conteo fuera de plazo y los manda a la bandeja.' })
+  async scanSla(@ReqUser() user: AuthUser) {
+    if (!this.revela(user)) throw new ForbiddenException('El barrido de plazos es del supervisor.');
+    await this.sync.syncCurrentTenant();
+    return this.sla.scanCurrentTenant();
+  }
+
+  /**
+   * SM.19 — Historial por PERSONA: una tarjeta por cajera con todos sus cortes.
+   *
+   * A diferencia de `/historial`, parte de los cortes de Kepler, así que también
+   * muestra los turnos que **nadie arqueó** — que son los que hay que perseguir.
+   *
+   * Mismo recorte: la cajera se ve solo a sí misma y sin nada del cuadre; a ella
+   * se le quitan hasta los acumulados, porque un faltante sobre un solo corte ES
+   * la diferencia de ese corte.
+   */
+  @Get('por-cajera')
+  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiOperation({ summary: 'Tienda — tarjetas por cajera: sus cortes de Kepler con horarios, y el arqueo nuestro cuando existe.' })
+  async porCajera(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
+    const revela = this.revela(user);
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/por-cajera');
+    // Kepler genera el corte solo: antes de pintar, lo jalamos. Es un UPSERT de
+    // una sentencia sobre 3 días (~60 filas) en la misma base, así que cuesta
+    // milisegundos y garantiza que ningún turno cerrado se vea como inexistente
+    // aunque el cron todavía no haya corrido. Best-effort a propósito: si el ODS
+    // está caído, la pantalla muestra lo que ya teníamos en vez de romperse.
+    await this.sync.syncCurrentTenant();
+    const res = await this.blind.porCajera({
+      from: query['from'] as string | undefined,
+      to: query['to'] as string | undefined,
+      warehouse_codes,
+      cajero_code: revela ? ((query['cajero'] as string) || undefined) : (user?.username || ' '),
+      limit: query['limit'] ? Number(query['limit']) : undefined,
+    });
+    if (revela) return res;
+    return {
+      cajeras: res.cajeras.map((g: any) => ({
+        cajero_code: g.cajero_code, cajero_nombre: g.cajero_nombre,
+        warehouse_code: g.warehouse_code, warehouse_name: g.warehouse_name,
+        cortes: g.cortes, dias: g.dias, sin_arqueo: g.sin_arqueo, ultimo: g.ultimo,
+        turnos: g.turnos.map((t: any) => ({
+          arqueo_id: t.arqueo_id, business_date: t.business_date, caja: t.caja, folio: t.folio,
+          hora_apertura: t.hora_apertura, hora_cierre: t.hora_cierre, duracion_horas: t.duracion_horas,
+          nuestro_contado: t.nuestro_contado, denominaciones: t.denominaciones,
+          capturado_por: t.capturado_por, capturado_at: t.capturado_at,
+          validado_por: t.validado_por, validado_at: t.validado_at,
+          // Su propio arqueo sí lo puede ver entero: turno, motivo y notas son
+          // datos de lo que ELLA hizo. Los montos de Kepler siguen fuera.
+          turno: t.turno, nota: t.nota, incidencia_tipo: t.incidencia_tipo, validado_nota: t.validado_nota,
+        })),
+      })),
+      totales: { cajeras: res.totales.cajeras, cortes: res.totales.cortes, sin_arqueo: res.totales.sin_arqueo },
     };
   }
 

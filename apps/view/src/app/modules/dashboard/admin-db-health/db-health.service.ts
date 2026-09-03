@@ -46,6 +46,27 @@ export interface HealthAlertsResponse {
   recent_resolved: HealthAlert[];
 }
 
+// DBH.1 — salud del MOTOR. Distinta del reporte de frescura: aquello responde "¿llegó el dato?",
+// esto "¿cómo está la base?". Magnitudes (%, MB, conexiones, segundos), no edades.
+export interface EngineTable {
+  schema: string; table: string; live: number; dead: number; dead_pct: number | null;
+  last_autovacuum: string | null; last_autoanalyze: string | null;
+  size_bytes: number; size_pretty: string; status: HealthStatus;
+}
+
+export interface EngineMetric {
+  key: string; label: string; display: string; status: HealthStatus; note?: string;
+}
+
+export interface EngineReport {
+  checked_at: string; db_label: string; overall: HealthStatus;
+  database: { name: string; size_pretty: string; version: string };
+  metrics: EngineMetric[];
+  bloat: EngineTable[];
+  schemas: { schema: string; size_pretty: string; tables: number }[];
+  autovacuum: { name: string; setting: string }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class DbHealthService {
   private http = inject(HttpClient);
@@ -53,6 +74,10 @@ export class DbHealthService {
 
   getReport(): Observable<DbHealthReport> {
     return this.http.get<DbHealthReport>(this.apiUrl);
+  }
+
+  getEngine(): Observable<EngineReport> {
+    return this.http.get<EngineReport>(`${this.apiUrl}/engine`);
   }
 
   listAlerts(): Observable<HealthAlertsResponse> {

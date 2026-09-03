@@ -103,6 +103,57 @@ const APP_SOURCES: SourceCfg[] = [
             FROM agg`,
     warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
   },
+  // [OBS.3.2] CATÁLOGO por sucursal — el hueco por el que pasaron los 6 días de 2026-08-27.
+  //
+  // El sensor de arriba mira `kdm1` = **venta**. Un catálogo congelado no mueve la venta, así que
+  // seis días sin precios nuevos no dispararon un solo sensor por rama. Y el agregado
+  // `kepler_ods._sync_status` tampoco servía: esa marca sólo se escribe cuando LLEGA un lote, y el
+  // carril hash no empuja nada si no hay cambios — vieja puede ser "el carril murió" o "esa rama
+  // no cambió de precio en tres días". Ambiguo no sirve para alarmar.
+  //
+  // `analytics.ods_branch_checks` la escribe el shipper al cerrar la pasada de CADA rama, haya o no
+  // filas que mandar. Por eso acá "viejo" tiene un solo significado: **nadie miró esa rama**.
+  //
+  // `tables_checked` caza la deriva de configuración: si alguien deja el contenedor con
+  // `--branch=03` o recorta `KP_ODS_TABLES`, el latido agregado seguiría verde (diría "1/1 ramas")
+  // y esto no.
+  {
+    key: 'ods_branch_check_stale', label: 'ODS — sucursal sin revisar (catálogo)', table: 'analytics.ods_branch_checks', tsCandidates: [],
+    sql: `WITH hot AS (
+            SELECT sucursal, last_check_at, tables_checked, last_error
+              FROM analytics.ods_branch_checks WHERE lane = 'ods_live_hot'
+          ),
+          agg AS (
+            SELECT count(*)::int                                       AS ramas,
+                   count(*) FILTER (WHERE last_check_at IS NULL)::int  AS nunca,
+                   min(last_check_at)                                  AS mas_vieja,
+                   (array_agg(sucursal ORDER BY last_check_at ASC NULLS FIRST))[1] AS suc_vieja,
+                   min(tables_checked)                                 AS min_tablas,
+                   max(tables_checked)                                 AS max_tablas
+              FROM hot
+          )
+          SELECT CASE
+                   -- Sin ninguna fila el sensor NO puede afirmar salud. NULL → crítico, con la
+                   -- nota diciendo qué falta. Un "ok" acá sería el verde falso de siempre.
+                   WHEN agg.ramas = 0 THEN NULL
+                   -- Una rama que nunca se pudo revisar es lo peor que hay: se fuerza crítico.
+                   WHEN agg.nunca > 0 THEN now() - interval '100 days'
+                   ELSE agg.mas_vieja
+                 END AS last_update,
+                 CASE WHEN agg.ramas = 0
+                      THEN 'sin marcas por sucursal — requiere el shipper de OBS.3.2 desplegado'
+                      ELSE 'ramas ' || agg.ramas ||
+                           CASE WHEN agg.nunca > 0 THEN ' · ' || agg.nunca || ' NUNCA revisada(s)' ELSE '' END ||
+                           ' · más atrasada ' || coalesce(agg.suc_vieja, '—') ||
+                           ' · tablas ' || coalesce(agg.min_tablas, 0) || '-' || coalesce(agg.max_tablas, 0) ||
+                           CASE WHEN agg.max_tablas > agg.min_tablas
+                                THEN ' ⚠ desparejo (¿config recortada?)' ELSE '' END
+                 END AS note_extra
+            FROM agg`,
+    // El carril hot pasa cada 15 s. 1 h de holgura tolera un reinicio del contenedor sin ruido;
+    // 3 h ya es un carril que dejó de mirar esa sucursal.
+    warnH: 1, critH: 3, cadence: 'continuo (@15s por rama)',
+  },
   // ── AUDITORÍA FRESCURA 2026-08-20 (lección sucursal 00): dead-man's switches POR-ENTIDAD que el
   //    max() GLOBAL no ve. Cada uno alarma si UNA fuente se congela mientras el resto avanza. ──
   // (P0-1) Stock CEDIS '00': el sensor 'stock' usa max(updated_at) GLOBAL → 01-06 enmascaran un freeze
@@ -415,6 +466,22 @@ const CRON_JOBS: CronCfg[] = [
   // reciente (replica vs kepler_ods), repone el delta y late acá con lo que encontró; si supera el
   // umbral escribe status='error' → CRÍTICO. Un número > 0 sostenido = se está perdiendo otra vez.
   { key: 'cdc_reconcile',       label: 'Reconciliador ODS (completitud)', cadence: 'continuo ~15 min', warnH: 1, critH: 3 },
+  // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
+  // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
+  // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
+  // (10,248 de costo) — y lo encontró un humano al corregir un precio a mano. Dos carriles, dos
+  // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
+  { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
+  { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // OBS.1 — HUÉRFANOS: estos SÍ latían, pero al no estar acá caían en el `cfg ? classify : 'ok'` de
+  // checkCronRuns() y se pintaban VERDE INCONDICIONAL por viejos que estuvieran. Un latido sin
+  // umbral registrado no es una alarma, es decoración. (wincaja_replica_* justo se pasó 4 días en
+  // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
+  { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
+  { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
+  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
+  { key: 'analytics_refresh_wincaja', label: 'Refresh MVs Wincaja',     cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
+  { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
@@ -430,6 +497,55 @@ export interface SourceHealth {
 export interface DbHealthReport {
   checked_at: string; db_label: string; overall: Status; sources: SourceHealth[];
 }
+
+// ── DBH.1 — SALUD DEL MOTOR (no es lo mismo que frescura del dato) ────────────
+//
+// Las ~45 fuentes de arriba responden "¿llegó la información?". Ninguna responde "¿cómo está la
+// base?". Son preguntas distintas y se miden distinto: la frescura es una EDAD (`classify()`), y
+// esto son MAGNITUDES — % de filas muertas, MB, conexiones, segundos de una consulta. Forzarlas al
+// molde viejo obliga al truco de la fecha sintética (`now() - interval '100 days'`) que ya usan dos
+// fuentes: legible una vez, ilegible como patrón. Por eso van con tipo, umbral y endpoint propios.
+//
+// Medido en prod el 2026-09-01 (22 GB, Postgres 18.6) al construir esto: `detalles_mov_almacen` con
+// 1,339,125 filas muertas (13.6%) y **sin un solo autovacuum registrado**, `stock_movements` con
+// 435,608 (12.0%) igual. No están abandonadas: `autovacuum_vacuum_scale_factor` es el default 0.2,
+// así que una tabla de 9.8M filas junta 2M de basura antes de que se limpie sola.
+export interface EngineTable {
+  schema: string; table: string; live: number; dead: number; dead_pct: number | null;
+  last_autovacuum: string | null; last_autoanalyze: string | null;
+  size_bytes: number; size_pretty: string; status: Status;
+}
+
+export interface EngineMetric {
+  key: string; label: string; display: string; status: Status; note?: string;
+}
+
+export interface EngineReport {
+  checked_at: string; db_label: string; overall: Status;
+  database: { name: string; size_pretty: string; version: string };
+  metrics: EngineMetric[];
+  bloat: EngineTable[];
+  schemas: { schema: string; size_pretty: string; tables: number }[];
+  autovacuum: { name: string; setting: string }[];
+}
+
+/**
+ * Umbrales del motor. Cada uno lleva su porqué — un número sin razón es un número que nadie se
+ * atreve a mover después.
+ *
+ *  · `dead_pct`: autovacuum dispara al 20% (`autovacuum_vacuum_scale_factor`). Una tabla POR ENCIMA
+ *    de ese número significa que autovacuum no está alcanzando, no que falte configurarlo.
+ *  · `conn_pct`: 70/85% del `max_connections` — antes del "too many clients", con margen para actuar.
+ *  · `query_s` / `idle_tx_s`: 5 y 15 minutos. El `idle in transaction` importa más de lo que parece:
+ *    una transacción abierta **bloquea el vacuum** de las tablas que tocó, así que es causa directa
+ *    de la hinchazón de arriba, no un problema aparte.
+ */
+const ENGINE_LIMITS = {
+  dead_pct: { warn: 20, crit: 40 },
+  conn_pct: { warn: 70, crit: 85 },
+  query_s: { warn: 300, crit: 900 },
+  idle_tx_s: { warn: 300, crit: 900 },
+} as const;
 
 @Injectable()
 export class DbHealthService {
@@ -483,6 +599,19 @@ export class DbHealthService {
     const h = ageSec / 3600;
     if (h >= critH) return 'critical';
     if (h >= warnH) return 'warn';
+    return 'ok';
+  }
+
+  /**
+   * Clasifica una MAGNITUD (no una edad). Deliberadamente separada de `classify()`: aquella asume
+   * que el valor son segundos y que más viejo es peor; acá el valor puede ser un porcentaje, un
+   * conteo o unos segundos, y sólo comparte la forma de los umbrales. Mezclarlas obligaría a que
+   * `classify` supiera de unidades.
+   */
+  private classifyMetric(value: number | null, warn: number, crit: number): Status {
+    if (value == null || !Number.isFinite(value)) return 'unknown';
+    if (value >= crit) return 'critical';
+    if (value >= warn) return 'warn';
     return 'ok';
   }
 
@@ -661,5 +790,123 @@ export class DbHealthService {
       return RANK[s.status] > RANK[worst] ? s.status : worst;
     }, 'ok');
     return { checked_at, db_label: this.dbLabel(), overall, sources };
+  }
+
+  // ── DBH.1 — Reporte del MOTOR ───────────────────────────────────────────────
+  /**
+   * Estado de Postgres mismo: hinchazón por filas muertas, peso por schema, actividad y la
+   * configuración de autovacuum. Lee con el knex ADMIN (rol `postgres`), que es el único que ve
+   * `pg_stat_activity` de otras sesiones — y es la conexión que `new-database.module.ts` ya
+   * reservaba para esto ("Operaciones de mantenimiento (VACUUM, ANALYZE, etc.)").
+   *
+   * Todo es SELECT sobre catálogos; no toca datos de negocio y no depende de ningún tenant.
+   */
+  async getEngineReport(): Promise<EngineReport> {
+    const checked_at = new Date().toISOString();
+    const vacio: EngineReport = {
+      checked_at, db_label: 'no configurada', overall: 'unknown',
+      database: { name: '—', size_pretty: '—', version: '—' },
+      metrics: [], bloat: [], schemas: [], autovacuum: [],
+    };
+    if (!this.knex) return vacio;
+
+    try {
+      const [db, act, bloatRows, schemaRows, avRows] = await Promise.all([
+        this.knex.raw(`SELECT current_database() AS name,
+                              pg_size_pretty(pg_database_size(current_database())) AS size_pretty,
+                              split_part(version(), ' on ', 1) AS version`),
+        // `FILTER` en vez de subconsultas: una sola pasada por pg_stat_activity.
+        this.knex.raw(`
+          SELECT count(*)::int AS conns,
+                 count(*) FILTER (WHERE state = 'active')::int AS activas,
+                 count(*) FILTER (WHERE state = 'idle in transaction')::int AS idle_tx,
+                 COALESCE(max(EXTRACT(EPOCH FROM (now() - query_start)))
+                          FILTER (WHERE state = 'active'), 0)::int AS query_s,
+                 COALESCE(max(EXTRACT(EPOCH FROM (now() - state_change)))
+                          FILTER (WHERE state = 'idle in transaction'), 0)::int AS idle_tx_s,
+                 (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conns
+            FROM pg_stat_activity WHERE backend_type = 'client backend'`),
+        this.knex.raw(`
+          SELECT schemaname, relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze,
+                 pg_total_relation_size(relid) AS size_bytes,
+                 pg_size_pretty(pg_total_relation_size(relid)) AS size_pretty
+            FROM pg_stat_user_tables
+           WHERE n_dead_tup > 0
+           ORDER BY n_dead_tup DESC LIMIT 25`),
+        this.knex.raw(`
+          SELECT schemaname, count(*)::int AS tablas,
+                 pg_size_pretty(sum(pg_total_relation_size(relid))) AS size_pretty
+            FROM pg_stat_user_tables GROUP BY 1
+           ORDER BY sum(pg_total_relation_size(relid)) DESC LIMIT 12`),
+        this.knex.raw(`SELECT name, setting FROM pg_settings WHERE name LIKE 'autovacuum%' ORDER BY name`),
+      ]);
+
+      const a = act.rows[0] ?? {};
+      const connPct = a.max_conns > 0 ? Math.round((100 * a.conns) / a.max_conns) : null;
+
+      const metrics: EngineMetric[] = [
+        {
+          key: 'connections', label: 'Conexiones',
+          display: `${a.conns ?? 0} de ${a.max_conns ?? '—'} (${connPct ?? '—'}%)`,
+          status: this.classifyMetric(connPct, ENGINE_LIMITS.conn_pct.warn, ENGINE_LIMITS.conn_pct.crit),
+          note: `${a.activas ?? 0} activas`,
+        },
+        {
+          key: 'longest_query', label: 'Consulta más larga',
+          display: this.humanSec(a.query_s ?? 0),
+          status: this.classifyMetric(a.query_s, ENGINE_LIMITS.query_s.warn, ENGINE_LIMITS.query_s.crit),
+          note: (a.query_s ?? 0) >= ENGINE_LIMITS.query_s.warn ? 'una consulta larga retiene su snapshot y frena el vacuum' : undefined,
+        },
+        {
+          key: 'idle_in_transaction', label: 'Transacción abierta sin trabajar',
+          display: `${a.idle_tx ?? 0} · la más vieja ${this.humanSec(a.idle_tx_s ?? 0)}`,
+          status: this.classifyMetric(a.idle_tx_s, ENGINE_LIMITS.idle_tx_s.warn, ENGINE_LIMITS.idle_tx_s.crit),
+          note: (a.idle_tx_s ?? 0) >= ENGINE_LIMITS.idle_tx_s.warn ? 'bloquea el vacuum de las tablas que tocó' : undefined,
+        },
+      ];
+
+      const bloat: EngineTable[] = bloatRows.rows.map((r: Record<string, unknown>) => {
+        const live = Number(r.n_live_tup) || 0;
+        const dead = Number(r.n_dead_tup) || 0;
+        const pct = live > 0 ? Math.round((1000 * dead) / live) / 10 : null;
+        return {
+          schema: String(r.schemaname), table: String(r.relname), live, dead, dead_pct: pct,
+          last_autovacuum: r.last_autovacuum ? new Date(r.last_autovacuum as string).toISOString() : null,
+          last_autoanalyze: r.last_autoanalyze ? new Date(r.last_autoanalyze as string).toISOString() : null,
+          size_bytes: Number(r.size_bytes) || 0, size_pretty: String(r.size_pretty),
+          status: this.classifyMetric(pct, ENGINE_LIMITS.dead_pct.warn, ENGINE_LIMITS.dead_pct.crit),
+        };
+      });
+
+      const overall = [...metrics.map((m) => m.status), ...bloat.map((b) => b.status)]
+        .reduce<Status>((worst, s) => (s === 'unknown' ? worst : RANK[s] > RANK[worst] ? s : worst), 'ok');
+
+      return {
+        checked_at, db_label: this.dbLabel(), overall,
+        database: {
+          name: String(db.rows[0]?.name ?? '—'),
+          size_pretty: String(db.rows[0]?.size_pretty ?? '—'),
+          version: String(db.rows[0]?.version ?? '—'),
+        },
+        metrics, bloat,
+        schemas: schemaRows.rows.map((r: Record<string, unknown>) => ({
+          schema: String(r.schemaname), size_pretty: String(r.size_pretty), tables: Number(r.tablas) || 0,
+        })),
+        autovacuum: avRows.rows.map((r: Record<string, unknown>) => ({
+          name: String(r.name), setting: String(r.setting),
+        })),
+      };
+    } catch (e) {
+      this.logger.warn(`db-health engine: ${(e as Error).message}`);
+      return { ...vacio, db_label: this.dbLabel() };
+    }
+  }
+
+  /** "12 min" / "2 h 5 min" / "45 s" — el panel muestra tiempo, no segundos crudos. */
+  private humanSec(s: number): string {
+    if (!s || s < 60) return `${Math.max(0, Math.round(s))} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    const h = Math.floor(s / 3600);
+    return `${h} h ${Math.round((s - h * 3600) / 60)} min`;
   }
 }

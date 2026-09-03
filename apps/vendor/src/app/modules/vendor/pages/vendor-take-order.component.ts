@@ -74,7 +74,18 @@ const foldText = (s: string | null | undefined): string =>
     @if (loading()) {
       <p-skeleton height="500px" styleClass="mt"></p-skeleton>
     }
-    
+
+    <!-- Estado de error: nunca dejar el cuerpo en blanco si la carga falló. -->
+    @if (!loading() && !customer()) {
+      <div class="load-err">
+        <i class="pi pi-cloud"></i>
+        <p>No se pudo cargar el pedido de este cliente.</p>
+        <span class="le-sub">Puede ser un permiso o la conexión. Reintentá.</span>
+        <button class="le-retry" (click)="reload()"><i class="pi pi-refresh"></i> Reintentar</button>
+        <button class="le-back" (click)="back()">Volver</button>
+      </div>
+    }
+
     @if (!loading() && customer()) {
       <div class="scroll">
         <!-- Modo offline: el pedido se arma local y se sincroniza al reconectar -->
@@ -155,6 +166,25 @@ const foldText = (s: string | null | undefined): string =>
               </button>
             }
           </div>
+          <!-- Fuente de existencia: ver sucursal / ver camioneta -->
+          @if (stockSources().sucursal && !offlineMode()) {
+            <div class="stock-src">
+              <span class="ss-lbl"><i class="pi pi-box"></i> Existencia</span>
+              <div class="ss-seg">
+                <button type="button" class="ss-b" [class.on]="stockView() === 'sucursal'"
+                  (click)="switchStockView('sucursal')">
+                  <i class="pi pi-building"></i> {{ stockSources().sucursal?.name }}
+                </button>
+                @if (stockSources().camioneta; as cam) {
+                  <button type="button" class="ss-b" [class.on]="stockView() === 'camioneta'"
+                    (click)="switchStockView('camioneta')">
+                    <i class="pi pi-truck"></i> {{ cam.name }}
+                  </button>
+                }
+              </div>
+              @if (stockLoading()) { <i class="pi pi-spin pi-spinner ss-spin"></i> }
+            </div>
+          }
           <!-- Banner de escucha (transcripción en vivo) -->
           @if (listening()) {
             <div class="voice-live" (click)="stopVoice()">
@@ -230,7 +260,7 @@ const foldText = (s: string | null | undefined): string =>
                   @if (!searchTerm().trim() && reasonFor(p.product_id); as rsn) {
                     <span class="rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
                   }
-                  <span class="pr">{{ fmtMoney(p.price) }}</span>
+                  <span class="pr">{{ fmtMoney(unitPriceDisplay(p)) }}@if (selectedUnit(p); as su) {<span class="pr-u">/{{ su.unit }}</span>}</span>
                   @if (p.min_qty > 1) {
                     <span>· min {{ p.min_qty }}</span>
                   }
@@ -244,11 +274,33 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="why"><i class="pi pi-comment"></i> por qué</span>
                   }
                 </div>
+                <!-- Selector de medida (PZA/PAQ/CJA): solo si el SKU ofrece más de una. -->
+                @if (hasUnitChoice(p)) {
+                  <div class="unit-sel">
+                    @for (u of p.units; track u.unit) {
+                      <button type="button" class="us-chip" [class.on]="selectedUnit(p)?.unit === u.unit"
+                        (click)="setUnit(p, u.unit); $event.stopPropagation()">{{ u.unit }}</button>
+                    }
+                  </div>
+                }
+                <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
+                @if (mayoreoHint(p); as mh) {
+                  <div class="may-hint" [class.reached]="mh.reached">
+                    <i class="pi pi-tag"></i>
+                    @if (mh.reached) {
+                      <span>Mayoreo aplicado · {{ fmtMoney(mh.unit) }} c/{{ mh.unitLabel }} <b>−{{ mh.pct }}%</b></span>
+                    } @else if (mh.need > 0 && cartQty(p.product_id) > 0) {
+                      <span>Faltan <b>{{ mh.need }}</b> {{ mh.unitLabel }} para mayoreo · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
+                    } @else {
+                      <span>Mayoreo desde <b>{{ mh.from }}</b> {{ mh.unitLabel }} · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
+                    }
+                  </div>
+                }
               </div>
               <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
                 <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
                 <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                  [ngModel]="cartQty(p.product_id) || null"
+                  [ngModel]="dispCount(p) || null"
                   (change)="setQtyTyped(p, $any($event.target).value)"
                   (focus)="$any($event.target).select()"
                   placeholder="0" aria-label="Cantidad" />
@@ -299,10 +351,19 @@ const foldText = (s: string | null | undefined): string =>
                     <div class="cl-info">
                       <div class="cl-n">{{ productNameById(l.product_id) }}</div>
                       <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
+                      <!-- Mayoreo por cantidad: precio nuevo + cuánto se descuenta vs base. -->
+                      @if (mayoreoInfo(l); as m) {
+                        <div class="cl-may">
+                          <span class="cl-may-tag"><i class="pi pi-tag"></i> Mayoreo</span>
+                          <span class="cl-may-new">{{ fmtMoney(m.unit) }} c/u</span>
+                          <span class="cl-may-base">antes {{ fmtMoney(m.base) }}</span>
+                          <span class="cl-may-save">−{{ m.pct }}% · ahorra {{ fmtMoney(m.savedTotal) }}</span>
+                        </div>
+                      }
                     </div>
                     <div class="stepper">
                       <button (click)="dec(l)" aria-label="Menos">−</button>
-                      <span class="q">{{ cartQty(l.product_id) }}</span>
+                      <span class="q">{{ dispCountById(l.product_id) }}@if (unitLabelById(l.product_id); as u) {<small class="q-u">{{ u }}</small>}</span>
                       <button (click)="inc(l)" aria-label="Más">+</button>
                     </div>
                     <button class="rm" (click)="removeLine(l)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
@@ -488,6 +549,12 @@ const foldText = (s: string | null | undefined): string =>
       .mt { margin-top: 1rem; }
 
       .scroll { padding-bottom: 6rem; }
+      .load-err { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.4rem; padding: 3rem 1.5rem; }
+      .load-err > i { font-size: 2.25rem; color: var(--text-faint); margin-bottom: 0.3rem; }
+      .load-err p { font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0; }
+      .load-err .le-sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+      .load-err .le-retry { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.6rem 1.3rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 700; font-size: 0.9rem; }
+      .load-err .le-back { border: none; background: none; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; padding: 0.4rem; }
       .date-row { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.875rem; }
       .date-row label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; }
       .date-input { width: 100%; height: 2.9rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0 0.875rem; font-family: var(--font-body); font-size: 0.95rem; background: var(--card-bg); color: var(--text-main); }
@@ -534,6 +601,27 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm .stk.ok { color: var(--ok-fg); } .prod .pm .stk.warn { color: var(--warn-fg); } .prod .pm .stk.bad { color: var(--bad-fg); }
       .prod .pm .rot { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--action); font-weight: 700; }
       .prod .pm .rot i { font-size: 0.62rem; }
+      /* Incitar mayoreo: quiebre por cantidad bajo la fila de producto. */
+      .prod .may-hint { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; font-weight: 600; color: var(--brand-900); background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.5rem; }
+      .prod .may-hint i { font-size: 0.66rem; color: var(--action); }
+      .prod .may-hint b { color: var(--action); font-weight: 800; }
+      .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+      .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* Selector de medida (PZA/PAQ/CJA) por línea. */
+      .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
+      .prod .unit-sel { display: inline-flex; gap: 0.25rem; margin-top: 0.25rem; }
+      .prod .unit-sel .us-chip { font-size: 0.72rem; font-weight: 700; line-height: 1; padding: 0.22rem 0.5rem; border-radius: var(--r-pill, 999px); border: 1px solid var(--border-color); background: var(--surface-ground); color: var(--text-muted); cursor: pointer; }
+      .prod .unit-sel .us-chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
+      /* Unidad junto a la cantidad en el carrito. */
+      .stepper .q .q-u { display: block; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
+      /* Toggle de fuente de existencia: ver sucursal / ver camioneta. */
+      .stock-src { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0 0.15rem; flex-wrap: wrap; }
+      .stock-src .ss-lbl { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
+      .stock-src .ss-seg { display: inline-flex; gap: 0.25rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.15rem; }
+      .stock-src .ss-b { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; font-weight: 700; line-height: 1; padding: 0.32rem 0.6rem; border: none; background: transparent; color: var(--text-muted); border-radius: var(--r-pill, 999px); cursor: pointer; }
+      .stock-src .ss-b.on { background: var(--action); color: #fff; }
+      .stock-src .ss-b i { font-size: 0.72rem; }
+      .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
       .prod .pm .rsn i { font-size: 0.6rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -555,6 +643,11 @@ const foldText = (s: string | null | undefined): string =>
       .cl-info { flex: 1; min-width: 0; }
       .cl-n { font-weight: 600; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .cl-t { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .cl-may { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.45rem; margin-top: 0.25rem; }
+      .cl-may-tag { display: inline-flex; align-items: center; gap: 0.22rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--action); background: color-mix(in srgb, var(--action) 13%, transparent); padding: 0.05rem 0.4rem; border-radius: var(--r-pill, 999px); }
+      .cl-may-new { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
+      .cl-may-base { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); text-decoration: line-through; font-variant-numeric: tabular-nums; }
+      .cl-may-save { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
       .stepper { display: flex; align-items: center; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; flex-shrink: 0; }
       .stepper button { width: 2.5rem; height: 2.5rem; border: none; background: var(--surface-ground); color: var(--action); font-size: 1.15rem; font-weight: 700; }
       .stepper .q { width: 2rem; text-align: center; font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -787,11 +880,23 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   readonly loading = signal(true);
+  /** La carga falló (ej. 403/red). Sin esto, un fallo dejaba el cuerpo en blanco
+   *  (el template exige `customer()`), que el usuario percibe como "congelada". */
+  readonly loadError = signal(false);
   readonly customer = signal<VendorCustomer | null>(null);
   readonly prices = signal<PriceRow[]>([]);
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   readonly warehouseId = signal<string>('');
+  /** Fuentes de existencia del vendedor (sucursal de surtido + camioneta). */
+  readonly stockSources = signal<{
+    sucursal: { id: string; code: string; name: string } | null;
+    camioneta: { id: string; code: string; name: string } | null;
+  }>({ sucursal: null, camioneta: null });
+  /** Vista de existencia activa: de qué almacén se muestra el stock. */
+  readonly stockView = signal<'sucursal' | 'camioneta'>('sucursal');
+  /** true mientras se re-consulta el catálogo tras cambiar la fuente de stock. */
+  readonly stockLoading = signal(false);
   /** Modo offline: fijado al cargar. true → el pedido se arma/confirma 100% local
    *  (Dexie) y se sincroniza al reconectar. No cambia a mitad de la sesión. */
   readonly offlineMode = signal(false);
@@ -880,7 +985,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   stockLabel(p: PriceRow): string {
     const s = Number(p.stock_available ?? 0);
     if (s <= 0) return 'Sin stock';
-    if (s < (p.min_qty || 1)) return `Stock ${s}`;
+    // Existencia en la MISMA unidad que se está pidiendo (paquetes/cajas enteros
+    // disponibles). Para la unidad base se muestra el crudo.
+    const f = this.unitFactor(p);
+    if (f > 1) {
+      const u = this.selectedUnit(p)?.unit ?? '';
+      return `Stock ${Math.floor(s / f)} ${u}`;
+    }
     return `Stock ${s}`;
   }
 
@@ -1161,21 +1272,34 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private loadOnline(customerId: string): void {
     // Ronda 1: warehouse default + customer (en paralelo). El customer alimenta
     // el catálogo de la ronda 2 sin re-pedirlo (antes se fetcheaba 2 veces).
+    this.loadError.set(false);
     forkJoin({
-      warehouseId: this.api.defaultWarehouseId(),
+      // warehouse NO es crítico: si falla, seguimos con almacén vacío (sin badges
+      // de stock) en vez de tumbar toda la pantalla. El customer SÍ es crítico.
+      // Fuentes de stock del vendedor: sucursal de surtido (inicial) + camioneta.
+      sources: this.api
+        .myStockSources()
+        .pipe(catchError(() => of({ sucursal: null, camioneta: null }))),
       customer: this.api.getCustomer(customerId),
     })
       .pipe(
-        switchMap(({ warehouseId, customer }) =>
-          forkJoin({
+        switchMap(({ sources, customer }) => {
+          this.stockSources.set(sources);
+          this.stockView.set('sucursal');
+          const warehouseId = sources.sucursal?.id || '';
+          return forkJoin({
             customer: of(customer),
             warehouseId: of(warehouseId),
-            catalog: this.api.catalogForCustomer(customer, warehouseId || undefined),
-            existingDraft: this.api.draftForCustomer(customerId),
+            // catalog/draft con fallback: un 403/red en ellos ya no deja la
+            // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
+            catalog: this.api
+              .catalogForCustomer(customer, warehouseId || undefined)
+              .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
+            existingDraft: this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
             frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
-          }),
-        ),
+          });
+        }),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
@@ -1215,10 +1339,49 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           }
         },
         error: (e) => {
+          // El customer (crítico) falló: marcamos error → el template muestra el
+          // estado de reintento en vez de quedar en blanco ("congelada").
           this.loading.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.message || e.message });
+          this.loadError.set(true);
+          this.toast.add({ severity: 'error', summary: 'No se pudo cargar', detail: e.error?.message || e.message });
         },
       });
+  }
+
+  /**
+   * Cambia la fuente de existencia mostrada (sucursal ↔ camioneta) y re-consulta el
+   * catálogo para traer el stock de ESE almacén. No cambia el pedido en curso; solo la
+   * existencia que ve el vendedor. Offline no aplica (el catálogo cacheado es de la
+   * sucursal). No hace nada si la fuente no existe.
+   */
+  switchStockView(view: 'sucursal' | 'camioneta'): void {
+    if (view === this.stockView() || this.offlineMode()) return;
+    const src = view === 'camioneta' ? this.stockSources().camioneta : this.stockSources().sucursal;
+    if (!src) return;
+    const c = this.customer();
+    if (!c) return;
+    this.stockView.set(view);
+    this.warehouseId.set(src.id);
+    this.stockLoading.set(true);
+    this.api
+      .catalogForCustomer(c, src.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (cat) => {
+          this.prices.set(cat.prices);
+          this.stockLoading.set(false);
+        },
+        error: () => this.stockLoading.set(false),
+      });
+  }
+
+  /** Reintenta la carga (botón del estado de error). */
+  reload(): void {
+    if (!this.customerId) { this.back(); return; }
+    this.loadError.set(false);
+    this.loading.set(true);
+    if (this.conn.isOnline()) this.loadOnline(this.customerId);
+    else this.loadOffline(this.customerId);
   }
 
   /** Carga offline: del caché Dexie. Abre/crea el draft local del cliente. */
@@ -1262,32 +1425,38 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/pending']);
   }
 
-  /** "+" en la fila → sube (optimista, debounced) o crea con la cantidad sugerida. */
+  /** "+" en la fila → sube UNA presentación (factor unidades base) o crea. */
   incProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, cur + 1);
+    const f = this.unitFactor(p);
+    if (cur > 0) this.bumpQty(p.product_id, cur + f);
     else this.createLine(p, this.suggestedQty(p));
   }
-  /** "−" en la fila → baja (optimista; al llegar a 0 el flush quita la línea). */
+  /** "−" en la fila → baja UNA presentación (al llegar a 0 el flush quita la línea). */
   decProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, cur - 1);
+    const f = this.unitFactor(p);
+    if (cur > 0) this.bumpQty(p.product_id, Math.max(0, cur - f));
   }
 
-  /** Cantidad inicial al tocar "+": promedio histórico si es habitual, si no min_qty. */
+  /** Cantidad inicial base al tocar "+": promedio histórico (habitual), o una
+   *  presentación completa (factor), o el mínimo de compra — lo que sea mayor. */
   private suggestedQty(p: PriceRow): number {
-    return this.avgQtyByProduct().get(p.product_id) || p.min_qty || 1;
+    const avg = this.avgQtyByProduct().get(p.product_id);
+    if (avg) return avg;
+    return Math.max(this.unitFactor(p), p.min_qty || 1);
   }
 
   /**
-   * Order pad: cantidad tecleada directo en la fila. 0 (o vacío) quita la línea,
-   * >0 la fija o la crea. Núcleo del flujo rápido — sin tap-por-unidad.
+   * Order pad: cantidad tecleada en la fila EN LA UNIDAD ACTIVA. Se convierte a
+   * base (×factor). 0/vacío quita la línea, >0 la fija o la crea.
    */
   setQtyTyped(p: PriceRow, raw: string | number): void {
-    const n = Math.max(0, Math.floor(Number(raw) || 0));
+    const count = Math.max(0, Math.floor(Number(raw) || 0));
+    const base = count * this.unitFactor(p);
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) this.bumpQty(p.product_id, n); // existe → ajustar (0 = quitar en flush)
-    else if (n > 0) this.createLine(p, n); // nuevo → crear inmediato
+    if (cur > 0) this.bumpQty(p.product_id, base); // existe → ajustar (0 = quitar en flush)
+    else if (base > 0) this.createLine(p, base); // nuevo → crear inmediato
   }
 
   /** Agregar desde el pitch / "+" — usa la cantidad sugerida. */
@@ -1339,10 +1508,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   inc(line: OrderLine): void {
-    this.bumpQty(line.product_id, this.cartQty(line.product_id) + 1);
+    const f = this.unitFactorById(line.product_id);
+    this.bumpQty(line.product_id, this.cartQty(line.product_id) + f);
   }
   dec(line: OrderLine): void {
-    this.bumpQty(line.product_id, this.cartQty(line.product_id) - 1);
+    const f = this.unitFactorById(line.product_id);
+    this.bumpQty(line.product_id, Math.max(0, this.cartQty(line.product_id) - f));
+  }
+  /** Conteo del carrito en la unidad activa del producto (base ÷ factor). */
+  dispCountById(productId: string): number {
+    const f = this.unitFactorById(productId);
+    const base = this.cartQty(productId);
+    return f > 1 ? Math.round(base / f) : base;
   }
 
   /** Ajuste optimista de cantidad por producto + PATCH debounced. No crea líneas
@@ -1858,6 +2035,121 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     if (!price || cost == null) return null;
     return Math.round(((price - cost) / price) * 100);
   }
+
+  /** Precio base (lista del cliente, min 1) del producto según el catálogo cargado. */
+  private basePriceById(productId: string): number | null {
+    const p = this.byIdMap().get(productId);
+    const v = p ? Number(p.price) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  /**
+   * Info de mayoreo de una línea del carrito: null si la línea NO trae descuento
+   * por cantidad (unit_price >= precio base). Cuando el resolver aplicó un tier de
+   * volumen, `unit_price` viene por debajo del base → mostramos el precio nuevo y
+   * cuánto se ahorra (por SKU). Offline el precio es el snapshot base → sin badge.
+   */
+  mayoreoInfo(
+    l: OrderLine,
+  ): { unit: number; base: number; savedUnit: number; pct: number; savedTotal: number } | null {
+    const base = this.basePriceById(l.product_id);
+    const unit = Number(l.unit_price);
+    if (base == null || !Number.isFinite(unit) || unit <= 0) return null;
+    if (unit >= base * 0.999) return null; // sin descuento real por cantidad
+    const savedUnit = base - unit;
+    const qty = Number(l.quantity) || 0;
+    return {
+      unit,
+      base,
+      savedUnit,
+      pct: Math.round((savedUnit / base) * 100),
+      savedTotal: +(savedUnit * qty).toFixed(2),
+    };
+  }
+  /**
+   * Incitar mayoreo: el PRIMER quiebre por cantidad de un producto del catálogo, para
+   * empujar al vendedor a venderlo. Devuelve null si el SKU no tiene mayoreo real.
+   *   - `from`  cantidad a la que arranca el mayoreo (en la unidad de venta base)
+   *   - `unit`  precio unitario en mayoreo · `pct` % de descuento vs base
+   *   - `need`  cuántas unidades más faltan desde lo que ya hay en el carrito (0 si ya llegó)
+   *   - `reached` true si la cantidad actual ya alcanza el mayoreo
+   * La escalera viaja en `p.tiers` (catálogo, también offline). Elige el quiebre de
+   * MENOR min_qty (el más alcanzable) para que el nudge sea accionable.
+   */
+  mayoreoHint(
+    p: PriceRow,
+  ): { from: number; unit: number; pct: number; need: number; reached: boolean; unitLabel: string } | null {
+    const tiers = p.tiers;
+    const base = Number(p.price);
+    if (!tiers?.length || !Number.isFinite(base) || base <= 0) return null;
+    const first = tiers.reduce((a, b) => (Number(b.min_qty) < Number(a.min_qty) ? b : a));
+    const fromBase = Math.max(2, Number(first.min_qty) || 0);
+    const unitBase = Number(first.price);
+    if (!Number.isFinite(unitBase) || unitBase <= 0 || unitBase >= base * 0.999) return null;
+    // Todo se muestra en la unidad seleccionada (factor): el quiebre y el precio.
+    const f = this.unitFactor(p);
+    const qtyBase = this.cartQty(p.product_id) || 0;
+    const from = Math.max(1, Math.ceil(fromBase / f));
+    const needBase = Math.max(0, fromBase - qtyBase);
+    return {
+      from,
+      unit: unitBase * f, // precio por presentación seleccionada
+      pct: Math.round(((base - unitBase) / base) * 100),
+      need: Math.ceil(needBase / f),
+      reached: qtyBase >= fromBase,
+      unitLabel: this.selectedUnit(p)?.unit ?? '',
+    };
+  }
+  // ───── Medidas de venta (PZA/PAQ/CJA) ─────
+  // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
+  // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
+
+  /** Unidad seleccionada por producto (label). Vacío = usar el default. */
+  readonly unitSel = signal<Record<string, string>>({});
+
+  private defaultUnit(p: PriceRow): { unit: string; factor: number } | null {
+    const us = p.units;
+    if (!us?.length) return null;
+    return us.find((u) => u.unit === 'PAQ') ?? us[0];
+  }
+  /** Presentación activa del producto (default PAQ). Null si el SKU no tiene medidas. */
+  selectedUnit(p: PriceRow): { unit: string; factor: number } | null {
+    const us = p.units;
+    if (!us?.length) return null;
+    const sel = this.unitSel()[p.product_id];
+    return (sel ? us.find((u) => u.unit === sel) : null) ?? this.defaultUnit(p);
+  }
+  /** Factor a unidad base de la presentación activa (1 si no hay medidas). */
+  unitFactor(p: PriceRow): number {
+    return Math.max(1, Number(this.selectedUnit(p)?.factor) || 1);
+  }
+  /** Factor por product_id (para el carrito, que trae OrderLine sin PriceRow). */
+  unitFactorById(productId: string): number {
+    const p = this.byIdMap().get(productId);
+    return p ? this.unitFactor(p) : 1;
+  }
+  unitLabelById(productId: string): string {
+    const p = this.byIdMap().get(productId);
+    return (p && this.selectedUnit(p)?.unit) || '';
+  }
+  /** ¿Mostrar el selector? Solo si el SKU ofrece más de una presentación. */
+  hasUnitChoice(p: PriceRow): boolean {
+    return (p.units?.length ?? 0) > 1;
+  }
+  setUnit(p: PriceRow, unit: string): void {
+    this.unitSel.update((m) => ({ ...m, [p.product_id]: unit }));
+  }
+  /** Cantidad mostrada en la fila = cantidad base / factor (en la unidad activa). */
+  dispCount(p: PriceRow): number {
+    const f = this.unitFactor(p);
+    const base = this.cartQty(p.product_id);
+    return f > 1 ? Math.round(base / f) : base;
+  }
+  /** Precio unitario mostrado en la unidad activa (base × factor). */
+  unitPriceDisplay(p: PriceRow): number {
+    return Number(p.price) * this.unitFactor(p);
+  }
+
   initials(name: string): string {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';

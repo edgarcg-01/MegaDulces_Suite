@@ -165,7 +165,7 @@ export class ForbiddenComponent {
   readonly roleName = computed(() => this.auth.user()?.role_name ?? 'actual');
 
   readonly canManageRoles = computed(
-    () => this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.ROLES_VER],
+    () => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.ROLES_VER],
   );
 
   /** Lo accesible dentro del MISMO proyecto: el usuario ya sabía a dónde iba. */

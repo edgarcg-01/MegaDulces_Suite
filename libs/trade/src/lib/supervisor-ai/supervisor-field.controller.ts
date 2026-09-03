@@ -32,6 +32,10 @@ export class SupervisorFieldController {
     return this.actions.myCoaching(user);
   }
 
+  // `[AUTHZ.5]` — Sólo-auth **a propósito**, mismo criterio que `reports/route-pings`: son acuses
+  // self-scoped (el id se resuelve contra el `@ReqUser()`, así que nadie puede acusar por otro) y
+  // los recibe cualquier rol de campo. Pedir un permiso acá sería churn sin ganancia. Queda escrito
+  // para que la próxima auditoría de cobertura lo lea como decisión y no como olvido.
   @Post('tasks/:id/ack')
   @ApiOperation({ summary: 'El colaborador marca su tarea como hecha (acuse de recibo)' })
   ackTask(@ReqUser() user: any, @Param('id') id: string) {

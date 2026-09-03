@@ -66,6 +66,22 @@ dbWork con SAVEPOINT.
 - Si prod ya crasheó por un registro huérfano: `DELETE FROM knex_migrations WHERE name='<archivo>.js'`
   (borra el registro, **no** la tabla ni el archivo).
 - **3 devs = timestamps que chocan.** Coordiná el nombre/timestamp de migraciones nuevas; no reordenar.
+- ⛔ **Nunca AGREGARLE columnas a una migración ya aplicada.** Es la trampa hermana de la primera, y
+  duele más porque **no avisa**: Knex no vuelve a ejecutar lo que tiene registrado, así que lo que le
+  agregues después **no llega nunca** a las DBs donde ya corrió. Ser idempotente no salva — el problema
+  no es que corra dos veces, es que **no corre**. Y el diff se ve perfecto: local y `platform_test`
+  (donde el archivo corrió completo) quedan con las columnas, prod no, y nadie lo nota hasta que la
+  pantalla truena.
+  - **Vivido 2026-09-03 (`[RE.26.2]`):** `20260902160000` corrió en prod (batch 251) con 3 columnas; le
+    agregué `folio_interno` + `folio_interno_ok` el mismo día. Toda la lista de `/compras/costo-por-compra`
+    devolvió **500 · `42703 column "folio_interno" does not exist`**. Lo que se agrega después va en
+    **archivo nuevo, siempre** (acá: `20260903120000`).
+  - **La otra mitad, en el código:** un solo `existeCol('prov_score')` gateaba los 5. Si un grupo de
+    columnas **puede llegar en otro despliegue, se prueba solo** — un probe compartido convierte un
+    "falta una columna" en una pantalla caída. El guard existía justo para eso y no sirvió porque
+    preguntaba por la columna equivocada.
+  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro:
+    `SELECT column_name FROM information_schema.columns WHERE table_schema=… AND table_name=…`.
 
 ---
 
@@ -1117,7 +1133,81 @@ cambiado en prod: cambió cuál de las dos tablas respondía. Una copia vacía n
 
 ---
 
-## 33. Un rol dedicado "sólo lectura" tumbó producción porque el login SÍ escribe
+## 33. La bomba de calendario: la replicación lógica no replica DDL
+
+**Síntoma (2026-09-01, 00:00):** tres réplicas de Kepler (`md_01`, `md_03`, `md_06`) dejan de
+recibir. La subscription sigue `enabled`, el proceso del CDC sigue `online`, su latido sigue en
+**verde**. Lo único que lo dice está en el log del contenedor:
+
+```
+ERROR:  logical replication target relation "md.kdc22609" does not exist
+LOG:    background worker "logical replication apply worker" exited with exit code 1
+LOG:    logical replication apply worker for subscription "sub_md_01" has started
+ERROR:  logical replication target relation "md.kdc22609" does not exist
+```
+
+...cada 5 segundos, para siempre. **Kepler particiona por calendario** y creó la tabla de pólizas de
+septiembre en el publisher. La replicación lógica de Postgres **no replica DDL**: el subscriber no la
+tiene, el apply worker muere al primer INSERT que la toca, y no aplica NADA más — ni de esa tabla ni
+de ninguna otra. La rama se congela entera por una tabla que nadie había creado.
+
+Cuando lo encontramos ya había 3 sucursales muertas y las otras 3 a punto de caer en cuanto entrara
+su primera póliza de septiembre. El slot de la 06 iba en **795 MB de rezago creciendo**, camino al
+cap de 10 GB — o sea camino a `wal_status='lost'`, que es pérdida PERMANENTE (§32).
+
+**Familias con fecha en el nombre** (medidas en el schema, no supuestas):
+
+| familia | cadencia | ejemplo | próxima |
+|---|---|---|---|
+| `kdc2<YY><MM>` | **mensual** | `kdc22608` | cada día 1 |
+| `kdcn<YY>` | anual | `kdcn26` | `kdcn27` |
+| `orglogtbl_<YY>` | anual | `orglogtbl_26` | `orglogtbl_27` |
+| `kdmx_<YY>` | anual | `kdmx_26` | `kdmx_27` |
+
+El **1 de enero de 2027 vencen las cuatro a la vez**.
+
+**Fix inmediato:** `CREATE TABLE md.<nueva> (LIKE md.<hermana más reciente> INCLUDING ALL)` en cada
+réplica. El worker se recupera solo en segundos (no hace falta tocar la subscription) y el rezago del
+slot se drena: 795 MB → 84 kB en un minuto.
+
+**Prevención:** `ensure-monthly-tables.js` pre-crea los períodos por delante (2 meses, 1 año) usando
+como molde la hermana más reciente de cada familia; si la familia no existe en esa réplica, la salta
+en vez de inventar un molde. Corre dentro del loop de `reconcile-ods-window --watch`, antes de
+reconciliar: reponer filas no sirve de nada si la fuente dejó de recibir.
+
+### La lección
+
+**Un `enabled` no es un `running`.** `pg_subscription.subenabled` decía `true` en las tres muertas;
+lo que las delataba era `pg_stat_subscription.received_lsn IS NULL` (sin worker). Y ninguna de las
+capas de arriba lo notaba: el CDC seguía latiendo en verde porque *él* estaba bien — su fuente era la
+que había dejado de moverse. Tres monitores en verde, cero datos. Para diagnosticar la replicación
+lógica hay que mirar `pg_stat_subscription` y **el log del contenedor**, que es donde el error vive.
+
+
+## 34. Un backtick en un comentario de `styles`/`template` rompe el build sin decir dónde
+
+Los componentes Angular llevan el CSS y el HTML en **template literals**. Un backtick dentro de un
+comentario —en un comentario CSS, o en un `<!-- ... -->` del HTML— **cierra el literal antes de
+tiempo**. El compilador falla con:
+
+```
+FatalDiagnosticError: Code: 1010, Message: Failed to resolve styles at position 1 to a string
+```
+
+...o con errores de TypeScript aún más desorientadores (`Cannot find name 'styles'`,
+`Cannot find name 'policy'`). **Ninguno nombra el archivo.** Con cientos de componentes eso es una
+búsqueda a ciegas.
+
+**Regla:** nada de backticks dentro de `template:` ni del arreglo de `styles`, ni siquiera en
+comentarios. En prosa poné el identificador en negritas o sin adornos. En los **JSDoc de la clase**
+(fuera del decorador) los backticks sí son válidos y ahí conviene usarlos.
+
+Pisada dos veces en la misma sesión (2026-09-01): una en un comentario CSS de
+`almacen-area-shell.component.ts`, otra en un comentario HTML de `anden-caducidad.component.ts`.
+Si el build tira `1010` y el diff toca un componente, buscá el backtick antes de buscar el CSS.
+
+
+## 35. Un rol dedicado "sólo lectura" tumbó producción porque el login SÍ escribe
 
 **Contexto:** Fase CV (`catalogo-kp`). El rol `catalogo_kp_runtime`
 (`apps/catalogo-kp/sql/007_rol_dedicado.sql`, CV.8) se diseñó copiando los

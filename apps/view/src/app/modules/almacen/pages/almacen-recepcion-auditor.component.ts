@@ -568,7 +568,7 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
 
   // ── Políticas ──
   canManagePolicy(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR];
   }
 
   openPolicies(): void {

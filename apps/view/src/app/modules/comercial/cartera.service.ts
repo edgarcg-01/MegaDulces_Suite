@@ -27,6 +27,20 @@ export interface Assignment {
   sales_route: string;
   created_at: string;
 }
+export interface WarehouseOption {
+  id: string;
+  code: string;
+  name: string;
+}
+export interface RouteWarehouseRow {
+  route_id: string;
+  route: string;
+  zone: string | null;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
+  suggested_id: string | null;
+  suggested_name: string | null;
+}
 
 /** V.0 — gestión de cartera de ventas (vendedor → rutas) y orden de visita. */
 @Injectable({ providedIn: 'root' })
@@ -58,5 +72,15 @@ export class CarteraService {
   }
   setOrder(sales_route: string, customer_ids: string[]) {
     return this.http.put<{ ordered: number }>(`${this.base}/order`, { sales_route, customer_ids });
+  }
+  /** Rutas del catálogo con su sucursal de surtido + almacenes asignables + sugerencia por zona. */
+  routesWarehouses() {
+    return this.http.get<{ warehouses: WarehouseOption[]; routes: RouteWarehouseRow[] }>(
+      `${this.base}/routes-warehouses`,
+    );
+  }
+  /** Asigna/cambia la sucursal de surtido de una ruta. */
+  setRouteWarehouse(routeId: string, warehouse_id: string) {
+    return this.http.put(`${this.base}/routes/${routeId}/warehouse`, { warehouse_id });
   }
 }

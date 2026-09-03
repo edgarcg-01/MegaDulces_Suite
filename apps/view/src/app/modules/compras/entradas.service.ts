@@ -27,6 +27,28 @@ export interface EntradaRow {
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
+  /**
+   * `[RE.25]` — **el cuadre del DOCUMENTO**: importe Y proveedor, no sólo el importe.
+   *   `cuadra`        → los dos concuerdan; no necesita ojo humano.
+   *   `revisar`       → algo no concuerda; `cuadre_motivo` dice qué.
+   *   `sin_datos`     → el OCR no leyó nada comparable: se re-escanea, no se revisa.
+   *   `sin_evidencia` → todavía no hay remisión adjunta.
+   * `prov_score` es el parecido de nombres 0..1 y `prov_rfc_match` sólo CORROBORA (el RFC
+   * acierta el 49%: Kepler lo trae en la mitad de las entradas y viene sucio de los dos lados).
+   */
+  cuadre: 'cuadra' | 'revisar' | 'sin_datos' | 'sin_evidencia' | null;
+  cuadre_motivo: string | null;
+  prov_score: number | null;
+  prov_rfc_match: boolean | null;
+  /** ¿El paquete trae NUESTRA hoja interna? Informa, no decide el cuadre. */
+  paquete_ok: boolean | null;
+  /**
+   * `[RE.26]` El folio impreso en NUESTRA hoja interna, crudo (`XA2001-0000353`), y si es el de
+   * esta entrada. Detecta la evidencia pegada a la orden equivocada. `null` = no se pudo
+   * comparar (no vino la hoja, o el OCR no le leyó folio) — que no es `false`.
+   */
+  folio_interno: string | null;
+  folio_interno_ok: boolean | null;
   /** fecha capturada adelante de hoy: el renglón se ordena como si fuera de hoy y se marca */
   fecha_futura: boolean;
   /**
@@ -178,6 +200,8 @@ export interface EntradasQuery {
   search?: string;
   warehouse_codes?: string[];
   dias_min?: number;
+  /** `[RE.25]` El cuadre del documento — eje APARTE de `estado`, que habla del trámite. */
+  cuadre?: 'cuadra' | 'revisar' | 'sin_datos' | 'sin_evidencia' | '';
   carril?: 'al_dia' | 'rezago' | 'todo';
   /** `antiguedad`/`reciente` = las dos direcciones de `fecha` con nombre propio (las pide el
    *  segmentado de la cabina de Revisión). `fecha`/`proveedor`/`monto` son las del encabezado. */
@@ -267,6 +291,14 @@ export interface EntradasReport {
     por_validar: number; rechazados: number; atrasadas: number;
     /** SLA del REVISOR: evidencia esperando decisión más de lo permitido. */
     por_validar_atrasadas: number;
+    /**
+     * `[RE.25]` — el reparto del cuadre. `cuadran` es lo que NO necesita ojo humano, y por eso
+     * es el número que dice si el motor sirve. `sin_datos` se cuenta APARTE de `por_revisar`:
+     * no es un descuadre, es una hoja ilegible, y se arregla re-escaneando.
+     */
+    cuadran: number; por_revisar: number; sin_datos: number;
+    /** Paquetes sin nuestra hoja interna, de los que se pudo saber. Informativo. */
+    sin_hoja_interna: number;
   };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];

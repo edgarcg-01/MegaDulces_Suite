@@ -231,6 +231,278 @@ Además: **preflight de la fuente en cada ciclo** (no sólo al arrancar → se c
 
 ---
 
+## 13. WR-hist — el corpus HISTÓRICO a Postgres (🔨 en carga, 2026-09-01)
+
+Decisión Edgar 2026-09-01: **mudar Wincaja actual e histórico a Postgres**, con tres definiciones —
+el crudo completo vive **LOCAL** (a prod sólo suben agregados), alcance **2017–2025** primero, y las
+**70 tablas** crudas. Más una directiva de orden: *"priorizar lo actual de prod, de reciente a viejo"*.
+
+### 13.1 De dónde partíamos (medido)
+
+| capa | dónde | cubría |
+|---|---|---|
+| bronze `wincaja.*` (28 tablas curadas) | Railway prod, 4.2 GB | `actual` = 21 sucursales · `concentrada` = 10/30/32/50 · `2025` = 18 sucursales |
+| réplica cruda (70 tablas) | local `:5433/wincaja`, 615 MB | sólo `w00`/`w30`/`w32`, sólo `Actuales` |
+
+**2026 sí estaba en prod**, pero dentro del corte `actual` (ene–ago 2026, 65–85k movs/mes), no como
+corte propio. Ojo: la cobertura cae de 20 sucursales en enero a 9 en agosto — consistente con las
+migraciones a Kepler, pero **sin verificar**. Y hay fechas basura (`2029-08-03` en el corte 2025,
+`2026-12-06` en `actual`), igual que en Kepler: `max(fecha)` no sirve como señal de frescura.
+
+Corpus en `Z:\Salidas\Bases`: `2017`–`2025` = **187 archivos / 22.4 GB** + `Actuales` (23) +
+`Concentradas` (10) + `Cierres` (368 MB) + `2009`–`2016` en **8 `.7z`** (~960 MB comprimidos, 7-Zip
+está instalado). Total del alcance actual: **206 unidades / 23.4 GB**.
+
+### 13.2 Los dos hechos que definieron el diseño
+
+**1. Cada carpeta `<año>` es el corte de ESE año, no un acumulado.** Verificado en la sucursal 32:
+
+| archivo | cabeceras | rango de `Fecha` |
+|---|---|---|
+| `2017/32 MORELIA MADERO.MDB` | 121,980 | 2017-01-02 → 2017-12-31 |
+| `2021/…` | 86,300 | 2021 (+ centinelas 2000-01-01) |
+| `2025/…` | 129,760 | 2025 |
+
+**2. El `Consecutivo` REINICIA en 1 cada año** — 2021 va `1..89,586` y 2025 va `1..129,760`: tickets
+distintos con el mismo número. Por eso **el corte es parte obligatoria de la identidad**. El bronze
+ya lo había resuelto con `source_dataset` en el PK; acá se replica el criterio con `_dataset`.
+
+### 13.3 La herramienta: mdbtools, no Jet
+
+El primer motor (Jet+PS32+INSERT, reusando `access-adapter.js`) funcionaba y era fiel, pero tardaba
+**554 s** por archivo de 70 MB → ~49 h para el corpus. El benchmark mostró que **Postgres no era el
+cuello**: escribir las 152,718 filas de `DetallesMovAlmacen` tardaba 16–31 s, contra ~129 s de
+lectura. El cuello era `ConvertTo-Json` **por fila** en PowerShell.
+
+**mdbtools** (C, lee Jet 3/4 directo, sin Jet ni PowerShell ni dependencia de 32 bits) corre en un
+contenedor Docker — no se instala nada en la máquina. Contra el MISMO archivo:
+
+| | Jet + PS32 + INSERT | mdbtools + COPY |
+|---|---|---|
+| las 70 tablas | 554 s | **156 s** (3.5×) |
+| sólo el export | ~490 s | 91 s |
+| `DetallesMovAlmacen` (152k filas) | 160 s | 15 s |
+| filas / ΣValorVenta | 469,609 / $7,629,584.75 | **idénticos, al centavo** |
+
+Dos trampas que costaron una iteración cada una:
+- **Un contenedor por tabla mata la ventaja**: `docker run` cuesta ~1.5 s, y con 2 llamadas por tabla
+  (header + export) × 70 se iban ~4 min por archivo. Se colapsó a **un contenedor por archivo**
+  (`mdb-tools.dumpAll`: versión Jet + tablas + esquema + un CSV por tabla, todo de una).
+- **Escribir los CSV al bind-mount de Docker Desktop cuesta el doble** (128 s vs 67 s): `mdb-export`
+  emite en chunks chicos y cada uno cruza el puente de archivos de Windows. Se escribe en `/tmp` del
+  contenedor y se copia todo junto al final.
+
+Y una que mentía sin fallar: **`psql -q` se calla el `COPY n`** → el conteo de filas volvía 0 en todas
+las tablas mientras la carga estaba perfecta. El reporte mentía, no el dato.
+
+### 13.4 Arquitectura del carril histórico
+
+```
+Z:\Salidas\Bases\<corte>\NN NOMBRE.MDB
+      │ copia local (~5.2 MB/s medido; Jet/mdbtools sobre SMB es inviable: un scan
+      │ sobre el archivo de 559 MB llevaba >17 min sin terminar)
+      ▼
+  <STAGE>\hNN_<corte>.mdb
+      │ UN contenedor mdbtools: mdb-ver + mdb-tables + mdb-schema --indexes + 70 CSV
+      ▼
+  <STAGE>\hNN_<corte>_csv\{0..69}.csv  +  _schema.sql  +  _tables.txt
+      │ psql \copy → zstg.hNN__<Tabla> (UNLOGGED, todo text)
+      ▼
+  un solo INSERT..SELECT con cast + md5(fila) server-side
+      ▼
+  :5433/wincaja  →  hNN.<Tabla>  (identidad (_dataset, _row_hash))
+```
+
+- **Identidad = surrogate `(_dataset, _row_hash)`, nunca la PK natural.** Vivido en la primera unidad
+  de la corrida: mdbtools reporta PK sobre `ArticulosRelacion.CodigoBarras` y **los propios datos la
+  violan** (hay NULLs). Access declara índices que su contenido no respeta, y el espejo crudo no está
+  para discutirle a la fuente. Se puede porque este carril es un append de cortes inmutables: no hay
+  UPDATE que aplicar. La PK declarada queda anotada en el `COMMENT` de la tabla.
+- **Drift de esquema entre cortes**: 9 años de versiones de Wincaja → se agregan las columnas que
+  falten y, si el tipo choca, se **ensancha a `text`** (nunca se angosta).
+- **Ledger `ods.wincaja_hist_load`** (schema, corte, tabla, filas, estado, lector) → la carga es
+  reanudable e idempotente. `--force` borra la partición antes de recargar; hace falta al cambiar de
+  lector, porque el `_row_hash` depende de él.
+- **`Actuales` saltea 30/32/00**: ya las mantiene el carril vivo, más fresco. `--include-live` fuerza.
+
+### 13.5 Prioridad de carga
+
+`Actuales` → `Concentradas` → `2025` → `2024` → … → `2017`, y dentro de cada corte por relevancia
+para prod (espejo de `wincaja.branches.status`): `live_on_wincaja` (00/30/32/50) → `transition` (10)
+→ rutas → `legacy_on_kepler` (40/42/44/54) → las que ya no existen (20/24/25/51/70/300/301/CEDIS B).
+Así lo que le falta a prod entra en la primera hora, no en la hora 14.
+
+El histórico trae **sucursales que hoy no existen** — `20 COMISIONISTAS`, `70 TELEMARKETING`,
+`51 CANINDO RD`, `CEDIS B`, rutas `24/25/300/301` — y eso es justamente parte del valor.
+
+### 13.6 Archivos
+
+| Archivo | Qué |
+|---|---|
+| `lib/mdbtools.Dockerfile` | imagen `mdbtools:local` (Debian slim + mdbtools 1.0.1) |
+| `lib/mdb-tools.js` | adapter bulk: `ensureImage` · `dumpAll` · `describeFromCsv` · `schemaRaw` |
+| `lib/access-read-bulk.ps1` | lector Jet alternativo (TSV con StringBuilder, sin `ConvertTo-Json`) — quedó como reserva; mdbtools lo superó |
+| `wincaja/wincaja-hist-config.js` | inventario del corpus + prioridad + parser de nombres de `.mdb` |
+| `wincaja/import-wincaja-hist.js` | el cargador (`--apply`, `--year`, `--branch`, `--force`, `--reader=mdbtools\|jet`) |
+| `wincaja/wincaja-hist-verify.js` | (A) ledger vs espejo · (B) **cruce contra el bronze de prod**, que se cargó con OTRO lector desde la misma fuente |
+
+`lib/access-mirror.js` recibió dos cambios **aditivos** (default apagado → el carril vivo no cambia):
+`extraKeys` para prefijar columnas de partición a la identidad, y aceptar un tipo Postgres ya
+resuelto (`c.pg`) además del tipo Jet crudo (`c.jet`).
+
+### 13.6bis Resultado de la corrida y verificación (✅ 2026-09-02)
+
+**206/206 unidades · 0 errores · 144,782,596 filas leídas / 144,763,347 escritas.** 30 schemas
+(`h00`…`h505`, más `h20` Comisionistas, `h51` Canindo RD, `h70` Telemarketing, `hcedis_b` — las que
+ya no existen). La desambiguación separó sola 6 archivos duplicados del mismo corte
+(`2025-2025_dic`, `2021-32_morelia_madero_dic`, `2019-70_telemarketing_error`, …).
+
+**Integridad (ledger vs espejo): 14,425 particiones sanas, 0 con problema** — cero casos donde el
+espejo tenga MÁS filas que las leídas (que sería duplicación).
+
+**El tamaño costó más de lo proyectado: 36 GB, no 15–20.** Es el precio de la decisión de identidad:
+forzar el surrogate `(_dataset, _row_hash)` en **todas** las tablas (no sólo en las sin PK) para no
+discutirle a Access sus PKs rotas son ~4.6 GB de texto de hash más su índice en cada una de las 14
+mil particiones. Compra deliberada de robustez; ahí está la palanca si el disco apretara.
+
+⚠️ **Y el colapso por `_row_hash` SÍ cuesta dinero — poco, pero no cero.** Medido contra el origen en
+la unidad de mayor colapso (`2018` × `h40` 8 Esquinas, `DetallesMovAlmacen`):
+
+| | filas | Σ ValorVenta |
+|---|---|---|
+| origen (`.mdb` vía mdbtools) | 1,379,299 | **41,684,109.44** |
+| espejo (`h40`, corte 2018) | 1,377,863 | **41,683,947.68** |
+| Δ | −1,436 (el colapso exacto) | **−$161.76** (0.0004%) |
+
+O sea: las filas que colapsan **no son todas de valor $0**. Son renglones byte-idénticos en TODAS
+sus columnas — el mismo SKU, misma cantidad, mismo precio, dos veces en el mismo ticket — y son
+ventas reales distintas que se funden en una. La única llave que las separaría es un ordinal de
+renglón, y Jet no garantiza el orden de lectura como para inventarlo de forma estable. **Se declara
+la pérdida en vez de dibujarla como cero**: 0.0004% del importe, concentrada en `DetallesMovAlmacen`.
+Corolario: para cifras de dinero exactas por renglón, la fuente es el `.mdb`, no el espejo.
+
+### 13.7 Pendiente
+
+- Terminar la corrida (206 unidades, ~14 h estimadas) y correr `wincaja-hist-verify.js`.
+- Confirmar la caída de cobertura de sucursales de ene→ago 2026 en el corte `actual` de prod.
+- `2009`–`2016`: descomprimir los `.7z` y revisar drift de esquema (Wincaja más viejo) antes de cargar.
+- Los agregados que suben a prod desde el histórico local (la mitad "híbrida" de la decisión).
+- **Fase CA** (CEDIS Kepler-Access) puede reusar mdbtools tal cual: mismo Jet3, otro esquema.
+
+---
+
+## 14. WR.8 — el agente-POS alimenta la BD, no sólo la pantalla (🔨 8.0+8.1 en código, 2026-09-01)
+
+### 14.1 Por qué: el diagnóstico de frescura
+
+Medido el 2026-09-01 a las 16:17 MX, el mismo dato por dos transportes:
+
+| camino para MD-30 / MD-32 | último dato |
+|---|---|
+| **agente-POS** → `analytics.store_live_tickets` | **hoy 17:57** (minutos) |
+| SMB `Z:` → bronze `wincaja.maestro_mov_almacen` | **30-ago** (2 días) |
+
+La tienda vendió hoy. El feed corrió hoy a las 05:03 y está `ok`. Lo que está viejo es **la
+copia-sombra que lee**: el `.mdb` en `Z:` se escribió a las 11:13 — *después* de que el ingest de las
+05:03 lo leyera, así que el batch siempre ingiere una copia de ~18 h antes. Todo verde, dato viejo:
+la misma clase de falla de WR.7.
+
+Y hay **tres** alimentadores de `store_live_tickets`, sólo uno realmente vivo:
+
+| alimentador | corre en | lee de | frescura |
+|---|---|---|---|
+| **`wincaja-store-agent.ps1`** | **el servidor POS** | el `.mdb` **VIVO local**, `Mode=Read` | **minutos** |
+| `kepler/live-tickets-poller.js` | on-prem | `kepler_ods` (CDC) | minutos |
+| `wincaja-tickets-poller.js` | on-prem | **el bronze ya importado** | hereda el atraso del batch |
+
+El tercero lo confiesa su propio header. Es el que tapa el problema sin resolverlo.
+
+También: **MD-30 está vivo** (contra la nota de WR.7 que lo daba por muerto desde el 13-ago), y el
+**CEDIS `00` no tiene ningún camino vivo** aunque siga `live_on_wincaja`.
+
+### 14.2 La tesis: el delta lo calcula Postgres, no la caja
+
+`raw-upsert` (el handler que ya usa el CDC de Kepler) hace **UPSERT SIN CHURN**:
+`ON CONFLICT … DO UPDATE … WHERE IS DISTINCT FROM` → una fila que no cambió **no se reescribe**.
+Verificado: segundo push idéntico de `Existencias` (14,873 filas / 248.6 KB gzip) → `rowCount=0`.
+
+Eso significa que **el POS no necesita hash-delta**. En el ODS de Kepler el hash existe para no pagar
+egress desde la sucursal; acá la dirección (ingress a Railway) es la gratis. La caja sólo lee y manda;
+el trabajo caro corre donde hay un motor de verdad. Y PowerShell **no puede** hacer trabajo por fila:
+`ConvertTo-Json` por fila es exactamente lo que costó 8× en el lector Jet.
+
+### 14.3 WR.8.0 — habilitación (✅ código + compuerta)
+
+- `raw-upsert` acepta `meta.schema` contra whitelist `{kepler_ods, wincaja_ods}`. Default sin cambios
+  → el carril Kepler no se entera. `_sync_status` pasa a ser **por schema**, y sólo el carril nuevo
+  lleva sucursal en la llave (`Existencias@44`): cambiarla en `kepler_ods` le rompía el sensor a
+  `db-health`, que ya lee esas llaves.
+- **Dos bugs de CamelCase** que el carril Kepler nunca pisó porque sus columnas son `c1`/`c2`:
+  `to_regclass` sobre un literal sin comillas baja el nombre a minúsculas → daba `null` para
+  `Existencias` aunque existiera y el handler intentaba re-crearla; y `copyIntoTemp` insertaba sin
+  citar → `column "almacen" of relation "stg_raw" does not exist`.
+- `wincaja-ods-lib.ps1` — el sink sin Node: Jet `Mode=Read` → JSONL a mano con StringBuilder →
+  GZipStream → POST. Resuelve los nombres de PK **case-insensitive** contra las columnas reales,
+  porque Access es inconsistente (`Cortes` tiene `caja`, `Retiros` tiene `Caja`).
+- `wincaja-feed-push.ps1` — CLI de una tabla (pruebas y empujes puntuales).
+
+### 14.4 WR.8.1 — carril de movimientos (🔨 código + probado en estado estable)
+
+`wincaja-ods-agent.ps1`: hermano del agente de tickets (que sigue igual, alimentando `/tienda/live`).
+Dos carriles como el ODS, y la cadencia escalonada **por tamaño de tabla, no por tipo**:
+
+| carril | tablas | llave | cadencia |
+|---|---|---|---|
+| incremental | `MaestroMovAlmacen` `DetallesMovAlmacen` `PagosDia` `Arqueos` `Cortes` `Retiros` | watermark `Consecutivo`/`Folio` | ~1 min |
+| snapshot | `Existencias` (15.5k) · `Articulos` `Clientes` · `Ofertas` `Precios` (90k) | PK natural | 15 / 60 / 720 min |
+
+**PKs verificadas contra la réplica** (índices reales descubiertos por Jet), no de memoria.
+
+**`DetallesMovAlmacen` no tiene llave natural** y el hallazgo explica por qué:
+`(Consecutivo, Articulo)` deja 0.04–0.15% de renglones repetidos, y al abrirlos son **venta mixta del
+mismo SKU** — una línea en caja (`UnidadVenta=1`) y otra en pieza (`UnidadVenta=0`). Ese es el
+mecanismo concreto detrás de la trampa del flag `unidad_venta`. Ni sumando `TipoPrecio` cierra
+(quedan 34/7/14 filas) → la llave es `(Consecutivo, Articulo, UnidadVenta, _row_hash)`: prefijo
+legible + hash de desempate. El hash sólo se calcula donde no hay PK natural, y ahí el delta son
+cientos de filas por ciclo; los catálogos de 90k tienen PK y no hashean.
+
+**Tres cosas que salieron de probarlo, no de diseñarlo:**
+
+1. **La ventana tiene que tener tope.** Sin `chunk`, la primera pasada de `DetallesMovAlmacen`
+   (152k filas) se llevó **más de 10 minutos** — inaceptable en una caja de producción. El tope va
+   sobre el **valor de la llave**, no sobre el número de filas: un `Consecutivo` tiene N renglones y
+   capar por filas cortaría un ticket a la mitad. Corolario: **la carga inicial no va por este
+   carril** — se prima con el camino rápido (mdbtools+COPY) y el agente arranca desde ese watermark.
+2. **El contador del origen REINICIA.** Wincaja archiva al cierre de año y el `Consecutivo` vuelve a
+   1 (verificado en las carpetas por año: 2021 va `1..89,586` y 2025 va `1..129,760`). Con el
+   watermark alto, `> wm` no devuelve **nada nunca más** y el carril queda mudo sin fallar. El agente
+   lo detecta con un `MAX()` — y sólo cuando la ventana vino vacía, así no se paga el scan en el
+   camino feliz. ⚠️ **El agente de tickets tiene el mismo hueco** y no lo detecta: al cierre de año
+   `$ci -le $sinceCons` descarta todo y la tienda se va a silencio.
+3. **El estado se escribe por tabla, no al final del ciclo.** Si el ciclo muere a la mitad, lo ya
+   empujado no se re-empuja. Es idempotente igual, pero re-leer el `.mdb` de una caja no es gratis.
+
+**Probado end-to-end** contra una instancia local de `feeds-ingest` (sin tocar prod), sobre un `.mdb`
+real: ciclo de estado estable en **16 s**, con `MaestroMovAlmacen` mandando 885 filas y
+`cambiaron=0` (churn cero también en el carril incremental). Fidelidad contra el lector independiente
+(mdbtools+COPY sobre el mismo archivo): `MaestroMovAlmacen` **48,560 = 48,560**, `PagosDia`
+**80,415 = 80,415**, `Cortes` **740 = 740**.
+
+### 14.5 Pendiente de WR.8
+
+- **Desplegar `services/feeds-ingest`** con el handler nuevo. Prod corre el viejo: hoy un push con
+  `meta.schema` desde una caja escribiría en `kepler_ods`. Es el bloqueante para salir de local.
+- **Desplegar el agente en el CEDIS `00`** (no tiene camino vivo) y en 30/32 junto al de tickets.
+- **`MovimientoClientes` / `MovimientoProveedores` quedan fuera**: no tienen PK natural **y su
+  `Saldo` muta** → con `_row_hash` por llave, un cambio insertaría fila nueva en vez de actualizar.
+  Hay que identificar su llave real antes de entrarlas (WR.8.3).
+- WR.8.4 ventana de reconciliación (tapa DELETEs y ediciones retroactivas, que ningún watermark ve).
+- WR.8.5 cutover: `wincaja.*` pasa a derivarse de `wincaja_ods` y se retira el batch 05:00 + `Z:`.
+- `deploy-wincaja-agent.ps1` **embebe una copia** del agente de tickets como here-string → el archivo
+  canónico y el desplegado pueden driftear. Al tocar el agente hay que actualizar los dos.
+
+---
+
 ## 8. Relacionado
 
 - [`FASE_W_WINCAJA.md`](FASE_W_WINCAJA.md) (bronze/silver/gold actual) · [`FASE_CA_CEDIS_ACCESS_ODS.md`](FASE_CA_CEDIS_ACCESS_ODS.md) (mismo adapter) · `project_fase_w_wincaja` · `project_logical_replication_kepler` (réplicas `kepler_md_XX`, el molde) · `project_canindo_wincaja_to_kepler` (Canindo salió de Wincaja).

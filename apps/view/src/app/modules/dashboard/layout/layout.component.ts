@@ -18,6 +18,7 @@ import type { MenuItem } from 'primeng/api';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
+import { branchName } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
@@ -87,6 +88,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
+
+  /**
+   * Qué se muestra al lado del rol. Para el personal de tienda, su SUCURSAL; para
+   * el resto, la zona de trade marketing.
+   *
+   * Antes siempre mostraba `zona`, y a una cajera de Padre Hidalgo le decía
+   * "CAJERO · LA PIEDAD RD" — que es su zona comercial, pero ella lo lee como su
+   * tienda. Poner el nombre equivocado de la sucursal arriba de una pantalla donde
+   * se sella efectivo es peor que no poner nada.
+   */
+  readonly contexto = computed(() => {
+    const u = this.user();
+    return u?.warehouse_code ? branchName(u.warehouse_code) : (u?.zona || '');
+  });
 
   // ── UI state ─────────────────────────────────────────────────────
   /** Drawer móvil abierto (overlay). En desktop no aplica. */
@@ -351,24 +366,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
-  private permToSubject: Record<string, string> = {
-    [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-    [Permission.VISITAS_REGISTRAR]: 'visits',
-    [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
-    [Permission.USUARIOS_GESTIONAR]: 'users',
-    [Permission.CATALOGO_GESTIONAR]: 'catalogs',
-    [Permission.TIENDAS_VER]: 'stores',
-    [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
-    [Permission.ROLES_CONFIGURAR]: 'roles_config',
-    [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
-    [Permission.VER_SEGUIMIENTO]: 'seguimiento',
-    [Permission.RUTAS_VER]: 'routes_analytics',
-    [Permission.COMMERCIAL_MAP_VER]: 'commercial_map',
-  };
-
   /**
-   * Chequeo combinado: god-mode (manage:all) + CASL rules (subjectMap) +
-   * fallback al record legacy `user.permissions[X] === true`.
+   * Chequeo por CLAVE EXACTA del permiso + god-mode de plataforma.
+   *
+   * Ya no consulta reglas de CASL por `subject`. Ese paso era estrictamente MAS permisivo que
+   * el chequeo exacto: varias claves comparten subject, asi que un item que pide
+   * COMMERCIAL_ORDERS_CONFIRMAR se mostraba a quien solo tenia ORDERS_VER — nav visible que el
+   * API rechaza con 403.
    *
    * El god-mode va PRIMERO: un superadmin debe ver TODO el nav sin depender de
    * que cada permiso nuevo esté mapeado en `permToSubject` ni backfilleado como
@@ -379,14 +383,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * el fallback al record legacy se mantiene.
    */
   private hasPermFor(item: NavItem): boolean {
-    if (this.perms.can('manage', 'all')) return true;
+    if (this.perms.isAdmin()) return true;
     const legacy = this.user()?.permissions;
     // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
     if (item.anyOf?.length) {
       return item.anyOf.some((p) => (legacy ? legacy[p] === true : false));
     }
-    const subject = this.permToSubject[item.permission];
-    if (subject && this.perms.can('read', subject as any)) return true;
     return legacy ? legacy[item.permission] === true : false;
   }
 
@@ -395,9 +397,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * getter de áreas de Almacén (WMS.1) para elegir el primer tab accesible.
    */
   private canPerm(p: Permission): boolean {
-    if (this.perms.can('manage', 'all')) return true;
-    const subject = this.permToSubject[p];
-    if (subject && this.perms.can('read', subject as any)) return true;
+    if (this.perms.isAdmin()) return true;
     const legacy = this.user()?.permissions;
     return legacy ? legacy[p] === true : false;
   }
@@ -464,7 +464,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
         { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
-        { label: 'Historial de arqueos', icon: 'pi pi-history', route: '/tienda/arqueos',          permission: Permission.STORE_ARQUEO_VER },
+        { label: 'Arqueos por cajera',  icon: 'pi pi-users',   route: '/tienda/arqueos',          permission: Permission.STORE_ARQUEO_VER },
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER },
         { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
       ],
@@ -587,7 +587,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
         { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        { label: 'Revisión de facturas', icon: 'pi pi-verified', route: '/compras/entradas/revision', permission: Permission.COMPRAS_ENTRADAS_VALIDAR },
+        // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
+        // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
+        // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
         { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
@@ -622,6 +624,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   /** Icono por área de Almacén (WMS.1). Vive acá y no en `almacen-tabs.ts`
    *  porque es cosa del sidebar, no de la barra de tabs. */
   private readonly almacenAreaIcons: Record<string, string> = {
+    anden: 'pi pi-truck',
     entrada: 'pi pi-inbox',
     inventario: 'pi pi-box',
     conteo: 'pi pi-qrcode',
@@ -659,6 +662,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private get almacenNavGroups(): { title: string; items: NavItem[] }[] {
     const items: NavItem[] = [];
     for (const area of ALMACEN_AREAS) {
+      // Áreas ocultas (WMS-REC.7): siguen resolviendo URLs y dando su barra de
+      // tabs por deep-link, pero no se pintan como puerta de entrada. Es el caso
+      // de `entrada`, reemplazada por el Andén.
+      if (area.hidden) continue;
       // Primera pantalla accesible → destino del item. Incluye las de foco
       // (`focusEntries`) al final: un contador con solo CONTAR no alcanza
       // ningún tab de Conteo y aterriza en Contar. Si no hay ninguna, el área

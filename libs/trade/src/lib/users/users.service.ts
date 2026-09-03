@@ -18,14 +18,27 @@ import {
   TenantContextService,
   PermissionsCacheService,
   Permission,
-  buildAbility,
+  branchKeySql,
+  branchKeyFilterSql,
 } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
   /** Se asienta en la bitácora: un uuid solo no dice quién fue. */
   username?: string;
-  rules?: unknown[];
+  /**
+   * Mapa de permisos que el guard relee del cache en cada request. Es la fuente de
+   * `getDataScope()`, que acota el padrón a own / team / all.
+   *
+   * Antes acá decía `rules?: unknown[]` (las reglas de CASL serializadas en el JWT). Cuando CASL se
+   * retiró, `getDataScope` pasó a leer `permissions` y este tipo quedó declarando un campo muerto y
+   * ocultando el que de verdad se usa. Funcionaba porque en runtime llega el `req.user` completo,
+   * pero nada impedía que un caller armara `{ sub, username }` y el alcance cayera en silencio a
+   * `own` — el mismo trago amargo que el `if (payload.rules)` de vendor/portal.
+   */
+  permissions?: Record<string, boolean> | null;
+  /** Rol del que depende el god-mode de plataforma (`isPlatformAdminRole`). */
+  role_name?: string;
 }
 
 const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
@@ -441,10 +454,7 @@ export class UsersService {
 
     // Scope enforcement: solo reports_global ve todo el padrón; team-scope ve
     // su equipo + sí mismo; own-scope solo a sí mismo.
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
     if (scope.type === 'team') {
       query.where((qb) => {
         qb.where('u.supervisor_id', requester.sub).orWhere(
@@ -500,10 +510,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
     if (scope.type === 'team') {
       const isSelf = user.id === requester.sub;
       const isDirectReport = user.parent_supervisor === requester.sub;
@@ -753,9 +760,18 @@ export class UsersService {
       })
       .where({ 'w.tenant_id': this.tenantId })
       .whereNull('w.deleted_at')
-      .whereRaw(`w.code ~ '^[0-9]{2}$'`)
-      .orderBy('w.code')
-      .select('w.code', 'w.name', 'w.zone_id', 'z.name as zone_name');
+      // `[RE.23]` La sucursal se identifica por su código de 2 dígitos, que en
+      // Morelia NO vive en `code` (`MD-30`) sino en `wincaja_source_branch`.
+      // Filtrar por `code` dejaba a Morelia fuera del alta: no había forma de
+      // asignarle esas sucursales a nadie. Ver `branchKeySql` en platform-core.
+      .whereRaw(branchKeyFilterSql('w'))
+      .orderByRaw('1')
+      .select(
+        this.knex.raw(`${branchKeySql('w')} AS code`),
+        'w.name',
+        'w.zone_id',
+        'z.name as zone_name',
+      );
   }
 
   async getDepartments() {
@@ -1125,8 +1141,9 @@ export class UsersService {
    * la queja principal — "le di el permiso y no le aparece". El front llama esto
    * al arrancar y refresca su mapa sin re-login.
    *
-   * Devuelve también `rules` de CASL: es lo que consume `PermissionsService` del
-   * front, y recalcularlo acá evita que el front tenga que saber cómo se arma.
+   * Devuelve el MAPA de permisos y nada más. Antes devolvía además `rules` de CASL para el
+   * `PermissionsService` del front; ese front ya gatea por clave exacta contra `permissions`, así
+   * que las reglas eran una segunda copia de la misma verdad (y la más pobre de las dos).
    */
   async accessFor(userId: string, roleName?: string) {
     const permisos =
@@ -1136,8 +1153,8 @@ export class UsersService {
         const detalle = await this.permissions(userId);
         return Object.fromEntries(detalle.efectivos.map((k: string) => [k, true]));
       })());
-    const ability = buildAbility(permisos, { roleName });
-    return { user_id: userId, role_name: roleName ?? null, permissions: permisos, rules: ability.rules };
+    // Ya no se devuelven reglas de CASL: el front gatea por clave exacta contra `permissions`.
+    return { user_id: userId, role_name: roleName ?? null, permissions: permisos };
   }
 
   /**
@@ -1214,8 +1231,8 @@ export class UsersService {
    *
    * Tres cosas que este método NO deja hacer, y el motivo:
    *
-   *   1. **Overrides sobre un rol de plataforma.** `buildAbility` le da
-   *      `manage:all` a superadmin/admin y el guard corta ahí. Un `allow=false`
+   *   1. **Overrides sobre un rol de plataforma.** `isPlatformAdminRole` deja pasar a
+   *      superadmin/admin antes de mirar el mapa y el guard corta ahí. Un `allow=false`
    *      quedaría guardado y no haría nada: peor que no poder, porque el admin
    *      cree que revocó. Se rechaza con el motivo.
    *   2. **Otorgar lo que quien edita no tiene.** Con `USUARIOS_GESTIONAR`

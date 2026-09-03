@@ -236,8 +236,14 @@ export interface DeadStockRow {
   warehouse_code: string;
   sku: string;
   nombre: string;
-  on_hand: number;           // 0 = descontinuado / nunca surtido en este almacén
-  unit_cost: number;
+  on_hand: number;           // unidad NATIVA del almacén. 0 = descontinuado / nunca surtido acá
+  // ADR-055 — la misma existencia en CAJAS (la unidad más grande) + el divisor y el rótulo de la
+  // unidad suelta, para que la pantalla no tenga que adivinar en qué unidad está `on_hand`.
+  on_hand_cajas: number;
+  box_factor: number;        // unidades nativas por caja (1 = el producto no viene en caja)
+  base_label: string;        // rótulo de la unidad suelta, tal como lo declara el ERP del almacén
+  unit_cost: number;         // costo de la unidad NATIVA
+  caja_cost: number;         // = unit_cost × box_factor → cuadra con on_hand_cajas
   dead_value: number;        // existencia × costo = capital inmovilizado (0 si sin stock)
   last_activity: string | null; // última venta/movimiento en el almacén; null = nunca
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
@@ -1280,7 +1286,7 @@ export interface Compras360Row { sucursal: string; folio: string; receipt_date: 
   // RE.13.4 — lente de CUMPLIMIENTO: el descuadre, quién decidió y la antigüedad. La pregunta
   // de ese lente es "¿en qué anda el proceso?", no "¿cuánto costó?".
   discrepancy_amount: number | null; decidio: string | null; dias: number }
-export interface Compras360Response { total: number; page: number; pageSize: number; /** Última corrida del importer que puebla el espejo (ISO) — frescura del dato. */ data_as_of?: string | null; /** El export cortó filas (all + total > tope). */ truncated?: boolean; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
+export interface Compras360Response { total: number; page: number; pageSize: number; /** Última corrida del importer que puebla el espejo (ISO) — frescura del dato. */ data_as_of?: string | null; /** [OBS.6.3] Veredicto sobre esa frescura (tolerancia 26 h: el importer es nocturno). Sin marca = rezago, nunca ok. */ freshness?: { data_as_of: string | null; stale: boolean; age_human: string | null; inputs: { key: string; label: string; at: string | null; age_human: string | null; stale: boolean }[] }; /** El export cortó filas (all + total > tope). */ truncated?: boolean; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
 export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }
 export interface ReceiptEvidenceDeposit { id: string; files: ReceiptEvidenceFile[]; ocr_folio: string | null; ocr_fecha: string | null; ocr_proveedor: string | null; ocr_rfc: string | null; ocr_subtotal: number | null; ocr_iva: number | null; ocr_monto: number | null; ocr_status: string | null; monto_match: boolean | null; discrepancy_kind: string | null; discrepancy_amount: number | null; status: string; comentarios: string | null; validated_by: string | null; validated_at: string | null; motivo_rechazo: string | null; created_by: string | null; created_at: string }

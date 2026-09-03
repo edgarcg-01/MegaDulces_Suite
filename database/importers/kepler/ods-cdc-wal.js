@@ -56,16 +56,48 @@ const OID_TYPE = {
 };
 const pgTypeOf = (c) => (c && c.typeName ? mapType(c.typeName) : (OID_TYPE[c && c.typeOid] || 'text'));
 
-/** publication FOR ALL TABLES + slot pgoutput (idempotente). */
+/**
+ * publication FOR ALL TABLES + slot pgoutput (idempotente) **y AUTO-CURACIÓN del slot invalidado**.
+ *
+ * OBS.2 — el bug que costó 6 días de ODS congelado: esto sólo preguntaba si el slot EXISTÍA. Un slot
+ * `lost`/`unreserved` (Postgres lo invalida al pasarse de `max_slot_wal_keep_size`) existe pero ya
+ * NO SIRVE: el WAL de ese periodo se borró y `subscribe()` truena con "can no longer access
+ * replication slot". El chequeo daba "sano" → se logueaba `slot ya existía` → `muerteTimer` salía
+ * con 1 → el supervisor reiniciaba → repetir. Del 21/08 al 02/09/2026: **~4,600 a 5,560 reinicios
+ * por rama** hasta que PM2 se rindió, y con los consumidores caídos nadie escribía `cdc_wal_XX`.
+ *
+ * El comentario original delegaba "re-crear el slot si se perdió" al supervisor, pero ningún
+ * supervisor sabe hacer eso — es conocimiento del dominio. Así que se hace acá: se dropea, se
+ * recrea, y se DECLARA el hueco para que el llamador dispare la reconciliación (el WAL perdido no
+ * vuelve; sólo un scan lo repone). `recreado: true` es esa señal.
+ */
 async function ensurePubSlot(code) {
   const c = new Client(localCfg(code));
   await c.connect();
   try {
     const hasPub = (await c.query(`SELECT 1 FROM pg_publication WHERE pubname=$1`, [PUB])).rowCount > 0;
     if (!hasPub) await c.query(`CREATE PUBLICATION ${PUB} FOR ALL TABLES`);
-    const hasSlot = (await c.query(`SELECT 1 FROM pg_replication_slots WHERE slot_name=$1`, [slotName(code)])).rowCount > 0;
-    if (!hasSlot) await c.query(`SELECT pg_create_logical_replication_slot($1,'pgoutput')`, [slotName(code)]);
-    return { hasPub, hasSlot };
+
+    const slot = (await c.query(
+      `SELECT active, active_pid, wal_status FROM pg_replication_slots WHERE slot_name=$1`,
+      [slotName(code)])).rows[0];
+
+    let recreado = false;
+    if (slot && ['lost', 'unreserved'].includes(String(slot.wal_status))) {
+      // Inservible. Sólo se puede dropear si nadie lo tiene tomado; si otro PID lo sostiene, ese
+      // proceso está por morir igual — se deja para el siguiente intento en vez de forzar.
+      if (slot.active) {
+        console.error(`[${code}] slot ${slot.wal_status.toUpperCase()} pero TOMADO por pid ${slot.active_pid} — se recrea en el próximo arranque`);
+      } else {
+        console.error(`[${code}] slot ${slot.wal_status.toUpperCase()} → dropeando y recreando (el WAL de ese periodo se perdió)`);
+        await c.query(`SELECT pg_drop_replication_slot($1)`, [slotName(code)]);
+        await c.query(`SELECT pg_create_logical_replication_slot($1,'pgoutput')`, [slotName(code)]);
+        recreado = true;
+      }
+    } else if (!slot) {
+      await c.query(`SELECT pg_create_logical_replication_slot($1,'pgoutput')`, [slotName(code)]);
+    }
+    return { hasPub, hasSlot: !!slot, recreado };
   } finally { await c.end(); }
 }
 async function dropSlot(code) {
@@ -93,8 +125,18 @@ function shipMetaOf(log) {
 }
 
 async function run(code) {
+  // OBS.2 — hueco de WAL declarado por la auto-curación del slot. Se declara ACÁ (antes de
+  // ensurePubSlot, que es quien lo setea) y no junto al resto del estado del stream.
+  let huecoDeclarado = null;
   const before = await ensurePubSlot(code);
-  console.log(`[${code}] pub ${before.hasPub ? 'ya existía' : 'CREADA'} · slot ${before.hasSlot ? 'ya existía' : 'CREADO'}`);
+  console.log(`[${code}] pub ${before.hasPub ? 'ya existía' : 'CREADA'} · slot ${
+    before.recreado ? 'RECREADO (había hueco de WAL)' : before.hasSlot ? 'ya existía' : 'CREADO'}`);
+  // Recrear el slot deja un HUECO: el WAL de la ventana muerta ya no existe y el CDC no puede
+  // reponerlo — sólo el scan (replicate-ods-live / reconcile-ods-window) sabe hacerlo. Se DECLARA en
+  // el latido en vez de arrancar en silencio como si nada hubiera pasado: un carril que reanuda
+  // limpio después de un hueco es indistinguible de uno que nunca lo tuvo, y eso es justo lo que
+  // dejó pasar 2-7% de las filas diarias con los 7 latidos en verde.
+  if (before.recreado) huecoDeclarado = `slot recreado — falta backfill por scan de la ventana perdida`;
 
   const service = new LogicalReplicationService(localCfg(code), { acknowledge: { auto: false, timeoutSeconds: 10 } });
   const plugin = new PgoutputPlugin({ protoVersion: 2, publicationNames: [PUB] });
@@ -194,9 +236,15 @@ async function run(code) {
         note = `lag ${mb.toFixed(1)}MB · ↑U${stats.shipU} ↑D${stats.shipD} · slot ${r.active ? 'activo' : 'INACTIVO'}`
           + ` · wal ${r.wal_status}` + (muerta ? ` · SUSCRIPCIÓN CAÍDA: ${String(muerta).slice(0, 60)}` : '');
         if (perdido) {
-          // El WAL de ese periodo ya no existe: reiniciar NO alcanza. Se dice qué hacer.
-          note = `slot ${r.wal_status.toUpperCase()} — requiere: ods-cdc-wal.js --drop-slot --branch=${code}`
-            + ` + reinicio + backfill (replicate-ods-live.js --branch=${code} --apply). ${note}`;
+          // OBS.2 — el slot se recrea SOLO en el próximo arranque (ensurePubSlot). Antes esta nota
+          // le pedía a un humano correr tres comandos, y nadie los corrió en 12 días.
+          note = `slot ${r.wal_status.toUpperCase()} — se recrea solo al reiniciar; el backfill de la`
+            + ` ventana perdida lo hace el scan (cdc_reconcile / replicate-ods-live). ${note}`;
+          status = 'error';
+        } else if (huecoDeclarado) {
+          // Entregar desde ahora NO repone lo que se perdió: mientras el hueco esté declarado, este
+          // carril no puede reportarse sano por más que el stream fluya.
+          note = `HUECO: ${huecoDeclarado}. ${note}`;
           status = 'error';
         } else if (!r.active || muerta || mb > WARN_LAG_MB) {
           status = 'error';
@@ -223,14 +271,26 @@ async function run(code) {
     // canales mudos a la vez. Medido 2026-08-31: sólo 1 de 4 slots activo; 01/05/06 con 2.1 GB de
     // WAL retenido cada una y la 04 ya en `lost` (hueco de 3 días, backfill manual).
     //
-    // No se reintenta acá a propósito: reconectar bien (backoff, re-crear slot si se perdió,
-    // re-suscribir el plugin) es justo lo que el supervisor ya sabe hacer. Salir con código ≠ 0 es
-    // la señal que PM2 entiende.
+    // Salir con código ≠ 0 sigue siendo la señal correcta para el supervisor, pero OBS.2 corrige el
+    // supuesto de este comentario: se creía que "re-crear el slot si se perdió" lo haría el
+    // supervisor. Ningún supervisor sabe eso — es conocimiento del dominio. Ahora lo hace
+    // `ensurePubSlot` en el próximo arranque, así que el reinicio SÍ arregla algo.
+    //
+    // Y se AMORTIGUA la salida: sin esto el ciclo salir→reiniciar→morir tarda ~10 s y produjo entre
+    // 4,591 y 5,564 reinicios por rama (21/08 → 02/09/2026), quemando CPU, ensuciando el tablero con
+    // rojos permanentes y llevando la box al 90% de RAM. El sleep es del PROCESO, no del supervisor,
+    // así que funciona igual bajo PM2 o Docker.
+    const SALIDA_MIN_MS = Math.max(0, Number(process.env.ODS_CDC_EXIT_DELAY_MS) || 30000);
+    const arranque = Date.now();
     const muerteTimer = setInterval(() => {
       if (!muerta) return;
       clearInterval(timer); clearInterval(hbTimer); clearInterval(muerteTimer);
-      console.error(`[${code}] SUSCRIPCIÓN CAÍDA: ${muerta} — saliendo para que el supervisor reinicie`);
-      service.stop().catch(() => {}).then(() => process.exit(1));
+      // Si murió apenas arrancó, es un fallo persistente (slot inservible, red caída, key rotada):
+      // se espera antes de ceder el turno para que el reinicio no sea un bucle apretado.
+      const vivio = Date.now() - arranque;
+      const espera = vivio < SALIDA_MIN_MS ? SALIDA_MIN_MS - vivio : 0;
+      console.error(`[${code}] SUSCRIPCIÓN CAÍDA: ${muerta} — saliendo${espera ? ` en ${Math.round(espera / 1000)}s (anti-bucle)` : ''} para que el supervisor reinicie`);
+      service.stop().catch(() => {}).then(() => setTimeout(() => process.exit(1), espera));
     }, Math.min(FLUSH_MS, 5000));
     console.log(`[${code}] --watch: streaming (flush ${FLUSH_MS}ms · heartbeat ${HEARTBEAT_MS}ms). Ctrl-C para parar.`);
     return; // corre indefinido

@@ -339,7 +339,7 @@ export class ComprasEntradasGemelasComponent {
 
   readonly rows = computed(() => this.report()?.rows ?? []);
   readonly canDecide = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   /**
    * Los tres KPIs, en el orden en que importan: cuántas esperan a una persona, **cuánto dinero

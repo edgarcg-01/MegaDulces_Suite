@@ -712,6 +712,21 @@ export class VendorService {
     );
   }
 
+  /**
+   * Fuentes de existencia del vendedor: su sucursal de surtido + su camioneta
+   * (para el toggle "ver sucursal / ver camioneta"). `camioneta` es null si no
+   * tiene camión asignado.
+   */
+  myStockSources(): Observable<{
+    sucursal: { id: string; code: string; name: string } | null;
+    camioneta: { id: string; code: string; name: string } | null;
+  }> {
+    return this.http.get<{
+      sucursal: { id: string; code: string; name: string } | null;
+      camioneta: { id: string; code: string; name: string } | null;
+    }>(`${this.base}/vendor-routes/my-stock-sources`);
+  }
+
   // ─── Cierre de ruta: 3 tickets (venta/carga/combustible) ───
 
   /** Sube la foto → OCR (Claude) → campos parseados SIN guardar (preview). */

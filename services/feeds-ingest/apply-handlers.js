@@ -260,7 +260,12 @@ async function copyIntoTemp(client, tempName, cols, rows, perInsert) {
       const ph = cols.map((c) => { params.push(r[c] === undefined ? null : r[c]); return `$${params.length}`; });
       return `(${ph.join(',')})`;
     });
-    await client.query(`INSERT INTO ${tempName} (${cols.join(',')}) VALUES ${tuples.join(',')}`, params);
+    // Identificadores CITADOS: la staging se crea con comillas (preserva el case del origen) y sin
+    // citar acá, Postgres bajaba el nombre a minúsculas → `column "almacen" of relation "stg_raw"
+    // does not exist` con las tablas CamelCase de Wincaja (WR.8.0). Para los demás handlers, que
+    // pasan snake_case en minúsculas, citar no cambia nada.
+    const colList = cols.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',');
+    await client.query(`INSERT INTO ${tempName} (${colList}) VALUES ${tuples.join(',')}`, params);
   }
 }
 
@@ -401,19 +406,26 @@ async function applyErpPurchaseDocs(client, tenantId, rows) {
 }
 
 /**
- * feed 'raw-upsert' — CDC genérico Kepler → kepler_ods.<tabla> (SYNC.2).
+ * feed 'raw-upsert' — CDC genérico Access/Kepler → <schema>.<tabla> (SYNC.2 · WR.8).
  *
- * TABLA-AGNÓSTICO: replica cualquier tabla `md.*` de Kepler sin código por tabla. El replicador
- * (replicate-ods.js) descubre columnas + PK del origen y los manda en `meta`; este handler:
- *   1) auto-crea/auto-altera kepler_ods.<tabla> (DDL confinado a ese schema),
+ * TABLA-AGNÓSTICO: replica cualquier tabla de origen sin código por tabla. El replicador
+ * descubre columnas + PK del origen y los manda en `meta`; este handler:
+ *   1) auto-crea/auto-altera <schema>.<tabla> (DDL confinado a un schema de la whitelist),
  *   2) UPSERT SIN CHURN: ON CONFLICT (sucursal, PK…) DO UPDATE … WHERE IS DISTINCT FROM
  *      → una fila que no cambió NO se reescribe (cero I/O, cero bloat).
  *
- * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal') }.
+ * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal'),
+ *         schema?: 'kepler_ods' (default) | 'wincaja_ods' }.
  * rows: objetos { sucursal, <col>:val, … }. Los identificadores vienen por HTTP → se validan
- *   contra whitelist estricta (solo tablas/columnas estilo Kepler). kepler_ods es single-tenant
- *   (sin tenant_id/RLS); assertTenant solo protege el endpoint.
+ *   contra whitelist estricta. Los ODS son single-tenant (sin tenant_id/RLS); assertTenant solo
+ *   protege el endpoint.
+ *
+ * `meta.schema` (WR.8.0) permite reusar este mismo handler para el agente-POS de Wincaja, que
+ * empuja desde el `.mdb` VIVO de la caja. El UPSERT sin churn de acá es justamente lo que le
+ * permite al agente mandar SNAPSHOTS COMPLETOS de catálogos sin hashear en PowerShell: el delta
+ * lo calcula Postgres. Default sin cambios → el carril Kepler no se entera.
  */
+const ODS_SCHEMAS = new Set(['kepler_ods', 'wincaja_ods']);
 const ODS_IDENT_RE = /^[a-z_][a-z0-9_]*$/i;
 const ODS_TYPES = new Set(['text', 'numeric', 'double precision', 'real', 'integer', 'bigint', 'smallint', 'boolean', 'date', 'timestamp', 'timestamptz']);
 const odsQid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
@@ -423,6 +435,11 @@ function odsIdent(x) {
   return s;
 }
 function odsType(t) { return ODS_TYPES.has(String(t)) ? String(t) : 'text'; }
+function odsSchema(s) {
+  const v = String(s == null || s === '' ? 'kepler_ods' : s);
+  if (!ODS_SCHEMAS.has(v)) throw new Error(`raw-upsert: schema no permitido '${v}'`);
+  return v;
+}
 
 async function applyRawUpsert(client, tenantId, rows, meta) {
   assertTenant(tenantId);
@@ -437,24 +454,30 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
   for (const k of pk) if (!colSet.has(k)) throw new Error(`raw-upsert: PK '${k}' no está en columns`);
 
   // Destino: PK compuesta (sucursal, PK-origen). No-clave = todo lo demás.
+  const schema = odsSchema(meta.schema);
   const conflict = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
   const conflictSet = new Set(conflict);
   const nonKey = cols.map((c) => c.name).filter((n) => !conflictSet.has(n));
-  const rel = `kepler_ods.${odsQid(table)}`;
+  const rel = `${odsQid(schema)}.${odsQid(table)}`;
 
   await client.query('BEGIN');
   try {
-    await client.query(`CREATE SCHEMA IF NOT EXISTS kepler_ods`);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${odsQid(schema)}`);
 
     // Auto-create / auto-alter.
-    const exists = (await client.query(`SELECT to_regclass('kepler_ods.${table.replace(/'/g, "''")}') t`)).rows[0].t;
+    // OJO: `to_regclass` sobre un literal SIN comillas baja el identificador a minúsculas → con
+    // nombres CamelCase (las tablas de Wincaja: `MaestroMovAlmacen`) daba null aunque la tabla
+    // existiera, y el handler intentaba CREATE de nuevo. `quote_ident` lo resuelve para los dos
+    // carriles (Kepler ya venía en minúsculas, así que no cambia nada allá).
+    const exists = (await client.query(
+      `SELECT to_regclass(quote_ident($1) || '.' || quote_ident($2)) t`, [schema, table])).rows[0].t;
     if (!exists) {
       const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
       await client.query(`CREATE TABLE ${rel} (${defs}, PRIMARY KEY (${conflict.map(odsQid).join(', ')}))`);
       try { await client.query(`GRANT SELECT ON ${rel} TO app_runtime`); } catch { /* rol ausente en dev */ }
     } else {
       const have = new Set((await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema='kepler_ods' AND table_name=$1`, [table]
+        `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2`, [schema, table]
       )).rows.map((r) => r.column_name));
       for (const c of cols) {
         if (!have.has(c.name)) await client.query(`ALTER TABLE ${rel} ADD COLUMN ${odsQid(c.name)} ${c.type}`);
@@ -485,23 +508,41 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
       changed = (await client.query(sql)).rowCount;
     }
 
-    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió).
+    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió). Por schema:
+    // el carril Wincaja tiene su propio `_sync_status` y no se mezcla con el de Kepler.
+    // La sucursal va en la llave porque el agente-POS empuja por caja: un `MaestroMovAlmacen`
+    // fresco en la 30 no dice nada de la 32, y una sola fila por tabla lo taparía.
     await client.query(`
-      CREATE TABLE IF NOT EXISTS kepler_ods._sync_status (
+      CREATE TABLE IF NOT EXISTS ${odsQid(schema)}._sync_status (
         table_name text PRIMARY KEY, last_push_at timestamptz NOT NULL DEFAULT now(),
         rows_last integer DEFAULT 0, rows_seen integer DEFAULT 0)`);
+    // Sólo el carril nuevo lleva sucursal en la llave. En `kepler_ods` la llave sigue siendo la
+    // tabla a secas: `db-health` ya lee esas llaves y cambiarlas le rompería el sensor de frescura.
+    //
+    // [OBS.3.2] Se evaluó sumar acá una llave `tabla@sucursal` para vigilar el catálogo por rama y
+    // se DESCARTÓ: esta marca sólo se escribe cuando llega un lote, y el carril hash **no empuja
+    // nada cuando no hay cambios** (`replicate-ods-live.js:382` corta antes del POST). O sea la
+    // llave por rama heredaría la misma ambigüedad que ya documenta `analytics.v_feed_freshness`
+    // para las tablas del ODS — vieja puede ser "el carril murió" o "esa rama no cambió de precio
+    // en tres días" — y alarmaría sobre ramas tranquilas. La marca de que una rama se **REVISÓ**
+    // (distinta de que se le **EMPUJÓ** algo) la escribe el shipper en `analytics.ods_branch_checks`.
+    const branches = schema === 'kepler_ods' ? [] : (Array.isArray(rows)
+      ? Array.from(new Set(rows.map((r) => (r && r.sucursal != null ? String(r.sucursal).trim() : '')).filter(Boolean)))
+      : []);
+    const stKey = branches.length === 1 ? `${table}@${branches[0]}` : table;
     await client.query(
-      `INSERT INTO kepler_ods._sync_status (table_name, last_push_at, rows_last, rows_seen)
+      `INSERT INTO ${odsQid(schema)}._sync_status (table_name, last_push_at, rows_last, rows_seen)
        VALUES ($1, now(), $2, $3)
        ON CONFLICT (table_name) DO UPDATE SET last_push_at=now(), rows_last=EXCLUDED.rows_last, rows_seen=EXCLUDED.rows_seen`,
-      [table, changed, Array.isArray(rows) ? rows.length : 0]);
+      [stKey, changed, Array.isArray(rows) ? rows.length : 0]);
 
     await client.query('COMMIT');
 
     // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
-    const cfg = ODS_NORMALIZERS[table];
+    // Los normalizadores son de Kepler (kdii…); wincaja_ods no matchea ninguno y no corre nada.
+    const cfg = schema === 'kepler_ods' ? ODS_NORMALIZERS[table] : null;
     if (cfg && Array.isArray(rows) && rows.length) {
       const skuCol = cfg.skuCol || pk[0];
       const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));

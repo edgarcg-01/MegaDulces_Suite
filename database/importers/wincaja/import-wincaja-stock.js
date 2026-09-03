@@ -2,8 +2,20 @@
  * W.5 (gold) - Feed: existencia de las sucursales CIEGAS (30/32/50) ->
  * `commercial.stock`, la tabla operativa que consumen RA/inventario/reorder.
  *
- * Mismo patron que import-kepler-stock: snapshot absoluto, ON CONFLICT DO UPDATE
- * quantity (preserva reserved_quantity), SET LOCAL app.tenant_id (RLS forzada).
+ * Snapshot absoluto, ON CONFLICT DO UPDATE quantity, SET LOCAL app.tenant_id (RLS forzada).
+ * (El patrón venía de `import-kepler-stock`, retirado en ADR-055.)
+ *
+ * ⚠️ ADR-055 — ESTE IMPORTER TIENE FECHA DE CADUCIDAD. La existencia ya se DERIVA del ODS y de
+ * Wincaja en `analytics.v_erp_stock_on_hand`, que además NORMALIZA la unidad (acá la existencia
+ * se copia CRUDA, en unidad de venta: el PAQUETE en multipack). Sigue vivo sólo porque
+ * `commercial.stock` todavía tiene lectores sin migrar (criticalStock/summary/worklist +
+ * inventario). Se retira en el paso 4/5. No construir nada nuevo encima.
+ *
+ * ⚠️ Y hoy PISA/ES PISADO: `wincaja-stock-extract.js` escribe los MISMOS almacenes (MD-30/MD-32)
+ * por el feed live desde el .mdb. Ambos hacen ON CONFLICT DO UPDATE SET quantity => gana el
+ * último que corre. Además este hace `SET quantity = EXCLUDED.quantity` SIN el
+ * `GREATEST(..., reserved_quantity)` que sí aplica `apply-handlers.js`, así que puede dejar
+ * `quantity < reserved_quantity` y violar el CHECK.
  * Solo wincaja_only (30/32/50) -> warehouses que Kepler no alimenta -> aditivo,
  * cero conflicto. Solo SKUs con product_id.
  *

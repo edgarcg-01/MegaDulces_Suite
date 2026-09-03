@@ -216,9 +216,112 @@ le entrega al cliente** — y `analytics.v_sales_demand_truth`) heredan la corre
 
 ---
 
+## 8bis. El rótulo esconde la mezcla *dentro de sí mismo* (RR-PROMO.1, 2026-09-02)
+
+Medido sobre la venta de ruta (ago-2026) al normalizar el incentivo de `/comercial/ventas-por-ruta`.
+Agrupar por rótulo **subestima** el problema: de los 709 SKUs que aparecen con más de una
+etiqueta, 688 ($2.96M, 94.9%) tienen el mismo precio unitario entre etiquetas — o sea la
+cantidad ya era homogénea y sólo el rótulo mentía. Parecía un problema chico.
+
+No lo es, porque **un mismo rótulo trae los dos peldaños**:
+
+| SKU | rótulo | líneas | precio | qué es |
+|---|---|---|---|---|
+| 70031 | `PZA` | 361 | $6.12 | pieza |
+| 70031 | `PZA` | **45** | **$90.96** | **paquete de 16** |
+| 70031 | `PAQ` | 4 | $101.11 | paquete de 16 |
+
+Efecto real sobre la cantidad, con el peldaño resuelto por precio:
+
+| | |
+|---|---|
+| Suma cruda de `qty` | 223,394 |
+| Cantidad real (peldaño resuelto) | **243,626** |
+| Subconteo | **9.1%** |
+| SKUs con error > 5% | **140 · $1,110,809 · 19.0% de la venta de ruta** |
+| Peores | `97245` 42% · `97244` 43% · `88045` **84%** |
+
+**El resolvedor: `analytics.v_product_unit_ladder`** (mig `20260902180000`) — vista
+`derive-no-copy` **sólo sobre `kepler_ods.kdii`**, una fila por SKU con los rótulos
+(`c11`/`c80`/`c83`), los factores en unidades **base** (`c81`/`c84`) y los precios de cada
+peldaño (`c90`/`c91`/`c92`), más `unit_base` (basura anulada), `unit_base_raw` e `is_weight`.
+
+**Cómo se usa:** el peldaño de una línea se identifica por su **precio realmente cobrado**,
+eligiendo el más cercano en log-espacio y **sólo dentro de la banda 0.5×–2×** (la misma de §6).
+Funciona porque los peldaños distan ≥ el factor (≥2×), mucho más que cualquier descuento.
+Fuera de banda **no se adivina**: la línea se declara sin resolver y no se suma (medido:
+0.17% de las líneas / 0.11% del importe). Cobertura de la escalera de precio: **100.0%** de la
+venta de ruta.
+
+⚠️ **`c84` cuenta unidades BASE, no piezas.** Para `97192` la base es `PAQ`, así que `c84 = 24`
+son *paquetes* por caja (idéntico en las 7 sucursales). Cualquier cifra normalizada tiene que
+viajar con su rótulo; llamarle "piezas" es el error que esta vista existe para evitar.
+
+**Por qué NO se reusó `v_product_box_factor` acá:** resuelve el factor de **caja**, no el
+peldaño de una línea de venta, y de sus cuatro fuentes de precedencia sólo `c84` sale del ODS
+— `analytics.product_box_factor` es tabla (`relkind='r'`) alimentada por `import-box-factor.js`,
+más `catalog.products.factor_sale` y la etiquetera. Incumple la regla principal del proyecto
+(cero importers · del ODS · una tabla principal · documentada y verificada). Los dos conviven
+por ahora; unificarlos es trabajo aparte y arrastra dos vistas dependientes.
+
+Candados: `database/tests/test-newdb-route-promo-units.js` (en la regresión).
+
+---
+
+## 8ter. Wincaja contra Kepler: la unidad no se hereda entre capas (ADR-055, 2026-09-03)
+
+Los dos ERPs guardan la existencia en unidades distintas — Kepler en su unidad **base**, Wincaja
+en su **unidad de venta**, que en multipack es el **paquete**. La capa cruda es auto-consistente
+(existencia y venta de Wincaja vienen las dos en paquetes), **pero la derivada no**:
+
+| columna | unidad en MD-30 / MD-32 / 00 |
+|---|---|
+| `wincaja.v_sales_daily.qty` · `analytics.sales_daily.units` | paquetes |
+| `analytics.inventory_health` · `commercial.reorder_policy` | paquetes |
+| `analytics.v_erp_stock_on_hand.qty_stock_units` | paquetes (crudo, a propósito) |
+| **`analytics.product_demand.daily_pieces`** | ⚠️ **unidad BASE** — normaliza |
+| **`analytics.replenishment_plan.stock_pz`** | paquetes (**el nombre miente**) |
+
+`replenishment_plan` restaba demanda-en-base menos existencia-en-paquetes. Medido: **159 de 166**
+multipack de MD-30 con venta traen la demanda convertida (razón ≈ `f2`, $1.79M de venta 30 d).
+Efecto en `/compras/pedido`: **$866,805 de sobre-pedido** y **$2.68M de inventario que la pantalla
+no mostraba**. Sólo **355 SKUs** (sucursal 30) son multipack de verdad — no es el catálogo entero.
+
+**El resolvedor: `analytics.v_warehouse_box_factor`** (mig `20260902220000`) — vista con una fila por
+(tenant, almacén, producto) cuyo `box_factor` son las **unidades nativas de ESE almacén por caja**.
+Kepler resuelve por `v_product_box_factor`; Wincaja por `wincaja.articulos.factor_venta`, que está
+definido como *"cuántas de MIS unidades de venta hacen una caja"* — sirve venda piezas o paquetes,
+sin clasificar el SKU. ⚠️ `source_dataset='actual'` es obligatorio (la tabla guarda también
+`'concentrada'`; sin el filtro el `SUM` duplica).
+
+**Por qué se le puede creer a `factor_venta`** — tres testigos, y el tercero es el que decide:
+1. **Dinero crudo:** precio realmente cobrado (`wincaja.v_sales_daily`) × `factor_venta` cae a ±11%
+   del precio de caja del ODS (`p3`). `42029` $115.54×14=$1,617 vs $1,701.
+2. **La escalera del ODS:** `fv = f3/f2` en 355 SKUs (venden paquete) y `fv = f3` en 1,818 (venden
+   la base). Las dos formas son coherentes con la definición.
+3. **Concordancia donde NO debe haber diferencia:** en las 5,475 filas de los casos "sin escalera" y
+   "misma unidad", `factor_venta` y `box_factor` dan el mismo valuado con Δ < 0.1% ($9,573 y −$140).
+   Divergen sólo en los 348 multipack (+$2.63M). *Dos fuentes independientes que coinciden donde
+   deben y difieren donde debe: eso es lo que autoriza a usar una.*
+
+⛔ **Es un divisor de PRESENTACIÓN; el dato base no se convierte.** Se intentó (mig
+`20260902200000`, revertida el mismo día): `inventory_health`/`reorder_policy` salen de
+`sales_daily`, que está en la unidad nativa, así que convertir sólo la existencia la dejó `f2` veces
+más grande que sus propios umbrales → cobertura de 534–900 días y el motor dejó de pedir.
+
+**Regla nueva (§7.8):** la unidad de una columna **no se hereda de su fuente**. Cada tabla derivada
+puede normalizar una columna y no la otra, y el nombre no avisa. Probar la unidad **en la tabla que
+el consumidor lee**, con el precio realizado contra `v_product_unit_ladder.p1/p2/p3`. Y cuando dos
+fuentes disputan la unidad, llevar **el cálculo** al peldaño más grande (la caja) es más seguro que
+convertir un lado: es la única unidad que los dos ERPs declaran.
+
+Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión).
+
+---
+
 ## 9. Lo que NO se investigó
 
-- **Wincaja contra Kepler**: la existencia se guarda en unidades distintas (Kepler piezas, Wincaja unidad de venta). Hay 185 SKUs en `wincaja_product_box_factor`; el efecto sobre el inventario valuado está estimado en $16.3M (28%) pero no verificado SKU por SKU.
+- **Unidad de los SKUs sólo-Wincaja**: 4,925 artículos de la sucursal 30 no existen en la escalera del ODS, así que su `factor_venta` no tiene contra qué contrastarse (mismo problema del §5: factor sin ancla).
 - **Unidades de compra** (`unit_purchase` / `factor_purchase` / `erp_purchase_doc_lines.unidades_por_caja`): la línea de OC tiene su propia regla ([[reference_kepler_oc_line_units]]) y no entró en esta pasada.
 - **`catalog.product_barcodes.factor`**: un SKU tiene N códigos de barras, uno por unidad. No se contrastó contra la escalera.
 

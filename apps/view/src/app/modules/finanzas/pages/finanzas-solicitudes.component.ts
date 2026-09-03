@@ -785,7 +785,7 @@ export class FinanzasSolicitudesComponent {
 
   /** Validar y rechazar exigen el mismo permiso que el backend pide para esas rutas:
    *  FINANCE_EXPENSES_COMPROBAR, que hoy tiene una sola persona (Tesorería). */
-  readonly puedeResolver = computed(() => this.perms.can('manage', 'all')
+  readonly puedeResolver = computed(() => this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true);
 
   // ── Expediente y captura, en la misma pantalla ───────────────────────────

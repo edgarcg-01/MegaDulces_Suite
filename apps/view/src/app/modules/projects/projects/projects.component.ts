@@ -99,6 +99,19 @@ export class ProjectsComponent implements OnInit {
         // Prevención/auditoría (Cuadre + Movimientos) vive en Almacén: un rol
         // acotado a reconciliation (encargada_prevencion) debe poder entrar.
         Permission.RECONCILIATION_VER,
+        // `[AUTHZ.6]` Los permisos OPERATIVOS del piso también abren el proyecto. Faltaban, y el
+        // efecto medido en prod fue que los **3 `almacenista`** —cuyo rol da exactamente
+        // `_RECIBIR` + `_SUPERVISOR`— no veían NINGUNA tarjeta y `/projects` los mandaba a
+        // `/dashboard/captures` (la captura de trade, que no es su trabajo). Sus pantallas existían
+        // y estaban bien gateadas: lo único roto era la puerta de entrada.
+        Permission.COMMERCIAL_INVENTORY_RECIBIR,
+        Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+        Permission.COMMERCIAL_INVENTORY_CONTAR,
+        Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+        Permission.COMMERCIAL_EXPIRY_VER,
+        Permission.COMMERCIAL_EXPIRY_CAPTURAR,
+        Permission.COMMERCIAL_MOVEMENTS_VER,
+        Permission.COMMERCIAL_PREVENTION_VER,
       ],
     },
     {
@@ -208,7 +221,7 @@ export class ProjectsComponent implements OnInit {
     // Admin/superadmin (manage:all) ven TODOS los proyectos. Sin esto, cada
     // proyecto/permiso nuevo quedaba oculto hasta backfillear su clave en el JSONB
     // del rol + re-login (trap recurrente); god-mode debe ver todo directo.
-    const isPlatformAdmin = this.perms.can('manage', 'all');
+    const isPlatformAdmin = this.perms.isAdmin();
     return this.allProjects.filter((p) => {
       if (p.roleOnly && (!role || !p.roleOnly.includes(role))) return false;
       if (p.hideForRoles && role && p.hideForRoles.includes(role)) return false;

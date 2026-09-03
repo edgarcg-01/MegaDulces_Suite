@@ -102,6 +102,14 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
           <span class="rp-src">
             venta y costo: <code>sales_daily</code> (lo que cobró el PdV)
             @if (o.data_as_of) { · datos al {{ o.data_as_of }} }
+            <!--
+              [OBS.6.3] La fecha sola no dice si alcanza. "datos al 26-ago" se lee igual de bien
+              un 27 que un 2 de septiembre, y en el segundo caso a la cascada le faltan seis días
+              de venta y el margen sale sesgado. Se nombra el rezago.
+            -->
+            @if (o.freshness?.stale) {
+              · <strong class="rp-stale">le faltan días de venta ({{ o.freshness?.age_human || 'sin fact' }})</strong>
+            }
             @if (channels(); as ch) { · {{ ch }} }
           </span>
         </p>
@@ -691,6 +699,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     .rp-coverage i { color: var(--c-text-3); }
     .rp-coverage b { color: var(--c-text-1); }
     .rp-src { color: var(--c-text-3); font-size: var(--fs-micro); }
+    /* OBS.6.3 — el rezago del fact. Hereda el tamaño micro de la linea de procedencia pero sube
+       el color: es una advertencia sobre el numero de arriba, no una nota al pie mas. */
+    .rp-stale { color: var(--warn-soft-fg); font-weight: 600; }
     .rp-src code { font-family: var(--font-mono); font-size: var(--fs-nano); }
 
     /* Calidad del dato: se declara arriba, no se esconde en un tooltip. */

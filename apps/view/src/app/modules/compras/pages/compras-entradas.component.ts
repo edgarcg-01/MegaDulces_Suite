@@ -13,6 +13,10 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+// `[RE.24]` Entró con el motivo tipificado de rechazo, que se portó desde la cabina de revisión
+// al retirarla. `p-radiobutton` y no un radio crudo: en tema oscuro el del sistema operativo se
+// ve fuera del diseño (ya corregido una vez en la cabina).
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -25,7 +29,7 @@ import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, ty
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
-import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel } from '../receipt-verdict';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
@@ -33,7 +37,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
@@ -67,7 +71,7 @@ interface AttachFile {
   selector: 'app-compras-entradas',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, SegmentedComponent, MetricStripComponent,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -117,6 +121,15 @@ interface AttachFile {
           <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        <!--
+          RE.25 — Cuadre. Eje SEPARADO del Estado a propósito: "Validado" dice que alguien
+          decidió, "Cuadra" dice que los números concuerdan. Una entrada puede estar validada a
+          mano y no cuadrar, y ése es justo el caso que hay que poder pedir.
+        -->
+        <div class="cb-field"><label>Cuadre</label>
+          <p-select [options]="cuadreOpts" [ngModel]="cuadreSel()" (onChange)="setCuadre($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
+                    appendTo="body" ariaLabel="Filtrar por cuadre del documento" /></div>
         @if (dinero()) {
           <div class="cb-field"><label>Ajuste</label>
             <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
@@ -241,6 +254,21 @@ interface AttachFile {
                           [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
                     <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
                   </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
+                <!--
+                  RE.26.1 — los DOS folios: arriba el de la entrada en Kepler, abajo el que trae
+                  impreso nuestra hoja dentro del paquete. Se muestran siempre que se haya leído,
+                  coincidan o no: quien audita necesita ver contra qué se comparó, no sólo el
+                  veredicto. Cuando difieren es evidencia pegada a otra entrada — medido, pasa.
+                -->
+                @if (c.folio_interno) {
+                  <em class="cb-folint" [attr.data-ok]="c.folio_interno_ok"
+                      [title]="c.folio_interno_ok === false
+                        ? 'La hoja interna del paquete dice ' + c.folio_interno + ', no ' + c.folio + ' — puede ser evidencia de otra orden'
+                        : 'La hoja interna del paquete trae el mismo folio que la entrada'">
+                    <i class="pi" [ngClass]="c.folio_interno_ok === false ? 'pi-exclamation-triangle' : 'pi-check'" aria-hidden="true"></i>
+                    hoja: {{ c.folio_interno }}
+                  </em>
+                }
                 <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
                      porque esta pantalla es donde alguien llega con "tengo este número": el par
                      tiene que ser visible sin abrir el detalle. -->
@@ -280,8 +308,16 @@ interface AttachFile {
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
                     <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
-                    <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El total de la remisión cuadra con la entrada' : 'El total de la remisión NO cuadra'">
-                      <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                    <!--
+                      RE.25 — el cuadre del DOCUMENTO. Reemplaza al ícono anterior, que miraba
+                      SÓLO el importe y por eso ponía la palomita en facturas del proveedor
+                      equivocado con el monto correcto — que es justo donde se paga de más.
+                      El motivo va en el tooltip: el chip dice qué, el texto dice por qué.
+                    -->
+                    <span class="cb-cuadre" [attr.data-cuadre]="c.cuadre"
+                          [pTooltip]="c.cuadre_motivo || ''" tooltipPosition="left">
+                      <i class="pi" [ngClass]="cuadreIcon(c.cuadre)" aria-hidden="true"></i>
+                      <span class="cb-cuadre-txt">{{ cuadreLabel(c.cuadre) }}</span>
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -305,9 +341,39 @@ interface AttachFile {
                   }
                 } @else {
                   <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
+                  <!--
+                    RE.26 — el apartado de VALIDACIÓN. Antes eran dos íconos sueltos entre los
+                    demás botones y la palomita ejecutaba SIN preguntar (sólo el rechazo abría
+                    diálogo), aunque las dos decisiones pesan lo mismo: una da por bueno un
+                    documento de dinero. Ahora van juntas, separadas del resto, y las dos
+                    confirman.
+
+                    Y el estado se DICE, no se deduce de qué botón falta: "Validada" / "Devuelta"
+                    con su ícono. Antes, que la palomita no estuviera era la única señal de que
+                    ya estaba validada — una ausencia no es un mensaje.
+                  -->
                   @if (c.deposit_id && canValidate()) {
-                    @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
-                    @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                    <span class="cb-valida" [attr.data-estado]="c.deposit_status">
+                      @if (c.deposit_status === 'validado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-check-circle" aria-hidden="true"></i> Validada</span>
+                      } @else if (c.deposit_status === 'rechazado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-times-circle" aria-hidden="true"></i> Devuelta</span>
+                      }
+                      @if (c.deposit_status !== 'validado') {
+                        <button pButton type="button" size="small" text severity="success"
+                                [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()"
+                                (click)="confirmarValidar(c)"
+                                [attr.aria-label]="'Dar por buena la remisión de la entrada ' + c.folio" title="Dar por buena">
+                          <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
+                        </button>
+                      }
+                      @if (c.deposit_status !== 'rechazado') {
+                        <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)"
+                                [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio" title="Devolver">
+                          <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
+                        </button>
+                      }
+                    </span>
                   }
                   <!-- RE.20.3 — sólo sin evidencia: si la factura ya está subida la respuesta es
                        validarla o devolverla. El server lo vuelve a comprobar. -->
@@ -636,16 +702,34 @@ interface AttachFile {
       </ng-template>
     </p-dialog>
 
-    <!-- Diálogo: rechazo -->
-    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar remisión">
+    <!--
+      Diálogo: rechazo.
+
+      RE.24 — el motivo pasó de TEXTO LIBRE a tipificado, portado de la cabina de revisión al
+      retirarla. El catálogo existe para poder medir: su propio docstring dice "sin esto el
+      motivo es texto libre y no se puede medir", y esta pantalla era la que lo mandaba suelto
+      — o sea que retirar la cabina sin traerlo dejaba motivo_codigo en NULL para siempre.
+      El detalle sigue siendo libre, y obligatorio sólo en "Otro".
+    -->
+    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '28rem' }" [draggable]="false" header="Rechazar remisión">
       <div class="cb-form">
         <p class="muted">Entrada <strong>{{ rejectTarget()?.folio }}</strong> · {{ rejectTarget()?.proveedor_nombre }}</p>
-        <label class="cb-f"><span>Motivo del rechazo *</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. remisión ilegible, total no cuadra, no corresponde…"></textarea></label>
+        <div class="cb-rej-motivos" role="radiogroup" aria-label="Motivo del rechazo">
+          @for (m of MOTIVOS_RECHAZO; track m.code) {
+            <label class="cb-rej-m" [class.is-sel]="rejectCodigo() === m.code" [attr.for]="'rej-' + m.code">
+              <p-radiobutton name="motivoRechazo" [value]="m.code" [ngModel]="rejectCodigo()"
+                             (ngModelChange)="rejectCodigo.set($event)" [inputId]="'rej-' + m.code" />
+              <span>{{ m.label }}</span>
+            </label>
+          }
+        </div>
+        <label class="cb-f"><span>Detalle {{ rejectCodigo() === 'otro' ? '*' : '(opcional)' }}</span>
+          <textarea pInputText [(ngModel)]="rejectMotivo" rows="2" placeholder="Ej. la hoja 2 salió cortada"></textarea></label>
+        @if (rejectError()) { <p class="cb-err">{{ rejectError() }}</p> }
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="closeReject()"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+        <button pButton type="button" severity="danger" [loading]="saving()" [disabled]="!rejectCodigo()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
 
@@ -1047,6 +1131,19 @@ interface AttachFile {
     .cb-desc-m span { display: grid; gap: 1px; min-width: 0; }
     .cb-desc-m b { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
     .cb-desc-m em { font-style: normal; font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.4; }
+    /* RE.24 — motivos de RECHAZO: mismo lenguaje visual que los de descarte, pero de una línea
+       (el catálogo de rechazo no trae pista, la explicación va en el detalle libre de abajo).
+       Van en dos columnas porque son seis y en una sola el diálogo pedía scroll. */
+    .cb-rej-motivos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); }
+    @media (max-width: 30rem) { .cb-rej-motivos { grid-template-columns: 1fr; } }
+    .cb-rej-m {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-main); cursor: pointer;
+      min-height: var(--tap-min);
+    }
+    .cb-rej-m:hover { background: var(--surface-ground); }
+    .cb-rej-m.is-sel { border-color: var(--action); background: var(--surface-ground); }
     /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
        para que no se lea como continuación del rango "1–100". */
     /* ── RE.20.1: lente del dinero ─────────────────────────────────────────
@@ -1098,8 +1195,32 @@ interface AttachFile {
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
-    .cb-match.ok { color: var(--ok-fg); }
-    .cb-match.bad { color: var(--bad-fg); }
+    /* RE.25 — el cuadre del documento. El color NUNCA va solo (DESIGN.md §5): cada estado
+       trae su ícono Y su palabra, porque el veredicto tiene que leerse en gris, en dark y
+       para quien no distingue verde de ámbar. */
+    .cb-cuadre { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); white-space: nowrap; }
+    .cb-cuadre .pi { font-size: .8rem; }
+    .cb-cuadre-txt { font-weight: 600; }
+    .cb-cuadre[data-cuadre="cuadra"] { color: var(--ok-fg); }
+    .cb-cuadre[data-cuadre="revisar"] { color: var(--warn-fg); }
+    /* "No se leyó" en gris a propósito: no es un descuadre del proveedor, es una hoja que no se
+       pudo leer. Pintarla de ámbar la mete en la misma cola que los descuadres reales, y son
+       cosas que se arreglan distinto — una se re-escanea, la otra se audita. */
+    .cb-cuadre[data-cuadre="sin_datos"] { color: var(--text-muted); }
+    /* RE.26 — el apartado de validación: los dos botones que deciden van juntos y separados
+       del resto de las acciones, con el estado dicho en palabras al lado. */
+    .cb-valida { display: inline-flex; align-items: center; gap: .15rem; }
+    .cb-valida-hecho { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-micro); font-weight: 600; }
+    .cb-valida[data-estado="validado"] .cb-valida-hecho { color: var(--ok-fg); }
+    .cb-valida[data-estado="rechazado"] .cb-valida-hecho { color: var(--bad-fg); }
+    /* RE.26.1 — el folio de la hoja interna se muestra siempre que se haya leído. Cuando casa va
+       en gris (es contexto: contra qué se comparó); cuando NO casa sube a ámbar y cambia de ícono,
+       porque el color no puede ser el único portador del aviso. */
+    .cb-folint {
+      display: block; font-style: normal; font-size: var(--fs-micro);
+      color: var(--text-muted); white-space: nowrap;
+    }
+    .cb-folint[data-ok="false"] { color: var(--warn-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -1430,10 +1551,10 @@ export class ComprasEntradasComponent {
   // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
   readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
-  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  readonly canManage = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
-  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  readonly canValidate = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   /**
    * `[RE.20.1]` — **el lente.** Las MISMAS filas contestando dos preguntas distintas:
@@ -1496,7 +1617,17 @@ export class ComprasEntradasComponent {
   // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
   // Está para TODOS los que ven (no sólo `_VALIDAR`) porque el descarte resta del denominador
   // de cobertura y quien mira el número tiene que poder ver qué se le restó.
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
+  /**
+   * `[RE.24]` **"Por validar" es nuevo acá** y entró al retirar la cabina de revisión: el
+   * backend siempre supo filtrar esa cola (`d.last_status='recibido'`) pero la lista no la
+   * ofrecía, así que al mandar el "revisar" del Centro de control a esta pantalla el
+   * `?estado=por_validar` lo habría **descartado el guard de la línea de abajo, en silencio**
+   * — el link prometía la cola del revisor y entregaba las primeras 300 sin filtrar.
+   *
+   * No es lo mismo que "Con remisión": ésa trae todo lo que tiene papel (validado, rechazado
+   * y esperando); "Por validar" es sólo lo que espera decisión, que es el trabajo del revisor.
+   */
+  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Por validar', value: 'por_validar' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
 
   // ── RE.20.3: descartar / reactivar ────────────────────────────────────────
   readonly verDescartadas = computed(() => this.estadoSel() === 'descartada');
@@ -1506,6 +1637,8 @@ export class ComprasEntradasComponent {
   readonly descarteMotivo = signal<MotivoDescarte>('traspaso');
   readonly descarteNota = signal('');
   readonly MOTIVOS_DESCARTE = MOTIVOS_DESCARTE;
+  /** `[RE.24]` Portado de la cabina: el rechazo también se tipifica, o no se puede medir. */
+  readonly MOTIVOS_RECHAZO = MOTIVOS_RECHAZO;
   motivoDescarteLabel = motivoDescarteLabel;
 
   clave(c: EntradaRow): string { return `${c.sucursal}/${c.folio}`; }
@@ -1695,6 +1828,9 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+  /** `[RE.24]` El código del catálogo. Sin él el botón queda deshabilitado. */
+  readonly rejectCodigo = signal<string | null>(null);
+  readonly rejectError = signal('');
 
   // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
   /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
@@ -1833,6 +1969,10 @@ export class ComprasEntradasComponent {
     else if (deRuta === 'dinero') this.lente.set('dinero');
     const est = qp.get('estado');
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
+    // RE.25 — se valida contra las opciones por la misma razón que `estado`: un valor inventado
+    // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
+    const cua = qp.get('cuadre');
+    if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
     this.load();
     // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
     this.grSocket.connect();
@@ -1854,7 +1994,25 @@ export class ComprasEntradasComponent {
    */
   applyNew(): void { this.newCount.set(0); this.page.set(1); this.load(); }
 
+  /**
+   * `[RE.25]` En el lente de **dinero** la pregunta es *"¿este documento cuadra?"*, así que la
+   * tira muestra el reparto del cuadre. En **proceso** la pregunta sigue siendo *"¿tengo el
+   * papel?"* y los KPIs no cambian: son dos preguntas distintas sobre las mismas filas, y
+   * mostrar los seis números a la vez no contesta ninguna.
+   *
+   * `No se leyó` va aparte de `Por revisar` porque son dos trabajos: uno se re-escanea, el otro
+   * se audita. Y va en tono neutro, no de alerta — el proveedor no hizo nada mal.
+   */
   kpiItems(r: EntradasReport): MetricStripItem[] {
+    if (this.dinero()) {
+      return [
+        { label: 'Entradas', value: r.kpis.entradas },
+        { label: 'Cuadran', value: r.kpis.cuadran ?? 0, tone: 'ok' },
+        { label: 'Por revisar', value: r.kpis.por_revisar ?? 0, tone: 'warn' },
+        { label: 'No se leyó', value: r.kpis.sin_datos ?? 0 },
+        { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
+      ];
+    }
     return [
       { label: 'Entradas', value: r.kpis.entradas },
       { label: 'Con remisión', value: r.kpis.con_comprobante, tone: 'ok' },
@@ -1873,6 +2031,18 @@ export class ComprasEntradasComponent {
    * viaja como `warehouse_codes` (el server igual lo intersecta con el alcance).
    */
   readonly sucursalSel = signal<string | null>(null);
+  /**
+   * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
+   * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
+   * forma más rápida de que nadie confíe en ninguno.
+   */
+  readonly cuadreSel = signal<string | null>(null);
+  readonly cuadreOpts = [
+    { label: 'Cuadra', value: 'cuadra' },
+    { label: 'Por revisar', value: 'revisar' },
+    { label: 'No se leyó', value: 'sin_datos' },
+  ];
+  setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
   readonly rezago = signal(false);
   readonly page = signal(1);
   readonly pageSize = 100;
@@ -1910,8 +2080,15 @@ export class ComprasEntradasComponent {
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * `[RE.23]` El fallback es `NETWORK_BRANCHES` (9), no `STORE_BRANCHES` (7): con
+   * alcance `all` el server no manda lista y el desplegable se armaba con las
+   * sucursales Kepler nada más, así que Morelia —que sí entra en la lista, 331
+   * recepciones en el carril al día— no se podía aislar. Quien es de Morelia
+   * abría 1,493 renglones de la red entera y sus 410 quedaban enterrados.
+   */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? STORE_BRANCHES.map((b) => b.code);
+    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
     return a.map((c) => ({ label: branchName(c) || c, value: c }));
   });
   suc(code: string): string { return branchName(code) || code; }
@@ -1927,7 +2104,12 @@ export class ComprasEntradasComponent {
       relativeTo: this.route,
       // RE.20.1 — el lente viaja en la URL para que el link se pueda pegar. `proceso` es el
       // default, así que se omite y la URL no se ensucia con lo que ya es implícito.
-      queryParams: { suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null },
+      queryParams: {
+        suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null,
+        // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
+        // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
+        cuadre: this.cuadreSel() || null,
+      },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -1941,6 +2123,7 @@ export class ComprasEntradasComponent {
       estado: this.estadoSel() || undefined,
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
+      cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
       carril: this.rezago() ? 'rezago' : 'al_dia',
       // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
       // de enfrente no ordena las 875.
@@ -1967,7 +2150,7 @@ export class ComprasEntradasComponent {
   /** Hay trabajo real que se perdería: hojas subidas, OCR corrido, tipos asignados a mano. */
   readonly attachDirty = computed(() => this.attachFiles().length > 0);
   /** Motivo tecleado que se perdería. */
-  private rejectDirty(): boolean { return !!this.rejectMotivo.trim(); }
+  private rejectDirty(): boolean { return !!this.rejectMotivo.trim() || !!this.rejectCodigo(); }
 
   private askDiscard(detail: string, onDiscard: () => void) {
     this.confirm.confirm({
@@ -2305,6 +2488,36 @@ export class ComprasEntradasComponent {
     });
   }
 
+  /**
+   * `[RE.26]` — Validar **pregunta antes**, igual que rechazar.
+   *
+   * Antes la palomita ejecutaba de una. Es una decisión sobre dinero —da por buena una factura
+   * y la saca de la cola de revisión— y no tiene deshacer en la pantalla; el rechazo, que pesa
+   * lo mismo, ya abría diálogo. La asimetría no estaba justificada.
+   *
+   * El texto dice **lo que la fila sabe**: si el cuadre no está limpio, la pregunta lo trae. Un
+   * "¿estás seguro?" pelado no aporta nada — quien va a confirmar necesita ver contra qué.
+   */
+  confirmarValidar(c: EntradaRow) {
+    if (!c.deposit_id || this.actingId()) return;
+    const aviso = c.cuadre === 'cuadra'
+      ? 'El importe y el proveedor concuerdan.'
+      : (c.cuadre_motivo || 'Este documento no cuadró automáticamente.');
+    const folio = c.folio_interno_ok === false
+      ? ` Ojo: la hoja interna del paquete dice ${c.folio_interno}, no ${c.folio}.`
+      : '';
+    this.confirm.confirm({
+      header: 'Dar por buena la remisión',
+      message: `Entrada ${c.folio} · ${c.proveedor_nombre || c.proveedor_code || 'sin proveedor'} · ${this.money(c.monto)}.\n\n${aviso}${folio}`,
+      icon: 'pi pi-check-circle',
+      acceptLabel: 'Sí, darla por buena',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-success',
+      rejectButtonStyleClass: 'p-button-text',
+      accept: () => this.doValidate(c),
+    });
+  }
+
   doValidate(c: EntradaRow) {
     if (!c.deposit_id || this.actingId()) return;
     this.actingId.set(c.deposit_id);
@@ -2315,13 +2528,24 @@ export class ComprasEntradasComponent {
       });
   }
 
-  openReject(c: EntradaRow) { this.rejectTarget.set(c); this.rejectMotivo = ''; this.showReject.set(true); }
+  openReject(c: EntradaRow) {
+    this.rejectTarget.set(c); this.rejectMotivo = '';
+    this.rejectCodigo.set(null); this.rejectError.set('');
+    this.showReject.set(true);
+  }
   doReject() {
     const c = this.rejectTarget();
     if (!c?.deposit_id) return;
+    // `[RE.24]` Mismas dos reglas que tenía la cabina: el código es obligatorio (el botón ya
+    // está deshabilitado sin él) y "Otro" no vale sin explicación — si no, el catálogo se
+    // vuelve un `otro` universal y volvemos al texto libre por la puerta de atrás.
+    const code = this.rejectCodigo();
+    if (!code) { this.rejectError.set('Elegí un motivo.'); return; }
+    if (code === 'otro' && !this.rejectMotivo.trim()) { this.rejectError.set('Con "Otro" hace falta explicar.'); return; }
+    this.rejectError.set('');
     this.saving.set(true);
-    this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+    this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   openDetail(c: EntradaRow) {
@@ -2446,6 +2670,22 @@ export class ComprasEntradasComponent {
   // a reclamarle a quien no se equivocó.
   discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
   discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  /**
+   * `[RE.25]` — El cuadre del DOCUMENTO, que es un eje distinto del estado del trámite:
+   * `Validado` dice que alguien decidió, `Cuadra` dice que los números concuerdan. Una entrada
+   * puede estar validada a mano y no cuadrar — y ése es exactamente el caso a mirar.
+   *
+   * `sin_datos` se llama **"No se leyó"** y no "Revisar" a propósito: no es un descuadre, es una
+   * hoja ilegible. El trabajo es re-escanearla, no auditarla, y son 27% de los comprobantes.
+   */
+  cuadreLabel(k: string | null): string {
+    return ({ cuadra: 'Cuadra', revisar: 'Revisar', sin_datos: 'No se leyó', sin_evidencia: '' } as Record<string, string>)[k || ''] ?? '';
+  }
+  cuadreIcon(k: string | null): string {
+    return ({
+      cuadra: 'pi-check-circle', revisar: 'pi-exclamation-triangle', sin_datos: 'pi-eye-slash',
+    } as Record<string, string>)[k || ''] || 'pi-minus';
+  }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   /**

@@ -24,7 +24,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion, type AdjustmentLinesResponse } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
-import { branchName, STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -33,6 +33,22 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 
 /**
+ * ⛔ `[RE.24]` **FUERA DE USO desde 2026-09-02** (decisión de Edgar). No está en el sidebar y
+ * `/compras/entradas/revision` **redirige** a la lista de órdenes; el componente sigue acá y no
+ * se borró, para poder volver sin reescribirlo. **No agregar features acá** — van a la lista.
+ *
+ * Qué se llevó la lista al retirarla: validar y rechazar ya los tenía, y se le portó el
+ * **motivo tipificado de rechazo** (sin eso `motivo_codigo` quedaba NULL para siempre) más el
+ * segmento **"Por validar"**, que es esta cola. Lo único que NO se portó es la **validación en
+ * lote**: medido en prod, se usó **una vez, para 4 documentos** de 161.
+ *
+ * Los dos controles que esta pantalla exhibía **siguen vivos**: los impone el server, no la UI
+ * — la segregación de funciones en `validate()` (403 si `created_by` es el actor) y la colisión
+ * en el `WHERE status IN (...)` del UPDATE ("otra persona ya decidió"). Lo que se pierde es sólo
+ * el **aviso previo**: acá se veía venir; en la lista aparece como error después de intentar.
+ * Cerrar eso es mostrar quién subió en la fila — el server ya lo devuelve (`last_by`) y la lista
+ * ni lo tipa.
+ *
  * `[RE.13.2]` — **Bandeja de revisión**: la cola del revisor.
  *
  * Es una **cola con veredicto**, no un CRUD. El revisor no busca: decide lo que le toca, en
@@ -908,13 +924,16 @@ export class ComprasEntradasRevisionComponent {
   suc(code: string): string { return branchName(code) || code; }
 
   readonly canValidate = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
-  /** Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales. */
+  /**
+   * Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales.
+   * `[RE.23]` El catálogo es la RED (9); las 7 Kepler dejaban Morelia sin poder filtrarse.
+   */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? STORE_BRANCHES.map((b) => b.code);
+    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
     return a.map((c) => ({ label: this.suc(c), value: c }));
   });
 

@@ -6,6 +6,150 @@
 
 ---
 
+## 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén
+
+**Disparador:** Edgar, después de dos días de trabajo sobre `/compras/pedido`: *"a diferencia de
+Kepler, usemos la unidad más grande de medida para mostrar las cantidades de venta y existencia;
+usar la tabla de existencias de Kepler para las que ya lo tienen, y la de Wincaja la tabla de
+Wincaja."* No era una preferencia visual: era el nombre correcto del defecto.
+
+**El defecto.** Los dos ERPs guardan la existencia en unidades distintas — Kepler en su unidad
+base, Wincaja en su unidad de venta (el **paquete** en los multipack). La pantalla dividía la de
+**todos** los almacenes por un solo factor por producto (`v_product_box_factor.box_factor` =
+unidades base por caja), así que en Wincaja dividía entre 140 lo que iba entre 14.
+
+Y no era cosmético. La capa **cruda** es auto-consistente, pero la **derivada** no:
+
+| columna | unidad en MD-30 / MD-32 / 00 |
+|---|---|
+| `wincaja.v_sales_daily.qty` · `analytics.sales_daily.units` | paquetes |
+| `inventory_health` · `commercial.reorder_policy` | paquetes |
+| `v_erp_stock_on_hand.qty_stock_units` | paquetes (crudo, a propósito) |
+| **`analytics.product_demand.daily_pieces`** | ⚠️ **unidad BASE** — normaliza |
+| **`replenishment_plan.stock_pz`** | paquetes (**el nombre miente**) |
+
+El motor restaba *piezas de demanda menos paquetes de existencia*. Medido: **159 de 166** multipack
+de MD-30 con venta traen la demanda convertida (razón ≈ `f2`, $1.79M de venta 30 d).
+
+| medido en prod | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan | $2,256,065 | $2,237,132 |
+| **6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+**Lo que se construyó.** `analytics.v_warehouse_box_factor` (vista, mig `20260902220000`, batch 260
+en Railway): una fila por (tenant, almacén, producto) con el divisor **en unidades nativas de ese
+almacén**. Kepler resuelve por el resolvedor canónico, Wincaja por `wincaja.articulos.factor_venta`
+— el ERP dueño del almacén, tal como lo pidió Edgar. Materializado en `replenishment_plan.display_bf`
+(la regla vive en la vista; el importer la lee). `transferPlan` y `overstockList` pasaron a calcular
+**en cajas**: restaban unidades de universos distintos, y `transferPlan` además comparaba el déficit
+del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa.
+
+Se retiró el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS
+`00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer.
+
+**Lecciones — dos son sobre cómo trabajé, no sobre el código:**
+
+1. **La unidad de una columna no se hereda de su fuente.** Verifiqué la consistencia en la capa
+   cruda (`sales_daily` vs el POS: 1:1, 182/182) y concluí que todo estaba bien. Pero el motor no
+   lee `sales_daily`: lee `product_demand`, que normaliza una columna y no la otra. Hay que probar
+   la unidad **en la tabla que el consumidor lee de verdad**.
+2. **Una retractación es una afirmación, y necesita la misma evidencia.** El 2026-09-02 reporté este
+   sobre-pedido, después me retracté con un test que medía la capa equivocada, y dejé la retractación
+   escrita en la memoria del proyecto como hecho. El hallazgo original era correcto.
+3. **El testigo que no miente es el precio realizado** contra la escalera del ODS
+   (`v_product_unit_ladder.p1/p2/p3`). `42029`: crudo Wincaja $115.54 ≈ `p2` (paquete) ·
+   `product_demand` $12.52 ≈ `p1` (base). El nombre del campo, el rótulo y `unit_kind` no discriminan.
+4. **Dos fuentes que coinciden donde deben y difieren donde debe** es lo que autoriza a usar una.
+   `factor_venta` vs `box_factor`: Δ < 0.1% en 5,475 filas, y divergen sólo en los 348 multipack.
+5. **Los backticks dentro de un template literal de SQL rompen el archivo** — trampa ya documentada en el
+   repo, y caí en ella dos veces más en esta sesión.
+
+**Numeración:** este trabajo se escribió citando **ADR-052**, número ya tomado por *Contratos de
+tipos del boundary REST* y usado además por la **Fase LC** y el **BFF del Command Center**. Se
+renumeró a **ADR-055** en los archivos de esta línea. **LC y Command Center siguen colisionando con
+ADR-052 y falta decidir su número.**
+
+**Estado:** mig `20260902220000` aplicada a Railway (batch 260) + importer corrido (`display_bf`
+poblado, 0 nulos). Builds `api` y `view` verdes. Smoke `test-newdb-warehouse-box-factor` **29/29**
+contra prod, en la regresión. **Falta: redeploy api+view.** Sin permisos nuevos → sin re-login.
+
+⚠️ El commit quedó mezclado: un commit concurrente de otro dev barrió el índice y estos archivos
+viajaron dentro de `0f7ab814 feat([sell-out]): identidad de vendedor Kepler…`. El código está, el
+mensaje no le corresponde.
+
+---
+
+## 2026-09-02 — Fase AUTHZ: CASL se retira (y el retiro deja un cabo en el módulo de usuarios)
+
+**Disparador:** una revisión a fondo de `/admin/users` encontró que los botones de alta/edición/baja
+se gateaban con `can('manage','users')`, que **ningún permiso podía satisfacer**. Edgar no pidió el
+parche: preguntó *"¿qué tan bien se está usando CASL?"* — y ahí la respuesta dejó de ser un fix de
+una línea.
+
+**Lo que se midió** (código + data de prod, no supuestos):
+
+| Qué | Medida |
+|---|---|
+| Llamadas `can(action, subject)` en los 3 frontends | 74, en 14 pares distintos — **40 (54%) eran `can('manage','all')`** |
+| Permisos `*_GESTIONAR/CONFIGURAR` que concedían `'manage'` | **1 de 32** (`ROLES_CONFIGURAR`) |
+| Compuertas muertas (sólo pasaban con `manage:all`) | **4**: usuarios, catálogos, scoring, planogramas |
+| Usuarios activos en prod con un permiso que no se honraba | **5** (`jefe_marketing` 2, `supervisor_ventas` 3) |
+| Claves del enum sin regla CASL | **51 de 164** (FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5) |
+| Reglas con `conditions`/`fields` (el caso de uso de CASL) | **0** |
+| Sujetos declarados: back vs front | 53 vs ~24, en **3 copias** del `PermissionsService` |
+| JWT del rol `marketing` | 4,901 B de `permissions` **+** 3,554 B de `rules` = **~11.6 KB** |
+
+**El dato que decidió:** en CASL `manage` es comodín del lado de la **regla**, no de la consulta.
+Verificado ejecutando el CASL del propio repo: con reglas `['read','create','update','delete']`
+sobre `users`, `can('manage','users')` da **`false`**. O sea que la convención de acciones —31
+permisos a CRUD y uno solo a `manage`— no era un detalle de estilo: era la causa de las 4
+compuertas. Y el backend **ya había abandonado** el modelo `(action, subject)` por el problema
+opuesto (colapsar a subject dejaba pasar de más), así que CASL ya no decidía nada en el camino
+crítico salvo el god-mode.
+
+**Decisión (ADR-054):** retirarlo, no arreglarlo. Arreglarlo dejaba dos mapas de 164 entradas que
+hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave.
+
+**Cómo se ejecutó:** 3 fases, backend → UI → borrado (`5ccb571f`, `15c60bd7`, `1555e817`).
+
+**Las dos lecciones, que son la misma:**
+
+1. **Retirar el productor antes que sus consumidores es cómo se encuentran los consumidores.** Al
+   dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y
+   `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve
+   porque el campo era opcional.
+2. **Un tipo opcional que miente no falla: degrada en silencio.** El cabo que quedó del retiro:
+   `RequesterContext` de `users.service` y `AuthUser` de `users.controller` seguían declarando
+   `rules?: unknown[]` —campo ya muerto— y **no** declaraban `permissions`/`role_name`, de los que
+   `getDataScope` depende para acotar el padrón. Compilaba y funcionaba porque en runtime llega el
+   `req.user` completo; pero nada impedía que un caller armara `{ sub, username }` y el alcance
+   cayera **a `own`** sin un solo error. Es el mismo bug que (1), en versión suave: ambos campos
+   opcionales, ambos invisibles al compilador.
+
+**Beneficio colateral, no buscado:** `getDataScope` pasó a leer `permissions`, que el guard relee
+del cache en cada request, en vez de las `rules` congeladas en el token. **Un permiso de reportes
+revocado ahora se respeta al instante**; antes esperaba al próximo login.
+
+**Verificación:** `tsc` api limpio · `nx build` verde en **view, vendor y portal** · cero `.can(` en
+los 3 frontends · cero referencias a `@casl` (incluido el lockfile, que el commit no había bajado) ·
+los 3 `permissions.service.ts` idénticos por md5.
+
+**Cuidado al desplegar:** este cambio **cambia lo que se ve** en las dos direcciones — aparecen los
+controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject
+(*Registrar visita* se le ofrecía a quien sólo tenía `VISITAS_VER`). Los 5 usuarios de la tabla son
+el caso de prueba. **No requiere re-login.**
+
+**Lo que este retiro NO arregló** (misma revisión, abiertos): el padrón de `/admin/users` se acota
+por permisos de **reportes** y no de usuarios — un rol de RH con `USUARIOS_GESTIONAR` y sin reportes
+vería **sólo su propia fila**; y `authz-tree` declara `view: USUARIOS_VER` mientras la ruta y el
+sidebar exigen `USUARIOS_GESTIONAR` para *ver*, o sea que `USUARIOS_VER` no habilita nada ahí.
+
+---
+
 ## 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada)
 
 **Disparador:** *"que tipos de margenes… de donde sacas el costo estandar"*, y después: *"tenemos dos

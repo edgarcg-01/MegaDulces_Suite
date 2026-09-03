@@ -1471,3 +1471,138 @@ Es exactamente el riesgo #1 del plan de fase (§2.3) y del sprint MR.1, que la p
 - **Seguir con `product_sales_stats`** — es un snapshot de dos días de antigüedad, no trae costo y obligaba a recomputarlo. Queda sólo como origen de `abc_class`.
 
 Plan en [`FASE_MR_MOTOR_RENTABILIDAD`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).
+
+---
+
+## ADR-053
+
+**Un feed sin latido propio es un feed invisible** (Fase OBS) · *propuesto 2026-09-02*
+
+**Contexto:** el carril de catálogos del ODS estuvo **parado 6 días** (2026-08-27 → 09-02) con ~23,200 filas sin shipear, 10,248 de ellas de costo, mientras la plataforma publicaba precio, costo, margen y reorden con toda confianza. Lo encontró un humano al corregir un precio a mano en Kepler (SKU `88222`, $54.00 → $165.28) y notar que el cambio no llegaba.
+
+**Lo importante del diagnóstico: la detección funcionó.** `db-health` tenía los 7 `cdc_wal_*` en `error` —con el comando exacto a correr en el `note`— y el sensor `kepler_ods` en crítico. El problema no fue la falta de alarma; fue que la alarma no salió del edificio y que el carril que de verdad alimentaba prod no estaba siendo vigilado por nadie.
+
+**Decisión:**
+
+1. **Todo carril de ingesta late su propia ENTREGA a `analytics.cron_runs`.** No "el proceso corre": una rama ilegible o una tabla en error es un `status='error'` del carril aunque el proceso siga vivo. Un carril mudo es inaceptable — `replicate-ods-live.js` alimentaba prod sin escribir una sola fila de latido.
+2. **Un latido no viaja por el canal que vigila.** `ods-cdc-wal.js` late por el sink que monitorea: el 2026-08-26 una rotación de key dio 401 en los 7 consumidores **sin alarma**. Todo latido va **directo a prod**, con su propia variable de conexión — en los shippers `DATABASE_URL_NEW` apunta al contenedor de replicas, no a prod (GOTCHAS §17).
+3. **Un latido sin umbral registrado no es una alarma.** `checkCronRuns()` pinta verde incondicional a cualquier job ausente de `CRON_JOBS`; había **cinco feeds reales** en esa condición. Registrar el umbral es parte de entregar el latido, no un paso opcional.
+4. **Latido ≠ completitud.** Un latido prueba que el caño se mueve, no que llegó todo: el CDC perdió 2-7% de las filas diarias con los 7 latidos verdes. El reconciliador (`cdc_reconcile`) es la única alarma que mide huecos y **tiene que estar corriendo**.
+5. **CDC y scan son complementos, no sustitutos.** Después de perder un slot queda un hueco de WAL que sólo un scan puede reponer. Tratarlos como sustitutos —el cutover de CDC.6, hecho sin su requisito CDC.5— es lo que convirtió **una** falla en 6 días de congelamiento. Los dos carriles quedan permanentes.
+6. **El supervisor mide entrega, no proceso vivo.** `restart: unless-stopped` + `HEALTHCHECK` que falla si el latido no avanzó. PM2 reportó `online` mientras el batch no se ejecutaba; un supervisor que sólo sabe si el PID existe reproduce el falso verde.
+7. **El proceso se auto-cura de sus modos de muerte conocidos.** Un slot `lost` se recrea y se dispara el backfill solo, en vez de reiniciarse 5,000 veces pidiéndole a un humano que corra un comando.
+8. **Lo derivado del ODS declara su rezago** (hereda ADR-051). La etiquetera dice *"precio con N h de rezago"* en vez de imprimir con confianza. No bloquea la operación.
+
+**Consecuencias:**
+- Objetivo medible: un carril parado se sabe en **< 15 min**, contra los 6 días de este incidente.
+- El sustrato queda **mixto a propósito**: Docker para lo que habla Postgres/HTTP, Windows para lo que necesita Jet 32-bit (los `.mdb` de Wincaja no se pueden containerizar).
+- Más piezas que latir y registrar. Se acepta: el costo de un feed invisible ya se pagó.
+- ⚠️ Se **descartó** endurecer el default de `checkCronRuns()` para huérfanos (decisión de Edgar): el próximo job que late sin registrarse puede volver a ser invisible. Se mitiga registrando a mano.
+
+**Alternativas rechazadas:**
+- **Grafana Alerting** — el stack LGTM está en prod (INFRA.2.3), pero `db-health` + `MAILER_PORT` ya cubren el caso con menos piezas.
+- **Túnel para que Railway se suscriba nativo a los replicas** — eliminaría el proceso del hop 2, pero el Postgres administrado de Railway no admite cliente de túnel adentro y la replicación nativa **no puede hacer el fan-in de 7 bases a una tabla con `sucursal`**: quedarían 7 esquemas + vista `UNION ALL`. Es rediseño.
+- **Redundancia multi-nodo con elección de líder** — sobrevive la pérdida de una máquina, pero pide una 2ª box en la LAN. Se eligió un nodo + auto-curación.
+- **Tarea programada de Windows** — es lo que se venía usando y lo que Edgar descartó explícitamente.
+
+Plan en [`FASE_OBS_INGESTA_OBSERVABLE`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md).
+
+---
+
+## ADR-054
+
+**El permiso es una CLAVE, no una tupla acción/sujeto — CASL se retira** · *aceptado 2026-09-02*
+
+**Contexto:** la autorización se modelaba dos veces. La verdad es `role_permissions.permissions`, un `Record<clave, boolean>` de 164 claves; encima vivía una traducción a CASL (`permissionToSubject` + `permissionToAction`, ~113 entradas cada uno) que producía reglas `(action, subject)`, se serializaba en el JWT como `rules` y se consultaba con `can(action, subject)`.
+
+El backend **ya había abandonado ese modelo** meses antes: `RolesGuard` chequea la clave exacta, y su propio comentario explica por qué — al colapsar `Permission → subject`, cualquier clave del módulo abría todas sus rutas (`ORDERS_VER` habilitaba `ORDERS_FULFILL/CANCELAR/…`). O sea: el modelo de CASL era **más pobre que el del negocio** y se lo reemplazó en el camino crítico, pero la traducción quedó viva alrededor.
+
+**Lo que la medición encontró (2026-09-02, contra el código y la data de prod):**
+
+1. **Cuatro compuertas muertas.** De los 32 permisos `*_GESTIONAR/CONFIGURAR`, **sólo `ROLES_CONFIGURAR`** concedía la acción `'manage'`; los otros 31 concedían `['read','create','update','delete']`. Y en CASL `manage` es comodín **del lado de la regla, no de la consulta** (verificado ejecutando el CASL del repo: con esas 4 reglas, `can('manage','users')` = `false`). Resultado: `can('manage', X)` sólo pasaba con `manage:all`, o sea sólo para superadmin/admin. Escondía los controles de gestión de **usuarios, catálogos, parámetros de scoring y planogramas**.
+2. **No era teórico: 5 usuarios activos en prod tenían un permiso que el sistema no honraba.** `jefe_marketing` (2) con `CATALOGO_GESTIONAR` + `SCORING_CONFIG_GESTIONAR` + `PLANOGRAMAS_GESTIONAR`, y `supervisor_ventas` (3) con `CATALOGO_GESTIONAR`. En catálogos no era cosmético: `catalogs.controller` decidía con `can('manage','catalogs')` → **403 real** al guardar. (`USUARIOS_GESTIONAR` no tenía víctimas sólo porque hoy el único rol que lo lleva es `superadmin`.)
+3. **La copia era incompleta por construcción.** **51 de las 164 claves** del enum no tenían subject, y `buildAbility` las salteaba en silencio (`if (!subject || !actions) continue`). Son justo las de las fases nuevas: FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5. Por rol real: `marketing` 38 claves sin regla, `credito_cobranza` 37, `finanzas` 31, `contabilidad` 29. Esos módulos funcionaban **porque** el guard ya no usaba CASL.
+4. **Cero uso de lo único que justifica la librería.** Ni una regla con `conditions` ni `fields` en todo el repo: se usaba como `Set<string>` con sintaxis de dos niveles. El alcance por fila —el caso de uso de CASL— ya vive en `ScopeService` + `identity.user_scopes` (ADR-050).
+5. **Peaje en cada request.** El JWT llevaba `permissions` **y** `rules`: la misma verdad dos veces. Medido con data de prod, `marketing` = 4,901 B de mapa + 3,554 B de reglas → **~11.6 KB de token**; de ahí el `large_client_header_buffers 4 32k` en los 3 nginx. De sus 65 reglas, el front consultaba a lo sumo 3 pares.
+6. **El front no podía ni nombrar la mayoría de los sujetos:** 53 subjects en el back contra ~24 declarados en `AppSubject`, en **tres copias** del `PermissionsService` (view/vendor/portal).
+
+**Decisión:** se retira `@casl/ability`. El gating —back y front— se hace por **clave exacta** sobre el mapa de permisos, con el god-mode de plataforma resuelto por **nombre de rol**.
+
+- Back: `buildAbility`, `ability.factory.ts` y `ability.types.ts` borrados. Sobrevive `isPlatformAdminRole` en `ability/platform-admin.ts`. `RolesGuard` deja de serializar `rules` al request; `accessFor` y los dos servicios de auth dejan de devolverlas; `rules` sale del JWT.
+- Front: `PermissionsService` pasa a `has()` / `hasAny()` / `has$()` / `isAdmin()`. **`has()` corta por rol de plataforma antes de mirar el mapa** — indispensable: el rol `superadmin` tiene el mapa **vacío** en prod (11 cuentas), su acceso siempre vino del nombre del rol.
+- `getDataScope` deja de reconstruir una ability desde `rules` y lee `permissions`. Es además **mejor fuente**: el guard la relee del cache en cada request, mientras `rules` viajaba congelada en el token hasta el próximo login — un permiso revocado ahora se respeta al instante.
+
+**Consecuencias:**
+- Un permiso nuevo se cablea en **un** lugar (el enum + el árbol de authz), no en tres mapas. Desaparece la clase de bug "el permiso existe pero CASL no lo conoce".
+- **Cambia lo que se ve**: aparecen los controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject (p. ej. la acción rápida _Registrar visita_ se le ofrecía a quien sólo tenía `VISITAS_VER`). Requiere validación en navegador.
+- El token adelgaza ~3.5 KB por sesión.
+- ⚠️ **La trampa de este retiro es el productor.** Al dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve. Por eso se hizo en 3 fases (backend → UI → borrado) y no de un golpe. Mismo patrón, versión suave: `RequesterContext` de `users.service` siguió declarando `rules?: unknown[]` y **no** los dos campos de los que de verdad depende — funcionaba sólo porque en runtime llega el `req.user` completo.
+- La carpeta `lib/ability/` queda mal nombrada (hoy sólo tiene el cache de permisos, `platform-admin` y `data-scope`). Deuda cosmética aceptada.
+
+**Alternativas rechazadas:**
+- **Arreglar CASL** (mapear las 51 claves faltantes, fijar la convención `*_GESTIONAR → 'manage'`, sacar `rules` del JWT) — deja dos mapas de 164 entradas que hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave. Se descartó por eso, no por el esfuerzo.
+- **Conservar CASL sólo para el alcance por fila** (su caso de uso real, con `conditions`) — sería reemplazar `ScopeService`, que ya está en prod y expresa `mode_write` (_"ve las 3 de su zona, captura sólo en la suya"_), algo que las conditions de CASL no modelan sin reescribir el motor.
+- **Mantener `manage` como alias de escritura** con un resolver de aliases de CASL — arregla los 4 gates y deja intactos los otros cinco problemas.
+
+---
+
+## ADR-055
+
+**La cantidad se muestra en la unidad MÁS GRANDE, y el divisor es el del ERP que manda en ese almacén** (Fase RA / `/compras/pedido`) · *aceptado 2026-09-03*
+
+> ⚠️ **Colisión de numeración:** este trabajo se escribió durante dos días citando **ADR-052**, número que ya estaba tomado por *Contratos de tipos del boundary REST* y que además usan la **Fase LC** y el **BFF del Command Center**. Se renumeró a **ADR-055** en los archivos de esta línea (las 5 migraciones `2026090217/19/20/21/22*`, los importers de existencia, `commercial-replenishment.service.ts`, el módulo de compras del front y `docs/UNIDADES_DE_MEDIDA.md`). **LC y el Command Center siguen citando ADR-052 y hay que decidir qué número les toca** — no se tocaron acá.
+
+### Contexto
+
+Mega Dulces corre **dos ERPs** y cada uno eligió otra unidad base de inventario:
+
+- **Kepler** (sucursales `01`–`06`) guarda la existencia en su **unidad base**.
+- **Wincaja** (`MD-30`, `MD-32`, CEDIS `00`) la guarda en **su unidad de venta**, que en los multipack es el **PAQUETE**.
+
+`/compras/pedido` dividía la existencia de **todos** los almacenes por un solo factor por producto — `analytics.v_product_box_factor.box_factor`, que cuenta **unidades base por caja**. En los almacenes de Wincaja eso dividía entre 140 lo que había que dividir entre 14: la existencia se veía **~10× más chica**.
+
+Y no era cosmético. La capa cruda **sí** es auto-consistente (existencia y venta de Wincaja vienen las dos en paquetes), **pero la derivada no**: `analytics.product_demand.daily_pieces` normaliza la demanda a la unidad base — medido, **159 de 166** multipack de MD-30 con venta, razón ≈ `f2` contra `analytics.sales_daily`, $1.79M de venta 30 d — mientras `replenishment_plan.stock_pz` se queda en paquetes (**el nombre miente**). El motor restaba *piezas de demanda menos paquetes de existencia*.
+
+| medido en prod (368 filas por almacén, de ~9,800) | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion · $pedido | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan · $traspaso | $2,256,065 | $2,237,132 |
+| **las 6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+Son **~355 SKUs** (sucursal 30) los multipack de verdad, no el catálogo entero.
+
+### Decisión
+
+1. **La unidad de presentación es la CAJA** — el peldaño más grande que declara el ERP. Es la única unidad que los dos ERPs saben expresar, así que es la que hace comparables sus cifras.
+2. **El divisor es por (almacén, producto), no por producto**, y sale de un resolvedor canónico único: **`analytics.v_warehouse_box_factor`** (vista, `derive-no-copy`, mig `20260902220000`). Kepler resuelve por `v_product_box_factor`; Wincaja por **`wincaja.articulos.factor_venta`** — el ERP dueño de ese almacén. Expone además `box_label` / `base_label` / `is_weight` / `factor_source` para que nadie tenga que adivinar en qué unidad está un número.
+3. **El dato base NO se convierte.** La conversión es de presentación. Materializado en `analytics.replenishment_plan.display_bf` sólo por costo del camino de lectura; la regla vive en la vista y el importer la **lee**.
+4. **Los cálculos que cruzan almacenes se hacen EN CAJAS.** `transferPlan` y `overstockList` restaban demanda-en-base menos existencia-en-nativa, y `transferPlan` además comparaba el déficit del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa. El workbook convierte reorden/máximo/valuado **por almacén antes de sumar**.
+
+### Por qué se le puede creer a `factor_venta` — tres testigos
+
+`wincaja.articulos.factor_venta` está definido como *"cuántas de MIS unidades de venta hacen una caja"*, así que sirve venda piezas o paquetes, sin clasificar el SKU.
+
+1. **Dinero crudo** (no derivado): en la sucursal 30, precio realmente cobrado (`wincaja.v_sales_daily`) × `factor_venta` cae a **±11%** del precio de caja del ODS (`p3`): `42029` $115.54×14 = $1,617 vs $1,701 · `08057` $119.20×28 = $3,338 vs $3,521.
+2. **La escalera del ODS**: `fv = f3/f2` en **355** SKUs (venden paquete) y `fv = f3` en **1,818** (venden la base). Las dos formas son coherentes con la definición.
+3. **Concordancia donde NO debe haber diferencia**: en las **5,475** filas de los casos "sin escalera" y "misma unidad", `factor_venta` y `box_factor` dan el mismo valuado con **Δ < 0.1%** ($9,573 y −$140). Divergen sólo en los **348** multipack (+$2.63M), que es exactamente el defecto. *Dos fuentes independientes que coinciden donde deben y difieren donde debe: eso es lo que autoriza a usar una.*
+
+### Consecuencias
+
+- Se retira el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS `00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer — alineado con la regla principal del proyecto.
+- ⚠️ **`06 Canindo` trae `wincaja_source_branch='50'` residual y es KEPLER** (su POS migró). El gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`.
+- Al agregar un almacén de un ERP nuevo, el único lugar a tocar es la vista.
+- **Regla que sale de acá (va a `UNIDADES_DE_MEDIDA.md` §8ter):** *la unidad de una columna no se hereda de su fuente.* Cada tabla derivada puede normalizar una columna y no la otra, y el nombre no avisa. Hay que probar la unidad **en la tabla que el consumidor lee**, con el precio realizado contra `v_product_unit_ladder.p1/p2/p3`.
+
+### Alternativas rechazadas
+
+- **Normalizar la existencia cruda a la unidad base** — se intentó y llegó a prod (mig `20260902200000`, revertida el mismo día): `inventory_health` y `reorder_policy` se derivan de `sales_daily`, que está en la unidad nativa, así que convertir sólo la existencia la dejó `f2` veces más grande que sus propios umbrales → cobertura de 534–900 días y **el motor dejó de pedir** (~$785k de sub-pedido en Morelia).
+- **Normalizar todo el pipeline a la unidad base de Kepler** — toca `sales_daily`, márgenes, reportes y sell-out. Radio de impacto enorme para un defecto de ~355 SKUs, y deja igual el problema de fondo (los dos ERPs seguirían sin unidad común declarada).
+- **Un toggle "en cajas / en piezas"** en la pantalla — no arregla el cálculo, sólo cambia lo que se ve; el sobre-pedido seguiría.
+- **Dejarlo como deuda declarada** — es el camino del dinero: el comprador firma órdenes con esos números.
+
+Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión), con candados explícitos contra los dos errores previos: convertir el dato base, y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia — razón 2.000).
+
+Ver [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8ter · hereda **ADR-051** (la unidad se declara, no se dibuja).

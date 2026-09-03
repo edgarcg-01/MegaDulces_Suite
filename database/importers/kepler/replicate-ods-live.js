@@ -26,6 +26,9 @@
  *        SALTA con "no conecta — skip" (inofensivo). Al crear la subscription, se activa sola.)
  *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY · CRON_TENANT_ID
  *      ODS_READ_BATCH (5000) · ODS_SHIP_BATCH (5000)
+ *      ODS_HASH_RESYNC_SEC (3600) · ODS_HASH_RESYNC_TABLES (kdil,kdik) — red de seguridad del
+ *        carril hash: cada N s esa tabla ignora el shadow una pasada y re-shipea todo, para
+ *        recuperar filas que el shadow dio por enviadas y el destino nunca aplicó.
  * Flags: --apply (default dry-run) · --tables=kdii,kdil · --branch=03 · --full (ignora watermark ctid)
  *        --watch[=segundos] (loop continuo; default 10s; implica apply)
  *
@@ -125,8 +128,112 @@ const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 
 const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
 const _lastSafety = new Map();
 
+// RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
+// enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
+// porque el upsert del ODS filtra las idénticas (medido: 2804 enviadas → 897 escritas es lo NORMAL).
+// Si un ship se pierde parcialmente, esas filas quedan con el shadow ADELANTADO y NUNCA se
+// reintentan: sólo se corrigen si el dato vuelve a cambiar por sí solo. Por eso el daño se concentra
+// en las sucursales de baja rotación — medido en prod: `04` Yurécuaro tenía 897 filas de `kdil`
+// stale (existencia derivada del ODS acertaba 85.2% vs POS, contra 100% de las demás), y el
+// resync `--full` la puso en 100%. Fix additivo: cada RESYNC_SEC ignorar el shadow una pasada
+// (equivalente a `--full` de esa tabla×sucursal) → auto-sanante, sin intervención manual.
+// Acotado por whitelist para NO pagar egress de re-shipear catálogos grandes (kdii 37MB, kdc2*):
+// por default sólo las tablas de EXISTENCIA, que son chicas y son las que mueven dinero (el pedido).
+// OJO: el estado del throttle va EN LA DB del replica (ods.hash_resync), no en memoria. El runner
+// (run-ods-live-loop.cmd) lanza un PROCESO NUEVO cada ODS_LOOP_SECONDS, así que un Map en memoria
+// arranca vacío en cada pasada y el resync se dispararía SIEMPRE (cada 15 s), justo el egress que
+// esto evita. Con la tabla, el intervalo se respeta entre procesos.
+const HASH_RESYNC_SEC = Number(process.env.ODS_HASH_RESYNC_SEC || 3600);
+const HASH_RESYNC_TABLES = new Set(
+  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik').split(',').map((s) => s.trim()).filter(Boolean));
+
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ── LATIDO (OBS.1) ───────────────────────────────────────────────────────────────────────────
+// Este carril alimentaba prod y era MUDO: no escribía a `analytics.cron_runs`, así que db-health no
+// tenía nada que vigilar. Del 27/08 al 02/09/2026 estuvo parado 6 días y la única señal fue el mtime
+// de un .log. 23,200 filas de catálogo sin shipear (10,248 de costo) y la app publicando precio,
+// costo y margen con toda confianza. Se descubrió por accidente.
+//
+// ⚠️ VARIABLE PROPIA a propósito. `cron-heartbeat.js` toma su conexión de `DATABASE_URL_NEW`, y en
+// ESTE script esa var apunta al CONTENEDOR DE REPLICAS (:5433) — no a prod. Un latido escrito ahí es
+// invisible para el tablero, que vive en prod: el modo de falla exacto que la fase busca eliminar.
+// Ver GOTCHAS §17 ("DATABASE_URL_NEW significa tres cosas") y §18.
+// Fallback a `FLEET_DB_URL`, que es el handle de prod verificado (reference_prod_db_connection_topology).
+const HB_URL = process.env.ODS_HB_URL || process.env.FLEET_DB_URL || null;
+// Un carril = un umbral. El hot loop (@15s) y el espejo lento (@300s) no pueden compartir alarma.
+const HB_KEY = process.env.ODS_HB_KEY || (ALL_MODE ? 'ods_live_mirror' : 'ods_live_hot');
+const HB_LABEL = ALL_MODE ? 'ODS espejo completo (replica→prod)' : 'ODS carril vivo (replica→prod)';
+
+/** Latido DIRECTO a prod. Nunca tira: un latido que rompe el feed es peor que no tenerlo. */
+async function latir(fase, { status, rows, note, error, ms } = {}) {
+  if (!HB_URL) return;
+  const c = new Client({ connectionString: HB_URL, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  try {
+    await c.connect();
+    if (fase === 'begin') {
+      // Sana una corrida colgada antes de abrir la nueva (mismo contrato que lib/cron-heartbeat).
+      await c.query(
+        `UPDATE analytics.cron_runs SET status='error', last_finish=now(),
+                error=COALESCE(error,'la corrida anterior no reportó cierre (proceso caído)')
+          WHERE tenant_id=$1 AND job_key=$2 AND status='running'`, [TENANT, HB_KEY]);
+      await c.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
+        VALUES ($1,$2,$3, now(), 'running', $4, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), status='running', host=EXCLUDED.host, updated_at=now()`,
+      [TENANT, HB_KEY, HB_LABEL, require('os').hostname()]);
+    } else {
+      await c.query(`
+        UPDATE analytics.cron_runs
+           SET last_finish=now(), status=$3, rows_affected=$4, duration_ms=$5,
+               note=left($6,500), error=left($7,500), updated_at=now()
+         WHERE tenant_id=$1 AND job_key=$2`,
+      [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
+    }
+  } catch (e) { console.error(`  latido (${fase}) falló: ${e.message.slice(0, 70)}`); }
+  finally { await c.end().catch(() => {}); }
+}
+
+/**
+ * [OBS.3.2] Marca por SUCURSAL de que este carril la **revisó**.
+ *
+ * El latido de arriba agrega: dice "7/7 ramas". Eso queda verde con 1/1 si alguien deja el
+ * contenedor corriendo con `--branch=03`, y verde también si una tabla se cae de `KP_ODS_TABLES`.
+ * Esta marca es por rama y lleva cuántas tablas se revisaron, así que la deriva de configuración
+ * deja de ser invisible — que es la clase de cambio invisible que costó los seis días.
+ *
+ * `last_check_at` avanza SÓLO si la pasada de esa rama cerró bien: si el replica no conectó, la
+ * rama no fue revisada y registrarlo como revisión sería mentir en la única fila que lo probaría.
+ * Una rama que nunca se pudo revisar queda con `last_check_at` en NULL, y el sensor la trata como
+ * lo peor — no como "sin datos".
+ *
+ * Va en el mismo viaje que el latido y no tira nunca: esto vigila el feed, no lo condiciona.
+ */
+async function marcarRamas(marcas) {
+  if (!HB_URL || !marcas.length) return;
+  const c = new Client({ connectionString: HB_URL, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  try {
+    await c.connect();
+    for (const m of marcas) {
+      await c.query(`
+        INSERT INTO analytics.ods_branch_checks
+               (tenant_id, lane, sucursal, last_check_at, tables_checked, rows_shipped, last_error)
+        VALUES ($1,$2,$3, CASE WHEN $7::text IS NULL THEN now() ELSE NULL END, $4, $5, $6)
+        ON CONFLICT (tenant_id, lane, sucursal) DO UPDATE SET
+          -- Sólo una pasada limpia mueve la marca. Con error se conserva la anterior: así el
+          -- sensor ve cuánto lleva esa rama SIN revisarse de verdad, no cuándo se intentó.
+          last_check_at  = CASE WHEN $7::text IS NULL THEN now()
+                                ELSE analytics.ods_branch_checks.last_check_at END,
+          tables_checked = EXCLUDED.tables_checked,
+          rows_shipped   = EXCLUDED.rows_shipped,
+          last_error     = EXCLUDED.last_error`,
+      [TENANT, HB_KEY, m.suc, m.tablas || 0, m.filas || 0, m.error || null, m.error || null]);
+    }
+  } catch (e) { console.error(`  marca por rama falló: ${e.message.slice(0, 70)}`); }
+  finally { await c.end().catch(() => {}); }
+}
 
 // Destino. En FEEDS_SINK=http (prod) el ship va por HTTP y no se usa cliente. En FEEDS_SINK=pg
 // (on-prem / test) se aplica directo con este cliente contra KP_DEST_URL (default = replicas base).
@@ -183,6 +290,10 @@ async function ensureLocalCtl(p) {
       pk_text    text NOT NULL,
       h          text NOT NULL,
       PRIMARY KEY (table_name, pk_text))`);
+  // Throttle PERSISTENTE de la red de seguridad del carril hash (ver ODS_HASH_RESYNC_SEC).
+  await p.query(`CREATE TABLE IF NOT EXISTS ods.hash_resync (
+      table_name text PRIMARY KEY,
+      last_at    timestamptz NOT NULL DEFAULT now())`);
 }
 
 /** Columnas + PK de md.<table> en este replica. */
@@ -277,8 +388,22 @@ async function syncHash(p, code, table, meta, { apply, full }) {
   const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
   const shipMeta = shipMetaOf(table, meta);
   const pkx = pkExpr(meta.pk);
+  // Red de seguridad periódica: cada HASH_RESYNC_SEC esta tabla se comporta como `--full` (ignora
+  // el shadow) para recuperar filas cuyo ship se perdió y el shadow dio por enviadas. El claim es
+  // ATÓMICO y persistente (`ods.hash_resync` en este replica): el UPDATE condicional sólo devuelve
+  // fila si de verdad tocaba, así que dos procesos concurrentes no resincronizan lo mismo dos veces.
+  // Sólo con --apply: en dry-run no se consume el intervalo.
+  let dueResync = false;
+  if (apply && HASH_RESYNC_TABLES.has(table)) {
+    dueResync = (await p.query(
+      `INSERT INTO ods.hash_resync (table_name, last_at) VALUES ($1, now())
+       ON CONFLICT (table_name) DO UPDATE SET last_at = now()
+         WHERE ods.hash_resync.last_at < now() - ($2 || ' seconds')::interval
+       RETURNING table_name`, [table, String(HASH_RESYNC_SEC)])).rowCount > 0;
+  }
+  const ignoreShadow = full || dueResync;
   // full = ignora shadow (re-shipea todo y reconstruye shadow); útil primera pasada / resync.
-  const joinCond = full
+  const joinCond = ignoreShadow
     ? `FALSE`
     : `s.table_name='${table.replace(/'/g, "''")}' AND s.pk_text = ${pkx}`;
   const deltaSql = `
@@ -319,8 +444,10 @@ async function syncHash(p, code, table, meta, { apply, full }) {
       `INSERT INTO ods.shadow (table_name, pk_text, h) VALUES ${tuples}
        ON CONFLICT (table_name, pk_text) DO UPDATE SET h=EXCLUDED.h`, params);
   }
-  console.log(`  ✓ ${code}/${table} [hash]: ${rows.length} delta · ${changed} escritas`);
-  return { suc: code, tabla: table, carril: 'hash', leidas: rows.length, escritas: changed };
+  // `escritas` < `delta` es NORMAL: el upsert del destino filtra las filas ya idénticas. Lo que
+  // importa del resync es justamente lo que escribe — eso es lo que el shadow había perdido.
+  console.log(`  ${dueResync ? '⛑' : '✓'} ${code}/${table} [hash${dueResync ? ' resync' : ''}]: ${rows.length} delta · ${changed} escritas`);
+  return { suc: code, tabla: table, carril: 'hash', resync: dueResync || undefined, leidas: rows.length, escritas: changed };
 }
 
 /** PRIME: fija el watermark ctid de las tablas del carril ctid al MÁXIMO actual, sin shipear.
@@ -349,14 +476,30 @@ async function primeCtid() {
   }
 }
 
-/** Un ciclo: cada replica local × tablas, ruteando por carril. */
+/** Un ciclo: cada replica local × tablas, ruteando por carril.
+ *  `summary.fallas` = ramas que no se pudieron leer. Antes esto era un `continue` MUDO: una pasada
+ *  entera podía shipear CERO (las 7 ramas sin conectar) e imprimir "APPLY hecho." igual. Es la misma
+ *  falla silenciosa que tuvo Wincaja 4 días en cero con los dos carriles "online" — ahí se resolvió
+ *  agregando las fallas al error del latido (replicate-wincaja-live.js:200-207) y se copia acá. */
 async function cycleAll({ apply, full }) {
   const summary = [];
+  const fallas = [];
+  summary.fallas = fallas;
+  // [OBS.3.2] Una marca por rama, para que la deriva de configuración deje de ser invisible.
+  const marcas = [];
+  summary.marcas = marcas;
   for (const b of BRANCHES) {
     if (ONLY_BRANCH && b.code !== ONLY_BRANCH) continue;
     const p = new Client({ connectionString: b.url, ssl: false, ...CONN });
     try { await p.connect(); }
-    catch (e) { console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`); continue; }
+    catch (e) {
+      console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`);
+      fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
+      // Con error: la marca NO avanza. Esta rama no se revisó, y decir que sí la volvería invisible.
+      marcas.push({ suc: b.code, tablas: 0, filas: 0, error: e.message.slice(0, 120) });
+      continue;
+    }
+    let tablas = 0, filas = 0, errTablas = 0;
     try {
       await ensureLocalCtl(p);
       const tables = await tablesFor(p);
@@ -366,9 +509,18 @@ async function cycleAll({ apply, full }) {
           if (!meta) { summary.push({ suc: b.code, tabla: table, skip: 'no existe' }); continue; }
           if (!meta.pk.length) { summary.push({ suc: b.code, tabla: table, skip: 'sin PK' }); continue; }
           const fn = isHashTable(table) ? syncHash : syncCtid;
-          summary.push(await fn(p, b.code, table, meta, { apply, full }));
-        } catch (e) { console.log(`  ✗ ${b.code}/${table}: ${e.message.slice(0, 90)}`); summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) }); }
+          const r = await fn(p, b.code, table, meta, { apply, full });
+          summary.push(r);
+          tablas++; filas += Number(r?.escritas || 0);
+        } catch (e) { console.log(`  ✗ ${b.code}/${table}: ${e.message.slice(0, 90)}`); summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) }); errTablas++; }
       }
+      // La rama SÍ se revisó (conectó y se recorrieron sus tablas). Si alguna tabla falló se anota
+      // en el texto, pero la marca avanza: el carril hizo su trabajo sobre esta rama.
+      marcas.push({ suc: b.code, tablas, filas, error: null, ...(errTablas ? { nota: `${errTablas} tabla(s) con error` } : {}) });
+    } catch (e) {
+      // Falló ANTES de poder recorrer las tablas (ctl, listado): la rama no se revisó.
+      marcas.push({ suc: b.code, tablas, filas, error: e.message.slice(0, 120) });
+      fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
     } finally { await p.end().catch(() => {}); }
   }
   return summary;
@@ -395,24 +547,77 @@ async function cycleAll({ apply, full }) {
     console.log(`  destino pg: ${new URL(destStr).host}${new URL(destStr).pathname}`);
   }
 
+  // Preflight del vigilante. En watch (desatendido, bajo supervisor) se ABORTA antes que correr a
+  // ciegas: sin destino de latido, un carril muerto es indistinguible de uno sano y el tablero queda
+  // verde — que es exactamente cómo se perdieron 6 días. En one-shot solo se avisa fuerte.
+  const late = (APPLY || WATCH_SEC) && sink.sinkMode() === 'http';
+  if (late && !HB_URL) {
+    const msg = 'falta ODS_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril.';
+    if (WATCH_SEC) { console.error(`✖ ${msg}\n  El ecosystem la pasa explícita. Abortando.`); process.exit(1); }
+    console.warn(`⚠ ${msg}`);
+  }
+  // El latido NO debe viajar por el canal que vigila (GOTCHAS §18): si apunta al mismo lugar que la
+  // FUENTE, no es prod y no sirve de nada.
+  if (HB_URL && new URL(HB_URL).host === new URL(SUB_BASE).host) {
+    console.error(`✖ ODS_HB_URL apunta a la FUENTE (${new URL(SUB_BASE).host}), no a prod — el latido sería invisible.`);
+    if (WATCH_SEC) process.exit(1);
+  }
+
+  /** Un ciclo con latido: begin → cycleAll → end(ok|error). Reporta ENTREGA, no "el proceso corre". */
+  const ciclarConLatido = async ({ full }) => {
+    const t0 = Date.now();
+    if (late) await latir('begin');
+    try {
+      const summary = await cycleAll({ apply: true, full });
+      const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
+      const errs = summary.filter((r) => r.error).length;
+      const fallas = summary.fallas || [];
+      // Una rama ilegible o una tabla en error es un ERROR del carril, aunque el proceso siga vivo.
+      const malo = fallas.length > 0 || errs > 0;
+      // [OBS.3.2] La marca por rama va ANTES del latido agregado: si el proceso muere entre las
+      // dos, es preferible tener el detalle por sucursal y que falte el resumen que al revés.
+      if (late) await marcarRamas(summary.marcas || []);
+      if (late) {
+        await latir('end', {
+          status: malo ? 'error' : 'ok',
+          rows: wrote,
+          ms: Date.now() - t0,
+          note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error`,
+          error: malo
+            ? [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
+              errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ')
+            : null,
+        });
+      }
+      return { wrote, ms: Date.now() - t0 };
+    } catch (e) {
+      if (late) await latir('end', { status: 'error', ms: Date.now() - t0, error: e.message });
+      throw e;
+    }
+  };
+
   if (!WATCH_SEC) {
-    const summary = await cycleAll({ apply: APPLY, full: FULL });
-    console.log('\n=== Resumen ===');
-    console.table(summary.slice(0, 200));
-    console.log(APPLY ? 'APPLY hecho.' : 'DRY-RUN — nada cambió. Corré con --apply.');
+    if (!APPLY) {
+      const summary = await cycleAll({ apply: false, full: FULL });
+      console.log('\n=== Resumen ===');
+      console.table(summary.slice(0, 200));
+      console.log('DRY-RUN — nada cambió. Corré con --apply.');
+      if (DEST) await DEST.end().catch(() => {});
+      return;
+    }
+    await ciclarConLatido({ full: FULL });
+    console.log('APPLY hecho.');
     if (DEST) await DEST.end().catch(() => {});
     return;
   }
 
-  console.log(`  watch activo — Ctrl+C para salir.`);
+  console.log(`  watch activo (latido → ${HB_KEY}) — Ctrl+C para salir.`);
   let cycle = 0;
   for (;;) {
     cycle++;
-    const t0 = Date.now();
     try {
-      const summary = await cycleAll({ apply: true, full: FULL && cycle === 1 });
-      const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
-      if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${Date.now() - t0}ms) ──`);
+      const { wrote, ms } = await ciclarConLatido({ full: FULL && cycle === 1 });
+      if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${ms}ms) ──`);
     } catch (e) {
       console.error(`  ✗ ciclo ${cycle}: ${e.message.slice(0, 120)}`);
     }

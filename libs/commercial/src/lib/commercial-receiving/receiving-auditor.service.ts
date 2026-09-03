@@ -120,6 +120,44 @@ export class ReceivingAuditorService {
   }
 
   /**
+   * **Resuelve un código escaneado a un producto que SE PUEDE fechar.**
+   *
+   * Existe aparte de `inventory-count`'s `resolveProduct` por una razón concreta:
+   * aquél prioriza `inventory.products` (el catálogo del almacén) y devuelve
+   * `product_id: null` cuando pega ahí, porque para contar alcanza con reconocer
+   * el SKU. Acá **no alcanza**: `evaluate()` exige un `product_id` UUID, así que
+   * un null significa "escaneaste bien y de todos modos no vas a poder guardar".
+   *
+   * Por eso se resuelve directo contra el catálogo comercial, barcode primero y
+   * SKU después — el mismo orden que ya usa el fallback de conteo.
+   *
+   * Verificado en producción (2026-09-02): de 16,708 códigos del catálogo de
+   * almacén, **14,855 (~89 %) llegan a un UUID** por esa cadena y 1,853 no. Los
+   * que no, fallan acá con un mensaje explícito en vez de morir después en
+   * `evaluate()` con un "product_id inválido" que no le dice nada al operario.
+   */
+  async resolveForDating(code: string) {
+    const c = String(code || '').trim();
+    if (!c) throw new BadRequestException('Escaneá o escribí un código');
+
+    return this.tk.run(async (trx) => {
+      let prod = await trx('public.products').where({ barcode: c }).first();
+      if (!prod) prod = await trx('public.products').where({ sku: c }).first();
+      if (!prod) {
+        throw new NotFoundException(
+          `Ningún producto del catálogo tiene el código ${c}. Revisá la etiqueta o buscalo por nombre.`,
+        );
+      }
+      return {
+        product_id: prod.id,
+        sku: prod.sku,
+        product_name: prod.nombre,
+        barcode: prod.barcode ?? null,
+      };
+    });
+  }
+
+  /**
    * Evalúa una captura: resuelve política, calcula el contexto, decide veredicto,
    * persiste la captura y (si green/yellow) escribe stock. El rojo queda pendiente.
    */
@@ -250,7 +288,31 @@ export class ReceivingAuditorService {
     // abre la suya). El rojo NO escribe: espera autorización.
     const capture = await this.getCapture(captureId);
     if (capture.verdict !== 'red') {
-      await this.writeStockForCapture(capture);
+      try {
+        await this.writeStockForCapture(capture);
+      } catch (e: any) {
+        // COMPENSACIÓN (WMS-REC.7.2). La captura ya hizo commit arriba, así que si
+        // el alta de stock falla acá queda una fila `accepted` sin movimiento:
+        // `declared_qty` la cuenta (filtra por status='accepted'), el renglón se
+        // ve fechado y la mercancía NUNCA entró. Existencia fantasma, y el vale
+        // aparenta estar completo.
+        //
+        // Se marca `rejected` —dentro del CHECK de la tabla— que es el único
+        // estado que la saca del declarado sin romper el append-only: la fila
+        // queda con su evidencia y su foto, pero deja de contar, y el renglón
+        // vuelve a la cola de Caducidad para reintentarlo.
+        //
+        // `authorize()` ya hacía exactamente esto desde WMS-REC.4; `evaluate()`
+        // era el camino que faltaba, y es el que usa el 100% de las capturas
+        // verdes y amarillas.
+        await this.tk.run(async (trx) => {
+          await trx('commercial.receiving_lot_captures')
+            .where({ id: captureId })
+            .update({ status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida' });
+        });
+        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
+        throw e;
+      }
     }
     return this.getCapture(captureId);
   }

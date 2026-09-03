@@ -336,6 +336,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
+        // Documentos cancelados de Kepler (c43='C') — lo que los cuadres excluyen, aquí se audita.
+        path: 'cancelados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cancelados.component').then(m => m.FinanzasCanceladosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
@@ -423,6 +429,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
+        // LC — lo que ContPAQi no tiene atado a ninguna póliza. Es el propósito del módulo:
+        // sacar lo que falta en TXT para que contabilidad cierre el trámite.
+        path: 'movimientos-no-asociados',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component').then(m => m.MovimientosNoAsociadosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
+        // LC — el libro completo del mes. Solo aplica a un mes que nunca se subió.
+        path: 'libro-de-compras',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
         path: 'impuestos',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-impuestos.component').then(m => m.ContabilidadImpuestosComponent),
         canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
@@ -508,14 +527,6 @@ export const routes: Routes = [
         canDeactivate: [unsavedChangesGuard]
       },
       {
-        // RE.13.2 — bandeja de revisión: la cola del revisor (central o local, lo resuelve el
-        // alcance). Permiso propio: VALIDAR no lo tiene el capturista.
-        path: 'entradas/revision',
-        loadComponent: () => import('./modules/compras/pages/compras-entradas-revision.component').then(m => m.ComprasEntradasRevisionComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)]
-      },
-
-      {
         // RE.3 — el calendario de pago. Permiso de LECTURA de entradas: es una vista derivada
         // del vencimiento que ya trae la orden, no una operación sobre dinero.
         path: 'vencimientos',
@@ -586,6 +597,13 @@ export const routes: Routes = [
       { path: 'entradas/lote', redirectTo: 'entradas', pathMatch: 'full' },
       { path: 'entradas/todas', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
       { path: 'entradas/gemelas', redirectTo: 'entradas/control/gemelas', pathMatch: 'full' },
+      // `[RE.24]` La cabina de revisión sale de uso (decisión de Edgar, 2026-09-02). Validar y
+      // rechazar ya viven en la lista de órdenes, que además es la pantalla donde se llega
+      // buscando un folio. Se redirige y NO se borra: el componente queda en el repo, y una
+      // ruta muerta que tira 404 es peor que una que lleva a donde sí se trabaja (hay links
+      // guardados y el Centro de control apuntaba acá). Angular conserva los query params, así
+      // que el `?suc=30` con el que llegaba desde Cobertura sigue filtrando.
+      { path: 'entradas/revision', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
       {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',
@@ -675,6 +693,16 @@ export const routes: Routes = [
         path: 'movimientos',
         loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
         canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+      },
+      {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: se entra escaneando el folio del papel, no eligiendo
+        // de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
       // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
