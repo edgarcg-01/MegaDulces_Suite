@@ -20,6 +20,12 @@ export interface DailyAssignment {
   day_of_week: number; // 1=lun .. 7=dom
   status?: string;
 }
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  kind?: string;
+}
 
 /**
  * Panel de supervisor (vendor app): asignar rutas a vendedores. Escribe en
@@ -48,5 +54,13 @@ export class SupervisorRoutesService {
   }
   deleteAssignment(id: string) {
     return this.http.delete(`${this.da}/${id}`);
+  }
+  /** Sucursales (warehouses) del tenant — para editar sus nombres. */
+  warehouses(): Observable<Warehouse[]> {
+    return this.http.get<Warehouse[]>(`${environment.apiUrl}/commercial/warehouses`);
+  }
+  /** Renombra una sucursal (el nombre que ven los vendedores). */
+  renameWarehouse(id: string, name: string) {
+    return this.http.patch(`${environment.apiUrl}/commercial/warehouses/${id}`, { name });
   }
 }

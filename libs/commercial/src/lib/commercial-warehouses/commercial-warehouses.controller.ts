@@ -56,8 +56,14 @@ export class CommercialWarehousesController {
   }
 
   @Patch(':id')
-  @RequirePermissions(Permission.COMMERCIAL_WAREHOUSES_GESTIONAR)
-  @ApiOperation({ summary: 'Actualizar warehouse (parcial)' })
+  // El supervisor de ruta renombra las sucursales que ven sus vendedores desde la
+  // app (panel de supervisor) → acepta también TRADE_ROUTE_PLAN_GESTIONAR, sin exigir
+  // el permiso completo del proyecto Comercial.
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_WAREHOUSES_GESTIONAR,
+    Permission.TRADE_ROUTE_PLAN_GESTIONAR,
+  )
+  @ApiOperation({ summary: 'Actualizar warehouse (parcial). Rename desde el panel de supervisor.' })
   update(@Param('id') id: string, @Body() body: UpdateWarehouseDto) {
     return this.service.update(id, body);
   }
