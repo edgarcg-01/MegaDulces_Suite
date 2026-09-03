@@ -1,9 +1,28 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  RequireAuthGuard,
+  RolesGuard,
+  RequireAnyPermission,
+  Permission,
+} from '@megadulces/platform-core';
 import { LogisticsAnalyticsService } from './logistics-analytics.service';
 
+/**
+ * `[AUTHZ-HARD.1]` Controller ANTES sin `@UseGuards` ni permisos: la compuerta global es no-op
+ * sin decorador, así que CUALQUIER autenticado —incluido un cliente `customer_b2b` del portal—
+ * leía nómina de choferes, márgenes de flete, ROI y costos. Gate por la familia logística: lo ve
+ * el personal de logística, no un cliente. La nómina lleva su permiso propio, más estrecho.
+ */
 @ApiTags('logistics-analytics')
 @Controller('logistics/analytics')
+@UseGuards(RequireAuthGuard, RolesGuard)
+@RequireAnyPermission(
+  Permission.LOGISTICS_SHIPMENTS_VER,
+  Permission.LOGISTICS_FLEET_VER,
+  Permission.LOGISTICS_PAYROLL_VER,
+  Permission.LOGISTICS_EXPENSES_VER,
+)
 export class LogisticsAnalyticsController {
   constructor(private readonly service: LogisticsAnalyticsService) {}
 
@@ -50,6 +69,7 @@ export class LogisticsAnalyticsController {
   }
 
   @Get('payroll-totals')
+  @RequireAnyPermission(Permission.LOGISTICS_PAYROLL_VER)
   @ApiOperation({ summary: 'Totales liquidados por período (commissions, per_diem, load/unload, bonuses, neto, pagado)' })
   payroll(@Query('year') year?: string) {
     return this.service.payrollTotals(year ? Number(year) : undefined);

@@ -188,6 +188,10 @@ export enum Permission {
   COMMERCIAL_PRODUCTS_GESTIONAR = 'COMMERCIAL_PRODUCTS_GESTIONAR',
   COMMERCIAL_THOT_VER = 'COMMERCIAL_THOT_VER',
   COMMERCIAL_THOT_GESTIONAR = 'COMMERCIAL_THOT_GESTIONAR',
+  // `[AUTHZ-HARD.1]` Superficie INTERNA de inteligencia (hallazgos/diagnósticos/acciones/autonomía/
+  // señales agregadas). Antes esas lecturas colgaban de ORDERS_VER/CUSTOMERS_VER, que `customer_b2b`
+  // tiene → un cliente veía el back-office. Se separa en su propia clave, que el cliente NO recibe.
+  COMMERCIAL_INTELLIGENCE_VER = 'COMMERCIAL_INTELLIGENCE_VER',
   TRADE_ROUTE_PLAN_VER = 'TRADE_ROUTE_PLAN_VER',
   TRADE_ROUTE_PLAN_GESTIONAR = 'TRADE_ROUTE_PLAN_GESTIONAR',
   LOGISTICS_TRANSFERS_VER = 'LOGISTICS_TRANSFERS_VER',
