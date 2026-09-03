@@ -70,6 +70,10 @@ export enum Permission {
   // Acceso a la app de vendedor (gate administrable desde /admin/roles)
   VENDOR_APP_ACCESS = 'VENDOR_APP_ACCESS',
 
+  // Plan de ruta (daily_assignments): el supervisor asigna rutas a vendedores.
+  TRADE_ROUTE_PLAN_VER = 'TRADE_ROUTE_PLAN_VER',
+  TRADE_ROUTE_PLAN_GESTIONAR = 'TRADE_ROUTE_PLAN_GESTIONAR',
+
   // Comercial — Cierre de ruta (tickets venta/carga/combustible)
   ROUTE_TICKET_CAPTURE = 'ROUTE_TICKET_CAPTURE',
   ROUTE_CONTROL_VER = 'ROUTE_CONTROL_VER',
