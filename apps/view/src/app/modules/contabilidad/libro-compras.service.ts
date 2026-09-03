@@ -54,6 +54,16 @@ export interface FacturaMes {
   /** Su importe ya está abonado al proveedor en la póliza del mes: re-meterla la duplica. */
   ya_en_poliza: boolean;
   /**
+   * QUÉ prueba dice que ya está en el libro. `uuid_*` es el MISMO folio fiscal (certeza);
+   * `importe_*` es que un monto igual ya está posteado (sospecha, con falsos positivos por
+   * diseño). La diferencia decide si el checkbox se puede tocar.
+   */
+  prueba_en_libro:
+    | 'uuid_libro_historico' | 'uuid_entregado' | 'uuid_concepto_contpaqi'
+    | 'importe_abono_212' | 'importe_cargo_501_502' | null;
+  prueba_certeza: 'exacta' | 'por_importe' | null;
+  prueba_detalle: string | null;
+  /**
    * `vigente | cancelado | desconocido`. Casi todo es `desconocido` (167,053 de 167,135):
    * el ADD trae el estatus vacío y nadie valida contra el SAT. "No cancelado" acá significa
    * "no nos consta", no "vigente" — por eso el aviso del mes lo declara con su monto.
@@ -70,6 +80,12 @@ export interface MesNoAsociado {
   /** Sin marca pero ya posteadas: NO van al TXT. */
   ya_posteados: number;
   monto_ya_posteados: number;
+  /** Con prueba EXACTA por UUID: mismo folio fiscal, asunto cerrado. */
+  ya_en_libro_exacto: number;
+  monto_exacto: number;
+  /** Sólo por cruce de importe: es sospecha, y es trabajo por revisar. */
+  ya_por_importe: number;
+  monto_por_importe: number;
   faltan: number;
   monto_faltan: number;
   /** Lo accionable: sin asociar, sin postear y con cuenta de compras. Es lo que entra al TXT. */
@@ -148,6 +164,13 @@ export interface Respaldo {
   facturas_origen: 'archivo' | 'decision';
 }
 
+export interface CoberturaUuid {
+  cargado: boolean;
+  uuids: number;
+  cubre_hasta: string | null;
+  fuentes: { source: string; renglones: number; uuids: number; desde: string; hasta: string; reparados: number }[];
+}
+
 export interface GenerarResultado {
   anio_mes: string; tipo: 'libro' | 'complemento'; nombre: string; hash: string;
   folio: number; facturas: number; renglones: number; cargos: number; abonos: number;
@@ -200,6 +223,15 @@ export class LibroComprasService {
   // atado a ninguna póliza. Es el propósito del módulo — sacar lo que falta en TXT.
 
   private noAso = `${this.base}/no-asociados`;
+
+  /**
+   * Hasta dónde llega el anti-duplicado exacto por UUID. Va en pantalla, no en un `.md`:
+   * si el histórico no está cargado la puerta exacta simplemente no cubre, y un no-op se
+   * ve igual que "no hay duplicados".
+   */
+  coberturaUuid(): Observable<CoberturaUuid> {
+    return this.http.get<CoberturaUuid>(`${this.noAso}/cobertura`);
+  }
 
   listNoAsociados(limit = 24): Observable<MesNoAsociado[]> {
     return this.http.get<MesNoAsociado[]>(this.noAso, { params: { limit } });
