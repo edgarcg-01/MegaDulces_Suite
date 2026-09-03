@@ -55,12 +55,21 @@ export class ReplenishmentScannerService {
       // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
       // RA-PRO.45: se usa la columna PESADA por P(llega|edad), igual que el pedido — si no, la
       // bandeja de hallazgos se queda ciega justo en los SKUs que una OC estancada está tapando.
+      //
+      // ⚠️ U.0 (2026-09-03) — "×bf vuelve exacto" SÓLO vale en las sucursales Kepler. `bf` cuenta
+      // unidades BASE de Kepler por caja; en los almacenes de Wincaja la existencia (`oh`) está en
+      // la unidad de venta de Wincaja, y ahí el divisor correcto es `display_bf` (ADR-055), que
+      // ≈ bf/10 en los multipack. O sea `it` sale ~10× inflado y **se sobre-acredita el tránsito →
+      // sub-pedido** en MD-30/MD-32/00. La mig 20260902220000 introdujo `display_bf` y NO tocó esta
+      // ruta. Queda declarado, no parchado: el fix va con la bandeja `peldano_cruzado`.
       const it = 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)';
       // Objetivo = máximo (restock real). Sugerido neto de tránsito.
       const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
       // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a
       // escala de CAJA en granel e inflaba el valorizado ~16.6%). Debe casar con Existencia
       // Crítica (ver commercial-replenishment.service.ts costUnit()).
+      // ✅ U.0: "por PIEZA" confirmado midiendo — `cost_with_tax = u1_cost × (1 + impuesto)`,
+      // razones 1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs. Detalle en costUnit().
       const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
 
       const rows: any[] = await trx('commercial.reorder_policy as rp')
