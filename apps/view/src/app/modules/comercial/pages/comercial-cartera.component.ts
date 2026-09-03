@@ -45,6 +45,24 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
       </header>
 
       @if (view() === 'sucursales') {
+        <article class="ca-panel" style="margin-bottom:1rem">
+          <div class="ca-panel-head"><i class="pi pi-pencil"></i> Nombres de sucursales</div>
+          <p class="surf-page-sub" style="margin:0 0 .6rem">Editá cómo se llama cada sucursal (es lo que ve el vendedor en su app).</p>
+          @if (!loadingWh()) {
+            <div class="ca-wh-list">
+              @for (w of warehouses(); track w.id) {
+                <div class="ca-wh-row">
+                  <code class="comm-code">{{ w.code }}</code>
+                  <input class="ca-wh-input" type="text" [(ngModel)]="whNameEdit[w.id]" [attr.aria-label]="'Nombre de ' + w.code" />
+                  <button pButton size="small" severity="contrast"
+                    [disabled]="savingWhName() === w.id || !whNameEdit[w.id]?.trim() || whNameEdit[w.id] === w.name"
+                    [loading]="savingWhName() === w.id" (click)="saveWarehouseName(w)"
+                    pTooltip="Guardar nombre"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                </div>
+              }
+            </div>
+          }
+        </article>
         <article class="ca-panel">
           <div class="ca-panel-head"><i class="pi pi-building"></i> Sucursal de surtido por ruta</div>
           <p class="surf-page-sub" style="margin:0 0 .6rem">De qué sucursal se surte cada ruta. El vendedor ve la existencia de esta sucursal en su app. La sugerencia sale de la zona — confirmala o corregila.</p>
@@ -214,6 +232,11 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
     .ca-tab { display:inline-flex; align-items:center; gap:.4rem; background:transparent; border:none; cursor:pointer; color:var(--c-text-2); font-weight:var(--fw-medium); font-size:var(--fs-sm); padding:.35rem .7rem; border-radius:6px; }
     .ca-tab.on { background:var(--c-surface-1); color:var(--c-text-1); font-weight:var(--fw-bold); box-shadow:var(--shadow-1, 0 1px 2px rgba(0,0,0,.08)); }
     .ca-tab i { font-size:var(--fs-xs); }
+    .ca-wh-list { display:flex; flex-direction:column; gap:.4rem; }
+    .ca-wh-row { display:flex; align-items:center; gap:.5rem; }
+    .ca-wh-row .comm-code { flex-shrink:0; min-width:3.2rem; }
+    .ca-wh-input { flex:1; padding:.4rem .6rem; border:1px solid var(--c-divider); border-radius:8px; background:var(--c-surface-1); color:var(--c-text-1); font-size:var(--fs-sm); }
+    .ca-wh-input:focus { outline:none; border-color:var(--action); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -242,9 +265,12 @@ export class ComercialCarteraComponent implements OnInit {
   readonly warehouses = signal<WarehouseOption[]>([]);
   readonly loadingWh = signal(false);
   readonly savingWh = signal<string | null>(null);
+  readonly savingWhName = signal<string | null>(null);
   private routesWhLoaded = false;
   /** route_id -> warehouse_id elegido (pre-lleno con la sugerencia). */
   assignWh: Record<string, string | null> = {};
+  /** warehouse_id -> nombre editable (pre-lleno con el actual). */
+  whNameEdit: Record<string, string> = {};
 
   ngOnInit(): void {
     this.load();
@@ -329,6 +355,10 @@ export class ComercialCarteraComponent implements OnInit {
         const pre: Record<string, string | null> = {};
         for (const row of r.routes) pre[row.route_id] = row.warehouse_id || row.suggested_id || null;
         this.assignWh = pre;
+        // Pre-llenar los nombres editables de sucursal.
+        const names: Record<string, string> = {};
+        for (const w of r.warehouses) names[w.id] = w.name;
+        this.whNameEdit = names;
         this.routesWhLoaded = true;
         this.loadingWh.set(false);
       },
@@ -343,6 +373,21 @@ export class ComercialCarteraComponent implements OnInit {
     this.api.setRouteWarehouse(routeId, whId).subscribe({
       next: () => { this.savingWh.set(null); this.toast.add({ severity: 'success', summary: 'Sucursal asignada' }); this.loadRoutesWh(); },
       error: (e) => { this.savingWh.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo asignar' }); },
+    });
+  }
+
+  saveWarehouseName(w: WarehouseOption): void {
+    const name = (this.whNameEdit[w.id] || '').trim();
+    if (!name || name === w.name) return;
+    this.savingWhName.set(w.id);
+    this.api.renameWarehouse(w.id, name).subscribe({
+      next: () => {
+        this.savingWhName.set(null);
+        // Reflejar el nuevo nombre en la lista local (para el select + el disabled).
+        this.warehouses.update((ws) => ws.map((x) => (x.id === w.id ? { ...x, name } : x)));
+        this.toast.add({ severity: 'success', summary: 'Nombre actualizado' });
+      },
+      error: (e) => { this.savingWhName.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo renombrar' }); },
     });
   }
 }
