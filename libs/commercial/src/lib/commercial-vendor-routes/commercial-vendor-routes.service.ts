@@ -196,18 +196,41 @@ export class CommercialVendorRoutesService {
 
       type Wh = { id: string; code: string; name: string };
       let sucursal: Wh | undefined;
+
+      // La ruta operativa del vendedor sale de `daily_assignments` — lo que ESCRIBE el
+      // panel de supervisor y LEE la cartera ("Mi ruta") + createCustomer. Se prefiere
+      // la ruta de HOY (ISODOW MX); si no hay, cualquiera asignada. Fallback: el legacy
+      // `users.route_id`. Así una asignación desde el panel maneja también el stock, sin
+      // tener que setear route_id aparte (era la causa de "veo otra sucursal").
+      let routeId: string | null = user?.route_id || null;
+      if (me) {
+        try {
+          const da = await trx('public.daily_assignments')
+            .where({ user_id: me })
+            .whereNull('deleted_at')
+            .select('route_id')
+            .orderByRaw(
+              `(day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int) DESC`,
+            )
+            .first();
+          if (da?.route_id) routeId = da.route_id;
+        } catch {
+          /* sin daily_assignments → usamos users.route_id */
+        }
+      }
+
       // 1. La verdad operativa: usuario → su ruta → sucursal de la ruta.
       //    En try/catch: la tabla route_warehouses es nueva; si el código despliega
       //    antes que su migración, NO rompemos la resolución (cae a warehouse_code /
       //    default). Lección del incidente client_uuid: código y migración pueden
       //    llegar desfasados.
-      if (user?.route_id) {
+      if (routeId) {
         try {
           sucursal = await trx('commercial.route_warehouses as rw')
             .join('commercial.warehouses as w', function () {
               this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
             })
-            .where('rw.route_id', user.route_id)
+            .where('rw.route_id', routeId)
             .where('w.active', true)
             .whereNull('w.deleted_at')
             .select('w.id', 'w.code', 'w.name')
