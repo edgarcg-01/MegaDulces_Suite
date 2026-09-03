@@ -128,6 +128,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PRODUCTS_GESTIONAR]: { label: 'Gestionar Productos', description: 'Alta y edición del catálogo comercial de productos.', category: 'Comercial' },
   [Permission.COMMERCIAL_THOT_VER]: { label: 'Ver Thot / IA', description: 'Chat comercial e inteligencia de recomendación (Thot).', category: 'Comercial · Thot' },
   [Permission.COMMERCIAL_THOT_GESTIONAR]: { label: 'Gestionar Thot / IA', description: 'Curar contenido y recomendaciones del motor Thot.', category: 'Comercial · Thot' },
+  [Permission.COMMERCIAL_INTELLIGENCE_VER]: { label: 'Ver inteligencia interna', description: 'Tableros internos: hallazgos, diagnósticos, acciones, autonomía y señales agregadas. NO para clientes B2B.', category: 'Comercial · Thot' },
   [Permission.TRADE_ROUTE_PLAN_VER]: { label: 'Ver Agenda de Rutas', description: 'Consultar la agenda diaria de rutas del equipo de campo.', category: 'Seguimiento' },
   [Permission.TRADE_ROUTE_PLAN_GESTIONAR]: { label: 'Gestionar Agenda de Rutas', description: 'Definir y editar la asignación diaria de rutas al equipo.', category: 'Seguimiento' },
   [Permission.LOGISTICS_TRANSFERS_VER]: { label: 'Ver Traspasos', description: 'Consultar traspasos y movimientos que no son venta (consolidación/recepción).', category: 'Logística' },

@@ -97,7 +97,25 @@ class ReportsIoAdapter extends IoAdapter {
   }
 }
 
+/**
+ * `[AUTHZ-HARD.0]` Postura de fallo: la autenticación GLOBAL (JwtAuthGuard + RolesGuard) sólo
+ * se registra en AppModule cuando ENABLE_MULTITENANT==='true'. Si por config esa var quedara
+ * fuera en producción, el API arrancaría **sin autenticar** — sin error, sin log. El runbook de
+ * rollback dice literalmente "quitar ENABLE_MULTITENANT", así que el procedimiento de emergencia
+ * podía apagar la auth. Acá abortamos el arranque antes de servir una sola request.
+ */
+function assertAuthWiring(): void {
+  const isProd = process.env['NODE_ENV'] === 'production';
+  if (isProd && process.env['ENABLE_MULTITENANT'] !== 'true') {
+    throw new Error(
+      '[AUTHZ-HARD] En producción ENABLE_MULTITENANT debe ser "true": de él dependen los guards ' +
+        'globales de autenticación y autorización. Abortando arranque para no servir sin auth.',
+    );
+  }
+}
+
 async function bootstrap() {
+  assertAuthWiring();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     // Con LOG_JSON=true, bufferLogs deja que nestjs-pino tome el control (los logs

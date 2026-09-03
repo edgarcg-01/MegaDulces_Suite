@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { requireJwtSecret, jwtVerifyOptions } from '../auth/jwt-secret';
 import { TenantContextService } from './tenant-context.service';
 import { TenantContextInterceptor } from './tenant-context.interceptor';
 
@@ -17,8 +18,9 @@ import { TenantContextInterceptor } from './tenant-context.interceptor';
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   providers: [TenantContextService, TenantContextInterceptor],

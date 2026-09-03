@@ -34,6 +34,7 @@ const TESTS = [
   { file: 'test-newdb-inventory-investigation.js', label: 'PREV.1 expediente investigación (schema+RLS+folio INV-DIF+difference/value+CHECK causa/status+1 por item+classify/resolve+timeline SKU)', needsApi: false },
   { file: 'test-newdb-inventory-monitoring.js', label: 'PREV.2 monitoreo intensivo (schema+RLS+1 activo por SKU+conteo expected/físico+ventana desde conteo previo+pérdida acotada+cerrar/reabrir)', needsApi: false },
   { file: 'test-authz-route-coverage.js', label: 'AUTHZ.5 cobertura de autorización (toda escritura con permiso o motivo escrito + los 8 controllers de Logística + catálogo 164=164 sin invisibles + CASL retirado)', needsApi: false },
+  { file: 'test-authz-boot.js', label: 'AUTHZ-HARD.0 arranque fail-closed (requireJwtSecret lanza sin secreto/con el default en prod + assertAuthWiring aborta sin ENABLE_MULTITENANT + cero default hardcodeado en el código vivo)', needsApi: false },
   { file: 'test-newdb-inventory-risk.js', label: 'PREV.3 índice de riesgo (schema+RLS+computeScore niveles+agregación expedientes/monitoreo+reincidencia→crítico+CHECK nivel+único por SKU)', needsApi: false },
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },

@@ -1344,6 +1344,43 @@ Reporte de Edgar: *"hay problemas con el usuario luis_piceno en prod, lo arroja 
 
 ---
 
+## Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo)
+
+> Pedido de Edgar: *"audita a fondo nuestro manejo de permisos, que nada falle y sea 100% seguro"*. Auditoría con 3 barridos de código en paralelo + medición directa contra prod (read-only). La compuerta de permisos (AUTHZ.0–6) estaba bien; los agujeros estaban **debajo**. Decisiones de Edgar: rotar el JWT_SECRET ya · unificar el alcance a `ScopeService` · todo en una pasada.
+
+### AUTHZ-HARD.0 — P0 estructural ✅ 2026-09-03 (en código)
+- [x] 🔨 **0-A El secreto de firma era el default público del repo.** `process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod'` en **16 archivos** (issuers + guard + 11 gateways), y el string está commiteado en `docs/`. Medido: el `JWT_SECRET` de prod **es ese default** (confirmado por Edgar) → cualquiera forja `{role_name:'superadmin'}` HS256 y obtiene god-mode cross-tenant. Fix: helper `requireJwtSecret()` ([`jwt-secret.ts`](../../libs/platform-core/src/lib/auth/jwt-secret.ts)) que **aborta el arranque** si falta o si es el default (en prod); reemplazado en los 16. Pinneado `algorithms:['HS256']` en `signOptions`+`verifyOptions` de cada `JwtModule`. Endurecidos además: `WHATSAPP_APP_SECRET` (el webhook `@Public()` **fallaba abierto** sin él → ahora 400 en prod) y `STORE_INGEST_KEY` (default commiteado → falla cerrado en prod).
+- [x] 🔨 **0-B Toda la auth colgaba de `ENABLE_MULTITENANT`.** `JwtAuthGuard`+`RolesGuard` globales sólo se registran si la env es `'true'`; el runbook de rollback dice literalmente "quitarla" → el procedimiento de emergencia apagaba la autenticación. Fix: `assertAuthWiring()` en `bootstrap()` ([`main.ts`](../../apps/api/src/main.ts)) **aborta** si `NODE_ENV=production` y la env no es `'true'`.
+- [x] 🔨 **0-C Escalada por `PUT /users/:id/roles`.** `setRoles` no tenía **ninguno** de los frenos de sus hermanos (`assertCanAssignRole`, no-self, techo): cualquiera con `USUARIOS_GESTIONAR` se añadía `superadmin` como complemento y heredaba las 164 claves por la unión del perms-cache. Radio HOY = 0 (ningún rol no-admin tiene `USUARIOS_GESTIONAR`), pero el freno debe estar en código. Igual `setScope` (auto-ampliarse `warehouse=all`). Fix: los 3 frenos en `setRoles` + no-self/tope de amplitud en `setScope` + invalida `ScopeService` al cambiar alcance.
+
+### AUTHZ-HARD.1 — P1 IDOR / rutas sin gate ✅ 2026-09-03 (en código)
+- [x] 🔨 **1-A `logistics/analytics/*` (8) + `logistics/reports/*` (3) sin gate.** Cualquier autenticado —incl. `customer_b2b`— leía nómina de choferes, márgenes y ROI. El smoke AUTHZ.5 no lo vio (sólo vigila escrituras + 8 controllers hardcodeados). Gateados por la familia `LOGISTICS_*_VER` (nómina con `LOGISTICS_PAYROLL_VER`). Parametrizado el SQL de `fleet-utilization` (inyección **1-E** por `q.from/q.to` crudos).
+- [x] 🔨 **1-B IDOR cross-tenant en captura.** `GET /visits/:id` (sin permiso + `KNEX_CONNECTION` superusuario sin filtro de tenant), `GET/DELETE /daily-captures/:id`, `DELETE /reports/:id`: todos leían/borraban filas de otro tenant por UUID/folio adivinable. Fix: `@RequirePermissions(VISITAS_VER)` + filtro por `tenant_id` (y alcance own/team en visitas).
+- [x] 🔨 **1-C/1-F IDOR de cliente + superficie interna expuesta al B2B.** `customer_b2b` (3 cuentas activas) tiene `COMMERCIAL_CUSTOMERS_VER`+`ORDERS_VER` → leía el 360, NBA, canasta, pagos e historial de **cualquier** cliente. Fix (ownership, cero migración): `assertCustomerAccess` en customer-360 y recommendations; `enforceOrderOwnership`-style en `payments/orders/:orderId` y `orders/frequent/:customer_id`; `createDraft` resuelve el `customer_id` del JWT. Y los tableros internos (findings/diagnoses/actions/autonomy/signals) se movieron de `ORDERS_VER`/`CUSTOMERS_VER` a una clave nueva **`COMMERCIAL_INTELLIGENCE_VER`** (mig `20260904120000`, se otorga a todo interno que ya tenía los gates viejos, **excepto** `customer_b2b`).
+- [x] 🔨 **1-D/1-G push / telemetry.** `POST /push/unsubscribe` borraba la suscripción de cualquiera por endpoint (tabla sin RLS) → acotado al `user_id` del JWT. `GET /telemetry/portal/summary` leía cross-tenant por `?tenant_id` → forzado el tenant del contexto.
+
+### AUTHZ-HARD.2 — Revocación: desactivar/degradar = revocar ✅ 2026-09-03 (en código)
+- [x] 🔨 **Desactivar = revocar.** El token vive 12h y no es revocable; ni `JwtAuthGuard` ni el perms-cache releían `identity.users`, así que un despedido/degradado (o un token robado) seguía entrando hasta expirar — god-mode incluido. Fix: `PermissionsCacheService.isUserActive()` (cacheado 30s, fail-open ante error de DB) + `JwtAuthGuard` lo consulta en cada request y da 401 si la cuenta está inactiva/borrada. `invalidateUser` limpia también ese cache (baja instantánea desde /admin).
+- [x] 🔨 **God-mode desde el rol FRESCO.** `RolesGuard` decidía el god-mode con `user.role_name` del token: degradar a un superadmin (dejándolo activo) no se lo quitaba hasta el vencimiento. Ahora se evalúa sobre los roles frescos del perms-cache (`getRolesForUser`). **Diferido:** re-lectura de rol/permiso en el handshake de los 11 gateways WS (la revocación aplica a conexiones nuevas; las abiertas siguen hasta reconectar) — documentado.
+
+### AUTHZ-HARD.5 — Login endurecido (código) ✅ 2026-09-03
+- [x] 🔨 **Rate-limit propio del login:** `@Throttle({ short: { limit: 5, ttl: 60_000 } })` en `/auth/login` y `/auth-mt/login` (5/min/IP vs. el global 200/min ≈ 288k/día). 
+- [x] 🔨 **Oráculo de enumeración cerrado:** los chequeos de estado (cuenta de servicio / vencida) pasaban ANTES del `bcrypt.compare` y sus mensajes distintos permitían enumerar cuentas sin la contraseña. Ahora corren DESPUÉS: el estado sólo se revela a quien probó ser el dueño.
+- ⬜ **Diferido (Edgar, desde la UI):** contraseñas compartidas (7 cuentas de finanzas), 2 hashes no-bcrypt, 44 cuentas activas que nunca entraron (2 superadmin), exceso de superadmin (11), roles vacíos (`administrativo`/`admin_b`/`servicio`), cuentas de smoke + tenants de prueba, `must_change_password` sin uso, CORS `origin:'*'`+`credentials`. Y en código: filtro por tenant en el `/auth/login` legacy (no-determinista con usernames repetidos entre tenants).
+
+### AUTHZ-HARD.6 — Smokes anti-regresión 🔨 (en curso)
+- [x] 🔨 **`test-authz-boot.js`** (registrado en `run-all-tests.js`): `requireJwtSecret` lanza sin secreto o con el default en prod y lo tolera en dev; `assertAuthWiring` aborta el boot sin `ENABLE_MULTITENANT` en prod; **cero** default de secreto hardcodeado en el código vivo. 7/7 verde.
+- [x] 🔨 **`test-authz-route-coverage.js`** ya cubre el catálogo (165==165, 0 invisibles, 0 huérfanos) tras sumar `COMMERCIAL_INTELLIGENCE_VER`. 18/18.
+- ⬜ **Diferido:** `test-authz-idor.js` (runtime, con `customer_b2b`) y `test-authz-escalation.js` (que `USUARIOS_GESTIONAR` no se auto-otorgue superadmin) — necesitan la API arriba (los levanta Edgar); `authz-tree.spec.ts` de completitud (se solapa con la cobertura ya existente).
+
+### AUTHZ-HARD.3/4 — ⬜ DIFERIDO con motivo
+- ⬜ **Bloque 3 — unificar TODO el alcance a `ScopeService`** (retirar `getDataScope`, migrar ~36 controllers, sanear 73 filas `user_scopes='all'`): es un refactor de ~50 archivos con alto riesgo de regresión en pantallas de operación. Hacerlo apurado al final de una sesión larga viola *"que nada falle"* más de lo que lo cierra. La exposición es **intra-tenant** (un cajero ve otra sucursal de la MISMA empresa), no cross-empresa — severidad menor que lo ya cerrado. Se recomienda sesión dedicada. Los agujeros fail-open puntuales (store `snapshot`/`ticket-lookup`, `reconciliation/cash-cuts`, `route-tickets`, `commercial-map` NULL=todo) quedan identificados con archivo:línea en la auditoría.
+- ⬜ **Bloque 4 — paridad front/back** (derivar `anyOf`/landing de `AUTHZ_TREE`, 4 landing guards, 9 triples nav≠ruta≠backend, `USUARIOS_ASIGNAR_RUTA`, 4ª copia `shared-auth`): es corrección de UX (el usuario ve de MENOS, no de más) — sin exposición de seguridad. Prioridad tras el bloque de seguridad.
+
+**Pendiente prod (AUTHZ-HARD):** **Edgar rota `JWT_SECRET`** en Railway (≥32 bytes; invalida tokens → re-login de todos) + setea `WHATSAPP_APP_SECRET`/`STORE_INGEST_KEY` reales · aplica mig `20260904120000` · redeploy api+view · re-login (permisos en el JWT). Plan completo en el archivo de plan de la sesión.
+
+---
+
 ## ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén
 
 > Cierra el defecto de unidad de `/compras/pedido`. Detalle en **ADR-055** de

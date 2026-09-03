@@ -57,7 +57,11 @@ export class CommercialPushController {
   @Post('unsubscribe')
   @ApiOperation({ summary: 'Eliminar suscripción Web Push' })
   async unsubscribe(@Body() body: { endpoint: string }) {
-    await this.push.unsubscribe(body?.endpoint);
+    // `[AUTHZ-HARD.1]` El `userId` del JWT ahora SÍ se pasa: antes `unsubscribe(endpoint)` borraba
+    // la fila de cualquiera por su endpoint (tabla sin RLS) — contradecía el propio comentario de
+    // arriba. Se acota a la suscripción del propio usuario.
+    const ctx = this.tenantCtx.get();
+    await this.push.unsubscribe(body?.endpoint, ctx?.userId ?? null);
     return { ok: true };
   }
 
