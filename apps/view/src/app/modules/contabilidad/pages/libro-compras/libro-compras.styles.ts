@@ -216,6 +216,22 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
 .na-buscar-x:hover { color: var(--text-color); }
 .na-buscar-x i { font-size: .7rem; }
 
+/* ── Ceros y pie de totales (LC.16.3 / LC.16.4) ────────────────────────────
+   Medido: 51-55% de las celdas de impuesto van en cero. Un $0.00 en mono a tamaño completo
+   pesa lo mismo que un importe real, así que la mitad de la tinta numérica de la tabla no
+   decía nada. El guion ocupa el lugar sin gritar. */
+.na-cero { color: var(--text-muted); opacity: .5; }
+
+/* El desglose vive acá, no arriba: bajo su propia columna se lee como el asiento que es
+   (0% + c/IVA + IEPS + IVA = total) y sigue a la vista en el renglón 400. */
+.lc-tablewrap tr.na-tot td {
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-subtle);
+  font-weight: var(--fw-semibold); font-size: var(--fs-xs);
+  padding-top: .45rem; padding-bottom: .45rem;
+}
+.lc-tablewrap tr.na-tot .muted { font-weight: var(--fw-medium); }
+
 /* El link del vacío-por-filtro: lleva a "Todas" sin que haya que buscar el chip. */
 .na-link { font: inherit; color: var(--action); background: none; border: 0; padding: 0;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
