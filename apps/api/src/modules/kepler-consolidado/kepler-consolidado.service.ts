@@ -107,7 +107,7 @@ export class KeplerConsolidadoService {
     }
   }
 
-  // RETIRADO 2026-09-02 (ADR-052): `phStockFeed` (@1min) hacía spawn de
+  // RETIRADO 2026-09-02 (ADR-055): `phStockFeed` (@1min) hacía spawn de
   // `import-branch-stock-live.js`, el MISMO importer que PM2 ya corre en loop
   // (`ecosystem.sync.config.js` → `sync-stock --apply --watch=15`) y que el runner on-prem
   // dispara en su grupo `stock` (`run-prod-feeds.js`). Era TRIPLE ejecución del mismo feed
@@ -116,7 +116,7 @@ export class KeplerConsolidadoService {
   // fantasma. Su doc también mentía: decía "PH (md_01) → MD-10" cuando el importer cubre 01-06.
   // La existencia además ya no se lee de esa copia: el fact deriva de
   // `analytics.v_erp_stock_on_hand` (vista sobre kepler_ods). PM2 queda como único ejecutor
-  // hasta que el paso 4/5 de ADR-052 retire el importer entero.
+  // hasta que el paso 4/5 de ADR-055 retire el importer entero.
 
   /**
    * Best-sellers VIVOS de la red → catalog.top_sellers_live (portal home/catálogo).

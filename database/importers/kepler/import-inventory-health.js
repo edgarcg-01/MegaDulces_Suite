@@ -70,7 +70,7 @@ const SELECT_HEALTH = `
            sqrt(GREATEST(0, sumsq_90d / 90.0 - power(units_90d / 90.0, 2))) AS sigma
       FROM vel
   ), stk AS (
-    -- ADR-052 — la existencia se DERIVA del ODS, ya no se lee la copia commercial.stock.
+    -- ADR-055 — la existencia se DERIVA del ODS, ya no se lee la copia commercial.stock.
     -- Medido contra el POS en vivo: la vista acierta 100.0% y la copia 91.0%.
     -- ⚠️ La vista NO convierte unidades a proposito: Wincaja guarda la existencia en su unidad de
     -- venta y su DEMANDA (la que se cruza acá para dias de cobertura y buckets) viene en esa MISMA

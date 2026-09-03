@@ -1,5 +1,5 @@
 /**
- * ADR-052 — FIX: `analytics.v_erp_stock_on_hand` DUPLICABA la existencia de MD-30/MD-32.
+ * ADR-055 — FIX: `analytics.v_erp_stock_on_hand` DUPLICABA la existencia de MD-30/MD-32.
  *
  * `wincaja.articulos` guarda DOS datasets por sucursal — `source_dataset = 'actual'` (15,512 arts)
  * y `'concentrada'` (15,334) — y el LEFT JOIN de la vista sólo empataba por

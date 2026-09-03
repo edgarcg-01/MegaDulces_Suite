@@ -127,6 +127,14 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
     { perm: Permission.COMMERCIAL_INVHEALTH_VER, url: '/almacen/inventory-health' },
     // Rol de prevención (solo RECONCILIATION_VER): su landing es el Cuadre.
     { perm: Permission.RECONCILIATION_VER, url: '/almacen/cuadre' },
+    // `[AUTHZ.6]` El piso de almacén. Ninguno de estos era candidato, así que el `almacenista`
+    // caía al fallback `/almacen/inventory` — que exige `_INVENTORY_VER`, el permiso que NO tiene
+    // — y de ahí a `/sin-acceso`. Su landing es el trabajo del día: los vales por recibir.
+    { perm: Permission.COMMERCIAL_INVENTORY_RECIBIR, url: '/almacen/inventory/recepcion-sesiones' },
+    { perm: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, url: '/almacen/inventory/sessions' },
+    { perm: Permission.COMMERCIAL_INVENTORY_CONTAR, url: '/almacen/inventory/sessions' },
+    { perm: Permission.COMMERCIAL_EXPIRY_VER, url: '/almacen/caducidades' },
+    { perm: Permission.COMMERCIAL_MOVEMENTS_VER, url: '/almacen/movimientos' },
   ],
   '/almacen/inventory',
 );

@@ -2,9 +2,9 @@
 /**
  * Stock VIVO multi-sucursal → commercial.stock, en MODO INCREMENTAL (delta-only).
  *
- * Reemplaza/generaliza import-ph-stock-live.js (que era PH solo + per-fila; retirado en ADR-052).
+ * Reemplaza/generaliza import-ph-stock-live.js (que era PH solo + per-fila; retirado en ADR-055).
  *
- * ⚠️ ADR-052 — DEPRECADO, CON FECHA DE CADUCIDAD. La existencia ya NO se lee de la copia que este
+ * ⚠️ ADR-055 — DEPRECADO, CON FECHA DE CADUCIDAD. La existencia ya NO se lee de la copia que este
  * importer escribe: el fact del pedido (`import-replenishment-plan`) y `inventory_health` derivan
  * de `analytics.v_erp_stock_on_hand` (vista sobre `kepler_ods.kdil`), que contra el POS en vivo
  * acierta 100.0% mientras esta copia acierta 91.0% — su delta-contra-snapshot
@@ -13,11 +13,11 @@
  *
  * Sigue vivo SÓLO porque `commercial.stock` conserva lectores sin migrar (`criticalStock`,
  * `summary`, `worklist` + los ~16 lectores de app + el módulo de inventario), y congelarla los
- * dejaría con datos cada vez más viejos en silencio. Se retira en el paso 4/5 de ADR-052, cuando
+ * dejaría con datos cada vez más viejos en silencio. Se retira en el paso 4/5 de ADR-055, cuando
  * la existencia efectiva pase a ser `vista − reservas`. NO construir nada nuevo sobre esta copia.
  *
  * Ejecutor ÚNICO: PM2 (`ecosystem.sync.config.js` → `sync-stock --apply --watch=15`). El cron
- * `phStockFeed` (@1min) del API que lo spawneaba en paralelo se retiró en ADR-052: era triple
+ * `phStockFeed` (@1min) del API que lo spawneaba en paralelo se retiró en ADR-055: era triple
  * ejecución compitiendo por el mismo snapshot en disco.
  * Lee kdil de cada sucursal (READ-ONLY platform_ro), y sube al destino SOLO las
  * filas cuyo stock cambió desde la última corrida (snapshot local en disco).
