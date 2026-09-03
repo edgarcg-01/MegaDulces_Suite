@@ -349,6 +349,56 @@ Entonces no se renombró a "arqueado" —eso habría dado por bueno un conteo qu
 
 **Pendiente prod:** redeploy api+view. No requiere migración ni re-login.
 
+## SM.21–SM.23 — Que el arqueo OCURRA, y que cubra el dinero completo (✅ local 2026-09-03)
+
+### SM.21 — El corte sin contar deja de ser invisible
+
+76 de 78 cortes sin conteo físico no es un dato que falte jalar: es trabajo que no se hizo. `CashCountSlaService` manda los vencidos a `reconciliation.discrepancies` con la regla `arqueo_no_realizado` — a la bandeja que el encargado ya abre, no a una cola nueva que nadie mira. **45 min** = aviso; **12 h** = crítico y `arqueo_no_verificable`, porque pasado eso el efectivo ya se depositó y el corte queda sin verificar de forma permanente: el hallazgo no se apaga, sube. `GET /cumplimiento` puso el número a la vista: **1% de los cortes con conteo físico, $5.8M sin verificar**.
+
+### SM.22 — El ticket, el idioma y el orden
+
+- El ticket pasó de resumen a **arqueo completo**: turno, duración, aviso de cambio de cajera, billetes/monedas por separado, tarjeta/transferencia/venta, observaciones con motivo y nota, firmas con fecha y hora, folio del arqueo. Se imprime **en la captura**, no en el historial: antes había que salir a buscar el corte, o sea firmar el respaldo media hora después del conteo.
+- **La app le hablaba a las cajeras en voseo argentino** ("tenés", "avisale", "contá"). Son de Michoacán y Guanajuato; en la pantalla donde se sella efectivo, la confianza en la herramienta es parte del control. Barrido completo del módulo Tienda y de los mensajes de error del backend.
+- El **orden de los turnos** lo decidía la posición en el arreglo (`i > 0`), no la fecha: salía accionable el corte del 02/09 con el del 01/09 bloqueado detrás. Y **SM.16 impedía CORREGIR** un conteo ya hecho, dejando congelada una cifra que la cajera sabe equivocada.
+
+### SM.23 — El aviso, el retiro, y el faltante inventado
+
+**El programa no avisaba.** El turno esperaba en la pantalla y si la cajera no la abría no se enteraba. La única alerta que salía sola era al supervisor, a los 45 minutos. Ahora el aviso le llega esté donde esté (barra fija en la raíz + notificación del navegador con la pestaña oculta), por un **room personal** del gateway `/store` — un aviso que no es tuyo se ignora, y a los dos días se ignoran todos.
+
+**El disparador de los $15,000 (decode nuevo).** Edgar lo describió y el ERP lo confirmó: `kdpv_folio_caja.c46` es el **límite de efectivo en caja** (en suc 01 vale exactamente $15,000, el valor más común: 206 de ~318 cortes) y `c47` el tope duro. Cuando la caja junta el límite, Kepler pide sacar el dinero y **sube `c48` en el turno ABIERTO** — verificado en vivo: suc 01 caja 1 con `c48 = 15,000.00` contra `c46 = 15,000.00`, sin cerrar.
+
+**Corrige un modelo equivocado:** SM.17 predecía el corte por HORA con la mediana histórica de cada caja. El disparador **no es el reloj, es el monto** — por eso algunas cajas daban dispersiones de ±210 min.
+
+**Dónde está el dinero, medido sobre 919 cortes:** el cajón se queda bajo el límite en el **89%** de los casos (promedio $8,977) mientras el contado promedia **$27,564** y lo retirado $18,148. O sea que **el 63–81% del efectivo sale en sangrías** y contar solo al cierre verifica un tercio.
+
+`blind_counts.tipo` acepta `retiro` (mig `20260903170000`; el rollback falla a propósito si ya hay retiros capturados). La detección es **stateless**: compara `c48` contra la suma de lo contado, sin guardar "último visto".
+
+### El faltante inventado (bug latente que encontró este trabajo)
+
+`diff_real = esperado − total_contado` **estaba mal** y nadie lo había visto: el `esperado` de Kepler es de TODO el turno e incluye el efectivo que ya salió en sangrías, mientras que el conteo del cierre es solo del cajón. Con los promedios reales —esperado $27,564 contra un cajón de $8,977— **acusaba a una cajera honesta de $18,587 de faltante**. Pasó desapercibido porque los dos únicos arqueos capturados eran de datos sembrados con retiro cero.
+
+La identidad correcta cierra el turno entero:
+
+    Σ retiros contados + cajón contado = esperado
+
+Y lo que no se contó **se declara aparte**, no se mezcla con el faltante: `retiros_sin_verificar` + `cobertura`. Un faltante real y "no lo contamos" son cosas distintas y no pueden sumar al mismo número. Verificado con el escenario real (esperado $20,000, $15,000 en sangrías, $5,000 en el cajón): `diff_real` pasa de **$15,000 inventados** a **$0**, con cobertura 25% sin contar los retiros y 100% contándolos.
+
+### El turno abierto que cruzó la medianoche
+
+La ventana de "solo hoy" (SM.21) se llevó por delante el turno **abierto** de ayer: la cajera lo sigue trabajando y no le aparecía nada. Es la "caja arrastrada" que el tablero ya vigila aparte — y en staging era la caja 1 de suc 01, con $15,000 retirados sin contar y sin nadie a quien pedírselo. Ahora el turno abierto entra siempre; la ventana solo acota los cerrados.
+
+### ⛔ Pendiente que NO es código: 16 códigos de Kepler sin usuario
+
+**114 cortes por $3,035,115** cuyos turnos no le aparecen a nadie en la pantalla de captura, porque el código de cajera del ERP no existe como usuario. `turnosPendientes` filtra por `upper(c8) = username`, así que sin usuario no hay a quién mostrárselo ni a quién avisarle.
+
+| Código | Sucursal | Cortes | Efectivo |
+|---|---|---|---|
+| `50C01` · `50C02` · `5050` · `5001` · `5002` · `5003` · `50C06` | Canindo | 43 | $1,580,880 |
+| `10AUX` · `21VUO` · `22EFM` · `23JHO` · `26VHGH` · `27MMP` · `28MEVL` | Padre Hidalgo | 57 | $1,087,295 |
+| `42MIDR` · `42BODGA` | La Piedad Abastos | 14 | $366,940 |
+
+Los `2xXXX` de Padre Hidalgo son las **rutas** (21, 22, 23, 26, 27, 28) y los `50xx` son **Canindo**. Se resuelve dando de alta usuarios con el código exacto de Kepler como username — no necesita código.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
