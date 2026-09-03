@@ -129,6 +129,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
           { id: 'products', label: 'Productos', route: '/comercial/products', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
+          { id: 'intelligence', label: 'Inteligencia (hallazgos / acciones / autonomía)', route: '/comercial/command-center', view: [Permission.COMMERCIAL_INTELLIGENCE_VER], manage: [] },
           { id: 'route-control', label: 'Control de ruta / tickets', route: '/comercial/route-tickets', view: [Permission.ROUTE_CONTROL_VER], manage: [Permission.ROUTE_TICKET_CAPTURE] },
           { id: 'carga', label: 'Carga al camión', route: '/comercial/orders', view: [Permission.COMMERCIAL_CARGA_VER], manage: [Permission.COMMERCIAL_CARGA_GESTIONAR] },
         ],

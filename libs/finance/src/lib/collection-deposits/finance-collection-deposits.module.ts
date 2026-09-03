@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { CloudinaryModule, AiProductMatcherModule } from '@megadulces/platform-core';
+import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CollectionDepositsController } from './collection-deposits.controller';
 import { CobranzaGateway } from './cobranza.gateway';
@@ -17,8 +17,9 @@ import { CobranzaGateway } from './cobranza.gateway';
     AiProductMatcherModule,
     // JwtModule local para el handshake del gateway (mismo default que las otras gateways de Finanzas).
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   controllers: [CollectionDepositsController],

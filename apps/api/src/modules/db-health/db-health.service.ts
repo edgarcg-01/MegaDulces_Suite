@@ -757,7 +757,19 @@ export class DbHealthService {
         // ok → clasifica por antigüedad de la última corrida vs cadencia.
         status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
         const dur = row.duration_ms != null ? ` · ${Math.round(Number(row.duration_ms) / 1000)}s` : '';
-        note = `OK${dur}${row.rows_affected != null ? ` · ${row.rows_affected} filas` : ''}`;
+        const filas = row.rows_affected != null ? ` · ${row.rows_affected} filas` : '';
+        // La nota decía "OK" SIEMPRE, aunque `status` fuera warn o critical: el job reportó
+        // éxito, y el texto repetía ese éxito ignorando que la última corrida era vieja. Así
+        // `contpaqi_add_cfdis` pasó 30 h muerto mostrando "OK · 167224 filas" — el número de
+        // filas de la corrida vieja, que se lee como salud. La detección funcionaba; el mensaje
+        // mentía. Cuando el estado NO es ok, la nota ARRANCA por el rezago, igual que la rama
+        // de `running` dice "desde hace X".
+        if (status === 'ok') {
+          note = `OK${dur}${filas}`;
+        } else {
+          const edad = ageSec != null ? this.humanH(ageSec / 3600) : 'sin fecha';
+          note = `SIN CORRER hace ${edad} (cadencia ${cfg?.cadence || '—'}); la última terminó bien${dur}${filas}`;
+        }
       }
       out.push({
         ...base, last_update: finish ? finish.toISOString() : null, age_seconds: ageSec,
