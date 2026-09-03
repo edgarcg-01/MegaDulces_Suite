@@ -89,6 +89,13 @@ export interface FacturaMes {
    * para no re-meterla: son 271 facturas por $32.6M en 2026 (jul solo, 150 por $17.9M).
    */
   ya_en_poliza: boolean;
+  /**
+   * `vigente | cancelado | desconocido` según el ADD. **Casi todo es `desconocido`**
+   * (167,053 de 167,135): el ADD trae `CancelStatus` vacío y nadie valida contra el SAT.
+   * Por eso NO se filtra por `= vigente` — eso vaciaría el módulo. Se bloquea lo que se
+   * sabe malo (`cancelado`) y la ignorancia se declara en un aviso, no se esconde.
+   */
+  estatus_sat: string;
 }
 
 @Injectable()
@@ -109,6 +116,20 @@ export class PurchaseBookService {
   private finDeMes(anioMes: string): Date {
     const [y, m] = anioMes.split('-').map(Number);
     return new Date(Date.UTC(y, m, 0));
+  }
+
+  /**
+   * Los dos extremos del mes, para filtrar `fecha` por RANGO en vez de por
+   * `to_char(fecha, 'YYYY-MM')`. Envolver la columna en una función anula el índice
+   * `(tenant_id, fecha)` y fuerza un seq scan de la tabla entera.
+   */
+  private inicioDeMes(anioMes: string): string {
+    return `${anioMes}-01`;
+  }
+
+  private inicioDelSiguiente(anioMes: string): string {
+    const [y, m] = anioMes.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
   }
 
   // ── El tablero: en qué va cada mes ────────────────────────────────────────────────────
@@ -311,7 +332,25 @@ export class PurchaseBookService {
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
       // factura por el join. Se prefiere la cuenta que ya se usó en pólizas reales.
       const { rows } = await knex.raw(
-        `SELECT DISTINCT ON (upper(f.uuid))
+        `WITH patas AS (
+           -- Prueba (a) del anti-duplicado, PRE-AGREGADA por importe. Correlacionar un
+           -- EXISTS por cada CFDI hacía que abrir un mes de 722 facturas tardara 11.8 s.
+           SELECT round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+              AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'
+            GROUP BY 1
+         ), cargos AS (
+           -- Prueba (b), el mismo pre-agregado. Acá el importe es el NETO sin impuestos.
+           SELECT round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND anio_mes = ?
+              AND (cuenta LIKE '501%' OR cuenta LIKE '502%') AND cargo_abono = 'C'
+            GROUP BY 1
+         )
+         SELECT DISTINCT ON (upper(f.uuid))
                 upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
                 f.fecha, f.total,
                 coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
@@ -323,7 +362,7 @@ export class PurchaseBookService {
                 coalesce(a.proveedor_existe, false)     AS cuenta_existe,
                 coalesce(a.compra_exenta_existe, false) AS compra_exenta_existe,
                 coalesce(a.compra_iva_existe, false)    AS compra_iva_existe,
-                f.aso_contabilidad,
+                f.aso_contabilidad, coalesce(f.estatus_sat, 'desconocido') AS estatus_sat,
                 -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
                 -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
                 --
@@ -336,37 +375,31 @@ export class PurchaseBookService {
                 -- aun así había $7.2M cargados a 501/502 desde pólizas tipo 2 "PAGO FACT
                 -- ...". Con sólo la prueba (a), 33 facturas por $2,095,889 se habrían
                 -- posteado dos veces — una de ellas era el primer renglón del TXT de agosto.
-                (EXISTS (
-                  SELECT 1 FROM analytics.gl_poliza_lines l
-                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
-                     AND l.tipo_pol = ? AND l.folio = ?
-                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
-                     AND l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A'
-                     AND round(l.importe, 2) = round(f.total, 2)
-                 ) OR EXISTS (
-                  SELECT 1 FROM analytics.gl_poliza_lines l
-                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
-                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
-                     AND (l.cuenta LIKE '501%' OR l.cuenta LIKE '502%') AND l.cargo_abono = 'C'
-                     AND round(l.importe, 2) = round(
-                           f.total
-                           - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
-                           - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
-                 )) AS ya_en_poliza,
+                (p.importe IS NOT NULL OR g.importe IS NOT NULL) AS ya_en_poliza,
                 i.incluida, i.motivo
            FROM fiscal.cfdis f
            LEFT JOIN finance.gl_supplier_accounts a
              ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
            LEFT JOIN finance.purchase_book_run_items i
              ON i.tenant_id = f.tenant_id AND i.run_id = ? AND i.cfdi_uuid = upper(f.uuid)
+           LEFT JOIN patas  p ON p.importe = round(f.total, 2)
+           LEFT JOIN cargos g ON g.importe = round(
+                 f.total
+                 - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
+                 - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
           WHERE f.tenant_id = current_tenant_id()
             AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
-            AND to_char(f.fecha, 'YYYY-MM') = ?
+            -- Rango sobre la columna, NO to_char(fecha, 'YYYY-MM'): envolver la columna en
+            -- una función anula el índice (tenant_id, fecha) y obliga a un seq scan de los
+            -- 167k CFDIs — 4.6 s de los 11.8 s que tardaba abrir agosto. Equivalencia
+            -- verificada contra el to_char en 5 meses: mismo conteo exacto.
+            AND f.fecha >= ? AND f.fecha < ?
             -- El sub-módulo solo mira lo no asociado. IS NOT TRUE y no = false a
             -- propósito: NULL es "no sabemos" y también hay que mirarlo, no esconderlo.
             AND (? = 'libro' OR f.aso_contabilidad IS NOT TRUE)
           ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
-        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), run?.id ?? null, anioMes, tipo],
+        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), anioMes, anioMes,
+          run?.id ?? null, this.inicioDeMes(anioMes), this.inicioDelSiguiente(anioMes), tipo],
       );
 
       const facturas: FacturaMes[] = rows.map((r: Record<string, unknown>) => {
@@ -374,10 +407,12 @@ export class PurchaseBookService {
         const subtotal16 = r2(r['subtotal16']);
         const conCuenta = r['cuenta_existe'] === true;
         const yaEnPoliza = r['ya_en_poliza'] === true;
-        // El default de inclusión es lo que cambia entre los dos modos:
-        //  · libro       → entra si su proveedor está en el catálogo de compras
-        //  · complemento → además: que no esté ya posteada (si no, la duplicamos)
-        const porDefault = tipo === 'complemento' ? conCuenta && !yaEnPoliza : conCuenta;
+        const estatusSat = String(r['estatus_sat'] ?? 'desconocido');
+        const cancelado = estatusSat === 'cancelado';
+        // Entra si su proveedor está en el catálogo de compras, no está ya posteada (si no
+        // la duplicamos) y no es un CFDI que el SAT dio de baja. El anti-duplicado aplica en
+        // los dos modos: en `libro` el riesgo es MAYOR, porque abarca el mes entero.
+        const porDefault = conCuenta && !yaEnPoliza && !cancelado;
         return {
           uuid: String(r['uuid']),
           emisor_rfc: String(r['emisor_rfc'] ?? ''),
@@ -403,7 +438,9 @@ export class PurchaseBookService {
             ? porDefault
             : r['incluida'] === true,
           motivo_exclusion: (r['motivo'] as string)
-            ?? (tipo === 'complemento' && yaEnPoliza ? 'su importe ya está en la póliza del mes' : null),
+            ?? (cancelado ? 'CFDI cancelado en el SAT' : null)
+            ?? (yaEnPoliza ? 'su importe ya está en la póliza del mes' : null),
+          estatus_sat: estatusSat,
           aso_contabilidad: r['aso_contabilidad'] === null || r['aso_contabilidad'] === undefined
             ? null
             : r['aso_contabilidad'] === true,
@@ -443,12 +480,31 @@ export class PurchaseBookService {
       const sinCta501 = dentro.filter((f) => f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe));
       const negativas = dentro.filter((f) => f.base_exenta < -0.004);
       const cuota = dentro.filter((f) => f.ieps_por_cuota);
+      const cancelados = dentro.filter((f) => f.estatus_sat === 'cancelado');
+      if (cancelados.length) {
+        // Bloqueante, no aviso: un cancelado posteado es un asiento que hay que reversar.
+        bloqueantes.push(`${cancelados.length} factura(s) canceladas en el SAT — no se pueden postear`);
+      }
       if (sinMapa.length) bloqueantes.push(`${sinMapa.length} factura(s) de un RFC que no está en el mapa de cuentas`);
       if (ctaMala.length) bloqueantes.push(`${ctaMala.length} factura(s) con una cuenta de proveedor que no existe en ContPAQi`);
       if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA en ContPAQi`);
       if (sinCta501.length) bloqueantes.push(`${sinCta501.length} factura(s) con base exenta pero sin cuenta de compras al 0% en ContPAQi`);
       if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
       if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
+
+      // Declarar la ignorancia en vez de esconderla. El ADD trae `CancelStatus` vacío en
+      // casi todo (167,053 de 167,135 CFDIs), así que "no cancelado" acá significa "no nos
+      // consta", no "vigente". Lo que se pierde si una resultó cancelada es el
+      // acreditamiento de IVA+IEPS, no la compra — por eso el monto que se declara es ése.
+      const sinVerificar = dentro.filter((f) => f.estatus_sat === 'desconocido');
+      if (sinVerificar.length) {
+        const pct = Math.round((sinVerificar.length / Math.max(dentro.length, 1)) * 100);
+        const enRiesgo = r2(sinVerificar.reduce((a, f) => a + f.iva + f.ieps, 0));
+        avisos.push(
+          `${sinVerificar.length} de ${dentro.length} facturas (${pct}%) sin estatus verificado contra el SAT: `
+          + `no se valida cancelación. Acreditan ${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS.`,
+        );
+      }
 
       if (tipo === 'complemento') {
         const yaPost = facturas.filter((f) => f.ya_en_poliza);
@@ -707,7 +763,8 @@ export class PurchaseBookService {
     const rechazables = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
       || (f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe))
       || (f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe))
-      || f.base_exenta < -0.004);
+      || f.base_exenta < -0.004
+      || f.estatus_sat === 'cancelado');
     if (rechazables.length) {
       throw new BadRequestException(
         `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,

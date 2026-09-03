@@ -250,7 +250,9 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-cta">
-                    @if (f.ya_en_poliza) {
+                    @if (f.estatus_sat === 'cancelado') {
+                      <p-tag value="Cancelada en el SAT" severity="danger" />
+                    } @else if (f.ya_en_poliza) {
                       <p-tag value="Ya en la póliza" severity="warn" />
                     } @else if (!f.account_suffix) {
                       <p-tag value="RFC sin cuenta" severity="danger" />
