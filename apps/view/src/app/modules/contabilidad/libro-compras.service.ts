@@ -267,6 +267,15 @@ export class LibroComprasService {
     return this.http.post<{ ok: boolean }>(`${this.noAso}/${mes}/estado`, { estado, ...datos });
   }
 
+  /**
+   * El listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi. Es lo que hace
+   * HONESTO al flag `IsAsoContabilidad`: sin la asociación formal, ContPAQi contabiliza la
+   * factura, nadie la liga, y nuestro filtro primario sigue diciendo "no asociada".
+   */
+  asociadorNoAsociados(mes: string): Observable<Blob> {
+    return this.http.get(`${this.noAso}/${mes}/asociador.csv`, { responseType: 'blob' });
+  }
+
   respaldoNoAsociados(mes: string): Observable<Respaldo> {
     return this.http.get<Respaldo>(`${this.noAso}/${mes}/respaldo`);
   }
