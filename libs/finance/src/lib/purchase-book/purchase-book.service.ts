@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import {
+  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, type Movimiento, type PolizaTxtParseada,
+} from './poliza-txt';
+
+export { type Movimiento, type PolizaTxtParseada } from './poliza-txt';
 
 /**
  * Fase LC (ADR-052) — El trámite mensual del libro de compras.
@@ -22,8 +27,6 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 /** Cuentas de impuesto acreditable — son fijas, no dependen del proveedor. */
 const CTA_IVA = '1470040000';
 const CTA_IEPS = '1470110000';
-/** ContPAQi: 3 = Diario. Verificado contra su catálogo `TiposPolizas`. */
-const TIPO_POLIZA_DIARIO = '3';
 
 export type ImpuestosModo = 'global' | 'por-cuenta';
 export type EstadoRun = 'borrador' | 'generado' | 'entregado' | 'aplicado' | 'cancelado';
@@ -61,7 +64,16 @@ export interface FacturaMes {
   cuenta_proveedor: string | null;
   cuenta_compra_exenta: string | null;
   cuenta_compra_iva: string | null;
+  /**
+   * ⚠️ Los tres `*_existe` son lo único que dice si la cuenta EXISTE en el catálogo de
+   * ContPAQi. Los `cuenta_*` de arriba son strings **precalculados** (`212`/`501`/`502` +
+   * sufijo) que están poblados para todo proveedor que tenga sufijo, así que preguntar por
+   * ellos no frena nada: 14 proveedores sin cuenta `502` pasaban derecho al archivo, y un
+   * renglón con la cuenta vacía tumba el import entero sin verse en ninguna pantalla.
+   */
   cuenta_existe: boolean;
+  compra_exenta_existe: boolean;
+  compra_iva_existe: boolean;
   incluida: boolean;
   motivo_exclusion: string | null;
   /**
@@ -78,20 +90,6 @@ export interface FacturaMes {
    */
   ya_en_poliza: boolean;
 }
-
-export interface Movimiento {
-  cuenta: string;
-  referencia: string;
-  abono: boolean;
-  importe: number;
-  concepto: string;
-}
-
-const r2 = (n: unknown) => Math.round((Number(n) || 0) * 100) / 100;
-const padR = (s: unknown, n: number) => String(s ?? '').slice(0, n).padEnd(n, ' ');
-const padL = (s: unknown, n: number) => String(s ?? '').slice(0, n).padStart(n, ' ');
-/** ContPAQi pide entre 1 y 2 decimales: `6.5` y `6.53` valen, `6` no. */
-const impTxt = (n: number) => (Number.isInteger(r2(n)) ? `${r2(n)}.0` : r2(n).toFixed(2));
 
 @Injectable()
 export class PurchaseBookService {
@@ -322,7 +320,9 @@ export class PurchaseBookService {
                 (f.impuestos->'traslados' @> '[{"tipo_factor":"Cuota"}]') AS ieps_por_cuota,
                 a.account_suffix, a.supplier_name, a.cuenta_proveedor,
                 a.cuenta_compra_exenta, a.cuenta_compra_iva,
-                coalesce(a.proveedor_existe, false) AS cuenta_existe,
+                coalesce(a.proveedor_existe, false)     AS cuenta_existe,
+                coalesce(a.compra_exenta_existe, false) AS compra_exenta_existe,
+                coalesce(a.compra_iva_existe, false)    AS compra_iva_existe,
                 f.aso_contabilidad,
                 -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
                 -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
@@ -394,6 +394,8 @@ export class PurchaseBookService {
           cuenta_compra_exenta: (r['cuenta_compra_exenta'] as string) ?? null,
           cuenta_compra_iva: (r['cuenta_compra_iva'] as string) ?? null,
           cuenta_existe: conCuenta,
+          compra_exenta_existe: r['compra_exenta_existe'] === true,
+          compra_iva_existe: r['compra_iva_existe'] === true,
           // La decisión guardada manda; si no hay, el default del modo. En `complemento` el
           // default es además el criterio que LC.2 buscaba y no encontraba en el CFDI: lo
           // que falta por contabilizar es lo que ContPAQi mismo dice que no está asociado.
@@ -435,12 +437,16 @@ export class PurchaseBookService {
       const avisos: string[] = [];
       const sinMapa = dentro.filter((f) => !f.account_suffix);
       const ctaMala = dentro.filter((f) => f.account_suffix && !f.cuenta_existe);
-      const sinCta502 = dentro.filter((f) => f.subtotal16 > 0.004 && !f.cuenta_compra_iva);
+      // Se pregunta por `*_existe`, NO por el string de la cuenta: ese está precalculado y
+      // nunca falta, así que el freno viejo (`!f.cuenta_compra_iva`) no frenaba nada.
+      const sinCta502 = dentro.filter((f) => f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe));
+      const sinCta501 = dentro.filter((f) => f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe));
       const negativas = dentro.filter((f) => f.base_exenta < -0.004);
       const cuota = dentro.filter((f) => f.ieps_por_cuota);
       if (sinMapa.length) bloqueantes.push(`${sinMapa.length} factura(s) de un RFC que no está en el mapa de cuentas`);
-      if (ctaMala.length) bloqueantes.push(`${ctaMala.length} factura(s) con una cuenta que no existe en ContPAQi`);
-      if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA`);
+      if (ctaMala.length) bloqueantes.push(`${ctaMala.length} factura(s) con una cuenta de proveedor que no existe en ContPAQi`);
+      if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA en ContPAQi`);
+      if (sinCta501.length) bloqueantes.push(`${sinCta501.length} factura(s) con base exenta pero sin cuenta de compras al 0% en ContPAQi`);
       if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
       if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
 
@@ -468,7 +474,14 @@ export class PurchaseBookService {
     const userId = this.ctx.get()?.userId ?? null;
     return this.tk.run(async (knex) => {
       const run = await this.ensureRun(knex, anioMes, tipo);
-      if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado; no se puede cambiar');
+      // `entregado` cuenta igual que `aplicado`: el archivo ya salió de nuestras manos, así
+      // que cambiarle la inclusión separa en silencio la decisión registrada de lo que se
+      // entregó. Si de verdad hay que corregir, se cancela la corrida y se hace otra.
+      if (run.estado === 'aplicado' || run.estado === 'entregado') {
+        throw new BadRequestException(
+          `la corrida de ${anioMes} ya está ${run.estado}; no se puede cambiar qué entra. Cancélala si hay que corregir.`,
+        );
+      }
       const filas = uuids.map((u) => ({
         tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: String(u).toUpperCase(),
         incluida, motivo: incluida ? null : (motivo ?? null), origen: 'manual', created_by: userId,
@@ -476,12 +489,24 @@ export class PurchaseBookService {
       await knex('finance.purchase_book_run_items').insert(filas)
         .onConflict(['tenant_id', 'run_id', 'cfdi_uuid'])
         .merge(['incluida', 'motivo', 'origen']);
-      // Cambió el contenido: lo generado antes ya no corresponde.
-      if (run.estado === 'generado') {
-        await knex('finance.purchase_book_runs').where({ id: run.id })
-          .update({ estado: 'borrador', archivo_hash: null, updated_at: knex.fn.now(), updated_by: userId });
-      }
+      await this.invalidar(knex, run, userId);
       return { ok: true, afectadas: filas.length };
+    });
+  }
+
+  /**
+   * Cambió lo que va en el archivo, así que lo generado antes ya no corresponde: vuelve a
+   * `borrador` y se tira el artefacto.
+   *
+   * ⚠️ Se borra `archivo_contenido` junto con el hash. Limpiar sólo el hash dejaba el TXT
+   * viejo descargable — `obtenerArchivo` sólo miraba que el contenido existiera — y lo
+   * servía con `X-Archivo-Hash` vacío: un archivo sin firma que ya no era el del mes.
+   */
+  private async invalidar(knex: any, run: Record<string, unknown>, userId: string | null) {
+    if (run['estado'] !== 'generado') return;
+    await knex('finance.purchase_book_runs').where({ id: run['id'] }).update({
+      estado: 'borrador', archivo_hash: null, archivo_contenido: null,
+      updated_at: knex.fn.now(), updated_by: userId,
     });
   }
 
@@ -519,16 +544,30 @@ export class PurchaseBookService {
     const ivaPorCuenta = new Map<string, number>();
     const iepsPorCuenta = new Map<string, number>();
 
+    /**
+     * Invariante del generador: ningún movimiento sale sin cuenta, nunca. Es la última
+     * línea de defensa después de los bloqueantes y de `rechazables`, y existe porque el
+     * modo de falla es invisible: `padR(null, 30)` produce 30 espacios, el renglón se ve
+     * bien en pantalla, y ContPAQi rechaza el archivo entero al importarlo.
+     */
+    const pata = (cuenta: string | null, m: Omit<Movimiento, 'cuenta'>, quien: string): Movimiento => {
+      if (!cuenta || !String(cuenta).trim()) {
+        throw new BadRequestException(`${quien}: falta la cuenta contable. No se puede armar el archivo.`);
+      }
+      return { cuenta: String(cuenta).trim(), ...m };
+    };
+
     for (const f of [...facturas].sort((a, b) => (a.fecha < b.fecha ? -1 : 1))) {
       const ref = String(f.folio ?? '').slice(0, 10);
       const concepto = conUuid ? f.uuid : '';
+      const quien = `${f.emisor_nombre || f.emisor_rfc} folio ${f.folio ?? '(sin folio)'}`;
       if (f.base_exenta > 0.004) {
-        movs.push({ cuenta: f.cuenta_compra_exenta!, referencia: ref, abono: false, importe: f.base_exenta, concepto });
+        movs.push(pata(f.cuenta_compra_exenta, { referencia: ref, abono: false, importe: f.base_exenta, concepto }, `${quien} (compras al 0%)`));
       }
       if (f.subtotal16 > 0.004) {
-        movs.push({ cuenta: f.cuenta_compra_iva!, referencia: ref, abono: false, importe: f.subtotal16, concepto });
+        movs.push(pata(f.cuenta_compra_iva, { referencia: ref, abono: false, importe: f.subtotal16, concepto }, `${quien} (compras c/IVA)`));
       }
-      movs.push({ cuenta: f.cuenta_proveedor!, referencia: ref, abono: true, importe: f.total, concepto });
+      movs.push(pata(f.cuenta_proveedor, { referencia: ref, abono: true, importe: f.total, concepto }, `${quien} (proveedor)`));
       if (f.iva > 0.004) ivaPorCuenta.set(f.account_suffix!, r2((ivaPorCuenta.get(f.account_suffix!) ?? 0) + f.iva));
       if (f.ieps > 0.004) iepsPorCuenta.set(f.account_suffix!, r2((iepsPorCuenta.get(f.account_suffix!) ?? 0) + f.ieps));
     }
@@ -549,19 +588,19 @@ export class PurchaseBookService {
     return movs;
   }
 
-  /** Layout de longitud fija de ContPAQi. Ver el detalle en el doc de la fase. */
+  /**
+   * El TXT del mes. El layout vive en `./poliza-txt` — acá sólo se resuelve la fecha de la
+   * póliza, que es el último día del mes.
+   */
   construirTxt(anioMes: string, folio: number, concepto: string, movs: Movimiento[]): string {
     const d = this.finDeMes(anioMes);
     const fecha = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
-    const header = [
-      padR('P', 2), padL(fecha, 8), padL(TIPO_POLIZA_DIARIO, 4), padL(String(folio), 9), padL('1', 1),
-      padR('0', 10), padR(concepto, 100), padL('11', 2), padL('0', 1), padL('0', 1),
-    ].join(' ');
-    const lineas = movs.map((m) => [
-      padR('M', 2), padR(m.cuenta, 30), padR(m.referencia, 10), padL(m.abono ? '1' : '0', 1),
-      padR(impTxt(m.importe), 20), padR('0', 10), padR('0.0', 20), padR(m.concepto, 100), padR('', 10),
-    ].join(' '));
-    return [header, ...lineas].join('\r\n') + '\r\n';
+    return construirTxt(fecha, folio, concepto, movs);
+  }
+
+  /** Desarma un TXT de póliza. El parser vive en ./poliza-txt, junto al layout. */
+  parsearTxt(txt: string): PolizaTxtParseada {
+    return parsearTxt(txt);
   }
 
   /** Genera el archivo del mes y deja la corrida en `generado`, firmada por su hash. */
@@ -591,8 +630,12 @@ export class PurchaseBookService {
     }
 
     // Frenos duros: mejor no entregar archivo que entregar uno que ContPAQi va a rechazar.
+    // Cada pata que el asiento vaya a escribir tiene que tener su cuenta, y esa cuenta
+    // tiene que EXISTIR del lado de ContPAQi — ver la nota de los `*_existe` en FacturaMes.
     const rechazables = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
-      || (f.subtotal16 > 0.004 && !f.cuenta_compra_iva) || f.base_exenta < -0.004);
+      || (f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe))
+      || (f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe))
+      || f.base_exenta < -0.004);
     if (rechazables.length) {
       throw new BadRequestException(
         `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,
@@ -647,17 +690,24 @@ export class PurchaseBookService {
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
-      if (!run || !run.archivo_contenido) {
+      // El estado se mira además del contenido: en `borrador` no hay archivo vigente aunque
+      // haya quedado texto de una corrida anterior. Cinturón redundante con `invalidar()`.
+      if (!run || run.estado === 'borrador' || !run.archivo_contenido) {
         throw new NotFoundException(
           `${anioMes} no tiene archivo generado todavía. Genéralo primero.`,
         );
       }
+      const parsed = this.parsearTxt(run.archivo_contenido as string);
       return {
         anio_mes: anioMes,
         tipo,
         nombre: run.archivo_nombre || `${tipo === 'complemento' ? 'complemento' : 'poliza'}-compras-${anioMes}.txt`,
         hash: run.archivo_hash as string,
         txt: run.archivo_contenido as string,
+        // Los movimientos del archivo ENTREGADO, no un recálculo. Los consumen el respaldo
+        // en Excel y el CSV del asociador de CFDI.
+        movimientos: parsed.movimientos,
+        invalidos: parsed.invalidos,
       };
     });
   }
