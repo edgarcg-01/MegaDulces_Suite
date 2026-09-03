@@ -752,6 +752,13 @@ const COLS_ORD = [
   { key: 'valor',      etq: 'Valor costo' },
 ];
 
+// Nombre corto para las columnas por sucursal de la vista "Todas" (ej. "Sucursal
+// PH" -> "PH"). Genérico a propósito: no depende de una lista fija de sucursales,
+// así que una nueva (como la 07 en alta) sale con su nombre completo sin tocar código.
+function etiquetaSucursal(nombre) {
+  return String(nombre || '').replace(/^Sucursal\s+/i, '').trim();
+}
+
 function thOrd(key, etq, clase = '') {
   const activo = estado.orden === key;
   const flecha = activo ? (estado.dir === 'desc' ? ' ▾' : ' ▴') : '';
@@ -778,7 +785,7 @@ function pintarTabla(d) {
       ${thOrd('precio', 'Precio', 'num')}
       ${thOrd('existencia', todas ? 'Exist. total' : 'Existencia', 'num')}
       ${thOrd('valor', 'Valor costo', 'num')}
-      ${todas ? sucs.map(s => `<th class="num" title="${esc(s.nombre)}">${esc(s.codigo)}</th>`).join('') : '<th>Alm.</th>'}
+      ${todas ? sucs.map(s => `<th class="num" title="${esc(s.codigo)} · ${esc(s.nombre)}">${esc(etiquetaSucursal(s.nombre))}</th>`).join('') : '<th>Alm.</th>'}
       <th>Últ. mov.</th>
     </tr>`;
 
@@ -821,8 +828,8 @@ function pintarTabla(d) {
   document.getElementById('resultados').innerHTML =
     `<div class="tabla-wrap"><table><thead>${encabezado}</thead><tbody>${filas}</tbody></table></div>` +
     (todas ? `<div style="font-size:11px;color:var(--suave);margin-top:8px">
-        Las columnas ${sucs.map(s => esc(s.codigo)).join(' / ')} son la existencia en cada sucursal:
-        ${sucs.map(s => `<strong>${esc(s.codigo)}</strong>=${esc(s.nombre)}`).join(' · ')}
+        Las últimas columnas son la existencia en cada sucursal:
+        ${sucs.map(s => `<strong>${esc(etiquetaSucursal(s.nombre))}</strong> (${esc(s.codigo)})`).join(' · ')}
       </div>` : '');
 
   // Ordenar al hacer clic en la cabecera
