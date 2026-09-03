@@ -194,6 +194,15 @@ export class PurchaseBookService {
               AND tipo_pol = ? AND folio = ?
               AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'
             GROUP BY 1, 2
+         ), cargos AS (
+           -- La segunda puerta: compras cargadas a 501/502 desde CUALQUIER póliza del mes
+           -- (típicamente la de egresos al pagar, sin pasar por 212). El importe ahí es el
+           -- NETO sin impuestos. Ver la nota en getMes.
+           SELECT anio_mes, round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND (cuenta LIKE '501%' OR cuenta LIKE '502%') AND cargo_abono = 'C'
+            GROUP BY 1, 2
          ), ctas AS (
            -- Los RFC que SÍ tienen cuenta de compras usable. Se resuelve acá para que el
            -- tablero muestre lo accionable (lo que entra al TXT) y no un total que incluye
@@ -205,11 +214,16 @@ export class PurchaseBookService {
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
-                  (p.importe IS NOT NULL) AS ya_en_poliza,
+                  (p.importe IS NOT NULL OR g.importe IS NOT NULL) AS ya_en_poliza,
                   (c.rfc IS NOT NULL) AS con_cuenta
              FROM fiscal.cfdis f
              LEFT JOIN patas p
                ON p.anio_mes = to_char(f.fecha, 'YYYY-MM') AND p.importe = round(f.total, 2)
+             LEFT JOIN cargos g
+               ON g.anio_mes = to_char(f.fecha, 'YYYY-MM')
+              AND g.importe = round(f.total
+                    - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
+                    - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
              LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
@@ -310,16 +324,35 @@ export class PurchaseBookService {
                 a.cuenta_compra_exenta, a.cuenta_compra_iva,
                 coalesce(a.proveedor_existe, false) AS cuenta_existe,
                 f.aso_contabilidad,
-                -- Su importe ya abonado al proveedor en la póliza de compras del mes: es la
-                -- única defensa contra el doble registro mientras el TXT no lleve UUID.
-                EXISTS (
+                -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
+                -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
+                --
+                --  a) patrón libro de compras: abono al proveedor 212 por el TOTAL,
+                --     en el Diario folio 1.
+                --  b) patrón compra pagada directo: cargo a 501/502 por el NETO (sin
+                --     impuestos) desde la póliza de EGRESOS del pago, sin pasar por 212.
+                --
+                -- (b) se descubrió el 2026-09-03: en ago-2026 no hay UN SOLO abono a 212, y
+                -- aun así había $7.2M cargados a 501/502 desde pólizas tipo 2 "PAGO FACT
+                -- ...". Con sólo la prueba (a), 33 facturas por $2,095,889 se habrían
+                -- posteado dos veces — una de ellas era el primer renglón del TXT de agosto.
+                (EXISTS (
                   SELECT 1 FROM analytics.gl_poliza_lines l
                    WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
                      AND l.tipo_pol = ? AND l.folio = ?
                      AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
                      AND l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A'
                      AND round(l.importe, 2) = round(f.total, 2)
-                ) AS ya_en_poliza,
+                 ) OR EXISTS (
+                  SELECT 1 FROM analytics.gl_poliza_lines l
+                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
+                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
+                     AND (l.cuenta LIKE '501%' OR l.cuenta LIKE '502%') AND l.cargo_abono = 'C'
+                     AND round(l.importe, 2) = round(
+                           f.total
+                           - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
+                           - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
+                 )) AS ya_en_poliza,
                 i.incluida, i.motivo
            FROM fiscal.cfdis f
            LEFT JOIN finance.gl_supplier_accounts a
