@@ -20,10 +20,13 @@
  * El patrón es claro: el residuo está en lo que se sigue editando (mes abierto, pedidos), no en
  * el histórico. Y `kdm1`/`kdm2` salen NEGATIVOS (−0.03%): eso es atraso normal del CDC, no residuo.
  *
- * POR QUÉ IMPORTA AHORA. Sin esto no se puede repointear ningún importer al ODS: los seis feeds
+ * POR QUÉ IMPORTA AHORA. Sin esto no se puede repointear ningún importer al ODS: los feeds
  * contables (`import-expenses-polizas`, `import-ledger-chain`, `import-ap-findings`,
- * `import-bank-postings`, `import-kepler-polizas`, `import-sales-by-channel`) leen `kdc2YYMM`, y
- * un 3.73% de asientos fantasma entra directo a la balanza y al P&L de Maat.
+ * `import-kepler-polizas`, `import-sales-by-channel`) leen `kdc2YYMM`, y un 3.73% de asientos
+ * fantasma entra directo a la balanza y al P&L de Maat. Ya no son seis: `import-bank-postings`
+ * se retiró (2026-09-03) porque `analytics.bank_postings` pasó a MATERIALIZED VIEW sobre el mismo
+ * `kdc2YYMM` — o sea el fantasma ahora entra a la VISTA, y este reconciliador sigue siendo la
+ * única defensa. Derivar del ODS no elimina la necesidad de propagar los DELETE; la aumenta.
  *
  * CÓMO. Corre on-prem (es el único lado que ve las dos verdades): lee las llaves de la réplica
  * `:5433/kepler_md_XX`, las compara con las del ODS para esa `sucursal`, y manda las huérfanas por
