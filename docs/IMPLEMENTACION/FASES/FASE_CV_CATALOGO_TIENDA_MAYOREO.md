@@ -1021,6 +1021,137 @@ minutos hasta el reinicio):
 
 ---
 
+## CV.18 — Panel visual de administración de usuarios (2026-09-03)
+
+El backend de `admin.usuarios` (CRUD completo: listar, crear, editar rol/
+sucursales/activo, resetear contraseña, desactivar) ya existía y estaba
+correcto en `admin.controller.ts`/`admin.service.ts` — sólo faltaba
+interfaz. `Crear usuario del tablero.bat` cubría el alta por CLI, pero no
+había forma de editar permisos, quitarle el acceso a alguien, ni ver el
+listado sin conectarse a la base a mano.
+
+Nuevo archivo estático `apps/catalogo-kp/public/usuarios.html` (mismo
+patrón que `catalogo.html`/`actualizar-wix.html`: misma sesión, sin rutas
+de backend nuevas). Tabla con nombre/correo/rol/sucursales/estado/último
+acceso; modal de alta y edición (rol admin/viewer, sucursales como
+checkboxes poblados en vivo desde `GET /api/catalogo/sucursales` — si
+aparece la sucursal 07 el día que Kepler la traiga, sale sola en la
+lista); botón de restablecer contraseña; "Eliminar acceso" — rotulado con
+honestidad: el backend nunca borra la fila, sólo pone `activo = false`
+(reversible con "Reactivar"). Auto-protección: nadie puede desactivarse ni
+quitarse el rol de administrador a sí mismo (ya lo hacía el backend; la UI
+además deshabilita el botón en la fila propia). Enlace "👤 Usuarios"
+agregado en `catalogo.html`.
+
+**Verificación real reveló un segundo agujero de permisos del mismo tipo
+que CV.17** (mismo día, misma causa raíz: el rol `catalogo_kp_runtime` se
+diseñó en CV.0/CV.8 pensando sólo en "leer para el login", nunca en
+"administrar cuentas"). Con un JWT de prueba propio (`rol: admin`, sin
+usar ninguna cuenta real) se creó una cuenta desechable real
+(`prueba-ui-usuarios@megadulces.local`) para probar el flujo de punta a
+punta contra producción: la creación tiró `permiso denegado a la tabla
+usuarios` — faltaban `INSERT` en `admin.usuarios` **y** `USAGE`/`SELECT`
+en `admin.usuarios_id_seq` (el `id` es `SERIAL`). Aplicado al cluster real
+y corregido en `apps/catalogo-kp/sql/007_rol_dedicado.sql`. Con el permiso
+ya puesto, se verificaron las 6 operaciones reales en producción sobre esa
+misma cuenta desechable: crear → editar (nombre/rol/sucursales) →
+restablecer contraseña → listar (confirma cambios) → desactivar → listar
+(confirma `activo:false`). La cuenta de prueba queda en la tabla
+**desactivada** a propósito, como evidencia de que "eliminar" en verdad no
+borra nada — igual que el pedido de prueba cancelado en CV.13.
+
+Desplegado en `.163` (`usuarios.html` nuevo + `catalogo.html` actualizado
+copiados a `public/`, mismo mecanismo estático de siempre — sin rebuild ni
+reinicio del proceso, porque no se tocó ni una línea de TypeScript).
+
+**Borrado definitivo agregado a pedido de 0Sistemas, mismo sub-sprint:**
+"Eliminar acceso" sólo desactivaba (por diseño, reversible) — se agregó un
+segundo endpoint `DELETE /api/admin/usuarios/:id/definitivo` que sí borra
+la fila (sin `FK` que la referencien: verificado contra el cluster real,
+cero constraints apuntan a `admin.usuarios`). Con dos candados a
+propósito: el backend exige que la cuenta ya esté desactivada antes de
+poder borrarla (irreversible sólo se puede alcanzar pasando primero por lo
+reversible), y la UI pide teclear el correo exacto para confirmar. Esto
+necesitó un tercer grant al rol dedicado que tampoco tenía
+(`DELETE ON admin.usuarios` — la única tabla de `catalogo_kp_runtime` con
+ese privilegio; `tienda.*`/`monitor.*` mantienen el criterio de nunca
+borrar). Verificado en producción real con una cuenta desechable: crear →
+intentar borrar estando activa (rechazado con el mensaje esperado) →
+desactivar → borrar de verdad → confirmar que ya no aparece en el listado.
+Redesplegado con el mismo mecanismo del vigilante (parar proceso, copiar
+`main.js` nuevo, `Vigilar_API.ps1` relanza) — 5 segundos de caída.
+
+**Qué NO cambió:** el resto de la pantalla; `tienda.*`/`monitor.*` siguen
+sin DELETE.
+
+---
+
+## CV.19 — Actualizar Wix se mudó dentro de Catálogo + bug real de precio sin sucursal (2026-09-03)
+
+0Sistemas probó CV.16 con un export real de Wix y funcionó (618 precios
+actualizados), pero señaló dos cosas: (1) la herramienta debería vivir
+**dentro** de `catalogo.html`, no en una página aparte, y (2) hacía falta
+**filtrar por sucursal** (ej. PH) — Kepler puede tener precios distintos
+por plaza para el mismo código.
+
+**El punto 2 destapó un bug real, no sólo una mejora.** `GET /api/kp/productos`
+(`kp.service.ts::getProductos()`) nunca filtraba por sucursal — `kp.kdii`
+tiene una fila por cada una de las 7 plazas, y para códigos con precio
+distinto entre sucursales (confirmado contra la base real: código `15157`
+vale `$42.61` en PH y `$44.74` en las demás), la fila que "ganaba" al
+armar el mapa por código dependía del orden de retorno de Postgres —
+no determinista entre corridas, aunque nadie lo hubiera notado porque la
+mayoría de los códigos sí coinciden entre plazas. `getPreciosTodos()` (el
+que usa `Actualizar_Verificador.ps1`) ya tenía este mismo cuidado
+documentado en un comentario ("TODAS, precio no determinista"); a
+`getProductos()` nunca se le aplicó el mismo criterio.
+
+**Arreglado con el mismo patrón que ya existía:** `getProductos(sucursal?)`
+ahora acepta `?sucursal=NN` y filtra `kdii.sucursal = $1` cuando se manda;
+sin el parámetro sigue exactamente igual que antes (nadie más lo llama con
+argumento — `calcularExplorador()` sigue leyendo sin filtro a propósito,
+ya vivía con esa ambigüedad documentada como "deduplicada por código", y
+no era el problema a resolver hoy). La existencia (`existencia_ph`) se
+deja **fija a sucursal 01 (PH)** sin importar qué sucursal se pida de
+precio — no tiene sentido publicar el precio de una plaza con el stock de
+otra, PH es la que de verdad surte los pedidos en línea.
+
+**Verificado en producción real antes del merge de frontend:** con curl,
+`?sucursal=01` da `$42.61` y `?sucursal=02` da `$44.74` para el código
+`15157` — el filtro cambia el precio de verdad, no es sólo cosmético.
+
+**Fusión de frontend:** `actualizar-wix.html` dejó de ser una página con
+su propio flujo; toda su lógica (parser CSV, los dos modos, KPIs) se movió
+a una segunda pestaña dentro de `catalogo.html` ("📦 Catálogo" / "🛒
+Actualizar Wix"), compartiendo sesión, `estado.sucursales` (ya cargado, sin
+pedirlo dos veces) y el mismo componente visual de chips que ya usaba el
+catálogo para elegir sucursal — con **una** diferencia a propósito: el
+selector de Wix no tiene opción "Todas" (Wix necesita una plaza concreta),
+y CEDIS (sucursal `00`) se excluye porque no vende al público. Default:
+**Sucursal PH**. Cambiar de sucursal vuelve a pedir `/api/kp/productos` y
+re-habilita "Procesar catálogo". El archivo `actualizar-wix.html` ahora es
+un simple redirect a `/catalogo.html?tab=wix`, para no dejar un enlace
+muerto ni una segunda copia de la lógica desincronizada.
+
+**Verificado con Playwright contra producción real** (JWT de prueba
+propio): la pestaña carga, los chips de sucursal se pintan desde el mismo
+`estado.sucursales`, PH queda seleccionada por default, se sube un CSV
+mínimo con el código `15157` y el resultado da `$42.61`; al cambiar a
+"LA PIEDAD ABASTOS" y reprocesar sin recargar la página, el resultado
+cambia a `$44.74` — confirma que el selector reacciona de verdad. El
+redirect de `actualizar-wix.html` cae en `catalogo.html?tab=wix` y abre la
+pestaña sola.
+
+Redesplegado: backend con el mismo mecanismo del vigilante (parar, copiar
+`main.js`, relanzar — 5 s de caída); frontend (`catalogo.html` +
+`actualizar-wix.html`) son estáticos, sin reinicio.
+
+**Qué NO cambió:** `getPreciosTodos()` (verificador de mostrador) y
+`calcularExplorador()`/`kp-excel` — ninguno de los dos consumidores
+existentes de `getProductos()` cambió de comportamiento.
+
+---
+
 ## Preguntas abiertas para 0Sistemas
 
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.

@@ -211,6 +211,18 @@ export class AdminController {
     return this.service.desactivarUsuario(Number(id));
   }
 
+  /**
+   * Borrado real y definitivo. Va en una ruta aparte de la de arriba (no la
+   * reemplaza): la pantalla exige desactivar primero, esto es el segundo
+   * paso, irreversible, para cuando de verdad hay que quitar la fila.
+   */
+  @Roles('admin')
+  @Delete('usuarios/:id/definitivo')
+  eliminarDefinitivo(@Param('id') id: string, @Request() req: any) {
+    if (req.user.sub === Number(id)) throw new Error('No puedes eliminarte a ti mismo');
+    return this.service.eliminarUsuario(Number(id));
+  }
+
   @Roles('admin')
   @Post('usuarios/:id/reset-password')
   resetPassword(@Param('id') id: string, @Body() body: { nueva: string }) {

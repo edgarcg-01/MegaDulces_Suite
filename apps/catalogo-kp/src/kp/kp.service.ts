@@ -387,7 +387,22 @@ export class KpService implements OnModuleInit {
   // c1=código, c2=nombre, c18=IVA%, c19=IEPS%, c77=costo, c87=margen
   // ─────────────────────────────────────────────────────────────────────────
 
-  async getProductos(): Promise<{ total: number; generado: string; productos: ProductoCatalog[] }> {
+  /**
+   * `sucursal` es OPCIONAL y de qué precio se trae — `kp.kdii` tiene una fila
+   * por sucursal (7: 00 CEDIS + 01..06), y sus precios (`c90`) SÍ pueden
+   * diferir entre plazas (para eso existe el reporte de precios
+   * discrepantes). Sin filtro, esta consulta trae las 7 filas de cada
+   * código y `Object.assign`/`for` del consumidor se queda con la que caiga
+   * al final del `ORDER BY` — no determinista entre plazas, aunque estable
+   * corrida a corrida. `calcularExplorador()` ya vivía con esa ambigüedad a
+   * propósito ("deduplicada por código", ver más abajo) y sigue igual al no
+   * pasar `sucursal`. La existencia (`existencia_ph`) es aparte y SIEMPRE
+   * sucursal 01 (PH, el almacén que surte la tienda en línea) sin importar
+   * qué sucursal se pida de precio — no tiene sentido publicar el precio de
+   * una plaza con el stock de otra.
+   */
+  async getProductos(sucursal?: string): Promise<{ total: number; sucursal: string | null; generado: string; productos: ProductoCatalog[] }> {
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     try {
       const rows = await this.query<any>(`
         SELECT
@@ -410,6 +425,7 @@ export class KpService implements OnModuleInit {
         FROM kp.kdii
         -- Existencia disponible en PH (sucursal 01) desde kp.kdil: c8 - c9.
         -- Pre-agregada con JOIN en vez de subconsulta correlacionada, que era lenta.
+        -- Fija a PH a propósito: no depende de qué sucursal se pida de precio.
         LEFT JOIN (
           SELECT LPAD(TRIM(c3::text), 5, '0') AS cod,
                  SUM(${NUMC('c8')} - ${NUMC('c9')}) AS existencia
@@ -424,8 +440,9 @@ export class KpService implements OnModuleInit {
         ) kg ON kg.lc = TRIM(kdii.c3::text)
         WHERE kdii.c1 IS NOT NULL
           AND kdii.c1::text ~ '^[0-9]'
+          ${suc ? 'AND kdii.sucursal = $1' : ''}
         ORDER BY kdii.c1
-      `);
+      `, suc ? [suc] : undefined);
 
       const productos: ProductoCatalog[] = rows.map(r => {
         const iva   = Math.abs(Number(r.iva_raw))  / 100;
@@ -463,8 +480,8 @@ export class KpService implements OnModuleInit {
         };
       });
 
-      this.logger.log(`getProductos: ${productos.length} productos de kp.kdii`);
-      return { total: productos.length, generado: new Date().toISOString(), productos };
+      this.logger.log(`getProductos: ${productos.length} productos de kp.kdii${suc ? ' (sucursal ' + suc + ')' : ' (TODAS, precio no determinista)'}`);
+      return { total: productos.length, sucursal: suc, generado: new Date().toISOString(), productos };
     } catch (e: any) {
       // El error se reporta, no se esconde: devolver un arreglo vacío en silencio
       // hacía creer que el catálogo estaba vacío.

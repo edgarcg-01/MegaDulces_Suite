@@ -43,11 +43,12 @@ export class KpController {
   /**
    * Catálogo completo de productos desde kp.kdii.
    * Incluye costo, IVA, IEPS, margen y precio_final calculado.
-   * GET /api/kp/productos
+   * GET /api/kp/productos                 TODAS las sucursales (precio no determinista)
+   * GET /api/kp/productos?sucursal=01     precio de esa sucursal en particular
    */
   @UseGuards(AuthGuard('jwt'))
   @Get('productos')
-  getProductos() { return this.kpService.getProductos(); }
+  getProductos(@Query('sucursal') sucursal?: string) { return this.kpService.getProductos(sucursal); }
 
   /**
    * Catálogo + existencia por sucursal + movimientos del año.

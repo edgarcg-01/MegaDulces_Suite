@@ -42,15 +42,26 @@ GRANT SELECT ON ALL TABLES IN SCHEMA kp TO catalogo_kp_runtime;
 -- sin esto, una tabla nueva no heredaría el permiso hasta correr este GRANT de nuevo.
 ALTER DEFAULT PRIVILEGES IN SCHEMA kp GRANT SELECT ON TABLES TO catalogo_kp_runtime;
 
--- ── admin.* — lectura + UPDATE puntual de admin.usuarios (login del tablero) ──
+-- ── admin.* — lectura + escritura de admin.usuarios (login + alta/edición
+--    desde la pantalla Usuarios) + DELETE puntual para el borrado
+--    definitivo (segundo paso, después de desactivar — ver
+--    admin.service.ts::eliminarUsuario, que exige `activo = false` antes de
+--    borrar). Es la ÚNICA tabla de este rol con DELETE: en tienda.*/
+--    monitor.* se mantiene el criterio "nunca se borra, se marca" ──────────
 -- CORREGIDO 2026-09-03 (incidente real en .163): el login SÍ escribe, no sólo
 -- lee — auth.service.ts hace `UPDATE admin.usuarios SET ultimo_login = NOW()`
 -- en cada inicio de sesión exitoso. Con sólo SELECT, cualquier login real
 -- (no sólo consultas de datos) tiraba "permiso denegado a la tabla usuarios"
--- sin capturar, y tumbó el proceso en producción. Sin DELETE: nunca se borran
--- usuarios desde este rol.
+-- sin capturar, y tumbó el proceso en producción.
+-- CORREGIDO otra vez el mismo día (misma sesión, antes de llegar a producción
+-- real): al construir la pantalla visual de administración de usuarios, crear
+-- una cuenta de prueba real reveló que tampoco tenía INSERT ni acceso a la
+-- secuencia del id — el rol se había diseñado pensando sólo en "leer para el
+-- login", nunca en "administrar cuentas". Verificado end-to-end antes de
+-- avisar que la pantalla ya funciona (docs/GOTCHAS.md §33).
 GRANT USAGE ON SCHEMA admin TO catalogo_kp_runtime;
-GRANT SELECT, UPDATE ON admin.usuarios TO catalogo_kp_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON admin.usuarios TO catalogo_kp_runtime;
+GRANT USAGE, SELECT ON SEQUENCE admin.usuarios_id_seq TO catalogo_kp_runtime;
 
 -- ── tienda.* — lectura + escritura, SIN DELETE (mismo criterio que app_runtime:
 --    los pedidos se cancelan, no se borran) ──────────────────────────────────
