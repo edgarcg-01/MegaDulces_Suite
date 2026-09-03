@@ -243,9 +243,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                       <td class="ta-r num">{{ money(row.control) }}</td>
                       <td class="ta-r num">{{ row.wb_ok ? money(row.workbook) : '—' }}</td>
                       <td class="ta-r num">{{ row.kep_ok ? money(row.kepler) : '—' }}</td>
-                      <td class="ta-r num" [class.bad]="row.wb_ok && !cuadT(row.d_cw, d)" [class.ok]="row.wb_ok && cuadT(row.d_cw, d)">{{ row.wb_ok ? money(row.d_cw) : '—' }}</td>
-                      <td class="ta-r num" [class.bad]="row.kep_ok && !cuadT(row.d_ck, d)" [class.ok]="row.kep_ok && cuadT(row.d_ck, d)">{{ row.kep_ok ? money(row.d_ck) : '—' }}</td>
-                      <td class="ta-r num" [class.bad]="row.wb_ok && row.kep_ok && !cuadT(row.d_wk, d)" [class.ok]="row.wb_ok && row.kep_ok && cuadT(row.d_wk, d)">{{ row.wb_ok && row.kep_ok ? money(row.d_wk) : '—' }}</td>
+                      <td class="ta-r num" [class.warn]="row.wb_ok && deltaClass(row.d_cw, d.eps_total)==='warn'" [class.bad]="row.wb_ok && deltaClass(row.d_cw, d.eps_total)==='bad'">{{ row.wb_ok ? money(row.d_cw) : '—' }}</td>
+                      <td class="ta-r num" [class.warn]="row.kep_ok && deltaClass(row.d_ck, roundTol(monthN(d)))==='warn'" [class.bad]="row.kep_ok && deltaClass(row.d_ck, roundTol(monthN(d)))==='bad'">{{ row.kep_ok ? money(row.d_ck) : '—' }}</td>
+                      <td class="ta-r num" [class.warn]="row.wb_ok && row.kep_ok && deltaClass(row.d_wk, roundTol(monthN(d)))==='warn'" [class.bad]="row.wb_ok && row.kep_ok && deltaClass(row.d_wk, roundTol(monthN(d)))==='bad'">{{ row.wb_ok && row.kep_ok ? money(row.d_wk) : '—' }}</td>
                       <td class="ta-c">
                         @if (!row.wb_ok && !row.kep_ok) { <span class="tw-tag muted-tag">sin comparar</span> }
                         @else if (row.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra contra las fuentes disponibles"></i> }
@@ -265,33 +265,49 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <!-- Nivel 2 — por día: clic en una fila abre qué movimientos no casan -->
           <div class="card-premium card-flat tw-tablewrap">
             <h3 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h3>
+            <div class="tw-drill-filters">
+              <div class="tw-fg" role="group" aria-label="Dirección (se hereda al abrir el día)">
+                <button type="button" [class.on]="cuadreDir()===''" (click)="cuadreDir.set('')">Ambos</button>
+                <button type="button" [class.on]="cuadreDir()==='in'" (click)="cuadreDir.set('in')">Ingresos</button>
+                <button type="button" [class.on]="cuadreDir()==='out'" (click)="cuadreDir.set('out')">Gastos</button>
+              </div>
+              <span class="muted tw-fcount"><i class="pi pi-circle-fill warn"></i> redondeo · <i class="pi pi-circle-fill bad"></i> no concilia</span>
+            </div>
             <div class="tw-wrap">
             <p-table [value]="d.por_dia" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.por_dia.length>60" [rows]="60">
               <ng-template #header>
                 <tr>
                   <th class="cg-w-date" rowspan="2">Día</th>
-                  <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th>
-                  <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th>
+                  @if (cuadreDir() !== 'out') { <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th> }
+                  @if (cuadreDir() !== 'in') { <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th> }
                   <th class="cg-w-e ta-c" rowspan="2">Estado</th>
                 </tr>
                 <tr>
-                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
-                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
+                  @if (cuadreDir() !== 'out') {
+                    <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
+                  }
+                  @if (cuadreDir() !== 'in') {
+                    <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
+                  }
                 </tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr class="tw-clickable" (click)="openDay(r)">
                   <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span><i class="pi pi-search-plus tw-drill-ico"></i></td>
-                  <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
-                  <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                  <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" title="Control − Kepler (informativo)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
-                  <td class="ta-r num">{{ money(r.mdb_gasto) }}</td>
-                  <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                  <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" title="Control − Kepler (informativo)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
+                  @if (cuadreDir() !== 'out') {
+                    <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
+                    <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
+                    <td class="ta-r num tw-kep">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
+                    <td class="ta-r num" [class.warn]="clsCW(r.delta_ingreso, r.wb_vacio, d.eps)==='warn'" [class.bad]="clsCW(r.delta_ingreso, r.wb_vacio, d.eps)==='bad'">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
+                    <td class="ta-r num tw-kep" [class.warn]="clsCK(r.delta_kep_ingreso, r.mdb_n, r.kp_n)==='warn'" [class.bad]="clsCK(r.delta_kep_ingreso, r.mdb_n, r.kp_n)==='bad'" title="Control − Kepler">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
+                  }
+                  @if (cuadreDir() !== 'in') {
+                    <td class="ta-r num">{{ money(r.mdb_gasto) }}</td>
+                    <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
+                    <td class="ta-r num tw-kep">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
+                    <td class="ta-r num" [class.warn]="clsCW(r.delta_gasto, r.wb_vacio, d.eps)==='warn'" [class.bad]="clsCW(r.delta_gasto, r.wb_vacio, d.eps)==='bad'">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
+                    <td class="ta-r num tw-kep" [class.warn]="clsCK(r.delta_kep_gasto, r.mdb_n, r.kp_n)==='warn'" [class.bad]="clsCK(r.delta_kep_gasto, r.mdb_n, r.kp_n)==='bad'" title="Control − Kepler">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
+                  }
                   <td class="cg-w-e ta-c">
                     @if (r.wb_vacio) { <span class="tw-tag muted-tag">sin workbook</span> }
                     @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
@@ -861,6 +877,29 @@ export class FinanzasCajaComponent implements OnInit {
   cuadT(delta: number, d: CajaWb): boolean { return Math.abs(delta || 0) < (d.eps_total ?? 1000); }
 
   /**
+   * Semáforo de conciliación en 2 niveles: '' exacto (sin color) · 'warn' amarillo (diferencia
+   * por REDONDEO, tolerable) · 'bad' rojo (NO concilia). El redondeo adecuado se acumula por
+   * movimiento (~$0.02/mov medido Control↔Kepler) → presupuesto generoso de $0.10/mov, piso $2.
+   * Por mes/cuenta = $0.10 × total de movimientos del periodo (más movimientos ⇒ más redondeo).
+   */
+  roundTol(n: number): number { return Math.max(2, 0.10 * (n || 0)); }
+  deltaClass(delta: number, tol: number): '' | 'warn' | 'bad' {
+    const a = Math.abs(delta || 0);
+    if (a <= 0.005) return '';
+    return a <= tol ? 'warn' : 'bad';
+  }
+  /** Total de movimientos del periodo (Control) — base del redondeo del control-total. */
+  monthN(d: CajaWb): number { return (d.por_dia || []).reduce((s, r) => s + (r.mdb_n || 0), 0); }
+  /** Δ Control−Workbook del día: comparación EXACTA (tol = eps del día, ±$1) — caza errores de captura. */
+  clsCW(delta: number, wbVacio: boolean, eps: number): '' | 'warn' | 'bad' {
+    return wbVacio ? '' : this.deltaClass(delta, eps ?? 1);
+  }
+  /** Δ Control−Kepler del día: informativo, tol = redondeo por nº de movimientos del día. */
+  clsCK(delta: number, nCtrl: number, nKep: number): '' | 'warn' | 'bad' {
+    return nKep ? this.deltaClass(delta, this.roundTol(Math.max(nCtrl || 0, nKep || 0))) : '';
+  }
+
+  /**
    * Las dos filas del control-total, armadas acá y no duplicadas en el template.
    *
    * `cuadra` mira TODAS las fuentes disponibles, no sólo el Workbook: antes una fila con
@@ -873,7 +912,7 @@ export class FinanzasCajaComponent implements OnInit {
                 d_cw: number, d_ck: number) => ({
       label, dir, control, workbook, kepler, wb_ok: wb, kep_ok: kep,
       d_cw, d_ck, d_wk: Math.round((workbook - kepler) * 100) / 100,
-      cuadra: (!wb || this.cuadT(d_cw, d)) && (!kep || this.cuadT(d_ck, d)),
+      cuadra: (!wb || this.deltaClass(d_cw, d.eps_total) !== 'bad') && (!kep || this.deltaClass(d_ck, this.roundTol(this.monthN(d))) !== 'bad'),
     });
     return [
       mk('Ingresos', 'in', t.mdb_ingreso, t.wb_ingreso, t.kp_ingreso, t.delta_ingreso, t.delta_kep_ingreso),
@@ -930,6 +969,8 @@ export class FinanzasCajaComponent implements OnInit {
     ];
   }
   /** Desglose de un día: corre el match server-side (.mdb↔Manual y .mdb↔Kepler). */
+  // Filtro de dirección de la vista "Por día" (Ambos/Ingresos/Gastos). Se HEREDA al abrir el día.
+  readonly cuadreDir = signal<'' | 'in' | 'out'>('');
   // ── Detalle del día: filtros, orden y export (mismo contrato que el drill de Bancos) ──
   readonly dfDir = signal<'' | 'in' | 'out'>('');
   readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
@@ -1027,7 +1068,7 @@ export class FinanzasCajaComponent implements OnInit {
   openDay(r: { fecha: string }): void {
     const dk = this.key(r);
     this.dayKey.set(dk);
-    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set(''); this.daySort.set(null);
+    this.dfDir.set(this.cuadreDir()); this.dfEstado.set(''); this.dfSearch.set(''); this.daySort.set(null);
     this.dayOpen.set(true);
     if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
