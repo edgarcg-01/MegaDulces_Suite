@@ -15,7 +15,6 @@ import { KNEX_KEPLER_CONSOLIDADO } from './kepler-consolidado.constants';
  * no existe). Solo corre donde la consolidación local está montada.
  */
 const ROTATION_SCRIPT = 'database/importers/kepler/import-rotation-from-consolidado.js';
-const PH_STOCK_SCRIPT = 'database/importers/kepler/import-branch-stock-live.js';
 const TOP_SELLERS_SCRIPT = 'database/importers/kepler/import-top-sellers-from-consolidado.js';
 const MARGIN_SCRIPT = 'database/importers/kepler/import-margin.js';
 const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
@@ -29,7 +28,6 @@ export class KeplerConsolidadoService {
   private readonly logger = new Logger(KeplerConsolidadoService.name);
   private running = false;
   private rotationRunning = false;
-  private phStockRunning = false;
   private topSellersRunning = false;
   private marginRunning = false;
   private salesFactRunning = false;
@@ -109,26 +107,16 @@ export class KeplerConsolidadoService {
     }
   }
 
-  /**
-   * Stock VIVO de PH (md_01) → commercial.stock MD-10. Los vendedores se surten
-   * de PH; cada 1 min para reflejar cargas/ventas del día casi en tiempo real.
-   * Subprocess del importer (single source of truth). Guard phStockRunning evita
-   * solapes si una corrida tarda >1 min. El nightly mega_dulces_sync ya NO pisa MD-10.
-   */
-  @Cron('0 */1 * * * *') // cada 1 min
-  async phStockFeed(): Promise<void> {
-    if (!this.db) return;
-    if (this.phStockRunning) {
-      this.logger.warn('Skip phStockFeed: corrida anterior aún activa');
-      return;
-    }
-    this.phStockRunning = true;
-    try {
-      await this.runScript(PH_STOCK_SCRIPT, 'Stock sucursales (01/02/03)', /upserted|COMMIT|ERROR/);
-    } finally {
-      this.phStockRunning = false;
-    }
-  }
+  // RETIRADO 2026-09-02 (ADR-052): `phStockFeed` (@1min) hacía spawn de
+  // `import-branch-stock-live.js`, el MISMO importer que PM2 ya corre en loop
+  // (`ecosystem.sync.config.js` → `sync-stock --apply --watch=15`) y que el runner on-prem
+  // dispara en su grupo `stock` (`run-prod-feeds.js`). Era TRIPLE ejecución del mismo feed
+  // sobre `commercial.stock`, compitiendo por el snapshot en disco compartido
+  // (`.stock-live-snapshot.json`) — el mismo snapshot cuya desincronización dejaba valores
+  // fantasma. Su doc también mentía: decía "PH (md_01) → MD-10" cuando el importer cubre 01-06.
+  // La existencia además ya no se lee de esa copia: el fact deriva de
+  // `analytics.v_erp_stock_on_hand` (vista sobre kepler_ods). PM2 queda como único ejecutor
+  // hasta que el paso 4/5 de ADR-052 retire el importer entero.
 
   /**
    * Best-sellers VIVOS de la red → catalog.top_sellers_live (portal home/catálogo).

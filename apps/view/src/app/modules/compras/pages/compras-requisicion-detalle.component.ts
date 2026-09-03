@@ -129,7 +129,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   loading = signal(true);
   busy = signal(false);
   exporting = signal(false);
-  canManage = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMPRAS_REQUISICIONES_GESTIONAR];
+  canManage = this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMPRAS_REQUISICIONES_GESTIONAR];
   private id = '';
 
   /** Export XLSX con diseño (header + líneas + totales). Disponible en cualquier estado. */

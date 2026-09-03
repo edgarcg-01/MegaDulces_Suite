@@ -30,6 +30,7 @@ import {
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { AdminPlanogramaService } from './admin-planograma.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 interface Product {
   id: string;
@@ -101,7 +102,7 @@ export class AdminPlanogramaComponent implements OnInit {
   newProductName = '';
   editProductName = '';
 
-  readonly canManage = this.perms.can$('manage', 'planograms');
+  readonly canManage = this.perms.has$(Permission.PLANOGRAMAS_GESTIONAR);
 
   // Búsqueda debounceada — recomputar `filteredBrands` con un padrón grande
   // (muchas marcas × muchos productos) en cada keystroke es costoso.
@@ -138,10 +139,9 @@ export class AdminPlanogramaComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    if (!this.perms.can('read', 'planograms')) {
+    if (!this.perms.has(Permission.PLANOGRAMAS_GESTIONAR)) {
       if (
-        this.perms.can('read', 'reports_team') ||
-        this.perms.can('read', 'reports_global')
+        this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)
       ) {
         this.router.navigate(['/dashboard']);
       } else {

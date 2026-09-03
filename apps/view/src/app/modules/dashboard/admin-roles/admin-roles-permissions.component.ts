@@ -272,8 +272,8 @@ export class AdminRolesPermissionsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    if (!this.perms.can('manage', 'roles_config')) {
-      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
+    if (!this.perms.has(Permission.ROLES_CONFIGURAR)) {
+      if (this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)) {
         this.router.navigate(['/dashboard']);
       } else {
         this.router.navigate(['/dashboard/captures']);
@@ -327,7 +327,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
   }
 
   // ── Anti-escalation (espejo del backend) ──────────────────────────────
-  private isSuperEditor(): boolean { return this.perms.can('manage', 'all'); }
+  private isSuperEditor(): boolean { return this.perms.isAdmin(); }
   private canGrant(key: string): boolean {
     if (this.isSuperEditor()) return true;
     return this.authService.user()?.permissions?.[key] === true;

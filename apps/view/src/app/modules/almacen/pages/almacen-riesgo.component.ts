@@ -133,7 +133,7 @@ export class AlmacenRiesgoComponent implements OnInit {
   totalShrink(): number { return this.items().reduce((a, r) => a + Number(r.shrink_value), 0); }
 
   canManage(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PREVENTION_GESTIONAR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PREVENTION_GESTIONAR];
   }
 
   levelLabel(l: string): string {

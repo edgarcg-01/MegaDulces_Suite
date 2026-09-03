@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY, ANY_PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { PermissionsCacheService } from '../ability/permissions-cache.service';
-import { isPlatformAdminRole } from '../ability/ability.factory';
+import { isPlatformAdminRole } from '../ability/platform-admin';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -76,7 +76,7 @@ export class RolesGuard implements CanActivate {
     request.user.permissions = permissions;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
-    // permiso de negocio (ver ability.factory: isPlatformAdminRole).
+    // permiso de negocio (ver `ability/platform-admin.ts`).
     if (isPlatformAdminRole(user.role_name)) {
       return true;
     }

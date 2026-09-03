@@ -385,10 +385,24 @@ const cte = (hist, tr, lead) => `
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=pd.tenant_id AND al.alias_product_id=pd.product_id AND al.deleted_at IS NULL
             LEFT JOIN rmap rm ON rm.route_wh = pd.warehouse_id
            WHERE pd.tenant_id=$1 AND pd.window_days=30 GROUP BY 1,2),
-  stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
-            FROM commercial.stock s
-            LEFT JOIN commercial.product_aliases al ON al.tenant_id=s.tenant_id AND al.alias_product_id=s.product_id AND al.deleted_at IS NULL
-           WHERE s.tenant_id=$1 GROUP BY 1,2),
+  -- ADR-052 — la existencia se DERIVA del ODS, ya no se lee la copia \`commercial.stock\`.
+  -- Medido contra el POS en vivo (2026-09-02): la vista acierta 100.0% y la copia 91.0% (15,324
+  -- unidades de error), porque el importer de la copia es delta contra un snapshot en disco que se
+  -- desincroniza y deja valores fantasma para siempre.
+  -- ⚠️ LA VISTA NO CONVIERTE UNIDADES, Y ESO ES DELIBERADO. Wincaja guarda la existencia en su
+  -- unidad de venta (el PAQUETE en multipack) — pero su DEMANDA viene en esa MISMA unidad
+  -- (verificado: \`analytics.sales_daily.units\` coincide 1:1 con \`wincaja.v_sales_daily.qty\` en
+  -- los 182 multipack de MD-30), y \`reorder_policy\` se deriva de esa demanda. O sea existencia,
+  -- demanda y umbrales son AUTO-CONSISTENTES por almacén. Convertir sólo la existencia rompe el
+  -- pedido: se ve \`factor\` veces más grande que su demanda y el motor deja de pedir. Ya pasó —
+  -- mig 20260902200000 lo revirtió. El problema de Wincaja es de DISPLAY (mostrar cajas), y para
+  -- eso está \`display_box_factor\`, que NO se usa acá.
+  -- El plegado de aliases se hace ACÁ a propósito: la vista es "existencia por almacén x producto"
+  -- y no pliega (una sola responsabilidad).
+  stk AS (SELECT COALESCE(al.canonical_product_id, v.product_id) AS product_id, v.warehouse_id, sum(v.qty_stock_units) AS quantity
+            FROM analytics.v_erp_stock_on_hand v
+            LEFT JOIN commercial.product_aliases al ON al.tenant_id=v.tenant_id AND al.alias_product_id=v.product_id AND al.deleted_at IS NULL
+           WHERE v.tenant_id=$1 GROUP BY 1,2),
   ${tr},
   -- RA-PRO.42 — el TRÁNSITO BAJA POR EL ÁRBOL DE ABASTO. La compra está CENTRALIZADA: el 98% del
   -- tránsito se captura en el CEDIS '00' ($13.0M, que vende $0) y en Padre Hidalgo '01' ($8.3M),

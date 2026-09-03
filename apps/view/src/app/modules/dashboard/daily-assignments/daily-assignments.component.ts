@@ -26,6 +26,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 interface TeamMember {
   id: string;
@@ -140,10 +141,9 @@ export class DailyAssignmentsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    if (!this.perms.can('read', 'users_assign_route')) {
+    if (!this.perms.has(Permission.USUARIOS_ASIGNAR_RUTA)) {
       if (
-        this.perms.can('read', 'reports_team') ||
-        this.perms.can('read', 'reports_global')
+        this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)
       ) {
         this.router.navigate(['/dashboard']);
       } else {

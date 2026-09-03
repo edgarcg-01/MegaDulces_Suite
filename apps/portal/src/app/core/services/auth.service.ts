@@ -13,7 +13,6 @@ export interface JwtPayload {
   role_name?: string;
   zona?: string;
   permissions?: Record<string, boolean>;
-  rules?: any[];
   exp: number;
   iat: number;
 }
@@ -95,16 +94,14 @@ export class AuthService {
   private setSession(token: string, writeCookie: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];
-      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean>; rules?: any[] };
+      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean> };
 
       payload.role_name = payload.rol || payload.role_name;
 
       this.token.set(token);
       this.user.set(payload);
 
-      if (payload.rules) {
-        this.perms.loadRules(payload.rules);
-      }
+      this.perms.load(payload.permissions, payload.role_name);
 
       if (writeCookie) {
         // Expiración alineada al `exp` del JWT (no a un día fijo): cookie y token

@@ -33,6 +33,7 @@ require('ts-node').register({
 });
 const {
   parecidoNombre, rfcComparable, rfcBienFormado, bucketDeSenales, evaluarPaquete,
+  evaluarFolioInterno, HOJAS_INTERNAS,
 } = require(path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/receipt-match.ts'));
 
 const knex = require('knex')({
@@ -54,14 +55,14 @@ const knex = require('knex')({
     // `goods_receipt_proofs.proveedor_nombre`: esa se guardó al adjuntar y puede haber quedado
     // atrás si el catálogo se corrigió después. La entrada es la fuente.
     const rows = await knex.raw(`
-      SELECT p.id, p.ocr_proveedor, p.ocr_rfc, p.ocr_raw, p.monto_match, p.files,
+      SELECT p.id, p.folio, p.ocr_proveedor, p.ocr_rfc, p.ocr_raw, p.monto_match, p.files,
              g.proveedor_nombre, g.proveedor_rfc
         FROM finance.goods_receipt_proofs p
         JOIN analytics.erp_goods_receipts g
           ON g.tenant_id = p.tenant_id AND g.sucursal = p.sucursal AND g.folio = p.folio`);
 
     const reparto = { cuadra: 0, revisar: 0, sin_datos: 0, sin_evidencia: 0 };
-    let conHoja = 0, sinHoja = 0, hojaDesconocida = 0;
+    let conHoja = 0, sinHoja = 0, hojaDesconocida = 0, folioCasa = 0, folioNoCasa = 0;
     const updates = [];
 
     for (const r of rows.rows) {
@@ -82,15 +83,22 @@ const knex = require('knex')({
         Array.isArray(raw && raw.documents_present) ? raw.documents_present.map((d) => d && d.type) : null,
       );
 
+      // `[RE.26]` El folio impreso en nuestra hoja, contra el de la entrada.
+      const folio_interno = (Array.isArray(files) ? files : [])
+        .find((f) => f && HOJAS_INTERNAS.has(String(f.role)) && f.ocr_folio)?.ocr_folio ?? null;
+      const folio_interno_ok = evaluarFolioInterno(folio_interno, r.folio);
+      if (folio_interno_ok === true) folioCasa++; else if (folio_interno_ok === false) folioNoCasa++;
+
       if (paquete_ok === true) conHoja++; else if (paquete_ok === false) sinHoja++; else hojaDesconocida++;
       reparto[bucketDeSenales({ n: 1, any_match: r.monto_match, prov_score, prov_rfc_match })]++;
-      updates.push({ id: r.id, prov_score, prov_rfc_match, paquete_ok });
+      updates.push({ id: r.id, prov_score, prov_rfc_match, paquete_ok, folio_interno, folio_interno_ok });
     }
 
     console.log(`\n${DRY ? '[DRY-RUN] ' : ''}${rows.rows.length} comprobante(s) evaluado(s)`);
     console.table([{
       cuadra: reparto.cuadra, revisar: reparto.revisar, sin_datos: reparto.sin_datos,
       'paquete con hoja': conHoja, 'sin hoja': sinHoja, 'no se sabe': hojaDesconocida,
+      'folio interno casa': folioCasa, 'folio NO casa': folioNoCasa,
     }]);
 
     if (DRY) { console.log('Nada escrito (--dry-run).'); }
@@ -102,7 +110,10 @@ const knex = require('knex')({
           const lote = updates.slice(i, i + 200);
           await Promise.all(lote.map((u) => trx('finance.goods_receipt_proofs')
             .where({ id: u.id })
-            .update({ prov_score: u.prov_score, prov_rfc_match: u.prov_rfc_match, paquete_ok: u.paquete_ok })));
+            .update({
+              prov_score: u.prov_score, prov_rfc_match: u.prov_rfc_match, paquete_ok: u.paquete_ok,
+              folio_interno: u.folio_interno, folio_interno_ok: u.folio_interno_ok,
+            })));
           escritos += lote.length;
         }
       });

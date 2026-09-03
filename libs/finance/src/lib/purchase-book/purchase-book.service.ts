@@ -194,13 +194,23 @@ export class PurchaseBookService {
               AND tipo_pol = ? AND folio = ?
               AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'
             GROUP BY 1, 2
+         ), ctas AS (
+           -- Los RFC que SÍ tienen cuenta de compras usable. Se resuelve acá para que el
+           -- tablero muestre lo accionable (lo que entra al TXT) y no un total que incluye
+           -- gasto y servicio, que nunca van a entrar. DISTINCT porque un RFC puede tener
+           -- más de una cuenta y el join lo duplicaría.
+           SELECT DISTINCT rfc
+             FROM finance.gl_supplier_accounts
+            WHERE tenant_id = current_tenant_id() AND deleted_at IS NULL AND proveedor_existe
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
-                  (p.importe IS NOT NULL) AS ya_en_poliza
+                  (p.importe IS NOT NULL) AS ya_en_poliza,
+                  (c.rfc IS NOT NULL) AS con_cuenta
              FROM fiscal.cfdis f
              LEFT JOIN patas p
                ON p.anio_mes = to_char(f.fecha, 'YYYY-MM') AND p.importe = round(f.total, 2)
+             LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
               -- Acotado a los meses que el tablero va a mostrar. Sin esto se escanean los
@@ -212,8 +222,14 @@ export class PurchaseBookService {
                   count(*) FILTER (WHERE sin_asociar)                   AS no_asociados,
                   sum(total) FILTER (WHERE sin_asociar)                 AS monto_no_asociado,
                   count(*) FILTER (WHERE sin_asociar AND ya_en_poliza)  AS ya_posteados,
+                  sum(total) FILTER (WHERE sin_asociar AND ya_en_poliza) AS monto_ya_posteados,
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza)   AS faltan,
-                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan,
+                  -- Lo que de verdad entra al TXT: sin asociar, sin postear y con cuenta.
+                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta)       AS entran,
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta)     AS monto_entran,
+                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND NOT con_cuenta)   AS fuera_catalogo,
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND NOT con_cuenta) AS monto_fuera
              FROM base GROUP BY 1
          ), libro AS (
            SELECT anio_mes, count(*) AS patas
@@ -240,8 +256,15 @@ export class PurchaseBookService {
         no_asociados: Number(r['no_asociados']),
         monto_no_asociado: r2(r['monto_no_asociado']),
         ya_posteados: Number(r['ya_posteados']),
+        monto_ya_posteados: r2(r['monto_ya_posteados']),
         faltan: Number(r['faltan']),
         monto_faltan: r2(r['monto_faltan']),
+        // Lo accionable: es lo que la tarjeta del mes debe mostrar, para que no contradiga
+        // al encabezado del detalle (que también cuenta solo lo que entra al TXT).
+        entran: Number(r['entran']),
+        monto_entran: r2(r['monto_entran']),
+        fuera_catalogo: Number(r['fuera_catalogo']),
+        monto_fuera: r2(r['monto_fuera']),
         // Sin patas del libro, el mes entero está sin contabilizar (caso ago-2026).
         existe_libro: Number(r['patas_libro'] ?? 0) > 0,
         estado: (r['estado'] as string) ?? 'sin_iniciar',
@@ -566,13 +589,43 @@ export class PurchaseBookService {
         total_cargos: cargos, total_abonos: abonos,
         subtotal_exento: resumen['subtotal_exento'], subtotal_gravado: resumen['subtotal_gravado'],
         total_iva: resumen['iva'], total_ieps: resumen['ieps'],
-        archivo_hash: hash, archivo_nombre: nombre,
+        // El contenido se guarda, no sólo su hash: `fiscal.cfdis` sigue creciendo, así que
+        // este archivo no se puede reproducir mañana. Es la evidencia de lo entregado.
+        archivo_hash: hash, archivo_nombre: nombre, archivo_contenido: txt,
         impuestos_modo: modo, incluye_uuid: conUuid,
         generado_at: knex.fn.now(), generado_by: userId,
         updated_at: knex.fn.now(), updated_by: userId,
       });
       this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
       return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
+    });
+  }
+
+  /**
+   * Devuelve el TXT **ya generado**, tal cual quedó guardado. Es sólo lectura a propósito.
+   *
+   * Antes la descarga llamaba a `generar()`, y eso escribía: bajar un mes que ya estaba en
+   * `entregado` lo regresaba a `generado` (el trámite retrocedía solo) y recalculaba el
+   * hash, así que si entre generar y descargar entraba un CFDI nuevo el archivo bajado ya
+   * no era el firmado — y nadie se enteraba, porque el hash se pisaba junto con él.
+   */
+  async obtenerArchivo(anioMes: string, tipo: TipoCorrida = 'libro') {
+    this.mesValido(anioMes);
+    return this.tk.run(async (knex) => {
+      const run = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run || !run.archivo_contenido) {
+        throw new NotFoundException(
+          `${anioMes} no tiene archivo generado todavía. Genéralo primero.`,
+        );
+      }
+      return {
+        anio_mes: anioMes,
+        tipo,
+        nombre: run.archivo_nombre || `${tipo === 'complemento' ? 'complemento' : 'poliza'}-compras-${anioMes}.txt`,
+        hash: run.archivo_hash as string,
+        txt: run.archivo_contenido as string,
+      };
     });
   }
 

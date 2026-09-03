@@ -232,7 +232,7 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
 
   // Mismo criterio que la hoja de anaquel: manage-all o el permiso puntual del JWT.
   private readonly puedeCapturar =
-    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
+    this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
   canCapture = () => this.puedeCapturar;
 
   /**

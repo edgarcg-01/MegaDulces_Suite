@@ -326,7 +326,7 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   }
 
   canManageMap(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_WAREHOUSES_GESTIONAR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_WAREHOUSES_GESTIONAR];
   }
 
   openMap(): void {

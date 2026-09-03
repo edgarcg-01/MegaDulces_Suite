@@ -518,6 +518,14 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
         rows_last integer DEFAULT 0, rows_seen integer DEFAULT 0)`);
     // Sólo el carril nuevo lleva sucursal en la llave. En `kepler_ods` la llave sigue siendo la
     // tabla a secas: `db-health` ya lee esas llaves y cambiarlas le rompería el sensor de frescura.
+    //
+    // [OBS.3.2] Se evaluó sumar acá una llave `tabla@sucursal` para vigilar el catálogo por rama y
+    // se DESCARTÓ: esta marca sólo se escribe cuando llega un lote, y el carril hash **no empuja
+    // nada cuando no hay cambios** (`replicate-ods-live.js:382` corta antes del POST). O sea la
+    // llave por rama heredaría la misma ambigüedad que ya documenta `analytics.v_feed_freshness`
+    // para las tablas del ODS — vieja puede ser "el carril murió" o "esa rama no cambió de precio
+    // en tres días" — y alarmaría sobre ramas tranquilas. La marca de que una rama se **REVISÓ**
+    // (distinta de que se le **EMPUJÓ** algo) la escribe el shipper en `analytics.ods_branch_checks`.
     const branches = schema === 'kepler_ods' ? [] : (Array.isArray(rows)
       ? Array.from(new Set(rows.map((r) => (r && r.sucursal != null ? String(r.sucursal).trim() : '')).filter(Boolean)))
       : []);

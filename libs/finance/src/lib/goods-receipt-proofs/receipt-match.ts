@@ -139,7 +139,8 @@ export function rfcBienFormado(s?: string | null): boolean {
  * mercancía se recibió contra ESTA orden de entrada. `vale` entra porque el vale de recepción
  * cumple la misma función en las sucursales que no imprimen la orden.
  */
-const ROLES_HOJA_INTERNA = new Set(['orden_entrada', 'vale']);
+export const HOJAS_INTERNAS = new Set(['orden_entrada', 'vale']);
+const ROLES_HOJA_INTERNA = HOJAS_INTERNAS;
 
 /**
  * ¿El paquete trae nuestra hoja interna?
@@ -157,6 +158,48 @@ export function evaluarPaquete(
   const docs = (documentosOcr || []).filter(Boolean).map(String);
   if (docs.length) return docs.includes('aplica_orden_entrada');
   return null;
+}
+
+/**
+ * `[RE.26]` — **El número de folio, sin el prefijo del doctype.**
+ *
+ * Nuestra hoja interna imprime el folio como `XA2001-0000353`: `XA2001` es el **doctype** de
+ * Kepler, no parte del número. Kepler guarda `0000353`. Comparar los dos crudos —o quitando
+ * todo lo que no sea dígito, que pega el `2001` al número— da falso negativo.
+ *
+ * Se midió el costo de equivocarse: con la normalización ingenua el cruce daba **4 de 63**;
+ * quitando bien el prefijo da **46 de 63 (73%)**. O sea que un normalizador flojo habría
+ * declarado "el folio no coincide" en 42 expedientes correctos.
+ *
+ * También tolera `No. 0006668` y `Folio 353`, que es como lo imprimen algunas sucursales.
+ * Devuelve el número sin ceros a la izquierda, o `null` si no hay ninguno.
+ */
+export function folioNumero(s?: string | null): string | null {
+  if (!s) return null;
+  let t = String(s).toUpperCase().trim();
+  t = t.replace(/^[A-Z]{1,3}\d{3,4}\s*[-–]\s*/, ''); // XA2001-… / UD41-…
+  t = t.replace(/^(NO\.?|NUM\.?|FOLIO)\s*/, ''); // "No. 0006668"
+  const m = t.match(/\d{2,}/); // el primer bloque numérico largo
+  return m ? m[0].replace(/^0+/, '') || '0' : null;
+}
+
+/**
+ * ¿El folio impreso en nuestra hoja interna es el de ESTA entrada?
+ *
+ * Es el control que faltaba: detecta la evidencia pegada a la orden equivocada. Medido, de los
+ * 17 que no casan hay al menos dos genuinos —`0000863` contra un `XA2001-0001120`— que son
+ * exactamente eso.
+ *
+ * `null` = no se pudo comparar (la hoja no vino, o el OCR no le leyó folio). No es `false`.
+ */
+export function evaluarFolioInterno(
+  folioLeido?: string | null,
+  folioEntrada?: string | null,
+): boolean | null {
+  const a = folioNumero(folioLeido);
+  const b = folioNumero(folioEntrada);
+  if (!a || !b) return null;
+  return a === b;
 }
 
 export interface SenalesEntrada {

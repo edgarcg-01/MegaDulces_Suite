@@ -1506,3 +1506,40 @@ Plan en [`FASE_MR_MOTOR_RENTABILIDAD`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).
 - **Tarea programada de Windows** — es lo que se venía usando y lo que Edgar descartó explícitamente.
 
 Plan en [`FASE_OBS_INGESTA_OBSERVABLE`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md).
+
+---
+
+## ADR-054
+
+**El permiso es una CLAVE, no una tupla acción/sujeto — CASL se retira** · *aceptado 2026-09-02*
+
+**Contexto:** la autorización se modelaba dos veces. La verdad es `role_permissions.permissions`, un `Record<clave, boolean>` de 164 claves; encima vivía una traducción a CASL (`permissionToSubject` + `permissionToAction`, ~113 entradas cada uno) que producía reglas `(action, subject)`, se serializaba en el JWT como `rules` y se consultaba con `can(action, subject)`.
+
+El backend **ya había abandonado ese modelo** meses antes: `RolesGuard` chequea la clave exacta, y su propio comentario explica por qué — al colapsar `Permission → subject`, cualquier clave del módulo abría todas sus rutas (`ORDERS_VER` habilitaba `ORDERS_FULFILL/CANCELAR/…`). O sea: el modelo de CASL era **más pobre que el del negocio** y se lo reemplazó en el camino crítico, pero la traducción quedó viva alrededor.
+
+**Lo que la medición encontró (2026-09-02, contra el código y la data de prod):**
+
+1. **Cuatro compuertas muertas.** De los 32 permisos `*_GESTIONAR/CONFIGURAR`, **sólo `ROLES_CONFIGURAR`** concedía la acción `'manage'`; los otros 31 concedían `['read','create','update','delete']`. Y en CASL `manage` es comodín **del lado de la regla, no de la consulta** (verificado ejecutando el CASL del repo: con esas 4 reglas, `can('manage','users')` = `false`). Resultado: `can('manage', X)` sólo pasaba con `manage:all`, o sea sólo para superadmin/admin. Escondía los controles de gestión de **usuarios, catálogos, parámetros de scoring y planogramas**.
+2. **No era teórico: 5 usuarios activos en prod tenían un permiso que el sistema no honraba.** `jefe_marketing` (2) con `CATALOGO_GESTIONAR` + `SCORING_CONFIG_GESTIONAR` + `PLANOGRAMAS_GESTIONAR`, y `supervisor_ventas` (3) con `CATALOGO_GESTIONAR`. En catálogos no era cosmético: `catalogs.controller` decidía con `can('manage','catalogs')` → **403 real** al guardar. (`USUARIOS_GESTIONAR` no tenía víctimas sólo porque hoy el único rol que lo lleva es `superadmin`.)
+3. **La copia era incompleta por construcción.** **51 de las 164 claves** del enum no tenían subject, y `buildAbility` las salteaba en silencio (`if (!subject || !actions) continue`). Son justo las de las fases nuevas: FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5. Por rol real: `marketing` 38 claves sin regla, `credito_cobranza` 37, `finanzas` 31, `contabilidad` 29. Esos módulos funcionaban **porque** el guard ya no usaba CASL.
+4. **Cero uso de lo único que justifica la librería.** Ni una regla con `conditions` ni `fields` en todo el repo: se usaba como `Set<string>` con sintaxis de dos niveles. El alcance por fila —el caso de uso de CASL— ya vive en `ScopeService` + `identity.user_scopes` (ADR-050).
+5. **Peaje en cada request.** El JWT llevaba `permissions` **y** `rules`: la misma verdad dos veces. Medido con data de prod, `marketing` = 4,901 B de mapa + 3,554 B de reglas → **~11.6 KB de token**; de ahí el `large_client_header_buffers 4 32k` en los 3 nginx. De sus 65 reglas, el front consultaba a lo sumo 3 pares.
+6. **El front no podía ni nombrar la mayoría de los sujetos:** 53 subjects en el back contra ~24 declarados en `AppSubject`, en **tres copias** del `PermissionsService` (view/vendor/portal).
+
+**Decisión:** se retira `@casl/ability`. El gating —back y front— se hace por **clave exacta** sobre el mapa de permisos, con el god-mode de plataforma resuelto por **nombre de rol**.
+
+- Back: `buildAbility`, `ability.factory.ts` y `ability.types.ts` borrados. Sobrevive `isPlatformAdminRole` en `ability/platform-admin.ts`. `RolesGuard` deja de serializar `rules` al request; `accessFor` y los dos servicios de auth dejan de devolverlas; `rules` sale del JWT.
+- Front: `PermissionsService` pasa a `has()` / `hasAny()` / `has$()` / `isAdmin()`. **`has()` corta por rol de plataforma antes de mirar el mapa** — indispensable: el rol `superadmin` tiene el mapa **vacío** en prod (11 cuentas), su acceso siempre vino del nombre del rol.
+- `getDataScope` deja de reconstruir una ability desde `rules` y lee `permissions`. Es además **mejor fuente**: el guard la relee del cache en cada request, mientras `rules` viajaba congelada en el token hasta el próximo login — un permiso revocado ahora se respeta al instante.
+
+**Consecuencias:**
+- Un permiso nuevo se cablea en **un** lugar (el enum + el árbol de authz), no en tres mapas. Desaparece la clase de bug "el permiso existe pero CASL no lo conoce".
+- **Cambia lo que se ve**: aparecen los controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject (p. ej. la acción rápida _Registrar visita_ se le ofrecía a quien sólo tenía `VISITAS_VER`). Requiere validación en navegador.
+- El token adelgaza ~3.5 KB por sesión.
+- ⚠️ **La trampa de este retiro es el productor.** Al dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve. Por eso se hizo en 3 fases (backend → UI → borrado) y no de un golpe. Mismo patrón, versión suave: `RequesterContext` de `users.service` siguió declarando `rules?: unknown[]` y **no** los dos campos de los que de verdad depende — funcionaba sólo porque en runtime llega el `req.user` completo.
+- La carpeta `lib/ability/` queda mal nombrada (hoy sólo tiene el cache de permisos, `platform-admin` y `data-scope`). Deuda cosmética aceptada.
+
+**Alternativas rechazadas:**
+- **Arreglar CASL** (mapear las 51 claves faltantes, fijar la convención `*_GESTIONAR → 'manage'`, sacar `rules` del JWT) — deja dos mapas de 164 entradas que hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave. Se descartó por eso, no por el esfuerzo.
+- **Conservar CASL sólo para el alcance por fila** (su caso de uso real, con `conditions`) — sería reemplazar `ScopeService`, que ya está en prod y expresa `mode_write` (_"ve las 3 de su zona, captura sólo en la suya"_), algo que las conditions de CASL no modelan sin reescribir el motor.
+- **Mantener `manage` como alias de escritura** con un resolver de aliases de CASL — arregla los 4 gates y deja intactos los otros cinco problemas.

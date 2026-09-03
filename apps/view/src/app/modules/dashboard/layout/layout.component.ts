@@ -366,24 +366,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
-  private permToSubject: Record<string, string> = {
-    [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-    [Permission.VISITAS_REGISTRAR]: 'visits',
-    [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
-    [Permission.USUARIOS_GESTIONAR]: 'users',
-    [Permission.CATALOGO_GESTIONAR]: 'catalogs',
-    [Permission.TIENDAS_VER]: 'stores',
-    [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
-    [Permission.ROLES_CONFIGURAR]: 'roles_config',
-    [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
-    [Permission.VER_SEGUIMIENTO]: 'seguimiento',
-    [Permission.RUTAS_VER]: 'routes_analytics',
-    [Permission.COMMERCIAL_MAP_VER]: 'commercial_map',
-  };
-
   /**
-   * Chequeo combinado: god-mode (manage:all) + CASL rules (subjectMap) +
-   * fallback al record legacy `user.permissions[X] === true`.
+   * Chequeo por CLAVE EXACTA del permiso + god-mode de plataforma.
+   *
+   * Ya no consulta reglas de CASL por `subject`. Ese paso era estrictamente MAS permisivo que
+   * el chequeo exacto: varias claves comparten subject, asi que un item que pide
+   * COMMERCIAL_ORDERS_CONFIRMAR se mostraba a quien solo tenia ORDERS_VER — nav visible que el
+   * API rechaza con 403.
    *
    * El god-mode va PRIMERO: un superadmin debe ver TODO el nav sin depender de
    * que cada permiso nuevo esté mapeado en `permToSubject` ni backfilleado como
@@ -394,14 +383,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * el fallback al record legacy se mantiene.
    */
   private hasPermFor(item: NavItem): boolean {
-    if (this.perms.can('manage', 'all')) return true;
+    if (this.perms.isAdmin()) return true;
     const legacy = this.user()?.permissions;
     // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
     if (item.anyOf?.length) {
       return item.anyOf.some((p) => (legacy ? legacy[p] === true : false));
     }
-    const subject = this.permToSubject[item.permission];
-    if (subject && this.perms.can('read', subject as any)) return true;
     return legacy ? legacy[item.permission] === true : false;
   }
 
@@ -410,9 +397,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * getter de áreas de Almacén (WMS.1) para elegir el primer tab accesible.
    */
   private canPerm(p: Permission): boolean {
-    if (this.perms.can('manage', 'all')) return true;
-    const subject = this.permToSubject[p];
-    if (subject && this.perms.can('read', subject as any)) return true;
+    if (this.perms.isAdmin()) return true;
     const legacy = this.user()?.permissions;
     return legacy ? legacy[p] === true : false;
   }

@@ -202,10 +202,14 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-oc-abiertas', label: 'Abiertas en Kepler', route: '/compras/oc-abiertas', view: [Permission.COMPRAS_PEDIDO_VER], manage: [] },
           { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
           // RE.20.1 — fusionada con `Control de entradas · Listado`: es la misma pantalla con
-          // otro lente, así que la gatea el mismo permiso. `COMPRAS_360_VER` queda huérfano a
-          // propósito — retirarlo del enum obliga a tocar `identity.role_permissions` en prod,
-          // y un permiso de más no le abre nada a nadie.
-          { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [] },
+          // otro lente, así que la gatea el mismo permiso.
+          //
+          // `[AUTHZ.5]` — Acá decía que `COMPRAS_360_VER` "queda huérfano a propósito… un permiso
+          // de más no le abre nada a nadie". Es cierto para el árbol y **falso para el guard**:
+          // `purchase-adjustments.controller` exige esa clave en 2 rutas (`compras-360` y sus
+          // filtros), que son las que llenan esta tabla. Estando fuera del árbol no se podía
+          // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
+          { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
@@ -223,7 +227,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
-          { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR] },
+          // `[AUTHZ.5]` `FINANCE_RECON_RECIBIR` estaba en el enum y **fuera del árbol**: no se podía
+          // otorgar desde acá. No es un permiso de pantalla sino un MARCADOR — `maat-recon-tasks`
+          // consulta `role_permissions` directo para saber a qué roles repartirle tareas. Sin
+          // casilla, el equipo de conciliación sólo se podía cambiar por SQL.
+          { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR, Permission.FINANCE_RECON_RECIBIR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'solicitudes', label: 'Solicitudes de gasto (evidencia)', route: '/finanzas/solicitudes', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'capturar-gasto', label: 'Capturar gasto (comprobante)', route: '/finanzas/capturar-gasto', view: [Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER], manage: [] },
@@ -260,6 +268,20 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'reparto-despacho', label: 'Despacho (tienda)', route: '/reparto', view: [Permission.REPARTO_DESPACHAR], manage: [] },
           { id: 'reparto-entrega', label: 'Entrega (repartidor)', route: '/reparto', view: [Permission.REPARTO_ENTREGAR], manage: [] },
+        ],
+      },
+      {
+        // `[AUTHZ.5]` — El bot de WhatsApp **no tiene pantalla todavía** (`libs/whatsapp` es sólo
+        // backend), pero sus dos permisos ya los exige `whatsapp-broadcast.controller` en 4 rutas.
+        // Estando fuera del árbol no había forma de otorgarlos desde `/admin/roles`: los 9 usuarios
+        // que hoy los tienen los recibieron por seed, y un rol nuevo no podía. `route` vacío porque
+        // aún no hay a dónde ir — el nodo existe para poder repartir el permiso, que es el punto.
+        id: 'whatsapp',
+        label: 'WhatsApp (bot)',
+        icon: 'pi pi-whatsapp',
+        route: '',
+        modules: [
+          { id: 'whatsapp-bot', label: 'Bot conversacional', route: '', view: [Permission.WHATSAPP_BOT_VER], manage: [Permission.WHATSAPP_BOT_GESTIONAR] },
         ],
       },
     ],
