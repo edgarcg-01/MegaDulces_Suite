@@ -172,8 +172,13 @@ const foldText = (s: string | null | undefined): string =>
               <span class="ss-lbl"><i class="pi pi-box"></i> Existencia</span>
               <div class="ss-seg">
                 <button type="button" class="ss-b" [class.on]="stockView() === 'sucursal'"
+                  [class.unassigned]="stockSources().sucursal?.assigned === false"
                   (click)="switchStockView('sucursal')">
-                  <i class="pi pi-building"></i> {{ stockSources().sucursal?.name }}
+                  @if (stockSources().sucursal?.assigned === false) {
+                    <i class="pi pi-exclamation-triangle"></i> Sin asignar
+                  } @else {
+                    <i class="pi pi-building"></i> {{ stockSources().sucursal?.name }}
+                  }
                 </button>
                 @if (stockSources().camioneta; as cam) {
                   <button type="button" class="ss-b" [class.on]="stockView() === 'camioneta'"
@@ -184,6 +189,9 @@ const foldText = (s: string | null | undefined): string =>
               </div>
               @if (stockLoading()) { <i class="pi pi-spin pi-spinner ss-spin"></i> }
             </div>
+            @if (stockSources().sucursal?.assigned === false) {
+              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tenés sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
+            }
           }
           <!-- Banner de escucha (transcripción en vivo) -->
           @if (listening()) {
@@ -620,6 +628,10 @@ const foldText = (s: string | null | undefined): string =>
       .stock-src .ss-seg { display: inline-flex; gap: 0.25rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.15rem; }
       .stock-src .ss-b { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; font-weight: 700; line-height: 1; padding: 0.32rem 0.6rem; border: none; background: transparent; color: var(--text-muted); border-radius: var(--r-pill, 999px); cursor: pointer; }
       .stock-src .ss-b.on { background: var(--action); color: #fff; }
+      .stock-src .ss-b.unassigned { color: var(--warn-fg, #b45309); }
+      .stock-src .ss-b.unassigned.on { background: var(--warn-fg, #b45309); color: #fff; }
+      .ss-warn { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--warn-fg, #b45309); }
+      .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
@@ -890,7 +902,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly warehouseId = signal<string>('');
   /** Fuentes de existencia del vendedor (sucursal de surtido + camioneta). */
   readonly stockSources = signal<{
-    sucursal: { id: string; code: string; name: string } | null;
+    sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
     camioneta: { id: string; code: string; name: string } | null;
   }>({ sucursal: null, camioneta: null });
   /** Vista de existencia activa: de qué almacén se muestra el stock. */

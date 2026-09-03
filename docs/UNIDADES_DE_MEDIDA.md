@@ -178,6 +178,9 @@ equivocada. **No usar esta prueba para "corregir" unidades.**
 5. **El precio es el árbitro de la unidad, no el nombre del campo** — pero sólo cuando el precio de referencia es confiable. `c90` no lo es.
 6. **Tratar `500`, `250`, `400`, `2KG`, `IND` como unidad desconocida**, no como texto válido.
 7. **Al cruzar dos tablas, verificar que ambas cuenten la misma cosa antes de multiplicar.** Los tres bugs de esta sesión fueron multiplicaciones entre columnas de universos distintos.
+8. **La unidad de una columna NO se hereda de su fuente.** Cada tabla derivada puede normalizar una columna y no la otra, y el nombre no avisa (`replenishment_plan.stock_pz` dice "pz" y trae paquetes). Probar la unidad **en la tabla que el consumidor lee de verdad**, no en el crudo. Cuando dos fuentes disputan la unidad, llevar **el cálculo** al peldaño más grande (la caja) — es el único que los dos ERPs declaran. Ver §8ter.
+9. **Antes de creerle a un comentario sobre el peldaño de un costo, medirlo contra la escalera del ERP.** Si las razones se agrupan en **tasas de impuesto** (1.00 / 1.08 / 1.16 / 1.24) el costo está en el peldaño base; si se agrupan en **factores de empaque** está en el bulto. Un factor de unidad no vale 1.08. Ver §8quater — cuatro archivos del repo lo declaraban distinto y siete multiplicaciones dependían de la respuesta.
+10. **Resolver el peldaño del costo no resuelve el de la cantidad.** Son dos auditorías: el costo se arbitra con la escalera del ERP; la cantidad, con **lo que se pagó** (`real_buy_cost` en Kepler, `costo_promedio` en Wincaja) — `display_bf == caja_cost / pagado`. Ver §8quater consecuencia 4.
 
 ---
 
@@ -316,6 +319,63 @@ fuentes disputan la unidad, llevar **el cálculo** al peldaño más grande (la c
 convertir un lado: es la única unidad que los dos ERPs declaran.
 
 Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión).
+
+---
+
+## 8quater. ¿En qué peldaño está `cost_with_tax`? (U.0, 2026-09-03)
+
+Cuatro archivos del repo lo declaraban distinto, y **siete multiplicaciones cantidad × costo dependían
+de la respuesta**:
+
+| archivo | decía |
+|---|---|
+| `commercial-replenishment.service.ts` | *"costo vivo **por PIEZA** desde `kdik.c16`"* |
+| `replenishment-scanner.service.ts` | *"`cost_with_tax` (**por PIEZA**)"* |
+| `import-demand-clean.js` | *"`cost_with_tax` es costo **por CAJA** (bruto)"* |
+| `import-sales-units-base.js` | usaba `cost_with_tax / √factor_sale` — el punto medio geométrico, **porque no sabía cuál era** |
+
+### La respuesta: peldaño BASE, bruto de impuesto
+
+Medido contra la escalera de costo del ERP (`analytics.v_supplier_cost_ladder`), la razón
+`cost_with_tax / u1_cost` **se agrupa en múltiplos de impuesto exactos a cuatro decimales**, no en
+factores de unidad:
+
+| razón | SKUs | qué es | venta 90d |
+|---|---|---|---|
+| **1.0000** | 960 | exento | $9,568,411 |
+| **1.0800** | 1,886 | IVA 8% (frontera/alimentos) | **$69,310,729** |
+| **1.1600** | 1,507 | IVA 16% | $8,835,516 |
+| **1.2400** | 1,987 | IVA 16% + IEPS 8% | $29,843,306 |
+| 1.1264 · 1.0416 | 1,091 | otras combinaciones de tasa | $10,864,860 |
+| **3.4720** | **110** | ⚠ **sospechoso de PELDAÑO, no de impuesto** | $493,475 |
+| 0.9341 | 370 | ⚠ `cwt` **por debajo** del costo suelto de la escalera | $1,985,754 |
+
+La razón contra `box_cost` es **0.058**. Conclusión:
+
+> **`cost_with_tax` = `u1_cost × (1 + impuesto)`.** Está en el peldaño **base/suelto**, bruto de
+> impuesto. `commercial-replenishment` y `replenishment-scanner` tenían razón; `import-demand-clean`
+> estaba equivocado.
+
+**Por qué este testigo cierra el caso:** un factor de unidad no vale 1.08. Que las medianas caigan
+en las tasas fiscales de México **exactas a cuatro decimales** —y que la razón contra el bulto sea
+0.058— no admite la lectura de "es costo de caja". Es el mismo criterio de §7.5 (el precio es el
+árbitro), aplicado al costo.
+
+### Consecuencias registradas
+
+1. **`import-demand-clean.js` divide el piso de costo por `fs` sobre una premisa falsa.** Con `cwt` ya
+   en peldaño base, `cwt/fs` deja el piso `fs` veces más bajo → `min(rev/u)` gana más seguido →
+   `piece_price` puede quedarse en un precio sub-unidad → **`daily_pieces` sale inflado**, que es justo
+   lo que el piso existe para evitar. **No se corrigió**: `daily_pieces` es el numerador de todo
+   `/compras/pedido` y su peldaño ya flota con el mix de precios de la red. Estabilizarlo es
+   **MR.7.1 (persistir el peldaño)**.
+2. **`import-sales-units-base.js` queda marcado como código muerto**: su `√factor_sale` promediaba
+   una ambigüedad que ya no existe, y su columna destino (`sales_daily.units_base`) está 100% en NULL
+   (defecto #6 de §8, abierto).
+3. **110 SKUs con razón 3.47 y 370 con razón 0.93 sí son sospechosos de peldaño** — no de impuesto.
+   Van a la bandeja de `peldano_cruzado`, no al `COALESCE` de `costUnit()`.
+4. **Esto resuelve el peldaño del COSTO, no el de la CANTIDAD que lo multiplica.** Sigue sin declarar
+   en 47 sitios; es lo que audita `analytics.v_unit_rung_audit`.
 
 ---
 

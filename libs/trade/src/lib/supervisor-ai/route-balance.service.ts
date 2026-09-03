@@ -1,6 +1,10 @@
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Sprint Horus.ACT.5: balanceo de carga entre rutas/personas.
@@ -35,8 +39,9 @@ export class RouteBalanceService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
   private userId(user: any): string | null {
     const id = user?.sub || user?.id || user?.userId || null;
@@ -269,7 +274,6 @@ export class RouteBalanceService {
   /** Read-only: simula el rebalanceo del día. */
   async simulate(user: any, dayOfWeek?: number | string) {
     const tenantId = this.tenantId(user);
-    if (!tenantId) return { day_of_week: null, before: [], after: [], moves: [], metrics: null };
     const dow = this.resolveDow(dayOfWeek) || (await this.todayDow());
     const bins = await this.loadBins(tenantId, dow);
     const res = this.computeBalance(bins);
@@ -279,7 +283,6 @@ export class RouteBalanceService {
   /** Co-piloto (aprobar): recomputa server-side y APLICA los movimientos. Reversible. */
   async apply(user: any, dayOfWeek?: number | string) {
     const tenantId = this.tenantId(user);
-    if (!tenantId) throw new BadRequestException('tenant no resuelto');
     const dow = this.resolveDow(dayOfWeek) || (await this.todayDow());
     const bins = await this.loadBins(tenantId, dow);
     const { before, after, moves, metrics } = this.computeBalance(bins);
@@ -318,7 +321,6 @@ export class RouteBalanceService {
   /** Revierte el último rebalanceo aplicado del día (restaura sales_route/visit_sequence). */
   async undo(user: any, dayOfWeek?: number | string) {
     const tenantId = this.tenantId(user);
-    if (!tenantId) throw new BadRequestException('tenant no resuelto');
     const dow = this.resolveDow(dayOfWeek) || (await this.todayDow());
     const last = await this.knex('commercial.route_rebalance_log')
       .where({ tenant_id: tenantId, day_of_week: dow, status: 'applied' })

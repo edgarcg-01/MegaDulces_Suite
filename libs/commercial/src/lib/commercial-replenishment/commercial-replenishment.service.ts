@@ -232,6 +232,18 @@ export class CommercialReplenishmentService {
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
   // multiplicarlo por piezas. Ambos reportes (crítica + /salidas) valorizan igual ahora.
+  //
+  // ✅ U.0 (2026-09-03) — "por PIEZA" CONFIRMADO con medición, no con la palabra del comentario.
+  // Contra la escalera del ERP (`analytics.v_supplier_cost_ladder`), `cost_with_tax / u1_cost` se
+  // agrupa en múltiplos de IMPUESTO exactos a 4 decimales sobre 6,626 SKUs / $116.8M de venta 90d:
+  // 1.0000 exento (960) · 1.0800 IVA 8% (1,886 · $69.3M) · 1.1600 IVA 16% (1,507) · 1.2400 IVA+IEPS
+  // (1,987 · $29.8M). La razón contra `box_cost` es 0.058. O sea `cost_with_tax = u1_cost × (1+imp)`:
+  // peldaño BASE, bruto de impuesto. `import-demand-clean.js` decía "por CAJA" y estaba equivocado
+  // (corregido allá). ⚠️ La cantidad que lo multiplica sigue sin declarar su peldaño — eso es lo
+  // que audita `analytics.v_unit_rung_audit`. Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+  //
+  // ⚠️ 110 SKUs ($493k de venta 90d) dan razón mediana 3.47 contra `u1_cost`: ésos SÍ son
+  // sospechosos de peldaño, no de impuesto. Van a la bandeja, no a este COALESCE.
   private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
   // Venta mensual estimada ($) = demanda diaria × 30 × precio de venta (costo × (1+markup)).
   // Usa columnas ya joineadas (ih.avg_daily_units, pr.cost_with_tax, pr.markup_pct) — sin join
@@ -852,6 +864,11 @@ export class CommercialReplenishmentService {
       // ~10× más chica y el motor pedía de más — $866,756 de sobre-pedido y $2.68M de inventario
       // que no se veía. Resuelto en `analytics.v_warehouse_box_factor` y materializado en el fact.
       const DBF = 'COALESCE(max(b.display_bf), max(b.bf), 1)';
+      // U.2 — ¿el peldaño de este almacén está verificado? `sin_dato` cuenta como OK a propósito:
+      // el detector sólo opina donde hay existencia y costo de compra; ausencia de veredicto no es
+      // veredicto negativo (misma regla que `freshness.ts`: no poder MEDIR no se reporta como malo,
+      // pero tampoco se castiga al 99% que nunca tuvo problema).
+      const RUNG_OK = `max(b.rung_veredicto) IN ('ok', 'sin_dato', 'z_no_arbitrable')`;
       // RA-PRO.36.2 — filtros de PRODUCTO server-side (aplican sobre TODO el dataset, antes de paginar):
       // scope (con pedido) + tendencia IAD + sobrestock. Sin esto, los chips filtrarían solo la página cargada.
       const wbConds: string[] = [];
@@ -878,12 +895,23 @@ export class CommercialReplenishmentService {
                  -- derivada del ODS); antes la pantalla escribía "pz" a mano y mentía en los
                  -- productos a granel (el azúcar 99029 se mide en 500 g, no en piezas).
                  lad.u1_label AS unidad_base,
+                 -- U.2 — VEREDICTO DEL PELDAÑO por (producto, almacén). Cuando el divisor no
+                 -- cuadra con lo que se pagó, la conversion a cajas de ESTE almacen no es
+                 -- confiable: ni la cantidad ni su valuado. Se DECLARA, no se dibuja.
+                 -- Ver analytics.v_unit_rung_audit (mig 20260903150000) y UNIDADES_DE_MEDIDA 8quater.
+                 COALESCE(ura.veredicto, 'sin_dato') AS rung_veredicto,
+                 ura.razon                           AS rung_razon,
+                 ura.valor_arbitrado                 AS rung_valor_arbitrado,
+                 ura.base_label                      AS rung_base_label,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN analytics.v_supplier_cost_ladder lad ON lad.sku = pr.sku
+            LEFT JOIN analytics.v_unit_rung_audit ura
+                   ON ura.tenant_id = rp.tenant_id AND ura.warehouse_id = rp.warehouse_id
+                  AND ura.product_id = rp.product_id
             ${stockJoin}
            WHERE ${where}${whFilter}
              AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
@@ -900,7 +928,19 @@ export class CommercialReplenishmentService {
                  -- las unidades crudas de varios almacenes y dividir después mezcla las unidades.
                  round((COALESCE(sum(b.rop_reorder),0) / ${DBF})::numeric, 1) AS reorder_cjs,
                  round((COALESCE(sum(b.rop_max),0) / ${DBF})::numeric, 1) AS max_cjs,
-                 round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0))::numeric, 2) AS valor_exis_col,
+                 -- U.2 — el valuado SÓLO se publica si el peldaño de este almacén está verificado.
+                 -- Si no, va NULL: sumar un valuado que el dinero contradice lo esconde. Lo que el
+                 -- árbitro sí puede afirmar viaja aparte, en rung_arbitrado.
+                 CASE WHEN ${RUNG_OK}
+                      THEN round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0))::numeric, 2)
+                 END                                                          AS valor_exis_col,
+                 max(b.rung_veredicto)                                        AS rung_veredicto,
+                 round(max(b.rung_razon)::numeric, 3)                         AS rung_razon,
+                 round(max(b.rung_valor_arbitrado)::numeric, 2)               AS rung_arbitrado,
+                 max(b.rung_base_label)                                       AS rung_base_label,
+                 -- La CANTIDAD suelta, que sí es verdad aunque su conversión a cajas no lo sea:
+                 -- el comprador necesita saber que hay 2,679 KG ahí, no un blanco.
+                 round(COALESCE(sum(b.stock_pz),0)::numeric, 0)               AS exis_nativa,
                  -- tran es el CRUDO a propósito: es lo que ve el comprador y lo que tiene que
                  -- cuadrar con los folios del diálogo "En camino". Descontar usa el pesado (arriba).
                  round(COALESCE(sum(b.transit_cajas),0)::numeric, 1) AS tran,
@@ -915,7 +955,16 @@ export class CommercialReplenishmentService {
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
                  max(unidad_base) AS unidad_base,
-                 jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped, 'tran', tran)) AS cells,
+                 -- U.2 — cada celda declara su propio veredicto de peldaño. SIN BACKTICKS ACÁ: va
+                 -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
+                 -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
+                 -- celda no se puede convertir a cajas" y muestra la cantidad suelta con su rótulo.
+                 jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
+                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran,
+                   'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
+                   'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
+                   'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
+                 ))) AS cells,
                  round(sum(tran)::numeric, 1) AS transito_cajas,   -- RA-PRO.44: explica el "Pedido 0"
                  -- Reorden/Máximo de RED en cajas = Σ de las cajas ya convertidas por almacén.
                  round(sum(reorder_cjs)::numeric, 1) AS reorder_cajas,
@@ -925,7 +974,13 @@ export class CommercialReplenishmentService {
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
                  round(sum(rev)::numeric, 2) AS valor_venta,
-                 round(sum(valor_exis_col)::numeric, 2) AS valor_exis,
+                 -- U.2 — el valuado publicado es Σ de los almacenes VERIFICADOS. Los marcados no se
+                 -- suman ni se dibujan como cero: se declaran en las 3 columnas de abajo, que el
+                 -- front usa para el banner ("N almacenes sin valuar") y el KPI aparte.
+                 round(sum(valor_exis_col)::numeric, 2)                                  AS valor_exis,
+                 count(*) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::int AS almacenes_sin_valuar,
+                 round(sum(rung_arbitrado) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::numeric, 2) AS valor_exis_arbitrado,
+                 max(rung_veredicto) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada')) AS rung_peor,
                  bool_or(exis > 0 AND (vta <= 0 OR exis * 30.0 / NULLIF(vta, 0) > 90)) AS has_over
             FROM per
            GROUP BY product_id, sku, nombre, supplier_id
@@ -945,7 +1000,18 @@ export class CommercialReplenishmentService {
          ${wbWhere}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
-      const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];
+      // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
+      // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
+      // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
+      // mentira distinta de la que estamos quitando.
+      const tot = (await trx.raw(`SELECT count(*)::int c,
+          round(SUM(pedido_valor)::numeric,2) total_pedido,
+          round(SUM(valor_venta)::numeric,2)  total_venta,
+          round(SUM(valor_exis)::numeric,2)   total_exis,
+          COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0)::int          exis_sin_valuar_skus,
+          COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
+          round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
+        FROM (${inner}) z`, binds)).rows[0];
       // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
       const territories = general
         ? [{ code: 'GENERAL', name: 'General (red)' }]
@@ -968,6 +1034,15 @@ export class CommercialReplenishmentService {
           pedido: Number(tot?.total_pedido || 0),
           venta: Number(tot?.total_venta || 0),
           exis: Number(tot?.total_exis || 0),
+        },
+        // U.2 — lo que la pantalla NO puede valuar, declarado en vez de omitido. `arbitrado` es lo
+        // que el árbitro (la compra real / el costo propio de Wincaja) sí puede afirmar; es una
+        // referencia para el triage, no una cifra publicable — el árbitro es un tamiz, no un
+        // veredicto. Ver analytics.v_unit_rung_audit.
+        unit_rung: {
+          skus: Number(tot?.exis_sin_valuar_skus || 0),
+          celdas: Number(tot?.exis_sin_valuar_celdas || 0),
+          arbitrado: Number(tot?.exis_sin_valuar_arbitrado || 0),
         },
         rows,
       };

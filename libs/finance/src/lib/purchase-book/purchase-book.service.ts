@@ -1,6 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import {
+  FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
+} from '@megadulces/contracts';
 import {
   TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
@@ -43,6 +46,60 @@ export type TipoCorrida = 'libro' | 'complemento';
 /** Folio 1 del Diario es siempre el registro de compras; el 2 está libre en todos los meses. */
 const FOLIO_LIBRO = 1;
 const FOLIO_COMPLEMENTO = 2;
+
+/**
+ * LC.7 — las reglas del cuadre post-entrega, para la bandeja de hallazgos de Maat.
+ *
+ * Se registran antes de insertar (la FK `(tenant_id, rule_key)` lo exige) y son
+ * idempotentes: si ya existen se preserva la calibración humana.
+ */
+const REGLAS_CUADRE: FinanceRuleInput[] = [
+  {
+    rule_key: 'libro_compras_descuadre_contpaqi', clase: 'error_captura',
+    nombre: 'La póliza en ContPAQi no es la que entregamos',
+    descripcion: 'El multiset (cuenta, cargo/abono, importe) del TXT guardado en la corrida no coincide '
+      + 'con la póliza real. Alguien editó renglones al importar, o el archivo se subió a otro folio.',
+    params: { tolerancia_pesos: 1000 },
+  },
+  {
+    rule_key: 'libro_compras_poliza_ausente', clase: 'riesgo',
+    nombre: 'Entregado y sin póliza en ContPAQi',
+    descripcion: 'La corrida está entregada o aplicada y ContPAQi no tiene la póliza del mes. '
+      + 'Es el modo de falla que tiró julio y agosto de 2026 sin que nadie lo notara.',
+    params: {},
+  },
+  {
+    rule_key: 'libro_compras_entrega_sin_asociar', clase: 'error_captura',
+    nombre: 'Entrega aplicada y sin asociar en ContPAQi',
+    descripcion: 'Pasaron los días de gracia desde que se aplicó y los UUID entregados siguen sin marca '
+      + 'de asociación. El layout del TXT no tiene campo de UUID: si nadie usa el Asociador de CFDI, el '
+      + 'flag miente y el anti-duplicado se queda sin su señal buena.',
+    params: { dias_gracia: 7 },
+  },
+];
+
+/**
+ * Una factura del respaldo. Se resuelve desde los UUID que lleva el TXT ENTREGADO, no desde
+ * los datos del mes: si entre generar y bajar el respaldo entró un CFDI nuevo, tomarlo del
+ * mes haría que la hoja deje de cuadrar contra el archivo.
+ */
+export interface FacturaRespaldo {
+  uuid: string;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  serie: string | null;
+  folio: string | null;
+  fecha: string;
+  base_exenta: number;
+  subtotal16: number;
+  ieps: number;
+  iva: number;
+  total: number;
+  supplier_name: string | null;
+  cuenta_proveedor: string | null;
+  cuenta_compra_exenta: string | null;
+  cuenta_compra_iva: string | null;
+}
 
 export interface FacturaMes {
   uuid: string;
@@ -89,6 +146,27 @@ export interface FacturaMes {
    * para no re-meterla: son 271 facturas por $32.6M en 2026 (jul solo, 150 por $17.9M).
    */
   ya_en_poliza: boolean;
+  /**
+   * QUÉ prueba dice que ya está en el libro, y con qué fuerza. La distinción es la
+   * diferencia entre certeza y sospecha, y decide si el humano puede pasar por encima:
+   *
+   *  · `uuid_*`    → **exacta**: es el mismo folio fiscal. No hay nada que juzgar.
+   *  · `importe_*` → **por importe**: dos facturas del mismo monto casan igual. Es una
+   *                  sospecha razonable, y quien lleva el libro es quien sabe.
+   */
+  prueba_en_libro:
+    | 'uuid_libro_historico' | 'uuid_entregado' | 'uuid_concepto_contpaqi'
+    | 'importe_abono_212' | 'importe_cargo_501_502' | null;
+  prueba_certeza: 'exacta' | 'por_importe' | null;
+  /** Para que un humano pueda juzgar un falso positivo: qué se encontró, exactamente. */
+  prueba_detalle: string | null;
+  /**
+   * `vigente | cancelado | desconocido` según el ADD. **Casi todo es `desconocido`**
+   * (167,053 de 167,135): el ADD trae `CancelStatus` vacío y nadie valida contra el SAT.
+   * Por eso NO se filtra por `= vigente` — eso vaciaría el módulo. Se bloquea lo que se
+   * sabe malo (`cancelado`) y la ignorancia se declara en un aviso, no se esconde.
+   */
+  estatus_sat: string;
 }
 
 @Injectable()
@@ -98,6 +176,9 @@ export class PurchaseBookService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly ctx: TenantContextService,
+    // Best-effort: la bandeja unificada vive en Maat. Sin binding el módulo sigue
+    // funcionando, sólo que el cuadre no consolida hallazgos.
+    @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
   ) {}
 
   private mesValido(anioMes: string) {
@@ -109,6 +190,20 @@ export class PurchaseBookService {
   private finDeMes(anioMes: string): Date {
     const [y, m] = anioMes.split('-').map(Number);
     return new Date(Date.UTC(y, m, 0));
+  }
+
+  /**
+   * Los dos extremos del mes, para filtrar `fecha` por RANGO en vez de por
+   * `to_char(fecha, 'YYYY-MM')`. Envolver la columna en una función anula el índice
+   * `(tenant_id, fecha)` y fuerza un seq scan de la tabla entera.
+   */
+  private inicioDeMes(anioMes: string): string {
+    return `${anioMes}-01`;
+  }
+
+  private inicioDelSiguiente(anioMes: string): string {
+    const [y, m] = anioMes.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
   }
 
   // ── El tablero: en qué va cada mes ────────────────────────────────────────────────────
@@ -209,12 +304,19 @@ export class PurchaseBookService {
            SELECT DISTINCT rfc
              FROM finance.gl_supplier_accounts
             WHERE tenant_id = current_tenant_id() AND deleted_at IS NULL AND proveedor_existe
+         ), libro_uuid AS (
+           -- La tercera puerta, exacta. DISTINCT obligatorio: la vista trae una fila por
+           -- (source, source_key) y el libro histórico repite algún UUID; sin dedup el LEFT
+           -- JOIN multiplicaría filas y el agregado de abajo sobrecontaría el mes.
+           SELECT DISTINCT cfdi_uuid FROM finance.v_purchase_book_uuids
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
-                  (p.importe IS NOT NULL OR g.importe IS NOT NULL) AS ya_en_poliza,
+                  (p.importe IS NOT NULL OR g.importe IS NOT NULL OR lu.cfdi_uuid IS NOT NULL) AS ya_en_poliza,
+                  (lu.cfdi_uuid IS NOT NULL) AS por_uuid,
                   (c.rfc IS NOT NULL) AS con_cuenta
              FROM fiscal.cfdis f
+             LEFT JOIN libro_uuid lu ON lu.cfdi_uuid = upper(f.uuid)
              LEFT JOIN patas p
                ON p.anio_mes = to_char(f.fecha, 'YYYY-MM') AND p.importe = round(f.total, 2)
              LEFT JOIN cargos g
@@ -235,6 +337,12 @@ export class PurchaseBookService {
                   sum(total) FILTER (WHERE sin_asociar)                 AS monto_no_asociado,
                   count(*) FILTER (WHERE sin_asociar AND ya_en_poliza)  AS ya_posteados,
                   sum(total) FILTER (WHERE sin_asociar AND ya_en_poliza) AS monto_ya_posteados,
+                  -- Partidos por la FUERZA de la prueba: "ya está en el libro" es asunto
+                  -- cerrado; "un importe igual ya está posteado" es trabajo por revisar.
+                  count(*) FILTER (WHERE sin_asociar AND por_uuid)              AS ya_en_libro_exacto,
+                  sum(total) FILTER (WHERE sin_asociar AND por_uuid)            AS monto_exacto,
+                  count(*) FILTER (WHERE sin_asociar AND ya_en_poliza AND NOT por_uuid)   AS ya_por_importe,
+                  sum(total) FILTER (WHERE sin_asociar AND ya_en_poliza AND NOT por_uuid) AS monto_por_importe,
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza)   AS faltan,
                   sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan,
                   -- Lo que de verdad entra al TXT: sin asociar, sin postear y con cuenta.
@@ -269,6 +377,12 @@ export class PurchaseBookService {
         monto_no_asociado: r2(r['monto_no_asociado']),
         ya_posteados: Number(r['ya_posteados']),
         monto_ya_posteados: r2(r['monto_ya_posteados']),
+        // Certeza vs sospecha, separadas: la primera es asunto cerrado y la segunda es
+        // trabajo. Juntarlas en un solo número esconde cuál de las dos hay que mirar.
+        ya_en_libro_exacto: Number(r['ya_en_libro_exacto'] ?? 0),
+        monto_exacto: r2(r['monto_exacto']),
+        ya_por_importe: Number(r['ya_por_importe'] ?? 0),
+        monto_por_importe: r2(r['monto_por_importe']),
         faltan: Number(r['faltan']),
         monto_faltan: r2(r['monto_faltan']),
         // Lo accionable: es lo que la tarjeta del mes debe mostrar, para que no contradiga
@@ -286,6 +400,42 @@ export class PurchaseBookService {
         total_cargos: r['total_cargos'] ? r2(r['total_cargos']) : null,
         generado_at: r['generado_at'], entregado_at: r['entregado_at'], aplicado_at: r['aplicado_at'],
       }));
+    });
+  }
+
+  /**
+   * Hasta dónde llega el anti-duplicado EXACTO por UUID, y desde dónde el control vuelve a
+   * ser el cruce por importe.
+   *
+   * Existe porque el límite tiene que estar **en pantalla**, no en un `.md`. La fuente del
+   * histórico es un workbook mutable: si nadie corre el sembrado, o la contadora agrega un
+   * mes que no se cargó, la puerta exacta simplemente no cubre — y un no-op se ve
+   * exactamente igual que "no hay duplicados". Es el modo de falla de
+   * `analytics.customer_receivables`, que estuvo en prod como tabla vacía.
+   */
+  async coberturaUuid() {
+    return this.tk.run(async (knex) => {
+      const { rows } = await knex.raw(
+        `SELECT source,
+                count(*)::int                    AS renglones,
+                count(DISTINCT cfdi_uuid)::int   AS uuids,
+                min(anio_mes)                    AS desde,
+                max(anio_mes)                    AS hasta,
+                count(*) FILTER (WHERE nota IS NOT NULL)::int AS reparados,
+                max(observado_at)                AS observado_at
+           FROM finance.purchase_book_history
+          WHERE deleted_at IS NULL
+          GROUP BY source
+          ORDER BY source`,
+      );
+      const total = rows.reduce((a: number, r: Record<string, unknown>) => a + Number(r['uuids']), 0);
+      const hasta = rows.map((r: Record<string, unknown>) => String(r['hasta'] ?? '')).sort().pop() ?? null;
+      return {
+        cargado: total > 0,
+        uuids: total,
+        cubre_hasta: hasta,
+        fuentes: rows,
+      };
     });
   }
 
@@ -311,7 +461,26 @@ export class PurchaseBookService {
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
       // factura por el join. Se prefiere la cuenta que ya se usó en pólizas reales.
       const { rows } = await knex.raw(
-        `SELECT DISTINCT ON (upper(f.uuid))
+        `WITH patas AS (
+           -- Prueba (a) del anti-duplicado, PRE-AGREGADA por importe. Correlacionar un
+           -- EXISTS por cada CFDI hacía que abrir un mes de 722 facturas tardara 11.8 s.
+           SELECT round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+              AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'
+            GROUP BY 1
+         ), cargos AS (
+           -- Prueba (b), el mismo pre-agregado. Acá el importe es el NETO sin impuestos.
+           SELECT round(importe, 2) AS importe
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND anio_mes = ?
+              AND (cuenta LIKE '501%' OR cuenta LIKE '502%') AND cargo_abono = 'C'
+            GROUP BY 1
+         )
+         SELECT DISTINCT ON (upper(f.uuid))
+                pu.source AS prueba_source, pu.referencia AS prueba_ref, pu.anio_mes AS prueba_mes,
                 upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
                 f.fecha, f.total,
                 coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
@@ -323,7 +492,7 @@ export class PurchaseBookService {
                 coalesce(a.proveedor_existe, false)     AS cuenta_existe,
                 coalesce(a.compra_exenta_existe, false) AS compra_exenta_existe,
                 coalesce(a.compra_iva_existe, false)    AS compra_iva_existe,
-                f.aso_contabilidad,
+                f.aso_contabilidad, coalesce(f.estatus_sat, 'desconocido') AS estatus_sat,
                 -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
                 -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
                 --
@@ -336,37 +505,37 @@ export class PurchaseBookService {
                 -- aun así había $7.2M cargados a 501/502 desde pólizas tipo 2 "PAGO FACT
                 -- ...". Con sólo la prueba (a), 33 facturas por $2,095,889 se habrían
                 -- posteado dos veces — una de ellas era el primer renglón del TXT de agosto.
-                (EXISTS (
-                  SELECT 1 FROM analytics.gl_poliza_lines l
-                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
-                     AND l.tipo_pol = ? AND l.folio = ?
-                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
-                     AND l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A'
-                     AND round(l.importe, 2) = round(f.total, 2)
-                 ) OR EXISTS (
-                  SELECT 1 FROM analytics.gl_poliza_lines l
-                   WHERE l.tenant_id = f.tenant_id AND l.source = 'contpaqi'
-                     AND l.anio_mes = to_char(f.fecha, 'YYYY-MM')
-                     AND (l.cuenta LIKE '501%' OR l.cuenta LIKE '502%') AND l.cargo_abono = 'C'
-                     AND round(l.importe, 2) = round(
-                           f.total
-                           - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
-                           - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
-                 )) AS ya_en_poliza,
+                (p.importe IS NOT NULL OR g.importe IS NOT NULL OR pu.cfdi_uuid IS NOT NULL) AS ya_en_poliza,
+                (p.importe IS NOT NULL) AS por_abono_212,
                 i.incluida, i.motivo
            FROM fiscal.cfdis f
            LEFT JOIN finance.gl_supplier_accounts a
              ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
            LEFT JOIN finance.purchase_book_run_items i
              ON i.tenant_id = f.tenant_id AND i.run_id = ? AND i.cfdi_uuid = upper(f.uuid)
+           -- La tercera puerta, EXACTA por UUID. Unívoca por CFDI (la vista hace
+           -- DISTINCT ON), así que este join no puede multiplicar filas. Y va SIN join de
+           -- mes a propósito: el corte del libro es por captura, no por fecha del CFDI —
+           -- una factura de marzo capturada en la hoja de abril sólo se ve así.
+           LEFT JOIN finance.v_purchase_book_uuid_prueba pu ON pu.cfdi_uuid = upper(f.uuid)
+           LEFT JOIN patas  p ON p.importe = round(f.total, 2)
+           LEFT JOIN cargos g ON g.importe = round(
+                 f.total
+                 - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
+                 - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
           WHERE f.tenant_id = current_tenant_id()
             AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
-            AND to_char(f.fecha, 'YYYY-MM') = ?
+            -- Rango sobre la columna, NO to_char(fecha, 'YYYY-MM'): envolver la columna en
+            -- una función anula el índice (tenant_id, fecha) y obliga a un seq scan de los
+            -- 167k CFDIs — 4.6 s de los 11.8 s que tardaba abrir agosto. Equivalencia
+            -- verificada contra el to_char en 5 meses: mismo conteo exacto.
+            AND f.fecha >= ? AND f.fecha < ?
             -- El sub-módulo solo mira lo no asociado. IS NOT TRUE y no = false a
             -- propósito: NULL es "no sabemos" y también hay que mirarlo, no esconderlo.
             AND (? = 'libro' OR f.aso_contabilidad IS NOT TRUE)
           ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
-        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), run?.id ?? null, anioMes, tipo],
+        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), anioMes, anioMes,
+          run?.id ?? null, this.inicioDeMes(anioMes), this.inicioDelSiguiente(anioMes), tipo],
       );
 
       const facturas: FacturaMes[] = rows.map((r: Record<string, unknown>) => {
@@ -374,10 +543,37 @@ export class PurchaseBookService {
         const subtotal16 = r2(r['subtotal16']);
         const conCuenta = r['cuenta_existe'] === true;
         const yaEnPoliza = r['ya_en_poliza'] === true;
-        // El default de inclusión es lo que cambia entre los dos modos:
-        //  · libro       → entra si su proveedor está en el catálogo de compras
-        //  · complemento → además: que no esté ya posteada (si no, la duplicamos)
-        const porDefault = tipo === 'complemento' ? conCuenta && !yaEnPoliza : conCuenta;
+        const estatusSat = String(r['estatus_sat'] ?? 'desconocido');
+        const cancelado = estatusSat === 'cancelado';
+
+        // Qué prueba dice que ya está, y de qué fuerza. La exacta gana sobre la de importe.
+        const src = r['prueba_source'] ? String(r['prueba_source']) : null;
+        const ref = r['prueba_ref'] ? String(r['prueba_ref']) : '';
+        const mesPrueba = r['prueba_mes'] ? String(r['prueba_mes']) : '';
+        let prueba: FacturaMes['prueba_en_libro'] = null;
+        let certeza: FacturaMes['prueba_certeza'] = null;
+        let detalle: string | null = null;
+        if (src === 'historico_xlsx') {
+          prueba = 'uuid_libro_historico'; certeza = 'exacta';
+          detalle = `mismo folio fiscal: renglón ${ref} del libro de ${mesPrueba}`;
+        } else if (src === 'contpaqi_concepto' || src === 'contpaqi_asoccfdi') {
+          prueba = 'uuid_concepto_contpaqi'; certeza = 'exacta';
+          detalle = `mismo folio fiscal: ContPAQi lo tiene en ${ref} de ${mesPrueba}`;
+        } else if (src && src.startsWith('run_')) {
+          prueba = 'uuid_entregado'; certeza = 'exacta';
+          detalle = `mismo folio fiscal: ya se entregó en el ${ref} de ${mesPrueba}`;
+        } else if (yaEnPoliza) {
+          const porAbono = r['por_abono_212'] === true;
+          prueba = porAbono ? 'importe_abono_212' : 'importe_cargo_501_502';
+          certeza = 'por_importe';
+          detalle = porAbono
+            ? `un abono a proveedor por ${total.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} ya está en la póliza de compras del mes`
+            : `un cargo a compras por el neto de esta factura ya está en alguna póliza del mes`;
+        }
+        // Entra si su proveedor está en el catálogo de compras, no está ya posteada (si no
+        // la duplicamos) y no es un CFDI que el SAT dio de baja. El anti-duplicado aplica en
+        // los dos modos: en `libro` el riesgo es MAYOR, porque abarca el mes entero.
+        const porDefault = conCuenta && !yaEnPoliza && !cancelado;
         return {
           uuid: String(r['uuid']),
           emisor_rfc: String(r['emisor_rfc'] ?? ''),
@@ -403,7 +599,10 @@ export class PurchaseBookService {
             ? porDefault
             : r['incluida'] === true,
           motivo_exclusion: (r['motivo'] as string)
-            ?? (tipo === 'complemento' && yaEnPoliza ? 'su importe ya está en la póliza del mes' : null),
+            ?? (cancelado ? 'CFDI cancelado en el SAT' : null)
+            ?? detalle,
+          prueba_en_libro: prueba, prueba_certeza: certeza, prueba_detalle: detalle,
+          estatus_sat: estatusSat,
           aso_contabilidad: r['aso_contabilidad'] === null || r['aso_contabilidad'] === undefined
             ? null
             : r['aso_contabilidad'] === true,
@@ -443,12 +642,31 @@ export class PurchaseBookService {
       const sinCta501 = dentro.filter((f) => f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe));
       const negativas = dentro.filter((f) => f.base_exenta < -0.004);
       const cuota = dentro.filter((f) => f.ieps_por_cuota);
+      const cancelados = dentro.filter((f) => f.estatus_sat === 'cancelado');
+      if (cancelados.length) {
+        // Bloqueante, no aviso: un cancelado posteado es un asiento que hay que reversar.
+        bloqueantes.push(`${cancelados.length} factura(s) canceladas en el SAT — no se pueden postear`);
+      }
       if (sinMapa.length) bloqueantes.push(`${sinMapa.length} factura(s) de un RFC que no está en el mapa de cuentas`);
       if (ctaMala.length) bloqueantes.push(`${ctaMala.length} factura(s) con una cuenta de proveedor que no existe en ContPAQi`);
       if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA en ContPAQi`);
       if (sinCta501.length) bloqueantes.push(`${sinCta501.length} factura(s) con base exenta pero sin cuenta de compras al 0% en ContPAQi`);
       if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
       if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
+
+      // Declarar la ignorancia en vez de esconderla. El ADD trae `CancelStatus` vacío en
+      // casi todo (167,053 de 167,135 CFDIs), así que "no cancelado" acá significa "no nos
+      // consta", no "vigente". Lo que se pierde si una resultó cancelada es el
+      // acreditamiento de IVA+IEPS, no la compra — por eso el monto que se declara es ése.
+      const sinVerificar = dentro.filter((f) => f.estatus_sat === 'desconocido');
+      if (sinVerificar.length) {
+        const pct = Math.round((sinVerificar.length / Math.max(dentro.length, 1)) * 100);
+        const enRiesgo = r2(sinVerificar.reduce((a, f) => a + f.iva + f.ieps, 0));
+        avisos.push(
+          `${sinVerificar.length} de ${dentro.length} facturas (${pct}%) sin estatus verificado contra el SAT: `
+          + `no se valida cancelación. Acreditan ${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS.`,
+        );
+      }
 
       if (tipo === 'complemento') {
         const yaPost = facturas.filter((f) => f.ya_en_poliza);
@@ -674,7 +892,7 @@ export class PurchaseBookService {
    * `libro` es estrictamente más peligroso: arrastra los CFDIs que ContPAQi YA tiene
    * asociados, que es una vía de duplicado que ninguna de las dos puertas cubre.
    */
-  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida } = {}) {
+  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida; forzar_importe?: boolean; motivo?: string } = {}) {
     this.mesValido(anioMes);
     const modo: ImpuestosModo = opts.impuestos === 'por-cuenta' ? 'por-cuenta' : 'global';
     const conUuid = opts.uuid !== false;
@@ -694,10 +912,23 @@ export class PurchaseBookService {
     // notaría hasta cuadrar la balanza. Va sin condicionar por tipo: la asimetría anterior
     // (sólo en `complemento`) era un accidente del orden en que se escribió, y dejaba sin
     // freno justo al modo que abarca el mes entero.
-    const dobles = dentro.filter((f) => f.ya_en_poliza);
-    if (dobles.length) {
+    // Certeza: es el MISMO folio fiscal. No hay caso legítimo, no hay override.
+    const exactas = dentro.filter((f) => f.prueba_certeza === 'exacta');
+    if (exactas.length) {
       throw new BadRequestException(
-        `${dobles.length} factura(s) incluidas ya tienen su importe en la póliza del mes: se duplicarían. Exclúyelas antes de generar.`,
+        `${exactas.length} factura(s) incluidas YA están en el libro por su UUID (${exactas.slice(0, 3).map((f) => f.prueba_detalle).join(' · ')}). `
+        + 'Es el mismo folio fiscal: volver a entregarlas duplica el asiento. Exclúyelas.',
+      );
+    }
+    // Sospecha: el cruce por importe tiene falsos positivos por diseño (dos facturas del
+    // mismo monto casan igual). Quitarle la salida al humano convierte una molestia en
+    // trabajo perdido — son 271 CFDIs por $32.6M en limbo. El override existe, pero deja
+    // rastro: sin motivo no pasa, y el motivo se guarda con quién lo puso.
+    const sospechosas = dentro.filter((f) => f.prueba_certeza === 'por_importe');
+    if (sospechosas.length && !(opts.forzar_importe && opts.motivo?.trim())) {
+      throw new BadRequestException(
+        `${sospechosas.length} factura(s) incluidas tienen un importe igual ya posteado en el mes: podrían duplicarse. `
+        + 'Exclúyelas, o confirma que son distintas explicando por qué.',
       );
     }
 
@@ -707,7 +938,8 @@ export class PurchaseBookService {
     const rechazables = dentro.filter((f) => !f.account_suffix || !f.cuenta_existe
       || (f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe))
       || (f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe))
-      || f.base_exenta < -0.004);
+      || f.base_exenta < -0.004
+      || f.estatus_sat === 'cancelado');
     if (rechazables.length) {
       throw new BadRequestException(
         `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,
@@ -762,6 +994,10 @@ export class PurchaseBookService {
         impuestos_modo: modo, incluye_uuid: conUuid,
         generado_at: knex.fn.now(), generado_by: userId,
         updated_at: knex.fn.now(), updated_by: userId,
+        // Un override sin rastro es un override que nadie audita.
+        ...(sospechosas.length && opts.motivo
+          ? { notas: `${sospechosas.length} factura(s) incluidas pese al cruce por importe. Motivo: ${opts.motivo.trim()}` }
+          : {}),
       });
       this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
       return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
@@ -885,7 +1121,7 @@ export class PurchaseBookService {
         total_cargos: Number(run.total_cargos ?? 0),
         total_abonos: Number(run.total_abonos ?? 0),
         movimientos,
-        facturas: facturas.map((f: Record<string, unknown>) => {
+        facturas: facturas.map((f: Record<string, unknown>): FacturaRespaldo => {
           const total = r2(f['total']), iva = r2(f['iva']), ieps = r2(f['ieps']);
           const subtotal16 = r2(f['subtotal16']);
           return {
@@ -904,6 +1140,57 @@ export class PurchaseBookService {
         facturas_origen: desdeArchivo ? 'archivo' : 'decision',
       };
     });
+  }
+
+  /**
+   * LC.15 — el listado `movimiento ↔ UUID` para el **Asociador de CFDI** de ContPAQi.
+   *
+   * Rompe el círculo vicioso por el lado de la honestidad del flag: el layout del TXT no
+   * tiene campo de UUID, así que ContPAQi contabiliza la factura y nadie la asocia →
+   * `IsAsoContabilidad` queda en false → nuestro filtro primario dice "no asociada" → el
+   * heurístico por importe tiene que cargar toda la decisión. Con este CSV la contadora
+   * crea la asociación formal y el flag empieza a decir la verdad.
+   *
+   * Un renglón por factura, anclado en la pata de ABONO a `212`: es la única que hay
+   * exactamente una por factura, su importe es el total del CFDI, y es la que ContPAQi liga.
+   *
+   * Sale de `parsearTxt(archivo_contenido)`, no de `getMes()`: tiene que describir el
+   * archivo ENTREGADO o al primer CFDI nuevo deja de casar con la póliza.
+   */
+  async asociadorCsv(anioMes: string, tipo: TipoCorrida = 'complemento') {
+    const r = await this.respaldo(anioMes, tipo);
+    // Tipado explícito: sin él TS infiere el valor del Map como `{}` desde la tupla.
+    const porUuid = new Map<string, FacturaRespaldo>(r.facturas.map((f) => [f.uuid, f] as const));
+
+    // `;` y latin1: el Excel es-MX usa punto y coma como separador de lista, y esta máquina
+    // vive en Windows-1252 — en UTF-8 los acentos de los proveedores llegan rotos.
+    const cab = [
+      'renglon_txt', 'poliza_tipo', 'poliza_folio', 'cuenta', 'referencia', 'cargo_abono',
+      'importe', 'uuid', 'emisor_rfc', 'emisor_nombre', 'fecha_cfdi', 'serie_folio',
+    ];
+    const esc = (v: unknown) => String(v ?? '').replace(/[;\r\n]/g, ' ').trim();
+    const lineas = [cab.join(';')];
+    r.movimientos.forEach((m, i) => {
+      // Sólo la pata del proveedor: es la que se asocia. Las de compras e impuestos son
+      // contrapartida del mismo asiento y asociarlas duplicaría el vínculo.
+      if (!m.abono) return;
+      const f = porUuid.get(m.concepto.toUpperCase());
+      lineas.push([
+        // Se rotula como NUESTRO orden, no como NumMovto: que ContPAQi lo asigne en orden
+        // de importación es una suposición sin verificar. Lo que identifica el renglón sin
+        // suponer nada es cuenta + referencia + cargo_abono + importe.
+        i + 1, TIPO_POLIZA_DIARIO, r.folio_poliza,
+        esc(m.cuenta), esc(m.referencia), 'A', m.importe.toFixed(2),
+        esc(m.concepto), esc(f?.emisor_rfc), esc(f?.emisor_nombre), esc(f?.fecha),
+        esc([f?.serie, f?.folio].filter(Boolean).join(' ')),
+      ].join(';'));
+    });
+
+    return {
+      nombre: `asociador-cfdi-${anioMes}-${tipo}.csv`,
+      csv: `${lineas.join('\r\n')}\r\n`,
+      renglones: lineas.length - 1,
+    };
   }
 
   /** Mueve el trámite. `entregado` = se le pasó a quien lo sube; `aplicado` = ya está en ContPAQi. */
@@ -928,46 +1215,250 @@ export class PurchaseBookService {
   }
 
   /**
-   * LC.7 — compara lo que se entregó contra la póliza que quedó en ContPAQi. Se compara
-   * el multiset `(cuenta, cargo/abono, importe)`: si algo se editó a mano al subirlo,
-   * aparece aquí.
+   * LC.7 — compara **lo que se entregó** contra la póliza que quedó en ContPAQi.
+   *
+   * Antes re-derivaba los movimientos con `getMes()` + `construirMovimientos()`, o sea
+   * comparaba los datos de HOY: si entre entregar y cuadrar entraba un CFDI nuevo al mes,
+   * reportaba un descuadre que no existía. Ahora se parsea `archivo_contenido`, que es
+   * inmutable — para eso se guarda. Si no hay archivo **no se compara**: la re-derivación
+   * silenciosa ES el bug, y el arreglo es negarse, no comparar mejor.
+   *
+   * El folio sale del encabezado del ARCHIVO y no de `run.folio_poliza`, porque el folio
+   * definitivo lo decide quien lo sube.
    */
-  async cuadrarContraContpaqi(anioMes: string) {
+  async cuadrarContraContpaqi(anioMes: string, tipo: TipoCorrida = 'complemento') {
     this.mesValido(anioMes);
-    const { facturas } = await this.getMes(anioMes);
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes }).whereNull('deleted_at').first();
-      const dentro = facturas.filter((f) => f.incluida && f.account_suffix && f.cuenta_existe);
-      const movs = this.construirMovimientos(dentro, (run?.impuestos_modo as ImpuestosModo) ?? 'global', false);
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at')
+        .orderByRaw('generado_at DESC NULLS LAST, created_at DESC')
+        .first();
+
+      const vacio = {
+        anio_mes: anioMes, tipo, comparable: false, motivo: '', estado: run?.estado ?? null,
+        folio_esperado: null as number | null, patas_archivo: 0, patas_en_contpaqi: 0,
+        casan: 0, solo_nuestro: 0, solo_contpaqi: 0, existe_en_contpaqi: false,
+        delta_cargos: 0, delta_abonos: 0,
+        muestra_solo_nuestro: [] as unknown[], muestra_solo_contpaqi: [] as unknown[],
+        folio_candidato: null as number | null, patas_candidato: 0, espejo_at: null as string | null,
+      };
+      if (!run) return { ...vacio, motivo: `no hay corrida ${tipo} para ${anioMes}` };
+      if (!run.archivo_contenido) return { ...vacio, motivo: 'la corrida no guardó el archivo entregado' };
+
+      const { movimientos, invalidos, header } = parsearTxt(run.archivo_contenido as string);
+      if (invalidos.length || !header) {
+        return { ...vacio, motivo: `el archivo guardado no cumple el layout (${invalidos[0]?.motivo ?? 'sin encabezado'})` };
+      }
+      const folio = header.folio;
+
+      // Guarda de frescura. El espejo de pólizas lo alimenta un feed on-prem; si viene más
+      // viejo que la entrega, "no está la póliza" sólo significa "todavía no la trajimos".
+      // Se mira el LATIDO del feed y no `computed_at`: el importer hace DELETE+INSERT sólo
+      // del delta por RowVersion, así que una corrida sin cambios no mueve computed_at y la
+      // guarda gritaría "espejo viejo" estando al día.
+      // `feed_contpaqi` = "Feed ContPAQi (pólizas+bancos @1min)", verificado contra
+      // analytics.cron_runs: es el carril que alimenta gl_poliza_lines. La columna es
+      // `last_finish` (la tabla guarda el ÚLTIMO latido por job_key, no un histórico).
+      const { rows: latido } = await knex.raw(
+        `SELECT last_finish AS ultimo
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'feed_contpaqi' AND status = 'ok'`,
+        [this.ctx.get()?.tenantId ?? null],
+      );
+      const espejoAt: Date | null = latido[0]?.ultimo ?? null;
+      const entregadoAt: Date | null = run.entregado_at ?? run.generado_at ?? null;
+      if (entregadoAt && espejoAt && new Date(espejoAt) < new Date(entregadoAt)) {
+        return {
+          ...vacio, folio_esperado: folio, patas_archivo: movimientos.length,
+          espejo_at: new Date(espejoAt).toISOString(),
+          motivo: 'el espejo de pólizas es más viejo que la entrega: todavía no se puede cuadrar',
+        };
+      }
 
       const { rows } = await knex.raw(
-        `SELECT cuenta, cargo_abono, importe FROM analytics.gl_poliza_lines
+        `SELECT cuenta, cargo_abono, round(importe, 2) AS importe
+           FROM analytics.gl_poliza_lines
           WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
             AND tipo_pol = ? AND folio = ? AND anio_mes = ?`,
-        [TIPO_POLIZA_DIARIO, String(run?.folio_poliza ?? 1), anioMes],
+        [TIPO_POLIZA_DIARIO, String(folio), anioMes],
       );
 
-      const clave = (c: string, ab: string, i: number) => `${c}|${ab}|${Math.round(i * 100)}`;
-      const gen = new Map<string, number>(); const real = new Map<string, number>();
-      movs.forEach((m) => { const k = clave(m.cuenta, m.abono ? 'A' : 'C', m.importe); gen.set(k, (gen.get(k) ?? 0) + 1); });
-      rows.forEach((m: Record<string, unknown>) => {
-        const k = clave(String(m['cuenta']), String(m['cargo_abono']), Number(m['importe']));
-        real.set(k, (real.get(k) ?? 0) + 1);
-      });
-      let casan = 0, soloNuestro = 0, soloContpaqi = 0;
-      for (const k of new Set([...gen.keys(), ...real.keys()])) {
-        const g = gen.get(k) ?? 0, a = real.get(k) ?? 0;
-        casan += Math.min(g, a); soloNuestro += Math.max(0, g - a); soloContpaqi += Math.max(0, a - g);
+      const clave = (c: string, ab: string, i: number) => `${c}|${ab}|${Math.round(Number(i) * 100)}`;
+      const mios = new Map<string, number>(); const suyos = new Map<string, number>();
+      for (const m of movimientos) {
+        const k = clave(m.cuenta, m.abono ? 'A' : 'C', m.importe);
+        mios.set(k, (mios.get(k) ?? 0) + 1);
       }
+      for (const m of rows as Record<string, unknown>[]) {
+        const k = clave(String(m['cuenta']), String(m['cargo_abono']), Number(m['importe']));
+        suyos.set(k, (suyos.get(k) ?? 0) + 1);
+      }
+      let casan = 0;
+      const soloN: { cuenta: string; cargo_abono: string; importe: number; veces: number }[] = [];
+      const soloC: { cuenta: string; cargo_abono: string; importe: number; veces: number }[] = [];
+      for (const k of new Set([...mios.keys(), ...suyos.keys()])) {
+        const g = mios.get(k) ?? 0, s = suyos.get(k) ?? 0;
+        casan += Math.min(g, s);
+        const [cuenta, ca, cent] = k.split('|');
+        const fila = { cuenta, cargo_abono: ca, importe: Number(cent) / 100, veces: Math.abs(g - s) };
+        if (g > s) soloN.push(fila); else if (s > g) soloC.push(fila);
+      }
+      const porImporte = (a: { importe: number }, b: { importe: number }) => b.importe - a.importe;
+
+      // Un delta de UN número se lee mucho mejor que un multiset, y atrapa el caso
+      // "editaron un importe a mano al importar".
+      const sumar = (ms: { abono: boolean; importe: number }[], abono: boolean) =>
+        r2(ms.filter((m) => m.abono === abono).reduce((a, m) => a + m.importe, 0));
+      const cargosArchivo = sumar(movimientos, false), abonosArchivo = sumar(movimientos, true);
+      const cargosReal = r2((rows as Record<string, unknown>[]).filter((m) => m['cargo_abono'] === 'C').reduce((a, m) => a + Number(m['importe']), 0));
+      const abonosReal = r2((rows as Record<string, unknown>[]).filter((m) => m['cargo_abono'] === 'A').reduce((a, m) => a + Number(m['importe']), 0));
+
+      // Si el folio esperado está vacío, se BUSCA el más parecido — pero sólo se informa.
+      // Adoptarlo para el veredicto arriesga comparar el complemento contra el libro del
+      // mismo mes: los dos son tipo_pol 3.
+      let candidato: number | null = null, patasCandidato = 0;
+      if (!rows.length) {
+        const { rows: cand } = await knex.raw(
+          `SELECT folio, count(*)::int AS patas
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND anio_mes = ?
+            GROUP BY folio ORDER BY 2 DESC LIMIT 1`,
+          [TIPO_POLIZA_DIARIO, anioMes],
+        );
+        if (cand.length) { candidato = Number(cand[0].folio); patasCandidato = Number(cand[0].patas); }
+      }
+
       return {
-        anio_mes: anioMes,
-        patas_nuestras: movs.length,
+        anio_mes: anioMes, tipo, comparable: true, motivo: '', estado: run.estado,
+        folio_esperado: folio,
+        patas_archivo: movimientos.length,
         patas_en_contpaqi: rows.length,
-        casan, solo_nuestro: soloNuestro, solo_contpaqi: soloContpaqi,
-        // Sin póliza del lado de ContPAQi el mes simplemente no se subió.
+        casan,
+        solo_nuestro: soloN.reduce((a, x) => a + x.veces, 0),
+        solo_contpaqi: soloC.reduce((a, x) => a + x.veces, 0),
         existe_en_contpaqi: rows.length > 0,
+        delta_cargos: r2(cargosArchivo - cargosReal),
+        delta_abonos: r2(abonosArchivo - abonosReal),
+        muestra_solo_nuestro: soloN.sort(porImporte).slice(0, 10),
+        muestra_solo_contpaqi: soloC.sort(porImporte).slice(0, 10),
+        folio_candidato: candidato, patas_candidato: patasCandidato,
+        espejo_at: espejoAt ? new Date(espejoAt).toISOString() : null,
       };
+    });
+  }
+
+  /**
+   * Empuja el resultado del cuadre a la bandeja de hallazgos de Maat.
+   *
+   * Va aparte del GET a propósito: un GET que escribe es un GET que se dispara dos veces
+   * con un refresh. Lo llama el cron nocturno y el botón manual.
+   */
+  async sincronizarHallazgos(anioMes: string, tipo: TipoCorrida = 'complemento') {
+    const tenantId = this.ctx.get()?.tenantId ?? null;
+    if (!tenantId) throw new BadRequestException('sin tenant en contexto');
+    if (!this.findingsSink) {
+      this.logger.debug('sink de hallazgos no ligado — sincronizarHallazgos no-op.');
+      return { pushed: 0, inserted: 0, skipped: 0 };
+    }
+    const c = await this.cuadrarContraContpaqi(anioMes, tipo);
+    if (!c.comparable) {
+      this.logger.debug(`cuadre ${anioMes}/${tipo} no comparable: ${c.motivo}`);
+      return { pushed: 0, inserted: 0, skipped: 0, motivo: c.motivo };
+    }
+    if (c.estado !== 'entregado' && c.estado !== 'aplicado') {
+      return { pushed: 0, inserted: 0, skipped: 0, motivo: 'la corrida todavía no se entrega' };
+    }
+
+    const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const findings: FinanceFindingInput[] = [];
+
+    if (!c.existe_en_contpaqi) {
+      findings.push({
+        rule_key: 'libro_compras_poliza_ausente', clase: 'riesgo', severity: 'critical', score: 0.95,
+        titulo: `${anioMes}: entregado y sin póliza en ContPAQi`,
+        resumen: `El ${tipo} de ${anioMes} está ${c.estado} pero ContPAQi no tiene la póliza ${TIPO_POLIZA_DIARIO}-${c.folio_esperado}. `
+          + (c.folio_candidato ? `El folio más parecido del mes es el ${c.folio_candidato}, con ${c.patas_candidato} renglones. ` : '')
+          + 'Es el modo de falla que tiró julio y agosto de 2026 sin que nadie lo notara.',
+        entity: { anio_mes: anioMes, tipo, folio_esperado: c.folio_esperado, folio_candidato: c.folio_candidato },
+        periodo: anioMes, importe: Math.abs(c.delta_cargos),
+        evidencia: { patas_archivo: c.patas_archivo, espejo_at: c.espejo_at, fuente: 'finance.purchase_book_runs.archivo_contenido ⋈ analytics.gl_poliza_lines' },
+        dedup_key: `libro_compras_poliza_ausente|${anioMes}|${tipo}`,
+      });
+    } else if (c.solo_nuestro || c.solo_contpaqi || Math.abs(c.delta_cargos) >= 0.01) {
+      const grave = Math.abs(c.delta_cargos) >= 1000
+        || (c.solo_nuestro + c.solo_contpaqi) >= Math.max(1, Math.round(c.patas_archivo * 0.05));
+      findings.push({
+        rule_key: 'libro_compras_descuadre_contpaqi', clase: 'error_captura',
+        severity: grave ? 'critical' : 'warn', score: grave ? 0.85 : 0.6,
+        titulo: `${anioMes}: la póliza en ContPAQi no es la que entregamos`,
+        resumen: `De ${c.patas_archivo} renglones entregados casan ${c.casan}. Sobran ${c.solo_nuestro} nuestros y `
+          + `${c.solo_contpaqi} de ContPAQi; los cargos difieren en ${money(c.delta_cargos)}. `
+          + 'Alguien editó renglones al importar, o el archivo se subió a otro folio.',
+        entity: { anio_mes: anioMes, tipo, folio_esperado: c.folio_esperado },
+        periodo: anioMes,
+        // Cuando los totales cuadran pero las patas no, el importe del hallazgo es lo que
+        // quedó repartido distinto — si no, un descuadre real saldría con importe cero.
+        importe: Math.abs(c.delta_cargos) >= 0.01
+          ? Math.abs(c.delta_cargos)
+          : (c.muestra_solo_nuestro as { importe: number }[])
+            .reduce((a, x) => a + Number(x.importe ?? 0), 0),
+        evidencia: {
+          patas_archivo: c.patas_archivo, patas_en_contpaqi: c.patas_en_contpaqi, casan: c.casan,
+          solo_nuestro: c.solo_nuestro, solo_contpaqi: c.solo_contpaqi,
+          delta_cargos: c.delta_cargos, delta_abonos: c.delta_abonos,
+          muestra_solo_nuestro: c.muestra_solo_nuestro, muestra_solo_contpaqi: c.muestra_solo_contpaqi,
+          espejo_at: c.espejo_at,
+        },
+        dedup_key: `libro_compras_descuadre_contpaqi|${anioMes}|${tipo}`,
+      });
+    }
+
+    // El lazo que hoy no existe: si a los 7 días de aplicado los UUID entregados siguen sin
+    // marca de asociación, el paso del Asociador de CFDI no está ocurriendo — y sin él el
+    // flag miente y el heurístico por importe carga toda la decisión.
+    const sinAsociar = await this.medirAsociacion(anioMes, tipo);
+    if (sinAsociar && sinAsociar.dias >= 7 && sinAsociar.sin_marca > 0) {
+      findings.push({
+        rule_key: 'libro_compras_entrega_sin_asociar', clase: 'error_captura', severity: 'warn', score: 0.6,
+        titulo: `${anioMes}: ${sinAsociar.sin_marca} de ${sinAsociar.total} facturas entregadas siguen sin asociar`,
+        resumen: `Pasaron ${sinAsociar.dias} días desde que se aplicó el ${tipo} de ${anioMes} y `
+          + `${sinAsociar.sin_marca} de sus ${sinAsociar.total} CFDIs siguen sin marca de asociación en ContPAQi. `
+          + 'El TXT no lleva campo de UUID, así que la asociación se crea aparte; si nadie la hace, el filtro '
+          + 'anti-duplicado se queda sin su señal buena.',
+        entity: { anio_mes: anioMes, tipo },
+        periodo: anioMes, importe: sinAsociar.monto,
+        evidencia: { total: sinAsociar.total, sin_marca: sinAsociar.sin_marca, dias: sinAsociar.dias, fuente: 'fiscal.cfdis.aso_contabilidad' },
+        dedup_key: `libro_compras_entrega_sin_asociar|${anioMes}|${tipo}`,
+      });
+    }
+
+    if (!findings.length) return { pushed: 0, inserted: 0, skipped: 0 };
+    const res = await this.findingsSink.pushFindings(tenantId, findings, REGLAS_CUADRE);
+    this.logger.log(`cuadre ${anioMes}/${tipo}: ${findings.length} hallazgo(s) → Maat (${res.inserted} nuevos).`);
+    return { pushed: findings.length, ...res };
+  }
+
+  /** Cuántos de los UUID que se entregaron siguen sin marca de asociación, y desde cuándo. */
+  private async medirAsociacion(anioMes: string, tipo: TipoCorrida) {
+    return this.tk.run(async (knex) => {
+      const run = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run?.archivo_contenido || !run.aplicado_at) return null;
+      const { movimientos } = parsearTxt(run.archivo_contenido as string);
+      const uuids = [...new Set(movimientos.map((m) => m.concepto).filter((c) => /^[0-9A-Fa-f-]{36}$/.test(c)))]
+        .map((u) => u.toUpperCase());
+      if (!uuids.length) return null;
+      const { rows } = await knex.raw(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE aso_contabilidad IS NOT TRUE)::int AS sin_marca,
+                round(coalesce(sum(total) FILTER (WHERE aso_contabilidad IS NOT TRUE), 0), 2) AS monto
+           FROM fiscal.cfdis
+          WHERE tenant_id = current_tenant_id() AND upper(uuid) = ANY (?)`,
+        [uuids],
+      );
+      const dias = Math.floor((Date.now() - new Date(run.aplicado_at as string).getTime()) / 86400000);
+      return { total: Number(rows[0].total), sin_marca: Number(rows[0].sin_marca), monto: Number(rows[0].monto), dias };
     });
   }
 }

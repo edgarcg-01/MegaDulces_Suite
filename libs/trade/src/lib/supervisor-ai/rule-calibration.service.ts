@@ -7,7 +7,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Aprendizaje L2: auto-calibración de reglas (RuleCalibrationService).
@@ -49,8 +53,9 @@ export class RuleCalibrationService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /**
@@ -190,8 +195,9 @@ export class RuleCalibrationService {
   /** Scorecard para el panel L7 (qué aprendió Horus sobre sus reglas). */
   async list(user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.execution_rule_stats').select('*');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.execution_rule_stats')
+      .select('*')
+      .where('tenant_id', tenantId);
     q = q.orderBy('reviewed_total', 'desc').orderBy('finding_type', 'asc');
     const rows = await q;
     return {
@@ -219,7 +225,7 @@ export class RuleCalibrationService {
       finding_type: findingType,
       source: source || 'engine',
     });
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    q = q.where('tenant_id', tenantId);
     const updated = await q
       .update({ manual_override: override, updated_at: this.knex.fn.now() })
       .returning('*');

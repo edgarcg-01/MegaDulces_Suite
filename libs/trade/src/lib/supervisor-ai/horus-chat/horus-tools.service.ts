@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, requireTenantOf } from '@megadulces/platform-core';
 import { Execution360Service } from '../execution-360.service';
 import { FindingsEngineService } from '../findings-engine.service';
 import { DiagnosisEngineService } from '../diagnosis-engine.service';
@@ -306,7 +306,6 @@ export class HorusToolsService {
           return await this.salesExec.getCorrelation(user);
         case 'horus_briefing_history': {
           const tenantId = this.tenantId(user);
-          if (!tenantId) return { error: 'sin tenant' };
           const days = Math.min(Math.max(Number(input?.days) || 7, 1), 30);
           const rows = await this.knex('commercial.briefing_history')
             .where('tenant_id', tenantId)
@@ -327,8 +326,9 @@ export class HorusToolsService {
     }
   }
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user);
   }
 
   private async resolveEntity(input: any, user: any) {

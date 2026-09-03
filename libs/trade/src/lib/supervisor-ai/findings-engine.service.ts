@@ -7,7 +7,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 
@@ -56,8 +60,9 @@ export class FindingsEngineService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   private async getThresholds(tenantId: string): Promise<Thresholds> {
@@ -319,8 +324,9 @@ export class FindingsEngineService {
     user: any,
   ) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.supervisor_findings').select('*');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_findings')
+      .select('*')
+      .where('tenant_id', tenantId);
     q = q.where('status', filters.status || 'open');
     if (filters.severity) q = q.where('severity', filters.severity);
     if (filters.subject_type) q = q.where('subject_type', filters.subject_type);
@@ -339,8 +345,7 @@ export class FindingsEngineService {
     }
     const tenantId = this.tenantId(user);
     const userId = user?.sub || user?.id || user?.userId || null;
-    let q = this.knex('commercial.supervisor_findings').where('id', id);
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_findings').where({ id, tenant_id: tenantId });
     const updated = await q
       .update({
         status,
@@ -356,7 +361,7 @@ export class FindingsEngineService {
     // humana al campo. coaching_notes enlaza por finding_id; supervisor_tasks por action_id.
     if (status === 'dismissed') {
       const scope = (qb: any) => {
-        if (tenantId) qb.where('tenant_id', tenantId);
+        qb.where('tenant_id', tenantId);
       };
       await this.knex('commercial.coaching_notes')
         .where('finding_id', id)

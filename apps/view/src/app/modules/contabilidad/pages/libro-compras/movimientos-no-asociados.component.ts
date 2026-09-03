@@ -9,6 +9,7 @@ import { DialogModule } from 'primeng/dialog';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { CheckboxModule } from 'primeng/checkbox';
 import { InputTextModule } from 'primeng/inputtext';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
@@ -16,7 +17,7 @@ import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-
 import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo } from '../../libro-compras.service';
+import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
@@ -40,7 +41,7 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
-    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule,
+    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule,
     MetricStripComponent, PageTabsComponent,
   ],
   providers: [MessageService],
@@ -146,6 +147,13 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <p-button type="button" label="Respaldo en Excel" icon="pi pi-file-excel"
                             styleClass="p-button-outlined p-button-secondary"
                             [loading]="bajandoRespaldo()" (click)="exportarRespaldo()" />
+                  <!-- El TXT no lleva campo de UUID: sin este listado ContPAQi contabiliza
+                       la factura y nadie la asocia, el flag se queda en false, y el
+                       anti-duplicado vuelve a depender del cruce por importe. -->
+                  <p-button type="button" label="CSV del asociador" icon="pi pi-link"
+                            styleClass="p-button-text p-button-secondary"
+                            pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
+                            (click)="descargarAsociador()" />
                 }
                 @if (estadoRun() === 'generado') {
                   <p-button type="button" label="Marcar entregado" icon="pi pi-send"
@@ -160,6 +168,24 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
           </div>
 
           <app-metric-strip [items]="kpis()" ariaLabel="Desglose de lo que falta por asociar" />
+
+          <!-- El límite del anti-duplicado exacto, SIEMPRE a la vista. Si el histórico no
+               está cargado la puerta por UUID no cubre nada, y un no-op se lee igual que
+               "no hay duplicados" — es el modo de falla que dejó analytics.customer_receivables
+               en prod como tabla vacía durante meses. -->
+          @if (cobertura(); as cob) {
+            <p class="na-cobertura" [class.vacia]="!cob.cargado">
+              <i [class]="cob.cargado ? 'pi pi-shield' : 'pi pi-exclamation-triangle'"></i>
+              @if (cob.cargado) {
+                Anti-duplicado <strong>exacto por UUID</strong> hasta <strong>{{ cob.cubre_hasta }}</strong>
+                ({{ cob.uuids | number }} facturas del libro histórico).
+                De ahí en adelante el control es por importe, que tiene falsos positivos.
+              } @else {
+                <strong>El histórico por UUID no está cargado</strong>: el anti-duplicado
+                sólo compara importes. Corre <code>import-purchase-book-history.js --apply</code>.
+              }
+            </p>
+          }
 
           @if (contexto().length) {
             <p class="na-contexto">
@@ -226,9 +252,15 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                 </tr>
               </ng-template>
               <ng-template #body let-f>
-                <tr [class.excluida]="!f.incluida" [class.dup]="f.ya_en_poliza">
+                <tr [class.excluida]="!f.incluida" [class.dup]="f.ya_en_poliza"
+                    [class.exacta]="f.prueba_certeza === 'exacta'">
                   <td class="c-chk">
-                    <p-checkbox [ngModel]="f.incluida" [binary]="true" [disabled]="!puedeGestionar()"
+                    <!-- Con prueba EXACTA el checkbox se apaga: es el mismo folio fiscal, no
+                         hay nada que juzgar. Con sospecha por importe queda habilitado —
+                         el cruce tiene falsos positivos por diseño y quien lleva el libro
+                         es quien sabe. -->
+                    <p-checkbox [ngModel]="f.incluida" [binary]="true"
+                                [disabled]="!puedeGestionar() || f.prueba_certeza === 'exacta' || f.estatus_sat === 'cancelado'"
                                 (ngModelChange)="alternar(f, $event)"
                                 [ariaLabel]="'Incluir ' + f.emisor_nombre" />
                   </td>
@@ -250,8 +282,12 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="c-cta">
-                    @if (f.ya_en_poliza) {
-                      <p-tag value="Ya en la póliza" severity="warn" />
+                    @if (f.estatus_sat === 'cancelado') {
+                      <p-tag value="Cancelada en el SAT" severity="danger" />
+                    } @else if (f.prueba_certeza === 'exacta') {
+                      <p-tag value="Ya en el libro" severity="danger" [pTooltip]="f.prueba_detalle ?? ''" />
+                    } @else if (f.prueba_certeza === 'por_importe') {
+                      <p-tag value="Importe ya posteado" severity="warn" [pTooltip]="f.prueba_detalle ?? ''" />
                     } @else if (!f.account_suffix) {
                       <p-tag value="RFC sin cuenta" severity="danger" />
                     } @else if (!f.cuenta_existe) {
@@ -337,6 +373,7 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
   bajandoRespaldo = signal(false);
+  cobertura = signal<CoberturaUuid | null>(null);
   impuestosModo: ImpuestosModo = 'global';
   incluirUuid = true;
   entregadoA = '';
@@ -441,6 +478,12 @@ export class MovimientosNoAsociadosComponent implements OnInit {
 
   ngOnInit() {
     this.cargarMeses();
+    // Best-effort: si el endpoint no responde, el renglón simplemente no sale — pero un
+    // error acá NO debe tumbar la pantalla.
+    this.svc.coberturaUuid().subscribe({
+      next: (c) => this.cobertura.set(c),
+      error: () => this.cobertura.set(null),
+    });
     const mes = this.route.snapshot.queryParamMap.get('mes');
     if (mes) this.abrirMes(mes);
   }
@@ -637,6 +680,22 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       },
       error: (e) => { this.bajandoRespaldo.set(false); this.error('No se pudo armar el respaldo', e); },
     });
+  }
+
+  descargarAsociador() {
+    const mes = this.mesSel(); if (!mes) return;
+    this.svc.asociadorNoAsociados(mes).subscribe({
+      next: (blob) => this.bajar(blob, `asociador-cfdi-${mes}.csv`),
+      error: (e) => this.error('No se pudo armar el listado del asociador', e),
+    });
+  }
+
+  /** Blob autenticado → descarga. Por HttpClient y no <a href>: la ruta va tras el guard. */
+  private bajar(blob: Blob, nombre: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre;
+    a.click(); URL.revokeObjectURL(url);
   }
 
   descargar() {

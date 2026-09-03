@@ -106,6 +106,15 @@ export const appRoutes: Routes = [
           ),
         canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)],
       },
+      {
+        // Panel de supervisor: asignar rutas a vendedores (escribe daily_assignments).
+        path: 'supervisor/routes',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-route-admin.component').then(
+            (m) => m.VendorRouteAdminComponent,
+          ),
+        canActivate: [permissionGuard(Permission.TRADE_ROUTE_PLAN_GESTIONAR)],
+      },
     ],
   },
   {

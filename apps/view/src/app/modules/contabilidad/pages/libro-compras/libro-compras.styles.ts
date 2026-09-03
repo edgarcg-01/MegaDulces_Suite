@@ -143,6 +143,21 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
 .na-caratula:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 .na-caratula:focus-visible i { opacity: .6; }
 
+/* El límite del anti-duplicado exacto, siempre a la vista. Va en voz baja cuando está
+   cargado (es una garantía, no una alerta) y en warn cuando NO — porque sin histórico la
+   puerta por UUID no cubre nada y eso se lee igual que "no hay duplicados". */
+.na-cobertura { margin: -.25rem 0 0; font-size: var(--fs-micro); color: var(--text-muted);
+  display: flex; gap: .45rem; align-items: baseline; line-height: 1.45; }
+.na-cobertura i { color: var(--ok-fg); }
+.na-cobertura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
+.na-cobertura code { font-family: var(--font-mono); font-size: .95em; }
+.na-cobertura.vacia { color: var(--warn-fg); }
+.na-cobertura.vacia i, .na-cobertura.vacia strong { color: var(--warn-fg); }
+
+/* Prueba EXACTA por UUID: es el mismo folio fiscal, no hay nada que juzgar. Se marca más
+   fuerte que la sospecha por importe y su checkbox va apagado. */
+.lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--bad-fg); }
+
 .na-dlg-nota { margin: 0 0 .9rem; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
 .na-dlg-nota strong { display: block; margin-top: .4rem; color: var(--warn-fg); font-weight: var(--fw-semibold); }
 .na-dlg-aviso { margin: .9rem 0 0; font-size: var(--fs-micro); color: var(--text-muted); }

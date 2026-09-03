@@ -718,11 +718,11 @@ export class VendorService {
    * tiene camión asignado.
    */
   myStockSources(): Observable<{
-    sucursal: { id: string; code: string; name: string } | null;
+    sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
     camioneta: { id: string; code: string; name: string } | null;
   }> {
     return this.http.get<{
-      sucursal: { id: string; code: string; name: string } | null;
+      sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
       camioneta: { id: string; code: string; name: string } | null;
     }>(`${this.base}/vendor-routes/my-stock-sources`);
   }

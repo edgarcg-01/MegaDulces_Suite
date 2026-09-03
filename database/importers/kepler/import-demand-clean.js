@@ -81,9 +81,27 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
         -- cja_price/box_factor (precio de venta REAL de la unidad — PAQ), money-anchored. Corrige
         -- que el MIN($/u) tomaba precios sub-unidad y ×8-16 la demanda (70056: 2103 vs ~120 PAQ/día
         -- reales verificado en Kepler). Fuera de scope o sin cja_price → lógica MIN+piso previa:
-        -- RA-PRO.29.2/35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto. cost_with_tax
-        -- es costo por CAJA (bruto); para fs∈{2..48} con cwt/fs ≥ $1 el piso va por pieza = cwt/fs,
-        -- fuera de ese rango (factor basura o granel) se conserva el piso CRUDO cwt. Granel intacto.
+        -- RA-PRO.29.2/35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto: para
+        -- fs∈{2..48} con cwt/fs ≥ $1 el piso va = cwt/fs, fuera de ese rango (factor basura o
+        -- granel) se conserva el piso CRUDO cwt.
+        --
+        -- ⛔ U.0 (2026-09-03) — LA PREMISA DE ESE /fs ES FALSA.
+        -- OJO: sin backticks en este comentario — va dentro de un template literal de JS.
+        -- Este comentario decía que cost_with_tax es "costo por CAJA (bruto)". MEDIDO contra la
+        -- escalera del ERP (analytics.v_supplier_cost_ladder) sobre 6,626 SKUs / $116.8M de venta
+        -- 90d: la razón cost_with_tax / u1_cost se agrupa en múltiplos de IMPUESTO exactos a 4
+        -- decimales —1.0000 exento (960 SKUs) · 1.0800 IVA 8% (1,886 · $69.3M) · 1.1600 IVA 16%
+        -- (1,507) · 1.2400 IVA+IEPS (1,987 · $29.8M)— y NO en factores de unidad (la razón contra
+        -- box_cost es 0.058). O sea cost_with_tax = u1_cost × (1 + impuesto): peldaño BASE/SUELTO.
+        --
+        -- Consecuencia: cwt/fs deja el piso fs veces más BAJO de lo que debe, así que min(rev/u)
+        -- gana más seguido y piece_price puede quedarse en un precio sub-unidad →
+        -- daily_pieces = revenue / piece_price sale INFLADO, que es justo lo que el piso existe
+        -- para evitar. El piso correcto es pf.cwt a secas (la rama ELSE).
+        -- NO se corrige acá a propósito: daily_pieces es el numerador de todo /compras/pedido y su
+        -- peldaño ya flota con el mix de precios de la red (ver el min(rev/u) de arriba).
+        -- Estabilizarlo es MR.7.1 (persistir el peldaño), no un parche de una línea.
+        -- Ver docs/UNIDADES_DE_MEDIDA.md 8quater.
         SELECT wp.product_id,
                CASE
                  WHEN b.nombre ILIKE '${MONEY_BRAND_LIKE}' AND bp.cja_price > 0 AND vbf.box_factor > 0
