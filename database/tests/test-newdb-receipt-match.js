@@ -134,6 +134,21 @@ const base = { keplerMonto: 1000, keplerProveedor: 'AZTECA CONFITERIA S.A DE CV'
     ok(evaluarFolioInterno('Sin número de folio asignado', '0000353') === null,
       'una hoja sin folio impreso no acusa de nada (caso real medido)');
 
+    // ── 4-ter. El guard de cada grupo de columnas ───────────────────────────
+    //
+    // Esto no prueba lógica de negocio, prueba una regresión que **ya tiró prod**: las columnas
+    // del folio se colgaban del mismo `existeCol('prov_score')` que las del proveedor. Como
+    // llegaron en despliegues distintos (la migración de RE.25 ya estaba aplicada cuando les
+    // agregué estas dos), el probe dio por presentes columnas que no estaban y la lista completa
+    // devolvió 500 con `42703 column "folio_interno" does not exist`.
+    console.log('\n═══ 4-ter. Cada grupo de columnas se prueba solo (regresión que tiró prod) ═══');
+    const fuente = require('fs').readFileSync(
+      path.resolve(__dirname, '../../libs/finance/src/lib/goods-receipt-proofs/goods-receipt-proofs.service.ts'), 'utf8');
+    ok((fuente.match(/existeCol\([^)]*'folio_interno'\)/g) || []).length >= 2,
+      'lectura y escritura preguntan cada una por `folio_interno` (no lo asumen de `prov_score`)');
+    ok(!/conMatchCols[\s\S]{0,80}folio_interno/.test(fuente),
+      'ninguna columna del folio queda gateada por el probe del proveedor');
+
     // ── 5. TS vs SQL: las dos implementaciones de la MISMA regla ────────────
     //
     // El bucket se decide en TS al escribir y en SQL al leer (filtrar 15,000 entradas no se

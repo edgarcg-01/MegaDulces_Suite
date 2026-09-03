@@ -45,9 +45,16 @@ const knex = require('knex')({
 (async () => {
   let escritos = 0;
   try {
-    const hay = await knex.schema.withSchema('finance').hasColumn('goods_receipt_proofs', 'prov_score');
-    if (!hay) {
+    // Las dos migraciones se preguntan APARTE: prod aplicó la primera cuando traía sólo las 3
+    // señales del proveedor, y las del folio llegaron en un archivo posterior (ver la nota en
+    // `20260903120000`). Un solo chequeo daba por presentes columnas que no estaban.
+    const cols = knex.schema.withSchema('finance');
+    if (!(await cols.hasColumn('goods_receipt_proofs', 'prov_score'))) {
       console.error('❌ Falta la migración 20260902160000 (no existe `prov_score`). Corré `knex migrate:latest` primero.');
+      process.exit(1);
+    }
+    if (!(await cols.hasColumn('goods_receipt_proofs', 'folio_interno'))) {
+      console.error('❌ Falta la migración 20260903120000 (no existe `folio_interno`). Corré `knex migrate:latest` primero.');
       process.exit(1);
     }
 
