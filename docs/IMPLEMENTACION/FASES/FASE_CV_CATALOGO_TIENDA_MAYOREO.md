@@ -4,7 +4,7 @@
 > en producción real en `.163`) a este monorepo como `apps/catalogo-kp`,
 > preservando su lógica y su fuente de datos (`KP_CONCENTRADA`) — no
 > reescribirlo contra `commercial.*`. Migración física, no absorción funcional.
-> Estado: 🧪 **CV.0–CV.14 completos** (2026-09-02, CV.4 diferido). Verificación real de punta a punta completa: lectura (paridad byte a byte), escritura (canario + primer pedido real de la historia vía UI, folio `MD-2026-00012`, cancelado por ser de prueba), rol dedicado `catalogo_kp_runtime` aplicado **y ya en uso por el `.env` real de producción**, y frontend Angular nuevo (`apps/tienda`) para el checkout transaccional. Pendiente: panel interno (fuera de alcance) y el corte operacional del Service en `.163` (Paso 4 del runbook).
+> Estado: 🟢 **CV.0–CV.15 completos — migración cerrada** (2026-09-03, CV.4 diferido). `.163` corre en producción real desde este monorepo: rol dedicado, lectura/escritura verificadas de punta a punta (incluido el primer pedido real de la historia, folio `MD-2026-00012`), frontend Angular nuevo (`apps/tienda`) para el checkout transaccional, y el corte real del Service (Paso 4 del runbook) completado y verificado con 0 fallos. Pendiente, no bloqueante: panel interno (fuera de alcance de esta fase) y vigilar de cerca las próximas horas.
 
 ---
 
@@ -756,12 +756,156 @@ credencial compartida de `GOTCHAS.md` §24** — rotar `app_runtime` en
 cualquier otra parte del cluster `.245` ya no puede volver a tumbar este
 proceso.
 
-**Pendiente:** sólo el **Paso 4** del runbook (corte real del Service en
-`.163` al build de este monorepo, en vez del repo standalone) — requiere
-autorización explícita separada, y ajustar `Vigilar_API.ps1` (ruta relativa
-no calza con el layout de Nx). Panel interno (`catalogo.html`) fuera de
-alcance de esta fase. Promover `/tienda/` sobre `tienda.html` — decisión de
-0Sistemas, no automática.
+**Pendiente (en ese momento):** sólo el **Paso 4** del runbook — ver CV.15,
+completado a continuación.
+
+---
+
+## CV.15 — Corte real del Service en `.163` (Paso 4, completo) — 2026-09-03
+
+Autorizado explícitamente por 0Sistemas ("Opción 2"). Es el paso de mayor
+riesgo de toda la fase: reemplazar el proceso que sirve producción real
+(el repo standalone `megadulces-api-ready`) por el build de
+`apps/catalogo-kp` de este monorepo. Antes de tocar el proceso en vivo se
+investigó y corrigió todo lo que hiciera falta, y se probó en un puerto de
+prueba (`:3093`) contra el `.env` real hasta dejar cero fallos.
+
+### Tres hallazgos reales antes de cortar
+
+**1. Módulo `salud` nunca portado.** El proyecto origen ganó un endpoint
+`GET /api/salud` (público, siempre 200 aunque la base esté caída, dice por
+separado si el PROCESO vive y si la BASE responde) en algún punto
+**después** de que las sub-fases CV.0–CV.10 terminaran de portar módulo por
+módulo — así que nunca hubo oportunidad de portarlo. `Vigilar_API.ps1` lo
+usa específicamente para no repetir los incidentes del 27/08 y 01/09 (donde
+confundir "API muerta" con "base rechaza credenciales" costó horas de
+reinicios inútiles). Sin este endpoint, el corte real habría vuelto a
+exponer al vigilante al mismo síntoma que ya casó dos incidentes.
+**Portado literal** a `apps/catalogo-kp/src/salud/`, única adaptación:
+`DATABASE_URL_KP_CONCENTRADA` (connectionString única) en vez de las 5
+variables discretas `PG_*` del original. Verificado contra la base real:
+`{"api":"ok","base":{"estado":"ok"},"accion":"ninguna"}`.
+
+**2. Bug crítico de orden en `main.ts`: `dotenv.config()` corría DESPUÉS
+de que ya hiciera falta.** `import { AppModule }` estático se resuelve (y
+con él, el `throw` a nivel de módulo de `AuthModule` si falta
+`CATALOGO_KP_JWT_SECRET`) antes de que `dotenv.config()` — aunque
+textualmente apareciera primero en el archivo — llegara a ejecutarse:
+ambos son *statements* top-level de main.ts, y en el bundle compilado el
+`require` de `AppModule` queda antes. **Nunca se notó en las ~15 corridas
+de prueba de esta sesión** porque todas exportaban las variables a mano
+antes de lanzar `node` — un despliegue real, dependiendo sólo del `.env`
+(que es exactamente cómo lo lanza `Vigilar_API.ps1`), habría entrado en
+**crash-loop infinito desde el primer arranque**. Fix:
+`require('./app.module')` **dentro** de `bootstrap()`, no `import`
+estático arriba — se resuelve recién cuando el control de ejecución llega
+ahí, ya después de `dotenv.config()`. (Un `await import()` dinámico se
+probó primero pero webpack lo separa en un chunk aparte (`1.js`) que el
+despliegue no contempla — `require()` síncrono queda inline en el mismo
+bundle y de todas formas se aplaza en el tiempo por ser una llamada de
+función, no una declaración de import.)
+
+**3. El bundle no es autocontenido — sus dependencias externalizadas
+(`knex`, `pg`, `bcryptjs`, todo `@nestjs/*`, etc.) necesitan resolverse
+desde algún `node_modules`.** Se investigaron dos caminos:
+
+- *Descartado:* instalar cada dependencia faltante en el propio
+  `node_modules` de `megadulces-api-ready` (se llegó a instalar `knex` ahí
+  y confirmar que `pg`/`xlsx` ya estaban) — funciona, pero exige
+  reconciliar TODO el árbol de dependencias de NestJS 11 dentro de un
+  proyecto NestJS 10 aparte, package por package, cada vez que cambie.
+- **Elegido:** variable de entorno `NODE_PATH` apuntando al `node_modules`
+  de la Suite (`C:\proyectos\Suite MD\MegaDulces_Suite\node_modules`), que
+  YA tiene todo instalado y correcto. `main.js` sigue viviendo físicamente
+  en la raíz de `megadulces-api-ready` (para que `join(__dirname,'public')`
+  siga resolviendo al `public/` real y de siempre — el mismo que
+  `Actualizar_Verificador.ps1` escribe a diario — sin tocar esos scripts),
+  pero sus `require()` externalizados se resuelven contra la Suite. Es la
+  única pieza nueva que depende de que este checkout de la Suite siga
+  existiendo en esta máquina — coherente con el principio de la fase (P1:
+  `catalogo-kp` vive on-prem justamente porque necesita LAN a `.245`, y
+  corre desde este mismo checkout).
+
+### Cambios de infraestructura (fuera de este git, en `.163`)
+
+- `megadulces-api-ready/main.js` — el build de `nx build catalogo-kp`
+  (`dist/apps/catalogo-kp/main.js`) copiado a la raíz del proyecto viejo
+  (no a `dist/`, para que la ruta de `public/` calce sin tocar ningún otro
+  script).
+- `megadulces-api-ready/public/tienda/` — build de `apps/tienda` agregado
+  (nuevo, `catalogo.html`/`tienda.html`/`img/`/`verificador-*.html`
+  intactos, sin tocarse).
+- `megadulces-api-ready/.env` — agregadas `DATABASE_URL_KP_CONCENTRADA`
+  (construida a partir de las `PG_*` ya corregidas en CV.14) y
+  `CATALOGO_KP_JWT_SECRET` (**mismo valor que `JWT_SECRET`**, a propósito —
+  para no invalidar sesiones de admin ni tokens de carrito ya emitidos por
+  el proceso viejo). Variables viejas (`PG_*`, `JWT_SECRET`) se dejan,
+  no se borran — sirven de referencia y a `Alertas.ps1`, que las sigue
+  usando.
+- `herramientas/Vigilar_API.ps1` — la única asunción de ruta que el
+  runbook ya anticipaba: `dist\main.js` → `main.js`, `node dist\main` →
+  `node main.js`, y se agregó `$psi.EnvironmentVariables['NODE_PATH']`
+  antes de lanzar el proceso. El resto del vigilante (sondeo de `/api/salud`,
+  racha de fallos, alertas) no se tocó.
+- `herramientas/Compilar_seguro.ps1` — banner de aviso agregado al inicio:
+  sigue siendo inofensivo correrlo (compila el `src/` viejo, ya congelado,
+  a un `dist/` que nadie lee; su paso de reinicio termina relanzando el
+  proceso real igual, vía el `Vigilar_API.ps1` ya corregido), pero no
+  actualiza nada — el código nuevo se compila en la Suite y se copia a
+  mano. **No se reescribió** el script para evitar ampliar el alcance de
+  un corte ya grande.
+
+### Higiene de secretos
+
+Ningún valor real (contraseña de `catalogo_kp_runtime`, `JWT_SECRET`) se
+escribió en este repositorio ni se mostró en texto plano en la
+conversación — se leyeron y reescribieron con `sed`/Node siempre
+redirigidos a variables de shell, nunca impresos.
+
+### Verificación (puerto de prueba `:3093`, antes de tocar `:3000`)
+
+Con el `.env` real, sin exportar NADA a mano (la prueba más estricta —
+exactamente cómo lo lanza el vigilante):
+
+| Endpoint | Resultado |
+|---|---|
+| `/api/salud` | `{"api":"ok","base":{"estado":"ok"}}` |
+| `/api/catalogo/estado`, `/sucursales`, `/kp/precio`, `/kp/precios-todos` | 200 |
+| `/api/kp/productos` sin token | 401 |
+| `/catalogo.html`, `/tienda.html`, `/verificador-01.html` | 200 (public real) |
+| `/tienda/`, `/tienda/carrito`, asset real (`styles-*.css`) | 200 |
+
+### El corte real (puerto `:3000`)
+
+1. Detener el proceso viejo (`Stop-Process` sobre el PID en `:3000`).
+2. `Start-ScheduledTask 'MegaDulces API - vigilante'` (mismo mecanismo que
+   ya usa `Compilar_seguro.ps1` para sus propios despliegues).
+3. Las mismas 11 pruebas de arriba, ahora contra `:3000` real: **0 fallos.**
+4. `vigilar_api.log`: `"Lanzando node main.js (NODE_PATH -> node_modules de
+   la Suite)"` → `"OK. La API respondio tras 5 segundos."` — recuperación
+   limpia, sin síntoma de credenciales.
+5. `pg_stat_activity`: 5 conexiones reales desde `192.168.0.163` usando
+   `catalogo_kp_runtime` — el proceso nuevo, con el rol dedicado, en vivo.
+
+**Downtime real: unos segundos** (el tiempo entre detener el proceso viejo
+y que el vigilante levantara el nuevo).
+
+### Con esto, el runbook `CV_CORTE_CATALOGO_KP.md` queda 100% completo — los
+4 pasos hechos y verificados. `.163` corre desde este monorepo.
+
+**Pendiente (no bloqueante, no de esta fase):**
+- Vigilar de cerca las próximas horas (tal como pide el propio Paso 4) —
+  0Sistemas decide cuánto tiempo.
+- Repuntar `Compilar_seguro.ps1` a un flujo real de `nx build` (hoy sólo
+  tiene el banner de aviso) — mejora de comodidad operativa, no urgente.
+- Panel interno (reemplazo de `catalogo.html`) — fuera de alcance de esta
+  fase.
+- Promover `/tienda/` sobre `tienda.html` como URL principal — decisión de
+  0Sistemas, no automática.
+- El "1.js" huérfano de un build anterior se descartó — no interfiere, pero
+  si algún día reaparece un chunk separado en `dist/apps/catalogo-kp/`,
+  significa que algo volvió a usar `import()` dinámico y hay que copiarlo
+  también o volver a `require()`.
 
 ---
 

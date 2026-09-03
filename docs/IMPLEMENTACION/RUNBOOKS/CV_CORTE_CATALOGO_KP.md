@@ -5,17 +5,20 @@
 > que el anterior haya salido bien. Plan de fondo en
 > [`FASE_CV`](../FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), sección CV.6.
 
-**Estado (2026-09-02):** Pasos 0–3 completados y verificados, y el `.env`
-real de producción (`megadulces-api-ready` en `.163`) ya usa
-`catalogo_kp_runtime` (ver Paso 2, "Hecho 2026-09-02"). El bloqueante de
-credencial (`app_runtime` rechazada, `28P01`) se resolvió fuera de esta
-migración; Paso 3a (lectura contra datos reales) verificado con paridad
-byte a byte; **Paso 3b completado** — canario + primer pedido real de la
-historia creado vía el frontend nuevo (`apps/tienda`, folio
-`MD-2026-00012`), cancelado después por ser explícitamente de prueba (ver
-`FASE_CV`, sección "Verificación final: primer pedido real de la
-historia"). Sigue pendiente sólo **Paso 4** (corte real del Service en
-`.163` — apuntarlo al build de este monorepo en vez del repo standalone).
+**Estado (2026-09-03): runbook 100% completo — los 4 pasos hechos y
+verificados.** `.163` corre en producción real desde este monorepo. El
+bloqueante de credencial (`app_runtime` rechazada, `28P01`) se resolvió
+fuera de esta migración; el `.env` real usa `catalogo_kp_runtime` desde
+Paso 2; Paso 3a (lectura) verificado con paridad byte a byte; Paso 3b
+(escritura) completado con el primer pedido real de la historia
+(`MD-2026-00012`, cancelado por ser de prueba); **Paso 4 (corte real del
+Service) completado 2026-09-03** — ver detalle en `FASE_CV`, sección
+"CV.15 — Corte real del Service en `.163`" (tres hallazgos reales
+resueltos antes de cortar: módulo `salud` nunca portado, un bug crítico de
+orden de `dotenv.config()` que habría causado un crash-loop en cualquier
+arranque real, y la resolución de dependencias externalizadas vía
+`NODE_PATH`). 0 fallos en las 11 pruebas de verificación, downtime real de
+unos segundos.
 
 ---
 
@@ -169,23 +172,47 @@ estén con el riesgo residual:
 Ninguna de las dos se hace sin decirle a 0Sistemas primero — es la decisión
 de negocio, no técnica.
 
-## Paso 4 — El corte real (Service + tareas programadas)
+## Paso 4 — El corte real (Service + tareas programadas) ✅ completo 2026-09-03
 
-Sólo después de 1–3. En `.163`:
+Autorizado explícitamente por 0Sistemas ("Opción 2"). Detalle completo,
+hallazgos y verificación en `FASE_CV`, sección "CV.15 — Corte real del
+Service en `.163`". Resumen de lo hecho:
 
-1. Parar el Service actual (el que corre `node dist\main` del repo
-   standalone).
-2. Compilar `catalogo-kp` desde este monorepo y dejar `dist/apps/catalogo-kp/`
-   donde el Service y las tareas programadas ya esperan encontrar `dist/`
-   (copiar, o ajustar la ruta que usa el Service).
-3. Ajustar `Vigilar_API.ps1`: hoy calcula `dist\main.js` relativo a su propio
-   directorio padre — con el layout de Nx eso ya no calza (`dist/apps/catalogo-kp/main.js`
-   vive en la raíz del monorepo, no bajo `apps/catalogo-kp/`). Cambiar esa
-   única asunción de ruta; el resto del vigilante (chequeo de puerto,
-   reinicio, alertas) no necesita tocarse.
-4. Levantar el Service apuntando al build nuevo, confirmar `ADMINISTRAR.bat`
-   opción 3 en verde, y dejarlo vigilado de cerca las primeras horas.
+1. **Tres hallazgos reales resueltos ANTES de tocar el proceso en vivo**
+   (probados primero en el puerto `:3093`, sin exportar nada a mano —
+   exactamente cómo lanza el proceso el vigilante):
+   - Módulo `salud` (`GET /api/salud`) nunca se había portado — apareció en
+     el proyecto origen después de que CV.0–CV.10 terminaran de portar
+     módulo por módulo. Portado literal a `apps/catalogo-kp/src/salud/`.
+   - Bug crítico: `import { AppModule }` estático en `main.ts` se resolvía
+     (con el `throw` a nivel de módulo de `AuthModule`) ANTES que
+     `dotenv.config()`, pese a aparecer después en el archivo — un
+     despliegue real dependiendo sólo del `.env` habría entrado en
+     crash-loop infinito. Fix: `require('./app.module')` dentro de
+     `bootstrap()`, no `import` estático arriba.
+   - El bundle no es autocontenido (`knex`/`pg`/`bcryptjs`/`@nestjs/*` externalizados) —
+     resuelto con `NODE_PATH` apuntando al `node_modules` de la Suite, en
+     vez de reconciliar cada dependencia dentro del proyecto viejo.
+2. **Ejecutado:**
+   - `main.js` (build de `nx build catalogo-kp`) copiado a la **raíz** de
+     `megadulces-api-ready` (no a `dist/`) — así `join(__dirname,'public')`
+     sigue resolviendo al `public/` real y de siempre, sin tocar
+     `Actualizar_Verificador.ps1` ni ningún otro script.
+   - `public/tienda/` (build de `apps/tienda`) agregado ahí mismo.
+   - `.env` real: agregadas `DATABASE_URL_KP_CONCENTRADA` y
+     `CATALOGO_KP_JWT_SECRET` (mismo valor que `JWT_SECRET`, para no
+     invalidar sesiones/carritos ya emitidos).
+   - `Vigilar_API.ps1`: única asunción de ruta cambiada (`dist\main.js` →
+     `main.js`, `node dist\main` → `node main.js`) + `NODE_PATH` agregado
+     al lanzar el proceso. El resto del vigilante no se tocó.
+   - `Compilar_seguro.ps1`: banner de aviso agregado (sigue siendo
+     inofensivo correrlo, pero ya no actualiza nada — el código nuevo se
+     compila en la Suite).
+3. **Corte:** detener el proceso viejo → `Start-ScheduledTask` → **0 fallos**
+   en 11 pruebas (los 5 endpoints de siempre + `/api/salud` +
+   `catalogo.html`/`tienda.html`/`verificador-01.html` + `/tienda/`
+   completo) → `pg_stat_activity` confirma la conexión real usando
+   `catalogo_kp_runtime`. **Downtime real: unos segundos.**
 
-No se ejecuta ningún paso de este runbook desde una sesión de Claude Code sin
-que 0Sistemas lo pida explícitamente para ese paso puntual — son cambios a
-infraestructura que sirve pedidos reales.
+**Con esto, este runbook queda 100% completo.** Pendiente, no bloqueante:
+vigilar de cerca las próximas horas (0Sistemas decide cuánto tiempo).
