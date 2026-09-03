@@ -232,6 +232,18 @@ export class CommercialReplenishmentService {
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
   // multiplicarlo por piezas. Ambos reportes (crítica + /salidas) valorizan igual ahora.
+  //
+  // ✅ U.0 (2026-09-03) — "por PIEZA" CONFIRMADO con medición, no con la palabra del comentario.
+  // Contra la escalera del ERP (`analytics.v_supplier_cost_ladder`), `cost_with_tax / u1_cost` se
+  // agrupa en múltiplos de IMPUESTO exactos a 4 decimales sobre 6,626 SKUs / $116.8M de venta 90d:
+  // 1.0000 exento (960) · 1.0800 IVA 8% (1,886 · $69.3M) · 1.1600 IVA 16% (1,507) · 1.2400 IVA+IEPS
+  // (1,987 · $29.8M). La razón contra `box_cost` es 0.058. O sea `cost_with_tax = u1_cost × (1+imp)`:
+  // peldaño BASE, bruto de impuesto. `import-demand-clean.js` decía "por CAJA" y estaba equivocado
+  // (corregido allá). ⚠️ La cantidad que lo multiplica sigue sin declarar su peldaño — eso es lo
+  // que audita `analytics.v_unit_rung_audit`. Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+  //
+  // ⚠️ 110 SKUs ($493k de venta 90d) dan razón mediana 3.47 contra `u1_cost`: ésos SÍ son
+  // sospechosos de peldaño, no de impuesto. Van a la bandeja, no a este COALESCE.
   private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
   // Venta mensual estimada ($) = demanda diaria × 30 × precio de venta (costo × (1+markup)).
   // Usa columnas ya joineadas (ih.avg_daily_units, pr.cost_with_tax, pr.markup_pct) — sin join
