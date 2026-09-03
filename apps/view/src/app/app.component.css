@@ -24,3 +24,23 @@
 .app-update:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
 .app-update i { color: var(--action); }
 .app-update b { font-weight: 700; color: var(--action); }
+
+
+/* SM.23 — "Haz tu arqueo". Comparte la posición flotante con el aviso de versión
+   nueva pero va arriba: pedir efectivo pesa más que ofrecer un refresh. */
+.app-arqueo {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1200;
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .55rem 1rem; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--action); color: #fff;
+  font: inherit; font-size: .82rem; font-weight: 600;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+}
+.app-arqueo.vencido { background: var(--bad-fg); }
+.app-arqueo em { font-style: normal; opacity: .85; font-weight: 500; }
+.app-arqueo:hover { filter: brightness(1.06); }
+.app-arqueo:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .app-arqueo { animation: arqueo-entra .25s ease-out; }
+  @keyframes arqueo-entra { from { opacity: 0; transform: translate(-50%, -8px); } }
+}

@@ -14,7 +14,7 @@ import { environment } from '../../../environments/environment';
  *    verlo", y la UI esconde la columna en vez de pintar un cero mentiroso.
  *    Solo `RECONCILIATION_VER` (supervisor) los recibe.
  */
-export type ArqueoTipo = 'cierre' | 'relevo';
+export type ArqueoTipo = 'cierre' | 'relevo' | 'retiro';
 
 /**
  * Un turno de caja que Kepler abrió a nombre del usuario. Es lo que habilita la

@@ -92,8 +92,8 @@ import { imprimirTicket } from '../ticket-arqueo';
           <div>
             <strong>Sin cortes en esta ventana.</strong>
             <p class="muted">
-              @if (soloPendientes()) { Todos los turnos tienen conteo físico — probá quitando el filtro. }
-              @else { Kepler no registró cortes en el rango. Ampliá a 7 o 30 días. }
+              @if (soloPendientes()) { Todos los turnos tienen conteo físico — prueba quitando el filtro. }
+              @else { Kepler no registró cortes en el rango. Amplía a 7 o 30 días. }
             </p>
           </div>
         </div>
@@ -208,7 +208,7 @@ import { imprimirTicket } from '../ticket-arqueo';
                             Kepler no guarda el detalle por denominación — eso solo sale del arqueo de la cajera.
                           </p>
                         } @else {
-                          <p class="ah-nada muted">Este corte se cerró en Kepler sin conteo físico. Contalo con tu encargada.</p>
+                          <p class="ah-nada muted">Este corte se cerró en Kepler sin conteo físico. Cuéntalo con tu encargada.</p>
                         }
                       }
                       <div class="ah-t-pie">
@@ -474,7 +474,7 @@ export class TiendaArqueoHistorialComponent implements OnInit {
       validado_por: t.validado_por, validado_at: t.validado_at,
     }, { revela: this.revela });
     if (!ok) {
-      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });
+      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permite las ventanas emergentes de este sitio para imprimir.' });
     }
   }
 

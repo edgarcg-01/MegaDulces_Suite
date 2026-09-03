@@ -3,6 +3,22 @@
 <!-- Fuera del router: una excepción puede haber dejado la navegación inservible. -->
 <app-error-outlet />
 
+<!-- SM.23 — "Haz tu arqueo". Barra fija, no toast: en una caja con clientes
+     enfrente, un aviso que se va solo a los 5 segundos no lo ve nadie. Se apaga
+     cuando entra a contar. -->
+@if (arqueoDue.pendiente(); as a) {
+  <button type="button" class="app-arqueo" [class.vencido]="a.vencido" (click)="irAlArqueo()">
+    <i class="pi pi-bell" aria-hidden="true"></i>
+    <span>
+      @if (a.motivo === 'retiro') { <b>Cuenta el retiro</b> } @else { <b>Haz tu arqueo</b> }
+      · Caja {{ a.caja }}@if (a.hora_cierre) { · cerró {{ a.hora_cierre.slice(0,5) }} }
+      <!-- Dos cortes al día es lo normal (mediodía y cierre): si falta más de uno
+           hay que decirlo, o al terminar el primero cree que ya acabó. -->
+      @if (arqueoDue.cuantos() > 1) { <em>· te faltan {{ arqueoDue.cuantos() }}</em> }
+    </span>
+  </button>
+}
+
 <!-- Versión nueva lista y el usuario lleva rato sin cambiar de ruta. Se OFRECE, no se
      impone: recargar bajo las manos de alguien que está capturando es peor que esperar. -->
 @if (updateReady()) {
