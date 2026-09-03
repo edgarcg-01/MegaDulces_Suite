@@ -929,12 +929,14 @@ export class DailyCapturesService {
     userId?: string,
     routeId?: string,
   ) {
-    // Defense in depth (audit #6): RLS scopea por current_tenant_id() pero
-    // si por algún motivo el CLS no se setea (degradación), un user de un
-    // tenant podría ver data de otro. Filter explícito.
-    const tenantId = this.tenantCtx.get()?.tenantId;
-    const query = this.knex('daily_captures').select('*');
-    if (tenantId) query.where('tenant_id', tenantId);
+    // El filtro explícito NO es defense-in-depth acá: este service inyecta
+    // `KNEX_CONNECTION`, que conecta como `postgres` (superuser), y RLS no
+    // aplica a superusers ni a roles con BYPASSRLS. `daily_captures` tiene RLS
+    // forzado, pero por este camino es inerte → el WHERE es la ÚNICA defensa.
+    // Por eso `requireTenantId()` (lanza) y no `get()?.tenantId` (podía venir
+    // vacío y el `if` dejaba la query sin scope).
+    const tenantId = this.tenantCtx.requireTenantId();
+    const query = this.knex('daily_captures').select('*').where('tenant_id', tenantId);
     if (fecha) {
       // hora_inicio convertida a TZ MX para que "hoy" del cliente coincida
       // con el día calendario del backend (visitas vespertinas en MX están
@@ -969,7 +971,7 @@ export class DailyCapturesService {
   ): Promise<{ product_id: string; marks: number }[]> {
     const days = opts.days ?? 30;
     const limit = Math.min(opts.limit ?? 20, 50);
-    const tenantId = this.tenantCtx.get()?.tenantId;
+    const tenantId = this.tenantCtx.requireTenantId();
     // Con `storeId` el atajo deja de ser "lo que YO marco" y pasa a ser "lo que
     // ESTA tienda suele llevar" (todas las capturas de la tienda, sin filtro de
     // usuario) — más útil al capturar: recomienda contra el histórico del PdV.
@@ -983,17 +985,12 @@ export class DailyCapturesService {
            jsonb_array_elements_text(COALESCE(ex->'productosMarcados','[]'::jsonb)) pid
       WHERE dc.created_at >= NOW() - (? || ' days')::interval
         ${byStore ? 'AND dc.store_id = ?' : 'AND dc.user_id = ?'}
-        ${tenantId ? 'AND dc.tenant_id = ?' : ''}
+        AND dc.tenant_id = ?
       GROUP BY pid
       ORDER BY marks DESC
       LIMIT ?
       `,
-      [
-        days,
-        byStore ? (opts.storeId as string) : userId,
-        ...(tenantId ? [tenantId] : []),
-        limit,
-      ],
+      [days, byStore ? (opts.storeId as string) : userId, tenantId, limit],
     );
 
     return rows.rows.map((r: any) => ({
