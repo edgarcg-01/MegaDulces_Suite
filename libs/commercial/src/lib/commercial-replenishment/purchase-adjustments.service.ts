@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES } from '@megadulces/platform-core';
+import { composeFreshness, evalInput } from '../shared/freshness';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -605,6 +606,17 @@ export class PurchaseAdjustmentsService {
         total: Number(count), page, pageSize,
         /** Última corrida del importer que puebla el espejo (frescura del dato). */
         data_as_of: fresh?.m ? new Date(fresh.m).toISOString() : null,
+        /**
+         * [OBS.6.3] El veredicto sobre esa frescura, no sólo la marca de tiempo.
+         *
+         * 26 h de tolerancia porque el importer es nocturno: 24 h sería un empate técnico contra
+         * su propio período y prendería la alarma cada madrugada. **Sin marca cuenta como rezago**,
+         * nunca como ok — que el espejo esté vacío porque el importer jamás corrió es exactamente
+         * la falla que hay que ver (pasó en Fase CXC: `customer_receivables` vivió vacía en prod).
+         */
+        freshness: composeFreshness([
+          evalInput('erp_goods_receipts', 'Espejo de recepciones (importer)', fresh?.m ?? null, 26),
+        ]),
         /** El export corta en `pageSize`; se dice, no se calla (§10 "sin topes silenciosos"). */
         truncated: !!q.all && Number(count) > pageSize,
         totals: {

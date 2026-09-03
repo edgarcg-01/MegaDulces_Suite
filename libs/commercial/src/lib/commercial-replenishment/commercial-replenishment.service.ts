@@ -1439,7 +1439,21 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
-    const valueExpr = 'COALESCE(s.quantity,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    // ADR-052 — la existencia sale de la vista derivada del ODS (`qty_stock_units`), no de la copia
+    // `commercial.stock`. Importa acá porque este panel vive en la MISMA pantalla que el Pedido
+    // (tab "Stock muerto") y el Pedido ya lee la vista: con dos fuentes, la pantalla se contradecía
+    // sola. Contra el POS en vivo la vista acierta 100.0% y la copia 91.0%.
+    //
+    // La vista sirve la existencia en la UNIDAD NATIVA de cada fuente y no la convierte (ver
+    // mig 20260902200000: la demanda de Wincaja viene en esa misma unidad, así que convertir sólo
+    // la existencia rompía el cálculo). Para MOSTRAR cajas está `display_box_factor`.
+    //
+    // ⚠️ DEUDA PREEXISTENTE (ADR-051): el multiplicador es `cost_with_tax`/`cost_base` del
+    // CATÁLOGO, que en buena parte viene por CAJA, no por la unidad de stock — así que el
+    // "inmovilizado" mezcla unidades y está inflado para esos SKUs. El costo correcto por unidad
+    // de stock es `analytics.v_supplier_cost_ladder.box_cost / display_box_factor`. Se DECLARA acá
+    // en vez de dibujarlo: arreglarlo es de la Fase MR, no de este cambio de fuente.
+    const valueExpr = 'COALESCE(s.qty_stock_units,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
     // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
     const lastActivity =
       `GREATEST(
@@ -1451,7 +1465,7 @@ export class CommercialReplenishmentService {
       const base = trx('catalog.products as pr')
         // cross join producto × almacén (mismo tenant); luego filtra a los gestionados
         .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'pr.tenant_id'))
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin('analytics.v_erp_stock_on_hand as s', (j) =>
           j.on('s.tenant_id', 'pr.tenant_id').andOn('s.warehouse_id', 'w.id').andOn('s.product_id', 'pr.id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('pr.tenant_id', tenantId)
@@ -1479,7 +1493,7 @@ export class CommercialReplenishmentService {
           'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
-          trx.raw('COALESCE(s.quantity,0) AS on_hand'),
+          trx.raw('COALESCE(s.qty_stock_units,0) AS on_hand'),
           trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
           trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
           trx.raw(`${lastActivity} AS last_activity`),

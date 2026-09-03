@@ -525,7 +525,7 @@ export class FinanzasCarteraComponent implements OnInit {
    * único renglón es contable ("VENTAS AL 0 %"), no hay producto que desglosar.
    */
   private readonly puedeVerDocs = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMMERCIAL_SALES_DOCS_VER] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMMERCIAL_SALES_DOCS_VER] === true);
 
   docAbrible(p: Partida): boolean {
     return this.puedeVerDocs() && /^UD(08|12)/.test(p.doc_code || '');

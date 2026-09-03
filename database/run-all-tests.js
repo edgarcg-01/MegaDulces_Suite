@@ -33,6 +33,7 @@ const TESTS = [
   { file: 'test-newdb-bin-locations.js', label: 'WMS-REC Pieza 3 bin-level (schema+RLS+bin code único+put-away SUM≤lote+auxiliar+por-ubicar+FEFO físico+deleteBin protegido)', needsApi: false },
   { file: 'test-newdb-inventory-investigation.js', label: 'PREV.1 expediente investigación (schema+RLS+folio INV-DIF+difference/value+CHECK causa/status+1 por item+classify/resolve+timeline SKU)', needsApi: false },
   { file: 'test-newdb-inventory-monitoring.js', label: 'PREV.2 monitoreo intensivo (schema+RLS+1 activo por SKU+conteo expected/físico+ventana desde conteo previo+pérdida acotada+cerrar/reabrir)', needsApi: false },
+  { file: 'test-authz-route-coverage.js', label: 'AUTHZ.5 cobertura de autorización (toda escritura con permiso o motivo escrito + los 8 controllers de Logística + catálogo 164=164 sin invisibles + CASL retirado)', needsApi: false },
   { file: 'test-newdb-inventory-risk.js', label: 'PREV.3 índice de riesgo (schema+RLS+computeScore niveles+agregación expedientes/monitoreo+reincidencia→crítico+CHECK nivel+único por SKU)', needsApi: false },
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
@@ -41,6 +42,8 @@ const TESTS = [
   { file: 'test-newdb-fact-vs-kepler.js', label: 'existencia y ventas del fact vs Kepler (mediana por SKU + prueba de unidad bf/1÷bf)', needsApi: false },
   { file: 'test-newdb-route-ticket-detail.js', label: 'RR2 desglose por ticket de ruta (contrato de 30 cols + security_invoker + v_sales_lines sin regresión + candados: la unidad NO es el flag 0/1, valor_costo es extendido, sin duplicar renglones, cajas sólo en su unidad; skip-graceful sin data)', needsApi: false },
   { file: 'test-newdb-cost-ladder.js', label: 'RA-PRO.46 el costo de caja se LEE de Kepler (Costo Uni Mayor), no se reconstruye con costo×bf', needsApi: false },
+  { file: 'test-newdb-seller-incentive.js', label: 'RR-PROMO.2 incentivo multi-canal por vendedor (v_seller_sales_lines: RD+vecinal+mayoreo con el vendedor resuelto; SIN doble conteo del vecinal histórico VEC-PH-H, medido con ventana dirigida para que el candado no pase en vacío; el push NO se pierde porque en RD la ruta ES el vendedor; umbral en dinero inmune a la unidad; público 0001 nunca cobra)', needsApi: false },
+  { file: 'test-newdb-route-promo-units.js', label: 'RR-PROMO.1 la cantidad del incentivo se normaliza al peldaño REAL del ERP (v_product_unit_ladder = vista sólo sobre kepler_ods; el peldaño sale del PRECIO, no del rótulo; basura de unidad nunca se publica; lo no resuelto se declara, no se suma; granel marcado; skip-graceful sin venta de ruta)', needsApi: false },
   { file: 'test-newdb-db-health-engine.js', label: 'DBH salud del MOTOR + correo + ruido (SQL de pg_stat_activity/user_tables/settings vive; last_notified_at para el recordatorio 24h; único parcial de alerta abierta; sin alertas de tenants ajenos ni fuentes duplicadas)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
   { file: 'test-newdb-purchase-adjustments-findings.js', label: 'RE.10 bridge facturas duplicadas → finance.findings (duplicateGroups SQL + shape hallazgo + UPSERT idempotente por dedup_key + rule L2 + findings_total; skip-graceful sin feed)', needsApi: false },
@@ -148,6 +151,9 @@ const TESTS = [
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
+  // OBS — la ingesta no se cae en silencio (ADR-053). Candados sobre los cuatro "verdes falsos"
+  // que dejaron el ODS congelado 6 días sin que nadie lo supiera.
+  { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

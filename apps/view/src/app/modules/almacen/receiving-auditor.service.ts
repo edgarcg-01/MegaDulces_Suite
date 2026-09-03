@@ -81,6 +81,14 @@ export interface ReceivingPolicy {
   updated_at?: string;
 }
 
+/** Lo mínimo para fechar algo: identidad del producto con su UUID. */
+export interface ProductoFechable {
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  barcode: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReceivingAuditorService {
   private readonly http = inject(HttpClient);
@@ -88,6 +96,19 @@ export class ReceivingAuditorService {
 
   ocr(photoDataUri: string): Observable<ExpiryOcrResult> {
     return this.http.post<ExpiryOcrResult>(`${this.base}/lot-capture`, { photo_data_uri: photoDataUri });
+  }
+
+  /**
+   * Código escaneado → producto **fechable** (con `product_id` real).
+   *
+   * No se reusa el `resolve` de Conteo: aquél devuelve `product_id: null` cuando
+   * el producto viene del catálogo de almacén, y `evaluate()` exige un UUID — el
+   * escaneo se vería bien y el guardado fallaría después.
+   */
+  resolveForDating(code: string): Observable<ProductoFechable> {
+    return this.http.get<ProductoFechable>(`${this.base}/resolve`, {
+      params: new HttpParams().set('code', code),
+    });
   }
 
   evaluate(payload: EvaluatePayload): Observable<ReceivingCapture> {

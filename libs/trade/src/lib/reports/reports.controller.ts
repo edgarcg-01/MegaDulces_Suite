@@ -297,7 +297,10 @@ export class ReportsController {
     return this.reportsService.getEta(+fromLat, +fromLng, +toLat, +toLng);
   }
 
+  // `[AUTHZ.5]` — Era sólo-auth y pega contra Mapbox (se paga por llamada). El único consumidor es
+  // el detalle de embarque de Logística, cuyos usuarios ya entran con `LOGISTICS_SHIPMENTS_VER`.
   @Post('optimize-stops')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
   @ApiOperation({ summary: 'Orden óptimo de visita (Mapbox Optimization, ≤12 paradas)' })
   optimizeStops(@Body() body: { stops: { lat: number; lng: number }[] }) {
     return this.reportsService.optimizeRoute(body?.stops || []);

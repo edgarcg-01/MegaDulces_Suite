@@ -31,7 +31,10 @@ export const LIBRO_COMPRAS_STYLES = `
 .lc-mes:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
 .lc-mes.sel { border-color: var(--action); background: rgba(var(--ink-rgb), .05); }
 .lc-mes-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-.lc-mes-nombre { font-weight: var(--fw-medium); font-size: var(--fs-sm); text-transform: capitalize; }
+/* Sólo la inicial. 'capitalize' ponía mayúscula en CADA palabra y salía "Septiembre De
+   2026": el mes viene de Intl como "septiembre de 2026" y el "de" es preposición. */
+.lc-mes-nombre { font-weight: var(--fw-medium); font-size: var(--fs-sm); }
+.lc-mes-nombre::first-letter { text-transform: uppercase; }
 .lc-mes-cifras { display: flex; justify-content: space-between; gap: .5rem; font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .lc-mes-alerta { font-size: var(--fs-micro); color: var(--bad-fg); }
 .lc-mes-skel { height: 4.1rem; border-radius: var(--radius-md); background: var(--skeleton-bg, rgba(var(--ink-rgb), .06)); }
@@ -100,10 +103,20 @@ export const LIBRO_COMPRAS_STYLES = `
  * duplicar el archivo: es la misma pantalla con otro alcance, no otro diseño.
  */
 export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
-/* En el tablero del sub-módulo el número que manda es lo que FALTA, no el total del mes. */
+/* En el tablero del sub-módulo el número que manda es lo que ENTRA AL TXT, no el total sin
+   asociar del mes: es el mismo número que el encabezado del detalle, para que no se lean
+   dos cifras distintas del mismo mes. */
 .na-falta { font-weight: var(--fw-semibold); color: var(--text-color); }
 .na-falta.cero { color: var(--ok-fg); font-weight: var(--fw-medium); }
 .na-mes-sinlibro { font-size: var(--fs-micro); color: var(--bad-fg); }
+/* Lo que NO entra, en voz baja: es contexto, no la acción del mes. */
+.na-mes-nota { font-size: var(--fs-micro); color: var(--text-muted); }
+
+/* Renglón de contexto bajo la tira: lo que queda fuera del TXT y por qué. Deliberadamente
+   en texto y no en mosaicos — "ya posteadas" puede ser 14× el total accionable y como KPI
+   se robaba la lectura de la pantalla. */
+.na-contexto { margin: -.35rem 0 0; font-size: var(--fs-sm); display: flex; flex-wrap: wrap; gap: .25rem; align-items: baseline; }
+.na-contexto .warn { color: var(--warn-fg); }
 
 /* Las que ya están posteadas: visibles pero apagadas, con la razón a la vista. Se muestran
    a propósito — esconderlas haría creer que el mes tiene menos pendientes de los que tiene. */

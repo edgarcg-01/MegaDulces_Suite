@@ -208,7 +208,7 @@ export class ProjectsComponent implements OnInit {
     // Admin/superadmin (manage:all) ven TODOS los proyectos. Sin esto, cada
     // proyecto/permiso nuevo quedaba oculto hasta backfillear su clave en el JSONB
     // del rol + re-login (trap recurrente); god-mode debe ver todo directo.
-    const isPlatformAdmin = this.perms.can('manage', 'all');
+    const isPlatformAdmin = this.perms.isAdmin();
     return this.allProjects.filter((p) => {
       if (p.roleOnly && (!role || !p.roleOnly.includes(role))) return false;
       if (p.hideForRoles && role && p.hideForRoles.includes(role)) return false;

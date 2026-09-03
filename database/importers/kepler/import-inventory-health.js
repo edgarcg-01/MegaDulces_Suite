@@ -69,6 +69,18 @@ const SELECT_HEALTH = `
            (units_90d / 90.0) AS mu,
            sqrt(GREATEST(0, sumsq_90d / 90.0 - power(units_90d / 90.0, 2))) AS sigma
       FROM vel
+  ), stk AS (
+    -- ADR-052 — la existencia se DERIVA del ODS, ya no se lee la copia commercial.stock.
+    -- Medido contra el POS en vivo: la vista acierta 100.0% y la copia 91.0%.
+    -- ⚠️ La vista NO convierte unidades a proposito: Wincaja guarda la existencia en su unidad de
+    -- venta y su DEMANDA (la que se cruza acá para dias de cobertura y buckets) viene en esa MISMA
+    -- unidad — verificado 1:1 contra wincaja.v_sales_daily. Auto-consistente por almacen.
+    -- Convertir solo la existencia inflaba la cobertura de los multipack a 534-900 dias y los
+    -- mandaba todos a 'sobrestock'. Mismo shape y misma unidad que traia commercial.stock.
+    SELECT product_id, warehouse_id, sum(qty_stock_units) AS quantity
+      FROM analytics.v_erp_stock_on_hand
+     WHERE tenant_id = $1
+     GROUP BY 1, 2
   )
   SELECT s.product_id, s.warehouse_id,
          s.quantity AS on_hand,
@@ -91,11 +103,10 @@ const SELECT_HEALTH = `
            WHEN s.quantity / (v.units_90d / 90.0) <= 60 THEN 'sano'
            ELSE 'sobrestock'
          END AS status
-    FROM commercial.stock s
+    FROM stk s
     JOIN catalog.products p ON p.id = s.product_id AND p.tenant_id = $1
     JOIN commercial.warehouses w ON w.id = s.warehouse_id AND w.tenant_id = $1 AND w.deleted_at IS NULL
-    LEFT JOIN stat v ON v.product_id = s.product_id AND v.warehouse_id = s.warehouse_id
-   WHERE s.tenant_id = $1`;
+    LEFT JOIN stat v ON v.product_id = s.product_id AND v.warehouse_id = s.warehouse_id`;
 
 (async () => {
   const db = new Client({ connectionString: DST });
@@ -130,7 +141,7 @@ const SELECT_HEALTH = `
       `DELETE FROM analytics.inventory_health h
         WHERE tenant_id=$1 AND (
           NOT EXISTS (
-            SELECT 1 FROM commercial.stock s
+            SELECT 1 FROM analytics.v_erp_stock_on_hand s
              WHERE s.tenant_id=$1 AND s.product_id=h.product_id AND s.warehouse_id=h.warehouse_id)
           OR EXISTS (
             SELECT 1 FROM commercial.warehouses w

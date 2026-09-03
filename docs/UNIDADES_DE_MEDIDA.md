@@ -216,6 +216,58 @@ le entrega al cliente** — y `analytics.v_sales_demand_truth`) heredan la corre
 
 ---
 
+## 8bis. El rótulo esconde la mezcla *dentro de sí mismo* (RR-PROMO.1, 2026-09-02)
+
+Medido sobre la venta de ruta (ago-2026) al normalizar el incentivo de `/comercial/ventas-por-ruta`.
+Agrupar por rótulo **subestima** el problema: de los 709 SKUs que aparecen con más de una
+etiqueta, 688 ($2.96M, 94.9%) tienen el mismo precio unitario entre etiquetas — o sea la
+cantidad ya era homogénea y sólo el rótulo mentía. Parecía un problema chico.
+
+No lo es, porque **un mismo rótulo trae los dos peldaños**:
+
+| SKU | rótulo | líneas | precio | qué es |
+|---|---|---|---|---|
+| 70031 | `PZA` | 361 | $6.12 | pieza |
+| 70031 | `PZA` | **45** | **$90.96** | **paquete de 16** |
+| 70031 | `PAQ` | 4 | $101.11 | paquete de 16 |
+
+Efecto real sobre la cantidad, con el peldaño resuelto por precio:
+
+| | |
+|---|---|
+| Suma cruda de `qty` | 223,394 |
+| Cantidad real (peldaño resuelto) | **243,626** |
+| Subconteo | **9.1%** |
+| SKUs con error > 5% | **140 · $1,110,809 · 19.0% de la venta de ruta** |
+| Peores | `97245` 42% · `97244` 43% · `88045` **84%** |
+
+**El resolvedor: `analytics.v_product_unit_ladder`** (mig `20260902180000`) — vista
+`derive-no-copy` **sólo sobre `kepler_ods.kdii`**, una fila por SKU con los rótulos
+(`c11`/`c80`/`c83`), los factores en unidades **base** (`c81`/`c84`) y los precios de cada
+peldaño (`c90`/`c91`/`c92`), más `unit_base` (basura anulada), `unit_base_raw` e `is_weight`.
+
+**Cómo se usa:** el peldaño de una línea se identifica por su **precio realmente cobrado**,
+eligiendo el más cercano en log-espacio y **sólo dentro de la banda 0.5×–2×** (la misma de §6).
+Funciona porque los peldaños distan ≥ el factor (≥2×), mucho más que cualquier descuento.
+Fuera de banda **no se adivina**: la línea se declara sin resolver y no se suma (medido:
+0.17% de las líneas / 0.11% del importe). Cobertura de la escalera de precio: **100.0%** de la
+venta de ruta.
+
+⚠️ **`c84` cuenta unidades BASE, no piezas.** Para `97192` la base es `PAQ`, así que `c84 = 24`
+son *paquetes* por caja (idéntico en las 7 sucursales). Cualquier cifra normalizada tiene que
+viajar con su rótulo; llamarle "piezas" es el error que esta vista existe para evitar.
+
+**Por qué NO se reusó `v_product_box_factor` acá:** resuelve el factor de **caja**, no el
+peldaño de una línea de venta, y de sus cuatro fuentes de precedencia sólo `c84` sale del ODS
+— `analytics.product_box_factor` es tabla (`relkind='r'`) alimentada por `import-box-factor.js`,
+más `catalog.products.factor_sale` y la etiquetera. Incumple la regla principal del proyecto
+(cero importers · del ODS · una tabla principal · documentada y verificada). Los dos conviven
+por ahora; unificarlos es trabajo aparte y arrastra dos vistas dependientes.
+
+Candados: `database/tests/test-newdb-route-promo-units.js` (en la regresión).
+
+---
+
 ## 9. Lo que NO se investigó
 
 - **Wincaja contra Kepler**: la existencia se guarda en unidades distintas (Kepler piezas, Wincaja unidad de venta). Hay 185 SKUs en `wincaja_product_box_factor`; el efecto sobre el inventario valuado está estimado en $16.3M (28%) pero no verificado SKU por SKU.

@@ -10,7 +10,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { LabelComponent, LabelModel, LabelSections, HeroKey } from '../components/label.component';
-import { EtiquetasService, SearchHit } from '../etiquetas.service';
+import { EtiquetasService, Freshness, SearchHit } from '../etiquetas.service';
 
 interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; }
 interface SheetLabel { model: LabelModel; hero: HeroKey; }
@@ -58,6 +58,16 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-msg.is-warn{ border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .etqp-msg.is-error{ border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .etqp-msg > span{ flex:1; }
+
+    /* OBS.6.2 — rezago del precio. Usa los tokens 'warn' igual que el resto de la pantalla: es un
+       "cuidado con este dato", no un error. Sin botón de cerrar a propósito — no es un mensaje de
+       una accion, es una condicion del dato que sigue siendo verdad hasta que el feed se ponga al dia. */
+    .etqp-stale{ display:flex; align-items:flex-start; gap:.6rem; padding:.6rem .75rem;
+      border-radius: var(--r-sm); font-size: var(--fs-sm,.85rem);
+      border:1px solid var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .etqp-stale > div{ display:flex; flex-direction:column; gap:.15rem; }
+    .etqp-stale strong{ font-weight:600; }
+    .etqp-stale span{ opacity:.85; font-size: var(--fs-xs,.72rem); }
 
     /* ── Escaneo rápido (pistola): auto-agrega al Enter ──────
        §14 Mostrador/POS: campo de captura keyboard-first, sin borde propio (el borde/foco
@@ -190,6 +200,25 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
         </div>
       }
 
+      <!--
+        [OBS.6.2] El precio declara su edad. Va ARRIBA del escáner y no se puede cerrar: es una
+        condición del dato, no un mensaje de una acción. El 27-ago esta pantalla imprimió seis días
+        de precios viejos — uno 54% bajo costo — sin nada que mirar. No bloquea: informa.
+      -->
+      @if (freshness()?.stale) {
+        <div class="etqp-stale" role="status">
+          <i class="pi pi-clock"></i>
+          <div>
+            <strong>El precio puede estar viejo — {{ freshness()?.age_human }} de rezago.</strong>
+            <span>
+              @for (i of staleInputs(); track i.key) {
+                {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+              }
+            </span>
+          </div>
+        </div>
+      }
+
       <div class="etqp-scanbar">
         <i class="pi pi-qrcode"></i>
         <input #scanInput type="text" inputmode="numeric" autocomplete="off" autofocus
@@ -316,6 +345,15 @@ export class TiendaEtiquetasComponent {
   bulk = signal('');
   queue = signal<QueueItem[]>([]);
   notFound = signal<string[]>([]);
+  /**
+   * [OBS.6.2] Edad del precio que se está por imprimir. `null` = todavía no se resolvió nada.
+   *
+   * Se declara, no se bloquea (decisión de Edgar): el operador decide si imprime. Lo que no puede
+   * volver a pasar es lo del 27-ago — seis días imprimiendo precios viejos sin una sola señal.
+   */
+  freshness = signal<Freshness | null>(null);
+  /** Sólo los eslabones rezagados: es lo que el aviso tiene que nombrar para ser accionable. */
+  readonly staleInputs = computed(() => (this.freshness()?.inputs || []).filter((i) => i.stale));
   loading = signal(false);
   msg = signal<Msg | null>(null);
   printLabels = signal<SheetLabel[]>([]);
@@ -417,6 +455,7 @@ export class TiendaEtiquetasComponent {
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }
     this.svc.resolve([code]).subscribe({
       next: (r) => {
+        this.freshness.set(r.freshness ?? null);
         const { added, skipped } = this.pushLabels(r.labels);
         if (!added) {
           this.msg.set({
@@ -442,6 +481,7 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     this.svc.resolve([code]).subscribe({
       next: (r) => {
+        this.freshness.set(r.freshness ?? null);
         const { added, skipped } = this.pushLabels(r.labels);
         if (added) {
           this.msg.set({ text: `Agregado: ${r.labels.find((l) => this.usable(l))?.name ?? code}`, kind: 'ok' });
@@ -467,6 +507,7 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     this.svc.resolve(codes).subscribe({
       next: (r) => {
+        this.freshness.set(r.freshness ?? null);
         const { added, skipped } = this.pushLabels(r.labels);
         this.notFound.set(r.not_found || []);
         const nf = r.not_found?.length || 0;

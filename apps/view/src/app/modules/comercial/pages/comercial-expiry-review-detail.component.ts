@@ -347,7 +347,7 @@ export class ComercialExpiryReviewDetailComponent {
   submitting = signal(false);
 
   private readonly canCapture =
-    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
+    this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
 
   editable = computed(() => this.canCapture && this.review()?.status === 'draft');
   canAddLine = () => (!!this.productId() || !!this.codeRaw.trim()) && this.qty != null && this.qty >= 0;

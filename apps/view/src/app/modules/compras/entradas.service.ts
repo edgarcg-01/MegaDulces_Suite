@@ -42,6 +42,13 @@ export interface EntradaRow {
   prov_rfc_match: boolean | null;
   /** ¿El paquete trae NUESTRA hoja interna? Informa, no decide el cuadre. */
   paquete_ok: boolean | null;
+  /**
+   * `[RE.26]` El folio impreso en NUESTRA hoja interna, crudo (`XA2001-0000353`), y si es el de
+   * esta entrada. Detecta la evidencia pegada a la orden equivocada. `null` = no se pudo
+   * comparar (no vino la hoja, o el OCR no le leyó folio) — que no es `false`.
+   */
+  folio_interno: string | null;
+  folio_interno_ok: boolean | null;
   /** fecha capturada adelante de hoy: el renglón se ordena como si fuera de hoy y se marca */
   fecha_futura: boolean;
   /**

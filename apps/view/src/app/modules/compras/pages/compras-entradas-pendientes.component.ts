@@ -1007,7 +1007,7 @@ export class ComprasEntradasPendientesComponent {
   motivoDescarteLabel = motivoDescarteLabel;
 
   readonly canManage = computed(() =>
-    this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
 
   // ── alcance: decide si hay selector, chip fijo, o bloqueo explicado ──
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);

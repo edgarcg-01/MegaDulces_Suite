@@ -314,6 +314,34 @@ export class CommercialProfitabilityService {
   }
 
   /**
+   * [OBS.6.3] ¿El fact alcanzó al calendario?
+   *
+   * ⚠️ Acá `data_as_of` NO es un timestamp de feed sino una **fecha de negocio**: el último día con
+   * venta en `analytics.sales_daily`. El rezago significa algo distinto que en la etiquetera —
+   * no "el precio está viejo" sino **"a esta cascada le faltan días de venta"**, que sesga el
+   * margen hacia abajo sin que nadie lo note.
+   *
+   * Tolerancia de 2 días naturales, no 1: el fact se arma con la venta ya cerrada, así que a
+   * primera hora de la mañana el último día completo es legítimamente anteayer. Apretar a 1 día
+   * haría parpadear la pantalla todas las mañanas, y una advertencia que se prende sola todos los
+   * días se vuelve parte del decorado — que es como se llegó a 488 alertas con cero reconocidas.
+   */
+  private factLag(asOf: string | null): { stale: boolean; age_human: string | null; lag_days: number | null } {
+    if (!asOf) {
+      // Fact vacío. No es "fresco": es que no hay con qué responder. Regla 1 de shared/freshness.
+      return { stale: true, age_human: null, lag_days: null };
+    }
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const d = new Date(`${asOf}T00:00:00`);
+    const dias = Math.max(0, Math.round((hoy.getTime() - d.getTime()) / 86_400_000));
+    return {
+      stale: dias > 2,
+      age_human: dias === 0 ? 'hoy' : dias === 1 ? 'ayer' : `${dias} días`,
+      lag_days: dias,
+    };
+  }
+
+  /**
    * Compras del periodo. Es la BASE de los descuentos de proveedor: un descuento
    * se gana sobre lo que se COMPRA, no sobre lo que se vende. Sin esto, sumar el
    * monto del descuento como puntos sobre la venta da un margen imposible
@@ -661,6 +689,11 @@ export class CommercialProfitabilityService {
         skus: Number(tot.skus) || 0,
         /** Hasta qué día llega el fact. Compras/pagos/promos usan CURRENT_DATE. */
         data_as_of: asOf,
+        /**
+         * [OBS.6.3] El rezago del fact, declarado. `stale: true` = a la cascada le faltan días de
+         * venta y el margen que muestra está sesgado — no es una advertencia cosmética.
+         */
+        freshness: this.factLag(asOf),
         inventory_value: inventoryValue,
         inventory_days: dailyCost > 0 ? inventoryValue / dailyCost : null,
         /** Desglose que hace cuadrar el KPI con la suma de la tabla. */

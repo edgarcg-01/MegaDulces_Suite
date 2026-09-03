@@ -103,6 +103,57 @@ const APP_SOURCES: SourceCfg[] = [
             FROM agg`,
     warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
   },
+  // [OBS.3.2] CATÁLOGO por sucursal — el hueco por el que pasaron los 6 días de 2026-08-27.
+  //
+  // El sensor de arriba mira `kdm1` = **venta**. Un catálogo congelado no mueve la venta, así que
+  // seis días sin precios nuevos no dispararon un solo sensor por rama. Y el agregado
+  // `kepler_ods._sync_status` tampoco servía: esa marca sólo se escribe cuando LLEGA un lote, y el
+  // carril hash no empuja nada si no hay cambios — vieja puede ser "el carril murió" o "esa rama
+  // no cambió de precio en tres días". Ambiguo no sirve para alarmar.
+  //
+  // `analytics.ods_branch_checks` la escribe el shipper al cerrar la pasada de CADA rama, haya o no
+  // filas que mandar. Por eso acá "viejo" tiene un solo significado: **nadie miró esa rama**.
+  //
+  // `tables_checked` caza la deriva de configuración: si alguien deja el contenedor con
+  // `--branch=03` o recorta `KP_ODS_TABLES`, el latido agregado seguiría verde (diría "1/1 ramas")
+  // y esto no.
+  {
+    key: 'ods_branch_check_stale', label: 'ODS — sucursal sin revisar (catálogo)', table: 'analytics.ods_branch_checks', tsCandidates: [],
+    sql: `WITH hot AS (
+            SELECT sucursal, last_check_at, tables_checked, last_error
+              FROM analytics.ods_branch_checks WHERE lane = 'ods_live_hot'
+          ),
+          agg AS (
+            SELECT count(*)::int                                       AS ramas,
+                   count(*) FILTER (WHERE last_check_at IS NULL)::int  AS nunca,
+                   min(last_check_at)                                  AS mas_vieja,
+                   (array_agg(sucursal ORDER BY last_check_at ASC NULLS FIRST))[1] AS suc_vieja,
+                   min(tables_checked)                                 AS min_tablas,
+                   max(tables_checked)                                 AS max_tablas
+              FROM hot
+          )
+          SELECT CASE
+                   -- Sin ninguna fila el sensor NO puede afirmar salud. NULL → crítico, con la
+                   -- nota diciendo qué falta. Un "ok" acá sería el verde falso de siempre.
+                   WHEN agg.ramas = 0 THEN NULL
+                   -- Una rama que nunca se pudo revisar es lo peor que hay: se fuerza crítico.
+                   WHEN agg.nunca > 0 THEN now() - interval '100 days'
+                   ELSE agg.mas_vieja
+                 END AS last_update,
+                 CASE WHEN agg.ramas = 0
+                      THEN 'sin marcas por sucursal — requiere el shipper de OBS.3.2 desplegado'
+                      ELSE 'ramas ' || agg.ramas ||
+                           CASE WHEN agg.nunca > 0 THEN ' · ' || agg.nunca || ' NUNCA revisada(s)' ELSE '' END ||
+                           ' · más atrasada ' || coalesce(agg.suc_vieja, '—') ||
+                           ' · tablas ' || coalesce(agg.min_tablas, 0) || '-' || coalesce(agg.max_tablas, 0) ||
+                           CASE WHEN agg.max_tablas > agg.min_tablas
+                                THEN ' ⚠ desparejo (¿config recortada?)' ELSE '' END
+                 END AS note_extra
+            FROM agg`,
+    // El carril hot pasa cada 15 s. 1 h de holgura tolera un reinicio del contenedor sin ruido;
+    // 3 h ya es un carril que dejó de mirar esa sucursal.
+    warnH: 1, critH: 3, cadence: 'continuo (@15s por rama)',
+  },
   // ── AUDITORÍA FRESCURA 2026-08-20 (lección sucursal 00): dead-man's switches POR-ENTIDAD que el
   //    max() GLOBAL no ve. Cada uno alarma si UNA fuente se congela mientras el resto avanza. ──
   // (P0-1) Stock CEDIS '00': el sensor 'stock' usa max(updated_at) GLOBAL → 01-06 enmascaran un freeze

@@ -55,6 +55,11 @@ export interface ProfitabilityOverview {
   target: number;
   /** Hasta qué día llega el fact de venta. */
   data_as_of: string | null;
+  /**
+   * [OBS.6.3] Veredicto sobre esa fecha. `stale` = a la cascada le faltan días de venta, así que
+   * el margen está sesgado hacia abajo. Tolerancia 2 días: el fact se arma con venta ya cerrada.
+   */
+  freshness?: { stale: boolean; age_human: string | null; lag_days: number | null };
   /** La venta que trae costo: el denominador del margen. */
   revenue: number;
   cost: number;

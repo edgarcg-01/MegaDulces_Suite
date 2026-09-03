@@ -93,44 +93,51 @@ export class AnalyticsRefreshService {
       this.logger.debug('Skip refreshWincajaDaily: KNEX_NEW_DB_ADMIN no disponible');
       return;
     }
-    const mv = 'analytics.mv_wincaja_sales_daily';
-    const start = Date.now();
-    let ok = false;
-    let errMsg: string | null = null;
-    try {
-      const found = (
-        await admin.raw(`SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`, [mv])
-      ).rows;
-      if (!found.length || found[0].relkind !== 'm') {
-        this.logger.debug(
-          `Skip ${mv}: no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'}).`,
+    // Ambos rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga
+    // Access→PG ~05:00) y kepler (mv_kepler_sales_daily desde kepler_ods, live CDC). Nightly basta:
+    // el sell-out no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
+    for (const [mv, jobKey, label] of [
+      ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)'],
+      ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)'],
+    ] as const) {
+      const start = Date.now();
+      let ok = false;
+      let errMsg: string | null = null;
+      try {
+        const found = (
+          await admin.raw(`SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`, [mv])
+        ).rows;
+        if (!found.length || found[0].relkind !== 'm') {
+          this.logger.debug(
+            `Skip ${mv}: no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'}).`,
+          );
+          continue;
+        }
+        const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
+        await admin.raw(`REFRESH MATERIALIZED VIEW ${concurrently}${mv}`);
+        await admin.raw(`ANALYZE ${mv}`);
+        ok = true;
+        this.logger.log(
+          `Refreshed ${mv} (${Date.now() - start}ms, source=cron-nightly${concurrently ? '' : ', initial populate'})`,
         );
-        return;
+      } catch (e: any) {
+        errMsg = e.message || String(e);
+        this.logger.error(`Refresh ${mv} (nightly) failed: ${errMsg}`);
       }
-      const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
-      await admin.raw(`REFRESH MATERIALIZED VIEW ${concurrently}${mv}`);
-      await admin.raw(`ANALYZE ${mv}`);
-      ok = true;
-      this.logger.log(
-        `Refreshed ${mv} (${Date.now() - start}ms, source=cron-nightly${concurrently ? '' : ', initial populate'})`,
-      );
-    } catch (e: any) {
-      errMsg = e.message || String(e);
-      this.logger.error(`Refresh ${mv} (nightly) failed: ${errMsg}`);
+      // Heartbeat → Salud BD (grupo Crons), job propio para no pisar el del cron de 15 min.
+      try {
+        const MEGA = '00000000-0000-0000-0000-00000000d01c';
+        await admin('analytics.cron_runs')
+          .insert({
+            tenant_id: MEGA, job_key: jobKey, label,
+            last_start: admin.fn.now(), last_finish: admin.fn.now(),
+            status: ok ? 'ok' : 'error', rows_affected: ok ? 1 : 0,
+            error: errMsg ? errMsg.slice(0, 500) : null, host: 'api', updated_at: admin.fn.now(),
+          })
+          .onConflict(['tenant_id', 'job_key'])
+          .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+      } catch { /* heartbeat no debe romper el refresh */ }
     }
-    // Heartbeat → Salud BD (grupo Crons), job propio para no pisar el del cron de 15 min.
-    try {
-      const MEGA = '00000000-0000-0000-0000-00000000d01c';
-      await admin('analytics.cron_runs')
-        .insert({
-          tenant_id: MEGA, job_key: 'analytics_refresh_wincaja', label: 'Refresh MV wincaja (nightly)',
-          last_start: admin.fn.now(), last_finish: admin.fn.now(),
-          status: ok ? 'ok' : 'error', rows_affected: ok ? 1 : 0,
-          error: errMsg ? errMsg.slice(0, 500) : null, host: 'api', updated_at: admin.fn.now(),
-        })
-        .onConflict(['tenant_id', 'job_key'])
-        .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
-    } catch { /* heartbeat no debe romper el refresh */ }
   }
 
   /**
@@ -152,7 +159,9 @@ export class AnalyticsRefreshService {
     // "Refresh" lo pueble on-demand — p.ej. la 1ª vez tras aplicar la migración (nace WITH NO DATA) sin
     // esperar al cron nocturno de 06:20. El loop ya maneja WITH NO DATA (REFRESH inicial no-CONCURRENTLY).
     const list = source === 'manual'
-      ? [...MVS, { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean }]
+      ? [...MVS,
+         { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean }]
       : MVS;
     try {
       for (const entry of list) {

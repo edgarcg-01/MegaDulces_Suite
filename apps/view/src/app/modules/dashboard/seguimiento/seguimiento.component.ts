@@ -46,6 +46,7 @@ import { FiltersStateService } from '../../../modules/dashboard/reports/graphics
 import { GlobalFiltersComponent } from '../../../modules/dashboard/reports/graphics/global-filters.component';
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { VendorReviewComponent } from './vendor-review/vendor-review.component';
+import { Permission } from '../../../core/constants/permissions';
 
 interface WsMetricsEvent {
   type?: string;
@@ -408,9 +409,9 @@ export class SeguimientoComponent implements OnInit {
   protected readonly chartPlugins: unknown[] = [this.scoreLabelsPlugin, this.sparklinePlugin];
 
   // Computed \u2014 permisos
-  canEditMetas = this.perms.can$('manage', 'kpi_goals');
+  canEditMetas = this.perms.hasAny$(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
   // Coherente con el backend: requiere REPORTES_GESTIONAR ('delete' on 'reports_manage').
-  canDeleteVisit = this.perms.can$('delete', 'reports_manage');
+  canDeleteVisit = this.perms.has$(Permission.REPORTES_GESTIONAR);
 
   // Alt modes (adherence/volume/efficiency) tienen 2 datasets por usuario
   // que se stackean dentro del slot. Con 56px/user se ven comprimidos —

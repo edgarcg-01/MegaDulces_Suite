@@ -112,8 +112,9 @@ const MD_WAREHOUSE_CODES = ['MD-10', 'MD-30', 'MD-40', 'MD-42', 'MD-44', 'MD-50'
 // `ex_cedis` es columna especial → MD-CEDIS.
 const WAREHOUSE_COLUMN_MAP = {
   // MD-10 (PH / Sucursal Hidalgo) lo gobierna el sync EN VIVO desde md_01
-  // (import-ph-stock-live.js) porque los vendedores se surten de ahí y
-  // necesitan disponibilidad real. NO lo pisamos con el snapshot central stale.
+  // (`import-branch-stock-live.js`; el viejo `import-ph-stock-live.js` se retiró en ADR-052)
+  // porque los vendedores se surten de ahí y necesitan disponibilidad real. NO lo pisamos con
+  // el snapshot central stale.
   // alm10_existencia_g: 'MD-10',
   alm30_existencias_g: 'MD-30', // typo de la fuente: "existencias" no "existencia"
   alm50_existencia_g: 'MD-50',

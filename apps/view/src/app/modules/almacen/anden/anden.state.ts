@@ -97,6 +97,17 @@ export class AndenState {
     return partes.join(' · ');
   });
 
+  /**
+   * De dónde viene la mercancía: **proveedor externo o traspaso interno**.
+   *
+   * En el andén no es un dato de adorno: si falta media tarima, a un proveedor
+   * se le reclama y le pega en su scorecard; a un traspaso se le reclama a la
+   * sucursal que embarcó y el faltante es de la casa. El backend lo deriva del
+   * código del "proveedor" de Kepler (`TI###` = traspaso, `TI000` = CEDIS) —
+   * acá no se vuelve a calcular, para que haya una sola definición.
+   */
+  readonly origen = computed(() => (this.vale() as any)?.origin ?? null);
+
   readonly estado = computed(() => (!this.abierto() ? 'sin identificar' : this.acceso() ? 'con_acceso' : 'abierto'));
 
   /** Contadas ya en Llegada. */

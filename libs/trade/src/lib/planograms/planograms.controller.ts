@@ -16,7 +16,7 @@ import { PlanogramsService } from './planograms.service';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { RequireAuthGuard } from '@megadulces/platform-core';
-import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import {
@@ -69,7 +69,18 @@ export class PlanogramsController {
     return this.planogramsService.getVersion();
   }
 
+  /**
+   * `[AUTHZ.5]` — Era sólo-auth. Es un lookup de lectura que consumen las pantallas de captura
+   * (`vendor-capture` y `captures`), así que el gate son los permisos de VISITA — no
+   * `PLANOGRAMAS_GESTIONAR`, que sólo tienen `jefe_marketing` y `superadmin` y habría dejado sin
+   * capturar a los 31 de ruta.
+   */
   @Post('match-skus')
+  @RequireAnyPermission(
+    Permission.VISITAS_REGISTRAR,
+    Permission.VISITAS_VER,
+    Permission.PLANOGRAMAS_GESTIONAR,
+  )
   @ApiOperation({
     summary: 'Dado SKUs (del set activo ERP), devuelve [{sku, product_id}] de los que están en el planograma de trade.',
   })
